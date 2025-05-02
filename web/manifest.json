@@ -1,6 +1,6 @@
 {
-    "name": "pak_connect",
-    "short_name": "pak_connect",
+    "name": "pak_connect_new",
+    "short_name": "pak_connect_new",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

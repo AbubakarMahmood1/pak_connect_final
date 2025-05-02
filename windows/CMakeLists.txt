@@ -1,10 +1,10 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(pak_connect LANGUAGES CXX)
+project(pak_connect_new LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "pak_connect")
+set(BINARY_NAME "pak_connect_new")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -106,7 +106,3 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
-
-target_compile_definitions(${BINARY_NAME} PRIVATE WINVER=0x0A00)
-target_compile_definitions(${BINARY_NAME} PRIVATE _WIN32_WINNT=0x0A00)
-target_link_libraries(${BINARY_NAME} PRIVATE windowsapp)

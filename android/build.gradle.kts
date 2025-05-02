@@ -1,14 +1,3 @@
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.7.1")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.20")
-    }
-}
-
 allprojects {
     repositories {
         google()
@@ -29,10 +18,4 @@ subprojects {
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
-}
-
-subprojects {
-    tasks.withType<JavaCompile>().configureEach {
-        options.compilerArgs = options.compilerArgs.filterNot { it.contains("-Werror") }
-    }
 }

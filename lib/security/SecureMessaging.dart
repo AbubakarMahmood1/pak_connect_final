@@ -3,7 +3,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:pointycastle/export.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import 'KeyStorage.dart';
 
@@ -111,19 +110,7 @@ class SecureMessaging {
     }
   }
 
-  // Request and store MTU size for a device
-  Future<int> negotiateMtu(BluetoothDevice device) async {
-    try {
-      // Request maximum MTU
-      int mtu = await device.requestMtu(512);
-      _deviceMtu[device.remoteId.str] = mtu;
-      return mtu;
-    } catch (e) {
-      // Fall back to default if negotiation fails
-      _deviceMtu[device.remoteId.str] = DEFAULT_MTU;
-      return DEFAULT_MTU;
-    }
-  }
+
 
   // Get available payload size for a device
   int getMaxPayloadSize(String deviceId) {
@@ -262,121 +249,6 @@ class SecureMessaging {
     }
 
     return result;
-  }
-
-  // Send a secure message with fragmentation and retry logic
-  Future<void> sendSecureMessage(
-      BluetoothDevice device,
-      BluetoothCharacteristic characteristic,
-      String message,
-      {void Function(double)? progressCallback}
-      ) async {
-
-    final deviceId = device.remoteId.str;
-
-    // Check connection state
-    await _verifyDeviceConnected(device);
-
-    // Ensure MTU is negotiated
-    if (!_deviceMtu.containsKey(deviceId)) {
-      await negotiateMtu(device);
-    }
-
-    // Encrypt the message
-    final encrypted = await encryptMessage(message, deviceId);
-
-    // Fragment the encrypted message
-    final fragments = _fragmentMessage(encrypted, deviceId);
-    final totalFragments = fragments.length;
-
-    // Send each fragment with retry logic
-    for (int i = 0; i < fragments.length; i++) {
-      bool success = false;
-      int retryCount = 0;
-
-      while (!success && retryCount < MAX_RETRIES) {
-        try {
-          await characteristic.write(fragments[i], withoutResponse: false);
-          success = true;
-
-          // Update progress if callback provided
-          if (progressCallback != null) {
-            progressCallback((i + 1) / totalFragments);
-          }
-        } catch (e) {
-          retryCount++;
-          if (retryCount >= MAX_RETRIES) {
-            throw Exception('Failed to send message fragment after $MAX_RETRIES attempts: $e');
-          }
-
-          // Wait before retry
-          await Future.delayed(Duration(milliseconds: RETRY_DELAY_MS));
-
-          // Check connection state before retry
-          if (device.connectionState != BluetoothConnectionState.connected) {
-            throw Exception('Device disconnected during transmission');
-          }
-        }
-      }
-    }
-  }
-
-  // Receive a secure message with fragmentation and retry logic
-  Future<String> receiveSecureMessage(
-      BluetoothDevice device,
-      BluetoothCharacteristic characteristic,
-      {Duration timeout = const Duration(seconds: 30)}
-      ) async {
-
-    final deviceId = device.remoteId.str;
-
-    // Check connection state
-    await _verifyDeviceConnected(device);
-
-    // Set up completer for async fragment processing
-    final completer = Completer<Uint8List>();
-
-    // Set up a subscription to receive notifications
-    StreamSubscription? subscription;
-
-    try {
-      // Enable notifications
-      await characteristic.setNotifyValue(true);
-
-      subscription = characteristic.lastValueStream.listen((value) {
-        _processFragment(Uint8List.fromList(value), deviceId, completer);
-      }, onError: (e) {
-        if (!completer.isCompleted) {
-          completer.completeError(Exception('Error receiving data: $e'));
-        }
-      });
-
-      // Wait for complete message with timeout
-      final Uint8List encryptedData = await completer.future.timeout(timeout,
-          onTimeout: () {
-            throw TimeoutException('Timed out waiting for complete message');
-          }
-      );
-
-      // Decrypt the reassembled message
-      return decryptMessage(encryptedData, deviceId);
-    } finally {
-      await subscription?.cancel();
-      await characteristic.setNotifyValue(false);
-    }
-  }
-
-  // Monitor device connection state
-  Stream<BluetoothConnectionState> monitorConnectionState(BluetoothDevice device) {
-    return device.connectionState;
-  }
-
-  // Helper method to check if device is connected and throw informative errors
-  Future<void> _verifyDeviceConnected(BluetoothDevice device) async {
-    final state = device.connectionState.first;
-    if (await state != BluetoothConnectionState.connected) {
-      throw Exception('Device is not connected. Current state: ${await state}');
-    }
   }
 
   // Clean up resources for a device
