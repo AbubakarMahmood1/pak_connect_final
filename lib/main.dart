@@ -22,6 +22,13 @@ void main() async {
   // Initialize background service once
   backgroundService = await setupBackgroundService();
 
+  bool hasPermission = await Permission.bluetooth.status.isGranted;
+  if (!hasPermission) {
+    debugPrint('Requesting Bluetooth permission...');
+    await Permission.bluetooth.request();
+  }
+  debugPrint('Bluetooth permission status: ${await Permission.bluetooth.status}');
+
   // Initialize BLE service with the background service instance
   final bleService = BleService(backgroundService);
   await bleService.initialize();
@@ -129,15 +136,14 @@ Future<void> requestRequiredPermissions() async {
   if (Platform.isAndroid) {
     final androidInfo = await DeviceInfoPlugin().androidInfo;
     if (androidInfo.version.sdkInt >= 31) { // Android 12+
-      await [
-        Permission.bluetoothScan,
-        Permission.bluetoothConnect,
-        Permission.bluetoothAdvertise,
-        Permission.scheduleExactAlarm,
-      ].request();
+      await Permission.bluetoothScan.request();
+      await Permission.bluetoothConnect.request();
+      await Permission.bluetoothAdvertise.request();
+      await Permission.scheduleExactAlarm.request();
     } else {
       // For older Android versions, use the legacy Bluetooth permission
       await Permission.bluetooth.request();
+      await Permission.bluetoothScan.request();
       await Permission.scheduleExactAlarm.request();
     }
 
@@ -501,6 +507,7 @@ class BleDevicesScreen extends StatefulWidget {
 }
 
 class _BleDevicesScreenState extends State<BleDevicesScreen> {
+  String _statusMessage = "Ready";
   final BleService _bleService = BleService();
   bool _isScanning = false;
   List<BleDevice> _devices = [];
@@ -516,10 +523,10 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
 
   Future<void> _checkPermissions() async {
     Map<Permission, PermissionStatus> statuses = await [
+      Permission.location,
       Permission.bluetooth,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
-      Permission.location,
     ].request();
 
     bool allGranted = statuses.values.every((status) => status.isGranted);
@@ -551,9 +558,18 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
   }
 
   void _startScanning() async {
+    setState(() {
+      _statusMessage = "Starting scan...";
+    });
     try {
       await _bleService.startScan(maxDuration: const Duration(seconds: 30));
+      setState(() {
+        _statusMessage = "Scan started";
+      });
     } catch (e) {
+      setState(() {
+        _statusMessage = "Scan error: $e";
+      });
       debugPrint('Error scanning for BLE devices: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -564,9 +580,15 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
   }
 
   void _stopScanning() async {
+    setState(() {
+      _statusMessage = "Scan stopped.";
+    });
     try {
       await _bleService.stopScan();
     } catch (e) {
+      setState(() {
+        _statusMessage = "Scan stopping error: $e";
+      });
       debugPrint('Error stopping scan: $e');
     }
   }
@@ -657,6 +679,23 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
       ),
       body: Column(
         children: [
+          Container(
+            color: Colors.blue.shade50,
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Icon(
+                  _isScanning ? Icons.search : Icons.bluetooth,
+                  color: Colors.blue,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Status: ${_isScanning ? "Scanning..." : _statusMessage}',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Text(

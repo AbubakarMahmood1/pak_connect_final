@@ -5,9 +5,11 @@ import 'dart:math' as math;
 
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:synchronized/synchronized.dart';
@@ -530,6 +532,7 @@ class BleService {
   // Retry constants
   static const int maxRetryAttempts = 10;
   static const Duration initialRetryDelay = Duration(seconds: 5);
+  int? _consecutiveFailures;
 
   // Status and management fields
   late final String _deviceId;
@@ -569,6 +572,7 @@ class BleService {
   Timer? _adaptiveScanTimer;
   Timer? _messageProcessingTimer;
   Timer? _deviceUpdateDebouncer;
+  Timer? _retryTimer;
 
   // Stream getters
   Stream<List<BleDevice>> get devices => _devicesSubject.stream;
@@ -587,28 +591,72 @@ class BleService {
   GATTCharacteristic? _ackCharacteristic;
   bool _pendingDeviceListUpdate = false;
 
+
+
   /// Initialize the BLE service with robust error handling
   Future<bool> initialize() async {
     if (_isInitialized) return true;
 
     try {
       _connectionStateSubject.add('Initializing...');
+      debugPrint('BLE Service initializing...');
 
       // Generate or retrieve device ID
       final prefs = await SharedPreferences.getInstance();
-      _deviceId = prefs.getString('device_id') ??
-          _generateSecureDeviceId();
+      _deviceId = prefs.getString('device_id') ?? _generateSecureDeviceId();
       await prefs.setString('device_id', _deviceId);
+      debugPrint('Device ID: $_deviceId');
+
+      // Attempt to request all permissions directly, ignoring permission_handler errors
+      if (Platform.isAndroid) {
+        debugPrint('Requesting Android permissions directly...');
+        try {
+          // Request location permissions first (required for BLE on Android)
+          await Permission.location.request();
+          await Permission.locationWhenInUse.request();
+          await Permission.locationAlways.request();
+
+          // For Android 12+, request the new Bluetooth permissions
+          final androidInfo = await DeviceInfoPlugin().androidInfo;
+          if (androidInfo.version.sdkInt >= 31) { // Android 12+
+            debugPrint('Android 12+ detected, requesting specific BLE permissions');
+            // Individual requests may work better than batch
+            await Permission.bluetoothScan.request();
+            await Permission.bluetoothConnect.request();
+            await Permission.bluetoothAdvertise.request();
+          } else {
+            // For older Android versions
+            await Permission.bluetooth.request();
+          }
+
+          // Log permission status for debugging
+          if (androidInfo.version.sdkInt >= 31) {
+            debugPrint('BT Scan status: ${await Permission.bluetoothScan.status}');
+            debugPrint('BT Connect status: ${await Permission.bluetoothConnect.status}');
+            debugPrint('BT Advertise status: ${await Permission.bluetoothAdvertise.status}');
+          } else {
+            debugPrint('BT status: ${await Permission.bluetooth.status}');
+          }
+          debugPrint('Location status: ${await Permission.locationWhenInUse.status}');
+        } catch (e) {
+          // Log but continue - permission_handler might have issues but the operations may still work
+          debugPrint('Permission request error: $e');
+          debugPrint('Proceeding with BLE operations despite permission warning...');
+        }
+      }
 
       // Set up BLE listeners with error handling
       _setupCentralListeners();
       _setupPeripheralListeners();
 
-      // Wait for poweredOn state with timeout
+      // Wait for poweredOn state with better error handling
+      debugPrint('Waiting for Bluetooth to be powered on...');
       final bluetoothReady = await _waitForBluetoothPoweredOn();
+      debugPrint('Bluetooth state: ${_centralManager.state}');
+
       if (!bluetoothReady) {
-        _connectionStateSubject.add('Bluetooth not available or timeout');
-        return false;
+        debugPrint('Bluetooth not ready, but continuing anyway...');
+        // We'll continue anyway since we've seen the GATT server can register
       }
 
       // Load cached messages
@@ -617,20 +665,38 @@ class BleService {
       // Start message processing timer
       _startMessageProcessingTimer();
 
-      // Start adaptive scanning
+      // Setup adaptive scanning
       _setupAdaptiveScanning();
 
       _isInitialized = true;
       _connectionStateSubject.add('Ready');
+      debugPrint('BLE service initialized successfully');
 
-      // Start background tasks
-      await startAdvertising();
+      // Start background tasks (continue even if there are errors)
+      try {
+        debugPrint('Starting BLE advertising...');
+        await startAdvertising();
+      } catch (e) {
+        debugPrint('Error starting advertising: $e');
+      }
+
+      // Start initial scan
+      try {
+        debugPrint('Starting initial BLE scan...');
+        await startScan(maxDuration: const Duration(seconds: 30));
+      } catch (e) {
+        debugPrint('Error starting scan: $e');
+      }
 
       return true;
     } catch (e) {
       final errorMsg = 'Initialization error: $e';
       _connectionStateSubject.add(errorMsg);
       _errorSubject.add(errorMsg);
+      debugPrint(errorMsg);
+
+      // Try to recover where possible
+      _isInitialized = true; // Set to true anyway to allow retry operations
       return false;
     }
   }
@@ -886,6 +952,12 @@ class BleService {
         final advertisement = args[2] as Advertisement;
         final devicesList = args[3] as List<BleDevice>;
 
+        debugPrint('==== DEVICE DISCOVERED ====');
+        debugPrint('Name: ${advertisement.name ?? "Unknown"}');
+        debugPrint('ID: ${peripheral.uuid}');
+        debugPrint('RSSI: $rssi dBm');
+        debugPrint('Service UUIDs: ${advertisement.serviceUUIDs.map((uuid) => uuid.toString()).join(", ")}');
+
         final device = BleDevice.fromPeripheral(
           peripheral,
           rssi,
@@ -907,9 +979,11 @@ class BleService {
             supportsRelay: device.supportsRelay,
           );
           deviceListChanged = true;
+          debugPrint('Updated existing device: ${getDisplayName(device)}');
         } else {
           devicesList.add(device);
           deviceListChanged = true;
+          debugPrint('Added new device: ${getDisplayName(device)}');
         }
 
         // Return processed data
@@ -933,12 +1007,14 @@ class BleService {
       _deviceUpdateDebouncer?.cancel();
       _deviceUpdateDebouncer = Timer(const Duration(milliseconds: 100), () {
         if (_pendingDeviceListUpdate) {
+          debugPrint('Updating device list with ${_discoveredDevices.length} devices');
           _devicesSubject.add(_discoveredDevices);
           _pendingDeviceListUpdate = false;
         }
       });
 
       if (_shouldConnectToDevice(device.peripheral.uuid.toString())) {
+        debugPrint('Attempting to connect to device: ${getDisplayName(device)}');
         _connectToDevice(device.peripheral);
       }
     });
@@ -1367,46 +1443,45 @@ class BleService {
   /// Get negotiated MTU size for a peripheral
   Future<int> _getNegotiatedMtu(Peripheral peripheral) async {
     try {
-      // First check if we already have a cached MTU
+      // First check device cache
       final deviceIndex = _discoveredDevices.indexWhere(
               (d) => d.peripheral.uuid == peripheral.uuid
       );
 
-      // If we have a cached value, use it
       if (deviceIndex >= 0 && _discoveredDevices[deviceIndex].mtu != null) {
         return _discoveredDevices[deviceIndex].mtu!;
       }
 
-      // Otherwise negotiate a new MTU
-      int mtu = 23;  // BLE minimum
+      // Default MTU values by platform
+      int mtu = 23; // BLE minimum
 
       if (Platform.isAndroid) {
-        final negotiatedMtu = await _centralManager.requestMTU(
-            peripheral,
-            mtu: 512
-        );
-        mtu = negotiatedMtu;
+        try {
+          final negotiatedMtu = await _centralManager.requestMTU(
+              peripheral,
+              mtu: 512
+          );
+          mtu = negotiatedMtu;
+        } catch (e) {
+          debugPrint('MTU negotiation failed: $e');
+          mtu = 23; // Fallback to minimum
+        }
       } else if (Platform.isIOS) {
-        // iOS has a default around 185
+        // iOS typically has higher default MTU
         mtu = 185;
-      } else {
-        // Handle other platforms or fall back to minimum
-        mtu = 23;
       }
 
-      // Cache the MTU value
+      // Cache the value for future use
       if (deviceIndex >= 0) {
         _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
             mtu: mtu
         );
       }
 
-      // Account for ATT overhead (3 bytes) and protocol overhead (~10 bytes)
-      return math.max(20, mtu - 13);
+      return mtu;
     } catch (e) {
-      _errorSubject.add('MTU negotiation failed: $e');
-      _errorRecoveryManager.handleError('MTU negotiation', e);
-      return 20;  // Conservative fallback
+      debugPrint('Error getting MTU: $e');
+      return 23; // Absolute fallback to BLE minimum
     }
   }
 
@@ -1426,18 +1501,37 @@ class BleService {
 
     try {
       // Start scanning with appropriate mode
-      await _centralManager.startDiscovery(
-        serviceUUIDs: [UUID.fromString(serviceUuid)],
-      );
+      debugPrint('Starting BLE scan for service UUID: $serviceUuid');
+      try {
+        await _centralManager.startDiscovery(
+          serviceUUIDs: [UUID.fromString(serviceUuid)],
+        );
+        debugPrint('Started scanning for specific service UUID');
+      } catch (e) {
+        debugPrint('Failed to scan for specific service UUID: $e');
+
+        // Fall back to scanning for all devices
+        try {
+          debugPrint('Trying general scan without service filter');
+          await _centralManager.startDiscovery();
+          debugPrint('Started general scan');
+        } catch (e) {
+          debugPrint('Failed to start general scan: $e');
+          rethrow; // Re-throw for consistency
+        }
+      }
 
       _isScanning = true;
       _connectionStateSubject.add('Scanning');
       _errorRecoveryManager.operationSucceeded();
+      debugPrint('Starting scan for BLE devices...');
 
       // If maxDuration is provided, automatically stop scanning after that duration
       if (maxDuration != null) {
+        debugPrint('Scheduling scan stop after ${maxDuration.inSeconds} seconds');
         Future.delayed(maxDuration, () {
           if (_isScanning) {
+            debugPrint('Auto-stopping scan after timeout');
             stopScan();
           }
         });
@@ -1485,10 +1579,16 @@ class BleService {
 
     try {
       // Create GATT service structure
+      debugPrint('Creating GATT service for advertising...');
       final service = await _createGattService();
 
       // Add service to peripheral manager
+      debugPrint('Adding service to peripheral manager...');
       await _peripheralManager.addService(service);
+
+      // Start advertising with relay capability indication
+      final advertisementName = 'BLE-Msg-${_deviceId.substring(0, math.min(_deviceId.length, 8))}';
+      debugPrint('Starting advertisement as: $advertisementName');
 
       // Start advertising with relay capability indication
       final manufacturerData = [
@@ -1504,14 +1604,16 @@ class BleService {
       // Start advertising
       await _peripheralManager.startAdvertising(
         Advertisement(
-          name: 'BLE-Msg-$_deviceId',
+          name: advertisementName,
           serviceUUIDs: [UUID.fromString(serviceUuid)],
           manufacturerSpecificData: manufacturerData,
         ),
       );
 
       _isAdvertising = true;
+      debugPrint('Advertising started successfully');
       _connectionStateSubject.add('Advertising');
+      debugPrint('Starting advertisement as: BLE-Msg-$_deviceId');
       return true;
     } catch (e) {
       final errorMsg = 'Advertising error: $e';
@@ -1785,34 +1887,27 @@ class BleService {
   }
 
   /// Process operations in batches to reduce radio usage
-  Future<void> _batchOperations<T>(
-      List<T> items,
-      Future<void> Function(T item) operation) async {
+  Future<void> _batchOperations<T>(List<T> items, Future<void> Function(T item) operation) async {
+    final batchSize = 5; // Configurable batch size
 
-    if (items.isEmpty) return;
-
-    // Determine batch size based on length
-    // Smaller batches for more items to avoid timeout
-    final int batchSize = items.length > 20 ? 3 : (items.length > 10 ? 5 : 8);
-
-    // Process in batches
     for (int i = 0; i < items.length; i += batchSize) {
       final end = math.min(i + batchSize, items.length);
       final batch = items.sublist(i, end);
 
-      // Process this batch
+      // Process each item in the batch
       for (final item in batch) {
         try {
           await operation(item);
-        } catch (e) {
-          _errorSubject.add('Batch operation error: $e');
-          _errorRecoveryManager.handleError('batchOperation', e);
+        } catch (e, stackTrace) {
+          debugPrint('Batch operation error for item: $e');
+          debugPrint('Stack trace: $stackTrace');
+          // Continue with next item, don't fail the whole batch
         }
       }
 
-      // Short delay between batches to allow radio to rest
+      // Small delay between batches to avoid blocking UI thread
       if (end < items.length) {
-        await Future.delayed(const Duration(milliseconds: 100));
+        await Future.delayed(Duration(milliseconds: 10));
       }
     }
   }
@@ -1820,154 +1915,379 @@ class BleService {
   /// Process outgoing messages with improved batching and efficiency
   Future<void> _processOutgoingMessages() async {
     return _stateLock.synchronized(() async {
-    final undeliveredMessages = await compute((messages) {
-      return messages.where((m) =>
-        m.canRetry &&
-        m.senderId == _deviceId &&
-        !m.isRecentFailure
-      ).toList();
-    }, _messages);
+      try {
+        // Update activity timestamp since we have pending messages
+        _lastMessageActivity = DateTime.now();
 
-      // Update activity timestamp since we have pending messages
-      _lastMessageActivity = DateTime.now();
+        // Get messages that need processing - using HYBRID approach
+        final undeliveredMessages = await _getRetriableMessagesHybrid();
 
-      // Sort by priority (age and attempt count)
-      undeliveredMessages.sort((a, b) {
-        // Prioritize recent messages with few attempts
-        final aScore = a.timestamp.millisecondsSinceEpoch / 1000 - (a.attemptCount * 60);
-        final bScore = b.timestamp.millisecondsSinceEpoch / 1000 - (b.attemptCount * 60);
-        return bScore.compareTo(aScore); // Higher score (newer) first
-      });
+        // Skip processing if no messages match criteria
+        if (undeliveredMessages.isEmpty) {
+          return;
+        }
 
-      // Group messages by recipient
-      final messagesByRecipient = <String, List<BleMessage>>{};
-      for (final message in undeliveredMessages) {
-        // For direct messages
-        if (message.relayPath.isEmpty) {
-          if (!messagesByRecipient.containsKey(message.recipientId)) {
-            messagesByRecipient[message.recipientId] = [];
+        // Group messages by recipient
+        final messagesByRecipient = _groupMessagesByRecipient(undeliveredMessages);
+
+        // Find connected devices
+        final connectedDevices = _discoveredDevices.where((d) => d.isConnected).toList();
+
+        if (connectedDevices.isEmpty) {
+          debugPrint('No connected devices found for sending messages');
+          await _startScanIfNeeded();
+          return;
+        }
+
+        // Sort connected devices by connection priority
+        connectedDevices.sort((a, b) =>
+            (b.connectionPriority).compareTo(a.connectionPriority));
+
+        // Process connected devices in batches
+        await _batchOperations(connectedDevices, (device) async {
+          final deviceId = device.id;
+          if (deviceId.isEmpty) {
+            debugPrint('Device has null or empty ID, skipping');
+            return;
           }
-          messagesByRecipient[message.recipientId]!.add(message);
-        }
-        // For relay messages, use the next hop
-        else {
-          final nextHop = message.relayPath.last;
-          if (!messagesByRecipient.containsKey(nextHop)) {
-            messagesByRecipient[nextHop] = [];
+
+          final deviceMessages = messagesByRecipient[deviceId];
+
+          if (deviceMessages != null && deviceMessages.isNotEmpty) {
+            // Process this device's messages in batches
+            await _batchOperations(deviceMessages, (message) async {
+              await _sendSingleMessage(message, device);
+            });
           }
-          messagesByRecipient[nextHop]!.add(message);
-        }
-      }
+        });
 
-      // Find connected devices
-      final connectedDevices = _discoveredDevices.where((d) => d.isConnected).toList();
+        // Handle relay for messages that couldn't be delivered directly
+        await _handleUndeliveredMessages();
 
-      // Sort connected devices by connection priority
-      connectedDevices.sort((a, b) => b.connectionPriority.compareTo(a.connectionPriority));
+        // Start scanning if needed for remaining messages
+        await _startScanIfNeeded();
 
-      // Process connected devices in batches
-      await _batchOperations(connectedDevices, (device) async {
-        final deviceId = device.id;
-        final messages = messagesByRecipient[deviceId];
-
-        if (messages != null && messages.isNotEmpty) {
-          // Process this device's messages in batches
-          await _batchOperations(messages, (message) async {
-            // Update attempt count and last attempt time
-            final index = _messages.indexWhere((m) => m.id == message.id);
-            if (index >= 0) {
-              _updateMessageStatus(
-                message.id,
-                MessageStatus.sending,
-                attemptCount: message.attemptCount + 1,
-                lastAttempt: DateTime.now(),
-              );
-
-              // Send the message
-              await _sendMessageToDevice(
-                _messages[index],
-                device.peripheral,
-              );
-            }
-          });
-        }
-      });
-
-      // If there are still undelivered messages, try to use relay nodes
-      final stillUndelivered = _messages.where((m) =>
-      m.canRetry &&
-          m.senderId == _deviceId &&
-          m.relayPath.isEmpty &&
-          !_discoveredDevices.any((d) => d.id == m.recipientId && d.isConnected)
-      ).toList();
-
-      if (stillUndelivered.isNotEmpty && connectedDevices.isNotEmpty) {
-        await _tryRelayForUndeliveredMessages(stillUndelivered, connectedDevices);
-      }
-
-      // If there are still messages that need delivery, start scanning if not already
-      final pendingAfterProcessing = _messages.where((m) =>
-      m.canRetry &&
-          m.senderId == _deviceId &&
-          !m.isRecentFailure
-      ).toList();
-
-      if (pendingAfterProcessing.isNotEmpty && !_isScanning) {
-        // Determine scan power based on message count and age
-        final oldestPendingMessage = pendingAfterProcessing
-            .map((m) => m.timestamp)
-            .reduce((a, b) => a.isBefore(b) ? a : b);
-
-        final messageAge = DateTime.now().difference(oldestPendingMessage).inMinutes;
-
-        // Use low power scan if messages aren't urgent (over 30 min old)
-        final lowPowerScan = messageAge > 30 && pendingAfterProcessing.length < 5;
-
-        await startScan(
-          maxDuration: lowPowerScan ? Duration(seconds: 10) : activeScanDuration,
-          lowPowerMode: lowPowerScan,
-        );
+        // Reset retry counter after successful processing
+        _resetRetryCounter();
+      } catch (e, stackTrace) {
+        debugPrint('Error in _processOutgoingMessages: $e');
+        debugPrint('Stack trace: $stackTrace');
+        // Add more specific recovery actions here based on error type
+        _scheduleRetry();
       }
     });
   }
 
-  /// Try to use relay nodes for undelivered messages
-  Future<void> _tryRelayForUndeliveredMessages(
-      List<BleMessage> undeliveredMessages,
-      List<BleDevice> connectedDevices,
-      ) async {
-    // Find messages that still need delivery and have no relay path yet
-    final messagesToRelay = undeliveredMessages.where((m) =>
-    m.canRetry &&
-        m.relayPath.isEmpty &&
-        !_discoveredDevices.any((d) => d.id == m.recipientId && d.isConnected)
-    ).toList();
+  Future<List<BleMessage>> _getRetriableMessagesHybrid() async {
+    final deviceId = _deviceId;
+    final now = DateTime.now();
 
-    if (messagesToRelay.isEmpty || connectedDevices.isEmpty) {
-      return;
+    // Check if we have enough messages to benefit from isolate processing
+    // This threshold can be adjusted based on your device performance needs
+    final largeMessageThreshold = 50;
+
+    if (_messages.length > largeMessageThreshold) {
+      try {
+        // For large batches, use compute() with serialized data
+
+        // 1. Convert messages to JSON for isolate-safe processing
+        final jsonMessages = _messages.map((m) => m.toJson()).toList();
+
+        // 2. Process in isolate using compute() with serializable data only
+        final filteredMessageIds = await compute(_filterMessagesInIsolate, {
+          'messages': jsonMessages,
+          'deviceId': deviceId,
+          'now': now.toIso8601String() // Send current time as ISO string
+        });
+
+        // 3. Get the actual message objects back using the filtered IDs
+        final filteredMessages = _messages
+            .where((m) => filteredMessageIds.contains(m.id))
+            .toList();
+
+        // 4. Sort by priority (needed as the isolate doesn't preserve order)
+        _sortMessagesByPriority(filteredMessages);
+
+        return filteredMessages;
+      } catch (e, stackTrace) {
+        // If isolate processing fails for any reason, fall back to direct processing
+        debugPrint('Isolate processing failed: $e');
+        debugPrint('Stack trace: $stackTrace');
+        debugPrint('Falling back to direct message filtering');
+        return _getRetriableMessagesDirect();
+      }
+    } else {
+      // For smaller batches, use direct processing
+      return _getRetriableMessagesDirect();
+    }
+  }
+
+  List<BleMessage> _getRetriableMessagesDirect() {
+    final now = DateTime.now();
+    final deviceId = _deviceId;
+
+    // Filter messages that can be retried
+    final retriableMessages = _messages.where((m) {
+      // Check if message is retriable
+      final canRetry = m.status == MessageStatus.failed ||
+          m.status == MessageStatus.sending ||
+          m.status == MessageStatus.pending;
+
+      // Check if message is from this device
+      final isFromThisDevice = m.senderId == deviceId;
+
+      // Check backoff period based on attempt count
+      bool isInBackoffPeriod = false;
+      if (m.lastAttempt != null && m.attemptCount > 0) {
+        final backoffSeconds = math.min(30 * m.attemptCount, 300);
+        isInBackoffPeriod = now.difference(m.lastAttempt!).inSeconds < backoffSeconds;
+      }
+
+      return canRetry && isFromThisDevice && !isInBackoffPeriod;
+    }).toList();
+
+    // Sort by priority
+    _sortMessagesByPriority(retriableMessages);
+
+    return retriableMessages;
+  }
+
+  static List<String> _filterMessagesInIsolate(Map<String, dynamic> data) {
+    try {
+      final List<dynamic> rawMessages = data['messages'] as List<dynamic>;
+      final List<Map<String, dynamic>> messages = rawMessages
+          .cast<Map<String, dynamic>>();
+
+      final String deviceId = data['deviceId'] as String;
+      final DateTime now = DateTime.parse(data['now'] as String);
+
+      // Filter messages that can be retried
+      return messages.where((json) {
+        // Extract status for filtering
+        final statusStr = json['status'] as String? ?? 'MessageStatus.created';
+        final canRetry = statusStr == 'MessageStatus.failed' ||
+            statusStr == 'MessageStatus.sending' ||
+            statusStr == 'MessageStatus.pending';
+
+        // Check sender ID
+        final senderId = json['senderId'] as String? ?? '';
+        final isFromThisDevice = senderId == deviceId;
+
+        // Calculate isRecentFailure
+        bool isInBackoffPeriod = false;
+        if (json['lastAttempt'] != null) {
+          try {
+            final lastAttempt = DateTime.parse(json['lastAttempt'] as String);
+            final attemptCount = (json['attemptCount'] as num?)?.toInt() ?? 0;
+            final backoffSeconds = math.min(30 * attemptCount, 300);
+            isInBackoffPeriod = now.difference(lastAttempt).inSeconds < backoffSeconds;
+          } catch (e) {
+            // If datetime parsing fails, assume it's not a recent failure
+            isInBackoffPeriod = false;
+          }
+        }
+
+        // Apply all filter conditions
+        return canRetry && isFromThisDevice && !isInBackoffPeriod;
+      }).map((json) => json['id'] as String? ?? '').where((id) => id.isNotEmpty).toList();
+    } catch (e) {
+      // Return empty list on error
+      return <String>[];
+    }
+  }
+
+  void _sortMessagesByPriority(List<BleMessage> messages) {
+    if (messages.isEmpty) return;
+
+    messages.sort((a, b) {
+      try {
+        // Calculate priority score (newer messages with fewer attempts get higher priority)
+        final aScore = a.timestamp.millisecondsSinceEpoch / 1000 - ((a.attemptCount) * 60);
+        final bScore = b.timestamp.millisecondsSinceEpoch / 1000 - ((b.attemptCount) * 60);
+        return bScore.compareTo(aScore); // Higher score (newer) first
+      } catch (e) {
+        debugPrint('Error comparing messages for sorting: $e');
+        return 0; // Neutral sort result on error
+      }
+    });
+  }
+
+  Future<List<BleMessage>> _getRetriableMessages() async {
+    final now = DateTime.now();
+    final deviceId = _deviceId;
+
+    // Filter messages that can be retried
+    final retriableMessages = _messages.where((m) {
+      // Check if message is retriable
+      final canRetry = m.status == MessageStatus.failed ||
+          m.status == MessageStatus.sending ||
+          m.status == MessageStatus.pending;
+
+      // Check if message is from this device
+      final isFromThisDevice = m.senderId == deviceId;
+
+      // Check backoff period based on attempt count
+      bool isInBackoffPeriod = false;
+      if (m.lastAttempt != null && m.attemptCount > 0) {
+        final backoffSeconds = math.min(30 * m.attemptCount, 300);
+        isInBackoffPeriod = now.difference(m.lastAttempt!).inSeconds < backoffSeconds;
+      }
+
+      return canRetry && isFromThisDevice && !isInBackoffPeriod;
+    }).toList();
+
+    // Sort by priority (newer messages with fewer attempts get higher priority)
+    retriableMessages.sort((a, b) {
+      try {
+        final aScore = a.timestamp.millisecondsSinceEpoch / 1000 - ((a.attemptCount) * 60);
+        final bScore = b.timestamp.millisecondsSinceEpoch / 1000 - ((b.attemptCount) * 60);
+        return bScore.compareTo(aScore); // Higher score (newer) first
+      } catch (e) {
+        debugPrint('Error comparing messages for sorting: $e');
+        return 0; // Neutral sort result on error
+      }
+    });
+
+    return retriableMessages;
+  }
+
+  Map<String, List<BleMessage>> _groupMessagesByRecipient(List<BleMessage> messages) {
+    final messagesByRecipient = <String, List<BleMessage>>{};
+
+    for (final message in messages) {
+      try {
+        String? recipientId;
+
+        // For direct messages
+        if (message.relayPath.isEmpty) {
+          recipientId = message.recipientId;
+        }
+        // For relay messages, use the next hop
+        else if (message.relayPath.isNotEmpty) {
+          recipientId = message.relayPath.last;
+        }
+
+        // Skip if no valid recipient
+        if (recipientId == null || recipientId.isEmpty) {
+          debugPrint('Message ${message.id} has no valid recipient, skipping');
+          continue;
+        }
+
+        // Add to map, creating list if needed
+        if (!messagesByRecipient.containsKey(recipientId)) {
+          messagesByRecipient[recipientId] = [];
+        }
+        messagesByRecipient[recipientId]!.add(message);
+      } catch (e, stackTrace) {
+        debugPrint('Error grouping message ${message.id}: $e');
+        debugPrint('Stack trace: $stackTrace');
+        // Skip message if grouping fails
+        continue;
+      }
     }
 
-    // Find potential relay nodes (devices that support relay)
-    final relayNodes = connectedDevices.where((d) => d.supportsRelay).toList();
-    if (relayNodes.isEmpty) return;
+    return messagesByRecipient;
+  }
+  Future<void> _sendSingleMessage(BleMessage message, BleDevice device) async {
+    try {
+      // Update attempt count and last attempt time
+      final index = _messages.indexWhere((m) => m.id == message.id);
+      if (index >= 0) {
+        final currentAttemptCount = message.attemptCount;
 
-    // Sort relay nodes by RSSI (best signal first)
-    relayNodes.sort((a, b) => b.rssi.compareTo(a.rssi));
+        await _updateMessageStatus(
+          message.id,
+          MessageStatus.sending,
+          attemptCount: currentAttemptCount + 1,
+          lastAttempt: DateTime.now(),
+        );
 
-    for (final message in messagesToRelay) {
-      // Only relay if TTL allows
+        // Send the message
+        final success = await _sendMessageToDevice(
+          _messages[index],
+          device.peripheral,
+        );
+
+        if (success) {
+          await _updateMessageStatus(message.id, MessageStatus.delivered);
+          _errorRecoveryManager.operationSucceeded();
+        } else {
+          await _updateMessageStatus(message.id, MessageStatus.failed);
+          // Record error metrics
+          debugPrint('BLE message send failure: messageId=${message.id}, deviceId=${device.id}');
+        }
+      } else {
+        debugPrint('Message ${message.id} not found in queue');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Error sending message ${message.id} to device ${device.id}: $e');
+      debugPrint('Stack trace: $stackTrace');
+      // Mark as failed for retry
+      await _updateMessageStatus(message.id, MessageStatus.failed);
+
+      // Record error metrics
+      debugPrint('BLE single message send failure: messageId=${message.id}, deviceId=${device.id}, attemptCount=${(message.attemptCount) + 1}');
+    }
+  }
+  Future<void> _handleUndeliveredMessages() async {
+    try {
+      // Find messages that need relay
+      final stillUndelivered = _messages.where((m) {
+        if (!_isMessageRetriable(m) || m.senderId != _deviceId) return false;
+        if (m.relayPath.isNotEmpty) return false;
+
+        final recipientId = m.recipientId;
+        if (recipientId.isEmpty) return false;
+
+        // Check if recipient is connected
+        return !_discoveredDevices.any((d) =>
+        d.id == recipientId && d.isConnected == true);
+      }).toList();
+
+      // Find connected devices that can be used as relays
+      final connectedDevices = _discoveredDevices.where((d) =>
+      d.isConnected == true && d.supportsRelay == true).toList();
+
+      if (stillUndelivered.isNotEmpty && connectedDevices.isNotEmpty) {
+        await _tryRelayForUndeliveredMessages(stillUndelivered, connectedDevices);
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Error handling undelivered messages: $e');
+      debugPrint('Stack trace: $stackTrace');
+    }
+  }
+
+  /// Try to use relay nodes for undelivered messages
+  Future<void> _tryRelayForUndeliveredMessages(
+      List<BleMessage> messages, List<BleDevice> relayDevices) async {
+    // Sort relay devices by signal strength and ability
+    relayDevices.sort((a, b) {
+      // Prioritize devices with better signal
+      if ((a.rssi - b.rssi).abs() > 10) {
+        return b.rssi.compareTo(a.rssi);
+      }
+
+      // If signal is similar, consider other factors
+      return b.connectionPriority.compareTo(a.connectionPriority);
+    });
+
+    // Only use top 3 relay devices to avoid flooding network
+    final topRelays = relayDevices.take(3).toList();
+
+    for (final message in messages) {
+      // Skip messages that have no TTL left
       if (message.ttl <= 0) continue;
 
-      // Take a best relay node
-      final relayNode = relayNodes.first;
+      // Pick best relay for this message
+      final relay = topRelays.first;
 
       // Create a relayed version of the message
       final relayedMessage = message.copyWith(
-        relayPath: [...message.relayPath, relayNode.id],
+        relayPath: [...message.relayPath, relay.id],
         ttl: message.ttl - 1,
       );
 
-      // Update the message
+      // Update the message in our queue
       final index = _messages.indexWhere((m) => m.id == message.id);
       if (index >= 0) {
         _messages[index] = relayedMessage;
@@ -1975,8 +2295,107 @@ class BleService {
         await _saveMessages();
 
         // Try to send via relay
-        await _sendMessageToDevice(relayedMessage, relayNode.peripheral);
+        await _sendMessageToDevice(relayedMessage, relay.peripheral);
       }
+    }
+  }
+
+  Future<void> _startScanIfNeeded() async {
+    try {
+      // Check if there are still pending messages
+      final pendingMessages = await _getRetriableMessages();
+
+      if (pendingMessages.isNotEmpty && !_isScanning) {
+        // Determine scan parameters based on message urgency
+        final scanParameters = _determineScanParameters(pendingMessages);
+
+        await startScan(
+          maxDuration: scanParameters.duration,
+          lowPowerMode: scanParameters.lowPower,
+        );
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Error starting BLE scan: $e');
+      debugPrint('Stack trace: $stackTrace');
+
+      // Fall back to standard scan
+      if (!_isScanning) {
+        try {
+          await startScan();
+          debugPrint('Started fallback scan after failure');
+        } catch (fallbackError) {
+          debugPrint('Even fallback scan failed: $fallbackError');
+          // Schedule retry with delay
+          _scheduleRetry();
+        }
+      }
+    }
+  }
+
+  void _scheduleRetry() {
+    _consecutiveFailures = (_consecutiveFailures ?? 0) + 1;
+
+    // Calculate delay with exponential backoff
+    final delaySeconds = math.min(
+        5 * math.pow(1.5, _consecutiveFailures ?? 1).toInt(),
+        60 // Cap at 1 minute
+    );
+
+    debugPrint('Scheduling retry attempt $_consecutiveFailures in $delaySeconds seconds');
+
+    // Cancel existing retry if any
+    _retryTimer?.cancel();
+
+    // Schedule new retry
+    _retryTimer = Timer(Duration(seconds: delaySeconds), () {
+      _processOutgoingMessages();
+    });
+  }
+  void _resetRetryCounter() {
+    if (_consecutiveFailures != null && _consecutiveFailures! > 0) {
+      debugPrint('Resetting retry counter from $_consecutiveFailures to 0');
+      _consecutiveFailures = 0;
+    }
+  }
+  bool _isMessageRetriable(BleMessage message) {
+    return message.status == MessageStatus.failed ||
+        message.status == MessageStatus.sending ||
+        message.status == MessageStatus.pending;
+  }
+
+  ScanParameters _determineScanParameters(List<BleMessage> pendingMessages) {
+    try {
+      if (pendingMessages.isEmpty) {
+        return ScanParameters(Duration(seconds: 30), false);
+      }
+
+      // Find the oldest pending message
+      DateTime? oldestTimestamp;
+      for (final message in pendingMessages) {
+        if (oldestTimestamp == null || message.timestamp.isBefore(oldestTimestamp)) {
+          oldestTimestamp = message.timestamp;
+        }
+      }
+
+      if (oldestTimestamp == null) {
+        return ScanParameters(Duration(seconds: 30), false);
+      }
+
+      final messageAge = DateTime.now().difference(oldestTimestamp).inMinutes;
+
+      // Use low power scan if messages aren't urgent (over 30 min old)
+      final lowPowerScan = messageAge > 30 && pendingMessages.length < 5;
+
+      // Define scan duration based on urgency
+      final scanDuration = lowPowerScan
+          ? Duration(seconds: 10)
+          : (activeScanDuration);
+
+      return ScanParameters(scanDuration, lowPowerScan);
+    } catch (e) {
+      debugPrint('Error determining scan parameters: $e');
+      // Default to standard scan parameters
+      return ScanParameters(Duration(seconds: 30), false);
     }
   }
 
@@ -1996,7 +2415,7 @@ class BleService {
       // Find message characteristic
       final characteristic = _findCharacteristic(service, messageCharacteristicUuid);
       if (characteristic == null) {
-        _errorSubject.add('Message characteristic not found');
+        debugPrint('Message characteristic not found');
         return false;
       }
 
@@ -2004,9 +2423,13 @@ class BleService {
       final messageJson = jsonEncode(message.toJson());
       final messageBytes = Uint8List.fromList(utf8.encode(messageJson));
 
+      // Get negotiated MTU size for this device
+      final mtu = await _getNegotiatedMtu(peripheral);
+      final effectiveSize = math.max(20, mtu - 3); // Account for ATT overhead
+
       // Handle message fragmentation if needed
-      if (messageBytes.length > maxPacketSize) {
-        return await _sendFragmentedMessage(message, messageBytes, peripheral, characteristic);
+      if (messageBytes.length > effectiveSize) {
+        return await _sendFragmentedMessage(message, messageBytes, peripheral, characteristic, effectiveSize);
       } else {
         // Send the message in a single packet
         await _centralManager.writeCharacteristic(
@@ -2016,20 +2439,10 @@ class BleService {
           type: GATTCharacteristicWriteType.withResponse,
         );
 
-        // Mark message as delivered
-        _updateMessageStatus(message.id, MessageStatus.delivered);
         return true;
       }
     } catch (e) {
-      _errorSubject.add('Failed to send message: $e');
-
-      // Mark as failed for retry
-      _updateMessageStatus(
-        message.id,
-        MessageStatus.failed,
-        lastAttempt: DateTime.now(),
-      );
-
+      debugPrint('Failed to send message: $e');
       return false;
     }
   }
@@ -2039,69 +2452,22 @@ class BleService {
       BleMessage message,
       Uint8List messageBytes,
       Peripheral peripheral,
-      GATTCharacteristic characteristic) async {
-
-    // Get MTU for this device
-    final effectiveMtu = await _getNegotiatedMtu(peripheral);
-
+      GATTCharacteristic characteristic,
+      int fragmentSize) async {
     try {
-      // Calculate number of fragments needed with dynamic MTU
-      final fragmentCount = (messageBytes.length / effectiveMtu).ceil();
+      // Calculate number of fragments needed
+      final fragmentCount = (messageBytes.length / fragmentSize).ceil();
+      debugPrint('Sending fragmented message: ${message.id}, fragments: $fragmentCount');
 
-      // Send metadata first
-      final success = await _sendFragmentMetadata(
-          message,
-          messageBytes.length,
-          fragmentCount,
-          peripheral,
-          characteristic
-      );
+      // First send metadata about the fragmented message
+      final metadataJson = jsonEncode({
+        'messageId': message.id,
+        'fragmentCount': fragmentCount,
+        'totalSize': messageBytes.length,
+        'isFragmentMetadata': true,
+      });
 
-      if (!success) {
-        return false;
-      }
-
-      // Send all fragments
-      return await _sendMessageFragments(
-          message,
-          messageBytes,
-          fragmentCount,
-          effectiveMtu,
-          peripheral,
-          characteristic
-      );
-    } catch (e) {
-      _errorSubject.add('Failed to send fragmented message: $e');
-      _errorRecoveryManager.handleError('sendFragmentedMessage', e);
-
-      _updateMessageStatus(
-        message.id,
-        MessageStatus.failed,
-        lastAttempt: DateTime.now(),
-      );
-      return false;
-    }
-  }
-
-  Future<bool> _sendFragmentMetadata(
-      BleMessage message,
-      int totalSize,
-      int fragmentCount,
-      Peripheral peripheral,
-      GATTCharacteristic characteristic) async {
-
-    // Create metadata for fragment tracking
-    final fragmentMetadata = {
-      'messageId': message.id,
-      'totalSize': totalSize,
-      'fragmentCount': fragmentCount,
-      'timestamp': DateTime.now().toIso8601String(),
-      'protocol': 2,  // Protocol version for fragmentation
-    };
-
-    try {
-      // Send metadata
-      final metadataBytes = Uint8List.fromList(utf8.encode(jsonEncode(fragmentMetadata)));
+      final metadataBytes = Uint8List.fromList(utf8.encode(metadataJson));
       await _centralManager.writeCharacteristic(
         peripheral,
         characteristic,
@@ -2109,148 +2475,56 @@ class BleService {
         type: GATTCharacteristicWriteType.withResponse,
       );
 
-      // Small delay after metadata
-      await Future.delayed(const Duration(milliseconds: 50));
-      return true;
-    } catch (e) {
-      _errorSubject.add('Failed to send fragment metadata: $e');
-      return false;
-    }
-  }
+      // Small delay between metadata and first fragment
+      await Future.delayed(Duration(milliseconds: 50));
 
-  Future<bool> _sendMessageFragments(
-      BleMessage message,
-      Uint8List messageBytes,
-      int fragmentCount,
-      int effectiveMtu,
-      Peripheral peripheral,
-      GATTCharacteristic characteristic) async {
+      // Send each fragment
+      for (int i = 0; i < fragmentCount; i++) {
+        // Calculate fragment boundaries
+        final start = i * fragmentSize;
+        final end = math.min(start + fragmentSize, messageBytes.length);
+        final fragmentData = messageBytes.sublist(start, end);
 
-    // Track which fragments have been acknowledged
-    final fragmentsAcknowledged = List.filled(fragmentCount, false);
-    final fragmentRetries = List.filled(fragmentCount, 0);
-    final peripheralId = peripheral.uuid.toString();
+        // Create fragment header
+        final fragmentHeader = {
+          'messageId': message.id,
+          'fragmentIndex': i,
+          'fragmentCount': fragmentCount,
+          'isFragment': true,
+        };
 
-    for (int i = 0; i < fragmentCount; i++) {
-      // Calculate fragment boundaries using dynamic MTU
-      final start = i * effectiveMtu;
-      final end = math.min((i + 1) * effectiveMtu, messageBytes.length);
-      final fragmentData = messageBytes.sublist(start, end);
+        final headerJson = jsonEncode(fragmentHeader);
+        final headerBytes = Uint8List.fromList(utf8.encode(headerJson));
 
-      final fragmentPacket = _createFragmentPacket(message.id, i, fragmentCount, fragmentData);
+        // Create composite packet with header size, header, and data
+        final packetBytes = Uint8List(2 + headerBytes.length + fragmentData.length);
+        packetBytes[0] = headerBytes.length & 0xFF;
+        packetBytes[1] = (headerBytes.length >> 8) & 0xFF;
+        packetBytes.setRange(2, 2 + headerBytes.length, headerBytes);
+        packetBytes.setRange(2 + headerBytes.length, packetBytes.length, fragmentData);
 
-      // Send with retries
-      final fragmentSent = await _sendSingleFragment(
-          peripheral,
-          characteristic,
-          fragmentPacket,
-          i,
-          fragmentRetries
-      );
-
-      if (fragmentSent) {
-        fragmentsAcknowledged[i] = true;
-      }
-
-      // Check connection state before continuing
-      final deviceIndex = _discoveredDevices.indexWhere(
-              (d) => d.id == peripheralId && d.isConnected
-      );
-
-      if (deviceIndex < 0) {
-        throw Exception('Device disconnected during fragmented send');
-      }
-
-      // Adaptive delay between fragments based on MTU size
-      // Smaller MTU needs more time between packets
-      if (i < fragmentCount - 1) {
-        final delay = math.max(50, 150 - effectiveMtu ~/ 4);
-        await Future.delayed(Duration(milliseconds: delay));
-      }
-    }
-
-    // Check if all fragments were sent
-    final allFragmentsSent = !fragmentsAcknowledged.contains(false);
-
-    if (allFragmentsSent) {
-      _updateMessageStatus(message.id, MessageStatus.delivered);
-      return true;
-    } else {
-      // Find which fragments failed
-      final failedFragments = <int>[];
-      for (int i = 0; i < fragmentsAcknowledged.length; i++) {
-        if (!fragmentsAcknowledged[i]) {
-          failedFragments.add(i);
-        }
-      }
-
-      _errorSubject.add('Failed to send fragments: ${failedFragments.join(', ')}');
-      _updateMessageStatus(
-        message.id,
-        MessageStatus.failed,
-        lastAttempt: DateTime.now(),
-      );
-      return false;
-    }
-  }
-
-  Uint8List _createFragmentPacket(String messageId, int index, int count, Uint8List data) {
-    // Create fragment header (keep it small)
-    final fragmentHeader = {
-      'id': messageId,
-      'i': index,  // Fragment index
-      'c': count,  // Total count
-    };
-
-    // Combine header and data
-    final headerBytes = Uint8List.fromList(utf8.encode(jsonEncode(fragmentHeader)));
-
-    // Ensure header is not too large
-    if (headerBytes.length > 20) {
-      throw Exception('Fragment header too large - optimize header size');
-    }
-
-    // Create packet with one byte header size prefix
-    final packetBytes = Uint8List(1 + headerBytes.length + data.length);
-    packetBytes[0] = headerBytes.length;
-    packetBytes.setRange(1, 1 + headerBytes.length, headerBytes);
-    packetBytes.setRange(1 + headerBytes.length, packetBytes.length, data);
-
-    return packetBytes;
-  }
-
-  Future<bool> _sendSingleFragment(
-      Peripheral peripheral,
-      GATTCharacteristic characteristic,
-      Uint8List packetBytes,
-      int fragmentIndex,
-      List<int> fragmentRetries) async {
-
-    bool fragmentSent = false;
-
-    while (!fragmentSent && fragmentRetries[fragmentIndex] < 3) {
-      try {
+        // Send the fragment
         await _centralManager.writeCharacteristic(
           peripheral,
           characteristic,
           value: packetBytes,
           type: GATTCharacteristicWriteType.withResponse,
         );
-        fragmentSent = true;
-        _errorRecoveryManager.operationSucceeded();
-      } catch (e) {
-        fragmentRetries[fragmentIndex]++;
-        if (fragmentRetries[fragmentIndex] >= 3) {
-          _errorRecoveryManager.handleError('fragment write', e);
-          return false;
+
+        // Small delay between fragments - adaptive based on fragment size
+        if (i < fragmentCount - 1) {
+          final delay = math.max(20, math.min(100, fragmentSize ~/ 5));
+          await Future.delayed(Duration(milliseconds: delay));
         }
-        await Future.delayed(Duration(milliseconds: 200 * fragmentRetries[fragmentIndex]));
       }
+
+      return true;
+    } catch (e, stackTrace) {
+      debugPrint('Failed to send fragmented message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      return false;
     }
-
-    return fragmentSent;
   }
-
 
   /// Process an incoming message with enhanced fragment handling
   Future<void> _processIncomingMessage(
@@ -3140,6 +3414,8 @@ class NotificationService {
     return _initLock.synchronized(() async {
       if (_isInitialized) return;
 
+      debugPrint('BLE Service initializing...');
+
       try {
         // Define notification channels
         const AndroidNotificationChannel serviceChannel = AndroidNotificationChannel(
@@ -3271,4 +3547,10 @@ class NotificationService {
       debugPrint('Failed to update service notification: $e');
     }
   }
+}
+class ScanParameters {
+  final Duration duration;
+  final bool lowPower;
+
+  ScanParameters(this.duration, this.lowPower);
 }
