@@ -946,20 +946,24 @@ class BleService {
     // Check by name pattern first
     if (advertisement.name != null &&
         advertisement.name!.startsWith('PakConnect-')) {
+      debugPrint('Device identified by name: ${advertisement.name}');
       return true;
     }
 
     // Check by service UUID
     if (advertisement.serviceUUIDs.any((uuid) =>
-    uuid.toString() == serviceUuid)) {
+    uuid.toString().toLowerCase() == serviceUuid.toLowerCase())) {
+      debugPrint('Device identified by service UUID');
       return true;
     }
 
     // Check by manufacturer data
     for (var mfgData in advertisement.manufacturerSpecificData) {
+      // Check ID 0x01
       if (mfgData.id == 0x01 && mfgData.data.length >= 2) {
-        // Check for our 'PC' identifier in first two bytes
-        if (mfgData.data[0] == 0x50 && mfgData.data[1] == 0x43) {
+        if ((mfgData.data.length >= 2 && mfgData.data[0] == 0x50 && mfgData.data[1] == 0x43) ||
+            (mfgData.data.isNotEmpty && mfgData.data[0] == 0x01)) {
+          debugPrint('✅ Device identified by manufacturer data');
           return true;
         }
       }
@@ -1003,21 +1007,26 @@ class BleService {
         debugPrint('Normalized ID: $deviceId');
         debugPrint('RSSI: $rssi dBm');
 
-        // Check if this is a PakConnect device
-        final isPakDevice = isPakConnectDevice(advertisement);
-        debugPrint('Is PakConnect Device: $isPakDevice');
-
         // Log service UUIDs
         if (advertisement.serviceUUIDs.isNotEmpty) {
           debugPrint('Service UUIDs: ${advertisement.serviceUUIDs.map((uuid) => uuid.toString()).join(", ")}');
+        } else {
+          debugPrint('No service UUIDs found in advertisement');
         }
 
         // Log manufacturer data details
-        if (advertisement.manufacturerSpecificData.isNotEmpty) {
-          for (var mfgData in advertisement.manufacturerSpecificData) {
-            // Convert bytes to readable hex format
-            final dataHex = mfgData.data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':');
-            debugPrint('Manufacturer Data: ID=${mfgData.id}, Data=$dataHex');
+        for (var mfgData in advertisement.manufacturerSpecificData) {
+          final hexData = mfgData.data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':');
+          debugPrint('Manufacturer Data: ID=${mfgData.id}, Data=$hexData');
+
+          // If it has enough data, check first bytes as ASCII for debugging
+          if (mfgData.data.length >= 2) {
+            try {
+              final asciiPart = String.fromCharCodes(mfgData.data.sublist(0, math.min(4, mfgData.data.length)));
+              debugPrint('  First bytes as ASCII: $asciiPart');
+            } catch (e) {
+              // Ignore conversion errors
+            }
           }
         }
 
@@ -1027,6 +1036,10 @@ class BleService {
           rssi,
           advertisement,
         );
+
+        // Check if this is a PakConnect device
+        final isPakDevice = isPakConnectDevice(advertisement);
+        debugPrint('Is PakConnect Device: $isPakDevice');
 
         // Add a flag to identify app devices if needed
         final updatedDevice = device.copyWith(
@@ -1805,6 +1818,42 @@ class BleService {
     }
   }
 
+  Future<bool> _isPeripheralSupported() async {
+    try {
+      // This is a reasonable way to check peripheral support
+      final state = _peripheralManager.state;
+      if (state == BluetoothLowEnergyState.poweredOn) {
+        return true;
+      }
+
+      // If we're not immediately powered on, wait briefly for state changes
+      final completer = Completer<bool>();
+      late StreamSubscription subscription;
+
+      subscription = _peripheralManager.stateChanged.listen((event) {
+        if (event.state == BluetoothLowEnergyState.poweredOn) {
+          if (!completer.isCompleted) completer.complete(true);
+          subscription.cancel();
+        } else if (event.state == BluetoothLowEnergyState.unsupported) {
+          if (!completer.isCompleted) completer.complete(false);
+          subscription.cancel();
+        }
+      });
+
+      // Return result or timeout after 2 seconds
+      return await completer.future.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          subscription.cancel();
+          return _peripheralManager.state == BluetoothLowEnergyState.poweredOn;
+        },
+      );
+    } catch (e) {
+      debugPrint('Error checking peripheral support: $e');
+      return false;
+    }
+  }
+
   /// Start advertising as a peripheral
   Future<bool> startAdvertising() async {
     if (!_isInitialized) {
@@ -1817,6 +1866,12 @@ class BleService {
     }
 
     try {
+      if (!await _isPeripheralSupported()) {
+        debugPrint('⚠️ Peripheral mode not supported on this device');
+        _connectionStateSubject.add('Peripheral mode not supported');
+        return false;
+      }
+
       // Create GATT service structure
       debugPrint('Creating GATT service for advertising...');
       final service = await _createGattService();
@@ -1834,16 +1889,15 @@ class BleService {
       // Start advertising with relay capability indication
       final manufacturerData = [
         ManufacturerSpecificData(
-          id: 0x01, // Use an appropriate manufacturer ID
+          id: 0x01, // Original ID
           data: Uint8List.fromList([
             0x50, 0x43, // 'PC' - PakConnect identifier
             0x01, // Protocol version
             0x01, // Relay capability flag
-            // Add a few bytes from deviceId to help identification
-            ...utf8.encode(shortId).sublist(0, math.min(4, shortId.length)),
           ]),
         )
       ];
+
 
       // Start advertising
       await _peripheralManager.startAdvertising(
@@ -1858,11 +1912,13 @@ class BleService {
       debugPrint('Advertising started successfully');
       _connectionStateSubject.add('Advertising');
       debugPrint('Starting advertisement as: BLE-Msg-$_deviceId');
+      _errorRecoveryManager.operationSucceeded();
       return true;
     } catch (e) {
       final errorMsg = 'Advertising error: $e';
       _connectionStateSubject.add(errorMsg);
       _errorSubject.add(errorMsg);
+      _errorRecoveryManager.handleError('startAdvertising', e);
       return false;
     }
   }
