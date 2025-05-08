@@ -942,22 +942,71 @@ class BleService {
         );
   }
 
+  bool isPakConnectDevice(Advertisement advertisement) {
+    // Check 1: Device name
+    if (advertisement.name != null &&
+        (advertisement.name!.startsWith('PakConnect-') ||
+            advertisement.name!.startsWith('BLE-Msg-'))) {
+      debugPrint('✅ Device identified by name: ${advertisement.name}');
+      return true;
+    }
+
+    // Check 2: Service UUID
+    if (advertisement.serviceUUIDs.any((uuid) =>
+    uuid.toString().toLowerCase() == serviceUuid.toLowerCase())) {
+      debugPrint('✅ Device identified by service UUID');
+      return true;
+    }
+
+    // Check 3: Manufacturer data
+    for (var mfgData in advertisement.manufacturerSpecificData) {
+      if (mfgData.id == 0x01 && mfgData.data.isNotEmpty) {
+        // Check for relay capability flag OR 'PC' identifier
+        if ((mfgData.data[0] == 0x01) ||
+            (mfgData.data.length >= 2 && mfgData.data[0] == 0x50 && mfgData.data[1] == 0x43)) {
+          debugPrint('✅ Device identified by manufacturer data');
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
   /// Handle discovered device event
   void _handleDiscoveredDevice(DiscoveredEventArgs event) {
     _stateLock.synchronized(() async {
-      // Process device discovery on a separate isolate
-      final deviceProcessResult = await compute((args) {
-        final peripheral = args[0] as Peripheral;
-        final rssi = args[1] as int;
-        final advertisement = args[2] as Advertisement;
-        final devicesList = args[3] as List<BleDevice>;
+      try {
+        // Process device discovery directly without using compute()
+        final peripheral = event.peripheral;
+        final rssi = event.rssi;
+        final advertisement = event.advertisement;
 
+        // Get a normalized device identifier
+        final deviceId = peripheral.uuid.toString();
+
+        // Debug logging
         debugPrint('==== DEVICE DISCOVERED ====');
         debugPrint('Name: ${advertisement.name ?? "Unknown"}');
         debugPrint('ID: ${peripheral.uuid}');
         debugPrint('RSSI: $rssi dBm');
-        debugPrint('Service UUIDs: ${advertisement.serviceUUIDs.map((uuid) => uuid.toString()).join(", ")}');
 
+        // Log service UUIDs
+        if (advertisement.serviceUUIDs.isNotEmpty) {
+          debugPrint('Service UUIDs: ${advertisement.serviceUUIDs.map((uuid) => uuid.toString()).join(", ")}');
+        }
+
+        // Log manufacturer data
+        for (var mfgData in advertisement.manufacturerSpecificData) {
+          final hexData = mfgData.data.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ');
+          debugPrint('Manufacturer Data: ID=${mfgData.id}, Data=$hexData');
+        }
+
+        // Check if this is a PakConnect device
+        final isPakDevice = isPakConnectDevice(advertisement);
+        debugPrint('Is PakConnect Device: $isPakDevice');
+
+        // Create device from peripheral
         final device = BleDevice.fromPeripheral(
           peripheral,
           rssi,
@@ -965,57 +1014,51 @@ class BleService {
         );
 
         // Find existing device
-        final index = devicesList.indexWhere(
-                (d) => d.peripheral.uuid == device.peripheral.uuid
-        );
-
+        final existingIndex = _discoveredDevices.indexWhere((d) => d.id == deviceId);
         bool deviceListChanged = false;
 
-        if (index >= 0) {
-          devicesList[index] = devicesList[index].copyWith(
+        if (existingIndex >= 0) {
+          // Update existing device
+          _discoveredDevices[existingIndex] = _discoveredDevices[existingIndex].copyWith(
             rssi: device.rssi,
-            name: device.name ?? devicesList[index].name,
+            name: device.name ?? _discoveredDevices[existingIndex].name,
             lastSeen: DateTime.now(),
-            supportsRelay: device.supportsRelay,
+            supportsRelay: device.supportsRelay || isPakDevice,
           );
           deviceListChanged = true;
-          debugPrint('Updated existing device: ${getDisplayName(device)}');
+          debugPrint('Updated existing device: ${device.name ?? "Unknown"}');
         } else {
-          devicesList.add(device);
+          // Add as a new device
+          final updatedDevice = device.copyWith(
+            supportsRelay: isPakDevice,
+          );
+          _discoveredDevices.add(updatedDevice);
           deviceListChanged = true;
-          debugPrint('Added new device: ${getDisplayName(device)}');
+          debugPrint('Added new device: ${device.name ?? "Unknown"}');
         }
 
-        // Return processed data
-        return {
-          'device': device,
-          'devicesList': devicesList,
-          'deviceListChanged': deviceListChanged
-        };
-      }, [event.peripheral, event.rssi, event.advertisement, _discoveredDevices]);
-
-      // Update with processed data
-      final device = deviceProcessResult['device'] as BleDevice;
-      _discoveredDevices = deviceProcessResult['devicesList'] as List<BleDevice>;
-      final deviceListChanged = deviceProcessResult['deviceListChanged'] as bool;
-
-      // Rest of the method stays the same
-      if (deviceListChanged) {
-        _pendingDeviceListUpdate = true;
-      }
-
-      _deviceUpdateDebouncer?.cancel();
-      _deviceUpdateDebouncer = Timer(const Duration(milliseconds: 100), () {
-        if (_pendingDeviceListUpdate) {
-          debugPrint('Updating device list with ${_discoveredDevices.length} devices');
-          _devicesSubject.add(_discoveredDevices);
-          _pendingDeviceListUpdate = false;
+        // Update UI if needed
+        if (deviceListChanged) {
+          _pendingDeviceListUpdate = true;
         }
-      });
 
-      if (_shouldConnectToDevice(device.peripheral.uuid.toString())) {
-        debugPrint('Attempting to connect to device: ${getDisplayName(device)}');
-        _connectToDevice(device.peripheral);
+        // Debounce UI updates
+        _deviceUpdateDebouncer?.cancel();
+        _deviceUpdateDebouncer = Timer(const Duration(milliseconds: 300), () {
+          if (_pendingDeviceListUpdate) {
+            _devicesSubject.add(_discoveredDevices);
+            _pendingDeviceListUpdate = false;
+          }
+        });
+
+        // Automatically connect to PakConnect devices
+        if (isPakDevice && _shouldConnectToDevice(deviceId)) {
+          debugPrint('Attempting to connect to device: ${device.name ?? "Unknown"}');
+          _connectToDevice(device.peripheral);
+        }
+      } catch (e, stackTrace) {
+        debugPrint('Error handling discovered device: $e');
+        debugPrint('Stack trace: $stackTrace');
       }
     });
   }
@@ -1503,21 +1546,22 @@ class BleService {
       // Start scanning with appropriate mode
       debugPrint('Starting BLE scan for service UUID: $serviceUuid');
       try {
-        await _centralManager.startDiscovery(
-          serviceUUIDs: [UUID.fromString(serviceUuid)],
-        );
-        debugPrint('Started scanning for specific service UUID');
+        debugPrint('Starting general scan without service filter');
+        await _centralManager.startDiscovery();
+        debugPrint('Started general scan');
       } catch (e) {
-        debugPrint('Failed to scan for specific service UUID: $e');
+        debugPrint('Failed to start general scan: $e');
 
-        // Fall back to scanning for all devices
+        // Fall back to specific scan if general scan fails
         try {
-          debugPrint('Trying general scan without service filter');
-          await _centralManager.startDiscovery();
-          debugPrint('Started general scan');
+          debugPrint('Trying scan with service UUID filter: $serviceUuid');
+          await _centralManager.startDiscovery(
+            serviceUUIDs: [UUID.fromString(serviceUuid)],
+          );
+          debugPrint('Started scanning with service UUID filter');
         } catch (e) {
-          debugPrint('Failed to start general scan: $e');
-          rethrow; // Re-throw for consistency
+          debugPrint('Failed to start specific scan: $e');
+          throw Exception('Failed to start any scan method');
         }
       }
 
