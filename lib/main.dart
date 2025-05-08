@@ -511,47 +511,171 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
   final BleService _bleService = BleService();
   bool _isScanning = false;
   List<BleDevice> _devices = [];
+  List<BleDevice> _filteredDevices = [];
   StreamSubscription<List<BleDevice>>? _devicesSubscription;
   StreamSubscription<String>? _connectionStateSubscription;
+  StreamSubscription<String>? _errorSubscription;
+
+  // Filtering options
+  bool _showOnlyAppDevices = true;
+  String _searchText = '';
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _setupBleListeners();
     _checkPermissions();
+
+    // Set up search controller
+    _searchController.addListener(() {
+      setState(() {
+        _searchText = _searchController.text;
+        _applyFilters();
+      });
+    });
+  }
+
+  void _applyFilters() {
+    setState(() {
+      _filteredDevices = _devices.where((device) {
+        // Apply app device filter if enabled
+        if (_showOnlyAppDevices && !device.supportsRelay) {
+          return false;
+        }
+
+        // Apply search text filter if provided
+        if (_searchText.isNotEmpty) {
+          final deviceName = _bleService.getDisplayName(device).toLowerCase();
+          final deviceId = device.id.toLowerCase();
+
+          return deviceName.contains(_searchText.toLowerCase()) ||
+              deviceId.contains(_searchText.toLowerCase());
+        }
+
+        return true;
+      }).toList();
+
+      // Sort by signal strength (RSSI) and then by app devices first
+      _filteredDevices.sort((a, b) {
+        // App devices first
+        if (a.supportsRelay && !b.supportsRelay) return -1;
+        if (!a.supportsRelay && b.supportsRelay) return 1;
+
+        // Then by signal strength
+        return b.rssi.compareTo(a.rssi);
+      });
+    });
   }
 
   Future<void> _checkPermissions() async {
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.location,
-      Permission.bluetooth,
-      Permission.bluetoothScan,
-      Permission.bluetoothConnect,
-    ].request();
+    debugPrint('Checking BLE permissions...');
 
+    // List of required permissions based on platform and version
+    List<Permission> requiredPermissions = [
+      Permission.location,
+    ];
+
+    // Add Bluetooth permissions based on platform
+    if (Platform.isAndroid) {
+      final androidInfo = await DeviceInfoPlugin().androidInfo;
+      debugPrint('Android SDK version: ${androidInfo.version.sdkInt}');
+
+      if (androidInfo.version.sdkInt >= 31) { // Android 12+
+        requiredPermissions.addAll([
+          Permission.bluetoothScan,
+          Permission.bluetoothConnect,
+          Permission.bluetoothAdvertise,
+        ]);
+      } else {
+        requiredPermissions.addAll([
+          Permission.bluetooth,
+        ]);
+      }
+    }
+
+    // Request all required permissions
+    Map<Permission, PermissionStatus> statuses = await requiredPermissions.request();
+
+    // Log permission status for debugging
+    statuses.forEach((permission, status) {
+      debugPrint('Permission $permission: $status');
+    });
+
+    // Check if all permissions are granted
     bool allGranted = statuses.values.every((status) => status.isGranted);
+    debugPrint('All permissions granted: $allGranted');
+
     if (!allGranted && mounted) {
+      // Show detailed permission error
+      setState(() {
+        _statusMessage = "Missing permissions: ${statuses.entries.where((e) => !e.value.isGranted).map((e) => e.key).join(', ')}";
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing required permissions')),
+        SnackBar(
+          content: Text('Missing permissions required for BLE scanning to work.'),
+          duration: Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Settings',
+            onPressed: () {
+              openAppSettings();
+            },
+          ),
+        ),
       );
+    } else {
+      // All permissions granted, update status
+      setState(() {
+        _statusMessage = "Ready to scan";
+      });
     }
   }
 
   void _setupBleListeners() {
     // Listen for device discoveries
     _devicesSubscription = _bleService.devices.listen((devices) {
+      debugPrint('BLE devices updated: ${devices.length} devices');
       if (mounted) {
         setState(() {
           _devices = devices;
+          _applyFilters();
         });
       }
     });
 
     // Listen for connection state changes
     _connectionStateSubscription = _bleService.connectionState.listen((state) {
+      debugPrint('BLE connection state: $state');
       if (mounted) {
         setState(() {
           _isScanning = state == 'Scanning';
+          _statusMessage = state;
+        });
+      }
+    });
+
+    // Listen for errors
+    _errorSubscription = _bleService.errors.listen((error) {
+      debugPrint('BLE error: $error');
+      if (mounted) {
+        setState(() {
+          _statusMessage = "Error: $error";
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('BLE error: $error')),
+        );
+      }
+    });
+
+    // Check initial scanning state
+    Future.delayed(Duration.zero, () async {
+      final isInitialized = _bleService.isInitialized;
+      debugPrint('BLE service initialized: $isInitialized');
+      if (!isInitialized && mounted) {
+        setState(() {
+          _statusMessage = "BLE service not initialized";
         });
       }
     });
@@ -561,16 +685,38 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
     setState(() {
       _statusMessage = "Starting scan...";
     });
+
+    // Make sure service is initialized
+    if (!_bleService.isInitialized) {
+      await _bleService.initialize();
+    }
+
     try {
-      await _bleService.startScan(maxDuration: const Duration(seconds: 30));
+      // Clear current device list first
+      //setState(() {
+        //_devices = [];
+      //});
+
+      final success = await _bleService.startScan(maxDuration: const Duration(seconds: 30));
+
       setState(() {
-        _statusMessage = "Scan started";
+        if (success) {
+          _statusMessage = "Scanning...";
+          _isScanning = true;
+        } else {
+          _statusMessage = "Failed to start scan";
+        }
       });
+
+      debugPrint('Scan started: $success');
     } catch (e) {
       setState(() {
         _statusMessage = "Scan error: $e";
+        _isScanning = false;
       });
+
       debugPrint('Error scanning for BLE devices: $e');
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error scanning: $e')),
@@ -581,15 +727,20 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
 
   void _stopScanning() async {
     setState(() {
-      _statusMessage = "Scan stopped.";
+      _statusMessage = "Stopping scan...";
     });
+
     try {
       await _bleService.stopScan();
+
+      setState(() {
+        _statusMessage = "Scan stopped";
+        _isScanning = false;
+      });
     } catch (e) {
       setState(() {
-        _statusMessage = "Scan stopping error: $e";
+        _statusMessage = "Error stopping scan: $e";
       });
-      debugPrint('Error stopping scan: $e');
     }
   }
 
@@ -598,14 +749,14 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
-        return const AlertDialog(
+        return AlertDialog(
           title: Text('Connecting'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Connecting to device...'),
+              Text('Connecting to ${_bleService.getDisplayName(device)}...'),
             ],
           ),
         );
@@ -614,6 +765,7 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
 
     try {
       final success = await _bleService.connectToDevice(device);
+
       if (mounted) {
         Navigator.pop(context); // Close connecting dialog
 
@@ -626,7 +778,7 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to connect to device')),
+            SnackBar(content: Text('Failed to connect to device')),
           );
         }
       }
@@ -642,19 +794,27 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
 
   // Convert RSSI to signal strength widget
   Widget _buildSignalStrength(int rssi) {
+    IconData icon;
     Color color;
 
     if (rssi >= -60) {
+      icon = Icons.signal_wifi_4_bar;
       color = Colors.green;
     } else if (rssi >= -70) {
+      icon = Icons.network_wifi_3_bar;
       color = Colors.lightGreen;
     } else if (rssi >= -80) {
+      icon = Icons.network_wifi_2_bar;
       color = Colors.orange;
+    } else if (rssi >= -90) {
+      icon = Icons.network_wifi_1_bar;
+      color = Colors.orangeAccent;
     } else {
+      icon = Icons.signal_wifi_0_bar;
       color = Colors.red;
     }
 
-    return Icon(Icons.signal_wifi_4_bar, color: color);
+    return Icon(icon, color: color);
   }
 
   @override
@@ -669,16 +829,16 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
               onPressed: _stopScanning,
               tooltip: 'Stop scanning',
             ),
-          if (!_isScanning)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _startScanning,
-              tooltip: 'Start scanning',
-            ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _checkPermissions,
+            tooltip: 'Check permissions',
+          ),
         ],
       ),
       body: Column(
         children: [
+          // Status bar
           Container(
             color: Colors.blue.shade50,
             padding: const EdgeInsets.all(8.0),
@@ -689,73 +849,247 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
                   color: Colors.blue,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  'Status: ${_isScanning ? "Scanning..." : _statusMessage}',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Text(
+                    'Status: ${_isScanning ? "Scanning..." : _statusMessage}',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),
           ),
+
+          // Search and filter section
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Found ${_devices.length} devices',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              children: [
+                // Search input
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search devices...',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
+                    contentPadding: EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                  ),
+                ),
+
+                // Filter options
+                Row(
+                  children: [
+                    Expanded(
+                      child: SwitchListTile(
+                        title: Text('Show only app devices'),
+                        value: _showOnlyAppDevices,
+                        onChanged: (value) {
+                          setState(() {
+                            _showOnlyAppDevices = value;
+                            _applyFilters();
+                          });
+                        },
+                        dense: true,
+                      ),
+                    ),
+                    TextButton.icon(
+                      icon: Icon(Icons.sort),
+                      label: Text('Sort'),
+                      onPressed: () {
+                        setState(() {
+                          _filteredDevices.sort((a, b) => b.rssi.compareTo(a.rssi));
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          Expanded(
-            child: _devices.isEmpty
-                ? Center(
-              child: _isScanning
-                  ? const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Scanning for devices...'),
-                ],
-              )
-                  : const Text('No devices found. Start scanning to discover BLE devices.'),
-            )
-                : ListView.builder(
-              itemCount: _devices.length,
-              itemBuilder: (context, index) {
-                final device = _devices[index];
-                final deviceName = _bleService.getDisplayName(device);
-                final deviceId = device.id;
-                final rssi = device.rssi;
 
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue,
-                    child: const Icon(Icons.bluetooth, color: Colors.white),
+          // Status text showing counts
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Showing ${_filteredDevices.length} of ${_devices.length} devices',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                if (_devices.isNotEmpty && _devices.any((d) => d.supportsRelay))
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${_devices.where((d) => d.supportsRelay).length} app devices found',
+                      style: TextStyle(
+                        color: Colors.green.shade900,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
-                  title: Text(
-                    deviceName,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text('ID: $deviceId'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('$rssi dBm'),
-                      const SizedBox(width: 8),
-                      _buildSignalStrength(rssi),
-                    ],
-                  ),
-                  onTap: () => _connectToDevice(device),
-                );
+              ],
+            ),
+          ),
+
+          // Device list
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () async {
+                if (_isScanning) {
+                  await _bleService.stopScan();
+                }
+                _startScanning();
+                return Future.value();
               },
+              child: _filteredDevices.isEmpty
+                  ? Center(
+                child: _isScanning
+                    ? const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Scanning for devices...'),
+                  ],
+                )
+                    : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.bluetooth_disabled, size: 48, color: Colors.grey),
+                    SizedBox(height: 16),
+                    Text(
+                      _devices.isEmpty
+                          ? 'No devices found. Pull down to scan or tap the button below.'
+                          : 'No devices match your filters.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              )
+                  : ListView.builder(
+                itemCount: _filteredDevices.length,
+                itemBuilder: (context, index) {
+                  final device = _filteredDevices[index];
+                  final deviceName = _bleService.getDisplayName(device);
+                  final deviceId = device.id;
+                  final rssi = device.rssi;
+                  final isAppDevice = device.supportsRelay;
+
+                  return Card(
+                    margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    elevation: isAppDevice ? 3 : 1,
+                    color: isAppDevice ? Colors.blue.shade50 : null,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: isAppDevice
+                          ? BorderSide(color: Colors.blue, width: 1)
+                          : BorderSide.none,
+                    ),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: isAppDevice ? Colors.blue : Colors.grey,
+                        child: Icon(
+                            isAppDevice ? Icons.bluetooth_connected : Icons.bluetooth,
+                            color: Colors.white
+                        ),
+                      ),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              deviceName,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isAppDevice ? Colors.blue.shade900 : null,
+                              ),
+                            ),
+                          ),
+                          if (isAppDevice)
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.blue,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                'PakConnect',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('ID: ${deviceId.substring(0, math.min(deviceId.length, 8))}...'),
+                          Row(
+                            children: [
+                              _buildSignalStrength(rssi),
+                              SizedBox(width: 4),
+                              Text('$rssi dBm', style: TextStyle(
+                                color: rssi > -80 ? Colors.green : Colors.orange,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              )),
+                              if (device.isConnected)
+                                Container(
+                                  margin: EdgeInsets.only(left: 8),
+                                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    'Connected',
+                                    style: TextStyle(color: Colors.white, fontSize: 10),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      trailing: ElevatedButton(
+                        onPressed: () => _connectToDevice(device),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isAppDevice ? Colors.blue : null,
+                          foregroundColor: isAppDevice ? Colors.white : null,
+                        ),
+                        child: Text('Connect'),
+                      ),
+                      onTap: () => _connectToDevice(device),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _isScanning ? null : _startScanning,
-        backgroundColor: _isScanning ? Colors.grey : Colors.red,
-        child: _isScanning
-            ? const CircularProgressIndicator(color: Colors.white)
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _isScanning ? _stopScanning : _startScanning,
+        backgroundColor: _isScanning ? Colors.red : Colors.blue,
+        icon: _isScanning
+            ? SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(
+            color: Colors.white,
+            strokeWidth: 3,
+          ),
+        )
             : const Icon(Icons.search),
+        label: Text(_isScanning ? 'Scanning...' : 'Start Scan'),
       ),
     );
   }
@@ -764,6 +1098,7 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
   void dispose() {
     _devicesSubscription?.cancel();
     _connectionStateSubscription?.cancel();
+    _errorSubscription?.cancel();
     _stopScanning();
     super.dispose();
   }

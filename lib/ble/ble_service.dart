@@ -667,7 +667,7 @@ class BleService {
 
       // Setup adaptive scanning
       _setupAdaptiveScanning();
-
+      _startDeviceCleanupTimer();
       _isInitialized = true;
       _connectionStateSubject.add('Ready');
       debugPrint('BLE service initialized successfully');
@@ -942,100 +942,226 @@ class BleService {
         );
   }
 
+  bool isPakConnectDevice(Advertisement advertisement) {
+    // Check by name pattern first
+    if (advertisement.name != null &&
+        advertisement.name!.startsWith('PakConnect-')) {
+      return true;
+    }
+
+    // Check by service UUID
+    if (advertisement.serviceUUIDs.any((uuid) =>
+    uuid.toString() == serviceUuid)) {
+      return true;
+    }
+
+    // Check by manufacturer data
+    for (var mfgData in advertisement.manufacturerSpecificData) {
+      if (mfgData.id == 0x01 && mfgData.data.length >= 2) {
+        // Check for our 'PC' identifier in first two bytes
+        if (mfgData.data[0] == 0x50 && mfgData.data[1] == 0x43) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  String _normalizeDeviceId(String deviceId) {
+    // Some BLE stacks might report UUIDs in different formats
+    // This method ensures consistent formatting for comparison
+
+    // Remove any UUID formatting characters
+    final normalized = deviceId.replaceAll(RegExp(r'[{}\-]'), '').toLowerCase();
+
+    // If the ID is all zeros with a non-zero suffix (common for some BLE chipsets)
+    if (normalized.startsWith('00000000000000000000')) {
+      // Return just the significant part
+      return normalized.substring(20);
+    }
+
+    return normalized;
+  }
+
   /// Handle discovered device event
   void _handleDiscoveredDevice(DiscoveredEventArgs event) {
     _stateLock.synchronized(() async {
-      // Process device discovery on a separate isolate
-      final deviceProcessResult = await compute((args) {
-        final peripheral = args[0] as Peripheral;
-        final rssi = args[1] as int;
-        final advertisement = args[2] as Advertisement;
-        final devicesList = args[3] as List<BleDevice>;
+      try {
+        // Process device discovery on the main thread for better control
+        final peripheral = event.peripheral;
+        final rssi = event.rssi;
+        final advertisement = event.advertisement;
 
+        // Get a normalized device identifier
+        final deviceId = _normalizeDeviceId(peripheral.uuid.toString());
+
+        // Debug logging
         debugPrint('==== DEVICE DISCOVERED ====');
         debugPrint('Name: ${advertisement.name ?? "Unknown"}');
         debugPrint('ID: ${peripheral.uuid}');
+        debugPrint('Normalized ID: $deviceId');
         debugPrint('RSSI: $rssi dBm');
-        debugPrint('Service UUIDs: ${advertisement.serviceUUIDs.map((uuid) => uuid.toString()).join(", ")}');
 
+        // Check if this is a PakConnect device
+        final isPakDevice = isPakConnectDevice(advertisement);
+        debugPrint('Is PakConnect Device: $isPakDevice');
+
+        // Log service UUIDs
+        if (advertisement.serviceUUIDs.isNotEmpty) {
+          debugPrint('Service UUIDs: ${advertisement.serviceUUIDs.map((uuid) => uuid.toString()).join(", ")}');
+        }
+
+        // Log manufacturer data details
+        if (advertisement.manufacturerSpecificData.isNotEmpty) {
+          for (var mfgData in advertisement.manufacturerSpecificData) {
+            // Convert bytes to readable hex format
+            final dataHex = mfgData.data.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':');
+            debugPrint('Manufacturer Data: ID=${mfgData.id}, Data=$dataHex');
+          }
+        }
+
+        // Create device from peripheral
         final device = BleDevice.fromPeripheral(
           peripheral,
           rssi,
           advertisement,
         );
 
-        // Find existing device
-        final index = devicesList.indexWhere(
-                (d) => d.peripheral.uuid == device.peripheral.uuid
+        // Add a flag to identify app devices if needed
+        final updatedDevice = device.copyWith(
+          supportsRelay: isPakDevice, // Reuse this field to indicate app device
         );
+
+        // Find existing device with better duplicate detection
+        final existingIndex = _discoveredDevices.indexWhere((d) {
+          // Compare by normalized ID
+          final normalizedExistingId = _normalizeDeviceId(d.peripheral.uuid.toString());
+          return normalizedExistingId == deviceId;
+        });
 
         bool deviceListChanged = false;
 
-        if (index >= 0) {
-          devicesList[index] = devicesList[index].copyWith(
-            rssi: device.rssi,
-            name: device.name ?? devicesList[index].name,
-            lastSeen: DateTime.now(),
-            supportsRelay: device.supportsRelay,
-          );
-          deviceListChanged = true;
-          debugPrint('Updated existing device: ${getDisplayName(device)}');
+        if (existingIndex >= 0) {
+          // Only update if there's meaningful change or significant time has passed
+          final existingDevice = _discoveredDevices[existingIndex];
+          final timeSinceLastUpdate = DateTime.now().difference(existingDevice.lastSeen);
+
+          // Check if update is worthwhile:
+          // - Signal strength changed significantly
+          // - Name is now available where it wasn't before
+          // - It's been a while since last update (10 seconds)
+          // - Device connection state has changed
+          if (
+          (existingDevice.rssi - rssi).abs() >= 5 ||
+              (existingDevice.name == null && updatedDevice.name != null) ||
+              timeSinceLastUpdate.inSeconds >= 10 ||
+              existingDevice.connectionState != updatedDevice.connectionState
+          ) {
+            // Update with fresh data but keep connection state if already connected
+            _discoveredDevices[existingIndex] = _discoveredDevices[existingIndex].copyWith(
+              rssi: updatedDevice.rssi,
+              name: updatedDevice.name ?? _discoveredDevices[existingIndex].name,
+              lastSeen: DateTime.now(),
+              supportsRelay: updatedDevice.supportsRelay || _discoveredDevices[existingIndex].supportsRelay,
+              // Don't overwrite connection state if already connected
+              connectionState: _discoveredDevices[existingIndex].isConnected ?
+              _discoveredDevices[existingIndex].connectionState :
+              updatedDevice.connectionState,
+            );
+            deviceListChanged = true;
+            debugPrint('Updated existing device: ${getDisplayName(updatedDevice)}');
+          } else {
+            // Just update the lastSeen time without triggering UI update
+            _discoveredDevices[existingIndex] = _discoveredDevices[existingIndex].copyWith(
+              lastSeen: DateTime.now(),
+            );
+            debugPrint('Refreshed timestamp for: ${getDisplayName(updatedDevice)}');
+          }
         } else {
-          devicesList.add(device);
+          // Add as a new device
+          _discoveredDevices.add(updatedDevice);
           deviceListChanged = true;
-          debugPrint('Added new device: ${getDisplayName(device)}');
+          debugPrint('Added new device: ${getDisplayName(updatedDevice)}');
         }
 
-        // Return processed data
-        return {
-          'device': device,
-          'devicesList': devicesList,
-          'deviceListChanged': deviceListChanged
-        };
-      }, [event.peripheral, event.rssi, event.advertisement, _discoveredDevices]);
-
-      // Update with processed data
-      final device = deviceProcessResult['device'] as BleDevice;
-      _discoveredDevices = deviceProcessResult['devicesList'] as List<BleDevice>;
-      final deviceListChanged = deviceProcessResult['deviceListChanged'] as bool;
-
-      // Rest of the method stays the same
-      if (deviceListChanged) {
-        _pendingDeviceListUpdate = true;
-      }
-
-      _deviceUpdateDebouncer?.cancel();
-      _deviceUpdateDebouncer = Timer(const Duration(milliseconds: 100), () {
-        if (_pendingDeviceListUpdate) {
-          debugPrint('Updating device list with ${_discoveredDevices.length} devices');
-          _devicesSubject.add(_discoveredDevices);
-          _pendingDeviceListUpdate = false;
+        // Only update UI if device list meaningfully changed
+        if (deviceListChanged) {
+          _pendingDeviceListUpdate = true;
         }
-      });
 
-      if (_shouldConnectToDevice(device.peripheral.uuid.toString())) {
-        debugPrint('Attempting to connect to device: ${getDisplayName(device)}');
-        _connectToDevice(device.peripheral);
+        // Debounce UI updates to prevent lag
+        _deviceUpdateDebouncer?.cancel();
+        _deviceUpdateDebouncer = Timer(const Duration(milliseconds: 300), () {
+          if (_pendingDeviceListUpdate) {
+            // Deduplicate the list again before updating UI
+            // This handles edge cases with race conditions
+            final uniqueDeviceIds = <String>{};
+            final uniqueDevices = <BleDevice>[];
+
+            for (final device in _discoveredDevices) {
+              final normalizedId = _normalizeDeviceId(device.peripheral.uuid.toString());
+              if (!uniqueDeviceIds.contains(normalizedId)) {
+                uniqueDeviceIds.add(normalizedId);
+                uniqueDevices.add(device);
+              }
+            }
+
+            // Replace with deduplicated list
+            _discoveredDevices = uniqueDevices;
+
+            // Now update subscribers with clean list
+            debugPrint('Updating device list with ${_discoveredDevices.length} unique devices');
+            _devicesSubject.add(_discoveredDevices);
+            _pendingDeviceListUpdate = false;
+          }
+        });
+
+        // Automatically connect if needed
+        if (_shouldConnectToDevice(deviceId)) {
+          debugPrint('Attempting to connect to device: ${getDisplayName(updatedDevice)}');
+          _connectToDevice(updatedDevice.peripheral);
+        }
+      } catch (e, stackTrace) {
+        debugPrint('Error handling discovered device: $e');
+        debugPrint('Stack trace: $stackTrace');
       }
     });
   }
 
+
   /// Determine if we should connect to a device with better prioritization
   bool _shouldConnectToDevice(String deviceId) {
+    // Normalize the ID for comparison
+    final normalizedId = _normalizeDeviceId(deviceId);
+
     // Find the device
-    final deviceIndex = _discoveredDevices.indexWhere((d) => d.id == deviceId);
+    final deviceIndex = _discoveredDevices.indexWhere((d) =>
+    _normalizeDeviceId(d.id) == normalizedId
+    );
+
     if (deviceIndex < 0) return false;
 
     final device = _discoveredDevices[deviceIndex];
 
+    // Don't connect if already connecting or connected
+    if (_connectionPool.isActivelyConnecting(deviceId) || device.isConnected) {
+      return false;
+    }
+
     // Don't connect if in cooldown or already actively connecting
-    if (!device.canConnect || _connectionPool.isActivelyConnecting(deviceId)) {
+    if (!device.canConnect) {
       return false;
     }
 
     // Don't connect if we have too many active connections and this isn't high priority
     if (!_connectionPool.hasCapacity() && device.connectionPriority < 300) {
       return false;
+    }
+
+    // Prioritize PakConnect devices
+    if (device.supportsRelay) {
+      return true;
     }
 
     // Check if we have direct messages for this device
@@ -1061,6 +1187,44 @@ class BleService {
     }
 
     return false;
+  }
+
+  void _startDeviceCleanupTimer() {
+    // Clean up periodically
+    Timer.periodic(Duration(minutes: 2), (_) {
+      _cleanupDeviceList();
+    });
+  }
+
+  void _cleanupDeviceList() {
+    _stateLock.synchronized(() async {
+      final now = DateTime.now();
+      final initialCount = _discoveredDevices.length;
+
+      // Keep devices that are:
+      // 1. Recently seen (within last 5 minutes)
+      // 2. Currently connected
+      // 3. PakConnect devices (keep for longer, 30 minutes)
+      _discoveredDevices.removeWhere((device) {
+        if (device.isConnected) return false; // Keep connected devices
+
+        final timeSinceLastSeen = now.difference(device.lastSeen);
+
+        if (device.supportsRelay) {
+          // Keep PakConnect devices longer
+          return timeSinceLastSeen.inMinutes > 30;
+        } else {
+          // Remove other devices sooner
+          return timeSinceLastSeen.inMinutes > 5;
+        }
+      });
+
+      final removedCount = initialCount - _discoveredDevices.length;
+      if (removedCount > 0) {
+        debugPrint('Cleaned up $removedCount stale devices');
+        _devicesSubject.add(_discoveredDevices);
+      }
+    });
   }
 
   /// Handle connection state changed event
@@ -1500,31 +1664,43 @@ class BleService {
     }
 
     try {
-      // Start scanning with appropriate mode
-      debugPrint('Starting BLE scan for service UUID: $serviceUuid');
-      try {
-        await _centralManager.startDiscovery(
-          serviceUUIDs: [UUID.fromString(serviceUuid)],
-        );
-        debugPrint('Started scanning for specific service UUID');
-      } catch (e) {
-        debugPrint('Failed to scan for specific service UUID: $e');
+      // Check if we have the necessary permissions before scanning
+      bool canScan = await _checkScanPermissions();
+      if (!canScan) {
+        debugPrint('BLE scanning permission denied. Cannot start scan.');
+        _connectionStateSubject.add('Permission denied');
+        return false;
+      }
 
-        // Fall back to scanning for all devices
+      // Define scan settings based on Android version
+      ScanMode scanPowerMode = lowPowerMode ? ScanMode.lowPower : ScanMode.balanced;
+      debugPrint('Starting BLE scan with power mode: $scanPowerMode');
+
+      // First try to scan with the service UUID filter
+      try {
+        debugPrint('Starting general scan without service filter');
+        await _centralManager.startDiscovery();
+        debugPrint('Started general scan');
+      } catch (e) {
+        debugPrint('Failed to start general scan: $e');
+
+        // Fall back to specific scan if general scan fails
         try {
-          debugPrint('Trying general scan without service filter');
-          await _centralManager.startDiscovery();
-          debugPrint('Started general scan');
+          debugPrint('Trying scan with service UUID filter: $serviceUuid');
+          await _centralManager.startDiscovery(
+            serviceUUIDs: [UUID.fromString(serviceUuid)],
+          );
+          debugPrint('Started scanning with service UUID filter');
         } catch (e) {
-          debugPrint('Failed to start general scan: $e');
-          rethrow; // Re-throw for consistency
+          debugPrint('Failed to start specific scan: $e');
+          throw Exception('Failed to start any scan method');
         }
       }
 
       _isScanning = true;
       _connectionStateSubject.add('Scanning');
       _errorRecoveryManager.operationSucceeded();
-      debugPrint('Starting scan for BLE devices...');
+      debugPrint('Scanning for BLE devices...');
 
       // If maxDuration is provided, automatically stop scanning after that duration
       if (maxDuration != null) {
@@ -1536,7 +1712,7 @@ class BleService {
           }
         });
       }
-      _errorRecoveryManager.operationSucceeded();
+
       return true;
     } catch (e) {
       final errorMsg = 'Scan error: $e';
@@ -1546,6 +1722,69 @@ class BleService {
       return false;
     }
   }
+
+  Future<bool> _checkScanPermissions() async {
+    if (Platform.isAndroid) {
+      // For Android 12+ (SDK 31+), we need specific Bluetooth permissions
+      final androidInfo = await DeviceInfoPlugin().androidInfo;
+      if (androidInfo.version.sdkInt >= 31) {
+        // Android 12+
+        bool hasBluetoothScan = await Permission.bluetoothScan.isGranted;
+        bool hasBluetoothConnect = await Permission.bluetoothConnect.isGranted;
+        bool hasLocation = await Permission.location.isGranted ||
+            await Permission.locationWhenInUse.isGranted;
+
+        if (!hasBluetoothScan || !hasBluetoothConnect) {
+          debugPrint('Missing Bluetooth permissions on Android 12+');
+          // Request permissions again
+          await Permission.bluetoothScan.request();
+          await Permission.bluetoothConnect.request();
+
+          // Check if they were granted
+          hasBluetoothScan = await Permission.bluetoothScan.isGranted;
+          hasBluetoothConnect = await Permission.bluetoothConnect.isGranted;
+
+          if (!hasBluetoothScan || !hasBluetoothConnect) {
+            return false;
+          }
+        }
+
+        if (!hasLocation) {
+          debugPrint('Missing location permission required for BLE on Android');
+          await Permission.locationWhenInUse.request();
+          hasLocation = await Permission.locationWhenInUse.isGranted;
+
+          if (!hasLocation) {
+            return false;
+          }
+        }
+      } else {
+        // For older Android versions
+        bool hasBluetoothPermission = await Permission.bluetooth.isGranted;
+        bool hasLocationPermission = await Permission.location.isGranted;
+
+        if (!hasBluetoothPermission || !hasLocationPermission) {
+          debugPrint('Missing permissions for BLE on older Android');
+          await Permission.bluetooth.request();
+          await Permission.location.request();
+
+          hasBluetoothPermission = await Permission.bluetooth.isGranted;
+          hasLocationPermission = await Permission.location.isGranted;
+
+          if (!hasBluetoothPermission || !hasLocationPermission) {
+            return false;
+          }
+        }
+      }
+    } else if (Platform.isIOS) {
+      // iOS does not need explicit permission for scanning
+      return true;
+    }
+
+    return true;
+  }
+
+
 
   /// Stop scanning for BLE devices
   Future<bool> stopScan() async {
@@ -1586,8 +1825,10 @@ class BleService {
       debugPrint('Adding service to peripheral manager...');
       await _peripheralManager.addService(service);
 
-      // Start advertising with relay capability indication
-      final advertisementName = 'BLE-Msg-${_deviceId.substring(0, math.min(_deviceId.length, 8))}';
+      // Create a more distinctive advertisement name with a fixed prefix
+      final prefix = 'PakConnect-';
+      final shortId = _deviceId.substring(0, math.min(_deviceId.length, 8));
+      final advertisementName = '$prefix$shortId';
       debugPrint('Starting advertisement as: $advertisementName');
 
       // Start advertising with relay capability indication
@@ -1595,8 +1836,11 @@ class BleService {
         ManufacturerSpecificData(
           id: 0x01, // Use an appropriate manufacturer ID
           data: Uint8List.fromList([
+            0x50, 0x43, // 'PC' - PakConnect identifier
+            0x01, // Protocol version
             0x01, // Relay capability flag
-            protocolVersion, // Protocol version
+            // Add a few bytes from deviceId to help identification
+            ...utf8.encode(shortId).sublist(0, math.min(4, shortId.length)),
           ]),
         )
       ];
