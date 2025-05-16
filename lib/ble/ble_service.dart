@@ -57,7 +57,7 @@ class BleMessage {
   final String recipientId;
   final String content;
   final DateTime timestamp;
-  final MessageStatus status;
+  late final MessageStatus status;
   final int attemptCount;
   final DateTime? lastAttempt;
   final List<String> relayPath; // For mesh routing
@@ -140,6 +140,18 @@ class BleMessage {
       ttl: ttl ?? this.ttl,
       metadata: metadata ?? this.metadata,
     );
+  }
+
+  int get priority {
+    // Check if explicit priority is set in metadata
+    if (metadata != null && metadata!.containsKey('priority')) {
+      final priorityStr = metadata!['priority'];
+      if (priorityStr == 'high') return 2;
+      if (priorityStr == 'low') return 0;
+    }
+
+    // Default to normal priority (1)
+    return 1;
   }
 
   // Check if message is eligible for retry
@@ -240,14 +252,47 @@ class BleDevice {
 
   // Determine if device is eligible for connection attempt
   bool get canConnect {
-    // Don't try to connect if we've had too many recent failures
-    if (failedConnectionAttempts > 5) {
-      final cooldownPeriod = Duration(minutes: failedConnectionAttempts);
-      if (lastConnected != null &&
-          DateTime.now().difference(lastConnected!) < cooldownPeriod) {
-        return false;
+    // Don't try to connect if already connected
+    if (isConnected) return false;
+
+    // Don't connect if already in connecting state
+    if (deviceConnectionState == DeviceConnectionState.connecting) return false;
+
+    // For failed connection attempts, implement a more nuanced backoff
+    if (failedConnectionAttempts > 0) {
+      final now = DateTime.now();
+      if (lastConnected != null) {
+        // Calculate backoff time based on attempt count and success rate
+        int backoffSeconds;
+
+        // Get connection success rate from the resilient manager
+        final successRate = ResilientConnectionManager().getConnectionSuccessRate(id);
+
+        // Adjust backoff based on success rate
+        final rateAdjustment = (1.0 - successRate) * 2.0; // Higher failure rate = longer backoff
+
+        // For first 3 failures, retry with short backoff
+        if (failedConnectionAttempts <= 3) {
+          backoffSeconds = (15 * failedConnectionAttempts * (1.0 + rateAdjustment)).toInt();
+        } else {
+          // After 3 failures, use exponential backoff up to a maximum
+          final expBackoff = math.pow(2, failedConnectionAttempts - 3).toInt() * 30 * (1.0 + rateAdjustment);
+          backoffSeconds = math.min(expBackoff.toInt(), 600); // Cap at 10 minutes
+        }
+
+        // Check if we've waited long enough
+        if (now.difference(lastConnected!).inSeconds < backoffSeconds) {
+          return false;
+        }
       }
     }
+
+    // Signal strength based filtering
+    // Only connect to devices with decent signal
+    if (rssi < -50) {
+      return false; // Signal too weak
+    }
+
     return true;
   }
 
@@ -255,18 +300,28 @@ class BleDevice {
   int get connectionPriority {
     int priority = 0;
 
-    // Better signal strength improves priority
-    priority += math.max(0, (rssi + 100));
+    // Stronger signal gets higher priority
+    priority += math.max(0, (rssi + 100)) * 2;  // Double the weight of signal strength
 
     // Recently seen devices get higher priority
     final freshness = DateTime.now().difference(lastSeen).inSeconds;
     priority += math.max(0, 300 - freshness);
 
-    // Penalize devices that frequently fail connection
-    priority -= (failedConnectionAttempts * 50);
+    // Penalize devices that frequently fail connection, but not too severely
+    int failurePenalty = 0;
+    if (failedConnectionAttempts > 0) {
+      failurePenalty = math.min(50 * failedConnectionAttempts, 200);
+    }
+    priority -= failurePenalty;
 
-    // Bonus for devices that can relay messages
-    if (supportsRelay) priority += 200;
+    // Major bonus for devices that support relay
+    if (supportsRelay) priority += 300;
+
+    // Bonus for devices we've successfully connected to before
+    if (lastConnected != null) priority += 100;
+
+    // Extra bonus for devices with our service
+    if (deviceConnectionState == DeviceConnectionState.connected) priority += 500;
 
     return priority;
   }
@@ -297,6 +352,22 @@ class ConnectionPool {
 
   // Connection queue
   final List<_ConnectionRequest> _pendingConnections = [];
+
+  // Add to ConnectionPool class
+  void retryFailedConnections() {
+    if (_activeConnections.length >= maxConcurrentConnections) return;
+
+    final now = DateTime.now();
+    final retriableRequests = _pendingConnections.where((req) {
+      // Check if this request is eligible for retry
+      return now.difference(req.timestamp).inSeconds > 30;
+    }).toList();
+
+    if (retriableRequests.isNotEmpty) {
+      debugPrint('🔄 Retrying ${retriableRequests.length} connection requests');
+      _processQueue();
+    }
+  }
 
   // Add a connection request with priority
   void queueConnection(Peripheral peripheral, int priority,
@@ -509,7 +580,9 @@ class BleService {
   }
 
   BleService._internal() {
+    _resilientConnectionManager = ResilientConnectionManager();
     _errorRecoveryManager = ErrorRecoveryManager(this);
+    _stabilityMonitor = ConnectionStabilityMonitor();
   }
 
   // Constants for service/characteristic UUIDs
@@ -521,8 +594,20 @@ class BleService {
   // Protocol version
   static const int protocolVersion = 1;
 
+  static const int customManufacturerId = 0xFFFF;
+
   // Max packet size for BLE transmission
   static const int maxPacketSize = 512; // Most BLE implementations limit MTU
+
+  late final ResilientConnectionManager _resilientConnectionManager;
+  bool _isJniDetached = false;
+  Timer? _jniHealthCheckTimer;
+
+  final _jniStatusSubject = BehaviorSubject<bool>.seeded(true);
+  Stream<bool> get jniConnectionStatus => _jniStatusSubject.stream;
+
+  final BleErrorMetrics errorMetrics = BleErrorMetrics();
+  final MessageQueueHealth messageQueueHealth = MessageQueueHealth();
 
   // Constants for adaptive scanning
   static const Duration minScanInterval = Duration(minutes: 2);
@@ -533,6 +618,12 @@ class BleService {
   static const int maxRetryAttempts = 10;
   static const Duration initialRetryDelay = Duration(seconds: 5);
   int? _consecutiveFailures;
+  int _consecutiveScanFailures = 0;
+
+  DateTime _lastDeduplicationTime = DateTime.now().subtract(const Duration(minutes: 1));
+  int _lastDeviceCount = 0;
+
+  late final ConnectionStabilityMonitor _stabilityMonitor;
 
   // Status and management fields
   late final String _deviceId;
@@ -542,6 +633,10 @@ class BleService {
   bool _isScanning = false;
   bool _isAdvertising = false;
   DateTime _lastMessageActivity = DateTime.now();
+
+  final Map<String, Lock> _locks = {};
+
+  final Set<String> _discoveryInProgress = {};
 
   // Managers
   final CentralManager _centralManager = CentralManager();
@@ -586,16 +681,21 @@ class BleService {
   bool get isAdvertising => _isAdvertising;
   String get deviceId => _deviceId;
   DateTime get lastMessageActivityTime => _lastMessageActivity;
+  DateTime? get timestamp => null;
+
+  get index => null;
+  get status => null;
+  get senderId => null;
 
   // BLE characteristics
   GATTCharacteristic? _ackCharacteristic;
   bool _pendingDeviceListUpdate = false;
 
-
-
   /// Initialize the BLE service with robust error handling
   Future<bool> initialize() async {
     if (_isInitialized) return true;
+
+    initializePeriodicCleanup();
 
     try {
       _connectionStateSubject.add('Initializing...');
@@ -667,6 +767,8 @@ class BleService {
 
       // Setup adaptive scanning
       _setupAdaptiveScanning();
+
+      _setupJniHealthCheck();
 
       _isInitialized = true;
       _connectionStateSubject.add('Ready');
@@ -749,6 +851,156 @@ class BleService {
         return false;
       },
     );
+  }
+
+  void _setupJniHealthCheck() {
+    _jniHealthCheckTimer?.cancel();
+    _jniHealthCheckTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _checkJniHealth();
+    });
+  }
+
+  Future<void> _checkJniHealth() async {
+    try {
+      // A lightweight operation to check if JNI is responsive
+      _centralManager.state; // Just access it to see if it throws
+
+      // If we get here, JNI is working
+      if (_isJniDetached) {
+        debugPrint('🔄 JNI connection restored, reinitializing BLE');
+        _isJniDetached = false;
+        // Reinitialize BLE subsystems
+        _jniStatusSubject.add(true); // Update JNI status
+        await _reinitializeBleAfterDetachment();
+      }
+    } catch (e) {
+      if (!_isJniDetached) {
+        debugPrint('⚠️ JNI detachment detected: $e');
+        _isJniDetached = true;
+        _jniStatusSubject.add(false); // Update JNI status
+      }
+    }
+  }
+
+  Future<T> withTimeout<T>(Future<T> operation, Duration timeout, T defaultValue, String operationName) async {
+    try {
+      return await operation.timeout(timeout, onTimeout: () {
+        debugPrint('⏱️ Operation timed out: $operationName');
+        return defaultValue;
+      });
+    } catch (e) {
+      debugPrint('❌ Operation failed: $operationName - $e');
+      return defaultValue;
+    }
+  }
+
+  Future<bool> _enableNotificationsWithRetry(
+      Peripheral peripheral,
+      GATTCharacteristic characteristic,
+      {int maxRetries = 5, int baseDelayMs = 500}) async {
+
+    for (int i = 0; i < maxRetries; i++) {
+      try {
+        await Future.delayed(Duration(milliseconds: baseDelayMs * (i + 1)));
+        await _centralManager.setCharacteristicNotifyState(
+          peripheral,
+          characteristic,
+          state: true,
+        ).timeout(Duration(seconds: 5), onTimeout: () {
+          throw TimeoutException('Notification enabling timed out');
+        });
+        return true;
+      } catch (e) {
+        debugPrint('⚠️ Notification enabling attempt ${i+1} failed: $e');
+        if (i == maxRetries - 1) return false;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _reinitializeBleAfterDetachment() async {
+    try {
+      // Stop ongoing operations
+      try {
+        await stopScan();
+      } catch (_) {}
+
+      try {
+        await stopAdvertising();
+      } catch (_) {}
+
+      // Clear in-progress operations
+      _discoveryInProgress.clear();
+      _connectionPool._activeConnections.clear();
+      _deviceGattServices.clear();
+      _resilientConnectionManager.reset();
+
+      // Add a brief delay for system stabilization
+      await Future.delayed(const Duration(seconds: 1));
+
+      // Restart core functionality
+      await startAdvertising();
+      await startScan(maxDuration: const Duration(seconds: 30));
+
+      debugPrint('✅ BLE reinitialized successfully after JNI detachment');
+    } catch (e) {
+      debugPrint('❌ Failed to reinitialize BLE after JNI detachment: $e');
+    }
+  }
+
+  Future<bool> forceReinitializeBle() async {
+    debugPrint('🔄 Force reinitializing BLE subsystems');
+
+    // Reset state flags
+    _isJniDetached = false;
+    _jniStatusSubject.add(true);
+
+    try {
+      // Stop all current operations
+      await stopScan();
+      await stopAdvertising();
+
+      // Disconnect all devices
+      final connectedDevices = _discoveredDevices
+          .where((d) => d.isConnected)
+          .toList();
+
+      for (final device in connectedDevices) {
+        try {
+          await _centralManager.disconnect(device.peripheral);
+        } catch (_) {
+          // Ignore errors during cleanup
+        }
+      }
+
+      // Clear all caches
+      _deviceGattServices.clear();
+      _discoveryInProgress.clear();
+      _connectionPool._activeConnections.clear();
+
+      // Safely clear pending connections in connection pool
+      // Checking if the field is accessible, otherwise skip
+      try {
+        _connectionPool._pendingConnections.clear();
+            } catch (_) {
+        // Skip if field structure has changed
+      }
+
+      _resilientConnectionManager.reset();
+
+      // Wait for system cleanup
+      await Future.delayed(const Duration(seconds: 2));
+
+      // Restart core functionality
+      await startAdvertising();
+      await startScan(maxDuration: const Duration(seconds: 30));
+
+      debugPrint('✅ BLE reinitialized successfully');
+      return true;
+    } catch (e) {
+      debugPrint('❌ Failed to reinitialize BLE: $e');
+      return false;
+    }
   }
 
   Duration getAdaptiveScanInterval() {
@@ -894,9 +1146,13 @@ class BleService {
   /// Start timer for periodic message processing
   void _startMessageProcessingTimer() {
     _messageProcessingTimer?.cancel();
+    debugPrint('⏰ Starting message processing timer: running every 30 seconds');
     _messageProcessingTimer = Timer.periodic(
       const Duration(seconds: 30),
-          (_) => _processOutgoingMessages(),
+          (timer) {
+        debugPrint('⏰ Message processing timer fired');
+        _processOutgoingMessages();
+      },
     );
   }
 
@@ -905,6 +1161,7 @@ class BleService {
     // Discovered device
     _subscriptions['discovered'] = _centralManager.discovered.listen(
           (event) {
+        // Process the device without excessive logging
         _handleDiscoveredDevice(event);
       },
       onError: (error) {
@@ -913,60 +1170,58 @@ class BleService {
     );
 
     // Connection state changed
-    _subscriptions['connectionStateChanged'] =
-        _centralManager.connectionStateChanged.listen(
-              (event) {
-            _handleConnectionStateChanged(event);
-          },
-          onError: (error) {
-            _errorSubject.add('Connection state error: $error');
-          },
-        );
+    _subscriptions['connectionStateChanged'] = _centralManager.connectionStateChanged.listen(
+          (event) {
+        // Log only connection events
+        if (event.state == ConnectionState.connected) {
+          debugPrint('🔌 Device connected: ${event.peripheral.uuid}');
+        } else if (event.state == ConnectionState.disconnected) {
+          debugPrint('🔌 Device disconnected: ${event.peripheral.uuid}');
+        }
+        _handleConnectionStateChanged(event);
+      },
+      onError: (error) {
+        _errorSubject.add('Connection state error: $error');
+      },
+    );
 
     // Characteristic notification
-    _subscriptions['characteristicNotified'] =
-        _centralManager.characteristicNotified.listen(
-              (event) {
-            // Process incoming message
-            if (_isServiceCharacteristic(event.characteristic, messageCharacteristicUuid)) {
-              _processIncomingMessage(event.peripheral, event.value);
-            }
-            // Process acknowledgment
-            else if (_isServiceCharacteristic(event.characteristic, ackCharacteristicUuid)) {
-              _processAcknowledgment(event.peripheral, event.value);
-            }
-          },
-          onError: (error) {
-            _errorSubject.add('Notification error: $error');
-          },
-        );
+    _subscriptions['characteristicNotified'] = _centralManager.characteristicNotified.listen(
+          (event) {
+        // Log message-related events
+        if (_isServiceCharacteristic(event.characteristic, messageCharacteristicUuid)) {
+          debugPrint('📩 Message received from: ${event.peripheral.uuid}');
+          _processIncomingMessage(event.peripheral, event.value);
+        }
+        // Process acknowledgment
+        else if (_isServiceCharacteristic(event.characteristic, ackCharacteristicUuid)) {
+          debugPrint('✅ Acknowledgment received from: ${event.peripheral.uuid}');
+          _processAcknowledgment(event.peripheral, event.value);
+        }
+      },
+      onError: (error) {
+        _errorSubject.add('Notification error: $error');
+      },
+    );
   }
 
   bool isPakConnectDevice(Advertisement advertisement) {
-    // Check 1: Device name
-    if (advertisement.name != null &&
-        (advertisement.name!.startsWith('PakConnect-') ||
-            advertisement.name!.startsWith('BLE-Msg-'))) {
-      debugPrint('✅ Device identified by name: ${advertisement.name}');
+    // Check name pattern first (fastest check)
+    if (advertisement.name != null && advertisement.name!.startsWith('Pak-Msg-')) {
       return true;
     }
 
-    // Check 2: Service UUID
-    if (advertisement.serviceUUIDs.any((uuid) =>
-    uuid.toString().toLowerCase() == serviceUuid.toLowerCase())) {
-      debugPrint('✅ Device identified by service UUID');
-      return true;
+    // Check service UUID
+    for (var uuid in advertisement.serviceUUIDs) {
+      if (uuid.toString().toLowerCase() == serviceUuid.toLowerCase()) {
+        return true;
+      }
     }
 
-    // Check 3: Manufacturer data
-    for (var mfgData in advertisement.manufacturerSpecificData) {
-      if (mfgData.id == 0x01 && mfgData.data.isNotEmpty) {
-        // Check for relay capability flag OR 'PC' identifier
-        if ((mfgData.data[0] == 0x01) ||
-            (mfgData.data.length >= 2 && mfgData.data[0] == 0x50 && mfgData.data[1] == 0x43)) {
-          debugPrint('✅ Device identified by manufacturer data');
-          return true;
-        }
+    // Check manufacturer data
+    for (var mfg in advertisement.manufacturerSpecificData) {
+      if (mfg.id == customManufacturerId && mfg.data.isNotEmpty && mfg.data[0] == 0x01) {
+        return true;
       }
     }
 
@@ -977,64 +1232,63 @@ class BleService {
   void _handleDiscoveredDevice(DiscoveredEventArgs event) {
     _stateLock.synchronized(() async {
       try {
-        // Process device discovery directly without using compute()
         final peripheral = event.peripheral;
         final rssi = event.rssi;
         final advertisement = event.advertisement;
 
-        // Get a normalized device identifier
-        final deviceId = peripheral.uuid.toString();
-
-        // Debug logging
-        debugPrint('==== DEVICE DISCOVERED ====');
-        debugPrint('Name: ${advertisement.name ?? "Unknown"}');
-        debugPrint('ID: ${peripheral.uuid}');
-        debugPrint('RSSI: $rssi dBm');
-
-        // Log service UUIDs
-        if (advertisement.serviceUUIDs.isNotEmpty) {
-          debugPrint('Service UUIDs: ${advertisement.serviceUUIDs.map((uuid) => uuid.toString()).join(", ")}');
-        }
-
-        // Log manufacturer data
-        for (var mfgData in advertisement.manufacturerSpecificData) {
-          final hexData = mfgData.data.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ');
-          debugPrint('Manufacturer Data: ID=${mfgData.id}, Data=$hexData');
+        // Skip our own device
+        if (peripheral.uuid.toString() == _deviceId) {
+          return;
         }
 
         // Check if this is a PakConnect device
         final isPakDevice = isPakConnectDevice(advertisement);
-        debugPrint('Is PakConnect Device: $isPakDevice');
 
-        // Create device from peripheral
-        final device = BleDevice.fromPeripheral(
-          peripheral,
-          rssi,
-          advertisement,
-        );
+        // Only process PakConnect devices
+        if (!isPakDevice) {
+          return;
+        }
 
-        // Find existing device
-        final existingIndex = _discoveredDevices.indexWhere((d) => d.id == deviceId);
+        // Extract device identifier - using more reliable identifiers
+        // Try to use MAC address if available, otherwise use UUID
+        final deviceId = peripheral.uuid.toString();
+
+        // Use the device name as a secondary identifier for deduplication
+        final deviceName = advertisement.name;
+
+        // Find if we already have this device by ID
+        int existingIndex = _discoveredDevices.indexWhere((d) => d.id == deviceId);
+
+        // If not found by ID but has a name, try to find by name (helps with duplicate peripherals)
+        if (existingIndex < 0 && deviceName != null && deviceName.isNotEmpty) {
+          existingIndex = _discoveredDevices.indexWhere(
+                  (d) => d.name == deviceName && d.name != null && d.name!.startsWith('Pak-Msg-')
+          );
+        }
+
         bool deviceListChanged = false;
 
         if (existingIndex >= 0) {
-          // Update existing device
+          // Update existing device with new info
           _discoveredDevices[existingIndex] = _discoveredDevices[existingIndex].copyWith(
-            rssi: device.rssi,
-            name: device.name ?? _discoveredDevices[existingIndex].name,
+            peripheral: peripheral, // Update peripheral reference
+            rssi: rssi,
+            name: deviceName ?? _discoveredDevices[existingIndex].name,
             lastSeen: DateTime.now(),
-            supportsRelay: device.supportsRelay || isPakDevice,
+            supportsRelay: true,
           );
           deviceListChanged = true;
-          debugPrint('Updated existing device: ${device.name ?? "Unknown"}');
         } else {
           // Add as a new device
-          final updatedDevice = device.copyWith(
-            supportsRelay: isPakDevice,
+          final newDevice = BleDevice.fromPeripheral(
+            peripheral,
+            rssi,
+            advertisement,
+          ).copyWith(
+            supportsRelay: true,
           );
-          _discoveredDevices.add(updatedDevice);
+          _discoveredDevices.add(newDevice);
           deviceListChanged = true;
-          debugPrint('Added new device: ${device.name ?? "Unknown"}');
         }
 
         // Update UI if needed
@@ -1043,24 +1297,182 @@ class BleService {
         }
 
         // Debounce UI updates
+        // Debounce UI updates
         _deviceUpdateDebouncer?.cancel();
         _deviceUpdateDebouncer = Timer(const Duration(milliseconds: 300), () {
           if (_pendingDeviceListUpdate) {
+            // Only deduplicate if needed
+            final now = DateTime.now();
+            final deviceCount = _discoveredDevices.length;
+
+            if (now.difference(_lastDeduplicationTime).inSeconds >= 2 &&
+                (deviceCount != _lastDeviceCount || deviceCount > 1)) {
+
+              debugPrint('🧹 Starting device deduplication: $deviceCount devices');
+              _deduplicateDevices();
+              _lastDeduplicationTime = now;
+              _lastDeviceCount = deviceCount;
+            }
+
             _devicesSubject.add(_discoveredDevices);
             _pendingDeviceListUpdate = false;
           }
         });
 
-        // Automatically connect to PakConnect devices
-        if (isPakDevice && _shouldConnectToDevice(deviceId)) {
-          debugPrint('Attempting to connect to device: ${device.name ?? "Unknown"}');
-          _connectToDevice(device.peripheral);
+        // Automatically connect to PakConnect devices if needed
+        if (_shouldConnectToDevice(deviceId)) {
+          _connectToDevice(peripheral);
         }
-      } catch (e, stackTrace) {
+      } catch (e) {
         debugPrint('Error handling discovered device: $e');
-        debugPrint('Stack trace: $stackTrace');
       }
     });
+  }
+
+// New helper method to remove duplicate devices
+  // Replace the existing _deduplicateDevices method with this one
+  void _deduplicateDevices() {
+    if (_discoveredDevices.isEmpty) return;
+
+    debugPrint('🧹 Starting device deduplication: ${_discoveredDevices.length} devices');
+
+    // Step 1: Sort by most recently seen first (to prioritize newer data)
+    _discoveredDevices.sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
+
+    // Step 2: Create lookup maps for different identification methods
+    final Map<String, BleDevice> byExactId = {};
+    final Map<String, List<BleDevice>> byMacAddressRoot = {};
+    final Map<String, List<BleDevice>> byPakNameId = {};
+
+    // Step 3: Identify duplicates with different strategies
+    for (final device in _discoveredDevices) {
+      final deviceId = device.id;
+      final deviceName = device.name ?? '';
+
+      // Extract ID from name (if it's a Pak-Msg device)
+      String? nameExtractedId;
+      if (deviceName.startsWith('Pak-Msg-') && deviceName.length > 8) {
+        nameExtractedId = deviceName.substring(8);
+      }
+
+      // Add to byExactId map (last seen device with this exact ID wins)
+      byExactId[deviceId] = device;
+
+      // Add to MAC address root map if applicable
+      if (deviceId.contains('-')) {
+        // Extract the MAC portion of a UUID-formatted ID
+        final macPortion = deviceId.split('-').last.toLowerCase();
+        if (macPortion.length >= 8) {
+          if (!byMacAddressRoot.containsKey(macPortion)) {
+            byMacAddressRoot[macPortion] = [];
+          }
+          byMacAddressRoot[macPortion]!.add(device);
+        }
+      }
+
+      // Add to name-based map if it's a Pak-Msg device
+      if (nameExtractedId != null && nameExtractedId.isNotEmpty) {
+        if (!byPakNameId.containsKey(nameExtractedId)) {
+          byPakNameId[nameExtractedId] = [];
+        }
+        byPakNameId[nameExtractedId]!.add(device);
+      }
+    }
+
+    // Step 4: Start with all devices in the byExactId map (already deduped by ID)
+    final deduplicatedDevices = byExactId.values.toList();
+
+    // Step 5: Now handle cases where the same device appears with different IDs
+
+    // 5a. Check MAC address duplicates
+    final processedMacIds = <String>{};
+    byMacAddressRoot.forEach((macRoot, devices) {
+      if (devices.length > 1 && !processedMacIds.contains(macRoot)) {
+        // Multiple devices with same MAC root, need to pick the best one
+
+        // First, give preference to connected devices
+        final connectedDevices = devices.where((d) => d.isConnected).toList();
+
+        if (connectedDevices.isNotEmpty) {
+          // Keep the most recently seen connected device
+          connectedDevices.sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
+          final bestDevice = connectedDevices.first;
+
+          // Remove all but this device that share the same MAC root
+          for (var device in devices) {
+            if (device.id != bestDevice.id) {
+              deduplicatedDevices.removeWhere((d) => d.id == device.id);
+              debugPrint('🧹 Removed MAC duplicate: ${device.id} in favor of ${bestDevice.id}');
+            }
+          }
+        } else {
+          // No connected devices, choose the one with best signal strength
+          devices.sort((a, b) => b.rssi.compareTo(a.rssi));
+          final bestDevice = devices.first;
+
+          // Remove all but this device that share the same MAC root
+          for (var device in devices) {
+            if (device.id != bestDevice.id) {
+              deduplicatedDevices.removeWhere((d) => d.id == device.id);
+              debugPrint('🧹 Removed MAC duplicate: ${device.id} in favor of ${bestDevice.id} (better signal)');
+            }
+          }
+        }
+
+        processedMacIds.add(macRoot);
+      }
+    });
+
+    // 5b. Check name-extracted ID duplicates
+    final processedNameIds = <String>{};
+    byPakNameId.forEach((nameId, devices) {
+      if (devices.length > 1 && !processedNameIds.contains(nameId)) {
+        // Multiple devices with same name ID, need to pick the best one
+
+        // First, give preference to devices with both matching name and MAC address
+        var bestDevice = devices.first;
+        bool foundBestMatch = false;
+
+        for (var device in devices) {
+          final deviceId = device.id;
+          if (deviceId.contains(nameId) || (deviceId.contains('-') && deviceId.split('-').last.contains(nameId))) {
+            // This device has the name ID in its device ID - strong indicator it's the right one
+            bestDevice = device;
+            foundBestMatch = true;
+            break;
+          }
+        }
+
+        if (!foundBestMatch) {
+          // If no perfect match, prefer connected or better signal
+          final connectedDevices = devices.where((d) => d.isConnected).toList();
+
+          if (connectedDevices.isNotEmpty) {
+            bestDevice = connectedDevices.first;
+          } else {
+            // Sort by signal strength
+            devices.sort((a, b) => b.rssi.compareTo(a.rssi));
+            bestDevice = devices.first;
+          }
+        }
+
+        // Remove duplicates, keeping only the best device
+        for (var device in devices) {
+          if (device.id != bestDevice.id) {
+            deduplicatedDevices.removeWhere((d) => d.id == device.id);
+            debugPrint('🧹 Removed name-based duplicate: ${device.id} in favor of ${bestDevice.id}');
+          }
+        }
+
+        processedNameIds.add(nameId);
+      }
+    });
+
+    // Step 6: Log results and update the list
+    final removedCount = _discoveredDevices.length - deduplicatedDevices.length;
+    debugPrint('🧹 Deduplication complete: Removed $removedCount devices, kept ${deduplicatedDevices.length}');
+
+    _discoveredDevices = deduplicatedDevices;
   }
 
   /// Determine if we should connect to a device with better prioritization
@@ -1106,22 +1518,80 @@ class BleService {
     return false;
   }
 
-  /// Handle connection state changed event
+  Future<bool> _isDeviceConnected(Peripheral peripheral) async {
+    try {
+      final deviceIndex = _discoveredDevices.indexWhere(
+              (d) => d.peripheral.uuid == peripheral.uuid
+      );
+
+      if (deviceIndex < 0) return false;
+
+      return _discoveredDevices[deviceIndex].connectionState ==
+          ConnectionState.connected;
+    } catch (e) {
+      return false;
+    }
+  }
+
   void _handleConnectionStateChanged(PeripheralConnectionStateChangedEventArgs event) async {
+    final peripheralId = event.peripheral.uuid.toString();
+    debugPrint('🔌 Connection state changed for device: ${event.peripheral.uuid}, state: ${event.state}');
+
+    _stabilityMonitor.recordConnectionEvent(peripheralId, event.state == ConnectionState.connected);
+
+    // Find the device index
     final index = _discoveredDevices.indexWhere(
             (d) => d.peripheral.uuid == event.peripheral.uuid
     );
 
     if (index >= 0) {
+      _discoveredDevices[index] = _discoveredDevices[index].copyWith(
+          connectionState: event.state,
+          deviceConnectionState: event.state == ConnectionState.connected ?
+          DeviceConnectionState.connecting :
+          DeviceConnectionState.disconnected
+      );
+      _devicesSubject.add(_discoveredDevices);
+    }
+
+    // If disconnected, immediately update state and clean up
+    if (event.state == ConnectionState.disconnected) {
+      // Clear discovery in progress flag
+      _discoveryInProgress.remove(peripheralId);
+
+      // Remove from GATT services cache
+      _deviceGattServices.remove(peripheralId);
+
+      // Notify connection pool
+      _connectionPool.connectionCompleted(event.peripheral);
+
+      // Update device state immediately
+      if (index >= 0) {
+        _discoveredDevices[index] = _discoveredDevices[index].copyWith(
+            connectionState: ConnectionState.disconnected,
+            deviceConnectionState: DeviceConnectionState.disconnected
+        );
+        _devicesSubject.add(_discoveredDevices);
+      }
+
+      // Schedule retry if needed
+      if (_hasMessagesFor(peripheralId)) {
+        _scheduleMessageRetry(peripheralId);
+      }
+      return;
+    }
+
+    if (index >= 0) {
       // Update connection state and analytics
       final now = DateTime.now();
       final currentDevice = _discoveredDevices[index];
-      final peripheralId = event.peripheral.uuid.toString();
 
       // When the device connects, mark it as connecting until services are discovered
       final newDeviceConnectionState = event.state == ConnectionState.connected ?
       DeviceConnectionState.connecting :
       DeviceConnectionState.disconnected;
+
+      debugPrint('🔌 Updating device connection state to: $newDeviceConnectionState');
 
       // Update device state
       _discoveredDevices[index] = currentDevice.copyWith(
@@ -1136,9 +1606,25 @@ class BleService {
       );
 
       _devicesSubject.add(_discoveredDevices);
+      debugPrint('🔌 Updated device list published');
 
       // If connected, discover services
       if (event.state == ConnectionState.connected) {
+        // CRITICAL: Check if discovery is already in progress for this device
+        if (_discoveryInProgress.contains(peripheralId)) {
+          debugPrint('⚠️ Service discovery already in progress for: $peripheralId, skipping duplicate');
+          return;
+        }
+
+        if (_discoveredDevices[index].deviceConnectionState != DeviceConnectionState.connected) {
+          _discoveredDevices[index] = _discoveredDevices[index].copyWith(
+              deviceConnectionState: DeviceConnectionState.connecting
+          );
+        }
+
+        // Mark discovery as in progress
+        _discoveryInProgress.add(peripheralId);
+
         try {
           await _discoverServices(event.peripheral);
 
@@ -1148,12 +1634,19 @@ class BleService {
           );
 
           if (updatedIndex >= 0) {
+            debugPrint('🔌 Updating to fully connected state after service discovery');
             _discoveredDevices[updatedIndex] = _discoveredDevices[updatedIndex].copyWith(
                 deviceConnectionState: DeviceConnectionState.connected
             );
             _devicesSubject.add(_discoveredDevices);
+
+            // CRITICAL ADDITION: Immediately try to process any pending messages
+            // for this device now that it's fully connected
+            debugPrint('🔌 Device now fully connected - checking for pending messages');
+            _processOutgoingMessages();
           }
         } catch (e) {
+          debugPrint('❌ Service discovery failed: $e');
           // If service discovery fails, mark as disconnected
           final failedIndex = _discoveredDevices.indexWhere(
                   (d) => d.peripheral.uuid == event.peripheral.uuid
@@ -1170,21 +1663,14 @@ class BleService {
 
           // Notify connection pool of completed connection
           _connectionPool.connectionCompleted(event.peripheral);
-        }
-      } else if (event.state == ConnectionState.disconnected) {
-        // Device disconnected, clear cached services
-        _deviceGattServices.remove(peripheralId);
-
-        // Notify connection pool of completed connection
-        _connectionPool.connectionCompleted(event.peripheral);
-
-        // If we have pending messages, schedule a retry
-        if (_hasMessagesFor(peripheralId)) {
-          _scheduleMessageRetry(peripheralId);
+        } finally {
+          // Always clear the discovery in progress flag, even if an error occurred
+          _discoveryInProgress.remove(peripheralId);
         }
       }
     }
   }
+
 
   /// Utility function to get short device name for display
   String getDisplayName(BleDevice device) {
@@ -1264,13 +1750,20 @@ class BleService {
         .map((m) => m.attemptCount)
         .reduce(math.max);
 
+    final isUnstable = _stabilityMonitor.isConnectionUnstable(recipientId);
+
     // Exponential backoff with jitter
     final baseDelay = initialRetryDelay.inMilliseconds;
     final maxBackoff = math.min(30, math.pow(2, maxAttempts).toInt());
-    final jitter = math.Random().nextInt(1000); // Add randomness to prevent thundering herd
-    final delayMs = math.min(300000, baseDelay * maxBackoff) + jitter; // Cap at 5 minutes
+    final jitter = math.Random().nextInt(1000);
+    final stabilityMultiplier = isUnstable ? 2.0 : 1.0;
+    final delayMs = (math.min(300000, baseDelay * maxBackoff) + jitter) * stabilityMultiplier.toInt();
 
-    // Schedule retry
+    if (isUnstable) {
+      debugPrint('⚠️ Using extended backoff (${stabilityMultiplier}x) for unstable device: $recipientId');
+    }
+
+    // Schedule retry with the calculated delay
     Future.delayed(Duration(milliseconds: delayMs), () {
       // Check if we're still interested in retrying
       if (_hasMessagesFor(recipientId)) {
@@ -1484,7 +1977,7 @@ class BleService {
   }
 
   /// Get negotiated MTU size for a peripheral
-  Future<int> _getNegotiatedMtu(Peripheral peripheral) async {
+  Future<int> _getNegotiatedMtu(Peripheral peripheral, {int defaultMtu = 23, int attempt = 1}) async {
     try {
       // First check device cache
       final deviceIndex = _discoveredDevices.indexWhere(
@@ -1496,18 +1989,37 @@ class BleService {
       }
 
       // Default MTU values by platform
-      int mtu = 23; // BLE minimum
+      int mtu = defaultMtu; // BLE minimum
 
       if (Platform.isAndroid) {
         try {
+          debugPrint('🔄 Requesting MTU negotiation (attempt $attempt)...');
           final negotiatedMtu = await _centralManager.requestMTU(
               peripheral,
               mtu: 512
-          );
+          ).timeout(const Duration(seconds: 5), onTimeout: () {
+            debugPrint('⏱️ MTU negotiation timed out');
+            throw TimeoutException('MTU negotiation timed out');
+          });
+
+          debugPrint('✅ MTU negotiation successful: $negotiatedMtu');
           mtu = negotiatedMtu;
         } catch (e) {
-          debugPrint('MTU negotiation failed: $e');
-          mtu = 23; // Fallback to minimum
+          debugPrint('⚠️ MTU negotiation failed: $e');
+
+          // Retry with a smaller MTU if this is not the last attempt
+          if (attempt < 3) {
+            debugPrint('🔄 Retrying with smaller MTU request...');
+            await Future.delayed(Duration(milliseconds: 200 * attempt));
+            // Request progressively smaller MTU values on retries
+            return _getNegotiatedMtu(
+                peripheral,
+                defaultMtu: defaultMtu,
+                attempt: attempt + 1
+            );
+          }
+
+          mtu = defaultMtu; // Fallback to minimum
         }
       } else if (Platform.isIOS) {
         // iOS typically has higher default MTU
@@ -1524,7 +2036,48 @@ class BleService {
       return mtu;
     } catch (e) {
       debugPrint('Error getting MTU: $e');
-      return 23; // Absolute fallback to BLE minimum
+      return defaultMtu; // Absolute fallback to BLE minimum
+    }
+  }
+
+  Future<bool> recoverBluetoothScanner() async {
+    debugPrint('🔄 Attempting to recover BluetoothLeScanner');
+
+    try {
+      // First try stopping any ongoing scans
+      if (_isScanning) {
+        try {
+          await _centralManager.stopDiscovery();
+          _isScanning = false;
+        } catch (e) {
+          // Ignore errors during cleanup
+          debugPrint('⚠️ Error stopping scan during recovery: $e');
+        }
+      }
+
+      // Wait a moment to let system stabilize
+      await Future.delayed(const Duration(seconds: 2));
+
+      // Check bluetooth state
+      if (_centralManager.state != BluetoothLowEnergyState.poweredOn) {
+        debugPrint('⚠️ Bluetooth not powered on during recovery, current state: ${_centralManager.state}');
+        return false;
+      }
+
+      // Try a simple scan operation to test the scanner
+      try {
+        await _centralManager.startDiscovery();
+        await Future.delayed(const Duration(seconds: 1));
+        await _centralManager.stopDiscovery();
+        debugPrint('✅ Scanner recovery successful');
+        return true;
+      } catch (e) {
+        debugPrint('❌ Scanner test failed during recovery: $e');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('❌ Scanner recovery failed: $e');
+      return false;
     }
   }
 
@@ -1542,37 +2095,104 @@ class BleService {
       return true;
     }
 
-    try {
-      // Start scanning with appropriate mode
-      debugPrint('Starting BLE scan for service UUID: $serviceUuid');
-      try {
-        debugPrint('Starting general scan without service filter');
-        await _centralManager.startDiscovery();
-        debugPrint('Started general scan');
-      } catch (e) {
-        debugPrint('Failed to start general scan: $e');
+    if (_centralManager.state != BluetoothLowEnergyState.poweredOn) {
+      debugPrint('⚠️ Cannot start scan: Bluetooth is not powered on (Current state: ${_centralManager.state})');
 
-        // Fall back to specific scan if general scan fails
+      // Try to force a state check and wait
+      try {
+        // Wait for bluetooth to power on with timeout
+        final completer = Completer<bool>();
+        late StreamSubscription subscription;
+
+        subscription = _centralManager.stateChanged.listen((event) {
+          if (event.state == BluetoothLowEnergyState.poweredOn) {
+            if (!completer.isCompleted) {
+              completer.complete(true);
+            }
+            subscription.cancel();
+          }
+        });
+
+        // Set a timeout
+        Future.delayed(const Duration(seconds: 5), () {
+          if (!completer.isCompleted) {
+            completer.complete(false);
+            subscription.cancel();
+          }
+        });
+
+        final success = await completer.future;
+        if (!success) {
+          debugPrint('⚠️ Timed out waiting for Bluetooth to power on');
+          return false;
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error waiting for Bluetooth state: $e');
+        return false;
+      }
+    }
+
+    try {
+      debugPrint('Starting PakConnect-specific scan...');
+
+      // Method 1: Try service UUID specific scan first (most efficient)
+      try {
+        debugPrint('Attempting scan with service UUID filter: $serviceUuid');
+        await _centralManager.startDiscovery(
+          serviceUUIDs: [UUID.fromString(serviceUuid)],
+        );
+        debugPrint('Service UUID filtered scan started successfully');
+        _resetScanFailureCounter();
+      } catch (e) {
+        debugPrint('Service UUID filtered scan failed: $e');
+
+        // Record the scan failure in metrics
+        errorMetrics.recordScanFailure();
+
+        // Check if this is a bluetoothLeScanner null issue
+        if (e.toString().contains('bluetoothLeScanner must not be null')) {
+          debugPrint('⚠️ BluetoothLeScanner is null, attempting to recover...');
+
+          // Wait briefly to allow system to stabilize
+          await Future.delayed(const Duration(seconds: 2));
+
+          // Try to reset BLE subsystem if this is a recurring issue
+          if (_consecutiveScanFailures > 2) {
+            debugPrint('🔄 Multiple scan failures detected, attempting BLE reset');
+            await forceReinitializeBle();
+            _consecutiveScanFailures = 0;
+          } else {
+            _consecutiveScanFailures = (_consecutiveScanFailures) + 1;
+          }
+        }
+
+        // Fall back to general scan
+        debugPrint('Falling back to general scan');
         try {
-          debugPrint('Trying scan with service UUID filter: $serviceUuid');
-          await _centralManager.startDiscovery(
-            serviceUUIDs: [UUID.fromString(serviceUuid)],
-          );
-          debugPrint('Started scanning with service UUID filter');
-        } catch (e) {
-          debugPrint('Failed to start specific scan: $e');
-          throw Exception('Failed to start any scan method');
+          await _centralManager.startDiscovery();
+          debugPrint('General scan started successfully');
+          _resetScanFailureCounter();
+        } catch (fallbackError) {
+          debugPrint('❌ Even general scan failed: $fallbackError');
+
+          // Record another scan failure
+          errorMetrics.recordScanFailure();
+
+          // Return failure
+          final errorMsg = 'Both scan methods failed: $e, fallback: $fallbackError';
+          _connectionStateSubject.add(errorMsg);
+          _errorSubject.add(errorMsg);
+          return false;
         }
       }
 
       _isScanning = true;
-      _connectionStateSubject.add('Scanning');
-      _errorRecoveryManager.operationSucceeded();
-      debugPrint('Starting scan for BLE devices...');
+      _connectionStateSubject.add('Scanning for PakConnect devices');
+      debugPrint('Scanning for PakConnect devices...');
 
-      // If maxDuration is provided, automatically stop scanning after that duration
+      // Auto-stop scanning after specified duration to save battery
       if (maxDuration != null) {
-        debugPrint('Scheduling scan stop after ${maxDuration.inSeconds} seconds');
+        debugPrint('Scan will auto-stop after ${maxDuration.inSeconds} seconds');
         Future.delayed(maxDuration, () {
           if (_isScanning) {
             debugPrint('Auto-stopping scan after timeout');
@@ -1580,13 +2200,12 @@ class BleService {
           }
         });
       }
-      _errorRecoveryManager.operationSucceeded();
+
       return true;
     } catch (e) {
-      final errorMsg = 'Scan error: $e';
+      final errorMsg = 'PakConnect scan error: $e';
       _connectionStateSubject.add(errorMsg);
       _errorSubject.add(errorMsg);
-      _errorRecoveryManager.handleError('startScan', e);
       return false;
     }
   }
@@ -1618,7 +2237,17 @@ class BleService {
     }
 
     if (_isAdvertising) {
-      return true;
+      debugPrint('📱 ADVERTISING TEST: Scanning for our own advertisement using system API');
+      try {
+        // Use the plugin to scan for nearby devices
+        final devices = await _centralManager.retrieveConnectedPeripherals();
+        debugPrint('📱 Connected peripherals: ${devices.length}');
+        for (var device in devices) {
+          debugPrint('  - ${device.uuid}');
+        }
+      } catch (e) {
+        debugPrint('❌ Could not retrieve peripherals: $e');
+      }
     }
 
     try {
@@ -1631,16 +2260,18 @@ class BleService {
       await _peripheralManager.addService(service);
 
       // Start advertising with relay capability indication
-      final advertisementName = 'BLE-Msg-${_deviceId.substring(0, math.min(_deviceId.length, 8))}';
+      final deviceIdSuffix = _deviceId.substring(0, math.min(_deviceId.length, 8));
+      //final advertisementName = 'Pak-Msg-${_deviceId.substring(0, math.min(_deviceId.length, 8))}';
+      final advertisementName = 'Pak-Msg-$deviceIdSuffix';
       debugPrint('Starting advertisement as: $advertisementName');
 
       // Start advertising with relay capability indication
       final manufacturerData = [
         ManufacturerSpecificData(
-          id: 0x01, // Use an appropriate manufacturer ID
+          id: customManufacturerId,
           data: Uint8List.fromList([
             0x01, // Relay capability flag
-            protocolVersion, // Protocol version
+            protocolVersion,// Protocol version
           ]),
         )
       ];
@@ -1657,7 +2288,7 @@ class BleService {
       _isAdvertising = true;
       debugPrint('Advertising started successfully');
       _connectionStateSubject.add('Advertising');
-      debugPrint('Starting advertisement as: BLE-Msg-$_deviceId');
+      debugPrint('Starting advertisement as: Pak-Msg-$_deviceId');
       return true;
     } catch (e) {
       final errorMsg = 'Advertising error: $e';
@@ -1687,100 +2318,127 @@ class BleService {
     }
   }
 
+  // Add this to BleService
+  Future<void> dumpDeviceState(BleDevice device) async {
+    debugPrint('=== DEVICE STATE DUMP ===');
+    debugPrint('Device ID: ${device.id}');
+    debugPrint('Name: ${device.name ?? "Unknown"}');
+    debugPrint('RSSI: ${device.rssi}');
+    debugPrint('Connection State: ${device.connectionState}');
+    debugPrint('Device Connection State: ${device.deviceConnectionState}');
+    debugPrint('Last Seen: ${device.lastSeen}');
+    debugPrint('Supports Relay: ${device.supportsRelay}');
+    debugPrint('Failed Attempts: ${device.failedConnectionAttempts}');
+    debugPrint('Can Connect: ${device.canConnect}');
+    debugPrint('========================');
+  }
+
   /// Connect to a specific device
   Future<bool> connectToDevice(BleDevice device) async {
     return _connectToDevice(device.peripheral);
   }
 
-  /// Internal connect to device with retry logic
   /// Internal connect to device with improved pooling and retry logic
   Future<bool> _connectToDevice(Peripheral peripheral) async {
-    if (!_isInitialized) {
-      _connectionStateSubject.add('Not initialized');
+    final peripheralId = peripheral.uuid.toString();
+
+    // Check if we're dealing with JNI detachment
+    if (_isJniDetached) {
+      debugPrint('⚠️ Cannot connect: JNI is currently detached');
       return false;
     }
 
-    final peripheralId = peripheral.uuid.toString();
+    // Use resilient connection manager
+    if (!_resilientConnectionManager.canAttemptConnection(peripheralId)) {
+      debugPrint('⚠️ Skipping connection attempt to $peripheralId (in cooldown)');
+      return false;
+    }
 
-    try {
-      // Check if already connected
-      final deviceIndex = _discoveredDevices.indexWhere(
-              (d) => d.peripheral.uuid == peripheral.uuid
-      );
+    _resilientConnectionManager.markConnectionAttemptStarted(peripheralId);
 
-      if (deviceIndex >= 0) {
-        final device = _discoveredDevices[deviceIndex];
+    return _stateLock.synchronized(() async {
+      try {
+        // Ensure proper status updates
+        _connectionStateSubject.add('Connecting to device...');
 
-        if (device.isConnected) {
-          return true; // Already connected
+        // Find device in our tracking list before connection attempt
+        final deviceIndexBefore = _discoveredDevices.indexWhere(
+                (d) => d.peripheral.uuid == peripheral.uuid
+        );
+
+        if (deviceIndexBefore >= 0) {
+          // Update state to connecting in our tracking
+          _discoveredDevices[deviceIndexBefore] = _discoveredDevices[deviceIndexBefore].copyWith(
+              deviceConnectionState: DeviceConnectionState.connecting
+          );
+          _devicesSubject.add(_discoveredDevices);
         }
 
-        // Check if device is eligible for connection
-        if (!device.canConnect) {
-          debugPrint('Device in cooldown period, skipping connection attempt');
-          return false;
-        }
-
-        // Calculate connection priority
-        final priority = device.connectionPriority;
-
-        // Queue connection instead of immediate connect
-        _connectionPool.queueConnection(
-            peripheral,
-            priority,
-                (p) async {
-              try {
-                // Connect to the peripheral with timeout
-                await _centralManager.connect(p).timeout(
-                  const Duration(seconds: 15),
-                  onTimeout: () {
-                    throw TimeoutException('Connection timed out');
-                  },
-                );
-
-                // Update last activity timestamp
-                _lastMessageActivity = DateTime.now();
-
-                // Tell the pool we're done connecting
-                _connectionPool.connectionCompleted(p);
-
-                return true;
-              } catch (e) {
-                _errorSubject.add('Connection error to $peripheralId: $e');
-
-                // Update failure count for the device
-                final deviceIndex = _discoveredDevices.indexWhere(
-                        (d) => d.peripheral.uuid == p.uuid
-                );
-
-                if (deviceIndex >= 0) {
-                  _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
-                    failedConnectionAttempts: _discoveredDevices[deviceIndex].failedConnectionAttempts + 1,
-                  );
-                  _devicesSubject.add(_discoveredDevices);
-                }
-
-                // Handle connection errors by scheduling retries for pending messages
-                if (_hasMessagesFor(peripheralId)) {
-                  _scheduleMessageRetry(peripheralId);
-                }
-
-                // Tell the pool we're done connecting
-                _connectionPool.connectionCompleted(p);
-
-                return false;
-              }
+        // Explicitly create a connection request with timeout
+        await _centralManager.connect(peripheral).timeout(
+            const Duration(seconds: 15),
+            onTimeout: () {
+              debugPrint('⚠️ Connection timed out for device: $peripheralId');
+              throw TimeoutException('Connection timed out');
             }
         );
 
-        // For API compatibility, return true if queued, but actual connection will happen later
+        // Wait a short time for connection events to propagate
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // Update activity timestamp
+        _lastMessageActivity = DateTime.now();
+
+        _resilientConnectionManager.markConnectionAttemptSucceeded(peripheralId);
+        debugPrint('✅ Connect call successful for device: $peripheralId');
+
         return true;
+      } catch (e) {
+        debugPrint('❌ Connection error: $e');
+        errorMetrics.recordConnectionFailure(peripheralId);
+
+        // Update failure count and status
+        final deviceIndex = _discoveredDevices.indexWhere(
+                (d) => d.peripheral.uuid == peripheral.uuid
+        );
+
+        if (deviceIndex >= 0) {
+          _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
+            failedConnectionAttempts: _discoveredDevices[deviceIndex].failedConnectionAttempts + 1,
+            deviceConnectionState: DeviceConnectionState.disconnected,
+          );
+          _devicesSubject.add(_discoveredDevices);
+        }
+
+        // Clean up resources after failure
+        await _releaseConnectionResources(peripheral);
+
+        _resilientConnectionManager.markConnectionAttemptFailed(peripheralId);
+        return false;
       }
-      return false;
+    });
+  }
+
+// New helper method to clean up resources after connection failures
+  Future<void> _releaseConnectionResources(Peripheral peripheral) async {
+    final peripheralId = peripheral.uuid.toString();
+
+    try {
+      // Try to force disconnect to clean up resources
+      await _centralManager.disconnect(peripheral);
     } catch (e) {
-      _errorSubject.add('Connection error to $peripheralId: $e');
-      return false;
+      // Log but don't propagate errors during cleanup
+      debugPrint('Disconnect during cleanup failed: $e');
     }
+
+    // Clear discovery in progress flag
+    _discoveryInProgress.remove(peripheralId);
+
+    // Notify connection pool
+    _connectionPool.connectionCompleted(peripheral);
+
+    // Clear any cached GATT services
+    _deviceGattServices.remove(peripheralId);
   }
 
   /// Disconnect from a specific device
@@ -1801,13 +2459,25 @@ class BleService {
 
   /// Send a message to a specific device with improved queueing
   Future<bool> sendMessage(String recipientId, String content) async {
-    return _stateLock.synchronized(() async {
+    debugPrint('💬 BleService.sendMessage called: to=$recipientId, content=$content');
+
+    // Log all discovered devices for debugging
+    debugPrint('💬 Current discovered devices:');
+    for (final device in _discoveredDevices) {
+      debugPrint('   - ID: ${device.id}, Name: ${device.name ?? "Unknown"}, Connected: ${device.isConnected}, Connection state: ${device.deviceConnectionState}');
+    }
+
+    // INSTEAD OF USING THE LOCK, WHICH MIGHT BE CAUSING DEADLOCK
+    try {
       if (!_isInitialized) {
+        debugPrint('❌ BleService not initialized');
         _connectionStateSubject.add('Not initialized');
         return false;
       }
 
       final messageId = '${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(10000)}';
+      debugPrint('💬 Creating message with ID: $messageId');
+      messageQueueHealth.recordMessageSent();
 
       final message = BleMessage(
         id: messageId,
@@ -1825,76 +2495,255 @@ class BleService {
       // Add to message queue
       _messages.add(message);
       _messagesSubject.add(_messages);
+      debugPrint('💬 Message added to queue: $messageId');
 
       // Save messages to persistent storage
       await _saveMessages();
+      debugPrint('💬 After saving messages, checking if device is connected...');
 
       // Update activity timestamp
       _lastMessageActivity = DateTime.now();
 
-      // Try to send immediately if device is connected
-      final recipientDeviceIndex = _discoveredDevices.indexWhere(
-              (d) => d.id == recipientId && d.isConnected
-      );
+      final device = findDeviceByAnyId(recipientId);
 
-      if (recipientDeviceIndex >= 0) {
-        final device = _discoveredDevices[recipientDeviceIndex];
+      if (device != null) {
+        debugPrint('💬 Found device: ${device.name}, isConnected: ${device.isConnected}, state: ${device.deviceConnectionState}');
 
-        // Update message status
-        await _updateMessageStatus(messageId, MessageStatus.pending);
+        if (device.isConnected) {
+          debugPrint('💬 Device is connected, will try direct send');
 
-        // Send the message
-        _sendMessageToDevice(message, device.peripheral).then((success) {
-          if (!success && !completer.isCompleted) {
-            // If immediate send fails, will be picked up by retry mechanism
-            _updateMessageStatus(
-              messageId,
-              MessageStatus.failed,
-              attemptCount: 1,
-              lastAttempt: DateTime.now(),
+          // Mark as pending immediately
+          final index = _messages.indexWhere((m) => m.id == message.id);
+          if (index >= 0) {
+            _messages[index] = _messages[index].copyWith(
+                status: MessageStatus.pending
             );
           }
-        }).catchError((e) {
-          _errorSubject.add('Send error: $e');
-          // Mark as failed to trigger retry
-          _updateMessageStatus(
-            messageId,
-            MessageStatus.failed,
-            attemptCount: 1,
-            lastAttempt: DateTime.now(),
-          );
-        });
-      } else {
-        // Start scanning to find the recipient
-        if (!_isScanning) {
-          await startScan(maxDuration: activeScanDuration);
-        }
 
-        // Mark as pending
-        await _updateMessageStatus(messageId, MessageStatus.pending);
+          // Immediately try to get the cached service
+          final service = _deviceGattServices[device.id];
+          if (service != null) {
+            debugPrint('💬 Found cached GATT service, looking for characteristic');
+
+            // Find message characteristic
+            final characteristic = _findCharacteristic(service, messageCharacteristicUuid);
+            if (characteristic != null) {
+              debugPrint('💬 Found message characteristic, preparing message for direct transmission');
+
+              try {
+                // Convert message to JSON and then to bytes
+                final messageJson = jsonEncode(message.toJson());
+                debugPrint('💬 Message JSON: ${messageJson.substring(0, math.min(messageJson.length, 100))}');
+                final messageBytes = Uint8List.fromList(utf8.encode(messageJson));
+
+                debugPrint('💬 DIRECT WRITE ATTEMPT: About to write ${messageBytes.length} bytes');
+                try {
+                  // Direct write to characteristic - this is the critical step!
+                  await _centralManager.writeCharacteristic(
+                    device.peripheral,
+                    characteristic,
+                    value: messageBytes,
+                    type: GATTCharacteristicWriteType.withResponse,
+                  );
+                  debugPrint('💬 DIRECT WRITE SUCCESSFUL! ✅');
+
+                  final deliveryTime = DateTime.now().difference(message.timestamp);
+                  messageQueueHealth.recordDeliverySuccess(deliveryTime);
+
+                  // Update message status
+                  final index = _messages.indexWhere((m) => m.id == message.id);
+                  if (index >= 0) {
+                    _messages[index] = _messages[index].copyWith(
+                        status: MessageStatus.delivered
+                    );
+                    _messagesSubject.add(_messages);
+                    await _saveMessages();
+                  }
+                  _messagesSubject.add(_messages);
+                  await _saveMessages();
+
+                  // Complete the future
+                  if (!completer.isCompleted) {
+                    completer.complete(true);
+                  }
+
+                  return true;
+                } catch (writeError) {
+                  debugPrint('❌ Direct write failed: $writeError');
+                  messageQueueHealth.recordDeliveryFailure();
+
+                  // Try without response as fallback
+                  try {
+                    debugPrint('💬 Attempting write without response as fallback');
+                    await _centralManager.writeCharacteristic(
+                      device.peripheral,
+                      characteristic,
+                      value: messageBytes,
+                      type: GATTCharacteristicWriteType.withoutResponse,
+                    );
+                    debugPrint('💬 Fallback write SUCCESSFUL! ✅');
+
+                    // Update message status
+                    final index = _messages.indexWhere((m) => m.id == message.id);
+                    if (index >= 0) {
+                      _messages[index] = _messages[index].copyWith(
+                          status: MessageStatus.delivered
+                      );
+                      _messagesSubject.add(_messages);
+                      await _saveMessages();
+
+                      // Complete the future
+                      if (!completer.isCompleted) {
+                        completer.complete(true);
+                      }
+                    }
+
+                    return true;
+                  } catch (fallbackError) {
+                    debugPrint('❌ Fallback write also failed: $fallbackError');
+                    messageQueueHealth.recordDeliveryFailure();
+                  }
+                }
+              } catch (e) {
+                debugPrint('❌ Error preparing message: $e');
+              }
+            } else {
+              debugPrint('❌ Message characteristic not found in the service!');
+            }
+          } else {
+            debugPrint('❌ No cached GATT service found for the device');
+          }
+        } else {
+          debugPrint('❌ Device found but not connected, state: ${device.deviceConnectionState}');
+        }
+      } else {
+        debugPrint('❌ Device not found using improved lookup');
       }
 
-      // Set a timeout for message delivery notification
-      Future.delayed(const Duration(minutes: 5), () {
-        if (_outgoingMessageCompleters.containsKey(messageId) &&
-            !_outgoingMessageCompleters[messageId]!.isCompleted) {
-          // If still pending after 5 minutes, consider it failed
-          // but don't complete the future since we'll keep retrying
-          _updateMessageStatus(
-            messageId,
-            MessageStatus.failed,
-            attemptCount: 10, // High attempt count to slow down retries
-          );
+      // If we get here, the immediate send failed or wasn't possible
+      debugPrint('💬 Direct send not successful, will use normal message queue');
+
+      // Mark as pending for the message processor to pick up
+      final index = _messages.indexWhere((m) => m.id == message.id);
+      if (index >= 0) {
+        _messages[index] = _messages[index].copyWith(
+            status: MessageStatus.pending
+        );
+      }
+      _messagesSubject.add(_messages);
+      await _saveMessages();
+
+      // Force immediate message processing
+      _processOutgoingMessages();
+
+      // Set a timeout
+      Future.delayed(const Duration(seconds: 30), () {
+        if (!completer.isCompleted) {
+          debugPrint('💬 Message delivery timed out after 30 seconds');
+          completer.complete(false);
         }
       });
 
-      // Return future that will complete when message is delivered
-      // or timeout after 30 seconds for UI responsiveness
-      return completer.future.timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => false, // Return false but don't complete the completer
+      return completer.future;
+    } catch (e) {
+      debugPrint('❌ Error in sendMessage: $e');
+      return false;
+    }
+  }
+
+// Add this method to the BleService class
+  Future<bool> sendMessageDirect(String recipientId, String content) async {
+    try {
+      // Find device with more aggressive lookup
+      BleDevice? device = findDeviceByAnyId(recipientId);
+
+      if (device == null) {
+        debugPrint('📱 Device not found, starting scan to find it');
+        await startScan(maxDuration: Duration(seconds: 10));
+
+        // Wait for scan results
+        await Future.delayed(Duration(seconds: 3));
+        device = findDeviceByAnyId(recipientId);
+
+        if (device == null) {
+          debugPrint('📱 Device still not found after scanning');
+          return false;
+        }
+      }
+
+      // Connect if not already connected
+      if (!device.isConnected) {
+        final connected = await _connectToDevice(device.peripheral);
+        if (!connected) {
+          debugPrint('📱 Failed to connect to device');
+          return false;
+        }
+
+        // Give time for service discovery
+        await Future.delayed(Duration(milliseconds: 500));
+      }
+
+      // Get cached service or discover
+      GATTService? service = _deviceGattServices[device.id];
+      if (service == null) {
+        try {
+          await _discoverServices(device.peripheral);
+          service = _deviceGattServices[device.id];
+
+          if (service == null) {
+            throw Exception("Service discovery succeeded but service not found");
+          }
+        } catch (e) {
+          debugPrint('📱 Service discovery failed: $e');
+          return false;
+        }
+      }
+
+      // Find characteristic and send
+      final messageChar = service.characteristics.firstWhere(
+              (c) => c.uuid.toString().toLowerCase() == messageCharacteristicUuid.toLowerCase(),
+          orElse: () => throw Exception("Message characteristic not found")
       );
-    });
+
+      // Create message
+      final message = {
+        'id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'senderId': _deviceId,
+        'recipientId': recipientId,
+        'content': content,
+        'timestamp': DateTime.now().toIso8601String()
+      };
+
+      final messageJson = jsonEncode(message);
+      final messageBytes = Uint8List.fromList(utf8.encode(messageJson));
+
+      // Try with response first
+      try {
+        await _centralManager.writeCharacteristic(
+            device.peripheral,
+            messageChar,
+            value: messageBytes,
+            type: GATTCharacteristicWriteType.withResponse
+        ).timeout(Duration(seconds: 10));
+
+        return true;
+      } catch (e) {
+        debugPrint('📱 Write with response failed, trying without response: $e');
+
+        // Try without response as fallback
+        await _centralManager.writeCharacteristic(
+            device.peripheral,
+            messageChar,
+            value: messageBytes,
+            type: GATTCharacteristicWriteType.withoutResponse
+        ).timeout(Duration(seconds: 5));
+
+        return true;
+      }
+    } catch (e) {
+      debugPrint('📱 Direct send failed with error: $e');
+      return false;
+    }
   }
 
   /// Update message status with better tracking
@@ -1904,28 +2753,40 @@ class BleService {
         int? attemptCount,
         DateTime? lastAttempt,
       }) async {
+    debugPrint('🔄 _updateMessageStatus called for message: $messageId, status: $status');
+
     return _stateLock.synchronized(() async {
-      final index = _messages.indexWhere((m) => m.id == messageId);
-      if (index >= 0) {
-        final message = _messages[index];
-        final updatedMessage = message.copyWith(
-          status: status,
-          attemptCount: attemptCount ?? message.attemptCount,
-          lastAttempt: lastAttempt ?? message.lastAttempt,
-        );
+      try {
+        final index = _messages.indexWhere((m) => m.id == messageId);
+        if (index >= 0) {
+          debugPrint('✅ Message found at index $index');
+          final message = _messages[index];
+          final updatedMessage = message.copyWith(
+            status: status,
+            attemptCount: attemptCount ?? message.attemptCount,
+            lastAttempt: lastAttempt ?? message.lastAttempt,
+          );
 
-        _messages[index] = updatedMessage;
-        _messagesSubject.add(_messages);
-        await _saveMessages();
+          _messages[index] = updatedMessage;
+          _messagesSubject.add(_messages);
+          await _saveMessages();
+          debugPrint('✅ Message status updated successfully to: $status');
 
-        // If delivered or acknowledged, complete the future
-        if (status == MessageStatus.delivered || status == MessageStatus.ack) {
-          if (_outgoingMessageCompleters.containsKey(messageId) &&
-              !_outgoingMessageCompleters[messageId]!.isCompleted) {
-            _outgoingMessageCompleters[messageId]!.complete(true);
-            _outgoingMessageCompleters.remove(messageId);
+          // If delivered or acknowledged, complete the future
+          if (status == MessageStatus.delivered || status == MessageStatus.ack) {
+            if (_outgoingMessageCompleters.containsKey(messageId) &&
+                !_outgoingMessageCompleters[messageId]!.isCompleted) {
+              _outgoingMessageCompleters[messageId]!.complete(true);
+              _outgoingMessageCompleters.remove(messageId);
+              debugPrint('✅ Message completer completed with success');
+            }
           }
+        } else {
+          debugPrint('❌ Message not found with ID: $messageId');
         }
+      } catch (e, stack) {
+        debugPrint('❌ Error updating message status: $e');
+        debugPrint('❌ Stack trace: $stack');
       }
     });
   }
@@ -1956,29 +2817,69 @@ class BleService {
     }
   }
 
+  Future<bool> _isValidRecipient(String recipientId) async {
+    // Check if this matches any contact's BLE device ID
+    final foundInContacts = InMemoryStore.contacts.any((c) =>
+    c.bleDeviceId == recipientId
+    );
+
+    // If not found in contacts, this message might be orphaned
+    return foundInContacts;
+  }
+
   /// Process outgoing messages with improved batching and efficiency
   Future<void> _processOutgoingMessages() async {
     return _stateLock.synchronized(() async {
       try {
+        debugPrint('🔄 _processOutgoingMessages started');
+
+        final messagesToRemove = <String>[];
+        for (final message in _messages) {
+          if (message.senderId == _deviceId &&
+              message.status != MessageStatus.delivered &&
+              message.status != MessageStatus.ack) {
+            // Check if recipient still exists
+            final isValid = await _isValidRecipient(message.recipientId);
+            if (!isValid) {
+              messagesToRemove.add(message.id);
+            }
+          }
+        }
+
+        // Remove orphaned messages
+        if (messagesToRemove.isNotEmpty) {
+          _messages.removeWhere((m) => messagesToRemove.contains(m.id));
+          _messagesSubject.add(_messages);
+          await _saveMessages();
+          debugPrint('🧹 Removed ${messagesToRemove.length} orphaned messages');
+        }
+
         // Update activity timestamp since we have pending messages
         _lastMessageActivity = DateTime.now();
 
         // Get messages that need processing - using HYBRID approach
+        debugPrint('🔍 Getting retriable messages');
         final undeliveredMessages = await _getRetriableMessagesHybrid();
+        _sortMessagesByPriority(undeliveredMessages);
+        debugPrint('📋 Found ${undeliveredMessages.length} undelivered messages');
+        messageQueueHealth.updatePendingCount(undeliveredMessages.length);
 
         // Skip processing if no messages match criteria
         if (undeliveredMessages.isEmpty) {
+          debugPrint('✓ No messages to process, exiting');
           return;
         }
 
         // Group messages by recipient
         final messagesByRecipient = _groupMessagesByRecipient(undeliveredMessages);
+        debugPrint('📊 Messages grouped by ${messagesByRecipient.length} recipients');
 
         // Find connected devices
         final connectedDevices = _discoveredDevices.where((d) => d.isConnected).toList();
+        debugPrint('🔌 Found ${connectedDevices.length} connected devices');
 
         if (connectedDevices.isEmpty) {
-          debugPrint('No connected devices found for sending messages');
+          debugPrint('❌ No connected devices found for sending messages');
           await _startScanIfNeeded();
           return;
         }
@@ -1987,39 +2888,71 @@ class BleService {
         connectedDevices.sort((a, b) =>
             (b.connectionPriority).compareTo(a.connectionPriority));
 
+        // Log the connected devices for debugging
+        for (int i = 0; i < connectedDevices.length; i++) {
+          debugPrint('  Device $i: ${connectedDevices[i].id}, name: ${connectedDevices[i].name ?? "unknown"}');
+        }
+
         // Process connected devices in batches
+        debugPrint('🔄 Processing messages for connected devices');
         await _batchOperations(connectedDevices, (device) async {
           final deviceId = device.id;
           if (deviceId.isEmpty) {
-            debugPrint('Device has null or empty ID, skipping');
+            debugPrint('⚠️ Device has null or empty ID, skipping');
             return;
           }
 
+          debugPrint('📱 Processing device: $deviceId');
           final deviceMessages = messagesByRecipient[deviceId];
 
           if (deviceMessages != null && deviceMessages.isNotEmpty) {
+            debugPrint('📨 Found ${deviceMessages.length} messages for device: $deviceId');
             // Process this device's messages in batches
             await _batchOperations(deviceMessages, (message) async {
+              debugPrint('🔄 Processing message ${message.id} for device: $deviceId');
               await _sendSingleMessage(message, device);
             });
+          } else {
+            debugPrint('ℹ️ No messages for device: $deviceId');
           }
         });
 
         // Handle relay for messages that couldn't be delivered directly
+        debugPrint('🔄 Handling undelivered messages');
         await _handleUndeliveredMessages();
 
         // Start scanning if needed for remaining messages
+        debugPrint('🔍 Checking if scan needed');
         await _startScanIfNeeded();
 
         // Reset retry counter after successful processing
         _resetRetryCounter();
+        debugPrint('✅ _processOutgoingMessages completed');
       } catch (e, stackTrace) {
-        debugPrint('Error in _processOutgoingMessages: $e');
-        debugPrint('Stack trace: $stackTrace');
+        debugPrint('❌ Error in _processOutgoingMessages: $e');
+        debugPrint('❌ Stack trace: $stackTrace');
         // Add more specific recovery actions here based on error type
         _scheduleRetry();
       }
     });
+  }
+
+  static BleMessage createHighPriorityMessage({
+    required String id,
+    required String senderId,
+    required String recipientId,
+    required String content,
+    required DateTime timestamp,
+  }) {
+    return BleMessage(
+      id: id,
+      senderId: senderId,
+      recipientId: recipientId,
+      content: content,
+      timestamp: timestamp,
+      status: MessageStatus.created,
+      metadata: {'priority': 'high'},
+    );
   }
 
   Future<List<BleMessage>> _getRetriableMessagesHybrid() async {
@@ -2145,7 +3078,12 @@ class BleService {
 
     messages.sort((a, b) {
       try {
-        // Calculate priority score (newer messages with fewer attempts get higher priority)
+        // Compare priority first (higher priority first)
+        if (a.priority != b.priority) {
+          return b.priority.compareTo(a.priority);
+        }
+
+        // Then use the timestamp and attempt count calculation
         final aScore = a.timestamp.millisecondsSinceEpoch / 1000 - ((a.attemptCount) * 60);
         final bScore = b.timestamp.millisecondsSinceEpoch / 1000 - ((b.attemptCount) * 60);
         return bScore.compareTo(aScore); // Higher score (newer) first
@@ -2232,13 +3170,17 @@ class BleService {
 
     return messagesByRecipient;
   }
+
   Future<void> _sendSingleMessage(BleMessage message, BleDevice device) async {
+    debugPrint('🔄 _sendSingleMessage starting for message ${message.id} to device ${device.id}');
     try {
       // Update attempt count and last attempt time
       final index = _messages.indexWhere((m) => m.id == message.id);
       if (index >= 0) {
         final currentAttemptCount = message.attemptCount;
+        debugPrint('📊 Current attempt count: $currentAttemptCount for message ${message.id}');
 
+        debugPrint('🔄 Updating message status to SENDING');
         await _updateMessageStatus(
           message.id,
           MessageStatus.sending,
@@ -2247,32 +3189,37 @@ class BleService {
         );
 
         // Send the message
+        debugPrint('📨 Calling _sendMessageToDevice for message ${message.id}');
         final success = await _sendMessageToDevice(
           _messages[index],
           device.peripheral,
         );
 
         if (success) {
+          debugPrint('✅ Message ${message.id} delivered successfully!');
           await _updateMessageStatus(message.id, MessageStatus.delivered);
           _errorRecoveryManager.operationSucceeded();
         } else {
+          debugPrint('❌ Message ${message.id} delivery failed');
           await _updateMessageStatus(message.id, MessageStatus.failed);
           // Record error metrics
-          debugPrint('BLE message send failure: messageId=${message.id}, deviceId=${device.id}');
+          debugPrint('⚠️ BLE message send failure: messageId=${message.id}, deviceId=${device.id}');
         }
       } else {
-        debugPrint('Message ${message.id} not found in queue');
+        debugPrint('❌ Message ${message.id} not found in queue');
       }
     } catch (e, stackTrace) {
-      debugPrint('Error sending message ${message.id} to device ${device.id}: $e');
-      debugPrint('Stack trace: $stackTrace');
+      debugPrint('❌ Error sending message ${message.id} to device ${device.id}: $e');
+      debugPrint('❌ Stack trace: $stackTrace');
       // Mark as failed for retry
       await _updateMessageStatus(message.id, MessageStatus.failed);
 
       // Record error metrics
-      debugPrint('BLE single message send failure: messageId=${message.id}, deviceId=${device.id}, attemptCount=${(message.attemptCount) + 1}');
+      debugPrint('⚠️ BLE single message send failure: messageId=${message.id}, deviceId=${device.id}, attemptCount=${(message.attemptCount) + 1}');
     }
+    debugPrint('🔄 _sendSingleMessage completed for message ${message.id}');
   }
+
   Future<void> _handleUndeliveredMessages() async {
     try {
       // Find messages that need relay
@@ -2401,10 +3348,143 @@ class BleService {
       _consecutiveFailures = 0;
     }
   }
+  void _resetScanFailureCounter() {
+    if (_consecutiveScanFailures > 0) {
+      debugPrint('Resetting scan failure counter from $_consecutiveScanFailures to 0');
+      _consecutiveScanFailures = 0;
+    }
+  }
   bool _isMessageRetriable(BleMessage message) {
     return message.status == MessageStatus.failed ||
         message.status == MessageStatus.sending ||
         message.status == MessageStatus.pending;
+  }
+
+  /// Normalize device ID to a consistent format
+  String normalizeDeviceId(String deviceId) {
+    // If empty, return empty
+    if (deviceId.isEmpty) return deviceId;
+
+    // If it's already a UUID with dashes, return as is
+    if (deviceId.contains('-') && deviceId.length >= 36) return deviceId;
+
+    // If it's a MAC address with colons, convert to canonical UUID format
+    if (deviceId.contains(':')) {
+      return '00000000-0000-0000-0000-${deviceId.replaceAll(':', '').toLowerCase()}';
+    }
+
+    // If it's just a short ID (like from a Pak-Msg name), pad it
+    if (deviceId.length < 32) {
+      // Make sure we have at least 12 characters for the device part of the UUID
+      String paddedId = deviceId.padRight(12, '0').substring(0, 12);
+      return '00000000-0000-0000-0000-$paddedId';
+    }
+
+    // If it's a 32-character hex string without dashes, add them
+    if (deviceId.length == 32) {
+      return '${deviceId.substring(0, 8)}-${deviceId.substring(8, 12)}-${deviceId.substring(12, 16)}-${deviceId.substring(16, 20)}-${deviceId.substring(20)}';
+    }
+
+    // Default case - return as is
+    return deviceId;
+  }
+
+  // Add this method to your BleService class
+  BleDevice? findDeviceByAnyId(String targetId) {
+    debugPrint('🔍 Searching for device: $targetId');
+    debugPrint('🔍 Available devices:');
+    for (var device in _discoveredDevices) {
+      debugPrint('  - ID: ${device.id}, Name: ${device.name ?? "Unknown"}');
+    }
+
+    if (targetId.isEmpty) return null;
+
+    debugPrint('🔍 Searching for device with ID: $targetId');
+
+    // Try exact match first (most reliable)
+    int deviceIndex = _discoveredDevices.indexWhere((d) => d.id == targetId);
+    if (deviceIndex >= 0) {
+      debugPrint('✅ Found device by exact ID match');
+      return _discoveredDevices[deviceIndex];
+    }
+
+    // Check if any device's name contains the target ID (for "Pak-Msg-XXXXXXXX" pattern)
+    deviceIndex = _discoveredDevices.indexWhere(
+            (d) => d.name != null && d.name!.contains(targetId.substring(0, math.min(8, targetId.length)))
+    );
+
+    if (deviceIndex >= 0) {
+      debugPrint('✅ Found device by name containing target ID: ${_discoveredDevices[deviceIndex].name}');
+      return _discoveredDevices[deviceIndex];
+    }
+
+    // Try MAC address format without dashes
+    if (targetId.contains('-')) {
+      String macFormat = targetId.replaceAll('-', '').toLowerCase();
+      deviceIndex = _discoveredDevices.indexWhere((d) =>
+          d.id.replaceAll('-', '').toLowerCase().contains(macFormat.substring(0, math.min(8, macFormat.length)))
+      );
+
+      if (deviceIndex >= 0) {
+        debugPrint('✅ Found device by MAC address format match');
+        return _discoveredDevices[deviceIndex];
+      }
+    }
+
+    // Check for any device whose name has the format "Pak-Msg-XXXXXXXX"
+    // where XXXXXXXX might be derived from the targetId
+    for (int i = 0; i < _discoveredDevices.length; i++) {
+      final device = _discoveredDevices[i];
+      if (device.name != null && device.name!.startsWith('Pak-Msg-')) {
+        final nameId = device.name!.substring(8); // Extract ID part after "Pak-Msg-"
+        if (targetId.contains(nameId) || nameId.contains(targetId.substring(0, math.min(8, targetId.length)))) {
+          debugPrint('✅ Found device by Pak-Msg name pattern match: ${device.name}');
+          return device;
+        }
+      }
+    }
+
+    // As a last resort, try any partial match
+    for (int i = 0; i < _discoveredDevices.length; i++) {
+      final device = _discoveredDevices[i];
+      if ((device.id.contains(targetId.substring(0, math.min(8, targetId.length)))) ||
+          (device.name != null &&
+              device.name!.contains(targetId.substring(0, math.min(8, targetId.length))))) {
+        debugPrint('✅ Found device by partial ID/name match: ${device.name ?? device.id}');
+        return device;
+      }
+    }
+
+    debugPrint('❌ No matching device found for ID: $targetId');
+    return null;
+  }
+
+  bool messageRequiresUrgentDelivery(BleMessage message) {
+    // Consider a message urgent if:
+    // 1. It has high priority metadata
+    if (message.metadata != null &&
+        message.metadata!.containsKey('priority') &&
+        message.metadata!['priority'] == 'high') {
+      return true;
+    }
+
+    // 2. It's to an emergency contact
+    try {
+      final recipientContact = InMemoryStore.contacts.firstWhere(
+            (c) => c.username == message.recipientId || c.bleDeviceId == message.recipientId,
+      );
+      return recipientContact.isEmergency;
+    } catch (_) {
+      // Contact not found, default to non-urgent
+    }
+
+    // 3. It has failed too many times already
+    if (message.attemptCount > 5) {
+      return true;
+    }
+
+    // Default to non-urgent
+    return false;
   }
 
   ScanParameters _determineScanParameters(List<BleMessage> pendingMessages) {
@@ -2412,6 +3492,9 @@ class BleService {
       if (pendingMessages.isEmpty) {
         return ScanParameters(Duration(seconds: 30), false);
       }
+
+      // Check for any urgent messages
+      final hasUrgentMessages = pendingMessages.any((m) => messageRequiresUrgentDelivery(m));
 
       // Find the oldest pending message
       DateTime? oldestTimestamp;
@@ -2427,13 +3510,18 @@ class BleService {
 
       final messageAge = DateTime.now().difference(oldestTimestamp).inMinutes;
 
+      // More aggressive scanning for urgent messages
+      if (hasUrgentMessages) {
+        return ScanParameters(Duration(seconds: 45), false); // Longer scan, full power
+      }
+
       // Use low power scan if messages aren't urgent (over 30 min old)
       final lowPowerScan = messageAge > 30 && pendingMessages.length < 5;
 
       // Define scan duration based on urgency
       final scanDuration = lowPowerScan
           ? Duration(seconds: 10)
-          : (activeScanDuration);
+          : (messageAge < 5 ? Duration(seconds: 40) : activeScanDuration);
 
       return ScanParameters(scanDuration, lowPowerScan);
     } catch (e) {
@@ -2443,52 +3531,249 @@ class BleService {
     }
   }
 
+  // Add to your BleService class
+  Future<bool> sendMessageWithRetry(String recipientId, String content, {int maxRetries = 3}) async {
+    debugPrint('📤 Attempting to send message to $recipientId with retries');
+
+    // First, normalize the recipient ID
+    final normalizedId = normalizeDeviceId(recipientId);
+
+    // Try direct send first
+    try {
+      final success = await sendMessage(normalizedId, content);
+      if (success) return true;
+    } catch (e) {
+      debugPrint('⚠️ Initial send attempt failed: $e');
+    }
+
+    // If we're here, direct send failed. Find the device
+    final device = findDeviceByAnyId(normalizedId);
+    if (device == null) {
+      debugPrint('❌ Device not found for ID: $normalizedId');
+
+      // Queue the message anyway for future delivery
+      final message = BleMessage(
+        id: '${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(10000)}',
+        senderId: _deviceId,
+        recipientId: normalizedId,
+        content: content,
+        timestamp: DateTime.now(),
+        status: MessageStatus.pending,
+      );
+
+      _messages.add(message);
+      _messagesSubject.add(_messages);
+      await _saveMessages();
+
+      return false;
+    }
+
+    // If device exists but not connected, try to connect and send
+    if (!device.isConnected) {
+      debugPrint('🔄 Device found but not connected. Attempting connection...');
+
+      // Try to connect
+      final connected = await connectToDevice(device);
+      if (!connected) {
+        debugPrint('❌ Failed to connect to device');
+
+        // Queue the message anyway
+        final message = BleMessage(
+          id: '${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(10000)}',
+          senderId: _deviceId,
+          recipientId: normalizedId,
+          content: content,
+          timestamp: DateTime.now(),
+          status: MessageStatus.pending,
+        );
+
+        _messages.add(message);
+        _messagesSubject.add(_messages);
+        await _saveMessages();
+
+        return false;
+      }
+
+      // Successfully connected, now try to send
+      debugPrint('✅ Connected successfully, attempting to send message');
+
+      // Small delay to ensure services are discovered
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    // Attempt retries
+    for (int attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        debugPrint('🔄 Send attempt ${attempt + 1}/$maxRetries');
+        final success = await sendMessage(normalizedId, content);
+        if (success) {
+          debugPrint('✅ Message sent successfully on attempt ${attempt + 1}');
+          return true;
+        }
+
+        // Wait before retrying
+        await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+      } catch (e) {
+        debugPrint('⚠️ Send attempt ${attempt + 1} failed: $e');
+        // Wait before retrying
+        await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+      }
+    }
+
+    debugPrint('❌ All send attempts failed');
+    return false;
+  }
+
   /// Send a specific message to a connected device with packet fragmentation
   Future<bool> _sendMessageToDevice(BleMessage message, Peripheral peripheral) async {
+    debugPrint('🔄 _sendMessageToDevice started. Message ID: ${message.id}');
+    debugPrint('🔄 Target peripheral ID: ${peripheral.uuid}, message recipient: ${message.recipientId}');
+
+
+    if (_isJniDetached) {
+      debugPrint('⚠️ Cannot send message: JNI is currently detached');
+      return false;
+    }
+
     try {
       // Check if we have discovered services for this peripheral
       final peripheralId = peripheral.uuid.toString();
-      final service = _deviceGattServices[peripheralId];
+      GATTService? service = _deviceGattServices[peripheralId];
+
+      debugPrint('🔍 Checking GATT service for device: $peripheralId');
 
       if (service == null) {
+        debugPrint('❌ No GATT service found for device: $peripheralId, will discover services first');
         // Discover services first
-        await _discoverServices(peripheral);
-        return false; // Will retry after service discovery
+        try {
+          await _discoverServices(peripheral);
+          service = _deviceGattServices[peripheralId];
+
+          // If service is still null after discovery, fail
+          if (service == null) {
+            debugPrint('❌ Service discovery succeeded but no service was cached');
+            return false;
+          }
+        } catch (e) {
+          debugPrint('❌ Service discovery failed during message send: $e');
+          return false;
+        }
       }
 
       // Find message characteristic
       final characteristic = _findCharacteristic(service, messageCharacteristicUuid);
       if (characteristic == null) {
-        debugPrint('Message characteristic not found');
+        debugPrint('❌ Message characteristic not found for device: $peripheralId');
+        debugPrint('Available characteristics:');
+        for (var char in service.characteristics) {
+          debugPrint('  - ${char.uuid}');
+        }
         return false;
       }
 
+      debugPrint('✅ Found message characteristic: ${characteristic.uuid}');
+
       // Convert message to JSON and then to bytes
       final messageJson = jsonEncode(message.toJson());
+      debugPrint('📦 Message JSON: ${messageJson.substring(0, math.min(messageJson.length, 100))}...');
+
       final messageBytes = Uint8List.fromList(utf8.encode(messageJson));
+      debugPrint('📦 Prepared message payload: ${messageBytes.length} bytes');
 
       // Get negotiated MTU size for this device
       final mtu = await _getNegotiatedMtu(peripheral);
       final effectiveSize = math.max(20, mtu - 3); // Account for ATT overhead
+      debugPrint('ℹ️ Using MTU size: $mtu, effective payload size: $effectiveSize');
 
       // Handle message fragmentation if needed
       if (messageBytes.length > effectiveSize) {
+        debugPrint('🧩 Message too large for MTU, using fragmentation');
         return await _sendFragmentedMessage(message, messageBytes, peripheral, characteristic, effectiveSize);
       } else {
-        // Send the message in a single packet
-        await _centralManager.writeCharacteristic(
-          peripheral,
-          characteristic,
-          value: messageBytes,
-          type: GATTCharacteristicWriteType.withResponse,
+        // Send the message in a single packet with multiple retry attempts
+        return await _retryWriteOperation(
+            peripheral: peripheral,
+            characteristic: characteristic,
+            value: messageBytes,
+            maxRetries: 3
         );
-
-        return true;
       }
-    } catch (e) {
-      debugPrint('Failed to send message: $e');
+    } catch (e, stack) {
+      debugPrint('❌ Failed to send message: $e');
+      errorMetrics.recordWriteFailure(peripheral.uuid.toString());
+      debugPrint('❌ Stack trace: $stack');
       return false;
     }
+  }
+
+  Future<bool> _retryWriteOperation({
+    required Peripheral peripheral,
+    required GATTCharacteristic characteristic,
+    required Uint8List value,
+    int maxRetries = 3
+  }) async {
+    int attempts = 0;
+    while (attempts < maxRetries) {
+      attempts++;
+      debugPrint('📨 Write attempt $attempts/$maxRetries with ${value.length} bytes');
+
+      // Log characteristic details
+      debugPrint('📨 Characteristic UUID: ${characteristic.uuid}, properties: ${characteristic.properties}');
+
+      try {
+        // First try with response using timeout
+        await withTimeout(
+            _centralManager.writeCharacteristic(
+              peripheral,
+              characteristic,
+              value: value,
+              type: GATTCharacteristicWriteType.withResponse,
+            ),
+            const Duration(seconds: 10),
+            null,  // Changed from false to null since we're not returning a value
+            'writeCharacteristic'
+        );
+
+        // If we get here without exception, the write was successful
+        debugPrint('✅ Message sent successfully on attempt $attempts');
+        return true;
+
+      } catch (e) {
+        debugPrint('❌ Write attempt $attempts failed: $e');
+        errorMetrics.recordWriteFailure(peripheral.uuid.toString());
+
+        // For the last attempt, try without response
+        if (attempts == maxRetries) {
+          try {
+            debugPrint('⚠️ Trying final attempt with withoutResponse type');
+            await withTimeout(
+                _centralManager.writeCharacteristic(
+                  peripheral,
+                  characteristic,
+                  value: value,
+                  type: GATTCharacteristicWriteType.withoutResponse,
+                ),
+                const Duration(seconds: 5),
+                null,  // Changed from false to null
+                'writeCharacteristicWithoutResponse'
+            );
+
+            // If we get here, the final attempt succeeded
+            debugPrint('✅ Message sent successfully on final attempt using withoutResponse');
+            return true;
+          } catch (fallbackError) {
+            debugPrint('❌ Even final attempt failed: $fallbackError');
+            errorMetrics.recordWriteFailure(peripheral.uuid.toString());
+            return false;
+          }
+        }
+
+        // Add a small delay between attempts
+        await Future.delayed(Duration(milliseconds: 300 * attempts));
+      }
+    }
+
+    return false;
   }
 
   /// Send a fragmented message with improved reliability
@@ -2577,83 +3862,107 @@ class BleService {
         Central? central,
       }) async {
     return _stateLock.synchronized(() async {
+      debugPrint('📩 Processing incoming message of ${value.length} bytes');
       try {
-        // Check if it's a protocol v2 fragment (prefixed with header size byte)
-        if (value.length > 2 && value[0] < 30) {  // Header should be reasonably small
-          final headerSize = value[0];
+        // Add diagnostic logging for packet analysis
+        final hexData = value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+        debugPrint('📦 Raw packet data (hex): ${hexData.substring(0, math.min(hexData.length, 100))}...');
 
-          // If header size is valid, extract and process header
-          if (headerSize > 0 && value.length > headerSize + 1) {
-            final headerBytes = value.sublist(1, 1 + headerSize);
-            try {
-              final headerJson = utf8.decode(headerBytes);
-              final header = jsonDecode(headerJson) as Map<String, dynamic>;
+        // Try to decode directly as a complete message first (most common case)
+        try {
+          final messageJson = utf8.decode(value, allowMalformed: true);
+          debugPrint('🔄 Attempting to decode as complete JSON message');
 
-              // Check if it has fragment indicators
-              if ((header.containsKey('i') || header.containsKey('fragmentIndex')) &&
-                  (header.containsKey('c') || header.containsKey('fragmentCount'))) {
+          try {
+            final messageData = jsonDecode(messageJson) as Map<String, dynamic>;
+            // If we reached here, it's valid JSON
+            debugPrint('✅ Successfully decoded as complete message JSON');
 
-                await _processMessageFragment(
-                  header,
-                  value.sublist(1 + headerSize),
-                  peripheral,
-                  central,
+            // Check if this is a fragment metadata message
+            if (messageData.containsKey('isFragmentMetadata') && messageData['isFragmentMetadata'] == true) {
+              debugPrint('📝 Received fragment metadata message: ${messageJson.substring(0, math.min(messageJson.length, 100))}');
+
+              // Store metadata for reassembly
+              final messageId = messageData['messageId'] as String;
+              final fragmentCount = messageData['fragmentCount'] as int;
+
+              if (!_incomingPackets.containsKey(messageId)) {
+                _incomingPackets[messageId] = List.generate(
+                  fragmentCount,
+                      (i) => <String, dynamic>{
+                    'received': false,
+                    'timestamp': DateTime.now(),
+                  },
                 );
-                return;
+                debugPrint('📋 Created fragment tracking for message $messageId with $fragmentCount fragments');
               }
-
-              // Check if it's a fragment metadata message
-              if (header.containsKey('protocol') && header['protocol'] == 2 &&
-                  header.containsKey('fragmentCount')) {
-                // Store metadata for this message for future fragment assembly
-                final messageId = header['messageId'];
-                if (!_incomingPackets.containsKey(messageId)) {
-                  _incomingPackets[messageId] = List.generate(
-                    header['fragmentCount'],
-                        (i) => <String, dynamic>{
-                      'received': false,
-                      'timestamp': DateTime.now(),
-                    },
-                  );
-                }
-                return;
-              }
-            } catch (e) {
-              // Not valid JSON in header, continue to check older protocol
+              return;
             }
+
+            // If it's a regular message, not a fragment
+            if (!messageData.containsKey('isFragment') || messageData['isFragment'] != true) {
+              debugPrint('📩 Processing as regular (non-fragmented) message');
+              await _processRegularMessage(value, peripheral, central);
+              return;
+            }
+
+            // Find the fragment data portion - extract after the header
+            final headerBytes = utf8.encode(jsonEncode(messageData));
+            final fragmentData = value.sublist(headerBytes.length);
+
+            await _processMessageFragment(
+              messageData,
+              fragmentData,
+              peripheral,
+              central,
+            );
+            return;
+          } catch (jsonError) {
+            debugPrint('⚠️ JSON parsing failed, checking for binary format: $jsonError');
           }
+        } catch (decodeError) {
+          debugPrint('⚠️ UTF-8 decoding failed, likely binary format: $decodeError');
         }
 
-        // Check if it's an old protocol fragment (2-byte header size)
+        // Check if it's a binary format with 2-byte header size
         if (value.length > 2) {
           final headerSize = value[0] | (value[1] << 8);
 
-          // If header size is valid, check for fragment
-          if (headerSize > 0 && headerSize < 100 && value.length > headerSize + 2) {
-            final headerBytes = value.sublist(2, 2 + headerSize);
+          // Validate header size is reasonable (prevents invalid parsing)
+          if (headerSize > 0 && headerSize < 1000 && value.length > headerSize + 2) {
             try {
+              final headerBytes = value.sublist(2, 2 + headerSize);
               final headerJson = utf8.decode(headerBytes);
-              final header = jsonDecode(headerJson) as Map<String, dynamic>;
 
-              // If it's a fragment, process it
-              if (header.containsKey('isFragment') && header['isFragment'] == true) {
-                await _processMessageFragment(
-                  header,
-                  value.sublist(2 + headerSize),
-                  peripheral,
-                  central,
-                );
-                return;
+              try {
+                final header = jsonDecode(headerJson) as Map<String, dynamic>;
+                debugPrint('🔍 Decoded binary format header: ${headerJson.substring(0, math.min(headerJson.length, 100))}');
+
+                // Handle fragment
+                if (header.containsKey('isFragment') && header['isFragment'] == true) {
+                  await _processMessageFragment(
+                    header,
+                    value.sublist(2 + headerSize),
+                    peripheral,
+                    central,
+                  );
+                  return;
+                }
+              } catch (e) {
+                debugPrint('⚠️ Binary header JSON parsing failed: $e');
               }
             } catch (e) {
-              // Not valid JSON, try to process as a regular message
+              debugPrint('⚠️ Binary header decoding failed: $e');
             }
           }
         }
 
-        // Not a fragment, process normally
+        // If all parsing attempts fail, try as a regular message one last time
+        debugPrint('⚠️ Message format not recognized, attempting to process as regular message');
         await _processRegularMessage(value, peripheral, central);
-      } catch (e) {
+      } catch (e, stack) {
+        debugPrint('❌ Error processing incoming message: $e');
+        debugPrint('Stack trace: $stack');
         _errorSubject.add('Failed to process incoming message: $e');
         _errorRecoveryManager.handleError('processIncomingMessage', e);
       }
@@ -2739,10 +4048,13 @@ class BleService {
       ) async {
     return _stateLock.synchronized(() async {
       // Decode the message
+      debugPrint('🔄 Decoding regular message payload');
       final messageJson = utf8.decode(value);
+      debugPrint('📄 Decoded message JSON: ${messageJson.substring(0, math.min(messageJson.length, 50))}...');
       final messageData = jsonDecode(messageJson) as Map<String, dynamic>;
       final message = BleMessage.fromJson(messageData);
 
+      debugPrint('✅ Successfully decoded message: ${message.id} from: ${message.senderId} to: ${message.recipientId}');
       // Update activity timestamp
       _lastMessageActivity = DateTime.now();
 
@@ -2750,6 +4062,7 @@ class BleService {
 
       // Case 1: Message is for us
       if (message.recipientId == _deviceId) {
+        debugPrint('📬 Message is for us! Adding to message store');
         // Add to our messages if not already present
         final existingIndex = _messages.indexWhere((m) => m.id == message.id);
         if (existingIndex < 0) {
@@ -2759,6 +4072,12 @@ class BleService {
 
           // Show notification for new message
           _showMessageNotification(message);
+
+          InMemoryStore.handleMessageFromUnknownContact(
+            message.senderId,
+            message.content,
+            false, // Not sent by us
+          );
         }
 
         // Send acknowledgment
@@ -2980,6 +4299,14 @@ class BleService {
     }
   }
 
+  bool get needsAcknowledgment {
+    return status == MessageStatus.delivered &&
+        senderId == _deviceId && // Only track ACKs for messages we sent
+        DateTime.now().difference(timestamp!).inMinutes < 60; // Don't need ACKs for very old messages
+  }
+
+
+
   /// Process an acknowledgment message
   Future<void> _processAcknowledgment(
       Peripheral? peripheral,
@@ -2989,23 +4316,41 @@ class BleService {
     try {
       // Decode the acknowledgment
       final ackJson = utf8.decode(value);
+      debugPrint('📩 Received ACK: $ackJson');
+
       final ackData = jsonDecode(ackJson) as Map<String, dynamic>;
 
       // Validate this is actually an ACK
       if (!(ackData['isAck'] == true)) {
+        debugPrint('⚠️ Invalid ACK format');
         return;
       }
 
       final messageId = ackData['messageId'] as String;
+      debugPrint('✅ Processing ACK for message: $messageId');
 
       // Find the original message
       final index = _messages.indexWhere((m) => m.id == messageId);
       if (index >= 0) {
         // Mark message as acknowledged
-        _updateMessageStatus(_messages[index].id, MessageStatus.ack);
+        debugPrint('✅ Found message to ACK, updating status');
+        await _updateMessageStatus(_messages[index].id, MessageStatus.ack);
+
+        // Store metrics about delivery time
+        final deliveryTime = DateTime.now().difference(_messages[index].timestamp);
+        debugPrint('📊 Message delivery time: ${deliveryTime.inSeconds} seconds');
+
+        // Complete any pending future
+        if (_outgoingMessageCompleters.containsKey(messageId) &&
+            !_outgoingMessageCompleters[messageId]!.isCompleted) {
+          _outgoingMessageCompleters[messageId]!.complete(true);
+          _outgoingMessageCompleters.remove(messageId);
+        }
+      } else {
+        debugPrint('⚠️ Received ACK for unknown message: $messageId');
       }
     } catch (e) {
-      _errorSubject.add('Failed to process acknowledgment: $e');
+      debugPrint('❌ Failed to process acknowledgment: $e');
     }
   }
 
@@ -3027,6 +4372,78 @@ class BleService {
     }
   }
 
+  void initializePeriodicCleanup() {
+    // Clean up every 5 minutes
+    Timer.periodic(const Duration(minutes: 5), (_) {
+      _cleanupMessageMaps();
+    });
+  }
+
+  void _cleanupMessageMaps() {
+    final now = DateTime.now();
+
+    // Clean up incoming packets map (remove entries older than 10 minutes)
+    final incomingPacketsToRemove = <String>[];
+    _incomingPackets.forEach((messageId, fragments) {
+      // Check if any fragment has a timestamp
+      final hasTimestamp = fragments.any((f) => f.containsKey('timestamp'));
+      if (hasTimestamp) {
+        final timestamp = fragments.firstWhere(
+              (f) => f.containsKey('timestamp'),
+          orElse: () => {'timestamp': now},
+        )['timestamp'] as DateTime;
+
+        if (now.difference(timestamp).inMinutes > 10) {
+          incomingPacketsToRemove.add(messageId);
+        }
+      } else {
+        // If no timestamp, assume it's old and remove it
+        incomingPacketsToRemove.add(messageId);
+      }
+    });
+
+    for (final id in incomingPacketsToRemove) {
+      _incomingPackets.remove(id);
+    }
+
+    // Clean up message completers map
+    final completersToRemove = <String>[];
+    _outgoingMessageCompleters.forEach((messageId, completer) {
+      // If completer is not completed but no message exists, complete it
+      final messageExists = _messages.any((m) => m.id == messageId);
+      if (!messageExists && !completer.isCompleted) {
+        completer.complete(false);
+        completersToRemove.add(messageId);
+      }
+
+      // Also look for very old completers (older than 30 minutes)
+      final message = _messages.firstWhere(
+            (m) => m.id == messageId,
+        orElse: () => BleMessage(
+          id: messageId,
+          senderId: _deviceId,
+          recipientId: '',
+          content: '',
+          timestamp: now.subtract(const Duration(hours: 1)),
+        ),
+      );
+
+      if (now.difference(message.timestamp).inMinutes > 30 && !completer.isCompleted) {
+        completer.complete(false);
+        completersToRemove.add(messageId);
+      }
+    });
+
+    for (final id in completersToRemove) {
+      _outgoingMessageCompleters.remove(id);
+    }
+
+    // Log cleanup results
+    if (incomingPacketsToRemove.isNotEmpty || completersToRemove.isNotEmpty) {
+      debugPrint('🧹 Cleaned up ${incomingPacketsToRemove.length} incoming packets and ${completersToRemove.length} completers');
+    }
+  }
+
   /// Build a safe preview of the message content
   String _buildMessagePreview(String content) {
     // Limit preview length
@@ -3036,76 +4453,362 @@ class BleService {
     return content;
   }
 
-  /// Discover GATT services for a peripheral with retry logic
-  Future<void> _discoverServices(Peripheral peripheral) async {
+  Future<List<GATTService>> _discoverServicesWithRetry(Peripheral peripheral, {int attempt = 1, int maxAttempts = 5}) async {
     try {
-      final services = await _centralManager.discoverGATT(peripheral)
-          .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Service discovery timed out'),
-      );
-
-      // Find our service
-      final service = services.firstWhere(
-            (s) => s.uuid.toString() == serviceUuid,
-        orElse: () => throw Exception('Service not found'),
-      );
-
-      // Cache the service
-      _deviceGattServices[peripheral.uuid.toString()] = service;
-
-      // Subscribe to message characteristic notifications
-      final messageCharacteristic = _findCharacteristic(service, messageCharacteristicUuid);
-      if (messageCharacteristic != null) {
-        await _centralManager.setCharacteristicNotifyState(
-          peripheral,
-          messageCharacteristic,
-          state: true,
-        );
-      }
-
-      // Subscribe to acknowledgment characteristic notifications
-      final ackCharacteristic = _findCharacteristic(service, ackCharacteristicUuid);
-      if (ackCharacteristic != null) {
-        await _centralManager.setCharacteristicNotifyState(
-          peripheral,
-          ackCharacteristic,
-          state: true,
-        );
-      }
-
-      // Try to send any pending messages to this device
-      await _processOutgoingMessages();
-
-      // Service discovery successful - the device is now fully connected
-      return;
+      return await _centralManager.discoverGATT(peripheral)
+          .timeout(Duration(seconds: 15 + (attempt * 10)));
     } catch (e) {
-      _errorSubject.add('Failed to discover services: $e');
-
-      // Update device connection failure count
-      final deviceIndex = _discoveredDevices.indexWhere(
-              (d) => d.peripheral.uuid == peripheral.uuid
-      );
-
-      if (deviceIndex >= 0) {
-        // Increment failure count
-        _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
-          failedConnectionAttempts: _discoveredDevices[deviceIndex].failedConnectionAttempts + 1,
-          connectionState: ConnectionState.disconnected,
-        );
-        _devicesSubject.add(_discoveredDevices);
+      if (attempt < maxAttempts) {
+        debugPrint('⚠️ Service discovery attempt $attempt failed, retrying in ${attempt * 2}s');
+        await Future.delayed(Duration(seconds: attempt * 2));
+        return _discoverServicesWithRetry(peripheral, attempt: attempt + 1, maxAttempts: maxAttempts);
       }
-
-      // Try to disconnect to cleanup
-      try {
-        await _centralManager.disconnect(peripheral);
-      } catch (_) {
-        // Ignore disconnect errors
-      }
-
-      // Rethrow to let the connection handler know service discovery failed
       rethrow;
     }
+  }
+
+  /// Discover services for a peripheral with enhanced logging and error handling
+  Future<void> _discoverServices(Peripheral peripheral) async {
+    final peripheralId = peripheral.uuid.toString();
+
+    // Create a mutex lock for this specific device if needed
+    final lockKey = 'discover_$peripheralId';
+    if (!_locks.containsKey(lockKey)) {
+      _locks[lockKey] = Lock();
+    }
+
+    // Use synchronization to prevent concurrent discovery on the same device
+    return _locks[lockKey]!.synchronized(() async {
+      try {
+        debugPrint('🔍 Starting service discovery for device: $peripheralId');
+
+        // Log connection state before discovery
+        final deviceIndex = _discoveredDevices.indexWhere((d) => d.id == peripheralId);
+        if (deviceIndex >= 0) {
+          final deviceState = _discoveredDevices[deviceIndex].deviceConnectionState;
+          debugPrint('🔌 Current device connection state: $deviceState');
+        }
+
+        // Track discovery start time for performance monitoring
+        final startTime = DateTime.now();
+
+        // Use increased timeout for better reliability
+        final services = await _discoverServicesWithRetry(peripheral);
+
+        // Calculate and log discovery duration
+        final duration = DateTime.now().difference(startTime);
+        debugPrint('🔍 Discovered ${services.length} services in ${duration.inMilliseconds}ms for device $peripheralId');
+
+        // Log each service UUID for debugging
+        if (services.isNotEmpty) {
+          debugPrint('🔍 Service UUIDs:');
+          for (final service in services) {
+            debugPrint('   - ${service.uuid}');
+          }
+        }
+
+        // Deduplicate services with the same UUID (handles protocol quirks)
+        final Map<String, GATTService> uniqueServices = {};
+        for (final service in services) {
+          final serviceUuidString = service.uuid.toString();
+          if (!uniqueServices.containsKey(serviceUuidString) ||
+              service.characteristics.length > uniqueServices[serviceUuidString]!.characteristics.length) {
+            uniqueServices[serviceUuidString] = service;
+          }
+        }
+
+        final deduplicatedServices = uniqueServices.values.toList();
+        debugPrint('🧹 Deduplicated to ${deduplicatedServices.length} unique services');
+
+        // Log all discovered services and characteristics in a tree structure
+        debugPrint('📊 Service hierarchy:');
+        for (var i = 0; i < deduplicatedServices.length; i++) {
+          final service = deduplicatedServices[i];
+          debugPrint('   └─ Service[$i]: ${service.uuid}');
+
+          for (var j = 0; j < service.characteristics.length; j++) {
+            final characteristic = service.characteristics[j];
+            final props = characteristic.properties.map((p) => p.toString().split('.').last).join(', ');
+            debugPrint('      └─ Char[$j]: ${characteristic.uuid} (Props: $props)');
+
+            // Log descriptors if any
+            if (characteristic.descriptors.isNotEmpty) {
+              for (var k = 0; k < characteristic.descriptors.length; k++) {
+                final descriptor = characteristic.descriptors[k];
+                debugPrint('         └─ Desc[$k]: ${descriptor.uuid}');
+              }
+            }
+          }
+        }
+
+        // Find our target service
+        GATTService? service;
+        try {
+          service = deduplicatedServices.firstWhere(
+                (s) => s.uuid.toString().toLowerCase() == serviceUuid.toLowerCase(),
+          );
+          debugPrint('✅ Found our target service: $serviceUuid');
+        } catch (e) {
+          debugPrint('❌ Our service UUID not found: $serviceUuid');
+          throw Exception('Target service not found');
+        }
+
+        // Cache the service for future use
+        _deviceGattServices[peripheralId] = service;
+
+        // Subscribe to message characteristic notifications
+        final messageCharacteristic = _findCharacteristic(service, messageCharacteristicUuid);
+        if (messageCharacteristic != null) {
+          debugPrint('✅ Found message characteristic: ${messageCharacteristic.uuid}');
+
+          // Check if the characteristic supports notifications
+          final hasNotifyProperty = messageCharacteristic.properties.contains(GATTCharacteristicProperty.notify);
+          final hasIndicateProperty = messageCharacteristic.properties.contains(GATTCharacteristicProperty.indicate);
+
+          debugPrint('📊 Message characteristic properties:');
+          debugPrint('   - Supports notify: $hasNotifyProperty');
+          debugPrint('   - Supports indicate: $hasIndicateProperty');
+          debugPrint('   - All properties: ${messageCharacteristic.properties.map((p) => p.toString().split('.').last).join(', ')}');
+
+          // Check if characteristic has descriptors that control notifications
+          final notificationDescriptors = messageCharacteristic.descriptors.where((d) {
+            // Client Characteristic Configuration descriptor UUID
+            return d.uuid.toString().toLowerCase() == '00002902-0000-1000-8000-00805f9b34fb';
+          }).toList();
+
+          debugPrint('📊 Found ${notificationDescriptors.length} notification control descriptors');
+
+          if (!hasNotifyProperty && !hasIndicateProperty) {
+            debugPrint('⚠️ Message characteristic doesn\'t support notifications or indications');
+            // Try to continue anyway
+          }
+
+          try {
+            debugPrint('🔔 Enabling notifications for message characteristic...');
+            final notifyStartTime = DateTime.now();
+
+            // Add delay before enabling notifications
+            debugPrint('⏱️ Adding short delay before enabling notifications...');
+            await Future.delayed(const Duration(milliseconds: 500));
+
+            final notificationsEnabled = await _enableNotificationsWithRetry(
+                peripheral,
+                messageCharacteristic
+            );
+
+            if (!notificationsEnabled) {
+              debugPrint('⚠️ Could not enable notifications, but continuing anyway');
+            }
+
+            final notifyDuration = DateTime.now().difference(notifyStartTime);
+            debugPrint('✅ Successfully enabled notifications in ${notifyDuration.inMilliseconds}ms');
+
+            // Try to verify notification status by reading the descriptor if present
+            if (notificationDescriptors.isNotEmpty) {
+              try {
+                debugPrint('🔍 Checking notification status via descriptor...');
+                final descriptorValue = await _centralManager.readDescriptor(
+                    peripheral,
+                    notificationDescriptors.first
+                );
+
+                // The first byte will be 0x01 for notifications enabled or 0x02 for indications
+                if (descriptorValue.isNotEmpty) {
+                  final enabled = descriptorValue[0] > 0;
+                  debugPrint('📊 Notification status from descriptor: ${enabled ? "Enabled" : "Disabled"} (value: 0x${descriptorValue[0].toRadixString(16)})');
+                }
+              } catch (descriptorError) {
+                debugPrint('⚠️ Failed to read notification descriptor: $descriptorError');
+                // Non-fatal, continue anyway
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️ Failed to enable notifications for message characteristic: $e');
+
+            // Try to diagnose the issue
+            if (e.toString().contains('GATT_INVALID_ATTRIBUTE_LENGTH')) {
+              debugPrint('🔍 DIAGNOSIS: This appears to be an attribute length issue');
+              debugPrint('   Workaround: This might be fixable by adjusting the MTU');
+
+              try {
+                debugPrint('🔄 Attempting MTU negotiation...');
+                final mtu = await _centralManager.requestMTU(peripheral, mtu: 512);
+                debugPrint('✅ MTU negotiation successful: $mtu');
+
+                // Try notification setup again after MTU change
+                try {
+                  debugPrint('🔄 Retrying notification setup after MTU change...');
+                  final notificationsEnabled = await _enableNotificationsWithRetry(
+                      peripheral,
+                      messageCharacteristic
+                  );
+
+                  if (!notificationsEnabled) {
+                    debugPrint('⚠️ Could not enable notifications, but continuing anyway');
+                  }
+                  debugPrint('✅ Notification setup succeeded on retry!');
+                } catch (retryError) {
+                  debugPrint('⚠️ Notification setup still failed after MTU change: $retryError');
+                  // Continue anyway
+                }
+              } catch (mtuError) {
+                debugPrint('⚠️ MTU negotiation failed: $mtuError');
+              }
+            } else if (e.toString().contains('GATT_INSUFFICIENT_AUTHENTICATION')) {
+              debugPrint('🔍 DIAGNOSIS: Device requires authentication or bonding');
+              // Authentication handling would go here in a production app
+            } else if (e.toString().contains('GATT_BUSY')) {
+              debugPrint('🔍 DIAGNOSIS: GATT stack is busy. The system should retry automatically');
+            }
+
+            // Continue anyway since we might still be able to write
+          }
+        } else {
+          debugPrint('❌ Message characteristic not found: $messageCharacteristicUuid');
+          debugPrint('   Available characteristics:');
+          for (final characteristic in service.characteristics) {
+            debugPrint('   - ${characteristic.uuid}');
+          }
+          throw Exception('Message characteristic not found');
+        }
+
+        // Subscribe to acknowledgment characteristic notifications
+        final ackCharacteristic = _findCharacteristic(service, ackCharacteristicUuid);
+        if (ackCharacteristic != null) {
+          debugPrint('✅ Found ack characteristic: ${ackCharacteristic.uuid}');
+
+          // Check if the characteristic supports notifications
+          final hasNotifyProperty = ackCharacteristic.properties.contains(GATTCharacteristicProperty.notify);
+          final hasIndicateProperty = ackCharacteristic.properties.contains(GATTCharacteristicProperty.indicate);
+
+          debugPrint('📊 Ack characteristic properties:');
+          debugPrint('   - Supports notify: $hasNotifyProperty');
+          debugPrint('   - Supports indicate: $hasIndicateProperty');
+          debugPrint('   - All properties: ${ackCharacteristic.properties.map((p) => p.toString().split('.').last).join(', ')}');
+
+          try {
+            debugPrint('🔔 Enabling notifications for ack characteristic...');
+            final notifyStartTime = DateTime.now();
+
+            final notificationsEnabled = await _enableNotificationsWithRetry(
+                peripheral,
+                messageCharacteristic
+            );
+
+            if (!notificationsEnabled) {
+              debugPrint('⚠️ Could not enable notifications, but continuing anyway');
+            }
+
+            final notifyDuration = DateTime.now().difference(notifyStartTime);
+            debugPrint('✅ Successfully enabled ack notifications in ${notifyDuration.inMilliseconds}ms');
+          } catch (e) {
+            debugPrint('⚠️ Failed to enable notifications for ack characteristic: $e');
+            // Continue anyway since we might still be able to write
+          }
+        } else {
+          debugPrint('⚠️ Ack characteristic not found: $ackCharacteristicUuid');
+          debugPrint('   This is non-fatal, but acknowledgments will not work');
+          // This is non-fatal, continue anyway
+        }
+
+        // Try to read device info if available
+        final deviceInfoCharacteristic = _findCharacteristic(service, deviceInfoCharacteristicUuid);
+        if (deviceInfoCharacteristic != null) {
+          debugPrint('🔍 Found device info characteristic, attempting to read');
+          try {
+            if (!await _isDeviceConnected(peripheral)) {
+              debugPrint('⚠️ Device disconnected before reading characteristic, aborting');
+              throw Exception('Device not connected');
+            }
+
+            final deviceInfoData = await _centralManager.readCharacteristic(
+              peripheral,
+              deviceInfoCharacteristic,
+            );
+
+            final deviceInfoString = utf8.decode(deviceInfoData, allowMalformed: true);
+            debugPrint('📱 Device info: $deviceInfoString');
+
+            // Parse JSON if it appears to be JSON data
+            if (deviceInfoString.startsWith('{') && deviceInfoString.endsWith('}')) {
+              try {
+                final deviceInfo = jsonDecode(deviceInfoString);
+                debugPrint('📱 Parsed device info: $deviceInfo');
+
+                // Check protocol version compatibility
+                final remoteProtocolVersion = deviceInfo['protocolVersion'];
+                if (remoteProtocolVersion != null && remoteProtocolVersion < protocolVersion) {
+                  debugPrint('⚠️ Device using older protocol version: $remoteProtocolVersion');
+                }
+
+                // Check if device supports relay
+                final supportsRelay = deviceInfo['supportsRelay'] == true;
+                debugPrint('📱 Device supports relay: $supportsRelay');
+
+                // Update device in discovered devices list with additional info
+                final deviceIndex = _discoveredDevices.indexWhere((d) => d.id == peripheralId);
+                if (deviceIndex >= 0) {
+                  _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
+                    supportsRelay: supportsRelay,
+                  );
+                  _devicesSubject.add(_discoveredDevices);
+                }
+              } catch (e) {
+                debugPrint('⚠️ Error parsing device info: $e');
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️ Failed to read device info: $e');
+            // Non-fatal, continue anyway
+          }
+        }
+
+        // Service discovery successful
+        debugPrint('✅ Service discovery completed successfully for device: $peripheralId');
+        _errorRecoveryManager.operationSucceeded();
+        return;
+      } catch (e, stack) {
+        debugPrint('❌ Failed to discover services: $e');
+        errorMetrics.recordServiceDiscoveryFailure(peripheralId);
+        debugPrint('❌ Stack trace: $stack');
+
+        // Update device connection failure count
+        final deviceIndex = _discoveredDevices.indexWhere(
+                (d) => d.id == peripheralId
+        );
+
+        if (deviceIndex >= 0) {
+          // Increment failure count and mark as disconnected
+          final previousState = _discoveredDevices[deviceIndex].deviceConnectionState;
+          _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
+            failedConnectionAttempts: _discoveredDevices[deviceIndex].failedConnectionAttempts + 1,
+            connectionState: ConnectionState.disconnected,
+            deviceConnectionState: DeviceConnectionState.disconnected,
+          );
+          _devicesSubject.add(_discoveredDevices);
+          debugPrint('🔄 Updated device state from $previousState to ${_discoveredDevices[deviceIndex].deviceConnectionState}');
+        }
+
+        // Try to disconnect to cleanup
+        try {
+          debugPrint('🔄 Attempting to disconnect to clean up resources');
+          await _centralManager.disconnect(peripheral);
+          debugPrint('✅ Disconnect for cleanup successful');
+        } catch (disconnectError) {
+          debugPrint('⚠️ Disconnect during cleanup failed: $disconnectError');
+        }
+
+        // Make sure connection pool knows this attempt is done
+        _connectionPool.connectionCompleted(peripheral);
+        debugPrint('🔄 Notified connection pool that attempt is complete');
+
+        // Log error to error recovery manager
+        _errorRecoveryManager.handleError('discoverServices', e);
+
+        // Rethrow to let the connection handler know service discovery failed
+        rethrow;
+      }
+    });
   }
 
   /// Create a GATT service for the peripheral role with all required characteristics
@@ -3376,6 +5079,80 @@ class BleService {
     });
   }
 
+  Future<int> deleteMessagesForRecipient(String recipientId) async {
+    return _stateLock.synchronized(() async {
+      int count = 0;
+
+      // Find and remove messages where this is the recipient
+      _messages.removeWhere((m) {
+        final isForRecipient = m.recipientId == recipientId;
+        if (isForRecipient) count++;
+        return isForRecipient;
+      });
+
+      // Also cancel any pending futures
+      _outgoingMessageCompleters.removeWhere((id, completer) {
+        final message = _messages.firstWhere(
+                (m) => m.id == id,
+            orElse: () => BleMessage(
+                id: '',
+                senderId: '',
+                recipientId: '',
+                content: '',
+                timestamp: DateTime.now()
+            )
+        );
+
+        if (message.id.isEmpty || message.recipientId == recipientId) {
+          if (!completer.isCompleted) {
+            completer.complete(false);
+          }
+          return true;
+        }
+        return false;
+      });
+
+      if (count > 0) {
+        _messagesSubject.add(_messages);
+        await _saveMessages();
+      }
+
+      return count;
+    });
+  }
+
+  /// Delete all messages related to a contact (both sent and received)
+  Future<int> deleteAllMessagesForContact(String contactId) async {
+    return _stateLock.synchronized(() async {
+      int count = 0;
+
+      // Remove all messages where this contact is the sender or recipient
+      _messages.removeWhere((m) {
+        final isRelated = m.senderId == contactId || m.recipientId == contactId;
+        if (isRelated) count++;
+        return isRelated;
+      });
+
+      // Clean up completers
+      _outgoingMessageCompleters.removeWhere((id, completer) {
+        // If completer refers to a message that doesn't exist anymore, complete it and remove
+        final exists = _messages.any((m) => m.id == id);
+        if (!exists && !completer.isCompleted) {
+          completer.complete(false);
+          return true;
+        }
+        return false;
+      });
+
+      if (count > 0) {
+        _messagesSubject.add(_messages);
+        await _saveMessages();
+      }
+
+      return count;
+    });
+  }
+
   /// Mark a message as read
   Future<bool> markMessageAsRead(String messageId) async {
     return _stateLock.synchronized(() async {
@@ -3405,11 +5182,13 @@ class BleService {
 
     _adaptiveScanTimer?.cancel();
     _messageProcessingTimer?.cancel();
+    _jniHealthCheckTimer?.cancel();
 
     _devicesSubject.close();
     _messagesSubject.close();
     _connectionStateSubject.close();
     _errorSubject.close();
+    _jniStatusSubject.close();
 
     stopScan();
     stopAdvertising();
@@ -3454,7 +5233,6 @@ class NotificationService {
 
   // Initialize notifications without depending on WidgetsFlutterBinding
   Future<void> initialize() async {
-    // Use lock to prevent concurrent initialization
     return _initLock.synchronized(() async {
       if (_isInitialized) return;
 
@@ -3502,27 +5280,6 @@ class NotificationService {
           if (androidPlugin != null) {
             await androidPlugin.createNotificationChannel(serviceChannel);
             await androidPlugin.createNotificationChannel(messagesChannel);
-
-            // Request permissions with proper error handling
-            try {
-              final bool? granted = await androidPlugin.requestNotificationsPermission();
-              debugPrint('Notification permission granted: $granted');
-            } catch (e) {
-              debugPrint('Failed to request notification permission: $e');
-            }
-
-            // Check and request exact alarm permissions
-            try {
-              final bool? canScheduleExact = await androidPlugin.canScheduleExactNotifications();
-              debugPrint('Can schedule exact notifications: $canScheduleExact');
-
-              if (canScheduleExact == false) {
-                final bool? exactAlarmGranted = await androidPlugin.requestExactAlarmsPermission();
-                debugPrint('Exact alarm permission granted: $exactAlarmGranted');
-              }
-            } catch (e) {
-              debugPrint('Failed to check/request exact alarm permissions: $e');
-            }
           }
         }
 
@@ -3532,6 +5289,31 @@ class NotificationService {
         debugPrint('Failed to initialize notification service: $e');
       }
     });
+  }
+
+  Future<void> requestPermissions() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    if (Platform.isAndroid) {
+      try {
+        final AndroidFlutterLocalNotificationsPlugin? androidPlugin =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+
+        if (androidPlugin != null) {
+          // Request permissions with proper error handling
+          try {
+            final bool? granted = await androidPlugin.requestNotificationsPermission();
+            debugPrint('Notification permission granted: $granted');
+          } catch (e) {
+            debugPrint('Failed to request notification permission: $e');
+          }
+        }
+      } catch (e) {
+        debugPrint('Error requesting notification permissions: $e');
+      }
+    }
   }
 
   // Show a notification with robust error handling
@@ -3592,9 +5374,222 @@ class NotificationService {
     }
   }
 }
+
+class ResilientConnectionManager {
+  final Map<String, DateTime> _failedConnectionAttempts = {};
+  final Set<String> _pendingConnections = {};
+  final Duration _reconnectCooldown = const Duration(seconds: 30);
+  final Map<String, int> _connectionSuccess = {};
+  final Map<String, int> _connectionFailures = {};
+
+  double getConnectionSuccessRate(String deviceId) {
+    final successes = _connectionSuccess[deviceId] ?? 0;
+    final failures = _connectionFailures[deviceId] ?? 0;
+
+    if (successes + failures == 0) return 1.0; // No history yet
+
+    return successes / (successes + failures);
+  }
+
+  bool canAttemptConnection(String deviceId) {
+    if (_pendingConnections.contains(deviceId)) return false;
+
+    final lastAttempt = _failedConnectionAttempts[deviceId];
+    if (lastAttempt != null) {
+      final timeSinceLastAttempt = DateTime.now().difference(lastAttempt);
+      if (timeSinceLastAttempt < _reconnectCooldown) return false;
+    }
+
+    return true;
+  }
+
+  void markConnectionAttemptStarted(String deviceId) {
+    _pendingConnections.add(deviceId);
+  }
+
+  void markConnectionAttemptFailed(String deviceId) {
+    _pendingConnections.remove(deviceId);
+    _failedConnectionAttempts[deviceId] = DateTime.now();
+
+    // Track metrics
+    _connectionFailures[deviceId] = (_connectionFailures[deviceId] ?? 0) + 1;
+  }
+
+  void markConnectionAttemptSucceeded(String deviceId) {
+    _pendingConnections.remove(deviceId);
+    _failedConnectionAttempts.remove(deviceId);
+
+    // Track metrics
+    _connectionSuccess[deviceId] = (_connectionSuccess[deviceId] ?? 0) + 1;
+  }
+
+  void reset() {
+    _pendingConnections.clear();
+    _failedConnectionAttempts.clear();
+  }
+}
+
 class ScanParameters {
   final Duration duration;
   final bool lowPower;
 
   ScanParameters(this.duration, this.lowPower);
+}
+
+class BackoffInfo {
+  final int seconds;
+  final int minutes;
+
+  BackoffInfo({
+    required this.seconds,
+    required this.minutes,
+  });
+}
+
+class BleErrorMetrics {
+  int connectionFailures = 0;
+  int serviceDiscoveryFailures = 0;
+  int writeFailures = 0;
+  int readFailures = 0;
+  int scanFailures = 0;
+  Map<String, int> deviceSpecificFailures = {};
+
+  void recordConnectionFailure(String deviceId) {
+    connectionFailures++;
+    deviceSpecificFailures[deviceId] = (deviceSpecificFailures[deviceId] ?? 0) + 1;
+  }
+
+  void recordServiceDiscoveryFailure(String deviceId) {
+    serviceDiscoveryFailures++;
+    deviceSpecificFailures[deviceId] = (deviceSpecificFailures[deviceId] ?? 0) + 1;
+  }
+
+  void recordWriteFailure(String deviceId) {
+    writeFailures++;
+    deviceSpecificFailures[deviceId] = (deviceSpecificFailures[deviceId] ?? 0) + 1;
+  }
+
+  void recordReadFailure(String deviceId) {
+    readFailures++;
+    deviceSpecificFailures[deviceId] = (deviceSpecificFailures[deviceId] ?? 0) + 1;
+  }
+
+  void recordScanFailure() {
+    scanFailures++;
+  }
+
+  Map<String, dynamic> getMetrics() {
+    return {
+      'connectionFailures': connectionFailures,
+      'serviceDiscoveryFailures': serviceDiscoveryFailures,
+      'writeFailures': writeFailures,
+      'readFailures': readFailures,
+      'scanFailures': scanFailures,
+      'deviceSpecificFailures': deviceSpecificFailures,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+  }
+
+  void reset() {
+    connectionFailures = 0;
+    serviceDiscoveryFailures = 0;
+    writeFailures = 0;
+    readFailures = 0;
+    scanFailures = 0;
+    deviceSpecificFailures.clear();
+  }
+}
+
+class MessageQueueHealth {
+  int totalMessagesSent = 0;
+  int successfulDeliveries = 0;
+  int failedDeliveries = 0;
+  int pendingMessages = 0;
+  Duration averageDeliveryTime = Duration.zero;
+  List<Duration> recentDeliveryTimes = [];
+
+  void recordMessageSent() {
+    totalMessagesSent++;
+  }
+
+  void recordDeliverySuccess(Duration deliveryTime) {
+    successfulDeliveries++;
+
+    // Track recent delivery times (keep last 20)
+    recentDeliveryTimes.add(deliveryTime);
+    if (recentDeliveryTimes.length > 20) {
+      recentDeliveryTimes.removeAt(0);
+    }
+
+    // Update average
+    if (recentDeliveryTimes.isNotEmpty) {
+      int totalMs = 0;
+      for (final time in recentDeliveryTimes) {
+        totalMs += time.inMilliseconds;
+      }
+      averageDeliveryTime = Duration(milliseconds: totalMs ~/ recentDeliveryTimes.length);
+    }
+  }
+
+  void recordDeliveryFailure() {
+    failedDeliveries++;
+  }
+
+  void updatePendingCount(int count) {
+    pendingMessages = count;
+  }
+
+  Map<String, dynamic> getMetrics() {
+    final successRate = totalMessagesSent > 0
+        ? '${(successfulDeliveries / totalMessagesSent * 100).toStringAsFixed(1)}%'
+        : 'N/A';
+
+    return {
+      'totalMessagesSent': totalMessagesSent,
+      'successfulDeliveries': successfulDeliveries,
+      'failedDeliveries': failedDeliveries,
+      'pendingMessages': pendingMessages,
+      'successRate': successRate,
+      'averageDeliveryTime': '${averageDeliveryTime.inSeconds}.${averageDeliveryTime.inMilliseconds % 1000 ~/ 100}s',
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+  }
+}
+
+class ConnectionStabilityMonitor {
+  final Map<String, List<DateTime>> _connectionEvents = {};
+  final Duration _unstablePeriod = const Duration(minutes: 5);
+
+  void recordConnectionEvent(String deviceId, bool connected) {
+    if (!_connectionEvents.containsKey(deviceId)) {
+      _connectionEvents[deviceId] = [];
+    }
+
+    _connectionEvents[deviceId]!.add(DateTime.now());
+
+    // Cleanup old events
+    final cutoff = DateTime.now().subtract(_unstablePeriod);
+    _connectionEvents[deviceId] = _connectionEvents[deviceId]!
+        .where((time) => time.isAfter(cutoff))
+        .toList();
+  }
+
+  bool isConnectionUnstable(String deviceId) {
+    if (!_connectionEvents.containsKey(deviceId)) return false;
+
+    // If more than 5 connection events in 5 minutes, consider unstable
+    return _connectionEvents[deviceId]!.length > 5;
+  }
+
+  void reset(String deviceId) {
+    _connectionEvents.remove(deviceId);
+  }
+
+  // Get all unstable device IDs
+  List<String> getUnstableDevices() {
+    return _connectionEvents.entries
+        .where((entry) => entry.value.length > 5)
+        .map((entry) => entry.key)
+        .toList();
+  }
 }

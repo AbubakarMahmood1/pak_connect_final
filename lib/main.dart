@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:battery_plus/battery_plus.dart';
@@ -7,7 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:intl/intl.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'ble/ble_service.dart';
 import 'logging/log_service.dart';
 
@@ -22,6 +26,10 @@ void main() async {
   // Initialize background service once
   backgroundService = await setupBackgroundService();
 
+  await InMemoryStore.loadProfile();
+  await InMemoryStore.loadContacts();
+  await InMemoryStore.loadChats();
+
   bool hasPermission = await Permission.bluetooth.status.isGranted;
   if (!hasPermission) {
     debugPrint('Requesting Bluetooth permission...');
@@ -31,6 +39,19 @@ void main() async {
 
   // Initialize BLE service with the background service instance
   final bleService = BleService(backgroundService);
+  final prefs = await SharedPreferences.getInstance();
+  final lastRestartTime = prefs.getInt('last_hot_restart_time');
+  final currentTime = DateTime.now().millisecondsSinceEpoch;
+
+  if (lastRestartTime != null &&
+      currentTime - lastRestartTime < 10000) { // Within 10 seconds
+    // We're likely in a hot restart situation
+    debugPrint('Hot restart detected, waiting for system stabilization...');
+    await Future.delayed(const Duration(seconds: 2));
+  }
+
+  // Store current time for future hot restart detection
+  await prefs.setInt('last_hot_restart_time', currentTime);
   await bleService.initialize();
 
   // Request permissions after service initialization
@@ -129,27 +150,31 @@ Future<bool> iosBackgroundHandler(ServiceInstance service) async {
 
 // Central permission handling
 Future<void> requestRequiredPermissions() async {
-  // First request location permission which is required for BLE
-  await Permission.location.request();
-
-  // For Android 12+ devices, request the new Bluetooth permissions
+  // For Android 12+, request location permission BEFORE BLE permissions
   if (Platform.isAndroid) {
+    // Always request location first as it's required for BLE on Android
+    await Permission.locationWhenInUse.request();
+
     final androidInfo = await DeviceInfoPlugin().androidInfo;
     if (androidInfo.version.sdkInt >= 31) { // Android 12+
-      await Permission.bluetoothScan.request();
-      await Permission.bluetoothConnect.request();
-      await Permission.bluetoothAdvertise.request();
-      await Permission.scheduleExactAlarm.request();
-    } else {
-      // For older Android versions, use the legacy Bluetooth permission
-      await Permission.bluetooth.request();
-      await Permission.bluetoothScan.request();
-      await Permission.scheduleExactAlarm.request();
-    }
+      // Request permissions with explicit user interaction
+      bool scanGranted = await Permission.bluetoothScan.status.isGranted;
+      if (!scanGranted) {
+        scanGranted = await Permission.bluetoothScan.request().isGranted;
+      }
 
-    // For Android 13+, also request notification permission
-    if (androidInfo.version.sdkInt >= 33) {
-      await Permission.notification.request();
+      bool connectGranted = await Permission.bluetoothConnect.status.isGranted;
+      if (!connectGranted) {
+        connectGranted = await Permission.bluetoothConnect.request().isGranted;
+      }
+
+      bool advertiseGranted = await Permission.bluetoothAdvertise.status.isGranted;
+      if (!advertiseGranted) {
+        advertiseGranted = await Permission.bluetoothAdvertise.request().isGranted;
+      }
+    } else {
+      // For older Android versions
+      await Permission.bluetooth.request();
     }
   }
 }
@@ -299,6 +324,18 @@ class Contact {
     this.notificationSound = "Default",
     this.bleDeviceId,
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'username': username,
+      'displayName': displayName,
+      'isBlocked': isBlocked,
+      'isEmergency': isEmergency,
+      'profileImage': profileImage,
+      'notificationSound': notificationSound,
+      'bleDeviceId': bleDeviceId,
+    };
+  }
 }
 
 // Message model.
@@ -312,6 +349,14 @@ class Message {
     required this.timestamp,
     required this.isSent,
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'content': content,
+      'timestamp': timestamp.toIso8601String(),
+      'isSent': isSent,
+    };
+  }
 }
 
 // Chat model with optional lock password.
@@ -325,6 +370,15 @@ class Chat {
     required this.messages,
     this.lockPassword,
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'contact': contact.toJson(),
+      'messages': messages.map((m) => m.toJson()).toList(),
+      'lockPassword': lockPassword,
+    };
+  }
+
 }
 
 /// In-Memory Data Store
@@ -333,18 +387,218 @@ class InMemoryStore {
   static String? myUsername;
   static String myDisplayName = "Me";
   static String? myProfileImage;
+  static String? myDeviceId;
+  static bool serviceEnabled = true;
 
   // Preloaded emergency contacts.
   static final List<Contact> contacts = [
     Contact(username: 'police', displayName: 'Police', isEmergency: true),
     Contact(username: '911', displayName: 'Ambulance', isEmergency: true),
     Contact(username: 'hospital', displayName: 'Hospital', isEmergency: true),
-    // Preloaded normal contacts.
-    Contact(username: 'tmr5212', displayName: 'Taimoor'),
-    Contact(username: 'zn1987', displayName: 'Zain'),
-    Contact(username: 'abbk344', displayName: 'AbuBakar'),
-    Contact(username: 'sq9876', displayName: 'Sir Qamar'),
   ];
+
+
+  static Future<void> saveContacts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final contactsJson = contacts.map((c) => jsonEncode({
+        'username': c.username,
+        'displayName': c.displayName,
+        'isBlocked': c.isBlocked,
+        'isEmergency': c.isEmergency,
+        'profileImage': c.profileImage,
+        'notificationSound': c.notificationSound,
+        'bleDeviceId': c.bleDeviceId,
+      })).toList();
+
+      await prefs.setStringList('saved_contacts', contactsJson);
+      debugPrint('Contacts saved successfully: ${contacts.length}');
+    } catch (e) {
+      debugPrint('Error saving contacts: $e');
+    }
+  }
+
+  static Future<void> loadContacts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final contactsJson = prefs.getStringList('saved_contacts');
+
+      if (contactsJson != null && contactsJson.isNotEmpty) {
+        // Clear hardcoded contacts except emergency ones
+        contacts.removeWhere((c) => !c.isEmergency);
+
+        for (final json in contactsJson) {
+          final data = jsonDecode(json) as Map<String, dynamic>;
+          contacts.add(Contact(
+            username: data['username'],
+            displayName: data['displayName'],
+            isBlocked: data['isBlocked'] ?? false,
+            isEmergency: data['isEmergency'] ?? false,
+            profileImage: data['profileImage'],
+            notificationSound: data['notificationSound'] ?? 'Default',
+            bleDeviceId: data['bleDeviceId'],
+          ));
+        }
+        debugPrint('Loaded ${contactsJson.length} contacts');
+      }
+    } catch (e) {
+      debugPrint('Error loading contacts: $e');
+    }
+  }
+
+  // Add these methods to your InMemoryStore class
+  static Future<void> saveProfile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('my_username', myUsername ?? '');
+      await prefs.setString('my_display_name', myDisplayName);
+      await prefs.setString('my_device_id', myDeviceId ?? '');
+      if (myProfileImage != null) {
+        await prefs.setString('my_profile_image', myProfileImage!);
+      }
+      debugPrint('Profile saved successfully');
+    } catch (e) {
+      debugPrint('Error saving profile: $e');
+    }
+  }
+
+  static Future<void> loadProfile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Retrieve user profile data from SharedPreferences
+      final savedUsername = prefs.getString('my_username');
+      final savedDisplayName = prefs.getString('my_display_name');
+      final savedDeviceId = prefs.getString('my_device_id');
+      final savedProfileImage = prefs.getString('my_profile_image');
+
+      // Update InMemoryStore with retrieved values if they exist
+      if (savedUsername != null && savedUsername.isNotEmpty) {
+        myUsername = savedUsername;
+      }
+
+      if (savedDisplayName != null && savedDisplayName.isNotEmpty) {
+        myDisplayName = savedDisplayName;
+      }
+
+      if (savedDeviceId != null && savedDeviceId.isNotEmpty) {
+        myDeviceId = savedDeviceId;
+      }
+
+      if (savedProfileImage != null && savedProfileImage.isNotEmpty) {
+        myProfileImage = savedProfileImage;
+      }
+
+      debugPrint('Profile loaded successfully');
+    } catch (e) {
+      debugPrint('Error loading profile: $e');
+    }
+  }
+
+  // Delete a contact by username
+  static Future<bool> deleteContact(String username) async {
+    // Find contact in list, but don't fail if already removed
+    final contactIndex = contacts.indexWhere((c) => c.username == username);
+    String? bleDeviceId;
+
+    if (contactIndex >= 0) {
+      // Capture BLE device ID before removing
+      bleDeviceId = contacts[contactIndex].bleDeviceId;
+      contacts.removeAt(contactIndex);
+    }
+
+    // Remove associated chat if it exists
+    chats.removeWhere((chat) => chat.contact.username == username);
+
+    // Clear related messages from BLE service queue if we have the device ID
+    if (bleDeviceId != null) {
+      final bleService = BleService();
+      await bleService.deleteAllMessagesForContact(bleDeviceId);
+    }
+
+    // Save changes to persistent storage
+    await saveContacts();
+    await saveChats();
+
+    return true;
+  }
+
+  // Delete a chat by contact username
+  static Future<bool> deleteChat(String contactUsername) async {
+    // Find chat in list, but don't fail if already removed
+    final chatIndex = chats.indexWhere((chat) => chat.contact.username == contactUsername);
+    String? bleDeviceId;
+
+    if (chatIndex >= 0) {
+      // Capture BLE device ID before removing
+      bleDeviceId = chats[chatIndex].contact.bleDeviceId;
+      chats.removeAt(chatIndex);
+    }
+
+    // Clear related messages from BLE service queue if we have the device ID
+    if (bleDeviceId != null) {
+      final bleService = BleService();
+      await bleService.deleteMessagesForRecipient(bleDeviceId);
+    }
+
+    // Save changes
+    await saveChats();
+
+    return true;
+  }
+
+  // Delete a specific message from a chat
+  static Future<bool> deleteMessage(String contactUsername, int messageIndex) async {
+    final chatIndex = chats.indexWhere((chat) => chat.contact.username == contactUsername);
+
+    // If chat not found or message already deleted, just save and return
+    if (chatIndex < 0 || messageIndex < 0 || messageIndex >= chats[chatIndex].messages.length) {
+      await saveChats(); // Save any other changes
+      return false;
+    }
+
+    final message = chats[chatIndex].messages[messageIndex];
+    final bleDeviceId = chats[chatIndex].contact.bleDeviceId;
+
+    // Remove the message from the chat if it still exists
+    if (messageIndex < chats[chatIndex].messages.length) {
+      chats[chatIndex].messages.removeAt(messageIndex);
+    }
+
+    // If this is an outgoing message that might be queued, remove from BLE service
+    if (message.isSent && bleDeviceId != null) {
+      // We need a way to identify the BLE message
+      final bleService = BleService();
+
+      // Note: This is a simplification. In a production app, you'd want a more
+      // reliable way to correlate UI messages with BLE messages
+      final now = DateTime.now();
+      final timeDiff = now.difference(message.timestamp).inMinutes;
+
+      // Only attempt to delete from queue if message is recent (less than 3 hours old)
+      if (timeDiff < 180) {
+        final bleMessages = await bleService.messages.first;
+
+        // Look for matching messages in the BLE queue
+        for (final bleMessage in bleMessages) {
+          if (bleMessage.content == message.content &&
+              bleMessage.recipientId == bleDeviceId &&
+              bleMessage.status != MessageStatus.delivered &&
+              bleMessage.status != MessageStatus.ack) {
+
+            // Found a matching queued message, delete it
+            await bleService.deleteMessage(bleMessage.id);
+            break;
+          }
+        }
+      }
+    }
+
+    // Save changes
+    await saveChats();
+
+    return true;
+  }
 
   // All chats
   static final List<Chat> chats = [];
@@ -360,11 +614,147 @@ class InMemoryStore {
     }
   }
 
+  static Future<void> saveChats() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      final chatsJson = chats.map((chat) => jsonEncode({
+        'contact': chat.contact.toJson(),
+        'messages': chat.messages.map((m) => m.toJson()).toList(),
+        'lockPassword': chat.lockPassword,
+      })).toList();
+
+      await prefs.setStringList('saved_chats', chatsJson);
+      debugPrint('Chats saved successfully: ${chats.length}');
+    } catch (e) {
+      debugPrint('Error saving chats: $e');
+    }
+  }
+
+  static Future<void> loadChats() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final chatsJson = prefs.getStringList('saved_chats');
+
+      if (chatsJson != null && chatsJson.isNotEmpty) {
+        chats.clear();
+
+        for (final json in chatsJson) {
+          final data = jsonDecode(json) as Map<String, dynamic>;
+
+          // Get or create contact for this chat
+          final contactData = data['contact'] as Map<String, dynamic>;
+          final contactUsername = contactData['username'] as String;
+
+          // Find if we already have this contact loaded
+          Contact chatContact;
+          try {
+            chatContact = contacts.firstWhere((c) => c.username == contactUsername);
+          } catch (e) {
+            // Contact not found, create a new one
+            chatContact = Contact(
+              username: contactData['username'],
+              displayName: contactData['displayName'],
+              isBlocked: contactData['isBlocked'] ?? false,
+              isEmergency: contactData['isEmergency'] ?? false,
+              profileImage: contactData['profileImage'],
+              notificationSound: contactData['notificationSound'] ?? 'Default',
+              bleDeviceId: contactData['bleDeviceId'],
+            );
+
+            // Add to contacts list if not already present
+            if (!contacts.any((c) => c.username == chatContact.username)) {
+              contacts.add(chatContact);
+            }
+          }
+
+          // Load messages
+          final messagesData = data['messages'] as List<dynamic>;
+          final messages = messagesData.map((m) {
+            final msgData = m as Map<String, dynamic>;
+            return Message(
+              content: msgData['content'],
+              timestamp: DateTime.parse(msgData['timestamp']),
+              isSent: msgData['isSent'],
+            );
+          }).toList();
+
+          // Create chat
+          final chat = Chat(
+            contact: chatContact,
+            messages: messages,
+            lockPassword: data['lockPassword'],
+          );
+
+          chats.add(chat);
+        }
+
+        debugPrint('Loaded ${chats.length} chats');
+      }
+    } catch (e) {
+      debugPrint('Error loading chats: $e');
+    }
+  }
+
+  static Future<Chat> handleMessageFromUnknownContact(String username, String content, bool isSent) async {
+    // Check if we already have this contact
+    Contact contact;
+
+    try {
+      contact = contacts.firstWhere((c) => c.username == username);
+    } catch (e) {
+      // Create a new contact for this unknown user
+      contact = Contact(
+        username: username,
+        displayName: username, // Use username as display name initially
+        isBlocked: false,
+        isEmergency: false,
+      );
+
+      // Add to contacts list
+      contacts.add(contact);
+
+      // Save contacts
+      await saveContacts();
+    }
+
+    // Create or get chat for this contact
+    final chat = getOrCreateChat(contact);
+
+    // Add the message
+    chat.messages.add(Message(
+      content: content,
+      timestamp: DateTime.now(),
+      isSent: isSent,
+    ));
+
+    // Save chats
+    await saveChats();
+
+    return chat;
+  }
+
   // Add a new contact if username not already exists.
-  static bool addContact(String username, String displayName) {
+  static bool addContact(String username, String displayName, {String? bleDeviceId}) {
     final exists = contacts.any((c) => c.username.toLowerCase() == username.toLowerCase());
     if (exists) return false;
-    contacts.add(Contact(username: username, displayName: displayName));
+
+    contacts.add(Contact(
+      username: username,
+      displayName: displayName,
+      bleDeviceId: bleDeviceId,
+    ));
+
+    saveContacts(); // Auto-save
+    return true;
+  }
+
+// Add a new method for Contact objects
+  static bool addContactObject(Contact contact) {
+    final exists = contacts.any((c) => c.username.toLowerCase() == contact.username.toLowerCase());
+    if (exists) return false;
+    contacts.add(contact);
+    saveContacts(); // Auto-save
     return true;
   }
 
@@ -373,7 +763,9 @@ class InMemoryStore {
           (c) => c.username == username,
       orElse: () => throw Exception('Contact not found'),
     );
-    contact.bleDeviceId = deviceId;
+
+    contact.bleDeviceId = BleService().normalizeDeviceId(deviceId);
+    saveContacts(); // Make sure to save after modification
     return true;
   }
 }
@@ -389,6 +781,18 @@ class PakConnectApp extends StatefulWidget {
 class _PakConnectAppState extends State<PakConnectApp> {
   ThemeData _currentTheme = _buildBlueTheme();
   final BleService _bleService = BleService();
+  final NotificationService _notificationService = NotificationService();
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Request notification permissions after UI is initialized
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _notificationService.requestPermissions();
+    });
+  }
+
 
   static ThemeData _buildBlueTheme() {
     return ThemeData(
@@ -507,18 +911,24 @@ class BleDevicesScreen extends StatefulWidget {
 }
 
 class _BleDevicesScreenState extends State<BleDevicesScreen> {
-  String _statusMessage = "Ready";
   final BleService _bleService = BleService();
   bool _isScanning = false;
+  bool _isResetting = false;
+  String _connectionState = 'Ready';
   List<BleDevice> _devices = [];
   StreamSubscription<List<BleDevice>>? _devicesSubscription;
   StreamSubscription<String>? _connectionStateSubscription;
+  final ValueNotifier<bool> _isConnecting = ValueNotifier<bool>(false);
+  final ValueNotifier<String?> _connectingDeviceId = ValueNotifier<String?>(null);
 
   @override
   void initState() {
     super.initState();
     _setupBleListeners();
-    _checkPermissions();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPermissions();
+    });
   }
 
   Future<void> _checkPermissions() async {
@@ -529,20 +939,35 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
       Permission.bluetoothConnect,
     ].request();
 
-    bool allGranted = statuses.values.every((status) => status.isGranted);
-    if (!allGranted && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing required permissions')),
-      );
+    if (mounted) {
+      List<String> deniedPermissions = [];
+
+      statuses.forEach((permission, status) {
+        if (!status.isGranted) {
+          deniedPermissions.add(permission.toString().split('.').last);
+        }
+      });
+
+      if (deniedPermissions.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Missing permissions: ${deniedPermissions.join(", ")}'),
+            action: SnackBarAction(
+              label: 'Settings',
+              onPressed: () => openAppSettings(),
+            ),
+          ),
+        );
+      }
     }
   }
 
   void _setupBleListeners() {
-    // Listen for device discoveries
+    // Only show PakConnect devices by default
     _devicesSubscription = _bleService.devices.listen((devices) {
       if (mounted) {
         setState(() {
-          _devices = devices;
+          _devices = devices.where((device) => device.supportsRelay).toList();
         });
       }
     });
@@ -552,116 +977,205 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
       if (mounted) {
         setState(() {
           _isScanning = state == 'Scanning';
+          _connectionState = state;
         });
       }
     });
   }
 
   void _startScanning() async {
-    setState(() {
-      _statusMessage = "Starting scan...";
-    });
     try {
-      await _bleService.startScan(maxDuration: const Duration(seconds: 30));
+      // Check if scanning already in progress
+      if (_isScanning) {
+        return;
+      }
+
+      // Start scan through your service
       setState(() {
-        _statusMessage = "Scan started";
+        _isScanning = true;
       });
+
+      await _bleService.startScan(
+        maxDuration: const Duration(seconds: 30),
+        lowPowerMode: false,
+      );
+
     } catch (e) {
-      setState(() {
-        _statusMessage = "Scan error: $e";
-      });
       debugPrint('Error scanning for BLE devices: $e');
+
+      // Use a local context reference for showing the snackbar
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error scanning: $e')),
         );
       }
+
+      setState(() {
+        _isScanning = false;
+      });
     }
   }
 
   void _stopScanning() async {
-    setState(() {
-      _statusMessage = "Scan stopped.";
-    });
     try {
       await _bleService.stopScan();
     } catch (e) {
-      setState(() {
-        _statusMessage = "Scan stopping error: $e";
-      });
       debugPrint('Error stopping scan: $e');
     }
   }
 
-  void _connectToDevice(BleDevice device) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return const AlertDialog(
-          title: Text('Connecting'),
+  Future<void> _resetBleSystem() async {
+    if (_isResetting) return;
+
+    setState(() {
+      _isResetting = true;
+    });
+
+    try {
+      // Show a loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Resetting BLE'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Connecting to device...'),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              const Text('Resetting BLE system...\nThis may take a moment.'),
             ],
           ),
+        ),
+      );
+
+      // Call the BLE service to perform a reset
+      final success = await _bleService.forceReinitializeBle();
+
+      // Close the dialog
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+
+      // Show the result
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                success
+                    ? 'BLE system reset successful'
+                    : 'Failed to reset BLE system'
+            ),
+            backgroundColor: success ? Colors.green : Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
         );
-      },
-    );
+      }
+
+      // If successful, start scanning again
+      if (success && mounted) {
+        _startScanning();
+      }
+    } catch (e) {
+      // Close the dialog if an exception occurs
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error resetting BLE: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isResetting = false;
+      });
+    }
+  }
+
+  // Connect to device (your existing code)
+  void _connectToDevice(BleDevice device) async {
+    // Set connection state in the UI
+    _isConnecting.value = true;
+    _connectingDeviceId.value = device.id;
 
     try {
       final success = await _bleService.connectToDevice(device);
-      if (mounted) {
-        Navigator.pop(context); // Close connecting dialog
 
-        if (success) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => BleDeviceDetailScreen(device: device),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to connect to device')),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
+      // Reset connection state
+      _isConnecting.value = false;
+      _connectingDeviceId.value = null;
+
+      if (!mounted) return;
+
+      if (success) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => BleDeviceDetailScreen(device: device),
+          ),
+        );
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Connection error: $e')),
+          const SnackBar(content: Text('Failed to connect to device')),
         );
       }
+    } catch (e) {
+      debugPrint('Connection error: $e');
+
+      // Reset connection state
+      _isConnecting.value = false;
+      _connectingDeviceId.value = null;
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connection error: $e')),
+      );
     }
   }
 
   // Convert RSSI to signal strength widget
   Widget _buildSignalStrength(int rssi) {
     Color color;
+    IconData icon;
 
     if (rssi >= -60) {
       color = Colors.green;
+      icon = Icons.network_wifi;
     } else if (rssi >= -70) {
       color = Colors.lightGreen;
+      icon = Icons.network_wifi;
     } else if (rssi >= -80) {
       color = Colors.orange;
+      icon = Icons.network_wifi;
     } else {
       color = Colors.red;
+      icon = Icons.network_wifi;
     }
 
-    return Icon(Icons.signal_wifi_4_bar, color: color);
+    return Icon(icon, color: color);
+  }
+
+  // Get the appropriate FAB color based on connection state
+  Color _getScanButtonColor() {
+    if (_isScanning) {
+      return Colors.blue; // Blue while actively scanning
+    } else if (_connectionState == 'Ready') {
+      return Colors.green; // Green when ready
+    } else if (_connectionState == 'Not Initialized' || _connectionState.contains('error')) {
+      return Colors.red; // Red for error states
+    } else {
+      return Colors.amber; // Amber for other states (e.g., initializing)
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('BLE Devices'),
+        title: const Text('Nearby Devices'),
         actions: [
           if (_isScanning)
             IconButton(
@@ -669,99 +1183,206 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
               onPressed: _stopScanning,
               tooltip: 'Stop scanning',
             ),
-          if (!_isScanning)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _startScanning,
-              tooltip: 'Start scanning',
-            ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Container(
-            color: Colors.blue.shade50,
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Icon(
-                  _isScanning ? Icons.search : Icons.bluetooth,
-                  color: Colors.blue,
+          // Main content
+          Column(
+            children: [
+              // Add progress indicator for scanning
+              if (_isScanning)
+                LinearProgressIndicator(
+                  backgroundColor: Colors.blue[100],
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  'Status: ${_isScanning ? "Scanning..." : _statusMessage}',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              'Found ${_devices.length} devices',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          Expanded(
-            child: _devices.isEmpty
-                ? Center(
-              child: _isScanning
-                  ? const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Scanning for devices...'),
-                ],
-              )
-                  : const Text('No devices found. Start scanning to discover BLE devices.'),
-            )
-                : ListView.builder(
-              itemCount: _devices.length,
-              itemBuilder: (context, index) {
-                final device = _devices[index];
-                final deviceName = _bleService.getDisplayName(device);
-                final deviceId = device.id;
-                final rssi = device.rssi;
 
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.blue,
-                    child: const Icon(Icons.bluetooth, color: Colors.white),
-                  ),
-                  title: Text(
-                    deviceName,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text('ID: $deviceId'),
-                  trailing: Row(
+              Expanded(
+                child: _devices.isEmpty
+                    ? Center(
+                  child: _isScanning
+                      ? const Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('$rssi dBm'),
-                      const SizedBox(width: 8),
-                      _buildSignalStrength(rssi),
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('Scanning for nearby devices...'),
+                    ],
+                  )
+                      : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bluetooth_searching, size: 64, color: Colors.blue),
+                      SizedBox(height: 16),
+                      Text('No devices found nearby.'),
+                      SizedBox(height: 8),
+                      Text('Tap the button below to scan.', style: TextStyle(color: Colors.grey)),
                     ],
                   ),
-                  onTap: () => _connectToDevice(device),
-                );
-              },
-            ),
+                )
+                    : ListView.builder(
+                  itemCount: _devices.length,
+                  itemBuilder: (context, index) {
+                    final device = _devices[index];
+                    final deviceName = _bleService.getDisplayName(device);
+                    final deviceId = device.id;
+                    final rssi = device.rssi;
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: device.isConnected ? Colors.green : Colors.blue,
+                          child: Icon(
+                              device.isConnected ? Icons.link : Icons.devices,
+                              color: Colors.white
+                          ),
+                        ),
+                        title: Text(
+                          deviceName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                _buildSignalStrength(rssi),
+                                const SizedBox(width: 4),
+                                Text('$rssi dBm'),
+                              ],
+                            ),
+                            Text(
+                              'ID: ${deviceId.substring(0, math.min(deviceId.length, 8))}...',
+                              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
+                        trailing: ValueListenableBuilder<String?>(
+                          valueListenable: _connectingDeviceId,
+                          builder: (context, connectingId, _) {
+                            return connectingId == deviceId
+                                ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                                : IconButton(
+                              icon: const Icon(Icons.connect_without_contact),
+                              tooltip: 'Connect',
+                              color: Colors.blue,
+                              onPressed: () => _connectToDevice(device),
+                            );
+                          },
+                        ),
+                        onTap: () => _connectToDevice(device),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              // Bottom action card for reset BLE functionality
+              Card(
+                margin: const EdgeInsets.all(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'BLE Status: $_connectionState',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: _connectionState.contains('error') || _connectionState == 'Not Initialized'
+                              ? Colors.red
+                              : Colors.black,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Having connection issues?',
+                            style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                          ),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Reset BLE'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: _isResetting ? null : _resetBleSystem,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Connection overlay
+          ValueListenableBuilder<bool>(
+            valueListenable: _isConnecting,
+            builder: (context, isConnecting, _) {
+              return isConnecting
+                  ? Container(
+                color: Colors.black54,
+                child: ValueListenableBuilder<String?>(
+                  valueListenable: _connectingDeviceId,
+                  builder: (context, deviceId, _) {
+                    final deviceName = deviceId != null
+                        ? _devices.firstWhere((d) => d.id == deviceId,
+                        orElse: () => _devices.first).name ?? 'Device'
+                        : 'Device';
+
+                    return Center(
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const CircularProgressIndicator(),
+                              const SizedBox(height: 24),
+                              Text('Connecting to $deviceName...'),
+                              const SizedBox(height: 8),
+                              Text(
+                                'This may take a moment',
+                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              )
+                  : const SizedBox.shrink();
+            },
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _isScanning ? null : _startScanning,
-        backgroundColor: _isScanning ? Colors.grey : Colors.red,
+        onPressed: _isScanning || _isResetting ? null : _startScanning,
+        backgroundColor: _isScanning || _isResetting ? Colors.grey : _getScanButtonColor(),
+        tooltip: _isScanning ? 'Scanning...' : 'Scan for Devices',
         child: _isScanning
-            ? const CircularProgressIndicator(color: Colors.white)
-            : const Icon(Icons.search),
+            ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0)
+            : const Icon(Icons.refresh),
       ),
     );
   }
 
   @override
   void dispose() {
+    _isConnecting.dispose();
+    _connectingDeviceId.dispose();
     _devicesSubscription?.cancel();
     _connectionStateSubscription?.cancel();
     _stopScanning();
@@ -857,19 +1478,24 @@ class _BleDeviceDetailScreenState extends State<BleDeviceDetailScreen> {
     final messageText = _messageController.text.trim();
     if (messageText.isEmpty) return;
 
+    debugPrint('📱 UI triggered message send to ${widget.device.id}: $messageText');
+
     try {
       final success = await _bleService.sendMessage(widget.device.id, messageText);
+
       if (mounted) {
         if (success) {
+          debugPrint('✅ UI received success response for message: $messageText');
           _messageController.clear();
         } else {
+          debugPrint('⚠️ UI received failure response for message: $messageText');
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Failed to send message')),
           );
         }
       }
     } catch (e) {
-      debugPrint('Send message error: $e');
+      debugPrint('❌ Send message error in UI: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Send error: $e')),
@@ -878,7 +1504,26 @@ class _BleDeviceDetailScreenState extends State<BleDeviceDetailScreen> {
     }
   }
 
-  // Enhanced _associateDeviceWithContact method for BleDeviceDetailScreen
+  // Normalized device ID helper
+  static String _normalizeDeviceId(String deviceId) {
+    // If it's already a UUID with dashes, keep as is
+    if (deviceId.contains('-')) return deviceId;
+
+    // If it's a MAC address like format (with colons)
+    if (deviceId.contains(':')) {
+      return '00000000-0000-0000-0000-${deviceId.replaceAll(':', '').toLowerCase()}';
+    }
+
+    // If it's a hex string without formatting, add dashes
+    if (deviceId.length == 32) {
+      return '${deviceId.substring(0, 8)}-${deviceId.substring(8, 12)}-${deviceId.substring(12, 16)}-${deviceId.substring(16, 20)}-${deviceId.substring(20)}';
+    }
+
+    // Default - keep as is
+    return deviceId;
+  }
+
+  // Fixed associate device with contact method
   void _associateDeviceWithContact() {
     showDialog(
       context: context,
@@ -893,124 +1538,128 @@ class _BleDeviceDetailScreenState extends State<BleDeviceDetailScreen> {
               title: Text(createNewContact
                   ? 'Create New Contact'
                   : 'Associate with Existing Contact'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Device info summary
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.bluetooth, color: Colors.blue),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _bleService.getDisplayName(widget.device),
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                Text(
-                                  'ID: ${widget.device.id.substring(0, math.min(widget.device.id.length, 8))}...',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ],
+              content: Container(
+                width: double.maxFinite,
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Device info summary
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.bluetooth, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _bleService.getDisplayName(widget.device),
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  Text(
+                                    'ID: ${widget.device.id.substring(0, math.min(widget.device.id.length, 8))}...',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
                             ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Toggle between creating new contact and associating with existing
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: createNewContact,
+                            onChanged: (value) {
+                              setState(() {
+                                createNewContact = value ?? false;
+                                // Clear controllers when switching modes
+                                usernameController.clear();
+                                displayNameController.clear();
+                              });
+                            },
                           ),
+                          const Text('Create new contact'),
                         ],
                       ),
-                    ),
 
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 8),
 
-                    // Toggle between creating new contact and associating with existing
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: createNewContact,
+                      // Fields based on the selected mode
+                      if (createNewContact) ...[
+                        const Text(
+                          'Enter new contact information:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: usernameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Username (unique)',
+                            border: OutlineInputBorder(),
+                          ),
+                          autocorrect: false,
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: displayNameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Display Name',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ] else ...[
+                        const Text(
+                          'Select an existing contact:',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          decoration: const InputDecoration(
+                            labelText: 'Contact',
+                            border: OutlineInputBorder(),
+                          ),
+                          hint: const Text('Select a contact'),
+                          items: InMemoryStore.contacts
+                              .where((c) => c.bleDeviceId == null) // Only show contacts not already associated
+                              .map((contact) => DropdownMenuItem(
+                            value: contact.username,
+                            child: Text('${contact.displayName} (${contact.username})'),
+                          ))
+                              .toList(),
                           onChanged: (value) {
-                            setState(() {
-                              createNewContact = value ?? false;
-                              // Clear controllers when switching modes
-                              usernameController.clear();
-                              displayNameController.clear();
-                            });
+                            usernameController.text = value ?? '';
                           },
                         ),
-                        const Text('Create new contact'),
+                        if (InMemoryStore.contacts.where((c) => c.bleDeviceId == null).isEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(top: 8),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.yellow.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'All contacts already have associated devices. Create a new contact instead.',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
                       ],
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    // Fields based on the selected mode
-                    if (createNewContact) ...[
-                      const Text(
-                        'Enter new contact information:',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: usernameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Username (unique)',
-                          border: OutlineInputBorder(),
-                        ),
-                        autocorrect: false,
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: displayNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Display Name',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ] else ...[
-                      const Text(
-                        'Select an existing contact:',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(
-                          labelText: 'Contact',
-                          border: OutlineInputBorder(),
-                        ),
-                        hint: const Text('Select a contact'),
-                        items: InMemoryStore.contacts
-                            .where((c) => c.bleDeviceId == null) // Only show contacts not already associated
-                            .map((contact) => DropdownMenuItem(
-                          value: contact.username,
-                          child: Text('${contact.displayName} (${contact.username})'),
-                        ))
-                            .toList(),
-                        onChanged: (value) {
-                          usernameController.text = value ?? '';
-                        },
-                      ),
-                      if (InMemoryStore.contacts.where((c) => c.bleDeviceId == null).isEmpty)
-                        Container(
-                          margin: const EdgeInsets.only(top: 8),
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.yellow.shade100,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'All contacts already have associated devices. Create a new contact instead.',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
                     ],
-                  ],
+                  ),
                 ),
               ),
               actions: [
@@ -1032,7 +1681,8 @@ class _BleDeviceDetailScreenState extends State<BleDeviceDetailScreen> {
                       }
 
                       // Create new contact and associate the device
-                      final success = InMemoryStore.addContact(username, displayName);
+                      final normalizedDeviceId = _normalizeDeviceId(widget.device.id);
+                      final success = InMemoryStore.addContact(username, displayName, bleDeviceId: normalizedDeviceId);
                       if (!success) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Username already exists!')),
@@ -1042,7 +1692,7 @@ class _BleDeviceDetailScreenState extends State<BleDeviceDetailScreen> {
 
                       // Associate the device with the new contact
                       try {
-                        InMemoryStore.associateDeviceWithContact(widget.device.id, username);
+                        InMemoryStore.associateDeviceWithContact(normalizedDeviceId, username);
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text('Contact "$displayName" created and device associated')),
@@ -1065,7 +1715,8 @@ class _BleDeviceDetailScreenState extends State<BleDeviceDetailScreen> {
                         return;
                       }
                       try {
-                        InMemoryStore.associateDeviceWithContact(widget.device.id, username);
+                        final normalizedDeviceId = _normalizeDeviceId(widget.device.id);
+                        InMemoryStore.associateDeviceWithContact(normalizedDeviceId, username);
 
                         // Find the contact's display name for the success message
                         final contact = InMemoryStore.contacts.firstWhere(
@@ -1097,7 +1748,7 @@ class _BleDeviceDetailScreenState extends State<BleDeviceDetailScreen> {
     );
   }
 
-// Helper method to offer starting a chat with the associated contact
+  // Helper method to offer starting a chat with the associated contact
   void _offerToStartChat(String username) {
     // Find the contact
     final contact = InMemoryStore.contacts.firstWhere(
@@ -1295,6 +1946,7 @@ class ChatsScreen extends StatefulWidget {
 
 class _ChatsScreenState extends State<ChatsScreen> {
   @override
+  @override
   Widget build(BuildContext context) {
     final allChats = InMemoryStore.chats;
     if (allChats.isEmpty) {
@@ -1310,19 +1962,67 @@ class _ChatsScreenState extends State<ChatsScreen> {
       itemBuilder: (context, index) {
         final chat = allChats[index];
         final lastMsg = chat.messages.isNotEmpty ? chat.messages.last.content : 'No messages';
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: chat.contact.isEmergency ? Colors.red : Colors.blueAccent,
-            child: Text(chat.contact.displayName[0].toUpperCase()),
+        return Dismissible(
+          key: Key('chat_${chat.contact.username}'),
+          background: Container(
+            color: Colors.red,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20.0),
+            child: const Icon(Icons.delete, color: Colors.white),
           ),
-          title: Text(chat.contact.displayName),
-          subtitle: Text(lastMsg),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => ChatScreenDetail(chat: chat)),
-            ).then((_) => setState(() {}));
+          direction: DismissDirection.endToStart,
+          confirmDismiss: (direction) async {
+            return await showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Delete Chat'),
+                content: Text('Are you sure you want to delete the chat with ${chat.contact.displayName}?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(foregroundColor: Colors.red),
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ),
+            );
           },
+          onDismissed: (direction) {
+            final contactName = chat.contact.displayName;
+            final contactUsername = chat.contact.username;
+
+            // Remove chat from the list immediately for UI responsiveness
+            setState(() {
+              InMemoryStore.chats.removeAt(index);
+            });
+
+            // Show feedback right away
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Chat with $contactName deleted')),
+            );
+
+            Future.microtask(() async {
+              await InMemoryStore.deleteChat(contactUsername);
+            });
+          },
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: chat.contact.isEmergency ? Colors.red : Colors.blueAccent,
+              child: Text(chat.contact.displayName[0].toUpperCase()),
+            ),
+            title: Text(chat.contact.displayName),
+            subtitle: Text(lastMsg),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ChatScreenDetail(chat: chat)),
+              ).then((_) => setState(() {}));
+            },
+          ),
         );
       },
     );
@@ -1421,20 +2121,46 @@ class _ChatScreenDetailState extends State<ChatScreenDetail> {
     }
   }
 
-  Future<void> _sendMessage() async {
+  void _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
     final deviceId = widget.chat.contact.bleDeviceId;
     if (deviceId != null) {
       try {
+        // Try the new direct send method first
+        debugPrint('📱 UI triggered message send to $deviceId: $text');
+
+        // IMPORTANT: Use the new direct method first
+        final directSuccess = await _bleService.sendMessageDirect(deviceId, text);
+
+        if (directSuccess) {
+          debugPrint('✅ Direct send succeeded!');
+          _controller.clear();
+
+          // Save chats after sending a message
+          InMemoryStore.saveChats();
+
+          return;
+        }
+
+        debugPrint('⚠️ Direct send failed, falling back to queue method');
+
+        // Fall back to regular method
         final success = await _bleService.sendMessage(deviceId, text);
 
         if (success) {
           _controller.clear();
+
+          // Save chats after sending a message
+          InMemoryStore.saveChats();
         } else {
           // Message will be delivered later via store-and-forward
           _controller.clear();
+
+          // Save chats anyway
+          InMemoryStore.saveChats();
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -1463,6 +2189,9 @@ class _ChatScreenDetailState extends State<ChatScreenDetail> {
         widget.chat.messages.add(message);
         _controller.clear();
       });
+
+      // Save chats after adding a message
+      InMemoryStore.saveChats();
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) {
@@ -1598,11 +2327,94 @@ class _ChatScreenDetailState extends State<ChatScreenDetail> {
                 itemCount: widget.chat.messages.length,
                 itemBuilder: (context, index) {
                   final message = widget.chat.messages[index];
-                  return MessageBubble(message: message);
+                  return MessageBubble(
+                    message: message,
+                    onLongPress: (message) => _showMessageOptions(message, index),
+                  );
                 },
               )
           ),
           _buildInputBar(),
+        ],
+      ),
+    );
+  }
+
+  void _showMessageOptions(Message message, int index) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Copy Message'),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: message.content));
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Message copied to clipboard')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text('Delete Message', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(context);
+                _confirmDeleteMessage(index);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmDeleteMessage(int index) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Message'),
+        content: const Text('Are you sure you want to delete this message? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () {
+              // Close the dialog immediately
+              Navigator.pop(context);
+
+              // Store the username before any async operations
+              final contactUsername = widget.chat.contact.username;
+
+              // Update UI immediately for responsiveness
+              setState(() {
+                widget.chat.messages.removeAt(index);
+              });
+
+              // Scroll to appropriate position
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (_scrollController.hasClients) {
+                  _scrollController.animateTo(
+                    _scrollController.position.maxScrollExtent,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOut,
+                  );
+                }
+              });
+
+              // Then perform the actual deletion in the background
+              Future.microtask(() async {
+                await InMemoryStore.deleteMessage(contactUsername, index);
+              });
+            },
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -1618,8 +2430,9 @@ class _ChatScreenDetailState extends State<ChatScreenDetail> {
 
 class MessageBubble extends StatelessWidget {
   final Message message;
+  final Function(Message)? onLongPress;
 
-  const MessageBubble({super.key, required this.message});
+  const MessageBubble({super.key, required this.message, this.onLongPress});
 
   @override
   Widget build(BuildContext context) {
@@ -1631,7 +2444,7 @@ class MessageBubble extends StatelessWidget {
       children: [
         GestureDetector(
           onTap: () => _showTimestamp(context),
-          onLongPress: () => _showTimestamp(context),
+          onLongPress: () => onLongPress != null ? onLongPress!(message) : _showTimestamp(context),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
@@ -1764,10 +2577,126 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showAddContactDialog,
+        onPressed: () {
+          // Show options dialog
+          showModalBottomSheet(
+            context: context,
+            builder: (context) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.person_add),
+                    title: const Text('Add Contact Manually'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showAddContactDialog();
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.qr_code_scanner),
+                    title: const Text('Scan QR Code'),
+                    onTap: () async {
+                      Navigator.pop(context);
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const QrScannerScreen()),
+                      );
+                      if (result != null) {
+                        setState(() {}); // Refresh list if contact was added
+                      }
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.qr_code),
+                    title: const Text('Show My QR Code'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showMyQrCode();
+                    },
+                  ),
+                ],
+              );
+            },
+          );
+        },
         backgroundColor: Colors.red,
         tooltip: 'Add new contact',
-        child: const Icon(Icons.person_add),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  void _showMyQrCode() {
+    if (InMemoryStore.myUsername == null || InMemoryStore.myUsername!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please set up your profile first')),
+      );
+      return;
+    }
+
+    // Get BLE service instance to access deviceId
+    final BleService bleService = BleService();
+
+    final normalizedDeviceId = bleService.normalizeDeviceId(
+        InMemoryStore.myDeviceId ?? bleService.deviceId
+    );
+
+    // Create contact data with proper deviceId fallback
+    final myContactData = {
+      'username': InMemoryStore.myUsername,
+      'displayName': InMemoryStore.myDisplayName,
+      'deviceId': normalizedDeviceId,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    // Convert to JSON string
+    final qrData = jsonEncode(myContactData);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('My Contact Info'),
+        // Use SizedBox with fixed width instead of complex layouts
+        content: SizedBox(
+          width: 250, // Fixed width to prevent layout calculation issues
+          child: Column(
+            mainAxisSize: MainAxisSize.min, // Important to prevent expansion
+            children: [
+              const Text('My Contact QR Code',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+              ),
+              const SizedBox(height: 10),
+              QrImageView(
+                data: qrData,
+                version: QrVersions.auto,
+                size: 200.0, // Fixed size
+                backgroundColor: Colors.white,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Colors.black,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text('Username: ${InMemoryStore.myUsername ?? "Not set"}'),
+              Text('Display Name: ${InMemoryStore.myDisplayName}'),
+              const Text(
+                'Scan this QR code to add me as a contact',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
@@ -1830,6 +2759,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 Navigator.pop(context);
               },
             ),
+          ListTile(
+            leading: const Icon(Icons.delete, color: Colors.red),
+            title: const Text('Delete Contact', style: TextStyle(color: Colors.red)),
+            onTap: () {
+              Navigator.pop(context);
+              _confirmDeleteContact(contact);
+            },
+          ),
         ],
       ),
     );
@@ -1878,7 +2815,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  void _addContact(String username, String displayName) {
+  void _addContact(String username, String displayName, {String? bleDeviceId}) {
     final cleanUsername = username.trim();
     final cleanDisplayName = displayName.trim();
 
@@ -1889,7 +2826,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
       return;
     }
 
-    final success = InMemoryStore.addContact(cleanUsername, cleanDisplayName);
+    // Create contact with optional BLE device ID
+    final contact = Contact(
+      username: cleanUsername,
+      displayName: cleanDisplayName,
+      bleDeviceId: bleDeviceId,
+    );
+
+    // Use the new method for Contact objects
+    final success = InMemoryStore.addContactObject(contact);
     Navigator.pop(context);
 
     if (!success) {
@@ -1897,11 +2842,57 @@ class _ContactsScreenState extends State<ContactsScreen> {
         const SnackBar(content: Text('Username already exists!')),
       );
     } else {
-      setState(() {}); // Refresh the list
+      setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Contact "$cleanDisplayName" added successfully!')),
       );
     }
+  }
+
+  void _confirmDeleteContact(Contact contact) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Contact'),
+        content: Text('Are you sure you want to delete ${contact.displayName}? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () {
+              _deleteContact(contact);
+              Navigator.pop(context);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteContact(Contact contact) {
+    // Store these values before any async work
+    final username = contact.username;
+    final displayName = contact.displayName;
+
+    // First immediately remove from the contacts list for UI responsiveness
+    setState(() {
+      InMemoryStore.contacts.removeWhere((c) => c.username == username);
+      InMemoryStore.chats.removeWhere((chat) => chat.contact.username == username);
+    });
+
+    // Show feedback right away
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Contact "$displayName" deleted')),
+    );
+
+    // Then perform the actual deletion in the background
+    Future.microtask(() async {
+      await InMemoryStore.deleteContact(username);
+    });
   }
 
 }
@@ -1920,17 +2911,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // For editing self profile.
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _displayNameController = TextEditingController();
+  final BleService _bleService = BleService();
 
   @override
   void initState() {
     super.initState();
-    _usernameController.text = InMemoryStore.myUsername ?? '';
-    _displayNameController.text = InMemoryStore.myDisplayName;
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    // Call the InMemoryStore method to load the profile
+    await InMemoryStore.loadProfile();
+
+    // Update UI controllers
+    setState(() {
+      _usernameController.text = InMemoryStore.myUsername ?? '';
+      _displayNameController.text = InMemoryStore.myDisplayName;
+    });
   }
 
   void _saveProfile() {
     final newUsername = _usernameController.text.trim();
     final newDisplayName = _displayNameController.text.trim();
+
     if (InMemoryStore.myUsername == null || InMemoryStore.myUsername!.isEmpty) {
       if (newUsername.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1939,13 +2942,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       }
       InMemoryStore.myUsername = newUsername;
+      // Store the device ID as well
+      InMemoryStore.myDeviceId = _bleService.deviceId;
     } else if (newUsername != InMemoryStore.myUsername) {
       _usernameController.text = InMemoryStore.myUsername!;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Username is fixed and cannot be changed')),
       );
     }
+
     InMemoryStore.myDisplayName = newDisplayName.isEmpty ? 'Me' : newDisplayName;
+
+    // Save profile persistently using the InMemoryStore method
+    InMemoryStore.saveProfile();
+
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Profile Saved')),
@@ -1965,14 +2975,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
               CircleAvatar(
                 radius: 40,
                 backgroundColor: Colors.red[100],
-                child: const Icon(Icons.person, size: 40),
+                child: InMemoryStore.myProfileImage != null
+                    ? ClipOval(
+                  child: Image.memory(
+                    base64Decode(InMemoryStore.myProfileImage!),
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.cover,
+                  ),
+                )
+                    : const Icon(Icons.person, size: 40),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _usernameController,
                 decoration: const InputDecoration(
                   labelText: 'Username (unique)',
+                  helperText: 'Cannot be changed once set',
                 ),
+                readOnly: InMemoryStore.myUsername != null &&
+                    InMemoryStore.myUsername!.isNotEmpty,
               ),
               TextField(
                 controller: _displayNameController,
@@ -1985,11 +3007,383 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: _saveProfile,
                 child: const Text('Save Profile'),
               ),
+              if (InMemoryStore.myUsername != null &&
+                  InMemoryStore.myUsername!.isNotEmpty)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.qr_code),
+                  label: const Text('Show My QR Code'),
+                  onPressed: _showMyQrCode,
+                ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  void _showMyQrCode() {
+    if (InMemoryStore.myUsername == null || InMemoryStore.myUsername!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please set up your profile first')),
+      );
+      return;
+    }
+
+    // Create contact data outside the builder to avoid rebuilds
+    final myContactData = {
+      'username': InMemoryStore.myUsername,
+      'displayName': InMemoryStore.myDisplayName,
+      'deviceId': InMemoryStore.myDeviceId ?? _bleService.deviceId,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+
+    // Convert to JSON string
+    final qrData = jsonEncode(myContactData);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('My Contact Info'),
+        content: Container(
+          width: 250, // Fixed width
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.7, // Limit max height to 70% of screen
+          ),
+          child: SingleChildScrollView( // Add SingleChildScrollView here
+            child: Column(
+              mainAxisSize: MainAxisSize.min, // Keep this to ensure it only takes necessary space
+              children: [
+                const Text('My Contact QR Code',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                ),
+                const SizedBox(height: 10),
+                QrImageView(
+                  data: qrData,
+                  version: QrVersions.auto,
+                  size: 200.0, // Fixed size
+                  backgroundColor: Colors.white,
+                  eyeStyle: const QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: Colors.black,
+                  ),
+                  dataModuleStyle: const QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text('Username: ${InMemoryStore.myUsername ?? "Not set"}'),
+                Text('Display Name: ${InMemoryStore.myDisplayName}'),
+                const Text(
+                    'Scan this QR code to add me as a contact',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildServiceStatusCard() {
+    return Card(
+      color: Colors.blue[50],
+      margin: const EdgeInsets.all(12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Service Status',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+
+            // BLE Status
+            StreamBuilder<String>(
+                stream: _bleService.connectionState,
+                builder: (context, snapshot) {
+                  final status = snapshot.data ?? 'Unknown';
+                  final isRunning = status != 'Not Initialized' && status != 'Error';
+
+                  return SwitchListTile(
+                    title: const Text('BLE Messaging Service'),
+                    subtitle: Text('Status: $status'),
+                    value: isRunning,
+                    activeColor: Colors.green,
+                    onChanged: (value) {
+                      if (value) {
+                        // Attempt to start service - using a separate method to avoid async gap
+                        _startBleService();
+                      } else {
+                        // Stop service - using a separate method to avoid async gap
+                        _stopBleService();
+                      }
+
+                      // Update UI immediately
+                      setState(() {
+                        InMemoryStore.serviceEnabled = value;
+                      });
+                    },
+                  );
+                }
+            ),
+
+            // Background Service Status
+            FutureBuilder<bool>(
+                future: _bleService.isBackgroundServiceRunning(),
+                builder: (context, snapshot) {
+                  final isRunning = snapshot.data ?? false;
+
+                  return SwitchListTile(
+                    title: const Text('Background Service'),
+                    subtitle: Text(
+                        isRunning
+                            ? 'Running - Messages will be delivered when app is closed'
+                            : 'Stopped - Messages only delivered when app is open'
+                    ),
+                    value: isRunning,
+                    activeColor: Colors.green,
+                    onChanged: (value) {
+                      // Use separate methods to avoid async gaps
+                      if (value) {
+                        _startBackgroundService();
+                      } else {
+                        _stopBackgroundService();
+                      }
+
+                      // Update UI immediately
+                      setState(() {});
+                    },
+                  );
+                }
+            ),
+
+            const SizedBox(height: 12),
+
+            // Pending Messages Info
+            StreamBuilder<List<BleMessage>>(
+                stream: _bleService.messages,
+                builder: (context, snapshot) {
+                  final messages = snapshot.data ?? [];
+                  final pendingCount = messages.where((m) =>
+                  m.status != MessageStatus.delivered &&
+                      m.status != MessageStatus.ack
+                  ).length;
+
+                  return pendingCount > 0
+                      ? Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.amber[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('$pendingCount pending ${pendingCount == 1 ? "message" : "messages"}'),
+                              const Text(
+                                'Messages will be delivered when recipients are in range',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _retryPendingMessages,
+                          child: const Text('Retry Now'),
+                        ),
+                      ],
+                    ),
+                  )
+                      : Container();
+                }
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBleMetricsCard() {
+    return Card(
+      color: Colors.blue[50],
+      margin: const EdgeInsets.all(12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'BLE Metrics',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+
+            ListTile(
+              title: const Text('Bluetooth Metrics'),
+              subtitle: const Text('View detailed BLE operation metrics'),
+              onTap: () {
+                final metrics = _bleService.errorMetrics.getMetrics();
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('BLE Metrics'),
+                    content: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Connection Failures: ${metrics['connectionFailures']}'),
+                          Text('Service Discovery Failures: ${metrics['serviceDiscoveryFailures']}'),
+                          Text('Write Failures: ${metrics['writeFailures']}'),
+                          Text('Read Failures: ${metrics['readFailures']}'),
+                          Text('Scan Failures: ${metrics['scanFailures']}'),
+                          const SizedBox(height: 16),
+                          const Text('Device Specific Failures:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ...(metrics['deviceSpecificFailures'] as Map<String, dynamic>).entries.map((e) =>
+                              Text('${e.key}: ${e.value} failures')
+                          ),
+                        ],
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Close'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          _bleService.errorMetrics.reset();
+                          Navigator.pop(context);
+                        },
+                        child: const Text('Reset Metrics'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
+            // Message Queue Health
+            ListTile(
+              title: const Text('Message Queue Health'),
+              subtitle: const Text('View message delivery statistics'),
+              onTap: () {
+                final metrics = _bleService.messageQueueHealth.getMetrics();
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('Message Queue Metrics'),
+                    content: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Total Messages Sent: ${metrics['totalMessagesSent']}'),
+                          Text('Successful Deliveries: ${metrics['successfulDeliveries']}'),
+                          Text('Failed Deliveries: ${metrics['failedDeliveries']}'),
+                          Text('Pending Messages: ${metrics['pendingMessages']}'),
+                          Text('Success Rate: ${metrics['successRate']}'),
+                          Text('Average Delivery Time: ${metrics['averageDeliveryTime']}'),
+                        ],
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startBleService() async {
+    await _bleService.initialize();
+    await _bleService.startAdvertising();
+    await _bleService.startScan();
+  }
+
+  Future<void> _stopBleService() async {
+    // First stop all BLE operations
+    await _bleService.stopScan();
+    await _bleService.stopAdvertising();
+
+    // Then check if we're still mounted before showing a dialog
+    if (!mounted) return;
+
+    // Show warning dialog
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Service Disabled'),
+        content: const Text(
+            'Warning: Without the BLE service, you cannot send or receive messages. '
+                'Enable it again when you want to communicate.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startBackgroundService() async {
+    await _bleService.startBackgroundService();
+    // No UI updates needed here as setState is called in the parent method
+  }
+
+  Future<void> _stopBackgroundService() async {
+    // First stop the background service
+    await _bleService.stopBackgroundService();
+
+    // Then check if we're still mounted before showing a dialog
+    if (!mounted) return;
+
+    // Show warning dialog
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Background Service Disabled'),
+        content: const Text(
+            'Warning: Without the background service, messages will only be '
+                'delivered when the app is open.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _retryPendingMessages() {
+    _bleService.retryAllPendingMessages();
   }
 
   Widget _buildSettingsList() {
@@ -2036,7 +3430,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
             );
           },
         ),
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('About'),
+          subtitle: const Text('App version and information'),
+          onTap: () {
+            _showAboutDialog();
+          },
+        ),
       ],
+    );
+  }
+
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AboutDialog(
+        applicationName: 'PakConnect',
+        applicationVersion: '1.0.0',
+        applicationIcon: Image.asset('assets/logo.png', width: 48, height: 48),
+        applicationLegalese: '© 2025 PakConnect Team',
+        children: [
+          const SizedBox(height: 16),
+          const Text(
+            'PakConnect is a Bluetooth Low Energy (BLE) based messaging app designed to work without internet connectivity.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Device ID: ',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          SelectableText(
+            _bleService.deviceId,
+            style: const TextStyle(fontFamily: 'monospace'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2047,11 +3477,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           const SizedBox(height: 16),
           _buildProfileCard(),
+          _buildServiceStatusCard(),
+          _buildBleMetricsCard(),
           const Divider(thickness: 1),
           _buildSettingsList(),
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _displayNameController.dispose();
+    super.dispose();
   }
 }
 
@@ -2333,5 +3772,236 @@ class ProfileViewScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+// -----------------------------------------------------------------------------
+//
+/// QR code scanner screen for adding contacts
+class QrScannerScreen extends StatefulWidget {
+  const QrScannerScreen({super.key});
+
+  @override
+  State<QrScannerScreen> createState() => _QrScannerScreenState();
+}
+
+class _QrScannerScreenState extends State<QrScannerScreen> {
+  final MobileScannerController controller = MobileScannerController(
+    // Set to normal detection speed for better battery performance
+    detectionSpeed: DetectionSpeed.normal,
+    // Enable device's torch if needed
+    torchEnabled: false,
+    // Enable auto zoom feature for better UX
+    autoZoom: true,
+    // Only scan QR codes
+    formats: [BarcodeFormat.qrCode],
+  );
+
+  bool _processing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Scan Contact QR Code'),
+        actions: [
+          // Flashlight control button
+          ValueListenableBuilder<MobileScannerState>(
+            valueListenable: controller,
+            builder: (context, state, _) {
+              // Only show if torch is available
+              if (state.torchState == TorchState.unavailable) {
+                return const SizedBox.shrink();
+              }
+
+              return IconButton(
+                icon: Icon(
+                  state.torchState == TorchState.on
+                      ? Icons.flash_on
+                      : Icons.flash_off,
+                ),
+                onPressed: () => controller.toggleTorch(),
+              );
+            },
+          ),
+
+          // Camera switching button
+          ValueListenableBuilder<MobileScannerState>(
+            valueListenable: controller,
+            builder: (context, state, _) {
+              // Only show if multiple cameras available
+              if (state.availableCameras == null ||
+                  state.availableCameras! < 2) {
+                return const SizedBox.shrink();
+              }
+
+              return IconButton(
+                icon: Icon(
+                  state.cameraDirection == CameraFacing.front
+                      ? Icons.camera_front
+                      : Icons.camera_rear,
+                ),
+                onPressed: () => controller.switchCamera(),
+              );
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: MobileScanner(
+              controller: controller,
+              fit: BoxFit.contain,
+              onDetect: _onDetect,
+              errorBuilder: (context, error) => Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error, color: Colors.red, size: 32),
+                    SizedBox(height: 16),
+                    Text(
+                      'Scanner error: ${error.errorDetails?.message ?? error.errorCode.name}',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+              // Add a custom overlay with scanning indicator
+              overlayBuilder: (context, constraints) {
+                return Stack(
+                  children: [
+                    // Dimmed background
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(),
+                      ),
+                    ),
+                    // Centered scan area
+                    Center(
+                      child: Container(
+                        width: constraints.maxWidth * 0.8,
+                        height: constraints.maxWidth * 0.8,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 2.0,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Colors.transparent,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Instructions text at bottom
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Text(
+                          'Position the QR code within the frame to scan',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_processing) return;
+    _processing = true;
+
+    try {
+      // Get detected barcodes
+      final List<Barcode> barcodes = capture.barcodes;
+
+      // Find first valid QR code
+      for (final barcode in barcodes) {
+        final qrContent = barcode.rawValue;
+        if (qrContent != null && qrContent.isNotEmpty) {
+          _processQrCode(qrContent);
+          break;
+        }
+      }
+    } finally {
+      // Reset processing flag after a delay to prevent multiple scans
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          _processing = false;
+        }
+      });
+    }
+  }
+
+  void _processQrCode(String data) {
+    try {
+      final contactData = jsonDecode(data) as Map<String, dynamic>;
+
+      // Validate required fields
+      if (!contactData.containsKey('username') ||
+          !contactData.containsKey('displayName') ||
+          !contactData.containsKey('deviceId')) {
+        _showError('Invalid QR code format');
+        return;
+      }
+
+      // Create contact from QR data
+      final newContact = Contact(
+        username: contactData['username'],
+        displayName: contactData['displayName'],
+        bleDeviceId: contactData['deviceId'],
+      );
+
+      // Use the new method for Contact objects
+      final success = InMemoryStore.addContactObject(newContact);
+
+      if (success) {
+        // Return to previous screen with the new contact
+        Navigator.pop(context, newContact);
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Added ${newContact.displayName} to contacts!')),
+        );
+      } else {
+        _showError('Contact already exists');
+      }
+    } catch (e) {
+      _showError('Error processing QR code: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
   }
 }
