@@ -30,6 +30,7 @@ void main() async {
   await InMemoryStore.loadContacts();
   await InMemoryStore.loadChats();
 
+  // Check permissions in main app
   bool hasPermission = await Permission.bluetooth.status.isGranted;
   if (!hasPermission) {
     debugPrint('Requesting Bluetooth permission...');
@@ -39,20 +40,24 @@ void main() async {
 
   // Initialize BLE service with the background service instance
   final bleService = BleService(backgroundService);
-  final prefs = await SharedPreferences.getInstance();
-  final lastRestartTime = prefs.getInt('last_hot_restart_time');
-  final currentTime = DateTime.now().millisecondsSinceEpoch;
 
-  if (lastRestartTime != null &&
-      currentTime - lastRestartTime < 10000) { // Within 10 seconds
-    // We're likely in a hot restart situation
-    debugPrint('Hot restart detected, waiting for system stabilization...');
-    await Future.delayed(const Duration(seconds: 2));
+  // Check initialization context to avoid duplicate initializations
+  final coordinator = BleInitializationCoordinator();
+  final context = await coordinator.getInitializationContext();
+
+  // Only initialize in main app if not recently initialized in background
+  // or if initialization is old (more than 5 minutes)
+  if (!context['initialized'] ||
+      !context['inBackground'] ||
+      context['age'] > 5 * 60 * 1000) {
+
+    debugPrint('🔄 Initializing BLE service in main app');
+    await coordinator.initializeBle(service: bleService, isBackgroundService: false);
+  } else {
+    debugPrint('⏩ Skipping BLE initialization, already initialized in background recently');
+    // Still need to make sure the BLE service knows it's initialized
+    bleService.markAsInitialized();
   }
-
-  // Store current time for future hot restart detection
-  await prefs.setInt('last_hot_restart_time', currentTime);
-  await bleService.initialize();
 
   // Request permissions after service initialization
   await requestRequiredPermissions();
@@ -102,7 +107,10 @@ Future<FlutterBackgroundService> setupBackgroundService() async {
 
 // Single background service entry point
 @pragma('vm:entry-point')
+@pragma('vm:entry-point')
 void backgroundServiceEntryPoint(ServiceInstance service) async {
+  debugPrint('🔄 Background service entry point started');
+
   // Update notification to show service is running
   final notificationService = NotificationService();
   await notificationService.initialize();
@@ -116,9 +124,27 @@ void backgroundServiceEntryPoint(ServiceInstance service) async {
     service.setAsForegroundService();
   }
 
+  debugPrint('🔄 Creating BLE service for background');
+
   // Initialize BLE service with the service instance
   final bleService = BleService.backgroundInstance(service);
-  await bleService.initialize();
+
+  // Use coordinator to manage initialization state
+  final coordinator = BleInitializationCoordinator();
+  final context = await coordinator.getInitializationContext();
+
+  // Only initialize in background if not already initialized in main app recently
+  if (!context['initialized'] ||
+      context['inBackground'] ||  // If previous init was in background, we should reinitialize
+      context['age'] > 5 * 60 * 1000) {
+
+    debugPrint('🔄 Initializing BLE service in background service');
+    await coordinator.initializeBle(service: bleService, isBackgroundService: true);
+  } else {
+    debugPrint('⏩ Skipping BLE initialization, already initialized in main app recently');
+    // Make sure the BLE service knows it's initialized
+    bleService.markAsInitialized();
+  }
 
   // Setup battery monitoring, wake locks, etc. as needed
   final batteryMonitor = BatteryMonitor();
@@ -244,8 +270,12 @@ Future<void> performBackgroundTasks(
   if (batteryStatus.state == BatteryState.discharging && batteryStatus.level < 15) {
     // Very conservative in critical battery
     scanDuration = const Duration(seconds: 5);
-    shouldScan = bleService.hasPendingMessages() &&
-        DateTime.now().difference(bleService.lastMessageActivityTime).inMinutes > 15;
+
+    // Use critical duty cycling pattern (brief scans, long intervals)
+    final currentMinute = DateTime.now().minute;
+    shouldScan = (currentMinute % 15 == 0) && // Only scan once every 15 minutes
+        (bleService.hasPendingMessages() ||  // Either has messages
+            DateTime.now().difference(bleService.lastMessageActivityTime).inMinutes > 60); // Or long since activity
   }
   else if ((batteryStatus.state == BatteryState.discharging &&
       batteryStatus.level < 30) ||
@@ -342,12 +372,14 @@ class Contact {
 class Message {
   final String content;
   final DateTime timestamp;
-  final bool isSent; // true if sent by "self"
+  final bool isSent;
+  final Map<String, dynamic>? metadata;
 
   Message({
     required this.content,
     required this.timestamp,
     required this.isSent,
+    this.metadata,
   });
 
   Map<String, dynamic> toJson() {
@@ -355,6 +387,7 @@ class Message {
       'content': content,
       'timestamp': timestamp.toIso8601String(),
       'isSent': isSent,
+      'metadata': metadata,
     };
   }
 }
@@ -1158,25 +1191,19 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
     return Icon(icon, color: color);
   }
 
-  // Get the appropriate FAB color based on connection state
-  Color _getScanButtonColor() {
-    if (_isScanning) {
-      return Colors.blue; // Blue while actively scanning
-    } else if (_connectionState == 'Ready') {
-      return Colors.green; // Green when ready
-    } else if (_connectionState == 'Not Initialized' || _connectionState.contains('error')) {
-      return Colors.red; // Red for error states
-    } else {
-      return Colors.amber; // Amber for other states (e.g., initializing)
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Nearby Devices'),
         actions: [
+          // Add the scan button to the app bar
+          if (!_isScanning && !_isResetting)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _startScanning,
+              tooltip: 'Scan for Devices',
+            ),
           if (_isScanning)
             IconButton(
               icon: const Icon(Icons.stop),
@@ -1216,7 +1243,7 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
                       SizedBox(height: 16),
                       Text('No devices found nearby.'),
                       SizedBox(height: 8),
-                      Text('Tap the button below to scan.', style: TextStyle(color: Colors.grey)),
+                      Text('Tap the refresh button to scan.', style: TextStyle(color: Colors.grey)),
                     ],
                   ),
                 )
@@ -1367,14 +1394,6 @@ class _BleDevicesScreenState extends State<BleDevicesScreen> {
             },
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _isScanning || _isResetting ? null : _startScanning,
-        backgroundColor: _isScanning || _isResetting ? Colors.grey : _getScanButtonColor(),
-        tooltip: _isScanning ? 'Scanning...' : 'Scan for Devices',
-        child: _isScanning
-            ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0)
-            : const Icon(Icons.refresh),
       ),
     );
   }
@@ -2077,8 +2096,8 @@ class _ChatScreenDetailState extends State<ChatScreenDetail> {
       for (final bleMessage in contactMessages) {
         // Check if message already exists in the chat
         final exists = widget.chat.messages.any((m) =>
-        m.content == bleMessage.content &&
-            m.timestamp.isAtSameMomentAs(bleMessage.timestamp)
+        (m.content == bleMessage.content && m.timestamp.isAtSameMomentAs(bleMessage.timestamp)) ||
+            (m.metadata != null && m.metadata!['bleMessageId'] == bleMessage.id)
         );
 
         if (!exists) {
@@ -2086,6 +2105,7 @@ class _ChatScreenDetailState extends State<ChatScreenDetail> {
             content: bleMessage.content,
             timestamp: bleMessage.timestamp,
             isSent: bleMessage.senderId == _bleService.deviceId,
+            metadata: {'bleMessageId': bleMessage.id},
           );
 
           setState(() {

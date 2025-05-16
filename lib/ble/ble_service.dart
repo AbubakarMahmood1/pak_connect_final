@@ -179,6 +179,7 @@ class BleDevice {
   final DateTime? lastConnected;
   final int failedConnectionAttempts;
   final int? mtu;
+  final Map<String, dynamic>? metadata;
 
   BleDevice({
     required this.peripheral,
@@ -191,6 +192,7 @@ class BleDevice {
     this.lastConnected,
     this.failedConnectionAttempts = 0,
     this.mtu,
+    this.metadata,
   }) : deviceConnectionState = deviceConnectionState ??
       (connectionState == ConnectionState.connected ?
       DeviceConnectionState.connected : DeviceConnectionState.disconnected);
@@ -216,6 +218,7 @@ class BleDevice {
       rssi: rssi,
       lastSeen: DateTime.now(),
       supportsRelay: relay,
+      metadata: {},
     );
   }
 
@@ -230,6 +233,7 @@ class BleDevice {
     DateTime? lastConnected,
     int? failedConnectionAttempts,
     int? mtu,
+    Map<String, dynamic>? metadata,
   }) {
     return BleDevice(
       peripheral: peripheral ?? this.peripheral,
@@ -243,6 +247,7 @@ class BleDevice {
       failedConnectionAttempts:
       failedConnectionAttempts ?? this.failedConnectionAttempts,
       mtu: mtu ?? this.mtu,
+      metadata: metadata ?? this.metadata,
     );
   }
 
@@ -552,6 +557,203 @@ class ErrorRecoveryManager {
   }
 }
 
+/// Manages coordination between main app and background service for BLE initialization
+class BleInitializationCoordinator {
+  static final BleInitializationCoordinator _instance = BleInitializationCoordinator._internal();
+  factory BleInitializationCoordinator() => _instance;
+  BleInitializationCoordinator._internal();
+
+  // Shared mutex for initialization synchronization
+  final _initMutex = Lock();
+
+  // State tracking
+  bool _isInitializing = false;
+  bool _isInitialized = false;
+  bool _isBackgroundService = false; // Now used in methods
+  late var _completer = Completer<bool>();
+
+  // Get initialization context
+  bool get isBackgroundService => _isBackgroundService;
+  bool get isInitialized => _isInitialized;
+  bool get isInitializing => _isInitializing;
+
+  // Initialize with context awareness
+  Future<bool> initializeBle({
+    required BleService service,
+    bool isBackgroundService = false,
+  }) async {
+    debugPrint('🔄 BleInitializationCoordinator: init called (background=$isBackgroundService, initialized=$_isInitialized)');
+
+    // Check if already initialized before acquiring the lock
+    if (_isInitialized && service._isInitialized) {
+      debugPrint('✅ BLE service already initialized, returning success');
+      return true;
+    }
+
+    // Create a local completer for this specific initialization attempt
+    final localCompleter = Completer<bool>();
+
+    // Acquire the lock to check/update shared state
+    _initMutex.synchronized(() async {
+      // If initialized while we were waiting for lock, return success
+      if (_isInitialized) {
+        debugPrint('✅ BLE became initialized while waiting for lock');
+        localCompleter.complete(true);
+        return;
+      }
+
+      // If another initialization is in progress, mark this one to wait
+      if (_isInitializing) {
+        debugPrint('⏳ BLE initialization already in progress (background=$_isBackgroundService), this attempt will wait');
+        // Don't complete the completer yet, we'll wait for the other initialization
+
+        // Set up a listener for the other initialization
+        if (!_completer.isCompleted) {
+          _completer.future.then((success) {
+            debugPrint('🔄 Waiting initialization notified of completion: $success');
+            localCompleter.complete(success);
+          }).catchError((e) {
+            localCompleter.completeError(e);
+          });
+        } else {
+          // If _completer is completed but _isInitializing is still true, something's wrong
+          debugPrint('⚠️ Inconsistent state: _completer completed but _isInitializing true');
+          _isInitializing = false; // Fix the inconsistency
+          localCompleter.complete(false);
+        }
+        return;
+      }
+
+      // We're the first one to start initialization
+      debugPrint('🔄 Starting new BLE initialization (background=$isBackgroundService)');
+      _isInitializing = true;
+      _isBackgroundService = isBackgroundService;
+
+      // Create a new completer for others to wait on
+      if (_completer.isCompleted) {
+        // If previous completer completed, create a new one
+        _completer = Completer<bool>();
+      }
+    });
+
+    // If localCompleter was completed in the synchronized block, just return
+    if (localCompleter.isCompleted) {
+      return localCompleter.future;
+    }
+
+    // Otherwise, we're the one doing the initialization
+    try {
+      // Record initialization context
+      await _saveInitializationContext(isBackgroundService);
+
+      // Perform actual initialization
+      final success = await service.initialize();
+
+      // Update shared state inside mutex
+      await _initMutex.synchronized(() {
+        if (success) {
+          _isInitialized = true;
+          debugPrint('✅ BLE service initialization completed successfully (background=$_isBackgroundService)');
+        } else {
+          debugPrint('❌ BLE service initialization failed (background=$_isBackgroundService)');
+        }
+
+        // Complete both this completer and the shared one
+        if (!_completer.isCompleted) {
+          _completer.complete(success);
+        }
+
+        _isInitializing = false;
+      });
+
+      localCompleter.complete(success);
+      return success;
+    } catch (e) {
+      debugPrint('❌ Error during BLE initialization (background=$_isBackgroundService): $e');
+
+      // Update shared state inside mutex
+      await _initMutex.synchronized(() {
+        if (!_completer.isCompleted) {
+          _completer.completeError(e);
+        }
+        _isInitializing = false;
+      });
+
+      localCompleter.completeError(e);
+      return false;
+    }
+  }
+
+  // Add a method that uses the _isBackgroundService field for diagnostic reports
+  Map<String, dynamic> getInitializationState() {
+    return {
+      'isInitialized': _isInitialized,
+      'isInitializing': _isInitializing,
+      'initializedInBackground': _isBackgroundService,
+      'completerIsComplete': _completer.isCompleted,
+    };
+  }
+
+  // Save initialization context to shared prefs to coordinate between main/background
+  Future<void> _saveInitializationContext(bool isBackgroundService) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('ble_initialized', true);
+      await prefs.setBool('ble_initialized_in_background', isBackgroundService);
+      await prefs.setInt('ble_initialization_time', DateTime.now().millisecondsSinceEpoch);
+    } catch (e) {
+      debugPrint('⚠️ Failed to save initialization context: $e');
+    }
+  }
+
+  // Check previously saved initialization context
+  Future<Map<String, dynamic>> getInitializationContext() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final isInitialized = prefs.getBool('ble_initialized') ?? false;
+      final inBackground = prefs.getBool('ble_initialized_in_background') ?? false;
+      final timestamp = prefs.getInt('ble_initialization_time') ?? 0;
+
+      return {
+        'initialized': isInitialized,
+        'inBackground': inBackground,
+        'timestamp': timestamp,
+        'age': DateTime.now().millisecondsSinceEpoch - timestamp,
+        'currentContext': {
+          'isInitialized': _isInitialized,
+          'isBackgroundService': _isBackgroundService
+        }
+      };
+    } catch (e) {
+      debugPrint('⚠️ Failed to get initialization context: $e');
+      return {
+        'initialized': false,
+        'inBackground': false,
+        'timestamp': 0,
+        'age': 0,
+        'currentContext': {
+          'isInitialized': _isInitialized,
+          'isBackgroundService': _isBackgroundService
+        }
+      };
+    }
+  }
+
+  // Reset initialization state (for testing or recovery)
+  Future<void> reset() async {
+    return _initMutex.synchronized(() async {
+      _isInitializing = false;
+      _isInitialized = false;
+      // Keep _isBackgroundService as is for diagnostic purposes
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('ble_initialized');
+      await prefs.remove('ble_initialized_in_background');
+      await prefs.remove('ble_initialization_time');
+    });
+  }
+}
+
 class BleService {
   // Singleton instance
   static final BleService _instance = BleService._internal();
@@ -603,7 +805,7 @@ class BleService {
   bool _isJniDetached = false;
   Timer? _jniHealthCheckTimer;
 
-  final _jniStatusSubject = BehaviorSubject<bool>.seeded(true);
+  late var _jniStatusSubject = BehaviorSubject<bool>.seeded(true);
   Stream<bool> get jniConnectionStatus => _jniStatusSubject.stream;
 
   final BleErrorMetrics errorMetrics = BleErrorMetrics();
@@ -633,8 +835,10 @@ class BleService {
   bool _isScanning = false;
   bool _isAdvertising = false;
   DateTime _lastMessageActivity = DateTime.now();
+  final _initMutex = Lock();
+  bool _initializationInProgress = false;
 
-  final Map<String, Lock> _locks = {};
+  late Map<String, Lock> _locks = {};
 
   final Set<String> _discoveryInProgress = {};
 
@@ -645,10 +849,10 @@ class BleService {
 
 
   // Stream controllers with better error handling
-  final _devicesSubject = BehaviorSubject<List<BleDevice>>.seeded([]);
-  final _messagesSubject = BehaviorSubject<List<BleMessage>>.seeded([]);
-  final _connectionStateSubject = BehaviorSubject<String>.seeded('Not Initialized');
-  final _errorSubject = PublishSubject<String>();
+  late var _devicesSubject = BehaviorSubject<List<BleDevice>>.seeded([]);
+  late var _messagesSubject = BehaviorSubject<List<BleMessage>>.seeded([]);
+  late var _connectionStateSubject = BehaviorSubject<String>.seeded('Not Initialized');
+  late var _errorSubject = PublishSubject<String>();
 
   late FlutterBackgroundService _backgroundService;
   ServiceInstance? _serviceInstance;
@@ -657,7 +861,7 @@ class BleService {
   List<BleDevice> _discoveredDevices = [];
   List<BleMessage> _messages = [];
   final Map<String, StreamSubscription> _subscriptions = {};
-  final Map<String, GATTService?> _deviceGattServices = {};
+  late Map<String, GATTService?> _deviceGattServices = {};
 
   // Message packet tracking for fragmented messages
   final Map<String, List<Map<String, dynamic>>> _incomingPackets = {};
@@ -691,9 +895,76 @@ class BleService {
   GATTCharacteristic? _ackCharacteristic;
   bool _pendingDeviceListUpdate = false;
 
+  Future<bool> markAsInitialized() async {
+    if (_isInitialized) {
+      debugPrint('✅ BLE service already fully initialized');
+      return true;
+    }
+
+    debugPrint('🔄 Performing full external initialization of BLE service');
+
+    try {
+      // 1. Initialize device ID
+      final prefs = await SharedPreferences.getInstance();
+      _deviceId = prefs.getString('device_id') ?? _generateSecureDeviceId();
+      await prefs.setString('device_id', _deviceId);
+      debugPrint('📱 External init - Device ID: $_deviceId');
+
+      // 2. Initialize stream controllers if needed
+      _devicesSubject = _devicesSubject;
+      _messagesSubject = _messagesSubject;
+      _connectionStateSubject = _connectionStateSubject;
+      _errorSubject = _errorSubject;
+      _jniStatusSubject = _jniStatusSubject;
+
+      // 3. Initialize collections
+      _discoveredDevices = _discoveredDevices;
+      _messages = _messages;
+      _deviceGattServices = _deviceGattServices;
+      _locks = _locks;
+
+      // 4. Load saved data if needed
+      await _loadMessages();
+
+      // 5. Start essential timers
+      _startMessageProcessingTimer();
+      _setupAdaptiveScanning();
+      _setupJniHealthCheck();
+
+      _isInitialized = true;
+      _connectionStateSubject.add('Ready (External Init)');
+      debugPrint('✅ BLE service externally initialized successfully');
+
+      return true;
+    } catch (e, stack) {
+      debugPrint('❌ External initialization failed: $e');
+      debugPrint('❌ Stack trace: $stack');
+      return false;
+    }
+  }
+
   /// Initialize the BLE service with robust error handling
   Future<bool> initialize() async {
-    if (_isInitialized) return true;
+    return _initMutex.synchronized(() async {
+    debugPrint('🔄 BleService.initialize() called, isInitialized=$_isInitialized, inProgress=$_initializationInProgress');
+
+    if (_isInitialized) {
+      debugPrint('⚠️ BleService already initialized, returning early');
+      return true;
+    }
+
+    if (_initializationInProgress) {
+      debugPrint('⚠️ BleService initialization already in progress, waiting...');
+      // Wait for the other initialization to complete
+      for (int i = 0; i < 30; i++) { // Wait up to 30 seconds
+        await Future.delayed(Duration(seconds: 1));
+        if (_isInitialized) return true;
+      }
+      debugPrint('⚠️ Timed out waiting for other initialization');
+      return false;
+    }
+
+    _initializationInProgress = true;
 
     initializePeriodicCleanup();
 
@@ -716,11 +987,17 @@ class BleService {
           await Permission.locationWhenInUse.request();
           await Permission.locationAlways.request();
 
-          // For Android 12+, request the new Bluetooth permissions
           final androidInfo = await DeviceInfoPlugin().androidInfo;
-          if (androidInfo.version.sdkInt >= 31) { // Android 12+
-            debugPrint('Android 12+ detected, requesting specific BLE permissions');
-            // Individual requests may work better than batch
+          if (androidInfo.version.sdkInt >= 33) { // Android 13+
+            debugPrint('Android 13+ detected, requesting nearby devices permission');
+            await Permission.nearbyWifiDevices.request();
+
+            // Then request standard BLE permissions
+            await Permission.bluetoothScan.request();
+            await Permission.bluetoothConnect.request();
+            await Permission.bluetoothAdvertise.request();
+          } else if (androidInfo.version.sdkInt >= 31) { // Android 12
+            debugPrint('Android 12 detected, requesting specific BLE permissions');
             await Permission.bluetoothScan.request();
             await Permission.bluetoothConnect.request();
             await Permission.bluetoothAdvertise.request();
@@ -770,7 +1047,6 @@ class BleService {
 
       _setupJniHealthCheck();
 
-      _isInitialized = true;
       _connectionStateSubject.add('Ready');
       debugPrint('BLE service initialized successfully');
 
@@ -790,17 +1066,17 @@ class BleService {
         debugPrint('Error starting scan: $e');
       }
 
+      _isInitialized = true;
+      _initializationInProgress = false;
       return true;
     } catch (e) {
-      final errorMsg = 'Initialization error: $e';
-      _connectionStateSubject.add(errorMsg);
-      _errorSubject.add(errorMsg);
-      debugPrint(errorMsg);
-
-      // Try to recover where possible
-      _isInitialized = true; // Set to true anyway to allow retry operations
+      debugPrint('❌ BLE service initialization failed: $e');
+      _isInitialized = false;
       return false;
+    } finally {
+      _initializationInProgress = false;
     }
+    });
   }
 
   /// Handle iOS background processing
@@ -824,7 +1100,9 @@ class BleService {
 
   /// Wait for Bluetooth to be powered on
   Future<bool> _waitForBluetoothPoweredOn() async {
+    debugPrint('Starting Bluetooth power state check: current state=${_centralManager.state}');
     if (_centralManager.state == BluetoothLowEnergyState.poweredOn) {
+      debugPrint('Bluetooth already powered on, proceeding');
       return true;
     }
 
@@ -862,8 +1140,15 @@ class BleService {
 
   Future<void> _checkJniHealth() async {
     try {
-      // A lightweight operation to check if JNI is responsive
-      _centralManager.state; // Just access it to see if it throws
+
+      await Future.value(_centralManager.state);
+
+      if (_isJniDetached) {
+        debugPrint('🔄 JNI connection recovered, reinitializing BLE');
+        _isJniDetached = false;
+        _jniStatusSubject.add(true);
+        await _reinitializeBleAfterDetachment();
+      }
 
       // If we get here, JNI is working
       if (_isJniDetached) {
@@ -1146,9 +1431,9 @@ class BleService {
   /// Start timer for periodic message processing
   void _startMessageProcessingTimer() {
     _messageProcessingTimer?.cancel();
-    debugPrint('⏰ Starting message processing timer: running every 30 seconds');
+    debugPrint('⏰ Starting message processing timer: running every 10 seconds');
     _messageProcessingTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 10),
           (timer) {
         debugPrint('⏰ Message processing timer fired');
         _processOutgoingMessages();
@@ -1534,8 +1819,16 @@ class BleService {
   }
 
   void _handleConnectionStateChanged(PeripheralConnectionStateChangedEventArgs event) async {
+    try {
     final peripheralId = event.peripheral.uuid.toString();
     debugPrint('🔌 Connection state changed for device: ${event.peripheral.uuid}, state: ${event.state}');
+
+    if (_isJniDetached) {
+      debugPrint('⚠️ JNI is detached, cannot process connection state change');
+      // Schedule a JNI health check sooner
+      Future.delayed(Duration(seconds: 1), () => _checkJniHealth());
+      return;
+    }
 
     _stabilityMonitor.recordConnectionEvent(peripheralId, event.state == ConnectionState.connected);
 
@@ -1669,6 +1962,9 @@ class BleService {
         }
       }
     }
+  } catch (e) {
+  debugPrint('❌ Error handling connection state change: $e');
+  }
   }
 
 
@@ -1720,6 +2016,17 @@ class BleService {
   /// Restart BLE services after app is foregrounded
   Future<void> handleAppForeground() async {
     // Check if we need to restart services
+    if (!_isInitialized || _deviceId.isEmpty) {
+      debugPrint('⚠️ BLE service not fully initialized for foreground handling');
+
+      // Try to fix it
+      try {
+        await markAsInitialized(); // This will now properly initialize deviceId
+      } catch (e) {
+        debugPrint('❌ Failed to initialize on foreground: $e');
+        return;
+      }
+    }
     if (await _hasBeenInBackgroundTooLong()) {
       // Stop existing operations
       await stopScan();
@@ -2833,6 +3140,11 @@ class BleService {
       try {
         debugPrint('🔄 _processOutgoingMessages started');
 
+        if (_deviceId.isEmpty) {
+          debugPrint('⚠️ Device ID not initialized, cannot process messages');
+          return;
+        }
+
         final messagesToRemove = <String>[];
         for (final message in _messages) {
           if (message.senderId == _deviceId &&
@@ -2931,7 +3243,6 @@ class BleService {
       } catch (e, stackTrace) {
         debugPrint('❌ Error in _processOutgoingMessages: $e');
         debugPrint('❌ Stack trace: $stackTrace');
-        // Add more specific recovery actions here based on error type
         _scheduleRetry();
       }
     });
@@ -2957,6 +3268,10 @@ class BleService {
 
   Future<List<BleMessage>> _getRetriableMessagesHybrid() async {
     final deviceId = _deviceId;
+    if (deviceId.isEmpty) {
+      debugPrint('⚠️ Device ID not initialized, returning empty message list');
+      return [];
+    }
     final now = DateTime.now();
 
     // Check if we have enough messages to benefit from isolate processing
@@ -3389,9 +3704,66 @@ class BleService {
     return deviceId;
   }
 
+  Map<String, String> _extractDeviceIds() {
+    Map<String, String> result = {};
+
+    for (var device in _discoveredDevices) {
+      // Store device ID mapping
+      result[device.id] = device.id;
+
+      // Check if we have extracted a remote ID from device info
+      if (device.metadata != null && device.metadata!.containsKey('remoteDeviceId')) {
+        final remoteId = device.metadata!['remoteDeviceId'] as String;
+        if (remoteId.isNotEmpty) {
+          result[remoteId] = device.id;
+          debugPrint('📱 Mapped remote ID $remoteId to device ${device.id}');
+        }
+      }
+
+      // Check if we have a Pak-Msg name with embedded ID
+      if (device.name != null && device.name!.startsWith('Pak-Msg-')) {
+        final nameId = device.name!.substring(8);
+        if (nameId.isNotEmpty) {
+          result[nameId] = device.id;
+          debugPrint('📱 Mapped name ID $nameId to device ${device.id}');
+        }
+      }
+    }
+
+    return result;
+  }
+
   // Add this method to your BleService class
   BleDevice? findDeviceByAnyId(String targetId) {
     debugPrint('🔍 Searching for device: $targetId');
+
+    // Get all possible device ID mappings
+    final idMap = _extractDeviceIds();
+
+    // First try exact match using mappings
+    if (idMap.containsKey(targetId)) {
+      final actualDeviceId = idMap[targetId]!;
+      final deviceIndex = _discoveredDevices.indexWhere((d) => d.id == actualDeviceId);
+      if (deviceIndex >= 0) {
+        debugPrint('✅ Found device by exact ID match via mapping');
+        return _discoveredDevices[deviceIndex];
+      }
+    }
+
+    // Try partial match
+    final shortTargetId = targetId.substring(0, math.min(targetId.length, 8));
+    for (var entry in idMap.entries) {
+      if (entry.key.contains(shortTargetId) || shortTargetId.contains(entry.key)) {
+        final actualDeviceId = entry.value;
+        final deviceIndex = _discoveredDevices.indexWhere((d) => d.id == actualDeviceId);
+        if (deviceIndex >= 0) {
+          debugPrint('✅ Found device by partial ID match: ${entry.key}');
+          return _discoveredDevices[deviceIndex];
+        }
+      }
+    }
+
+
     debugPrint('🔍 Available devices:');
     for (var device in _discoveredDevices) {
       debugPrint('  - ID: ${device.id}, Name: ${device.name ?? "Unknown"}');
@@ -4468,8 +4840,10 @@ class BleService {
   }
 
   /// Discover services for a peripheral with enhanced logging and error handling
+  /// Discover services for a peripheral with enhanced logging and error handling
   Future<void> _discoverServices(Peripheral peripheral) async {
     final peripheralId = peripheral.uuid.toString();
+    debugPrint('🔍 DISCOVERY CHECK: peripheralId=$peripheralId, inProgress=${_discoveryInProgress.contains(peripheralId)}');
 
     // Create a mutex lock for this specific device if needed
     final lockKey = 'discover_$peripheralId';
@@ -4479,6 +4853,15 @@ class BleService {
 
     // Use synchronization to prevent concurrent discovery on the same device
     return _locks[lockKey]!.synchronized(() async {
+      // Check again after acquiring the lock
+      if (_discoveryInProgress.contains(peripheralId)) {
+        debugPrint('⚠️ Service discovery already in progress for device: $peripheralId, skipping duplicate');
+        return;
+      }
+
+      // Mark discovery as in progress
+      _discoveryInProgress.add(peripheralId);
+
       try {
         debugPrint('🔍 Starting service discovery for device: $peripheralId');
 
@@ -4726,36 +5109,67 @@ class BleService {
               deviceInfoCharacteristic,
             );
 
-            final deviceInfoString = utf8.decode(deviceInfoData, allowMalformed: true);
-            debugPrint('📱 Device info: $deviceInfoString');
+            // Add defensive handling for potentially corrupted data
+            try {
+              String deviceInfoString = utf8.decode(deviceInfoData, allowMalformed: true);
+              deviceInfoString = deviceInfoString.substring(0, math.min(deviceInfoString.length, 200)); // Truncate if too long
 
-            // Parse JSON if it appears to be JSON data
-            if (deviceInfoString.startsWith('{') && deviceInfoString.endsWith('}')) {
-              try {
-                final deviceInfo = jsonDecode(deviceInfoString);
-                debugPrint('📱 Parsed device info: $deviceInfo');
+              debugPrint('📱 Device info (raw): $deviceInfoString');
 
-                // Check protocol version compatibility
-                final remoteProtocolVersion = deviceInfo['protocolVersion'];
-                if (remoteProtocolVersion != null && remoteProtocolVersion < protocolVersion) {
-                  debugPrint('⚠️ Device using older protocol version: $remoteProtocolVersion');
+              // Check if it's valid JSON
+              if (deviceInfoString.startsWith('{') && deviceInfoString.contains('}')) {
+                final endIndex = deviceInfoString.indexOf('}') + 1;
+                final validJson = deviceInfoString.substring(0, endIndex);
+
+                debugPrint('📱 Parsed device info: $validJson');
+
+                try {
+                  final deviceInfo = jsonDecode(validJson);
+
+                  // Extract device ID
+                  if (deviceInfo.containsKey('deviceId')) {
+                    final remoteDeviceId = deviceInfo['deviceId'] as String;
+                    debugPrint('📱 Remote device ID: $remoteDeviceId');
+
+                    // Update device in discovered devices list
+                    final deviceIndex = _discoveredDevices.indexWhere((d) => d.id == peripheralId);
+                    if (deviceIndex >= 0) {
+                      // Create new metadata map or use existing
+                      final deviceMetadata = _discoveredDevices[deviceIndex].metadata ?? {};
+                      deviceMetadata['remoteDeviceId'] = remoteDeviceId;
+
+                      _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
+                        supportsRelay: deviceInfo['supportsRelay'] == true,
+                        metadata: deviceMetadata,
+                      );
+                      _devicesSubject.add(_discoveredDevices);
+                    }
+                  }
+
+                  // Check protocol version compatibility
+                  final remoteProtocolVersion = deviceInfo['protocolVersion'];
+                  if (remoteProtocolVersion != null && remoteProtocolVersion < protocolVersion) {
+                    debugPrint('⚠️ Device using older protocol version: $remoteProtocolVersion');
+                  }
+
+                  // Check if device supports relay
+                  final supportsRelay = deviceInfo['supportsRelay'] == true;
+                  debugPrint('📱 Device supports relay: $supportsRelay');
+
+                  // Update device in discovered devices list with additional info
+                  final deviceIndex = _discoveredDevices.indexWhere((d) => d.id == peripheralId);
+                  if (deviceIndex >= 0) {
+                    _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
+                      supportsRelay: supportsRelay,
+                    );
+                    _devicesSubject.add(_discoveredDevices);
+                  }
+                } catch (e) {
+                  debugPrint('⚠️ Error parsing device info JSON: $e');
                 }
-
-                // Check if device supports relay
-                final supportsRelay = deviceInfo['supportsRelay'] == true;
-                debugPrint('📱 Device supports relay: $supportsRelay');
-
-                // Update device in discovered devices list with additional info
-                final deviceIndex = _discoveredDevices.indexWhere((d) => d.id == peripheralId);
-                if (deviceIndex >= 0) {
-                  _discoveredDevices[deviceIndex] = _discoveredDevices[deviceIndex].copyWith(
-                    supportsRelay: supportsRelay,
-                  );
-                  _devicesSubject.add(_discoveredDevices);
-                }
-              } catch (e) {
-                debugPrint('⚠️ Error parsing device info: $e');
               }
+            } catch (e) {
+              debugPrint('⚠️ Error processing device info string: $e');
             }
           } catch (e) {
             debugPrint('⚠️ Failed to read device info: $e');
@@ -4804,9 +5218,9 @@ class BleService {
 
         // Log error to error recovery manager
         _errorRecoveryManager.handleError('discoverServices', e);
-
-        // Rethrow to let the connection handler know service discovery failed
-        rethrow;
+      } finally {
+        // Always clear the discovery in progress flag, even if an error occurred
+        _discoveryInProgress.remove(peripheralId);
       }
     });
   }
@@ -5382,6 +5796,7 @@ class ResilientConnectionManager {
   final Map<String, int> _connectionSuccess = {};
   final Map<String, int> _connectionFailures = {};
 
+
   double getConnectionSuccessRate(String deviceId) {
     final successes = _connectionSuccess[deviceId] ?? 0;
     final failures = _connectionFailures[deviceId] ?? 0;
@@ -5396,8 +5811,25 @@ class ResilientConnectionManager {
 
     final lastAttempt = _failedConnectionAttempts[deviceId];
     if (lastAttempt != null) {
+      // Calculate adaptive cooldown based on success rate
+      Duration adaptiveCooldown = _reconnectCooldown; // Default cooldown
+
+      // Calculate based on success rate
+      final successes = _connectionSuccess[deviceId] ?? 0;
+      final failures = _connectionFailures[deviceId] ?? 0;
+
+      if (failures > 0) {
+        // Poor success rate = longer cooldown
+        final ratio = successes / (successes + failures);
+        if (ratio < 0.3) {
+          adaptiveCooldown = const Duration(seconds: 120); // 2 minutes for unreliable devices
+        } else if (ratio < 0.6) {
+          adaptiveCooldown = const Duration(seconds: 60); // 1 minute for moderately reliable
+        }
+      }
+
       final timeSinceLastAttempt = DateTime.now().difference(lastAttempt);
-      if (timeSinceLastAttempt < _reconnectCooldown) return false;
+      if (timeSinceLastAttempt < adaptiveCooldown) return false;
     }
 
     return true;
