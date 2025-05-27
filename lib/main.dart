@@ -798,6 +798,7 @@ class InMemoryStore {
     );
 
     contact.bleDeviceId = BleService().normalizeDeviceId(deviceId);
+
     saveContacts(); // Make sure to save after modification
     return true;
   }
