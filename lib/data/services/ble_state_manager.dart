@@ -1,0 +1,125 @@
+import 'dart:async';
+import 'package:logging/logging.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../data/repositories/user_preferences.dart';
+import '../../core/services/simple_crypto.dart';
+import '../../core/models/device_identity.dart';
+
+class BLEStateManager {
+  final _logger = Logger('BLEStateManager');
+  
+  // User and contact management
+  final ContactRepository _contactRepository = ContactRepository();
+  final UserPreferences _userPreferences = UserPreferences();
+  
+  String? _myUserName;
+  String? _otherUserName;
+  String? _myPersistentId;
+  String? _otherDevicePersistentId;
+  
+  // Peripheral mode tracking
+  bool _isPeripheralMode = false;
+  
+  // Getters
+  String? get myUserName => _myUserName;
+  String? get otherUserName => _otherUserName;
+  String? get otherDevicePersistentId => _otherDevicePersistentId;
+  bool get isPeripheralMode => _isPeripheralMode;
+  String? get myPersistentId => _myPersistentId;
+  
+  // Callbacks
+  Function(String?)? onNameChanged;
+  
+  Future<void> initialize() async {
+    await loadUserName();
+    _myPersistentId = await _userPreferences.getOrCreateDeviceId();
+    await _initializeCrypto();
+  }
+  
+Future<void> loadUserName() async {
+  _myUserName = await _userPreferences.getUserName();
+}
+
+Future<String> getMyPersistentId() async {
+  return await _userPreferences.getOrCreateDeviceId();
+}
+  
+  Future<void> setMyUserName(String name) async {
+    _myUserName = name;
+    await _userPreferences.setUserName(name);
+  }
+  
+  void setOtherUserName(String? name) {
+  _logger.info('Setting other user name: "$name" (was: "$_otherUserName")');
+  _otherUserName = name;
+  onNameChanged?.call(_otherUserName);
+  
+  if (name != null && name.isNotEmpty) {
+    _logger.info('✅ Name exchange complete - UI should show connected now');
+  } else {
+    _logger.warning('❌ Name cleared - UI will show disconnected');
+  }
+}
+
+void setOtherDeviceIdentity(DeviceIdentity identity) {
+  _logger.info('Setting other device identity: "${identity.displayName}" (ID: ${identity.persistentId})');
+  _otherUserName = identity.displayName;
+  _otherDevicePersistentId = identity.persistentId;
+  onNameChanged?.call(_otherUserName);
+  
+  if (identity.displayName.isNotEmpty) {
+    _logger.info('✅ Identity exchange complete - UI should show connected now');
+  } else {
+    _logger.warning('⚠ Identity cleared - UI will show disconnected');
+  }
+}
+  
+  Future<void> saveContact(String deviceId, String userName) async {
+    await _contactRepository.saveContact(deviceId, userName);
+  }
+  
+  Future<String?> getContactName(String deviceId) async {
+    return await _contactRepository.getContactName(deviceId);
+  }
+  
+  void setPeripheralMode(bool isPeripheral) {
+    _isPeripheralMode = isPeripheral;
+  }
+  
+ void clearOtherUserName() {
+  _otherUserName = null;
+  _otherDevicePersistentId = null;
+  onNameChanged?.call(null);
+}
+  
+  Future<void> _initializeCrypto() async {
+    try {
+      final passphrase = await _userPreferences.getPassphrase();
+      SimpleCrypto.initialize(passphrase);
+      _logger.info('Encryption initialized with passphrase: ${passphrase.substring(0, 3)}***');
+    } catch (e) {
+      _logger.warning('Failed to initialize encryption: $e');
+    }
+  }
+  
+  Future<String> getCurrentPassphrase() async {
+    return await _userPreferences.getPassphrase();
+  }
+  
+  Future<void> setCustomPassphrase(String passphrase) async {
+    await _userPreferences.setPassphrase(passphrase);
+    SimpleCrypto.initialize(passphrase);
+    _logger.info('Custom passphrase set and crypto reinitialized');
+  }
+  
+  Future<void> generateNewPassphrase() async {
+    await _userPreferences.setPassphrase('');
+    final generated = await _userPreferences.getPassphrase();
+    SimpleCrypto.initialize(generated);
+    _logger.info('New passphrase generated and crypto reinitialized');
+  }
+  
+  void dispose() {
+    // Cleanup if needed
+  }
+}

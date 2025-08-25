@@ -1,0 +1,423 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+import 'dart:typed_data';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:logging/logging.dart';
+import '../../core/constants/ble_constants.dart';
+
+// Enum must be declared at top level
+enum ConnectionMonitorState {
+  idle,
+  healthChecking,
+  reconnecting,
+}
+
+class BLEConnectionManager {
+  final _logger = Logger('BLEConnectionManager');
+  final CentralManager centralManager;
+  final PeripheralManager peripheralManager;
+  
+  // Connection state
+  Peripheral? _connectedDevice;
+  Peripheral? _lastConnectedDevice;
+  GATTCharacteristic? _messageCharacteristic;
+  int? _mtuSize;
+  
+  // Simplified monitoring system
+  Timer? _monitoringTimer;
+  bool _isMonitoring = false;
+  int _monitoringInterval = 3000; // milliseconds
+  int _reconnectAttempts = 0;
+  bool _messageOperationInProgress = false;
+  bool _isReconnection = false;
+  
+  ConnectionMonitorState _monitorState = ConnectionMonitorState.idle;
+
+  // Constants
+  static const int maxReconnectAttempts = 5;
+  static const int minInterval = 3000;
+  static const int maxInterval = 30000;
+  
+  // Callbacks for parent service
+  Function(Peripheral?)? onConnectionChanged;
+  Function(GATTCharacteristic?)? onCharacteristicFound;
+  Function(int?)? onMtuDetected;
+  Function()? onConnectionComplete;
+  Function(bool)? onMonitoringChanged;
+  
+  BLEConnectionManager({
+    required this.centralManager,
+    required this.peripheralManager,
+  });
+  
+  // Getters
+  Peripheral? get connectedDevice => _connectedDevice;
+  Peripheral? get lastConnectedDevice => _lastConnectedDevice;
+  GATTCharacteristic? get messageCharacteristic => _messageCharacteristic;
+  int? get mtuSize => _mtuSize;
+  bool get isConnected => _connectedDevice != null;
+  bool get isReconnection => _isReconnection;
+  bool get isMonitoring => _isMonitoring;
+
+  void startConnectionMonitoring() {
+
+    if (_isMonitoring) return;
+    
+    _isMonitoring = true;
+    _lastConnectedDevice = _connectedDevice;
+    _monitorState = isConnected 
+      ? ConnectionMonitorState.healthChecking 
+      : ConnectionMonitorState.reconnecting;
+    _monitoringInterval = minInterval;
+    
+    _scheduleNextCheck();
+    onMonitoringChanged?.call(true);
+    _logger.info('Monitoring started in ${_monitorState.name} mode');
+  }
+
+  void stopConnectionMonitoring() {
+    _isMonitoring = false;
+    _monitoringTimer?.cancel();
+    _monitoringTimer = null;
+    _monitorState = ConnectionMonitorState.idle;
+    _monitoringInterval = minInterval;
+    _reconnectAttempts = 0;
+    onMonitoringChanged?.call(false);
+    _logger.info('Monitoring stopped');
+  }
+
+  void _scheduleNextCheck() {
+    _monitoringTimer?.cancel();
+    if (!_isMonitoring) return;
+    
+    _monitoringTimer = Timer(Duration(milliseconds: _monitoringInterval), () async {
+      if (!_isMonitoring) return;
+      
+      switch (_monitorState) {
+        case ConnectionMonitorState.healthChecking:
+          await _performHealthCheck();
+          break;
+        case ConnectionMonitorState.reconnecting:
+          await _attemptReconnection();
+          break;
+        case ConnectionMonitorState.idle:
+          return;
+      }
+      
+      // Exponential backoff
+      _monitoringInterval = (_monitoringInterval * 1.2).round().clamp(minInterval, maxInterval);
+      
+      if (_isMonitoring) {
+        _scheduleNextCheck();
+      }
+    });
+  }
+
+  Future<void> _performHealthCheck() async {
+    if (_messageOperationInProgress || _connectedDevice == null || _messageCharacteristic == null) {
+      _scheduleNextCheck();
+      return;
+    }
+    
+    try {
+      final pingData = Uint8List.fromList([0x00]);
+      
+      await centralManager.writeCharacteristic(
+        _connectedDevice!,
+        _messageCharacteristic!,
+        value: pingData,
+        type: GATTCharacteristicWriteType.withResponse,
+      ).timeout(Duration(seconds: 3));
+      
+      _logger.info('Health check passed (${_monitoringInterval}ms interval)');
+      
+    } catch (e) {
+      _logger.warning('Health check failed: $e');
+      
+      // Switch to reconnection mode
+      _monitorState = ConnectionMonitorState.reconnecting;
+      _monitoringInterval = minInterval; // Reset interval
+      
+      // Force disconnect
+      try {
+        await centralManager.disconnect(_connectedDevice!);
+      } catch (_) {}
+      
+      clearConnectionState(keepMonitoring: true);
+      _isReconnection = true;
+    }
+  }
+
+  Future<void> _attemptReconnection() async {
+    if (_reconnectAttempts >= maxReconnectAttempts) {
+      _logger.warning('Max reconnection attempts reached');
+      stopConnectionMonitoring();
+      return;
+    }
+    
+    _reconnectAttempts++;
+    _logger.info('Reconnect attempt $_reconnectAttempts/$maxReconnectAttempts');
+    
+    try {
+      final foundDevice = await scanForSpecificDevice(timeout: Duration(seconds: 8));
+      
+      if (foundDevice != null) {
+        _isReconnection = true;
+        await connectToDevice(foundDevice);
+        
+        // Success - switch to health checking
+        _reconnectAttempts = 0;
+        _monitorState = ConnectionMonitorState.healthChecking;
+        _monitoringInterval = minInterval;
+        _logger.info('Reconnection successful');
+      }
+    } catch (e) {
+      _logger.warning('Reconnection failed: $e');
+    }
+  }
+
+  void startHealthChecks() {
+    if (!_isMonitoring) {
+      startConnectionMonitoring();
+    }
+  }
+
+void handleBluetoothStateChange(BluetoothLowEnergyState state) {
+  if (state == BluetoothLowEnergyState.poweredOn) {
+    // BT just came back on - always attempt reconnection if we had a device
+    if (_lastConnectedDevice != null && !isConnected) {
+      _logger.info('Bluetooth powered on - forcing reconnection attempt');
+      
+      // Stop any existing monitoring to reset state
+      stopConnectionMonitoring();
+      
+      // Wait for BT stack to stabilize
+      Timer(Duration(milliseconds: 1500), () {
+        _isReconnection = true;
+        startConnectionMonitoring();
+      });
+    }
+  } else if (state == BluetoothLowEnergyState.poweredOff) {
+    // BT turned off - preserve device but stop everything
+    if (isConnected) {
+      _logger.info('Bluetooth powered off - preserving device for reconnection');
+      _lastConnectedDevice = _connectedDevice;
+    }
+    clearConnectionState(keepMonitoring: false);
+  }
+}
+  
+  Future<void> connectToDevice(Peripheral device) async {
+    try {
+      _logger.info('Connecting to ${device.uuid}...');
+      
+      await Future.delayed(Duration(milliseconds: 500));
+      
+      await centralManager.connect(device).timeout(
+        Duration(seconds: 10),
+        onTimeout: () => throw Exception('Connection timeout after 10 seconds'),
+      );
+      
+      _connectedDevice = device;
+      _lastConnectedDevice = device;
+      _logger.info('DEBUG: About to call onConnectionChanged with device: ${device.uuid}');
+      onConnectionChanged?.call(_connectedDevice);
+      _logger.info('DEBUG: Called onConnectionChanged');
+      
+      // Discover GATT services with retry logic
+      List<GATTService> services = [];
+      GATTService? messagingService;
+      
+      for (int retry = 0; retry < 3; retry++) {
+        try {
+          _logger.info('Discovering services, attempt ${retry + 1}/3');
+          services = await centralManager.discoverGATT(device);
+          
+          messagingService = services.firstWhere(
+            (service) => service.uuid == BLEConstants.serviceUUID,
+          );
+          
+          _logger.info('✅ Messaging service found on attempt ${retry + 1}');
+          break;
+          
+        } catch (e) {
+          _logger.warning('❌ Service discovery failed on attempt ${retry + 1}: $e');
+          
+          if (retry < 2) {
+            await Future.delayed(Duration(milliseconds: 1000));
+          } else {
+            throw Exception('Messaging service not found after 3 attempts');
+          }
+        }
+      }
+      
+      if (messagingService == null) {
+        throw Exception('Messaging service not found after retries');
+      }
+      
+      // Find the message characteristic
+      _messageCharacteristic = messagingService.characteristics.firstWhere(
+        (char) => char.uuid == BLEConstants.messageCharacteristicUUID,
+        orElse: () => throw Exception('Message characteristic not found'),
+      );
+      
+      onCharacteristicFound?.call(_messageCharacteristic);
+      
+      // Enable notifications
+      if (_messageCharacteristic!.properties.contains(GATTCharacteristicProperty.notify)) {
+        try {
+          await centralManager.setCharacteristicNotifyState(
+            device, 
+            _messageCharacteristic!,
+            state: true,
+          );
+          _logger.info('Notifications enabled successfully');
+          
+          await Future.delayed(Duration(milliseconds: 500));
+          
+        } catch (e) {
+          _logger.severe('CRITICAL: Failed to enable notifications: $e');
+          throw Exception('Cannot enable notifications - connection unusable');
+        }
+      }
+      
+      _logger.info('Connected successfully!');
+      await _detectOptimalMTU();
+
+      _logger.info('Triggering connection complete callback (name exchange)');
+      onConnectionComplete?.call();
+
+      _isReconnection = false;
+      
+    } catch (e) {
+      _logger.severe('Connection failed: $e');
+      _isReconnection = false;
+      clearConnectionState();
+      rethrow;
+    }
+  }
+  
+  Future<void> _detectOptimalMTU() async {
+    if (_connectedDevice == null) return;
+    
+    try {
+      _logger.info('Attempting MTU detection...');
+      
+      int negotiatedMTU = 23;
+      
+      if (Platform.isAndroid) {
+        try {
+          negotiatedMTU = await centralManager.requestMTU(_connectedDevice!, mtu: 250);
+          _logger.info('Successfully negotiated larger MTU: $negotiatedMTU bytes');
+        } catch (e) {
+          _logger.warning('MTU negotiation failed, using default 23: $e');
+        }
+      }
+      
+      final maxWriteLength = await centralManager.getMaximumWriteLength(
+        _connectedDevice!,
+        type: GATTCharacteristicWriteType.withResponse,
+      );
+      
+      _mtuSize = maxWriteLength.clamp(20, negotiatedMTU - 3);
+      _logger.info('✅ MTU detection successful: $_mtuSize bytes');
+      
+      onMtuDetected?.call(_mtuSize);
+      
+    } catch (e) {
+      _logger.warning('❌ MTU detection completely failed: $e');
+      _mtuSize = 20;
+      _logger.info('Using conservative fallback MTU: $_mtuSize bytes');
+      onMtuDetected?.call(_mtuSize);
+    }
+  }
+
+  void setMessageOperationInProgress(bool inProgress) {
+    _messageOperationInProgress = inProgress;
+    if (inProgress) {
+      _logger.info('Message operation started - pausing health checks');
+    } else {
+      _logger.info('Message operation completed - resuming health checks');
+    }
+  }
+  
+  Future<Peripheral?> scanForSpecificDevice({Duration timeout = const Duration(seconds: 10)}) async {
+    if (centralManager.state != BluetoothLowEnergyState.poweredOn) {
+      return null;
+    }
+    
+    _logger.info('🔍 Scanning for service-advertising devices only');
+    
+    final completer = Completer<Peripheral?>();
+    StreamSubscription? discoverySubscription;
+    Timer? timeoutTimer;
+    
+    try {
+      discoverySubscription = centralManager.discovered.listen((event) {
+        _logger.info('✅ Found device advertising our service: ${event.peripheral.uuid}');
+        if (!completer.isCompleted) {
+          completer.complete(event.peripheral);
+        }
+      });
+      
+      timeoutTimer = Timer(timeout, () {
+        if (!completer.isCompleted) {
+          _logger.info('⏰ Service scan timeout');
+          completer.complete(null);
+        }
+      });
+      
+      await Future.delayed(Duration(milliseconds: 500));
+      
+      await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
+      
+      return await completer.future;
+      
+    } finally {
+      await centralManager.stopDiscovery();
+      discoverySubscription?.cancel();
+      timeoutTimer?.cancel();
+    }
+  }
+  
+  Future<void> disconnect() async {
+    stopConnectionMonitoring();
+    if (_connectedDevice != null) {
+      await centralManager.disconnect(_connectedDevice!);
+    }
+    clearConnectionState();
+  }
+
+  void triggerReconnection() {
+    if (!_isMonitoring) {
+      startConnectionMonitoring();
+    } else if (_monitorState != ConnectionMonitorState.reconnecting) {
+      _monitorState = ConnectionMonitorState.reconnecting;
+      _monitoringInterval = minInterval;
+      _scheduleNextCheck();
+    }
+    _logger.info('Triggering immediate reconnection...');
+  }
+  
+  void clearConnectionState({bool keepMonitoring = false}) {
+    _connectedDevice = null;
+    _messageCharacteristic = null;
+    _mtuSize = null;
+    _lastConnectedDevice = null;
+    
+    _reconnectAttempts = 0;
+    _isReconnection = false;
+    
+    if (!keepMonitoring) {
+      stopConnectionMonitoring();
+    }
+    
+    onConnectionChanged?.call(null);
+    onCharacteristicFound?.call(null);
+    onMtuDetected?.call(null);
+  }
+  
+  void dispose() {
+    stopConnectionMonitoring();
+  }
+}
