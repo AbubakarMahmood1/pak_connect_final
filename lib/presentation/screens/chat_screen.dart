@@ -244,6 +244,8 @@ Widget build(BuildContext context) {
     final bleService = ref.watch(bleServiceProvider);
 final connectionStateAsync = ref.watch(connectionStateStreamProvider);
 final nameAsync = ref.watch(nameChangesProvider);
+final bleStateAsync = ref.watch(bleStateProvider);
+final advertisingStateAsync = ref.watch(advertisingStateProvider);
 
 final isConnected = connectionStateAsync.maybeWhen(
   data: (connected) => connected,
@@ -316,7 +318,9 @@ final hasNameExchange = nameAsync.maybeWhen(
         bottom: true,
         child: Column(
           children: [
-            if (!isConnected && isMonitoring) _buildReconnectionBanner(),
+            if (!isConnected && (
+    (!bleService.isPeripheralMode && isMonitoring) ||
+    (bleService.isPeripheralMode))) _buildReconnectionBanner(),
             
             // Messages list - clean, no auto-retry banner
             Expanded(
@@ -400,45 +404,90 @@ final hasNameExchange = nameAsync.maybeWhen(
 
 Widget _buildReconnectionBanner() {
   if (_isPeripheralMode) {
-    // Peripheral mode: show advertising status
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(12),
-      color: Theme.of(context).colorScheme.surfaceVariant,
-      child: Row(
-        children: [
-          Icon(Icons.wifi_tethering, size: 16),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Waiting for connection...',
-              style: TextStyle(fontSize: 12),
-            ),
-          ),
-          TextButton(
-            onPressed: _restartAdvertising,
-            child: Text('Restart Advertising'),
-          ),
-        ],
-      ),
+    // Check BT state first
+    final bleService = ref.read(bleServiceProvider);
+    if (bleService.state != BluetoothLowEnergyState.poweredOn) {
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(12),
+        color: Theme.of(context).colorScheme.errorContainer,
+        child: Row(
+          children: [
+            Icon(Icons.bluetooth_disabled, size: 16),
+            SizedBox(width: 8),
+            Text('Bluetooth is off - Please enable Bluetooth', style: TextStyle(fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    
+    // BT is on - show real-time advertising status
+    return Consumer(
+      builder: (context, ref, child) {
+        final advertisingStateAsync = ref.watch(advertisingStateProvider);
+        
+        return advertisingStateAsync.when(
+          data: (state) {
+            switch (state) {
+              case 'starting':
+                return Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(12),
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  child: Row(
+                    children: [
+                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                      SizedBox(width: 8),
+                      Text('Starting advertising...', style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                );
+              case 'active':
+                return Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(12),
+                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  child: Row(
+                    children: [
+                      Icon(Icons.wifi_tethering, size: 16, color: Colors.green),
+                      SizedBox(width: 8),
+                      Text('Advertising - Waiting for connection...', style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                );
+              case 'failed':
+                return Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(12),
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: Row(
+                    children: [
+                      Icon(Icons.error, size: 16),
+                      SizedBox(width: 8),
+                      Text('Advertising failed - Please try switching modes', style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                );
+              default:
+                return SizedBox.shrink();
+            }
+          },
+          loading: () => SizedBox.shrink(),
+          error: (err, stack) => SizedBox.shrink(),
+        );
+      },
     );
   } else {
-    // Central mode: show reconnection status  
+    // Central mode logic stays the same
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(12),
       color: Theme.of(context).colorScheme.errorContainer,
       child: Row(
         children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
+          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
           SizedBox(width: 8),
-          Expanded(
-            child: Text('Searching for device...', style: TextStyle(fontSize: 12)),
-          ),
+          Expanded(child: Text('Searching for device...', style: TextStyle(fontSize: 12))),
           TextButton(
             onPressed: _manualReconnection,
             child: Text('Reconnect Now'),
@@ -795,27 +844,31 @@ Future<bool> _sendPeripheralMessage(String content, String messageId) async {
 }
 
 void _setupConnectionListener() {
-  _connectionSubscription?.cancel(); // Cancel any existing
+  _connectionSubscription?.cancel();
   final bleService = ref.read(bleServiceProvider);
   
   _connectionSubscription = ref.read(connectionStateStreamProvider.stream).listen((isConnected) {
-  if (mounted) {
-    _logger.info('Chat screen received connection state: $isConnected');
-    setState(() {});
-    
-    if (isConnected) {
-      _showSuccess('Device reconnected! ✅');
-      Future.delayed(Duration(milliseconds: 2500), () {
-        if (mounted) {
-          _autoRetryFailedMessages();
+    if (mounted) {
+      _logger.info('Chat screen received connection state: $isConnected');
+      setState(() {});
+      
+      if (isConnected) {
+        _showSuccess('Device reconnected! ✅');
+        Future.delayed(Duration(milliseconds: 2500), () {
+          if (mounted) {
+            _autoRetryFailedMessages();
+          }
+        });
+      } else {
+        _showError('Device disconnected ❌');
+        
+        if (!bleService.isPeripheralMode) {
+          bleService.startConnectionMonitoring();
         }
-      });
-    } else {
-      _showError('Device disconnected ❌');
-      bleService.startConnectionMonitoring();
+        // Peripheral mode: just wait for incoming connections, don't monitor
+      }
     }
-  }
-});
+  });
 }
 
   void _showConnectionInfo() {

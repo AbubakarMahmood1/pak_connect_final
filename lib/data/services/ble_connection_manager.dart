@@ -16,6 +16,8 @@ class BLEConnectionManager {
   final _logger = Logger('BLEConnectionManager');
   final CentralManager centralManager;
   final PeripheralManager peripheralManager;
+
+bool _isPeripheralMode = false;
   
   // Connection state
   Peripheral? _connectedDevice;
@@ -59,7 +61,20 @@ class BLEConnectionManager {
   bool get isReconnection => _isReconnection;
   bool get isMonitoring => _isMonitoring;
 
+  void setPeripheralMode(bool isPeripheral) {
+    _isPeripheralMode = isPeripheral;
+    if (isPeripheral) {
+      _logger.info('Connection manager set to peripheral mode - no reconnections');
+      stopConnectionMonitoring();
+    }
+  }
+
   void startConnectionMonitoring() {
+
+    if (_isPeripheralMode) {
+      _logger.warning('Ignoring connection monitoring request - peripheral mode active');
+      return;
+    }
 
     if (_isMonitoring) return;
     
@@ -184,21 +199,20 @@ class BLEConnectionManager {
 
 void handleBluetoothStateChange(BluetoothLowEnergyState state) {
   if (state == BluetoothLowEnergyState.poweredOn) {
-    // BT just came back on - always attempt reconnection if we had a device
+    // CRITICAL: Only reconnect if we're in CENTRAL mode AND have a device
     if (_lastConnectedDevice != null && !isConnected) {
-      _logger.info('Bluetooth powered on - forcing reconnection attempt');
+      _logger.info('Bluetooth powered on - forcing CENTRAL reconnection attempt');
       
-      // Stop any existing monitoring to reset state
       stopConnectionMonitoring();
       
-      // Wait for BT stack to stabilize
       Timer(Duration(milliseconds: 1500), () {
         _isReconnection = true;
         startConnectionMonitoring();
       });
+    } else {
+      _logger.info('Bluetooth powered on - peripheral mode or no previous device, skipping reconnection');
     }
   } else if (state == BluetoothLowEnergyState.poweredOff) {
-    // BT turned off - preserve device but stop everything
     if (isConnected) {
       _logger.info('Bluetooth powered off - preserving device for reconnection');
       _lastConnectedDevice = _connectedDevice;

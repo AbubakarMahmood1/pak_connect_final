@@ -26,9 +26,11 @@ class BLEService {
   StreamController<List<Peripheral>>? _devicesController;
   StreamController<String>? _messagesController;
   StreamController<String?>? _nameChangeController;
-
+  StreamController<String>? _advertisingStateController;
   StreamController<bool>? _monitoringStateController;
   StreamController<bool>? _connectionStateController;
+
+  String _advertisingState = 'stopped';
   
   // Discovery management
   final List<Peripheral> _discoveredDevices = [];
@@ -45,13 +47,16 @@ int? _peripheralNegotiatedMTU;
   Stream<String?> get nameChanges => _nameChangeController!.stream;
   Stream<bool> get connectionState => _connectionStateController!.stream;
   Stream<bool> get monitoringState => _monitoringStateController!.stream;
+  Stream<String> get advertisingState => _advertisingStateController!.stream;
+  String get currentAdvertisingState => _advertisingState;
   
   // State getters (delegated)
   BluetoothLowEnergyState get state => centralManager.state;
   bool get isConnected {
   if (_stateManager.isPeripheralMode) {
-    // Peripheral mode: connected if we have identity exchange
-    return _stateManager.otherDevicePersistentId != null;
+    // Peripheral: connected if we have identity AND BT is on
+    return _stateManager.otherDevicePersistentId != null && 
+           peripheralManager.state == BluetoothLowEnergyState.poweredOn;
   } else {
     // Central mode: use connection manager
     return _connectionManager.isConnected;
@@ -72,8 +77,9 @@ int? _peripheralNegotiatedMTU;
     _nameChangeController = StreamController<String?>.broadcast();
     _connectionStateController = StreamController<bool>.broadcast();
     _monitoringStateController = StreamController<bool>.broadcast();
-
     _monitoringStateController?.add(false);
+    _advertisingStateController = StreamController<String>.broadcast();
+    _advertisingStateController?.add(_advertisingState);
     
     // Initialize managers
     centralManager.logLevel = Level.INFO;
@@ -133,6 +139,12 @@ int? _peripheralNegotiatedMTU;
     // Setup event listeners
     _setupEventListeners();
   }
+
+  void _setAdvertisingState(String state) {
+  _advertisingState = state;
+  _advertisingStateController?.add(state);
+  _logger.info('Advertising state: $state');
+}
   
   void _setupEventListeners() {
     // Central manager state changes
@@ -155,34 +167,48 @@ int? _peripheralNegotiatedMTU;
     
     // Peripheral manager state changes
    peripheralManager.stateChanged.listen((event) async {
-    _logger.info('Peripheral BLE State changed: ${event.state}');
-    
-    if (event.state == BluetoothLowEnergyState.unauthorized) {
-      try {
-        _logger.info('Requesting Peripheral BLE permissions...');
-        final granted = await peripheralManager.authorize();
-        _logger.info('Peripheral permission granted: $granted');
-      } catch (e) {
-        _logger.warning('Peripheral permission request failed: $e');
-      }
-    }
-    
-if (event.state == BluetoothLowEnergyState.poweredOn && _stateManager.isPeripheralMode) {
-  _logger.warning('🔄 Bluetooth restarted - ALL connections are dead, restarting advertising...');
+  _logger.info('Peripheral BLE State changed: ${event.state}');
   
-  // Small delay for BT stack to stabilize
+  if (event.state == BluetoothLowEnergyState.unauthorized) {
+    try {
+      _logger.info('Requesting Peripheral BLE permissions...');
+      final granted = await peripheralManager.authorize();
+      _logger.info('Peripheral permission granted: $granted');
+    } catch (e) {
+      _logger.warning('Peripheral permission request failed: $e');
+    }
+  }
+  
+  if (event.state == BluetoothLowEnergyState.poweredOn && _stateManager.isPeripheralMode) {
+  _logger.info('🔄 Bluetooth restarted in peripheral mode - restarting advertising...');
+  
+  _setAdvertisingState('starting'); // Emit starting state
+  
   await Future.delayed(Duration(milliseconds: 2000));
   
   try {
-    // FUNDAMENTAL TRUTH: When BT restarts, EVERYTHING is dead - always restart
-    await peripheralManager.stopAdvertising(); // Clean any phantom state
-    await startAsPeripheral(); // Always restart - no conditions
+    await peripheralManager.stopAdvertising();
+    await startAsPeripheral();
     _logger.info('✅ Auto-restart advertising successful!');
+    
+    _setAdvertisingState('active'); // Emit active state
+    _connectionStateController?.add(false); // Show disconnected until central reconnects
+    
   } catch (e) {
     _logger.severe('❌ Auto-restart advertising failed: $e');
+    _setAdvertisingState('failed'); // Emit failed state
   }
 }
-  });
+  
+  if (event.state == BluetoothLowEnergyState.poweredOff) {
+    _setAdvertisingState('stopped');
+    _stateManager.clearOtherUserName();
+    _connectedCentral = null;
+    _connectedCharacteristic = null;
+    _connectionStateController?.add(false);
+  }
+});
+
 
 peripheralManager.mtuChanged.listen((event) {
   _logger.info('Peripheral MTU changed: ${event.mtu} for ${event.central.uuid}');
@@ -315,12 +341,14 @@ _logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myP
   
   Future<void> startAsPeripheral() async {
     _logger.info('Starting as Peripheral (discoverable)...');
-    
+
     try {
       await centralManager.stopDiscovery();
     } catch (e) {
       // Ignore
     }
+
+   _setAdvertisingState('starting');
     
     _connectionManager.clearConnectionState();
     _stateManager.clearOtherUserName();
@@ -361,6 +389,8 @@ _logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myP
       
       await peripheralManager.startAdvertising(advertisement);
       _stateManager.setPeripheralMode(true);
+      _connectionManager.setPeripheralMode(true); 
+      _setAdvertisingState('active');
       _logger.info('Now advertising as discoverable device!');
     } catch (e) {
       _logger.severe('Failed to start as peripheral: $e');
@@ -384,6 +414,7 @@ _logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myP
     _devicesController?.add([]);
     
     _stateManager.setPeripheralMode(false);
+    _connectionManager.setPeripheralMode(false); 
     _logger.info('Switched to central mode');
   }
   
@@ -560,5 +591,6 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
     _nameChangeController?.close();
     _connectionStateController?.close();
     _monitoringStateController?.close();
+    _advertisingStateController?.close();
   }
 }

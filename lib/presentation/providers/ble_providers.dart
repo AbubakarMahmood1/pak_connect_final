@@ -52,3 +52,8 @@ final isMonitoringProvider = Provider<bool>((ref) {
   final service = ref.watch(bleServiceProvider);
   return service.isMonitoring;
 });
+
+final advertisingStateProvider = StreamProvider<String>((ref) {
+  final service = ref.watch(bleServiceProvider);
+  return service.advertisingState;
+});

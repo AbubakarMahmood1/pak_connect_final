@@ -109,17 +109,18 @@ class BLEMessageHandler {
       }
     });
     
-// Send each chunk via notifications
+// Send each chunk via write characteristic (central mode)
 for (int i = 0; i < chunks.length; i++) {
   final chunk = chunks[i];
   final chunkData = chunk.toBytes();
   
-  _logger.info('Sending peripheral chunk ${i + 1}/${chunks.length} for message: $msgId');
+  _logger.info('Sending central chunk ${i + 1}/${chunks.length} for message: $msgId');
   
-  await peripheralManager.notifyCharacteristic(
-    connectedCentral,
+  await centralManager.writeCharacteristic(
+    connectedDevice,
     messageCharacteristic,
     value: chunkData,
+    type: GATTCharacteristicWriteType.withResponse,
   );
   
   if (i < chunks.length - 1) {
