@@ -41,13 +41,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final myPersistentId = bleService.myPersistentId;
   
   if (otherPersistentId != null && myPersistentId != null) {
-    final chatId = ChatUtils.generateChatId(myPersistentId, otherPersistentId);
-    print('CHAT_ID_DEBUG: Using persistent ID chat: $chatId');
-    return chatId;
+    return ChatUtils.generateChatId(myPersistentId, otherPersistentId);
   }
   
-  print('CHAT_ID_DEBUG: Falling back to temp chat: temp_identity_exchange');
-  return 'temp_identity_exchange';
+  // Device-specific fallback instead of shared temp
+  final deviceId = _isCentralMode 
+    ? widget.device!.uuid.toString()
+    : widget.central!.uuid.toString();
+  
+  return 'temp_${deviceId.substring(0, 8)}';
 }
 
 bool get _isPeripheralMode => widget.central != null;

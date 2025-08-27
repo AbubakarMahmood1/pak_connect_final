@@ -53,14 +53,9 @@ int? _peripheralNegotiatedMTU;
   // State getters (delegated)
   BluetoothLowEnergyState get state => centralManager.state;
   bool get isConnected {
-  if (_stateManager.isPeripheralMode) {
-    // Peripheral: connected if we have identity AND BT is on
-    return _stateManager.otherDevicePersistentId != null && 
-           peripheralManager.state == BluetoothLowEnergyState.poweredOn;
-  } else {
-    // Central mode: use connection manager
-    return _connectionManager.isConnected;
-  }
+  // Unified definition: connected = has active communication channel
+  return _stateManager.otherUserName != null && 
+         _stateManager.otherUserName!.isNotEmpty;
 }
   bool get isPeripheralMode => _stateManager.isPeripheralMode;
   bool get isMonitoring => _connectionManager.isMonitoring;

@@ -66,21 +66,16 @@ class DeviceTile extends ConsumerWidget {
   }
 
   Widget _buildActionButton(BuildContext context, bool isConnected, bool hasNameExchange, Peripheral device) {
-    if (!isConnected) {
-      return TextButton(
-        onPressed: onTap,
-        child: Text('Connect'),
-      );
-    }
-    
+  if (!isConnected) {
     return TextButton(
-      onPressed: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ChatScreen(device: device),
-        ),
-      ),
-      child: Text('Chat'),
+      onPressed: onTap,
+      child: Text('Connect'),
     );
   }
+  
+  return TextButton(
+    onPressed: onTap,
+    child: Text('Chat'),
+  );
+}
 }
