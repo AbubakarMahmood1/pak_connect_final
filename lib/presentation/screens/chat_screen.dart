@@ -34,26 +34,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _isLoading = true;
   StreamSubscription<String>? _messageSubscription;
   StreamSubscription<bool>? _connectionSubscription;
-  
-  String get _chatId {
-  final bleService = ref.read(bleServiceProvider);
-  final otherPersistentId = bleService.otherDevicePersistentId;
-  final myPersistentId = bleService.myPersistentId;
-  
-  if (otherPersistentId != null && myPersistentId != null) {
-    return ChatUtils.generateChatId(myPersistentId, otherPersistentId);
-  }
-  
-  // Device-specific fallback instead of shared temp
-  final deviceId = _isCentralMode 
-    ? widget.device!.uuid.toString()
-    : widget.central!.uuid.toString();
-  
-  return 'temp_${deviceId.substring(0, 8)}';
-}
-
-bool get _isPeripheralMode => widget.central != null;
-bool get _isCentralMode => widget.device != null;
+  String? _currentChatId;
+  String get _chatId => _currentChatId!;
+  bool get _isPeripheralMode => widget.central != null;
+  bool get _isCentralMode => widget.device != null;
 
 String get _deviceDisplayName {
   if (_isCentralMode && widget.device != null) {
@@ -68,6 +52,7 @@ String get _deviceDisplayName {
   @override
 void initState() {
   super.initState();
+  _currentChatId = _calculateInitialChatId();
   _loadMessages();
   _setupMessageListener();
 
@@ -242,6 +227,11 @@ if (!isConnected) {
 
   @override
 Widget build(BuildContext context) {
+   ref.listen(nameChangesProvider, (previous, next) {
+    if (next.hasValue && next.value != null && next.value!.isNotEmpty) {
+      _handleIdentityReceived();
+    }
+  });
   try {
     final bleService = ref.watch(bleServiceProvider);
 final connectionStateAsync = ref.watch(connectionStateStreamProvider);
@@ -843,6 +833,60 @@ Future<bool> _sendPeripheralMessage(String content, String messageId) async {
       });
     }
   });
+}
+
+String _calculateInitialChatId() {
+  final bleService = ref.read(bleServiceProvider);
+  final otherPersistentId = bleService.otherDevicePersistentId;
+  final myPersistentId = bleService.myPersistentId;
+  
+  if (otherPersistentId != null && myPersistentId != null) {
+    return ChatUtils.generateChatId(myPersistentId, otherPersistentId);
+  }
+  
+  // Device-specific temp fallback (not shared)
+  final deviceId = _isCentralMode 
+    ? widget.device!.uuid.toString()
+    : widget.central!.uuid.toString();
+  
+  return 'temp_${deviceId.substring(0, 8)}';
+}
+
+Future<void> _handleIdentityReceived() async {
+  final bleService = ref.read(bleServiceProvider);
+  final otherPersistentId = bleService.otherDevicePersistentId;
+  final myPersistentId = bleService.myPersistentId;
+  
+  if (otherPersistentId != null && myPersistentId != null) {
+    final newChatId = ChatUtils.generateChatId(myPersistentId, otherPersistentId);
+    
+    if (newChatId != _currentChatId) {
+      _logger.info('Identity received - migrating from $_currentChatId to $newChatId');
+      await _migrateMessages(_currentChatId!, newChatId);
+      _currentChatId = newChatId;
+      await _loadMessages(); // Reload with new chat ID
+    }
+  }
+}
+
+Future<void> _migrateMessages(String oldChatId, String newChatId) async {
+  final oldMessages = await _messageRepository.getMessages(oldChatId);
+  
+  for (final message in oldMessages) {
+    final migratedMessage = Message(
+      id: message.id,
+      chatId: newChatId, // NEW chat ID
+      content: message.content,
+      timestamp: message.timestamp,
+      isFromMe: message.isFromMe,
+      status: message.status,
+    );
+    await _messageRepository.saveMessage(migratedMessage);
+  }
+  
+  // Clean up old temp messages
+  await _messageRepository.clearMessages(oldChatId);
+  _logger.info('Migrated ${oldMessages.length} messages from $oldChatId to $newChatId');
 }
 
 void _setupConnectionListener() {

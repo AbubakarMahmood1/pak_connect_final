@@ -542,27 +542,29 @@ void _connectToDevice(Peripheral device, bleService) async {
     
     if (mounted) Navigator.pop(context);
     
-     String? currentName = bleService.otherUserName;
+       String? currentName = bleService.otherUserName;
   if (currentName == null || currentName.isEmpty) {
-    // Wait up to 1 second for name exchange
-    for (int i = 0; i < 10; i++) {
+    _logger.info('Waiting for identity exchange...');
+    // Wait up to 5 seconds for identity exchange
+    for (int i = 0; i < 50; i++) {
       await Future.delayed(Duration(milliseconds: 100));
       currentName = bleService.otherUserName;
       if (currentName != null && currentName.isNotEmpty) {
-        break; // Name received, stop waiting
+        _logger.info('Identity exchange completed: $currentName');
+        break;
       }
     }
   }
-    if (mounted) {
-      // Auto-navigate to chat screen
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ChatScreen(device: device),
-        ),
-      );
-    }
-  } catch (e) {
+  
+  if (mounted) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(device: device),
+      ),
+    );
+  }
+} catch (e) {
     if (mounted) Navigator.pop(context);
     _showError('Connection failed: ${e.toString().split(':').last}');
     _logger.warning('Connection failed: $e');
