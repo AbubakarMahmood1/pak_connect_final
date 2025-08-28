@@ -10,6 +10,7 @@ import '../../data/repositories/message_repository.dart';
 import '../../core/utils/chat_utils.dart';
 import '../widgets/message_bubble.dart';
 import '../../data/services/ble_service.dart';
+import '../../core/models/connection_state.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode

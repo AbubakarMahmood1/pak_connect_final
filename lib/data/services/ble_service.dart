@@ -9,6 +9,8 @@ import '../../core/models/ack_message.dart';
 import 'ble_connection_manager.dart';
 import 'ble_message_handler.dart';
 import 'ble_state_manager.dart';
+import '../../core/models/connection_state.dart';
+import '../../core/models/protocol_message.dart';
 
 enum ConnectionPhase {
   idle,
@@ -39,6 +41,8 @@ class BLEService {
   StreamController<String>? _advertisingStateController;
   StreamController<bool>? _monitoringStateController;
   StreamController<bool>? _connectionStateController;
+  StreamController<ConnectionPhase>? _connectionPhaseController;
+  StreamController<ConnectionInfo>? _connectionInfoController;
 
   String _advertisingState = 'stopped';
   
@@ -59,10 +63,11 @@ int? _peripheralNegotiatedMTU;
   Stream<bool> get monitoringState => _monitoringStateController!.stream;
   Stream<String> get advertisingState => _advertisingStateController!.stream;
   String get currentAdvertisingState => _advertisingState;
-  StreamController<ConnectionPhase>? _connectionPhaseController;
-  ConnectionPhase _currentConnectionPhase = ConnectionPhase.idle;
   Stream<ConnectionPhase> get connectionPhase => _connectionPhaseController!.stream;
   ConnectionPhase get currentConnectionPhase => _currentConnectionPhase;
+  Stream<ConnectionInfo> get connectionInfo => _connectionInfoController!.stream;
+
+  ConnectionPhase _currentConnectionPhase = ConnectionPhase.idle;
   
   // State getters (delegated)
   BluetoothLowEnergyState get state => centralManager.state;
@@ -90,6 +95,7 @@ int? _peripheralNegotiatedMTU;
     _advertisingStateController = StreamController<String>.broadcast();
     _advertisingStateController?.add(_advertisingState);
     _connectionPhaseController = StreamController<ConnectionPhase>.broadcast();
+    _connectionInfoController = StreamController<ConnectionInfo>.broadcast();
 
 
   if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManager.isPeripheralMode) {
@@ -122,6 +128,29 @@ int? _peripheralNegotiatedMTU;
   if (!_stateManager.isPeripheralMode) {
     _connectionStateController?.add(isConnected);
   }
+};
+
+ChatConnectionState _calculateFinalConnectionState(ChatConnectionState bleState) {
+  // Combine BLE connection state with identity state
+  if (bleState == ChatConnectionState.ready && _stateManager.otherUserName != null && _stateManager.otherUserName!.isNotEmpty) {
+    return ChatConnectionState.ready;
+  } else if (bleState == ChatConnectionState.connecting) {
+    return ChatConnectionState.exchangingIds;
+  } else {
+    return bleState;
+  }
+}
+
+_connectionManager.onConnectionInfoChanged = (info) {
+  // Combine with identity information
+  final enrichedInfo = ConnectionInfo(
+    state: _calculateFinalConnectionState(info.state),
+    deviceId: info.deviceId,
+    displayName: _stateManager.otherUserName,
+    error: info.error,
+  );
+  
+  _connectionInfoController?.add(enrichedInfo);
 };
 
      _connectionManager.onMonitoringChanged = (isMonitoring) {
@@ -319,44 +348,67 @@ centralManager.connectionStateChanged.listen((event) {
   }
   
 Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral, Central? central, GATTCharacteristic? characteristic}) async {
-  // Handle name exchange
-  // Handle identity exchange
-if (DeviceIdentity.isIdentityMessage(data)) {
-  final deviceIdentity = DeviceIdentity.fromBytes(data);
-  if (deviceIdentity != null) {
+// Try protocol message first
+try {
+  final protocolMessage = ProtocolMessage.fromBytes(data);
+  if (protocolMessage.type == ProtocolMessageType.identity) {
+    final deviceId = protocolMessage.payload['deviceId'] as String;
+    final displayName = protocolMessage.payload['displayName'] as String;
+    
+    final deviceIdentity = DeviceIdentity(
+      persistentId: deviceId,
+      displayName: displayName,
+      timestamp: DateTime.now(),
+    );
+    
     _stateManager.setOtherDeviceIdentity(deviceIdentity);
     if (isFromPeripheral && central != null) {
-      await _stateManager.saveContact(deviceIdentity.persistentId, deviceIdentity.displayName);
+      await _stateManager.saveContact(deviceId, displayName);
     } else if (_connectionManager.connectedDevice != null) {
-      await _stateManager.saveContact(deviceIdentity.persistentId, deviceIdentity.displayName);
+      await _stateManager.saveContact(deviceId, displayName);
     }
-    _logger.info('Received identity: ${deviceIdentity.displayName} (${deviceIdentity.persistentId})');
+    _logger.info('Received protocol identity: $displayName ($deviceId)');
+    return;
   }
-  return;
+} catch (e) {
+  // Fall back to legacy identity handling
+  if (DeviceIdentity.isIdentityMessage(data)) {
+    final deviceIdentity = DeviceIdentity.fromBytes(data);
+    if (deviceIdentity != null) {
+      _stateManager.setOtherDeviceIdentity(deviceIdentity);
+      if (isFromPeripheral && central != null) {
+        await _stateManager.saveContact(deviceIdentity.persistentId, deviceIdentity.displayName);
+      } else if (_connectionManager.connectedDevice != null) {
+        await _stateManager.saveContact(deviceIdentity.persistentId, deviceIdentity.displayName);
+      }
+      _logger.info('Received legacy identity: ${deviceIdentity.displayName} (${deviceIdentity.persistentId})');
+    }
+    return;
+  }
 }
   
   // Handle name request (peripheral mode)
   if (isFromPeripheral && String.fromCharCodes(data) == 'REQUEST_NAME' && _stateManager.myUserName != null) {
-    try {
-      final myPersistentId = await _stateManager.getMyPersistentId();
-final deviceIdentity = DeviceIdentity(
-  persistentId: myPersistentId,
-  displayName: _stateManager.myUserName!,
-  timestamp: DateTime.now(),
-);
+  try {
+    final myPersistentId = await _stateManager.getMyPersistentId();
+    
+    final protocolIdentity = ProtocolMessage.identity(
+      deviceId: myPersistentId,
+      displayName: _stateManager.myUserName!,
+    );
 
-await peripheralManager.notifyCharacteristic(
-  central!,
-  characteristic!,
-  value: deviceIdentity.toBytes(),
-);
+    await peripheralManager.notifyCharacteristic(
+      central!,
+      characteristic!,
+      value: protocolIdentity.toBytes(),
+    );
 
-_logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myPersistentId})');
-    } catch (e) {
-      _logger.warning('Failed to send name via notification: $e');
-    }
-    return;
+    _logger.info('Sent protocol identity via notification: ${_stateManager.myUserName} (${myPersistentId})');
+  } catch (e) {
+    _logger.warning('Failed to send protocol identity via notification: $e');
   }
+  return;
+}
   
   // Process regular messages
   String? extractedMessageId;
@@ -369,24 +421,23 @@ _logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myP
     _messagesController?.add(content);
     
     // Send ACK if we have a message ID (peripheral mode)
-    if (isFromPeripheral && central != null && characteristic != null && extractedMessageId != null) {
-      try {
-        final ackMessage = ACKMessage(
-          originalMessageId: extractedMessageId!,
-          timestamp: DateTime.now(),
-        );
-        
-        await peripheralManager.notifyCharacteristic(
-          central,
-          characteristic,
-          value: ackMessage.toBytes(),
-        );
-        
-        _logger.info('Sent ACK for message: $extractedMessageId');
-      } catch (e) {
-        _logger.warning('Failed to send ACK: $e');
-      }
-    }
+if (isFromPeripheral && central != null && characteristic != null && extractedMessageId != null) {
+  try {
+    final protocolAck = ProtocolMessage.ack(
+      originalMessageId: extractedMessageId!,
+    );
+    
+    await peripheralManager.notifyCharacteristic(
+      central,
+      characteristic,
+      value: protocolAck.toBytes(),
+    );
+    
+    _logger.info('Sent protocol ACK for message: $extractedMessageId');
+  } catch (e) {
+    _logger.warning('Failed to send protocol ACK: $e');
+  }
+}
   }
 }
   
@@ -593,18 +644,17 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
     final myPersistentId = await _stateManager.getMyPersistentId();
     _logger.info('Sending identity exchange: ${_stateManager.myUserName} (${myPersistentId})');
     
-    final deviceIdentity = DeviceIdentity(
-      persistentId: myPersistentId,
-      displayName: _stateManager.myUserName ?? 'User',
-      timestamp: DateTime.now(),
-    );
-    
-    await centralManager.writeCharacteristic(
-      _connectionManager.connectedDevice!,
-      _connectionManager.messageCharacteristic!,
-      value: deviceIdentity.toBytes(),
-      type: GATTCharacteristicWriteType.withResponse,
-    );
+    final protocolMessage = ProtocolMessage.identity(
+  deviceId: myPersistentId,
+  displayName: _stateManager.myUserName ?? 'User',
+);
+
+await centralManager.writeCharacteristic(
+  _connectionManager.connectedDevice!,
+  _connectionManager.messageCharacteristic!,
+  value: protocolMessage.toBytes(),
+  type: GATTCharacteristicWriteType.withResponse,
+);
     
     _logger.info('Identity sent successfully, requesting peripheral identity...');
     
@@ -649,5 +699,6 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
     _monitoringStateController?.close();
     _advertisingStateController?.close();
     _connectionPhaseController?.close();
+    _connectionInfoController?.close();
   }
 }

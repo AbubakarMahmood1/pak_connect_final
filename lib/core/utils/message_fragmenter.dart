@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math' as math;
+import 'package:logging/logging.dart';
 
 class MessageChunk {
   final String messageId;
@@ -171,6 +172,7 @@ static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String mess
 }
 
 class MessageReassembler {
+  final _logger = Logger('MessageReassembler');
   final Map<String, Map<int, MessageChunk>> _pendingMessages = {};
   final Map<String, DateTime> _messageTimestamps = {};
   
@@ -203,35 +205,35 @@ class MessageReassembler {
     _pendingMessages.remove(messageId);
     _messageTimestamps.remove(messageId);
     
-    // Simple reassembly based on explicit flag
-// Replace the reassembly section with:
 try {
+  // Always try direct concatenation first
+  final reconstructed = sortedChunks.map((c) => c.content).join('');
+  
+  // If it looks like base64 JSON, decode it
+  if (_looksLikeBase64Json(reconstructed)) {
+    try {
+      final decoded = utf8.decode(base64Decode(reconstructed));
+      _logger.info('Decoded base64 message: ${decoded.substring(0, 50)}...');
+      return decoded;
+    } catch (e) {
+      _logger.warning('Base64 decode failed: $e');
+      return reconstructed;
+    }
+  }
+  
+  // For binary chunks (file data), decode each chunk
   if (sortedChunks[0].isBinary) {
-    // True binary data - decode from base64
     final allBytes = <int>[];
     for (final chunk in sortedChunks) {
       final chunkBytes = base64Decode(chunk.content);
       allBytes.addAll(chunkBytes);
     }
     return utf8.decode(allBytes);
-  } else {
-    // Text/JSON data - direct concatenation (already base64 decoded in chunks)
-    final reconstructed = sortedChunks.map((c) => c.content).join('');
-    
-    // Check if it's base64-encoded JSON that needs decoding
-    if (_looksLikeBase64Json(reconstructed)) {
-      try {
-        final decoded = utf8.decode(base64Decode(reconstructed));
-        return decoded;
-      } catch (e) {
-        return reconstructed; // Fallback to original
-      }
-    }
-    
-    return reconstructed;
   }
+  
+  return reconstructed;
 } catch (e) {
-  // Emergency fallback
+  _logger.severe('Message reassembly failed: $e');
   return sortedChunks.map((c) => c.content).join('');
 }
   }
@@ -249,7 +251,11 @@ bool _looksLikeBase64Json(String str) {
   // Try to decode and check if it starts with JSON
   try {
     final decoded = utf8.decode(base64Decode(str));
-    return decoded.trim().startsWith('{') && decoded.contains('"id"');
+    final trimmed = decoded.trim();
+    
+    // Check for both old format (has "id") and new protocol (has "type")
+    return trimmed.startsWith('{') && 
+           (trimmed.contains('"id"') || trimmed.contains('"type"'));
   } catch (e) {
     return false;
   }

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/constants/ble_constants.dart';
+import '../../core/models/connection_state.dart';
 
 // Enum must be declared at top level
 enum ConnectionMonitorState {
@@ -34,6 +35,7 @@ bool _isPeripheralMode = false;
   bool _isReconnection = false;
   
   ConnectionMonitorState _monitorState = ConnectionMonitorState.idle;
+  ChatConnectionState _connectionState = ChatConnectionState.disconnected;
 
   // Constants
   static const int maxReconnectAttempts = 5;
@@ -46,6 +48,7 @@ bool _isPeripheralMode = false;
   Function(int?)? onMtuDetected;
   Function()? onConnectionComplete;
   Function(bool)? onMonitoringChanged;
+  Function(ConnectionInfo)? onConnectionInfoChanged;
   
   BLEConnectionManager({
     required this.centralManager,
@@ -60,7 +63,23 @@ bool _isPeripheralMode = false;
   bool get isConnected => _connectedDevice != null;
   bool get isReconnection => _isReconnection;
   bool get isMonitoring => _isMonitoring;
+  ChatConnectionState get connectionState => _connectionState;
 
+  void _updateConnectionState(ChatConnectionState newState, {String? error}) {
+  if (_connectionState != newState) {
+    _connectionState = newState;
+    
+    final info = ConnectionInfo(
+      state: newState,
+      deviceId: _connectedDevice?.uuid.toString(),
+      displayName: null, // Will be filled by state manager
+      error: error,
+    );
+    
+    onConnectionInfoChanged?.call(info);
+    _logger.info('Connection state: ${newState.name}');
+  }
+}
   void setPeripheralMode(bool isPeripheral) {
     _isPeripheralMode = isPeripheral;
     if (isPeripheral) {
@@ -295,10 +314,10 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
         }
       }
       
-      _logger.info('Connected successfully!');
+      _logger.info('BLE Connected - starting protocol setup');
+      _updateConnectionState(ChatConnectionState.connecting);
       await _detectOptimalMTU();
-
-      _logger.info('Triggering connection complete callback (name exchange)');
+      _logger.info('Triggering identity exchange');
       onConnectionComplete?.call();
 
       _isReconnection = false;
