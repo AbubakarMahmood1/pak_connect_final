@@ -4,8 +4,6 @@ import 'dart:io' show Platform;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/constants/ble_constants.dart';
-import '../../core/models/device_identity.dart';
-import '../../core/models/ack_message.dart';
 import 'ble_connection_manager.dart';
 import 'ble_message_handler.dart';
 import 'ble_state_manager.dart';
@@ -348,69 +346,46 @@ centralManager.connectionStateChanged.listen((event) {
   }
   
 Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral, Central? central, GATTCharacteristic? characteristic}) async {
-// Try protocol message first
+  // Handle protocol identity messages ONLY (remove all legacy handling)
+  // Handle protocol identity messages ONLY
 try {
   final protocolMessage = ProtocolMessage.fromBytes(data);
   if (protocolMessage.type == ProtocolMessageType.identity) {
-    final deviceId = protocolMessage.payload['deviceId'] as String;
-    final displayName = protocolMessage.payload['displayName'] as String;
+    final deviceId = protocolMessage.identityDeviceId!;
+    final displayName = protocolMessage.identityDisplayName!;
     
-    final deviceIdentity = DeviceIdentity(
-      persistentId: deviceId,
-      displayName: displayName,
-      timestamp: DateTime.now(),
-    );
-    
-    _stateManager.setOtherDeviceIdentity(deviceIdentity);
-    if (isFromPeripheral && central != null) {
-      await _stateManager.saveContact(deviceId, displayName);
-    } else if (_connectionManager.connectedDevice != null) {
-      await _stateManager.saveContact(deviceId, displayName);
-    }
+    _stateManager.setOtherDeviceIdentity(deviceId, displayName);
+    await _stateManager.saveContact(deviceId, displayName);
     _logger.info('Received protocol identity: $displayName ($deviceId)');
+    
+    // AUTO-RESPOND: If we're in peripheral mode, send our identity back immediately
+    if (isFromPeripheral && central != null && characteristic != null && _stateManager.myUserName != null) {
+      try {
+        final myPersistentId = await _stateManager.getMyPersistentId();
+        
+        final responseIdentity = ProtocolMessage.identity(
+          deviceId: myPersistentId,
+          displayName: _stateManager.myUserName!,
+        );
+
+        await peripheralManager.notifyCharacteristic(
+          central,
+          characteristic,
+          value: responseIdentity.toBytes(),
+        );
+
+        _logger.info('Auto-sent peripheral identity response: ${_stateManager.myUserName} ($myPersistentId)');
+      } catch (e) {
+        _logger.warning('Failed to send auto-response identity: $e');
+      }
+    }
     return;
   }
 } catch (e) {
-  // Fall back to legacy identity handling
-  if (DeviceIdentity.isIdentityMessage(data)) {
-    final deviceIdentity = DeviceIdentity.fromBytes(data);
-    if (deviceIdentity != null) {
-      _stateManager.setOtherDeviceIdentity(deviceIdentity);
-      if (isFromPeripheral && central != null) {
-        await _stateManager.saveContact(deviceIdentity.persistentId, deviceIdentity.displayName);
-      } else if (_connectionManager.connectedDevice != null) {
-        await _stateManager.saveContact(deviceIdentity.persistentId, deviceIdentity.displayName);
-      }
-      _logger.info('Received legacy identity: ${deviceIdentity.displayName} (${deviceIdentity.persistentId})');
-    }
-    return;
-  }
+  // Not a protocol message, continue to regular message processing
 }
   
-  // Handle name request (peripheral mode)
-  if (isFromPeripheral && String.fromCharCodes(data) == 'REQUEST_NAME' && _stateManager.myUserName != null) {
-  try {
-    final myPersistentId = await _stateManager.getMyPersistentId();
-    
-    final protocolIdentity = ProtocolMessage.identity(
-      deviceId: myPersistentId,
-      displayName: _stateManager.myUserName!,
-    );
-
-    await peripheralManager.notifyCharacteristic(
-      central!,
-      characteristic!,
-      value: protocolIdentity.toBytes(),
-    );
-
-    _logger.info('Sent protocol identity via notification: ${_stateManager.myUserName} (${myPersistentId})');
-  } catch (e) {
-    _logger.warning('Failed to send protocol identity via notification: $e');
-  }
-  return;
-}
-  
-  // Process regular messages
+  // Process regular chat messages
   String? extractedMessageId;
   final content = await _messageHandler.processReceivedData(
     data,
@@ -420,24 +395,24 @@ try {
   if (content != null) {
     _messagesController?.add(content);
     
-    // Send ACK if we have a message ID (peripheral mode)
-if (isFromPeripheral && central != null && characteristic != null && extractedMessageId != null) {
-  try {
-    final protocolAck = ProtocolMessage.ack(
-      originalMessageId: extractedMessageId!,
-    );
-    
-    await peripheralManager.notifyCharacteristic(
-      central,
-      characteristic,
-      value: protocolAck.toBytes(),
-    );
-    
-    _logger.info('Sent protocol ACK for message: $extractedMessageId');
-  } catch (e) {
-    _logger.warning('Failed to send protocol ACK: $e');
-  }
-}
+    // Send ACK using ProtocolMessage format (peripheral mode only)
+    if (isFromPeripheral && central != null && characteristic != null && extractedMessageId != null) {
+      try {
+        final protocolAck = ProtocolMessage.ack(
+          originalMessageId: extractedMessageId!,
+        );
+        
+        await peripheralManager.notifyCharacteristic(
+          central,
+          characteristic,
+          value: protocolAck.toBytes(),
+        );
+        
+        _logger.info('Sent protocol ACK for message: $extractedMessageId');
+      } catch (e) {
+        _logger.warning('Failed to send protocol ACK: $e');
+      }
+    }
   }
 }
   
@@ -645,34 +620,21 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
     _logger.info('Sending identity exchange: ${_stateManager.myUserName} (${myPersistentId})');
     
     final protocolMessage = ProtocolMessage.identity(
-  deviceId: myPersistentId,
-  displayName: _stateManager.myUserName ?? 'User',
-);
+      deviceId: myPersistentId,
+      displayName: _stateManager.myUserName ?? 'User',
+    );
 
-await centralManager.writeCharacteristic(
-  _connectionManager.connectedDevice!,
-  _connectionManager.messageCharacteristic!,
-  value: protocolMessage.toBytes(),
-  type: GATTCharacteristicWriteType.withResponse,
-);
-    
-    _logger.info('Identity sent successfully, requesting peripheral identity...');
-    
-    await Future.delayed(Duration(milliseconds: 500));
-    
-    final requestBytes = Uint8List.fromList('REQUEST_NAME'.codeUnits);
-    
     await centralManager.writeCharacteristic(
       _connectionManager.connectedDevice!,
       _connectionManager.messageCharacteristic!,
-      value: requestBytes,
+      value: protocolMessage.toBytes(),
       type: GATTCharacteristicWriteType.withResponse,
     );
     
-    _logger.info('Identity request sent successfully');
+    _logger.info('Identity sent successfully');
     
   } catch (e) {
-    _logger.severe('Identity exchange write failed: $e');
+    _logger.severe('Identity exchange failed: $e');
     throw e;
   }
 }

@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/services/simple_crypto.dart';
-import '../../core/models/device_identity.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -61,16 +60,16 @@ Future<String> getMyPersistentId() async {
   }
 }
 
-void setOtherDeviceIdentity(DeviceIdentity identity) {
-  _logger.info('Setting other device identity: "${identity.displayName}" (ID: ${identity.persistentId})');
-  _otherUserName = identity.displayName;
-  _otherDevicePersistentId = identity.persistentId;
+void setOtherDeviceIdentity(String deviceId, String displayName) {
+  _logger.info('Setting other device identity: "$displayName" (ID: $deviceId)');
+  _otherUserName = displayName;
+  _otherDevicePersistentId = deviceId;
   onNameChanged?.call(_otherUserName);
   
-  if (identity.displayName.isNotEmpty) {
+  if (displayName.isNotEmpty) {
     _logger.info('✅ Identity exchange complete - UI should show connected now');
   } else {
-    _logger.warning('⚠ Identity cleared - UI will show disconnected');
+    _logger.warning('⚠️ Identity cleared - UI will show disconnected');
   }
 }
   

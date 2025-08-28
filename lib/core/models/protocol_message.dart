@@ -14,7 +14,7 @@ class ProtocolMessage {
   final int version;
   final Map<String, dynamic> payload;
   final DateTime timestamp;
-  final String? signature; // Future: digital signature
+  final String? signature;
   
   ProtocolMessage({
     required this.type,
@@ -99,4 +99,17 @@ class ProtocolMessage {
       return false;
     }
   }
+
+// Helper to extract identity info  
+String? get identityDeviceId => type == ProtocolMessageType.identity ? payload['deviceId'] as String? : null;
+String? get identityDisplayName => type == ProtocolMessageType.identity ? payload['displayName'] as String? : null;
+
+// Helper to extract message info
+String? get textMessageId => type == ProtocolMessageType.textMessage ? payload['messageId'] as String? : null;
+String? get textContent => type == ProtocolMessageType.textMessage ? payload['content'] as String? : null;
+bool get isEncrypted => type == ProtocolMessageType.textMessage ? (payload['encrypted'] as bool? ?? false) : false;
+
+// Helper for ACK
+String? get ackOriginalId => type == ProtocolMessageType.ack ? payload['originalMessageId'] as String? : null;
+
 }

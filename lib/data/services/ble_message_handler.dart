@@ -4,9 +4,6 @@ import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/utils/message_fragmenter.dart';
-import '../../core/models/ack_message.dart';
-import '../../core/models/ble_message.dart';
-import '../../core/models/name_exchange.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 
@@ -71,24 +68,23 @@ class BLEMessageHandler {
     throw Exception('Connection unhealthy - forced disconnect');
   }
     
-    // Rest stays the same...
     String payload = message;
-    BLEMessageType messageType = BLEMessageType.text;
-    
-    if (SimpleCrypto.isInitialized) {
-      try {
-        payload = SimpleCrypto.encrypt(message);
-        messageType = BLEMessageType.encryptedText;
-        _logger.info('Message encrypted for transmission');
-      } catch (e) {
-        _logger.warning('Encryption failed, sending plain: $e');
-      }
-    }
-    
-    final protocolMessage = ProtocolMessage.textMessage(
+bool isEncrypted = false;
+
+if (SimpleCrypto.isInitialized) {
+  try {
+    payload = SimpleCrypto.encrypt(message);
+    isEncrypted = true;
+    _logger.info('Message encrypted for transmission');
+  } catch (e) {
+    _logger.warning('Encryption failed, sending plain: $e');
+  }
+}
+
+final protocolMessage = ProtocolMessage.textMessage(
   messageId: msgId,
   content: payload,
-  encrypted: messageType == BLEMessageType.encryptedText,
+  encrypted: isEncrypted,
 );
 
 final jsonBytes = protocolMessage.toBytes();
@@ -168,22 +164,22 @@ Future<bool> sendPeripheralMessage({
   
   try {
     String payload = message;
-    BLEMessageType messageType = BLEMessageType.text;
-    
-    if (SimpleCrypto.isInitialized) {
-      try {
-        payload = SimpleCrypto.encrypt(message);
-        messageType = BLEMessageType.encryptedText;
-        _logger.info('Message encrypted for peripheral transmission');
-      } catch (e) {
-        _logger.warning('Encryption failed, sending plain: $e');
-      }
-    }
-    
-    final protocolMessage = ProtocolMessage.textMessage(
+bool isEncrypted = false;
+
+if (SimpleCrypto.isInitialized) {
+  try {
+    payload = SimpleCrypto.encrypt(message);
+    isEncrypted = true;
+    _logger.info('Message encrypted for peripheral transmission');
+  } catch (e) {
+    _logger.warning('Encryption failed, sending plain: $e');
+  }
+}
+
+final protocolMessage = ProtocolMessage.textMessage(
   messageId: msgId,
   content: payload,
-  encrypted: messageType == BLEMessageType.encryptedText,
+  encrypted: isEncrypted,
 );
 
 final jsonBytes = protocolMessage.toBytes();
@@ -220,58 +216,32 @@ final jsonBytes = protocolMessage.toBytes();
   
 Future<String?> processReceivedData(Uint8List data, {String? Function(String)? onMessageIdFound}) async {
   try {
-    // Skip single-byte legacy pings
+    // Skip single-byte pings
     if (data.length == 1 && data[0] == 0x00) {
       return null;
     }
     
-    // Handle legacy special message types first (preserve existing logic)
-    if (NameExchange.isNameMessage(data)) {
-      return null; // Name exchange handled separately
-    }
-    
-    if (String.fromCharCodes(data) == 'REQUEST_NAME') {
-      return null; // Name request handled separately
-    }
-    
-    if (ACKMessage.isACKMessage(data)) {
-      final ackMessage = ACKMessage.fromBytes(data);
-      if (ackMessage != null) {
-        _logger.info('Received legacy ACK for message: ${ackMessage.originalMessageId}');
-        
-        final ackCompleter = _messageAcks[ackMessage.originalMessageId];
-        if (ackCompleter != null && !ackCompleter.isCompleted) {
-          ackCompleter.complete(true);
-        }
-      }
-      return null;
-    }
-    
-    // NEW: Check for direct protocol messages (ACKs, etc.) BEFORE chunk processing
+    // Check for direct protocol messages (non-fragmented ACKs/pings)
     try {
       final directMessage = utf8.decode(data);
       if (ProtocolMessage.isProtocolMessage(directMessage)) {
         return await _handleDirectProtocolMessage(directMessage, onMessageIdFound);
       }
     } catch (e) {
-      // Not a direct protocol message, continue to chunk processing
+      // Not a direct message, try chunk processing
     }
     
-    // Try to process as message chunk (existing fragmentation logic)
+    // Process as message chunk
     try {
       final chunk = MessageChunk.fromBytes(data);
-      _logger.info('Received chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks}');
-      
       final completeMessage = _messageReassembler.addChunk(chunk);
       
       if (completeMessage != null) {
-        _logger.info('Message reassembled successfully');
-        return await _processCompleteMessage(completeMessage, onMessageIdFound);
+        return await _processCompleteProtocolMessage(completeMessage, onMessageIdFound);
       }
       
     } catch (e) {
       _logger.warning('Chunk processing failed: $e');
-      return String.fromCharCodes(data);
     }
     
   } catch (e) {
@@ -310,119 +280,52 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
   }
 }
 
-Future<String?> _processCompleteMessage(String completeMessage, String? Function(String)? onMessageIdFound) async {
-  // Try new protocol first
-  if (ProtocolMessage.isProtocolMessage(completeMessage)) {
-    try {
-      final messageBytes = utf8.encode(completeMessage);
-      final protocolMessage = ProtocolMessage.fromBytes(messageBytes);
-      
-      switch (protocolMessage.type) {
-        case ProtocolMessageType.textMessage:
-          final messageId = protocolMessage.payload['messageId'] as String;
-          final content = protocolMessage.payload['content'] as String;
-          final isEncrypted = protocolMessage.payload['encrypted'] as bool? ?? false;
-          
-          onMessageIdFound?.call(messageId);
-          
-          if (isEncrypted && SimpleCrypto.isInitialized) {
-            try {
-              return SimpleCrypto.decrypt(content);
-            } catch (e) {
-              return '[Encrypted message - cannot decrypt]';
-            }
-          }
-          return content;
-          
-        case ProtocolMessageType.ack:
-          final originalId = protocolMessage.payload['originalMessageId'] as String;
-          final ackCompleter = _messageAcks[originalId];
-          if (ackCompleter != null && !ackCompleter.isCompleted) {
-            ackCompleter.complete(true);
-          }
-          _logger.info('Received protocol ACK for: $originalId');
-          return null;
-
-        case ProtocolMessageType.identity:
-  	final deviceId = protocolMessage.payload['deviceId'] as String;
-  	final displayName = protocolMessage.payload['displayName'] as String;
-  	_logger.info('Received protocol identity in message handler: $displayName ($deviceId)');
-  	return null;
-          
-        default:
-          _logger.info('Received protocol message type: ${protocolMessage.type.name}');
-          return null;
-      }
-    } catch (e) {
-      _logger.warning('Protocol message parsing failed: $e');
-      // Fall through to legacy parsing
-    }
+Future<String?> _processCompleteProtocolMessage(String completeMessage, String? Function(String)? onMessageIdFound) async {
+  if (!ProtocolMessage.isProtocolMessage(completeMessage)) {
+    _logger.warning('Received non-protocol message, ignoring');
+    return null;
   }
-  
-  // Fall back to legacy BLE message parsing (preserve existing logic)
-  String actualContent = completeMessage;
-  String? messageId;
   
   try {
     final messageBytes = utf8.encode(completeMessage);
-    final bleMessage = BLEMessage.fromBytes(messageBytes);
+    final protocolMessage = ProtocolMessage.fromBytes(messageBytes);
     
-    messageId = bleMessage.id;
-    _logger.info('Legacy format - extracted message ID: $messageId');
-    
-    if (bleMessage.type == BLEMessageType.encryptedText && SimpleCrypto.isInitialized) {
-      try {
-        actualContent = SimpleCrypto.decrypt(bleMessage.payload);
-        _logger.info('Legacy message decrypted successfully');
-      } catch (e) {
-        _logger.warning('Legacy decryption failed: $e');
-        actualContent = '[Encrypted message - cannot decrypt]';
-      }
-    } else {
-      actualContent = bleMessage.payload;
+    switch (protocolMessage.type) {
+      case ProtocolMessageType.textMessage:
+        final messageId = protocolMessage.textMessageId!;
+        final content = protocolMessage.textContent!;
+        
+        onMessageIdFound?.call(messageId);
+        
+        if (protocolMessage.isEncrypted && SimpleCrypto.isInitialized) {
+          try {
+            return SimpleCrypto.decrypt(content);
+          } catch (e) {
+            return '[Encrypted message - cannot decrypt]';
+          }
+        }
+        return content;
+        
+      case ProtocolMessageType.ack:
+        final originalId = protocolMessage.ackOriginalId!;
+        final ackCompleter = _messageAcks[originalId];
+        if (ackCompleter != null && !ackCompleter.isCompleted) {
+          ackCompleter.complete(true);
+        }
+        return null;
+        
+      case ProtocolMessageType.identity:
+        // Identity should be handled at service level, not here
+        return null;
+        
+      default:
+        return null;
     }
   } catch (e) {
-    _logger.warning('Legacy BLE message parsing failed: $e');
-    // Try alternative parsing for very old messages
-    if (completeMessage.startsWith('{') && completeMessage.contains('"id"')) {
-      try {
-        final json = jsonDecode(completeMessage);
-        messageId = json['id'];
-        actualContent = json['payload'] ?? completeMessage;
-        _logger.info('Very old format parsing successful, extracted ID: $messageId');
-      } catch (e2) {
-        _logger.warning('All parsing methods failed: $e2');
-      }
-    }
-  }
-  
-  // Always call the callback with message ID if we have one
-  if (messageId != null && onMessageIdFound != null) {
-    onMessageIdFound(messageId);
-    _logger.info('Message ID callback executed: $messageId');
-  } else {
-    _logger.warning('No message ID found - ACK will not be sent');
-  }
-  
-  return actualContent;
-}
-  
-  String? extractMessageId(String completeMessage) {
-    try {
-      final messageBytes = utf8.encode(completeMessage);
-      final bleMessage = BLEMessage.fromBytes(messageBytes);
-      return bleMessage.id;
-    } catch (e) {
-      // Try legacy format
-      if (completeMessage.startsWith('MSG:')) {
-        final parts = completeMessage.split(':');
-        if (parts.length >= 3) {
-          return parts[1];
-        }
-      }
-    }
+    _logger.severe('Failed to process protocol message: $e');
     return null;
   }
+}  
   
   void dispose() {
     _cleanupTimer?.cancel();

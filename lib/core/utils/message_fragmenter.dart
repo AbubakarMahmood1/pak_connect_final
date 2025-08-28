@@ -117,56 +117,42 @@ static List<MessageChunk> fragment(String message, int maxChunkSize) {
 
 static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String messageId) {
   final timestamp = DateTime.now();
-  
-  // Use short ID (last 6 digits) like the regular fragment method
   final shortId = messageId.substring(messageId.length - 6);
   
-  // Step 1: Estimate chunks needed and calculate actual header size
-  int estimatedChunks = 1;
-  List<MessageChunk> finalChunks = [];
+  // Convert bytes back to string to ensure UTF-8 boundary safety
+  final originalString = utf8.decode(data);
   
-  while (true) {
-    // Calculate header size for this chunk count (using base64 content estimate)
-    final sampleHeader = '$shortId|0|$estimatedChunks|0|';
-    final headerSize = utf8.encode(sampleHeader).length;
-    
-    // Reserve extra space for base64 overhead (base64 is ~33% larger)
-    final base64Overhead = 1.34; // Base64 is 4/3 = 1.333... larger
-    final contentSpaceBytes = ((maxSize - headerSize) / base64Overhead).floor();
-    
-    if (contentSpaceBytes <= 0) {
-      throw Exception('MTU too small for headers: need ${headerSize + 10} bytes minimum');
-    }
-    
-    // Calculate how many chunks we actually need
-    final actualChunksNeeded = (data.length / contentSpaceBytes).ceil();
-    
-    if (actualChunksNeeded == estimatedChunks) {
-      // Our estimate was correct, create the chunks
-      for (int i = 0; i < estimatedChunks; i++) {
-        final start = i * contentSpaceBytes;
-        final end = math.min(start + contentSpaceBytes, data.length);
-        final chunkData = data.sublist(start, end);
-        
-        // Store as base64 to avoid UTF-8 issues in chunk format
-        final chunkContent = base64Encode(chunkData);
-        
-        finalChunks.add(MessageChunk(
-          messageId: shortId, // Use short ID consistently
-          chunkIndex: i,
-          totalChunks: estimatedChunks,
-          content: chunkContent,
-          timestamp: timestamp,
-        ));
-      }
-      break;
-    } else {
-      // Update estimate and try again
-      estimatedChunks = actualChunksNeeded;
-    }
+  // Fixed header size calculation
+  const headerSize = 15; // "123456|0|999|0|"
+  final contentSpace = maxSize - headerSize;
+  
+  if (contentSpace <= 10) {
+    throw Exception('MTU too small for headers');
   }
   
-  return finalChunks;
+  // Fragment by characters (UTF-8 safe), not bytes
+  final totalChunks = (originalString.length / contentSpace).ceil();
+  final chunks = <MessageChunk>[];
+  
+  for (int i = 0; i < totalChunks; i++) {
+    final start = i * contentSpace;
+    final end = (start + contentSpace < originalString.length) 
+        ? start + contentSpace 
+        : originalString.length;
+    
+    final chunkContent = originalString.substring(start, end);
+    
+    chunks.add(MessageChunk(
+      messageId: shortId,
+      chunkIndex: i,
+      totalChunks: totalChunks,
+      content: chunkContent, // Keep as string, not base64
+      timestamp: timestamp,
+      isBinary: false, // Mark as text
+    ));
+  }
+  
+  return chunks;
 }
 
 }
