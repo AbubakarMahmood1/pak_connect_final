@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' hide ConnectionState;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as BLE;
@@ -739,33 +740,48 @@ void _connectToDevice(Peripheral device, bleService) async {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            'Settings',
-            style: Theme.of(context).textTheme.headlineSmall,
+          Row(
+            children: [
+              Icon(Icons.settings),
+              SizedBox(width: 12),
+              Text(
+                'Settings',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+            ],
           ),
           SizedBox(height: 24),
           ListTile(
             leading: Icon(Icons.person),
-            title: Text('Display Name'),
-            subtitle: Text('Change how others see you'),
+            title: Text('Your Name'),
+            subtitle: Text('How others see you in chats'),
             onTap: () {
               Navigator.pop(context);
               _editDisplayName();
             },
           ),
           ListTile(
-            leading: Icon(Icons.lock),
-            title: Text('Encryption Key'),
-            subtitle: Text('View or change encryption passphrase'),
+            leading: Icon(Icons.security),
+            title: Text('Chat Security'),
+            subtitle: Text('Manage encryption and device pairing'),
             onTap: () {
               Navigator.pop(context);
               _editPassphrase();
             },
           ),
           ListTile(
+            leading: Icon(Icons.help_outline),
+            title: Text('How to Connect'),
+            subtitle: Text('Step-by-step pairing guide'),
+            onTap: () {
+              Navigator.pop(context);
+              _showPairingGuide();
+            },
+          ),
+          ListTile(
             leading: Icon(Icons.info),
             title: Text('About'),
-            subtitle: Text('App version and info'),
+            subtitle: Text('App version and information'),
             onTap: () {
               Navigator.pop(context);
               _showAbout();
@@ -786,25 +802,90 @@ void _editPassphrase() async {
     builder: (context) {
       final controller = TextEditingController();
       return AlertDialog(
-        title: Text('Encryption Passphrase'),
+        title: Text('Chat Security'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Current: $currentPassphrase'),
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.lock, size: 16, color: Theme.of(context).colorScheme.primary),
+                      SizedBox(width: 8),
+                      Text(
+                        'Your messages are encrypted',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Both devices must use the same security phrase to chat together.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Current phrase:',
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+            SizedBox(height: 4),
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      currentPassphrase,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: currentPassphrase));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Phrase copied to clipboard'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                    icon: Icon(Icons.copy, size: 18),
+                    tooltip: 'Copy phrase',
+                  ),
+                ],
+              ),
+            ),
             SizedBox(height: 16),
             TextField(
               controller: controller,
               decoration: InputDecoration(
-                labelText: 'New Passphrase',
-                hintText: 'Leave empty to auto-generate',
+                labelText: 'New security phrase (optional)',
+                hintText: 'Leave empty to generate new phrase',
                 border: OutlineInputBorder(),
+                helperText: 'Share this phrase with people you want to chat with',
               ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Both devices must use the same passphrase',
-              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
@@ -815,7 +896,7 @@ void _editPassphrase() async {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, 'AUTO_GENERATE'),
-            child: Text('Auto-Generate'),
+            child: Text('Generate New'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, controller.text.trim()),
@@ -828,13 +909,69 @@ void _editPassphrase() async {
   
   if (result != null) {
     if (result == 'AUTO_GENERATE') {
-      // Auto-generate new passphrase
       await bleService.generateNewPassphrase();
       final newPassphrase = await bleService.getCurrentPassphrase();
-      _showSuccess('New passphrase generated: $newPassphrase');
+      
+      // Show success with sharing instructions
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('New Security Phrase Generated'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        newPassphrase,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: newPassphrase));
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Phrase copied!')),
+                        );
+                      },
+                      icon: Icon(Icons.copy),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Share this phrase with people you want to chat with. Both devices need the same phrase.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Got it'),
+            ),
+          ],
+        ),
+      );
     } else if (result.isNotEmpty) {
       await bleService.setCustomPassphrase(result);
-      _showSuccess('Passphrase updated');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Security phrase updated')),
+      );
     }
   }
 }
@@ -853,16 +990,168 @@ void _editDisplayName() async {
   }
 }
 
-  void _showAbout() {
-    showAboutDialog(
-      context: context,
-      applicationName: 'BLE Chat',
-      applicationVersion: '1.0.0',
-      children: [
-        Text('Secure offline messaging for family and friends.'),
+void _showAbout() {
+  showAboutDialog(
+    context: context,
+    applicationName: 'BLE Chat',
+    applicationVersion: '1.0.0',
+    applicationIcon: Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        Icons.bluetooth,
+        color: Theme.of(context).colorScheme.onPrimary,
+        size: 24,
+      ),
+    ),
+    children: [
+      SizedBox(height: 16),
+      Text('Secure offline messaging for family and friends.'),
+      SizedBox(height: 12),
+      Text(
+        'Features:',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
+      Text('• Works without internet'),
+      Text('• End-to-end encrypted messages'),
+      Text('• Cross-platform compatibility'),
+      Text('• No data collection'),
+      SizedBox(height: 12),
+      Text(
+        'Your messages never leave your devices.',
+        style: TextStyle(
+          fontStyle: FontStyle.italic,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+    ],
+  );
+}
+
+void _showPairingGuide() {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.help_outline, color: Theme.of(context).colorScheme.primary),
+          SizedBox(width: 12),
+          Text('How to Connect Devices'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildGuideStep(
+              context,
+              '1',
+              'Choose Device Roles',
+              'One device should be in "Discoverable" mode, the other in "Scanner" mode.',
+            ),
+            _buildGuideStep(
+              context,
+              '2',
+              'Share Security Phrase',
+              'Both devices must use the same security phrase. Go to Settings > Chat Security to copy your phrase.',
+            ),
+            _buildGuideStep(
+              context,
+              '3',
+              'Start Connection',
+              'Scanner device will find the Discoverable device. Tap to connect.',
+            ),
+            _buildGuideStep(
+              context,
+              '4',
+              'Begin Chatting',
+              'Once "Ready to chat" appears, you can send messages securely.',
+            ),
+            SizedBox(height: 16),
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.lightbulb_outline, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Tip: Stay within 30 feet of each other for best connection.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Got it'),
+        ),
       ],
-    );
-  }
+    ),
+  );
+}
+
+Widget _buildGuideStep(BuildContext context, String number, String title, String description) {
+  return Padding(
+    padding: EdgeInsets.only(bottom: 16),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary,
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(
+              number,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                description,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   void _showError(String message) {
       _logger.warning('Error: $message');
