@@ -7,6 +7,7 @@ class MessageBubble extends StatelessWidget {
   final bool showAvatar;
   final bool showStatus;
   final VoidCallback? onLongPress;
+  final VoidCallback? onRetry;
 
   const MessageBubble({
     super.key,
@@ -14,6 +15,7 @@ class MessageBubble extends StatelessWidget {
     this.showAvatar = true,
     this.showStatus = true,
     this.onLongPress,
+    this.onRetry,
   });
 
   @override
@@ -97,6 +99,26 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildStatusIcon(BuildContext context, MessageStatus status) {
     switch (status) {
+      case MessageStatus.failed:
+      return GestureDetector(
+        onTap: () => onRetry?.call(), // New callback
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.red.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.red.withOpacity(0.3)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error, size: 12, color: Colors.red),
+              SizedBox(width: 4),
+              Text('Tap to retry', style: TextStyle(fontSize: 10, color: Colors.red)),
+            ],
+          ),
+        ),
+      );
       case MessageStatus.sending:
         return SizedBox(
           width: 12,

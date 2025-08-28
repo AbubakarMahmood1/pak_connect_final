@@ -557,6 +557,10 @@ void _connectToDevice(Peripheral device, bleService) async {
   }
   
   if (mounted) {
+  // Allow connection phase to stabilize before opening chat
+  await Future.delayed(Duration(milliseconds: 500));
+  
+  if (mounted) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -564,6 +568,7 @@ void _connectToDevice(Peripheral device, bleService) async {
       ),
     );
   }
+}
 } catch (e) {
     if (mounted) Navigator.pop(context);
     _showError('Connection failed: ${e.toString().split(':').last}');

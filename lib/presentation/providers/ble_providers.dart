@@ -57,3 +57,8 @@ final advertisingStateProvider = StreamProvider<String>((ref) {
   final service = ref.watch(bleServiceProvider);
   return service.advertisingState;
 });
+
+final connectionPhaseProvider = StreamProvider<ConnectionPhase>((ref) {
+  final service = ref.watch(bleServiceProvider);
+  return service.connectionPhase;
+});

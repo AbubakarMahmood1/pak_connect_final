@@ -199,13 +199,13 @@ bool _isPeripheralMode = false;
 
 void handleBluetoothStateChange(BluetoothLowEnergyState state) {
   if (state == BluetoothLowEnergyState.poweredOn) {
-    // CRITICAL: Only reconnect if we're in CENTRAL mode AND have a device
     if (_lastConnectedDevice != null && !isConnected) {
-      _logger.info('Bluetooth powered on - forcing CENTRAL reconnection attempt');
+      _logger.info('Bluetooth powered on - starting immediate reconnection');
       
       stopConnectionMonitoring();
       
-      Timer(Duration(milliseconds: 1500), () {
+      // Reduce delay for first-time connections
+      Timer(Duration(milliseconds: 800), () {
         _isReconnection = true;
         startConnectionMonitoring();
       });

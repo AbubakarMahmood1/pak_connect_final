@@ -10,6 +10,16 @@ import 'ble_connection_manager.dart';
 import 'ble_message_handler.dart';
 import 'ble_state_manager.dart';
 
+enum ConnectionPhase {
+  idle,
+  scanning,
+  discoverable,
+  connecting,
+  exchangingIdentities,
+  ready,
+  failed
+}
+
 class BLEService {
   final _logger = Logger('BLEService');
   
@@ -49,6 +59,10 @@ int? _peripheralNegotiatedMTU;
   Stream<bool> get monitoringState => _monitoringStateController!.stream;
   Stream<String> get advertisingState => _advertisingStateController!.stream;
   String get currentAdvertisingState => _advertisingState;
+  StreamController<ConnectionPhase>? _connectionPhaseController;
+  ConnectionPhase _currentConnectionPhase = ConnectionPhase.idle;
+  Stream<ConnectionPhase> get connectionPhase => _connectionPhaseController!.stream;
+  ConnectionPhase get currentConnectionPhase => _currentConnectionPhase;
   
   // State getters (delegated)
   BluetoothLowEnergyState get state => centralManager.state;
@@ -75,6 +89,16 @@ int? _peripheralNegotiatedMTU;
     _monitoringStateController?.add(false);
     _advertisingStateController = StreamController<String>.broadcast();
     _advertisingStateController?.add(_advertisingState);
+    _connectionPhaseController = StreamController<ConnectionPhase>.broadcast();
+
+
+  if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManager.isPeripheralMode) {
+    _setConnectionPhase(ConnectionPhase.discoverable);
+  } else if (centralManager.state == BluetoothLowEnergyState.poweredOn && !_stateManager.isPeripheralMode) {
+    _setConnectionPhase(ConnectionPhase.idle);
+  } else {
+    _setConnectionPhase(ConnectionPhase.idle);
+  }
     
     // Initialize managers
     centralManager.logLevel = Level.INFO;
@@ -120,6 +144,10 @@ int? _peripheralNegotiatedMTU;
     _stateManager.onNameChanged = (name) {
   _logger.info('DEBUG: Emitting name change: "$name"');
   _nameChangeController?.add(name);
+
+  if (name != null && name.isNotEmpty) {
+    _setConnectionPhase(ConnectionPhase.ready);
+  }
   
   // For peripheral mode, emit connection state based on identity exchange
   if (_stateManager.isPeripheralMode) {
@@ -135,6 +163,12 @@ int? _peripheralNegotiatedMTU;
     _setupEventListeners();
   }
 
+void _setConnectionPhase(ConnectionPhase phase) {
+  _currentConnectionPhase = phase;
+  _connectionPhaseController?.add(phase);
+  _logger.info('Connection phase: ${phase.name}');
+}
+
   void _setAdvertisingState(String state) {
   _advertisingState = state;
   _advertisingStateController?.add(state);
@@ -145,6 +179,18 @@ int? _peripheralNegotiatedMTU;
     // Central manager state changes
    centralManager.stateChanged.listen((event) async {
   _logger.info('Central BLE State changed: ${event.state}');
+  
+  // Update connection phase based on BT state
+  if (event.state == BluetoothLowEnergyState.poweredOff) {
+    _setConnectionPhase(ConnectionPhase.idle);
+    _stateManager.clearOtherUserName();
+  } else if (event.state == BluetoothLowEnergyState.poweredOn) {
+    if (_stateManager.isPeripheralMode) {
+      _setConnectionPhase(ConnectionPhase.discoverable);
+    } else {
+      _setConnectionPhase(ConnectionPhase.idle); // Will become scanning when user starts
+    }
+  }
   
   // Handle state changes for reconnection
   _connectionManager.handleBluetoothStateChange(event.state);
@@ -163,6 +209,15 @@ int? _peripheralNegotiatedMTU;
     // Peripheral manager state changes
    peripheralManager.stateChanged.listen((event) async {
   _logger.info('Peripheral BLE State changed: ${event.state}');
+
+  if (event.state == BluetoothLowEnergyState.poweredOff) {
+    _setConnectionPhase(ConnectionPhase.idle);
+    _setAdvertisingState('stopped');
+    _stateManager.clearOtherUserName();
+    _connectedCentral = null;
+    _connectedCharacteristic = null;
+    _connectionStateController?.add(false);
+  }
   
   if (event.state == BluetoothLowEnergyState.unauthorized) {
     try {
@@ -229,6 +284,7 @@ centralManager.connectionStateChanged.listen((event) {
   if (_connectionManager.connectedDevice?.uuid == event.peripheral.uuid) {
     _logger.info('Our device disconnected - clearing state but keeping monitoring');
     
+    _setConnectionPhase(ConnectionPhase.idle);
     _connectionManager.clearConnectionState(keepMonitoring: _connectionManager.isMonitoring);
     _stateManager.clearOtherUserName();
   }
@@ -386,6 +442,7 @@ _logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myP
       _stateManager.setPeripheralMode(true);
       _connectionManager.setPeripheralMode(true); 
       _setAdvertisingState('active');
+      _setConnectionPhase(ConnectionPhase.discoverable);
       _logger.info('Now advertising as discoverable device!');
     } catch (e) {
       _logger.severe('Failed to start as peripheral: $e');
@@ -414,12 +471,13 @@ _logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myP
   }
   
   Future<void> startScanning() async {
-    if (_stateManager.isPeripheralMode) {
-      throw Exception('Cannot scan while in peripheral mode');
-    }
-    _logger.info('Starting BLE scan...');
-    await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
+  if (_stateManager.isPeripheralMode) {
+    throw Exception('Cannot scan while in peripheral mode');
   }
+  _logger.info('Starting BLE scan...');
+  _setConnectionPhase(ConnectionPhase.scanning);
+  await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
+}
   
   Future<void> stopScanning() async {
     _logger.info('Stopping BLE scan...');
@@ -427,6 +485,7 @@ _logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myP
   }
   
   Future<void> connectToDevice(Peripheral device) async {
+  _setConnectionPhase(ConnectionPhase.connecting);
   await _connectionManager.connectToDevice(device);
   
   _connectionManager.startHealthChecks();
@@ -440,6 +499,7 @@ _logger.info('Sent identity via notification: ${_stateManager.myUserName} (${myP
 }
 
 Future<void> _performNameExchangeWithRetry() async {
+  _setConnectionPhase(ConnectionPhase.exchangingIdentities);
   for (int attempt = 1; attempt <= 5; attempt++) {
     _logger.info('Name exchange attempt $attempt/5');
     
@@ -469,6 +529,7 @@ Future<void> _performNameExchangeWithRetry() async {
   }
   
   _logger.severe('🚨 Name exchange failed after 5 attempts - connection incomplete');
+_setConnectionPhase(ConnectionPhase.failed);
 }
   
   Future<bool> sendMessage(String message, {String? messageId}) async {
@@ -587,5 +648,6 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
     _connectionStateController?.close();
     _monitoringStateController?.close();
     _advertisingStateController?.close();
+    _connectionPhaseController?.close();
   }
 }

@@ -9,6 +9,7 @@ import '../../domain/entities/message.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../core/utils/chat_utils.dart';
 import '../widgets/message_bubble.dart';
+import '../../data/services/ble_service.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode
@@ -120,16 +121,18 @@ Future<void> _restartAdvertising() async {
     bool isConnected;
 
 if (_isPeripheralMode) {
-  isConnected = bleService.otherDevicePersistentId != null;
-} else {
-  isConnected = bleService.isConnected;
-}
+    // For peripheral: check if we have active name AND BT is on
+    isConnected = bleService.otherUserName != null && 
+                  bleService.otherUserName!.isNotEmpty &&
+                  bleService.state == BluetoothLowEnergyState.poweredOn;
+  } else {
+    isConnected = bleService.isConnected;
+  }
 
-if (!isConnected) {
+  if (!isConnected) {
     _showError('Cannot retry messages - device not connected');
-    _logger.warning('Cannot retry messages - device not connected');
     return;
-}
+  }
     
     // Find failed messages
     final failedMessages = _messages.where((m) => m.isFromMe && m.status == MessageStatus.failed).toList();
@@ -160,18 +163,25 @@ if (!isConnected) {
       });
       
       try {
-        final success = await bleService.sendMessage(message.content, messageId: message.id);
-        
-        final newStatus = success ? MessageStatus.delivered : MessageStatus.failed;
-        final updatedMessage = retryMessage.copyWith(status: newStatus);
-        await _messageRepository.updateMessage(updatedMessage);
-        setState(() {
-          final index = _messages.indexWhere((m) => m.id == message.id);
-          if (index != -1) {
-            _messages[index] = updatedMessage;
-          }
-        });
-        _scrollToBottom();
+  bool success;
+  
+  if (_isCentralMode) {
+    success = await bleService.sendMessage(message.content, messageId: message.id);
+  } else {
+    // Peripheral mode: use peripheral sending method
+    success = await bleService.sendPeripheralMessage(message.content, messageId: message.id);
+  }
+  
+  final newStatus = success ? MessageStatus.delivered : MessageStatus.failed;
+  final updatedMessage = retryMessage.copyWith(status: newStatus);
+  await _messageRepository.updateMessage(updatedMessage);
+  setState(() {
+    final index = _messages.indexWhere((m) => m.id == message.id);
+    if (index != -1) {
+      _messages[index] = updatedMessage;
+    }
+  });
+  _scrollToBottom();
       } catch (e) {
         // Mark as failed again
         final failedAgain = retryMessage.copyWith(status: MessageStatus.failed);
@@ -284,15 +294,34 @@ final hasNameExchange = nameAsync.maybeWhen(
                 );
               },
             ),
-            Text(
-  isConnected 
-    ? (hasNameExchange ? 'Connected' : 'Connecting...') 
-    : 'Disconnected',
-  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-    color: isConnected 
-      ? (hasNameExchange ? Colors.green : Colors.orange)
-      : Colors.red,
+            Consumer(
+  builder: (context, ref, child) {
+    final phaseAsync = ref.watch(connectionPhaseProvider);
+    
+    return phaseAsync.when(
+  data: (phase) => Text(
+    _getConnectionStatusText(phase, isConnected, hasNameExchange),
+    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: _getConnectionStatusColor(phase, isConnected, hasNameExchange),
+    ),
   ),
+  loading: () => Text(
+    // Smart fallback based on actual connection state
+    isConnected 
+      ? (hasNameExchange ? 'Ready to chat' : 'Setting up chat...')
+      : 'Connecting...',
+    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: isConnected ? Colors.orange : Colors.grey
+    ),
+  ),
+      error: (err, stack) => Text(
+        isConnected ? 'Connected' : 'Disconnected',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: isConnected ? Colors.green : Colors.red,
+        ),
+      ),
+    );
+  },
 ),
           ],
         ),
@@ -331,10 +360,13 @@ final hasNameExchange = nameAsync.maybeWhen(
                             }
                             // Show regular message
                             return MessageBubble(
-  					message: _messages[index],
-  					showAvatar: true,
-  					showStatus: true,
-				);
+  message: _messages[index],
+  showAvatar: true,
+  showStatus: true,
+  onRetry: _messages[index].status == MessageStatus.failed 
+    ? () => _retryMessage(_messages[index])
+    : null,
+);
                           },
                         ),
             ),
@@ -395,25 +427,29 @@ final hasNameExchange = nameAsync.maybeWhen(
   }
 
 Widget _buildReconnectionBanner() {
+  final bleService = ref.read(bleServiceProvider);
+  
+  // Check BT state for both modes first
+  if (bleService.state != BluetoothLowEnergyState.poweredOn) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(12),
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: Row(
+        children: [
+          Icon(Icons.bluetooth_disabled, size: 16),
+          SizedBox(width: 8),
+          Text(
+            'Bluetooth is off - Please enable Bluetooth', 
+            style: TextStyle(fontSize: 12)
+          ),
+        ],
+      ),
+    );
+  }
+  
   if (_isPeripheralMode) {
-    // Check BT state first
-    final bleService = ref.read(bleServiceProvider);
-    if (bleService.state != BluetoothLowEnergyState.poweredOn) {
-      return Container(
-        width: double.infinity,
-        padding: EdgeInsets.all(12),
-        color: Theme.of(context).colorScheme.errorContainer,
-        child: Row(
-          children: [
-            Icon(Icons.bluetooth_disabled, size: 16),
-            SizedBox(width: 8),
-            Text('Bluetooth is off - Please enable Bluetooth', style: TextStyle(fontSize: 12)),
-          ],
-        ),
-      );
-    }
-    
-    // BT is on - show real-time advertising status
+    // Peripheral mode - show advertising status
     return Consumer(
       builder: (context, ref, child) {
         final advertisingStateAsync = ref.watch(advertisingStateProvider);
@@ -470,7 +506,7 @@ Widget _buildReconnectionBanner() {
       },
     );
   } else {
-    // Central mode logic stays the same
+    // Central mode - show scanning/reconnection status
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(12),
@@ -951,6 +987,46 @@ void _setupConnectionListener() {
   void _showSuccess(String message) {
     _logger.info('Success: $message');
   }
+
+String _getConnectionStatusText(ConnectionPhase phase, bool isConnected, bool hasNameExchange) {
+  if (hasNameExchange) return 'Ready to chat';
+  
+  switch (phase) {
+    case ConnectionPhase.idle:
+      return 'Disconnected';
+    case ConnectionPhase.scanning:
+      return 'Searching for devices...';
+    case ConnectionPhase.discoverable:
+      return 'Waiting for connection...';
+    case ConnectionPhase.connecting:
+      return 'Connecting to device...';
+    case ConnectionPhase.exchangingIdentities:
+      return 'Setting up chat...';
+    case ConnectionPhase.ready:
+      return 'Ready to chat';
+    case ConnectionPhase.failed:
+      return 'Connection failed';
+  }
+}
+
+Color _getConnectionStatusColor(ConnectionPhase phase, bool isConnected, bool hasNameExchange) {
+  if (hasNameExchange) return Colors.green;
+  
+  switch (phase) {
+    case ConnectionPhase.idle:
+      return Colors.red;
+    case ConnectionPhase.scanning:
+    case ConnectionPhase.discoverable:
+    case ConnectionPhase.connecting:
+    case ConnectionPhase.exchangingIdentities:
+      return Colors.orange;
+    case ConnectionPhase.ready:
+      return Colors.green;
+    case ConnectionPhase.failed:
+      return Colors.red;
+  }
+}
+
   
   @override
 void dispose() {
