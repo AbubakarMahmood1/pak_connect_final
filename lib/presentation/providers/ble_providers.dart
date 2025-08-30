@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../../data/services/ble_service.dart';
+import '../../core/models/connection_info.dart';
 
 // BLE Service provider
 final bleServiceProvider = Provider<BLEService>((ref) {
@@ -32,33 +33,24 @@ final receivedMessagesProvider = StreamProvider<String>((ref) {
   return service.receivedMessages;
 });
 
-// Name changes provider
+// CONSOLIDATED: Single connection info provider replaces 5 old providers
+final connectionInfoProvider = StreamProvider<ConnectionInfo>((ref) {
+  final service = ref.watch(bleServiceProvider);
+  return service.connectionInfo;
+});
+
+// LEGACY ADAPTERS: For backward compatibility during transition
 final nameChangesProvider = StreamProvider<String?>((ref) {
   final service = ref.watch(bleServiceProvider);
-  return service.nameChanges;
+  return service.connectionInfo.map((info) => info.otherUserName);
 });
 
 final connectionStateStreamProvider = StreamProvider<bool>((ref) {
   final service = ref.watch(bleServiceProvider);
-  return service.connectionState;
-});
-
-final monitoringStateProvider = StreamProvider<bool>((ref) {
-  final service = ref.watch(bleServiceProvider);
-  return service.monitoringState;
-});
-
-final isMonitoringProvider = Provider<bool>((ref) {
-  final service = ref.watch(bleServiceProvider);
-  return service.isMonitoring;
+  return service.connectionInfo.map((info) => info.isReady);
 });
 
 final advertisingStateProvider = StreamProvider<String>((ref) {
   final service = ref.watch(bleServiceProvider);
-  return service.advertisingState;
-});
-
-final connectionPhaseProvider = StreamProvider<ConnectionPhase>((ref) {
-  final service = ref.watch(bleServiceProvider);
-  return service.connectionPhase;
+  return service.connectionInfo.map((info) => info.isAdvertising ? 'active' : 'stopped');
 });

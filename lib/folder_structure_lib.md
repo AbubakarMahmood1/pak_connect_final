@@ -1,6 +1,6 @@
 # Project Structure: lib 
  
-Generated on: Thu 08/28/2025 12:07:29.92 
+Generated on: Sat 08/30/2025  0:48:13.20 
 Location: C:\Users\theab\OneDrive\Desktop\pak_connect\lib 
  
 ```tree 
@@ -23,11 +23,7 @@ C:.
 |   |       uint8list_extensions.dart
 |   |       
 |   +---models
-|   |       ack_message.dart
-|   |       ble_message.dart
 |   |       connection_state.dart
-|   |       device_identity.dart
-|   |       name_exchange.dart
 |   |       protocol_message.dart
 |   |       
 |   +---services
@@ -105,11 +101,7 @@ C:.
 - uint8list_extensions.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\models** 
-- ack_message.dart 
-- ble_message.dart 
 - connection_state.dart 
-- device_identity.dart 
-- name_exchange.dart 
 - protocol_message.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\services** 

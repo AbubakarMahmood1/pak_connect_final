@@ -297,24 +297,23 @@ final hasNameExchange = nameAsync.maybeWhen(
             ),
             Consumer(
   builder: (context, ref, child) {
-    final phaseAsync = ref.watch(connectionPhaseProvider);
+    final connectionInfoAsync = ref.watch(connectionInfoProvider);
     
-    return phaseAsync.when(
-  data: (phase) => Text(
-    _getConnectionStatusText(phase, isConnected, hasNameExchange),
-    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-      color: _getConnectionStatusColor(phase, isConnected, hasNameExchange),
-    ),
-  ),
-  loading: () => Text(
-    // Smart fallback based on actual connection state
-    isConnected 
-      ? (hasNameExchange ? 'Ready to chat' : 'Setting up chat...')
-      : 'Connecting...',
-    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-      color: isConnected ? Colors.orange : Colors.grey
-    ),
-  ),
+    return connectionInfoAsync.when(
+      data: (info) => Text(
+        info.statusMessage ?? 'Disconnected',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: info.isReady ? Colors.green : (info.isConnected ? Colors.orange : Colors.red),
+        ),
+      ),
+      loading: () => Text(
+        isConnected 
+          ? (hasNameExchange ? 'Ready to chat' : 'Setting up chat...')
+          : 'Connecting...',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: isConnected ? Colors.orange : Colors.grey
+        ),
+      ),
       error: (err, stack) => Text(
         isConnected ? 'Connected' : 'Disconnected',
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -936,14 +935,14 @@ void _setupConnectionListener() {
       setState(() {});
       
       if (isConnected) {
-        _showSuccess('Device reconnected! ✅');
+        _showSuccess('Device reconnected! âœ…');
         Future.delayed(Duration(milliseconds: 2500), () {
           if (mounted) {
             _autoRetryFailedMessages();
           }
         });
       } else {
-        _showError('Device disconnected ❌');
+        _showError('Device disconnected âŒ');
         
         if (!bleService.isPeripheralMode) {
           bleService.startConnectionMonitoring();
@@ -989,45 +988,17 @@ void _setupConnectionListener() {
     _logger.info('Success: $message');
   }
 
-String _getConnectionStatusText(ConnectionPhase phase, bool isConnected, bool hasNameExchange) {
+String _getConnectionStatusText(bool isConnected, bool hasNameExchange) {
   if (hasNameExchange) return 'Ready to chat';
-  
-  switch (phase) {
-    case ConnectionPhase.idle:
-      return 'Disconnected';
-    case ConnectionPhase.scanning:
-      return 'Searching for devices...';
-    case ConnectionPhase.discoverable:
-      return 'Waiting for connection...';
-    case ConnectionPhase.connecting:
-      return 'Connecting to device...';
-    case ConnectionPhase.exchangingIdentities:
-      return 'Setting up chat...';
-    case ConnectionPhase.ready:
-      return 'Ready to chat';
-    case ConnectionPhase.failed:
-      return 'Connection failed';
-  }
+  if (isConnected) return 'Setting up chat...';
+  return 'Disconnected';
 }
 
-Color _getConnectionStatusColor(ConnectionPhase phase, bool isConnected, bool hasNameExchange) {
+Color _getConnectionStatusColor(bool isConnected, bool hasNameExchange) {
   if (hasNameExchange) return Colors.green;
-  
-  switch (phase) {
-    case ConnectionPhase.idle:
-      return Colors.red;
-    case ConnectionPhase.scanning:
-    case ConnectionPhase.discoverable:
-    case ConnectionPhase.connecting:
-    case ConnectionPhase.exchangingIdentities:
-      return Colors.orange;
-    case ConnectionPhase.ready:
-      return Colors.green;
-    case ConnectionPhase.failed:
-      return Colors.red;
-  }
+  if (isConnected) return Colors.orange;
+  return Colors.red;
 }
-
   
   @override
 void dispose() {
