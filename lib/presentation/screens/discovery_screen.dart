@@ -307,10 +307,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   
   return Consumer(
     builder: (context, ref, child) {
-      // Check if there's an active connection
-      final nameAsync = ref.watch(nameChangesProvider);
-      final hasConnection = nameAsync.maybeWhen(
-        data: (name) => name != null && name.isNotEmpty,
+      // Check if there's an active connection using connectionInfoProvider
+      final connectionInfoAsync = ref.watch(connectionInfoProvider);
+      final hasConnection = connectionInfoAsync.maybeWhen(
+        data: (info) => info.otherUserName != null && info.otherUserName!.isNotEmpty,
         orElse: () => false,
       );
       
@@ -333,9 +333,9 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                 ),
               ),
               SizedBox(height: 8),
-              nameAsync.when(
-                data: (name) => Text(
-                  'Chatting with: $name',
+              connectionInfoAsync.when(
+                data: (info) => Text(
+                  'Chatting with: ${info.otherUserName}',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -345,19 +345,19 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
               ),
               SizedBox(height: 24),
               FilledButton.icon(
-  onPressed: () {
-    // Create a fake central object for navigation
-    final fakeCentral = Central(uuid: UUID.fromString('00000000-0000-0000-0000-000000000000'));
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(central: fakeCentral),
-      ),
-    );
-  },
-  icon: Icon(Icons.chat),
-  label: Text('Open Chat'),
-),
+                onPressed: () {
+                  // Create a fake central object for navigation
+                  final fakeCentral = Central(uuid: UUID.fromString('00000000-0000-0000-0000-000000000000'));
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ChatScreen(central: fakeCentral),
+                    ),
+                  );
+                },
+                icon: Icon(Icons.chat),
+                label: Text('Open Chat'),
+              ),
               SizedBox(height: 16),
               Text(
                 'You are in discoverable mode',

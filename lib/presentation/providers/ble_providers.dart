@@ -33,24 +33,7 @@ final receivedMessagesProvider = StreamProvider<String>((ref) {
   return service.receivedMessages;
 });
 
-// CONSOLIDATED: Single connection info provider replaces 5 old providers
 final connectionInfoProvider = StreamProvider<ConnectionInfo>((ref) {
   final service = ref.watch(bleServiceProvider);
   return service.connectionInfo;
-});
-
-// LEGACY ADAPTERS: For backward compatibility during transition
-final nameChangesProvider = StreamProvider<String?>((ref) {
-  final service = ref.watch(bleServiceProvider);
-  return service.connectionInfo.map((info) => info.otherUserName);
-});
-
-final connectionStateStreamProvider = StreamProvider<bool>((ref) {
-  final service = ref.watch(bleServiceProvider);
-  return service.connectionInfo.map((info) => info.isReady);
-});
-
-final advertisingStateProvider = StreamProvider<String>((ref) {
-  final service = ref.watch(bleServiceProvider);
-  return service.connectionInfo.map((info) => info.isAdvertising ? 'active' : 'stopped');
 });

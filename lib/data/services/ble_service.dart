@@ -66,7 +66,12 @@ int? _peripheralNegotiatedMTU;
   String? get myPersistentId => _stateManager.myPersistentId;
   
   Future<void> initialize() async {
-    // Initialize stream controllers
+    // Dispose existing controllers if they exist
+    _connectionInfoController?.close();
+    _devicesController?.close();
+    _messagesController?.close();
+
+    // Initialize new stream controllers
     _connectionInfoController = StreamController<ConnectionInfo>.broadcast();
     _devicesController = StreamController<List<Peripheral>>.broadcast();
     _messagesController = StreamController<String>.broadcast();

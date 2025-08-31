@@ -10,7 +10,7 @@ import '../../data/repositories/message_repository.dart';
 import '../../core/utils/chat_utils.dart';
 import '../widgets/message_bubble.dart';
 import '../../data/services/ble_service.dart';
-import '../../core/models/connection_state.dart';
+import '../../core/models/connection_info.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode
@@ -35,7 +35,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   List<Message> _messages = [];
   bool _isLoading = true;
   StreamSubscription<String>? _messageSubscription;
-  StreamSubscription<bool>? _connectionSubscription;
+  StreamSubscription<ConnectionInfo>? _connectionSubscription;
   String? _currentChatId;
   String get _chatId => _currentChatId!;
   bool get _isPeripheralMode => widget.central != null;
@@ -57,14 +57,21 @@ void initState() {
   _currentChatId = _calculateInitialChatId();
   _loadMessages();
   _setupMessageListener();
-
   _setupConnectionListener();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+    ref.listen(connectionInfoProvider, (previous, next) {
+      if (next.hasValue && 
+          next.value?.otherUserName != null && 
+          next.value!.otherUserName!.isNotEmpty) {
+        _handleIdentityReceived();
+      }
+    });
+  });
   
   WidgetsBinding.instance.addPostFrameCallback((_) {
     _scrollToBottom();
   });
-  
-  // Start connection monitoring for this chat
 }
 
 Future<void> _manualReconnection() async {
@@ -236,101 +243,45 @@ if (_isPeripheralMode) {
     _scrollToBottom();
   }
 
-  @override
+@override
 Widget build(BuildContext context) {
-   ref.listen(nameChangesProvider, (previous, next) {
-    if (next.hasValue && next.value != null && next.value!.isNotEmpty) {
-      _handleIdentityReceived();
-    }
-  });
   try {
     final bleService = ref.watch(bleServiceProvider);
-final connectionStateAsync = ref.watch(connectionStateStreamProvider);
-final nameAsync = ref.watch(nameChangesProvider);
-final bleStateAsync = ref.watch(bleStateProvider);
-final advertisingStateAsync = ref.watch(advertisingStateProvider);
-
-final isConnected = connectionStateAsync.maybeWhen(
-  data: (connected) => connected,
-  orElse: () => bleService.isConnected, // Fallback to service
-);
-final hasNameExchange = nameAsync.maybeWhen(
-  data: (name) => name != null && name.isNotEmpty,
-  orElse: () => false,
-);
-
-    final isMonitoring = bleService.isMonitoring;
-
+    final connectionInfoAsync = ref.watch(connectionInfoProvider);
+    final bleStateAsync = ref.watch(bleStateProvider);
+    
+    // Single source of truth for connection state
+    final connectionInfo = connectionInfoAsync.maybeWhen(
+      data: (info) => info,
+      orElse: () => null,
+    );
+    
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Consumer(
-              builder: (context, ref, child) {
-                final nameAsync = ref.watch(nameChangesProvider);
-                
-                return nameAsync.when(
-                  data: (otherName) {
-                    if (otherName != null && otherName.isNotEmpty) {
-                      return Text(
-                        'Chat with $otherName',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      );
-                    } else {
-                      return Text(
-                        'Device $_deviceDisplayName...',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      );
-                    }
-                  },
-                  loading: () => Text(
-                    'Device $_deviceDisplayName...',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  error: (err, stack) => Text(
-                    'Device $_deviceDisplayName...',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                );
-              },
+            Text(
+              connectionInfo?.otherUserName != null && connectionInfo!.otherUserName!.isNotEmpty
+                ? 'Chat with ${connectionInfo!.otherUserName}'
+                : 'Device $_deviceDisplayName...',
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-            Consumer(
-  builder: (context, ref, child) {
-    final connectionInfoAsync = ref.watch(connectionInfoProvider);
-    
-    return connectionInfoAsync.when(
-      data: (info) => Text(
-        info.statusMessage ?? 'Disconnected',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: info.isReady ? Colors.green : (info.isConnected ? Colors.orange : Colors.red),
-        ),
-      ),
-      loading: () => Text(
-        isConnected 
-          ? (hasNameExchange ? 'Ready to chat' : 'Setting up chat...')
-          : 'Connecting...',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: isConnected ? Colors.orange : Colors.grey
-        ),
-      ),
-      error: (err, stack) => Text(
-        isConnected ? 'Connected' : 'Disconnected',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: isConnected ? Colors.green : Colors.red,
-        ),
-      ),
-    );
-  },
-),
+            Text(
+              connectionInfo?.statusMessage ?? 'Disconnected',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: (connectionInfo?.isReady ?? false) ? Colors.green : 
+                       ((connectionInfo?.isConnected ?? false) ? Colors.orange : Colors.red),
+              ),
+            ),
           ],
         ),
         actions: [
           IconButton(
             onPressed: () => _showConnectionInfo(),
             icon: Icon(
-              isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-              color: isConnected ? Colors.green : Colors.red,
+              (connectionInfo?.isConnected ?? false) ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+              color: (connectionInfo?.isConnected ?? false) ? Colors.green : Colors.red,
             ),
           ),
         ],
@@ -339,11 +290,13 @@ final hasNameExchange = nameAsync.maybeWhen(
         bottom: true,
         child: Column(
           children: [
-            if (!isConnected && (
-    (!bleService.isPeripheralMode && isMonitoring) ||
-    (bleService.isPeripheralMode))) _buildReconnectionBanner(),
+            // Reconnection banner
+            if (!(connectionInfo?.isConnected ?? false) && (
+                (!bleService.isPeripheralMode && bleService.isMonitoring) ||
+                (bleService.isPeripheralMode))) 
+              _buildReconnectionBanner(),
             
-            // Messages list - clean, no auto-retry banner
+            // Messages list
             Expanded(
               child: _isLoading
                   ? Center(child: CircularProgressIndicator())
@@ -354,25 +307,23 @@ final hasNameExchange = nameAsync.maybeWhen(
                           padding: EdgeInsets.zero,
                           itemCount: _messages.length + 1,
                           itemBuilder: (context, index) {
-                            // Show retry indicator after last message
                             if (index == _messages.length) {
                               return _buildSubtleRetryIndicator();
                             }
-                            // Show regular message
                             return MessageBubble(
-  message: _messages[index],
-  showAvatar: true,
-  showStatus: true,
-  onRetry: _messages[index].status == MessageStatus.failed 
-    ? () => _retryMessage(_messages[index])
-    : null,
-);
+                              message: _messages[index],
+                              showAvatar: true,
+                              showStatus: true,
+                              onRetry: _messages[index].status == MessageStatus.failed 
+                                ? () => _retryMessage(_messages[index])  // ← FIXED: Removed asterisks
+                                : null,
+                            );
                           },
                         ),
             ),
             
-            // Message input - this will be fixed at bottom
-            _buildMessageInput(isConnected, hasNameExchange),
+            // Message input
+            _buildMessageInput(connectionInfo?.isConnected ?? false, connectionInfo?.isReady ?? false),
           ],
         ),
       ),
@@ -450,60 +401,17 @@ Widget _buildReconnectionBanner() {
   
   if (_isPeripheralMode) {
     // Peripheral mode - show advertising status
-    return Consumer(
-      builder: (context, ref, child) {
-        final advertisingStateAsync = ref.watch(advertisingStateProvider);
-        
-        return advertisingStateAsync.when(
-          data: (state) {
-            switch (state) {
-              case 'starting':
-                return Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.all(12),
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  child: Row(
-                    children: [
-                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                      SizedBox(width: 8),
-                      Text('Starting advertising...', style: TextStyle(fontSize: 12)),
-                    ],
-                  ),
-                );
-              case 'active':
-                return Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.all(12),
-                  color: Theme.of(context).colorScheme.surfaceVariant,
-                  child: Row(
-                    children: [
-                      Icon(Icons.wifi_tethering, size: 16, color: Colors.green),
-                      SizedBox(width: 8),
-                      Text('Advertising - Waiting for connection...', style: TextStyle(fontSize: 12)),
-                    ],
-                  ),
-                );
-              case 'failed':
-                return Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.all(12),
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Row(
-                    children: [
-                      Icon(Icons.error, size: 16),
-                      SizedBox(width: 8),
-                      Text('Advertising failed - Please try switching modes', style: TextStyle(fontSize: 12)),
-                    ],
-                  ),
-                );
-              default:
-                return SizedBox.shrink();
-            }
-          },
-          loading: () => SizedBox.shrink(),
-          error: (err, stack) => SizedBox.shrink(),
-        );
-      },
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(12),
+      color: Theme.of(context).colorScheme.surfaceVariant,
+      child: Row(
+        children: [
+          Icon(Icons.wifi_tethering, size: 16, color: Colors.green),
+          SizedBox(width: 8),
+          Text('Advertising - Waiting for connection...', style: TextStyle(fontSize: 12)),
+        ],
+      ),
     );
   } else {
     // Central mode - show scanning/reconnection status
@@ -525,6 +433,7 @@ Widget _buildReconnectionBanner() {
     );
   }
 }
+
 
   Widget _buildEmptyChat() {
     return Center(
@@ -660,7 +569,7 @@ Widget _buildMessageInput(bool isConnected, bool hasNameExchange) {
         ),
       ),
     ),
-    child: Row( // CHANGED: Remove Column wrapper, no typing display
+    child: Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
@@ -929,28 +838,28 @@ void _setupConnectionListener() {
   _connectionSubscription?.cancel();
   final bleService = ref.read(bleServiceProvider);
   
-  _connectionSubscription = ref.read(connectionStateStreamProvider.stream).listen((isConnected) {
-    if (mounted) {
-      _logger.info('Chat screen received connection state: $isConnected');
-      setState(() {});
-      
-      if (isConnected) {
-        _showSuccess('Device reconnected! âœ…');
-        Future.delayed(Duration(milliseconds: 2500), () {
-          if (mounted) {
-            _autoRetryFailedMessages();
-          }
-        });
-      } else {
-        _showError('Device disconnected âŒ');
-        
-        if (!bleService.isPeripheralMode) {
-          bleService.startConnectionMonitoring();
+  _connectionSubscription = ref.read(connectionInfoProvider.stream).listen((connectionInfo) {
+  final isConnected = connectionInfo.isConnected;
+  if (mounted) {
+    _logger.info('Chat screen received connection state: $isConnected');
+    setState(() {});
+    
+    if (isConnected) {
+      _showSuccess('Device reconnected!');
+      Future.delayed(Duration(milliseconds: 2500), () {
+        if (mounted) {
+          _autoRetryFailedMessages();
         }
-        // Peripheral mode: just wait for incoming connections, don't monitor
+      });
+    } else {
+      _showError('Device disconnected');
+      
+      if (!bleService.isPeripheralMode) {
+        bleService.startConnectionMonitoring();
       }
     }
-  });
+  }
+});
 }
 
   void _showConnectionInfo() {
