@@ -162,7 +162,6 @@ class MessageReassembler {
   final Map<String, Map<int, MessageChunk>> _pendingMessages = {};
   final Map<String, DateTime> _messageTimestamps = {};
   
-  // Add a chunk and return complete message if all chunks received
   String? addChunk(MessageChunk chunk) {
   final messageId = chunk.messageId;
   
@@ -191,60 +190,11 @@ class MessageReassembler {
     _pendingMessages.remove(messageId);
     _messageTimestamps.remove(messageId);
     
-try {
-  // Always try direct concatenation first
-  final reconstructed = sortedChunks.map((c) => c.content).join('');
-  
-  // If it looks like base64 JSON, decode it
-  if (_looksLikeBase64Json(reconstructed)) {
-    try {
-      final decoded = utf8.decode(base64Decode(reconstructed));
-      _logger.info('Decoded base64 message: ${decoded.substring(0, 50)}...');
-      return decoded;
-    } catch (e) {
-      _logger.warning('Base64 decode failed: $e');
-      return reconstructed;
-    }
-  }
-  
-  // For binary chunks (file data), decode each chunk
-  if (sortedChunks[0].isBinary) {
-    final allBytes = <int>[];
-    for (final chunk in sortedChunks) {
-      final chunkBytes = base64Decode(chunk.content);
-      allBytes.addAll(chunkBytes);
-    }
-    return utf8.decode(allBytes);
-  }
-  
-  return reconstructed;
-} catch (e) {
-  _logger.severe('Message reassembly failed: $e');
-  return sortedChunks.map((c) => c.content).join('');
-}
+    // Simple concatenation - no base64 nonsense
+    return sortedChunks.map((c) => c.content).join('');
   }
   
   return null; // Still waiting for more chunks
-}
-
-bool _looksLikeBase64Json(String str) {
-  if (str.length < 10) return false;
-  
-  // Base64 pattern check
-  final base64Pattern = RegExp(r'^[A-Za-z0-9+/]*={0,2}$');
-  if (!base64Pattern.hasMatch(str)) return false;
-  
-  // Try to decode and check if it starts with JSON
-  try {
-    final decoded = utf8.decode(base64Decode(str));
-    final trimmed = decoded.trim();
-    
-    // Check for both old format (has "id") and new protocol (has "type")
-    return trimmed.startsWith('{') && 
-           (trimmed.contains('"id"') || trimmed.contains('"type"'));
-  } catch (e) {
-    return false;
-  }
 }
   
   // Clean up old partial messages (call periodically)

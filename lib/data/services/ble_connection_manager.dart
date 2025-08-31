@@ -60,7 +60,7 @@ bool _isPeripheralMode = false;
   Peripheral? get lastConnectedDevice => _lastConnectedDevice;
   GATTCharacteristic? get messageCharacteristic => _messageCharacteristic;
   int? get mtuSize => _mtuSize;
-  bool get isConnected => _connectedDevice != null;
+  bool get hasBleConnection => _connectedDevice != null;
   bool get isReconnection => _isReconnection;
   bool get isMonitoring => _isMonitoring;
   ChatConnectionState get connectionState => _connectionState;
@@ -99,7 +99,7 @@ bool _isPeripheralMode = false;
     
     _isMonitoring = true;
     _lastConnectedDevice = _connectedDevice;
-    _monitorState = isConnected 
+    _monitorState = hasBleConnection
       ? ConnectionMonitorState.healthChecking 
       : ConnectionMonitorState.reconnecting;
     _monitoringInterval = minInterval;
@@ -148,10 +148,10 @@ bool _isPeripheralMode = false;
   }
 
   Future<void> _performHealthCheck() async {
-    if (_messageOperationInProgress || _connectedDevice == null || _messageCharacteristic == null) {
-      _scheduleNextCheck();
-      return;
-    }
+    if (_messageOperationInProgress || !hasBleConnection || _messageCharacteristic == null) {
+  _scheduleNextCheck();
+  return;
+}
     
     try {
       final pingData = Uint8List.fromList([0x00]);
@@ -218,7 +218,7 @@ bool _isPeripheralMode = false;
 
 void handleBluetoothStateChange(BluetoothLowEnergyState state) {
   if (state == BluetoothLowEnergyState.poweredOn) {
-    if (_lastConnectedDevice != null && !isConnected) {
+    if (_lastConnectedDevice != null && !hasBleConnection) {
       _logger.info('Bluetooth powered on - starting immediate reconnection');
       
       stopConnectionMonitoring();
@@ -232,7 +232,7 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       _logger.info('Bluetooth powered on - peripheral mode or no previous device, skipping reconnection');
     }
   } else if (state == BluetoothLowEnergyState.poweredOff) {
-    if (isConnected) {
+    if (hasBleConnection) {
       _logger.info('Bluetooth powered off - preserving device for reconnection');
       _lastConnectedDevice = _connectedDevice;
     }

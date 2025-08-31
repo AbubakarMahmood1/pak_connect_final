@@ -53,8 +53,16 @@ int? _peripheralNegotiatedMTU;
   // State getters (deleginitializeated)
   BluetoothLowEnergyState get state => centralManager.state;
   bool get isConnected {
-  // Unified definition: connected = has active communication channel
-  return _stateManager.otherUserName != null && 
+  // Central mode: BLE connected + identity exchanged
+  if (!_stateManager.isPeripheralMode) {
+    return _connectionManager.connectedDevice != null && 
+           _stateManager.otherUserName != null && 
+           _stateManager.otherUserName!.isNotEmpty;
+  }
+  
+  // Peripheral mode: has connected central + identity exchanged  
+  return _connectedCentral != null && 
+         _stateManager.otherUserName != null && 
          _stateManager.otherUserName!.isNotEmpty;
 }
   bool get isPeripheralMode => _stateManager.isPeripheralMode;
@@ -287,6 +295,36 @@ _stateManager.clearOtherUserName();
   }
 }
 });
+
+// Peripheral connection state changes (Android only)
+if (Platform.isAndroid) {
+  peripheralManager.connectionStateChanged.listen((event) {
+    _logger.info('Peripheral connection state: ${event.central.uuid} → ${event.state}');
+    
+    if (event.state == ConnectionState.disconnected) {
+      // Central disconnected from us
+      if (_connectedCentral?.uuid == event.central.uuid) {
+        _logger.info('Our connected central disconnected');
+        _connectedCentral = null;
+        _connectedCharacteristic = null;
+        _stateManager.clearOtherUserName();
+        _updateConnectionInfo(
+          isConnected: false, 
+          isReady: false, 
+          statusMessage: 'Central disconnected'
+        );
+      }
+    } else if (event.state == ConnectionState.connected) {
+      // New central connected
+      _logger.info('Central connected: ${event.central.uuid}');
+      _connectedCentral = event.central;
+      _updateConnectionInfo(
+        isConnected: true, 
+        statusMessage: 'Connected - exchanging names...'
+      );
+    }
+  });
+}
     
     // Characteristic notifications (received messages)
     centralManager.characteristicNotified.listen((event) async {
@@ -316,7 +354,6 @@ _stateManager.clearOtherUserName();
   }
   
 Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral, Central? central, GATTCharacteristic? characteristic}) async {
-  // Handle protocol identity messages ONLY (remove all legacy handling)
   // Handle protocol identity messages ONLY
 try {
   final protocolMessage = ProtocolMessage.fromBytes(data);
@@ -528,7 +565,8 @@ _updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Connec
 }
   
   Future<bool> sendMessage(String message, {String? messageId}) async {
-  if (!_connectionManager.isConnected || _connectionManager.messageCharacteristic == null) {
+
+  if (!_connectionManager.hasBleConnection || _connectionManager.messageCharacteristic == null) {
     throw Exception('Not connected to any device');
   }
   
@@ -580,7 +618,7 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
 }
   
   Future<void> _sendIdentityExchange() async {
-  if (!_connectionManager.isConnected || _connectionManager.messageCharacteristic == null) {
+  if (!_connectionManager.hasBleConnection || _connectionManager.messageCharacteristic == null) {
     throw Exception('Cannot send identity exchange - not properly connected');
   }
   

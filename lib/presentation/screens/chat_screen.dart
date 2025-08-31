@@ -128,14 +128,7 @@ Future<void> _restartAdvertising() async {
     final bleService = ref.read(bleServiceProvider);
     bool isConnected;
 
-if (_isPeripheralMode) {
-    // For peripheral: check if we have active name AND BT is on
-    isConnected = bleService.otherUserName != null && 
-                  bleService.otherUserName!.isNotEmpty &&
-                  bleService.state == BluetoothLowEnergyState.poweredOn;
-  } else {
-    isConnected = bleService.isConnected;
-  }
+isConnected = bleService.isConnected;
 
   if (!isConnected) {
     _showError('Cannot retry messages - device not connected');
@@ -656,15 +649,8 @@ return FloatingActionButton.small(
     if (_isCentralMode) {
       // Central mode: send via writeCharacteristic
       final bleService = ref.read(bleServiceProvider);
-      // Check connection state based on mode
-bool isConnected;
-if (_isCentralMode) {
-  isConnected = bleService.isConnected;
-} else {
-  isConnected = bleService.otherDevicePersistentId != null;
-}
 
-if (!isConnected) {
+if (!bleService.isConnected) {
   _showError('Not connected - please ensure devices are paired');
   return;
 }

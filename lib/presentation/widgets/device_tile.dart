@@ -24,9 +24,8 @@ Widget build(BuildContext context, WidgetRef ref) {
     orElse: () => null,
   );
   
-  final isConnected = bleService.isConnected && 
-      (bleService.connectedDevice?.uuid == device.uuid || 
-       (connectionInfo?.otherUserName != null && connectionInfo!.otherUserName!.isNotEmpty));
+ final isConnected = bleService.isConnected && 
+    (bleService.connectedDevice?.uuid == device.uuid);
   
   final hasNameExchange = connectionInfo?.otherUserName != null && 
                          connectionInfo!.otherUserName!.isNotEmpty;
