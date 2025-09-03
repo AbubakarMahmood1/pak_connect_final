@@ -64,6 +64,12 @@ bool _isPeripheralMode = false;
   bool get isReconnection => _isReconnection;
   bool get isMonitoring => _isMonitoring;
   ChatConnectionState get connectionState => _connectionState;
+    bool get isActivelyReconnecting => 
+    _isMonitoring && _monitorState == ConnectionMonitorState.reconnecting;
+  
+  bool get isHealthChecking => 
+    _isMonitoring && _monitorState == ConnectionMonitorState.healthChecking;
+
 
   void _updateConnectionState(ChatConnectionState newState, {String? error}) {
   if (_connectionState != newState) {
@@ -203,6 +209,7 @@ bool _isPeripheralMode = false;
         _reconnectAttempts = 0;
         _monitorState = ConnectionMonitorState.healthChecking;
         _monitoringInterval = minInterval;
+        _isReconnection = false;
         _logger.info('Reconnection successful');
       }
     } catch (e) {

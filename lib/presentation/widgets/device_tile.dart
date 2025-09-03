@@ -24,39 +24,44 @@ Widget build(BuildContext context, WidgetRef ref) {
     orElse: () => null,
   );
   
- final isConnected = bleService.isConnected && 
-    (bleService.connectedDevice?.uuid == device.uuid);
+  // Check if THIS specific device is connected
+  final isThisDeviceConnected = bleService.isConnected && 
+    bleService.connectedDevice?.uuid == device.uuid;
   
-  final hasNameExchange = connectionInfo?.otherUserName != null && 
-                         connectionInfo!.otherUserName!.isNotEmpty;
+  // Use connection info name if this is the connected device
+  final displayName = (isThisDeviceConnected && connectionInfo?.otherUserName != null)
+    ? connectionInfo!.otherUserName!
+    : 'Device ${device.uuid.toString().substring(0, 8)}...';
+  
+  final hasNameExchange = isThisDeviceConnected && 
+    connectionInfo?.otherUserName != null && 
+    connectionInfo!.otherUserName!.isNotEmpty;
   
   return Card(
     margin: EdgeInsets.only(bottom: 8),
     child: ListTile(
       leading: CircleAvatar(
-        backgroundColor: isConnected 
+        backgroundColor: isThisDeviceConnected 
             ? (hasNameExchange ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2))
             : Theme.of(context).colorScheme.primaryContainer,
         child: Icon(
-          isConnected ? Icons.phone_android : Icons.phone_android,
-          color: isConnected 
+          Icons.phone_android,
+          color: isThisDeviceConnected 
               ? (hasNameExchange ? Colors.green : Colors.orange)
               : Theme.of(context).colorScheme.onPrimaryContainer,
         ),
       ),
       title: Text(
-        hasNameExchange && isConnected
-            ? connectionInfo!.otherUserName!
-            : 'Device ${device.uuid.toString().substring(0, 8)}...',
+        displayName,
         style: Theme.of(context).textTheme.titleMedium,
       ),
       subtitle: Text(
-        _getSubtitleText(isConnected, hasNameExchange),
+        _getSubtitleText(isThisDeviceConnected, hasNameExchange),
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: isConnected ? (hasNameExchange ? Colors.green : Colors.orange) : null,
+          color: isThisDeviceConnected ? (hasNameExchange ? Colors.green : Colors.orange) : null,
         ),
       ),
-      trailing: _buildActionButton(context, isConnected, hasNameExchange, device),
+      trailing: _buildActionButton(context, isThisDeviceConnected, hasNameExchange, device),
     ),
   );
 }

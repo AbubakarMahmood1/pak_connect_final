@@ -18,6 +18,7 @@ class DiscoveryScreen extends ConsumerStatefulWidget {
 
 class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   bool _isScanning = false;
+  bool _navigatedToChat = false;
   final _logger = Logger('DiscoveryScreen');
   StreamSubscription? _connectionSubscription;
   bool _hasInitialized = false;
@@ -28,22 +29,19 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     _setupConnectionListener();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    
-    // This runs every time we navigate TO this screen
-    if (!_hasInitialized) {
-      _hasInitialized = true;
-      // First time setup
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _initializeScreen();
-      });
-    } else {
-      // Returning to screen - refresh immediately
-      _refreshScreen();
-    }
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  
+  if (!_hasInitialized) {
+    _hasInitialized = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeScreen();
+    });
+  } else if (!_navigatedToChat) {
+    _refreshScreen();
   }
+}
 
  void _initializeScreen() {
     final bleService = ref.read(bleServiceProvider);
@@ -54,19 +52,28 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     }
   }
 
-  void _refreshScreen() {
-    final bleService = ref.read(bleServiceProvider);
-    
-    // Clear any stale state and refresh UI
-    setState(() {}); 
-    
-    // If we're in scanner mode and not already scanning, start fresh scan
-    if (!bleService.isPeripheralMode && !_isScanning) {
-      Future.delayed(Duration(milliseconds: 300), () {
-        if (mounted) _startScanning();
-      });
-    }
+void _refreshScreen() {
+  final bleService = ref.read(bleServiceProvider);
+  
+  // Don't refresh if navigated to chat
+  if (_navigatedToChat) {
+    return;
   }
+  
+  setState(() {}); 
+  
+  // Only start scanning if truly disconnected and not already scanning
+  if (!bleService.isPeripheralMode && 
+      !_isScanning && 
+      !bleService.isConnected &&
+      !_navigatedToChat) {
+    Future.delayed(Duration(milliseconds: 300), () {
+      if (mounted && !_navigatedToChat && !bleService.isConnected) {
+        _startScanning();
+      }
+    });
+  }
+}
 
   void _setupConnectionListener() {
   // Cancel any existing subscription first
@@ -103,6 +110,12 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     final bleService = ref.watch(bleServiceProvider);
     final devicesAsync = ref.watch(discoveredDevicesProvider);
     final bleStateAsync = ref.watch(bleStateProvider);
+
+  final connectionInfoAsync = ref.watch(connectionInfoProvider);
+  final actualConnectionState = connectionInfoAsync.maybeWhen(
+    data: (info) => info,
+    orElse: () => null,
+  );
 
     return Scaffold(
       appBar: AppBar(
@@ -307,10 +320,15 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   
   return Consumer(
     builder: (context, ref, child) {
-      // Check if there's an active connection using connectionInfoProvider
       final connectionInfoAsync = ref.watch(connectionInfoProvider);
-      final hasConnection = connectionInfoAsync.maybeWhen(
-        data: (info) => info.otherUserName != null && info.otherUserName!.isNotEmpty,
+
+   final hasConnection = connectionInfoAsync.maybeWhen(
+        data: (info) {
+          // Only show connected if we're in peripheral mode AND have a real connection
+          return bleService.isPeripheralMode && 
+                 info.otherUserName != null && 
+                 info.otherUserName!.isNotEmpty;
+        },
         orElse: () => false,
       );
       
@@ -463,62 +481,81 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
 }
 
   Future<void> _startScanning() async {
-    if (_isScanning) return;
-    
-    final bleService = ref.read(bleServiceProvider);
-    if (bleService.isPeripheralMode) {
-      _showError('Cannot scan while in discoverable mode. Switch to Scanner mode first.');
-      return;
-    }
-    
-    try {
-      await bleService.startScanning();
-      setState(() {
-        _isScanning = true;
-      });
-      
-      // Auto-stop scanning after 30 seconds
-      Future.delayed(Duration(seconds: 30), () {
-        if (mounted && _isScanning) {
-          _stopScanning();
-        }
-      });
-    } catch (e) {
-      _showError('Failed to start scanning: $e');
-    }
+  if (_isScanning) return;
+  
+  final bleService = ref.read(bleServiceProvider);
+  
+  // Don't scan if connected
+  if (bleService.isConnected) {
+    _logger.info('Already connected, not starting scan');
+    return;
   }
+  
+  if (bleService.isPeripheralMode) {
+    _showError('Cannot scan while in discoverable mode. Switch to Scanner mode first.');
+    return;
+  }
+  
+  try {
+    await bleService.startScanning();
+    setState(() {
+      _isScanning = true;
+    });
+    
+    // Auto-stop scanning after 30 seconds
+    Future.delayed(Duration(seconds: 30), () {
+      if (mounted && _isScanning && !bleService.isConnected) {
+        _stopScanning();
+      }
+    });
+  } catch (e) {
+    _showError('Failed to start scanning: $e');
+  }
+}
 
-  Future<void> _stopScanning() async {
-    if (!_isScanning) return;
-    
-    try {
-      final bleService = ref.read(bleServiceProvider);
-      await bleService.stopScanning();
-      setState(() {
-        _isScanning = false;
-      });
-    } catch (e) {
-      _showError('Failed to stop scanning: $e');
-    }
+Future<void> _stopScanning() async {
+  if (!_isScanning) return;
+  
+  try {
+    final bleService = ref.read(bleServiceProvider);
+    await bleService.stopScanning();
+    setState(() {
+      _isScanning = false;
+    });
+  } catch (e) {
+    _showError('Failed to stop scanning: $e');
   }
+}
 
 void _connectToDevice(Peripheral device, bleService) async {
-  if (bleService.isConnected) {
-    // If connected to any device, go to chat with this device
-    Navigator.push(
+  // Check if already connected to this specific device
+  if (bleService.isConnected && bleService.connectedDevice?.uuid == device.uuid) {
+    setState(() {
+      _navigatedToChat = true;  // Set flag before navigation
+    });
+    
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ChatScreen(device: device),
       ),
     );
+    
+    setState(() {
+      _navigatedToChat = false;  // Clear flag when returning
+    });
     return;
   }
   
-  // Rest of connection logic...
+  // Stop scanning if active
   if (_isScanning) {
     await _stopScanning();
+    setState(() {
+      _isScanning = false;
+    });
   }
   
+  // Show connecting dialog
   showDialog(
     context: context,
     barrierDismissible: false,
@@ -536,94 +573,123 @@ void _connectToDevice(Peripheral device, bleService) async {
   try {
     _logger.info('Connection attempt for ${device.uuid}');
     await bleService.connectToDevice(device);
-    if (_isScanning) {
-  	await _stopScanning();
-    }
+    
     setState(() {});
     
-    if (mounted) Navigator.pop(context);
+    if (mounted) Navigator.pop(context);  // Close connecting dialog
     
-       String? currentName = bleService.otherUserName;
-  if (currentName == null || currentName.isEmpty) {
-    _logger.info('Waiting for identity exchange...');
-    // Wait up to 5 seconds for identity exchange
-    for (int i = 0; i < 50; i++) {
-      await Future.delayed(Duration(milliseconds: 100));
-      currentName = bleService.otherUserName;
-      if (currentName != null && currentName.isNotEmpty) {
-        _logger.info('Identity exchange completed: $currentName');
-        break;
+    // Wait for identity exchange
+    String? currentName = bleService.otherUserName;
+    if (currentName == null || currentName.isEmpty) {
+      _logger.info('Waiting for identity exchange...');
+      for (int i = 0; i < 50; i++) {
+        await Future.delayed(Duration(milliseconds: 100));
+        currentName = bleService.otherUserName;
+        if (currentName != null && currentName.isNotEmpty) {
+          _logger.info('Identity exchange completed: $currentName');
+          break;
+        }
       }
     }
-  }
-  
-  if (mounted) {
-  // Allow connection phase to stabilize before opening chat
-  await Future.delayed(Duration(milliseconds: 500));
-  
-  if (mounted) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(device: device),
-      ),
-    );
-  }
-}
-} catch (e) {
-    if (mounted) Navigator.pop(context);
+    
+    if (mounted) {
+      setState(() {
+        _navigatedToChat = true;
+      });
+      
+      await Future.delayed(Duration(milliseconds: 500));
+      
+      if (mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChatScreen(device: device),
+          ),
+        );
+        
+        // When returning from chat
+        setState(() {
+          _navigatedToChat = false;
+        });
+
+         final bleService = ref.read(bleServiceProvider);
+    if (bleService.isConnected) {
+      setState(() {});
+    }
+      }
+    }
+  } catch (e) {
+    if (mounted) Navigator.pop(context);  // Close connecting dialog
     _showError('Connection failed: ${e.toString().split(':').last}');
     _logger.warning('Connection failed: $e');
   }
 }
 
-  void _switchToCentralMode() async {
-    try {
-      _logger.info('Switching to central mode...');
-      
-      // Cancel connection listener when switching away from peripheral
-      _connectionSubscription?.cancel();
-      
-      final bleService = ref.read(bleServiceProvider);
-      await bleService.startAsCentral();
-      
-      await Future.delayed(Duration(milliseconds: 1000));
-      
-      setState(() {});
-      _showSuccess('Switched to Scanner mode - you can now discover other devices');
+void _switchToCentralMode() async {
+  try {
+    _logger.info('Switching to central mode...');
+    
+    // CRITICAL: Clear navigation flag when switching modes
+    _navigatedToChat = false;
+    
+    if (_isScanning) {
+      _isScanning = false;
+    }
+    
+    _connectionSubscription?.cancel();
+    
+    final bleService = ref.read(bleServiceProvider);
+    await bleService.startAsCentral();
+    
+    await Future.delayed(Duration(milliseconds: 1000));
+    
+    if (mounted) {
+      setState(() {
+        _navigatedToChat = false;  // Ensure it's cleared
+      });
+      _showSuccess('Switched to Scanner mode');
       
       Future.delayed(Duration(milliseconds: 500), () {
-        if (mounted && !bleService.isPeripheralMode) {
+        if (mounted && !bleService.isPeripheralMode && !_navigatedToChat) {
           _startScanning();
         }
       });
-    } catch (e) {
-      _showError('Failed to switch mode: $e');
     }
+  } catch (e) {
+    _showError('Failed to switch mode: $e');
   }
+}
 
-  void _switchToPeripheralMode() async {
-    try {
-      _logger.info('Switching to peripheral mode...');
-      
-      if (_isScanning) {
-        await _stopScanning();
-      }
-      
-      final bleService = ref.read(bleServiceProvider);
-      await bleService.startAsPeripheral();
-      
-      await Future.delayed(Duration(milliseconds: 1500));
-      
-      // Re-setup connection listener for peripheral mode
-      _setupConnectionListener();
-      
-      setState(() {});
-      _showSuccess('Switched to Discoverable mode - other devices can now find you');
-    } catch (e) {
-      _showError('Failed to switch mode: $e');
+void _switchToPeripheralMode() async {
+  try {
+    _logger.info('Switching to peripheral mode...');
+    
+    // CRITICAL: Clear navigation flag when switching modes
+    _navigatedToChat = false;
+    
+    if (_isScanning) {
+      await _stopScanning();
+      _isScanning = false;
     }
+    
+    final bleService = ref.read(bleServiceProvider);
+    await bleService.startAsPeripheral();
+    
+    await Future.delayed(Duration(milliseconds: 1500));
+    
+    _setupConnectionListener();
+    
+    if (mounted) {
+      setState(() {
+        _navigatedToChat = false;  // Ensure it's cleared
+      });
+      _showSuccess('Switched to Discoverable mode');
+    }
+  } catch (e) {
+    _showError('Failed to switch mode: $e');
   }
+}
+
 
   void _showModeExplanation() {
     showDialog(

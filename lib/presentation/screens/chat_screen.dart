@@ -51,47 +51,58 @@ String get _deviceDisplayName {
   }
 }
 
-  @override
+@override
 void initState() {
   super.initState();
   _currentChatId = _calculateInitialChatId();
-  _loadMessages();
-  _setupMessageListener();
-  _setupConnectionListener();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-    ref.listen(connectionInfoProvider, (previous, next) {
-      if (next.hasValue && 
-          next.value?.otherUserName != null && 
-          next.value!.otherUserName!.isNotEmpty) {
-        _handleIdentityReceived();
-      }
-    });
+  
+  // Load messages after a brief delay to ensure chat ID is set
+  Future.delayed(Duration(milliseconds: 100), () {
+    if (mounted) {
+      _loadMessages();
+    }
   });
   
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    _scrollToBottom();
-  });
+  _setupMessageListener();
+  _setupConnectionListener();
 }
 
 Future<void> _manualReconnection() async {
   final bleService = ref.read(bleServiceProvider);
   
+  // Check if already connected
+  if (bleService.isConnected) {
+    _showSuccess('Already connected');
+    return;
+  }
+  
   _showSuccess('Manually searching for device...');
   
   try {
     final foundDevice = await bleService.scanForSpecificDevice(
-  timeout: Duration(seconds: 10)
-);
+      timeout: Duration(seconds: 10)
+    );
     
     if (foundDevice != null) {
+      // Check if this is the same device we're already connected to
+      if (bleService.connectedDevice?.uuid == foundDevice.uuid) {
+        _showSuccess('Already connected to this device');
+        return;
+      }
+      
       await bleService.connectToDevice(foundDevice);
       _showSuccess('Manual reconnection successful!');
     } else {
       _showError('Device not found - ensure other device is in discoverable mode');
     }
   } catch (e) {
-    _showError('Manual reconnection failed: ${e.toString().split(':').last}');
+    // Better error handling for already connected case
+    final errorMsg = e.toString();
+    if (errorMsg.contains('1049')) {
+      _showSuccess('Already connected to device');
+    } else {
+      _showError('Manual reconnection failed: ${errorMsg.split(':').last}');
+    }
   }
 }
 
@@ -238,6 +249,17 @@ isConnected = bleService.isConnected;
 
 @override
 Widget build(BuildContext context) {
+  ref.listen(connectionInfoProvider, (previous, next) {
+    if (next.hasValue && 
+        next.value?.otherUserName != null && 
+        next.value!.otherUserName!.isNotEmpty &&
+        previous?.value?.otherUserName != next.value?.otherUserName) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _handleIdentityReceived();
+      });
+    }
+  });
+
   try {
     final bleService = ref.watch(bleServiceProvider);
     final connectionInfoAsync = ref.watch(connectionInfoProvider);
@@ -248,6 +270,10 @@ Widget build(BuildContext context) {
       data: (info) => info,
       orElse: () => null,
     );
+
+final actuallyConnected = _isCentralMode 
+  ? (bleService.isConnected && bleService.connectedDevice?.uuid == widget.device?.uuid)
+  : (bleService.isConnected && _isPeripheralMode);
     
     return Scaffold(
       appBar: AppBar(
@@ -270,24 +296,31 @@ Widget build(BuildContext context) {
           ],
         ),
         actions: [
-          IconButton(
-            onPressed: () => _showConnectionInfo(),
-            icon: Icon(
-              (connectionInfo?.isConnected ?? false) ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-              color: (connectionInfo?.isConnected ?? false) ? Colors.green : Colors.red,
-            ),
-          ),
-        ],
+  // Show identity request button if connected but no name
+  if ((connectionInfo?.isConnected ?? false) && 
+      (connectionInfo?.otherUserName == null || connectionInfo!.otherUserName!.isEmpty))
+    IconButton(
+      onPressed: _requestIdentityExchange,
+      icon: Icon(Icons.person_search, color: Colors.orange),
+      tooltip: 'Request name exchange',
+    ),
+    
+  IconButton(
+    onPressed: () => _showConnectionInfo(),
+    icon: Icon(
+      (connectionInfo?.isConnected ?? false) ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+      color: (connectionInfo?.isConnected ?? false) ? Colors.green : Colors.red,
+    ),
+  ),
+],
       ),
       body: SafeArea(
         bottom: true,
         child: Column(
           children: [
             // Reconnection banner
-            if (!(connectionInfo?.isConnected ?? false) && (
-                (!bleService.isPeripheralMode && bleService.isMonitoring) ||
-                (bleService.isPeripheralMode))) 
-              _buildReconnectionBanner(),
+if (!actuallyConnected || bleService.isActivelyReconnecting) 
+  _buildReconnectionBanner(),
             
             // Messages list
             Expanded(
@@ -407,26 +440,30 @@ Widget _buildReconnectionBanner() {
       ),
     );
   } else {
-    // Central mode - show scanning/reconnection status
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(12),
-      color: Theme.of(context).colorScheme.errorContainer,
-      child: Row(
-        children: [
-          SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-          SizedBox(width: 8),
-          Expanded(child: Text('Searching for device...', style: TextStyle(fontSize: 12))),
-          TextButton(
-            onPressed: _manualReconnection,
-            child: Text('Reconnect Now'),
-          ),
-        ],
-      ),
-    );
+    // Central mode - ONLY show banner if actively reconnecting (not health checking)
+    if (bleService.isActivelyReconnecting) {
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(12),
+        color: Theme.of(context).colorScheme.errorContainer,
+        child: Row(
+          children: [
+            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 8),
+            Expanded(child: Text('Searching for device...', style: TextStyle(fontSize: 12))),
+            TextButton(
+              onPressed: _manualReconnection,
+              child: Text('Reconnect Now'),
+            ),
+          ],
+        ),
+      );
+    }
   }
+  
+  // No banner needed - connection is healthy
+  return SizedBox.shrink();
 }
-
 
   Widget _buildEmptyChat() {
     return Center(
@@ -797,6 +834,24 @@ Future<void> _handleIdentityReceived() async {
       _currentChatId = newChatId;
       await _loadMessages(); // Reload with new chat ID
     }
+  }
+}
+
+Future<void> _requestIdentityExchange() async {
+  final bleService = ref.read(bleServiceProvider);
+  
+  if (!bleService.isConnected) {
+    _showError('Not connected to request identity');
+    return;
+  }
+  
+  _showSuccess('Requesting identity exchange...');
+  
+  try {
+    await bleService.requestIdentityExchange();
+    _showSuccess('Identity request sent');
+  } catch (e) {
+    _showError('Failed to request identity: $e');
   }
 }
 

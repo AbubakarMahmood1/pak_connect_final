@@ -37,21 +37,36 @@ class MessageBubble extends StatelessWidget {
                 ),
                 padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
-                  color: isFromMe 
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.surfaceVariant,
-                  borderRadius: BorderRadius.circular(18).copyWith(
-                    bottomRight: isFromMe ? Radius.circular(4) : Radius.circular(18),
-                    bottomLeft: isFromMe ? Radius.circular(18) : Radius.circular(4),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 3,
-                      offset: Offset(0, 1),
-                    ),
-                  ],
-                ),
+  gradient: isFromMe 
+    ? LinearGradient(
+        colors: [
+          Theme.of(context).colorScheme.primary,
+          Theme.of(context).colorScheme.primary.withOpacity(0.8),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      )
+    : null,
+  color: isFromMe 
+    ? null  // Use gradient instead
+    : Theme.of(context).colorScheme.surfaceVariant,
+  borderRadius: BorderRadius.circular(20).copyWith(
+    bottomRight: isFromMe ? Radius.circular(6) : Radius.circular(20),
+    bottomLeft: isFromMe ? Radius.circular(20) : Radius.circular(6),
+  ),
+  boxShadow: [
+    BoxShadow(
+      color: Colors.black.withOpacity(0.1),
+      blurRadius: 6,
+      offset: Offset(0, 2),
+    ),
+    BoxShadow(
+      color: Colors.black.withOpacity(0.05),
+      blurRadius: 1,
+      offset: Offset(0, 1),
+    ),
+  ],
+),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

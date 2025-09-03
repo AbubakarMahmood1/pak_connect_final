@@ -72,6 +72,9 @@ int? _peripheralNegotiatedMTU;
   String? get otherUserName => _stateManager.otherUserName;
   String? get otherDevicePersistentId => _stateManager.otherDevicePersistentId;
   String? get myPersistentId => _stateManager.myPersistentId;
+  bool get isActivelyReconnecting => 
+    !_stateManager.isPeripheralMode && _connectionManager.isActivelyReconnecting;
+
   
   Future<void> initialize() async {
     // Dispose existing controllers if they exist
@@ -127,9 +130,18 @@ _connectionManager.onConnectionInfoChanged = (info) {
 };
 
     _connectionManager.onConnectionComplete = () async {
-    _logger.info('Connection complete - performing name exchange');
-    await _performNameExchangeWithRetry();
-  };
+  _logger.info('Connection complete - performing name exchange');
+  
+  // CRITICAL: Stop discovery after successful connection
+  try {
+    await centralManager.stopDiscovery();
+    _logger.info('Stopped discovery after successful connection');
+  } catch (e) {
+    // Ignore
+  }
+  
+  await _performNameExchangeWithRetry();
+};
     
     _connectionManager.onCharacteristicFound = (characteristic) {
       // Characteristic found, ready for messaging
@@ -140,19 +152,57 @@ _connectionManager.onConnectionInfoChanged = (info) {
     };
     
     _stateManager.onNameChanged = (name) {
-  _logger.info('DEBUG: Emitting name change: "$name"');
-  _updateConnectionInfo(
-  isReady: name != null && name.isNotEmpty,
-  otherUserName: name,
-  statusMessage: name != null && name.isNotEmpty ? 'Ready to chat' : 'Setting up chat...',
-);
-
+  _logger.info('DEBUG: Name change received: "$name" (peripheral mode: ${_stateManager.isPeripheralMode})');
   
-  // For peripheral mode, emit connection state based on identity exchange
   if (_stateManager.isPeripheralMode) {
-    final hasIdentity = _stateManager.otherDevicePersistentId != null;
-    _logger.info('DEBUG: Peripheral emitting connection state: $hasIdentity');
-    _updateConnectionInfo(isConnected: hasIdentity);
+    // Peripheral mode: only update if we have a connected central
+    if (_connectedCentral != null && name != null && name.isNotEmpty) {
+      _logger.info('Peripheral: Identity exchange complete with $name');
+      _updateConnectionInfo(
+        isConnected: true,
+        isReady: true,
+        otherUserName: name,
+        statusMessage: 'Ready to chat',
+        isAdvertising: false
+      );
+    } else if (name == null && _connectedCentral == null) {
+      // Only clear if we're actually disconnected
+      _updateConnectionInfo(
+        isConnected: false,
+        isReady: false,
+        otherUserName: null,
+        statusMessage: 'Advertising',
+        isAdvertising: true
+      );
+    }
+  } else {
+    // Central mode: only update if we have an actual BLE connection
+    if (_connectionManager.connectedDevice != null) {
+      if (name != null && name.isNotEmpty) {
+        _updateConnectionInfo(
+          isConnected: true,  // Now we're fully connected
+          isReady: true,
+          otherUserName: name,
+          statusMessage: 'Ready to chat'
+        );
+      } else {
+        // Name cleared but still have BLE connection
+        _updateConnectionInfo(
+          isConnected: true,  // Still BLE connected
+          isReady: false,    // But not ready for chat
+          otherUserName: null,
+          statusMessage: 'Exchanging names...'
+        );
+      }
+    } else if (name == null) {
+      // No BLE connection and no name - fully disconnected
+      _updateConnectionInfo(
+        isConnected: false,
+        isReady: false,
+        otherUserName: null,
+        statusMessage: 'Disconnected'
+      );
+    }
   }
 };
     
@@ -171,20 +221,43 @@ void _updateConnectionInfo({
   bool? isAdvertising, 
   bool? isReconnecting,
 }) {
-  _currentConnectionInfo = _currentConnectionInfo.copyWith(
-    isConnected: isConnected,
-    isReady: isReady,
-    otherUserName: otherUserName,
-    statusMessage: statusMessage,
-    isScanning: isScanning,
-    isAdvertising: isAdvertising,
-    isReconnecting: isReconnecting,
-  );
+  // Don't let scanning updates override connection state
+  if (isScanning != null && isConnected == null && isReady == null) {
+    // This is just a scanning update, preserve connection state
+    _currentConnectionInfo = _currentConnectionInfo.copyWith(
+      isScanning: isScanning,
+      statusMessage: statusMessage ?? (_currentConnectionInfo.isConnected 
+        ? (_currentConnectionInfo.isReady ? 'Ready to chat' : 'Exchanging names...') 
+        : 'Disconnected'),
+    );
+  } else if (isConnected == false) {
+    // Explicit disconnection
+    _currentConnectionInfo = ConnectionInfo(
+      isConnected: false,
+      isReady: false,
+      otherUserName: otherUserName,
+      statusMessage: statusMessage ?? 'Disconnected',
+      isScanning: isScanning ?? false,
+      isAdvertising: isAdvertising ?? _currentConnectionInfo.isAdvertising,
+      isReconnecting: isReconnecting ?? false,
+    );
+  } else {
+    // Normal update
+    _currentConnectionInfo = _currentConnectionInfo.copyWith(
+      isConnected: isConnected,
+      isReady: isReady,
+      otherUserName: otherUserName,
+      statusMessage: statusMessage,
+      isScanning: isScanning,
+      isAdvertising: isAdvertising,
+      isReconnecting: isReconnecting,
+    );
+  }
   
   _connectionInfoController?.add(_currentConnectionInfo);
   _logger.info('Connection info updated: ${_currentConnectionInfo.statusMessage}');
 }
-  
+
   void _setupEventListeners() {
     // Central manager state changes
    centralManager.stateChanged.listen((event) async {
@@ -271,57 +344,77 @@ peripheralManager.mtuChanged.listen((event) {
 });
 
 centralManager.discovered.listen((event) {
-    final device = event.peripheral;
-    
-    // Check if UUID already exists
-    if (!_discoveredDevices.any((d) => d.uuid == device.uuid)) {
-      _discoveredDevices.add(device);
-      _devicesController?.add(List.from(_discoveredDevices));
-      _logger.info('Discovered device: ${device.uuid}');
-    }
-  });
+  final device = event.peripheral;
+  
+  // Remove any existing entry for this device first
+  _discoveredDevices.removeWhere((d) => d.uuid == device.uuid);
+  
+  // Add the fresh entry
+  _discoveredDevices.add(device);
+  
+  _devicesController?.add(List.from(_discoveredDevices));
+  _logger.info('Device list updated: ${_discoveredDevices.length} devices');
+});
     
     // Connection state changes
 centralManager.connectionStateChanged.listen((event) {
   _logger.info('Connection state: ${event.peripheral.uuid} → ${event.state}');
   
   if (event.state == ConnectionState.disconnected) {
-  if (_connectionManager.connectedDevice?.uuid == event.peripheral.uuid) {
-    _logger.info('Our device disconnected - clearing state but keeping monitoring');
+    // Remove disconnected device from discovery list
+    _discoveredDevices.removeWhere((d) => d.uuid == event.peripheral.uuid);
+    _devicesController?.add(List.from(_discoveredDevices));
     
-_updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Disconnected');
-_connectionManager.clearConnectionState(keepMonitoring: _connectionManager.isMonitoring);
-_stateManager.clearOtherUserName();
+    if (_connectionManager.connectedDevice?.uuid == event.peripheral.uuid) {
+      _logger.info('Our device disconnected - clearing state');
+      
+      _updateConnectionInfo(
+        isConnected: false, 
+        isReady: false, 
+        otherUserName: null,  // Clear the name
+        statusMessage: 'Disconnected'
+      );
+      
+      _connectionManager.clearConnectionState(keepMonitoring: _connectionManager.isMonitoring);
+      _stateManager.clearOtherUserName();
+    }
   }
-}
 });
 
 // Peripheral connection state changes (Android only)
 if (Platform.isAndroid) {
   peripheralManager.connectionStateChanged.listen((event) {
+    if (!_stateManager.isPeripheralMode) {
+      return;  // Ignore if not in peripheral mode
+    }
+    
     _logger.info('Peripheral connection state: ${event.central.uuid} → ${event.state}');
     
-    if (event.state == ConnectionState.disconnected) {
-      // Central disconnected from us
+    if (event.state == ConnectionState.connected) {
+      _logger.info('Central connected to our peripheral: ${event.central.uuid}');
+      _connectedCentral = event.central;
+      
+      _updateConnectionInfo(
+        isConnected: false,  // Not ready yet
+        isReady: false,
+        statusMessage: 'Connected - exchanging names...',
+        isAdvertising: false
+      );
+      
+    } else if (event.state == ConnectionState.disconnected) {
       if (_connectedCentral?.uuid == event.central.uuid) {
-        _logger.info('Our connected central disconnected');
+        _logger.info('Connected central disconnected from our peripheral');
         _connectedCentral = null;
         _connectedCharacteristic = null;
         _stateManager.clearOtherUserName();
         _updateConnectionInfo(
           isConnected: false, 
-          isReady: false, 
-          statusMessage: 'Central disconnected'
+          isReady: false,
+          otherUserName: null,
+          statusMessage: 'Advertising',
+          isAdvertising: true
         );
       }
-    } else if (event.state == ConnectionState.connected) {
-      // New central connected
-      _logger.info('Central connected: ${event.central.uuid}');
-      _connectedCentral = event.central;
-      _updateConnectionInfo(
-        isConnected: true, 
-        statusMessage: 'Connected - exchanging names...'
-      );
     }
   });
 }
@@ -336,8 +429,13 @@ if (Platform.isAndroid) {
     // Peripheral write requests (received messages in peripheral mode)
     peripheralManager.characteristicWriteRequested.listen((event) async {
   try {
-    // Track the connected central and characteristic for message sending
-    _connectedCentral = event.central;
+    // Set connected central if not already set
+    if (_connectedCentral == null) {
+      _connectedCentral = event.central;
+      _logger.info('Setting connected central from write request: ${event.central.uuid}');
+    }
+    
+    // Always update the characteristic reference
     _connectedCharacteristic = event.characteristic;
     
     await _handleReceivedData(event.request.value, isFromPeripheral: true, central: event.central, characteristic: event.characteristic);
@@ -426,13 +524,33 @@ try {
   Future<void> startAsPeripheral() async {
     _logger.info('Starting as Peripheral (discoverable)...');
 
+  _stateManager.setPeripheralMode(true);
+  _connectionManager.setPeripheralMode(true);
+
+  if (_connectionManager.connectedDevice != null) {
+    try {
+      await _connectionManager.disconnect();
+    } catch (e) {
+      _logger.warning('Error disconnecting during mode switch: $e');
+    }
+  }
+
+  _connectedCentral = null;
+  _connectedCharacteristic = null;
+  _peripheralNegotiatedMTU = null;
+
     try {
       await centralManager.stopDiscovery();
     } catch (e) {
       // Ignore
     }
 
-   _updateConnectionInfo(isAdvertising: false, statusMessage: 'Starting advertising...');
+  _updateConnectionInfo(
+    isConnected: false, 
+    isReady: false, 
+    otherUserName: null,
+    statusMessage: 'Switching to peripheral mode...'
+  );
     
     _connectionManager.clearConnectionState();
     _stateManager.clearOtherUserName();
@@ -483,51 +601,113 @@ try {
   }
   
   Future<void> startAsCentral() async {
-    _logger.info('Starting as Central (scanner)...');
-    
+  _logger.info('Starting as Central (scanner)...');
+  
+  // CRITICAL: Set mode FIRST before any other operations
+  _stateManager.setPeripheralMode(false);
+  _connectionManager.setPeripheralMode(false);
+  
+  // Then clear peripheral state
+  _connectedCentral = null;
+  _connectedCharacteristic = null;
+  _peripheralNegotiatedMTU = null;
+  
+  try {
+    await peripheralManager.stopAdvertising();
+    await peripheralManager.removeAllServices();
+  } catch (e) {
+    // Ignore
+  }
+  
+  // Now clear connection info (mode is already set correctly)
+  _updateConnectionInfo(
+    isConnected: false,
+    isReady: false,
+    otherUserName: null,
+    isAdvertising: false,
+    statusMessage: 'Switching to scanner mode...'
+  );
+  
+  _connectionManager.clearConnectionState();
+  _stateManager.clearOtherUserName();
+  _discoveredDevices.clear();
+  _devicesController?.add([]);
+  
+  // Final state update
+  _updateConnectionInfo(
+    isConnected: false,
+    isReady: false,
+    statusMessage: 'Ready to scan'
+  );
+  
+  _logger.info('Switched to central mode');
+}
+  
+ Future<void> startScanning() async {
+  if (_stateManager.isPeripheralMode) {
+    throw Exception('Cannot scan while in peripheral mode');
+  }
+  
+  _discoveredDevices.clear();
+  _devicesController?.add([]);
+  
+  _logger.info('Starting BLE scan...');
+  // Only update scanning status, don't touch connection state
+  _updateConnectionInfo(
+    isScanning: true, 
+    statusMessage: isConnected ? 'Ready to chat' : 'Scanning for devices...'
+  );
+  await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
+}
+
+Future<void> stopScanning() async {
+  _logger.info('Stopping BLE scan...');
+  await centralManager.stopDiscovery();
+  // Only update scanning flag, preserve connection state
+  _updateConnectionInfo(
+    isScanning: false,
+    statusMessage: isConnected ? 'Ready to chat' : 'Ready to scan'
+  );
+}
+  
+Future<void> connectToDevice(Peripheral device) async {
+  try {
+    // Stop any active discovery first
     try {
-      await peripheralManager.stopAdvertising();
-      await peripheralManager.removeAllServices();
+      await centralManager.stopDiscovery();
     } catch (e) {
       // Ignore
     }
     
-    _connectionManager.clearConnectionState();
-    _stateManager.clearOtherUserName();
-    _discoveredDevices.clear();
-    _devicesController?.add([]);
+    _updateConnectionInfo(isConnected: false, statusMessage: 'Connecting...');
+    await _connectionManager.connectToDevice(device);
     
-    _stateManager.setPeripheralMode(false);
-    _connectionManager.setPeripheralMode(false); 
-    _logger.info('Switched to central mode');
+    _connectionManager.startHealthChecks();
+    
+    if (_connectionManager.isReconnection) {
+      _logger.info('Reconnection completed - monitoring already active');
+    } else {
+      _logger.info('Manual connection - health checks started, no reconnection monitoring');
+      _updateConnectionInfo(isReconnecting: false);
+    }
+  } catch (e) {
+    _updateConnectionInfo(
+      isConnected: false, 
+      isReady: false,
+      statusMessage: 'Connection failed'
+    );
+    throw e;
   }
-  
-  Future<void> startScanning() async {
-  if (_stateManager.isPeripheralMode) {
-    throw Exception('Cannot scan while in peripheral mode');
-  }
-  _logger.info('Starting BLE scan...');
-  _updateConnectionInfo(isScanning: true, statusMessage: 'Scanning for devices...');
-  await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
 }
-  
-  Future<void> stopScanning() async {
-    _logger.info('Stopping BLE scan...');
-    await centralManager.stopDiscovery();
+
+Future<void> requestIdentityExchange() async {
+  if (!_connectionManager.hasBleConnection || _connectionManager.messageCharacteristic == null) {
+    _logger.warning('Cannot request identity - not connected');
+    return;
   }
   
-  Future<void> connectToDevice(Peripheral device) async {
-  _updateConnectionInfo(isConnected: false, statusMessage: 'Connecting...');
-  await _connectionManager.connectToDevice(device);
-  
-  _connectionManager.startHealthChecks();
-  
-  if (_connectionManager.isReconnection) {
-    _logger.info('Reconnection completed - monitoring already active');
-  } else {
-    _logger.info('Manual connection - health checks started, no reconnection monitoring');
-    _updateConnectionInfo(isReconnecting: false);
-  }
+  _logger.info('Manually requesting identity exchange');
+  await _sendIdentityExchange();
 }
 
 Future<void> _performNameExchangeWithRetry() async {
