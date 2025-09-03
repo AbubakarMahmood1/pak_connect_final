@@ -853,8 +853,78 @@ void _switchToPeripheralMode() async {
               _showAbout();
             },
           ),
+          ListTile(
+  	  leading: Icon(Icons.fingerprint),
+  	  title: Text('Device Identity'),
+  	  subtitle: Text('Your cryptographic public key'),
+  	  onTap: () {
+    	  Navigator.pop(context);
+    	  _showPublicKeyInfo();
+  	  },
+	 ),
         ],
       ),
+    ),
+  );
+}
+
+void _showPublicKeyInfo() async {
+  final bleService = ref.read(bleServiceProvider);
+  final publicKey = await bleService.getMyPublicKey();
+  
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.fingerprint, color: Theme.of(context).colorScheme.primary),
+          SizedBox(width: 8),
+          Text('Your Device Identity'),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Your Public Key:',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          SizedBox(height: 8),
+          Container(
+            padding: EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: SelectableText(
+              publicKey,
+              style: TextStyle(fontFamily: 'monospace', fontSize: 10),
+            ),
+          ),
+          SizedBox(height: 12),
+          Text(
+            'This is your unique device identity. Others can verify messages came from this specific device.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: publicKey));
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Public key copied!')),
+            );
+          },
+          child: Text('Copy'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Close'),
+        ),
+      ],
     ),
   );
 }

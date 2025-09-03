@@ -47,19 +47,19 @@ class ProtocolMessage {
   }
   
   // Quick constructors
-  static ProtocolMessage identity({
-    required String deviceId,
-    required String displayName,
-    String? publicKey, // Future use
-  }) => ProtocolMessage(
-    type: ProtocolMessageType.identity,
-    payload: {
-      'deviceId': deviceId,
-      'displayName': displayName,
-      if (publicKey != null) 'publicKey': publicKey,
-    },
-    timestamp: DateTime.now(),
-  );
+static ProtocolMessage identity({
+  required String publicKey,
+  required String displayName,
+  String? legacyDeviceId, // Backward compatibility
+}) => ProtocolMessage(
+  type: ProtocolMessageType.identity,
+  payload: {
+    'publicKey': publicKey,
+    'displayName': displayName,
+    if (legacyDeviceId != null) 'deviceId': legacyDeviceId,
+  },
+  timestamp: DateTime.now(),
+);
   
   static ProtocolMessage textMessage({
     required String messageId,
@@ -103,6 +103,13 @@ class ProtocolMessage {
 // Helper to extract identity info  
 String? get identityDeviceId => type == ProtocolMessageType.identity ? payload['deviceId'] as String? : null;
 String? get identityDisplayName => type == ProtocolMessageType.identity ? payload['displayName'] as String? : null;
+
+// Helper to extract public key from identity
+String? get identityPublicKey => type == ProtocolMessageType.identity ? payload['publicKey'] as String? : null;
+
+// Backward compatibility helper
+String? get identityDeviceIdCompat => type == ProtocolMessageType.identity ? 
+  (payload['publicKey'] as String? ?? payload['deviceId'] as String?) : null;
 
 // Helper to extract message info
 String? get textMessageId => type == ProtocolMessageType.textMessage ? payload['messageId'] as String? : null;

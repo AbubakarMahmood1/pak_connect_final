@@ -30,17 +30,21 @@ class BLEStateManager {
   Function(String?)? onNameChanged;
   
   Future<void> initialize() async {
-    await loadUserName();
-    _myPersistentId = await _userPreferences.getOrCreateDeviceId();
-    await _initializeCrypto();
-  }
+  await loadUserName();
+  
+  // Ensure key pair exists
+  await _userPreferences.getOrCreateKeyPair();
+  _myPersistentId = await _userPreferences.getPublicKey();
+  
+  await _initializeCrypto();
+}
   
 Future<void> loadUserName() async {
   _myUserName = await _userPreferences.getUserName();
 }
 
 Future<String> getMyPersistentId() async {
-  return await _userPreferences.getOrCreateDeviceId();
+  return await _userPreferences.getPublicKey();
 }
   
   Future<void> setMyUserName(String name) async {

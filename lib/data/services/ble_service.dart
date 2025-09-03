@@ -450,18 +450,22 @@ if (Platform.isAndroid) {
   }
 });
   }
+
+Future<String> getMyPublicKey() async {
+  return await _stateManager.getMyPersistentId();
+}
   
 Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral, Central? central, GATTCharacteristic? characteristic}) async {
   // Handle protocol identity messages ONLY
 try {
   final protocolMessage = ProtocolMessage.fromBytes(data);
   if (protocolMessage.type == ProtocolMessageType.identity) {
-    final deviceId = protocolMessage.identityDeviceId!;
-    final displayName = protocolMessage.identityDisplayName!;
-    
-    _stateManager.setOtherDeviceIdentity(deviceId, displayName);
-    await _stateManager.saveContact(deviceId, displayName);
-    _logger.info('Received protocol identity: $displayName ($deviceId)');
+    final publicKey = protocolMessage.identityPublicKey ?? protocolMessage.identityDeviceIdCompat!;
+  final displayName = protocolMessage.identityDisplayName!;
+ 
+     _stateManager.setOtherDeviceIdentity(publicKey, displayName);
+  await _stateManager.saveContact(publicKey, displayName);
+     _logger.info('Received public key identity: $displayName (${publicKey.substring(0, 16)}...)');
     
     // AUTO-RESPOND: If we're in peripheral mode, send our identity back immediately
     if (isFromPeripheral && central != null && characteristic != null && _stateManager.myUserName != null) {
@@ -469,7 +473,7 @@ try {
         final myPersistentId = await _stateManager.getMyPersistentId();
         
         final responseIdentity = ProtocolMessage.identity(
-          deviceId: myPersistentId,
+          publicKey: myPersistentId, 
           displayName: _stateManager.myUserName!,
         );
 
@@ -803,11 +807,11 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
   }
   
   try {
-    final myPersistentId = await _stateManager.getMyPersistentId();
-    _logger.info('Sending identity exchange: ${_stateManager.myUserName} (${myPersistentId})');
+    final myPublicKey = await _stateManager.getMyPersistentId(); // Now returns public key
+    _logger.info('Sending identity exchange with public key: ${myPublicKey.substring(0, 16)}...');
     
     final protocolMessage = ProtocolMessage.identity(
-      deviceId: myPersistentId,
+      publicKey: myPublicKey,
       displayName: _stateManager.myUserName ?? 'User',
     );
 
@@ -818,7 +822,7 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
       type: GATTCharacteristicWriteType.withResponse,
     );
     
-    _logger.info('Identity sent successfully');
+    _logger.info('Public key identity sent successfully');
     
   } catch (e) {
     _logger.severe('Identity exchange failed: $e');
