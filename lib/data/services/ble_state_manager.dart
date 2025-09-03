@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/services/simple_crypto.dart';
+import '../../data/repositories/contact_repository.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -25,6 +26,8 @@ class BLEStateManager {
   String? get otherDevicePersistentId => _otherDevicePersistentId;
   bool get isPeripheralMode => _isPeripheralMode;
   String? get myPersistentId => _myPersistentId;
+
+  ContactRepository get contactRepository => _contactRepository;
   
   // Callbacks
   Function(String?)? onNameChanged;
@@ -94,13 +97,47 @@ void setOtherDeviceIdentity(String deviceId, String displayName) {
   }
 }
   
-  Future<void> saveContact(String deviceId, String userName) async {
-    await _contactRepository.saveContact(deviceId, userName);
+  Future<void> saveContact(String publicKey, String userName) async {
+  await _contactRepository.saveContact(publicKey, userName);
+  _logger.info('Contact saved: $userName (${publicKey.substring(0, 16)}...)');
+}
+
+Future<Contact?> getContact(String publicKey) async {
+  return await _contactRepository.getContact(publicKey);
+}
+
+Future<Map<String, Contact>> getAllContacts() async {
+  return await _contactRepository.getAllContacts();
+}
+  
+ Future<String?> getContactName(String publicKey) async {
+  return await _contactRepository.getContactName(publicKey);
+}
+
+Future<void> markContactVerified(String publicKey) async {
+  await _contactRepository.markContactVerified(publicKey);
+}
+
+Future<TrustStatus> getContactTrustStatus(String publicKey) async {
+  final contact = await _contactRepository.getContact(publicKey);
+  return contact?.trustStatus ?? TrustStatus.new_contact;
+}
+
+Future<bool> hasContactKeyChanged(String publicKey, String currentDisplayName) async {
+  final existingContact = await _contactRepository.getContact(publicKey);
+  
+  if (existingContact == null) {
+    return false; // New contact, not a key change
   }
   
-  Future<String?> getContactName(String deviceId) async {
-    return await _contactRepository.getContactName(deviceId);
-  }
+  // Check if we've seen this display name with a different public key
+  final allContacts = await _contactRepository.getAllContacts();
+  final sameNameContacts = allContacts.values.where((c) => 
+    c.displayName == currentDisplayName && c.publicKey != publicKey).toList();
+  
+  return sameNameContacts.isNotEmpty;
+}
+
   
   void setPeripheralMode(bool isPeripheral) {
     _isPeripheralMode = isPeripheral;

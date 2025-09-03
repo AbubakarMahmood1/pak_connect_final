@@ -500,6 +500,7 @@ try {
     data,
     onMessageIdFound: (id) => extractedMessageId = id,
     senderPublicKey: _stateManager.otherDevicePersistentId,
+    contactRepository: _stateManager.contactRepository,
   );
   
   if (content != null) {
@@ -765,6 +766,7 @@ _updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Connec
     mtuSize: mtuSize,
     messageId: messageId,
     contactPublicKey: _stateManager.otherDevicePersistentId,
+    contactRepository: _stateManager.contactRepository,
     onMessageOperationChanged: (inProgress) => _connectionManager.setMessageOperationInProgress(inProgress),
   );
 }
@@ -793,6 +795,7 @@ Future<bool> sendPeripheralMessage(String message, {String? messageId}) async {
     mtuSize: mtuSize,
     messageId: messageId,
     contactPublicKey: _stateManager.otherDevicePersistentId,
+    contactRepository: _stateManager.contactRepository,
   );
 }
 

@@ -6,9 +6,11 @@ import 'package:logging/logging.dart';
 import '../../core/utils/message_fragmenter.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
+import '../../data/repositories/contact_repository.dart';
 
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
+  final ContactRepository _contactRepository = ContactRepository();
   
   // Message fragmentation and reassembly
   final MessageReassembler _messageReassembler = MessageReassembler();
@@ -37,6 +39,7 @@ class BLEMessageHandler {
   required int mtuSize,
   String? messageId,
   String? contactPublicKey,
+  required ContactRepository contactRepository,
   Function(bool)? onMessageOperationChanged,
 }) async {
   _messageOperationInProgress = true;
@@ -73,22 +76,21 @@ String payload = message;
 bool isEncrypted = false;
 String encryptionMethod = 'none';
 
-// Try ECDH encryption first, fallback to passphrase
+// Use cached ECDH encryption
 if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
   try {
-    final ecdhEncrypted = SimpleCrypto.encryptForContact(message, contactPublicKey);
+    final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
     if (ecdhEncrypted != null) {
       payload = ecdhEncrypted;
       isEncrypted = true;
       encryptionMethod = 'ecdh';
-      _logger.info('Message encrypted with ECDH');
+      _logger.info('Message encrypted with cached ECDH');
     }
   } catch (e) {
     _logger.warning('ECDH encryption failed: $e');
   }
 }
 
-// NO fallback - either ECDH works or send unencrypted
 if (!isEncrypted) {
   _logger.warning('Sending unencrypted - no ECDH available');
 }
@@ -181,6 +183,7 @@ Future<bool> sendPeripheralMessage({
   required int mtuSize,
   String? messageId,
   String? contactPublicKey,
+  required ContactRepository contactRepository,
 }) async {
   final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
   
@@ -189,20 +192,20 @@ Future<bool> sendPeripheralMessage({
     bool isEncrypted = false;
     String encryptionMethod = 'none';
 
-    // ALWAYS use ECDH if contact public key available
-    if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
-      try {
-        final ecdhEncrypted = SimpleCrypto.encryptForContact(message, contactPublicKey);
-        if (ecdhEncrypted != null) {
-          payload = ecdhEncrypted;
-          isEncrypted = true;
-          encryptionMethod = 'ecdh';
-          _logger.info('Peripheral message encrypted with ECDH');
-        }
-      } catch (e) {
-        _logger.warning('Peripheral ECDH encryption failed: $e');
-      }
+    // ECDH encryption if contact public key available
+if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+  try {
+    final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
+    if (ecdhEncrypted != null) {
+      payload = ecdhEncrypted;
+      isEncrypted = true;
+      encryptionMethod = 'ecdh';
+      _logger.info('Message encrypted with cached ECDH');
     }
+  } catch (e) {
+    _logger.warning('ECDH encryption failed: $e');
+  }
+}
 
     // NO fallback - either ECDH works or send unencrypted
     if (!isEncrypted) {
@@ -256,7 +259,7 @@ Future<bool> sendPeripheralMessage({
 }
 
   
-Future<String?> processReceivedData(Uint8List data, {String? Function(String)? onMessageIdFound, String? senderPublicKey,}) async {
+Future<String?> processReceivedData(Uint8List data, {String? Function(String)? onMessageIdFound, String? senderPublicKey, required ContactRepository contactRepository,}) async {
   try {
     // Skip single-byte pings
     if (data.length == 1 && data[0] == 0x00) {
@@ -347,35 +350,35 @@ Future<String?> _processCompleteProtocolMessage(
   // First: Decrypt the message using appropriate method
   String decryptedContent = content;
   
-  if (protocolMessage.isEncrypted) {
-    if (encryptionMethod == 'ecdh' && senderPublicKey != null && senderPublicKey.isNotEmpty) {
+if (protocolMessage.isEncrypted) {
+  if (encryptionMethod == 'ecdh' && senderPublicKey != null && senderPublicKey.isNotEmpty) {
+    try {
+      final decrypted = await SimpleCrypto.decryptFromContact(content, senderPublicKey, _contactRepository);
+      if (decrypted != null) {
+        decryptedContent = decrypted;
+        print('Message decrypted using cached ECDH');
+      } else {
+        return '[ECDH decryption failed]';
+      }
+    } catch (e) {
+      print('ECDH decryption failed: $e');
+      return '[ECDH decryption error]';
+    }
+  } else {
+    // Legacy passphrase decryption
+    if (SimpleCrypto.isInitialized) {
       try {
-        final decrypted = SimpleCrypto.decryptFromContact(content, senderPublicKey);
-        if (decrypted != null) {
-          decryptedContent = decrypted;
-          print('Message decrypted using ECDH');
-        } else {
-          return '[ECDH decryption failed]';
-        }
+        decryptedContent = SimpleCrypto.decrypt(content);
+        print('Message decrypted using passphrase (legacy)');
       } catch (e) {
-        print('ECDH decryption failed: $e');
-        return '[ECDH decryption error]';
+        print('Legacy decryption failed: $e');
+        return '[Cannot decrypt legacy message]';
       }
     } else {
-      // Legacy passphrase decryption
-      if (SimpleCrypto.isInitialized) {
-        try {
-          decryptedContent = SimpleCrypto.decrypt(content);
-          print('Message decrypted using passphrase (legacy)');
-        } catch (e) {
-          print('Legacy decryption failed: $e');
-          return '[Cannot decrypt legacy message]';
-        }
-      } else {
-        return '[No decryption method available]';
-      }
+      return '[No decryption method available]';
     }
   }
+}
   
   // Then: Verify signature on decrypted content
   if (protocolMessage.signature != null && senderPublicKey != null) {
