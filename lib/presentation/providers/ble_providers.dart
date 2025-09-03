@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
+import '../../data/repositories/chats_repository.dart';
 
 // BLE Service provider
 final bleServiceProvider = Provider<BLEService>((ref) {
@@ -36,4 +37,14 @@ final receivedMessagesProvider = StreamProvider<String>((ref) {
 final connectionInfoProvider = StreamProvider<ConnectionInfo>((ref) {
   final service = ref.watch(bleServiceProvider);
   return service.connectionInfo;
+});
+
+final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
+  return ChatsRepository();
+});
+
+// Discovery data with advertisements provider
+final discoveryDataProvider = StreamProvider<Map<String, DiscoveredEventArgs>>((ref) {
+  final service = ref.watch(bleServiceProvider);
+  return service.discoveryData;
 });

@@ -1,9 +1,12 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
-import 'dart:io' show Platform;
 import 'presentation/screens/permission_screen.dart';
-import 'package:flutter/services.dart';
+import 'presentation/screens/chats_screen.dart';
+
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,7 +49,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: PermissionScreen(),
+      home: ChatsScreen(),
     );
   }
 }

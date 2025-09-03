@@ -3,12 +3,14 @@ import 'dart:typed_data';
 import 'dart:io' show Platform;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import '../../data/repositories/chats_repository.dart';
 import '../../core/constants/ble_constants.dart';
 import '../../core/models/connection_info.dart';
+import '../../core/models/protocol_message.dart';
+import '../../core/utils/chat_utils.dart';
 import 'ble_connection_manager.dart';
 import 'ble_message_handler.dart';
 import 'ble_state_manager.dart';
-import '../../core/models/protocol_message.dart';
 
 class BLEService {
   final _logger = Logger('BLEService');
@@ -26,6 +28,7 @@ class BLEService {
   StreamController<ConnectionInfo>? _connectionInfoController;
   StreamController<List<Peripheral>>? _devicesController;
   StreamController<String>? _messagesController;
+  StreamController<Map<String, DiscoveredEventArgs>>? _discoveryDataController;
 
   
   // Discovery management
@@ -42,6 +45,7 @@ int? _peripheralNegotiatedMTU;
   ConnectionInfo get currentConnectionInfo => _currentConnectionInfo;
   Stream<List<Peripheral>> get discoveredDevices => _devicesController!.stream;
   Stream<String> get receivedMessages => _messagesController!.stream;
+  Stream<Map<String, DiscoveredEventArgs>> get discoveryData => _discoveryDataController!.stream;
 
 
   ConnectionInfo _currentConnectionInfo = ConnectionInfo(
@@ -81,11 +85,13 @@ int? _peripheralNegotiatedMTU;
     _connectionInfoController?.close();
     _devicesController?.close();
     _messagesController?.close();
+    _discoveryDataController?.close();
 
     // Initialize new stream controllers
     _connectionInfoController = StreamController<ConnectionInfo>.broadcast();
     _devicesController = StreamController<List<Peripheral>>.broadcast();
     _messagesController = StreamController<String>.broadcast();
+    _discoveryDataController = StreamController<Map<String, DiscoveredEventArgs>>.broadcast();
 
 
 if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManager.isPeripheralMode) {
@@ -343,8 +349,15 @@ peripheralManager.mtuChanged.listen((event) {
   _peripheralNegotiatedMTU = event.mtu;
 });
 
+// Store discovery data with advertisements for online detection
+final Map<String, DiscoveredEventArgs> _discoveryData = {};
+
 centralManager.discovered.listen((event) {
   final device = event.peripheral;
+  final deviceId = device.uuid.toString();
+  
+  // Store the full discovery event (includes advertisement data)
+  _discoveryData[deviceId] = event;
   
   // Remove any existing entry for this device first
   _discoveredDevices.removeWhere((d) => d.uuid == device.uuid);
@@ -353,7 +366,8 @@ centralManager.discovered.listen((event) {
   _discoveredDevices.add(device);
   
   _devicesController?.add(List.from(_discoveredDevices));
-  _logger.info('Device list updated: ${_discoveredDevices.length} devices');
+  _discoveryDataController?.add(Map.from(_discoveryData));
+  _logger.info('Device discovered: $deviceId with advertisement data');
 });
     
     // Connection state changes
@@ -466,6 +480,12 @@ try {
      _stateManager.setOtherDeviceIdentity(publicKey, displayName);
   await _stateManager.saveContact(publicKey, displayName);
      _logger.info('Received public key identity: $displayName (${publicKey.substring(0, 16)}...)');
+
+	final chatsRepo = ChatsRepository();
+	await chatsRepo.updateContactLastSeen(publicKey);
+    await chatsRepo.storeDeviceMapping(_connectionManager.connectedDevice?.uuid.toString(), publicKey);
+
+  _logger.info('Updated last seen for contact: $displayName');
     
     // AUTO-RESPOND: If we're in peripheral mode, send our identity back immediately
     if (isFromPeripheral && central != null && characteristic != null && _stateManager.myUserName != null) {
@@ -505,6 +525,14 @@ try {
   
   if (content != null) {
     _messagesController?.add(content);
+
+  final chatsRepo = ChatsRepository();
+  if (_stateManager.otherDevicePersistentId != null) {
+    final myPublicKey = await _stateManager.getMyPersistentId();
+    final chatId = ChatUtils.generateChatId(myPublicKey, _stateManager.otherDevicePersistentId!);
+    await chatsRepo.incrementUnreadCount(chatId);
+    _logger.info('Incremented unread count for chat: $chatId');
+  }
     
     // Send ACK using ProtocolMessage format (peripheral mode only)
     if (isFromPeripheral && central != null && characteristic != null && extractedMessageId != null) {
@@ -590,10 +618,20 @@ try {
       
       await peripheralManager.addService(service);
       
-      final advertisement = Advertisement(
-        name: 'BLE Chat Device',
-        serviceUUIDs: [BLEConstants.serviceUUID],
-      );
+      final myPublicKey = await _stateManager.getMyPersistentId();
+      final keyHash = ChatUtils.generatePublicKeyHash(myPublicKey);
+      final hashBytes = ChatUtils.hashToBytes(keyHash);
+
+final advertisement = Advertisement(
+  name: 'BLE Chat Device',
+  serviceUUIDs: [BLEConstants.serviceUUID],
+  manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
+    ManufacturerSpecificData(
+      id: 0x2E19, // Our custom manufacturer ID
+      data: hashBytes,
+    ),
+  ],
+);
       
       await peripheralManager.startAdvertising(advertisement);
       _stateManager.setPeripheralMode(true);

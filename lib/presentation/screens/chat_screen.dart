@@ -13,14 +13,31 @@ import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
-  final Peripheral? device;      // For central mode
-  final Central? central;        // For peripheral mode
+  final Peripheral? device;      // For central mode (live connection)
+  final Central? central;        // For peripheral mode (live connection)
+  final String? chatId;          // For repository mode (stored data)
+  final String? contactName;     // Contact display name
+  final String? contactPublicKey; // Contact public key
   
   const ChatScreen({
     super.key, 
     this.device,
     this.central,
-  }) : assert(device != null || central != null, 'Either device or central must be provided');
+    this.chatId,
+    this.contactName,
+    this.contactPublicKey,
+  }) : assert(
+    (device != null || central != null) || (chatId != null && contactName != null),
+    'Either live connection (device/central) OR chat data (chatId/contactName) must be provided'
+  );
+
+  // Named constructor for repository-based chats
+  const ChatScreen.fromChatData({
+    super.key,
+    required String this.chatId,
+    required String this.contactName,
+    required String this.contactPublicKey,
+  }) : device = null, central = null;
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -37,9 +54,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   StreamSubscription<String>? _messageSubscription;
   StreamSubscription<ConnectionInfo>? _connectionSubscription;
   String? _currentChatId;
-  String get _chatId => _currentChatId!;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
+  bool get _isRepositoryMode => widget.chatId != null;
+  bool get _isConnectedMode => _isCentralMode || _isPeripheralMode;
+
+  String get _chatId => _currentChatId!;
+
+String get _displayContactName {
+  if (_isRepositoryMode) return widget.contactName!;
+  if (_isCentralMode && widget.device != null) {
+    return widget.device!.uuid.toString().substring(0, 8);
+  }
+  if (_isPeripheralMode && widget.central != null) {
+    return widget.central!.uuid.toString().substring(0, 8);
+  }
+  return 'Unknown';
+}
 
 String get _deviceDisplayName {
   if (_isCentralMode && widget.device != null) {
@@ -56,15 +87,14 @@ void initState() {
   super.initState();
   _currentChatId = _calculateInitialChatId();
   
-  // Load messages after a brief delay to ensure chat ID is set
-  Future.delayed(Duration(milliseconds: 100), () {
-    if (mounted) {
-      _loadMessages();
-    }
-  });
+  // Load messages immediately
+  _loadMessages();
   
-  _setupMessageListener();
-  _setupConnectionListener();
+  // Only setup listeners for live connection modes
+  if (_isConnectedMode) {
+    _setupMessageListener();
+    _setupConnectionListener();
+  }
 }
 
 Future<void> _manualReconnection() async {
@@ -277,24 +307,29 @@ final actuallyConnected = _isCentralMode
     
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              connectionInfo?.otherUserName != null && connectionInfo!.otherUserName!.isNotEmpty
-                ? 'Chat with ${connectionInfo!.otherUserName}'
-                : 'Device $_deviceDisplayName...',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            Text(
-              connectionInfo?.statusMessage ?? 'Disconnected',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: (connectionInfo?.isReady ?? false) ? Colors.green : 
-                       ((connectionInfo?.isConnected ?? false) ? Colors.orange : Colors.red),
-              ),
-            ),
-          ],
-        ),
+title: Column(
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    Text(
+      _isRepositoryMode 
+        ? 'Chat with ${widget.contactName}'
+        : (connectionInfo?.otherUserName != null && connectionInfo!.otherUserName!.isNotEmpty
+          ? 'Chat with ${connectionInfo!.otherUserName}'
+          : 'Device $_displayContactName...'),
+      style: Theme.of(context).textTheme.titleMedium,
+    ),
+    Text(
+      _isRepositoryMode 
+        ? 'Offline - Message history only'
+        : (connectionInfo?.statusMessage ?? 'Disconnected'),
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: _isRepositoryMode 
+          ? Colors.orange 
+          : ((connectionInfo?.isReady ?? false) ? Colors.green : Colors.red),
+      ),
+    ),
+  ],
+),
         actions: [
   // Show identity request button if connected but no name
   if ((connectionInfo?.isConnected ?? false) && 
@@ -804,6 +839,12 @@ Future<bool> _sendPeripheralMessage(String content, String messageId) async {
 }
 
 String _calculateInitialChatId() {
+  // Repository mode: use provided chatId
+  if (_isRepositoryMode) {
+    return widget.chatId!;
+  }
+  
+  // Live connection mode: generate from BLE service
   final bleService = ref.read(bleServiceProvider);
   final otherPersistentId = bleService.otherDevicePersistentId;
   final myPersistentId = bleService.myPersistentId;
@@ -812,7 +853,7 @@ String _calculateInitialChatId() {
     return ChatUtils.generateChatId(myPersistentId, otherPersistentId);
   }
   
-  // Device-specific temp fallback (not shared)
+  // Fallback for live connections
   final deviceId = _isCentralMode 
     ? widget.device!.uuid.toString()
     : widget.central!.uuid.toString();
