@@ -36,6 +36,7 @@ class BLEMessageHandler {
   required String message,
   required int mtuSize,
   String? messageId,
+  String? contactPublicKey,
   Function(bool)? onMessageOperationChanged,
 }) async {
   _messageOperationInProgress = true;
@@ -68,23 +69,43 @@ class BLEMessageHandler {
     throw Exception('Connection unhealthy - forced disconnect');
   }
     
-    String payload = message;
+String payload = message;
 bool isEncrypted = false;
+String encryptionMethod = 'none';
 
-if (SimpleCrypto.isInitialized) {
+// Try ECDH encryption first, fallback to passphrase
+if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
   try {
-    payload = SimpleCrypto.encrypt(message);
-    isEncrypted = true;
-    _logger.info('Message encrypted for transmission');
+    final ecdhEncrypted = SimpleCrypto.encryptForContact(message, contactPublicKey);
+    if (ecdhEncrypted != null) {
+      payload = ecdhEncrypted;
+      isEncrypted = true;
+      encryptionMethod = 'ecdh';
+      _logger.info('Message encrypted with ECDH');
+    }
   } catch (e) {
-    _logger.warning('Encryption failed, sending plain: $e');
+    _logger.warning('ECDH encryption failed: $e');
   }
 }
 
-final protocolMessage = ProtocolMessage.textMessage(
-  messageId: msgId,
-  content: payload,
-  encrypted: isEncrypted,
+// NO fallback - either ECDH works or send unencrypted
+if (!isEncrypted) {
+  _logger.warning('Sending unencrypted - no ECDH available');
+}
+
+// Sign the original message content (before encryption)
+final signature = SimpleCrypto.signMessage(message);
+
+final protocolMessage = ProtocolMessage(
+  type: ProtocolMessageType.textMessage,
+  payload: {
+    'messageId': msgId,
+    'content': payload,
+    'encrypted': isEncrypted,
+    'encryptionMethod': encryptionMethod,
+  },
+  timestamp: DateTime.now(),
+  signature: signature,
 );
 
 final jsonBytes = protocolMessage.toBytes();
@@ -159,30 +180,51 @@ Future<bool> sendPeripheralMessage({
   required String message,
   required int mtuSize,
   String? messageId,
+  String? contactPublicKey,
 }) async {
   final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
   
   try {
     String payload = message;
-bool isEncrypted = false;
+    bool isEncrypted = false;
+    String encryptionMethod = 'none';
 
-if (SimpleCrypto.isInitialized) {
-  try {
-    payload = SimpleCrypto.encrypt(message);
-    isEncrypted = true;
-    _logger.info('Message encrypted for peripheral transmission');
-  } catch (e) {
-    _logger.warning('Encryption failed, sending plain: $e');
-  }
-}
+    // ALWAYS use ECDH if contact public key available
+    if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+      try {
+        final ecdhEncrypted = SimpleCrypto.encryptForContact(message, contactPublicKey);
+        if (ecdhEncrypted != null) {
+          payload = ecdhEncrypted;
+          isEncrypted = true;
+          encryptionMethod = 'ecdh';
+          _logger.info('Peripheral message encrypted with ECDH');
+        }
+      } catch (e) {
+        _logger.warning('Peripheral ECDH encryption failed: $e');
+      }
+    }
 
-final protocolMessage = ProtocolMessage.textMessage(
-  messageId: msgId,
-  content: payload,
-  encrypted: isEncrypted,
-);
+    // NO fallback - either ECDH works or send unencrypted
+    if (!isEncrypted) {
+      _logger.warning('Peripheral sending unencrypted - no ECDH available');
+    }
 
-final jsonBytes = protocolMessage.toBytes();
+    // Sign the original message content (before encryption)
+    final signature = SimpleCrypto.signMessage(message);
+
+    final protocolMessage = ProtocolMessage(
+      type: ProtocolMessageType.textMessage,
+      payload: {
+        'messageId': msgId,
+        'content': payload,
+        'encrypted': isEncrypted,
+        'encryptionMethod': encryptionMethod,
+      },
+      timestamp: DateTime.now(),
+      signature: signature,
+    );
+
+    final jsonBytes = protocolMessage.toBytes();
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
     _logger.info('Created ${chunks.length} chunks for peripheral message: $msgId');
     
@@ -214,7 +256,7 @@ final jsonBytes = protocolMessage.toBytes();
 }
 
   
-Future<String?> processReceivedData(Uint8List data, {String? Function(String)? onMessageIdFound}) async {
+Future<String?> processReceivedData(Uint8List data, {String? Function(String)? onMessageIdFound, String? senderPublicKey,}) async {
   try {
     // Skip single-byte pings
     if (data.length == 1 && data[0] == 0x00) {
@@ -237,7 +279,7 @@ Future<String?> processReceivedData(Uint8List data, {String? Function(String)? o
       final completeMessage = _messageReassembler.addChunk(chunk);
       
       if (completeMessage != null) {
-        return await _processCompleteProtocolMessage(completeMessage, onMessageIdFound);
+        return await _processCompleteProtocolMessage(completeMessage, onMessageIdFound, senderPublicKey);
       }
       
     } catch (e) {
@@ -280,7 +322,11 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
   }
 }
 
-Future<String?> _processCompleteProtocolMessage(String completeMessage, String? Function(String)? onMessageIdFound) async {
+Future<String?> _processCompleteProtocolMessage(
+  String completeMessage, 
+  String? Function(String)? onMessageIdFound,
+  String? senderPublicKey,
+) async {
   if (!ProtocolMessage.isProtocolMessage(completeMessage)) {
     _logger.warning('Received non-protocol message, ignoring');
     return null;
@@ -292,19 +338,62 @@ Future<String?> _processCompleteProtocolMessage(String completeMessage, String? 
     
     switch (protocolMessage.type) {
       case ProtocolMessageType.textMessage:
-        final messageId = protocolMessage.textMessageId!;
-        final content = protocolMessage.textContent!;
-        
-        onMessageIdFound?.call(messageId);
-        
-        if (protocolMessage.isEncrypted && SimpleCrypto.isInitialized) {
-          try {
-            return SimpleCrypto.decrypt(content);
-          } catch (e) {
-            return '[Encrypted message - cannot decrypt]';
-          }
+  final messageId = protocolMessage.textMessageId!;
+  final content = protocolMessage.textContent!;
+  final encryptionMethod = protocolMessage.payload['encryptionMethod'] as String?;
+  
+  onMessageIdFound?.call(messageId);
+  
+  // First: Decrypt the message using appropriate method
+  String decryptedContent = content;
+  
+  if (protocolMessage.isEncrypted) {
+    if (encryptionMethod == 'ecdh' && senderPublicKey != null && senderPublicKey.isNotEmpty) {
+      try {
+        final decrypted = SimpleCrypto.decryptFromContact(content, senderPublicKey);
+        if (decrypted != null) {
+          decryptedContent = decrypted;
+          print('Message decrypted using ECDH');
+        } else {
+          return '[ECDH decryption failed]';
         }
-        return content;
+      } catch (e) {
+        print('ECDH decryption failed: $e');
+        return '[ECDH decryption error]';
+      }
+    } else {
+      // Legacy passphrase decryption
+      if (SimpleCrypto.isInitialized) {
+        try {
+          decryptedContent = SimpleCrypto.decrypt(content);
+          print('Message decrypted using passphrase (legacy)');
+        } catch (e) {
+          print('Legacy decryption failed: $e');
+          return '[Cannot decrypt legacy message]';
+        }
+      } else {
+        return '[No decryption method available]';
+      }
+    }
+  }
+  
+  // Then: Verify signature on decrypted content
+  if (protocolMessage.signature != null && senderPublicKey != null) {
+    final isValid = SimpleCrypto.verifySignature(
+      decryptedContent,  // Use decrypted content for verification
+      protocolMessage.signature!, 
+      senderPublicKey
+    );
+    
+    if (!isValid) {
+      _logger.severe('❌ SIGNATURE VERIFICATION FAILED - possible impersonation!');
+      return '[UNTRUSTED MESSAGE - Signature Invalid]';
+    }
+    
+    _logger.info('✅ Signature verified - message authentic');
+  }
+  
+  return decryptedContent;
         
       case ProtocolMessageType.ack:
         final originalId = protocolMessage.ackOriginalId!;

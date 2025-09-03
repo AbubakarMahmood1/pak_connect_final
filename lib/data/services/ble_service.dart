@@ -499,6 +499,7 @@ try {
   final content = await _messageHandler.processReceivedData(
     data,
     onMessageIdFound: (id) => extractedMessageId = id,
+    senderPublicKey: _stateManager.otherDevicePersistentId,
   );
   
   if (content != null) {
@@ -763,6 +764,7 @@ _updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Connec
     message: message,
     mtuSize: mtuSize,
     messageId: messageId,
+    contactPublicKey: _stateManager.otherDevicePersistentId,
     onMessageOperationChanged: (inProgress) => _connectionManager.setMessageOperationInProgress(inProgress),
   );
 }
@@ -790,6 +792,7 @@ Future<bool> sendPeripheralMessage(String message, {String? messageId}) async {
     message: message,
     mtuSize: mtuSize,
     messageId: messageId,
+    contactPublicKey: _stateManager.otherDevicePersistentId,
   );
 }
 

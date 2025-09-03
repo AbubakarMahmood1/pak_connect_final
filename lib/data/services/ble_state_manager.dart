@@ -37,10 +37,27 @@ class BLEStateManager {
   _myPersistentId = await _userPreferences.getPublicKey();
   
   await _initializeCrypto();
+  await _initializeSigning();
 }
   
 Future<void> loadUserName() async {
   _myUserName = await _userPreferences.getUserName();
+}
+
+Future<void> _initializeSigning() async {
+  try {
+    final publicKey = await _userPreferences.getPublicKey();
+    final privateKey = await _userPreferences.getPrivateKey();
+    
+    if (publicKey.isNotEmpty && privateKey.isNotEmpty) {
+      SimpleCrypto.initializeSigning(privateKey, publicKey);
+      _logger.info('Message signing initialized');
+    } else {
+      _logger.warning('Cannot initialize signing - missing keys');
+    }
+  } catch (e) {
+    _logger.warning('Failed to initialize signing: $e');
+  }
 }
 
 Future<String> getMyPersistentId() async {
