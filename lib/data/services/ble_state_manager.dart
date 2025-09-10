@@ -37,8 +37,13 @@ class BLEStateManager {
   bool get isPeripheralMode => _isPeripheralMode;
   String? get myPersistentId => _myPersistentId;
   PairingInfo? get currentPairing => _currentPairing;
-  
+  bool get hasContactRequest => _contactRequestPending;
+  String? get pendingContactName => _pendingContactName;
 
+  bool _contactRequestPending = false;
+  String? _pendingContactPublicKey;
+  String? _pendingContactName;
+  Completer<bool>? _contactRequestCompleter;
   Completer<bool>? _pairingCompleter;
   Timer? _pairingTimeout;
   String? _receivedPairingCode;
@@ -49,6 +54,11 @@ class BLEStateManager {
   Function(String?)? onNameChanged;
   Function(String)? onSendPairingCode;
   Function(String)? onSendPairingVerification;
+  Function(String, String)? onContactRequestReceived;
+  Function(bool)? onContactRequestCompleted;
+  Function(String, String)? onSendContactRequest;
+  Function(String, String)? onSendContactAccept;
+  Function()? onSendContactReject;
   
   Future<void> initialize() async {
   await loadUserName();
@@ -352,6 +362,122 @@ Future<void> sendPairingCode(String code) async {
 
 Future<void> sendPairingVerification(String hash) async {
   onSendPairingVerification?.call(hash);
+}
+
+Future<bool> sendContactRequest() async {
+  try {
+    final myPublicKey = await getMyPersistentId();
+    final myName = _myUserName ?? 'User';
+    
+    _logger.info('Sending contact request');
+    onSendContactRequest?.call(myPublicKey, myName);
+    
+    _contactRequestCompleter = Completer<bool>();
+    
+    // Wait for response (timeout after 30 seconds)
+    final accepted = await _contactRequestCompleter!.future.timeout(
+      Duration(seconds: 30),
+      onTimeout: () {
+        _logger.warning('Contact request timeout');
+        return false;
+      },
+    );
+    
+    return accepted;
+    
+  } catch (e) {
+    _logger.severe('Failed to send contact request: $e');
+    return false;
+  }
+}
+
+void handleContactRequest(String publicKey, String displayName) {
+  _logger.info('Received contact request from $displayName');
+  
+  _contactRequestPending = true;
+  _pendingContactPublicKey = publicKey;
+  _pendingContactName = displayName;
+  
+  // Notify UI
+  onContactRequestReceived?.call(publicKey, displayName);
+}
+
+Future<void> acceptContactRequest() async {
+  if (!_contactRequestPending || _pendingContactPublicKey == null) {
+    _logger.warning('No pending contact request');
+    return;
+  }
+  
+  try {
+    // Save as verified contact
+    await _contactRepository.saveContact(_pendingContactPublicKey!, _pendingContactName!);
+    await _contactRepository.markContactVerified(_pendingContactPublicKey!);
+    
+    // Compute ECDH shared secret
+    final sharedSecret = SimpleCrypto.computeSharedSecret(_pendingContactPublicKey!);
+    if (sharedSecret != null) {
+      await _contactRepository.cacheSharedSecret(_pendingContactPublicKey!, sharedSecret);
+      _logger.info('ECDH shared secret computed and cached');
+    }
+    
+    // Send acceptance
+    final myPublicKey = await getMyPersistentId();
+    final myName = _myUserName ?? 'User';
+    onSendContactAccept?.call(myPublicKey, myName);
+    
+    _contactRequestPending = false;
+    _pendingContactPublicKey = null;
+    _pendingContactName = null;
+    
+    onContactRequestCompleted?.call(true);
+    
+  } catch (e) {
+    _logger.severe('Failed to accept contact: $e');
+  }
+}
+
+void rejectContactRequest() {
+  if (!_contactRequestPending) return;
+  
+  onSendContactReject?.call();
+  
+  _contactRequestPending = false;
+  _pendingContactPublicKey = null;
+  _pendingContactName = null;
+  
+  onContactRequestCompleted?.call(false);
+}
+
+void handleContactAccept(String publicKey, String displayName) {
+  _logger.info('Contact request accepted by $displayName');
+  
+  // Save as verified contact
+  _contactRepository.saveContact(publicKey, displayName);
+  _contactRepository.markContactVerified(publicKey);
+  
+  // Compute ECDH shared secret
+  final sharedSecret = SimpleCrypto.computeSharedSecret(publicKey);
+  if (sharedSecret != null) {
+    _contactRepository.cacheSharedSecret(publicKey, sharedSecret);
+    _logger.info('ECDH shared secret computed and cached for accepted contact');
+  }
+  
+  // Complete the request
+  if (_contactRequestCompleter != null && !_contactRequestCompleter!.isCompleted) {
+    _contactRequestCompleter!.complete(true);
+  }
+  
+  onContactRequestCompleted?.call(true);
+}
+
+void handleContactReject() {
+  _logger.info('Contact request rejected');
+  
+  if (_contactRequestCompleter != null && !_contactRequestCompleter!.isCompleted) {
+    _contactRequestCompleter!.complete(false);
+  }
+  
+  onContactRequestCompleted?.call(false);
 }
 
 void clearPairing() {

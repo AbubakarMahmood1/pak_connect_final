@@ -258,6 +258,27 @@ _stateManager.onSendPairingVerification = (hash) async {
     _logger.info('Sent pairing verification via peripheral');
   }
 };
+
+_stateManager.onSendContactRequest = (publicKey, displayName) async {
+  final message = ProtocolMessage.contactRequest(
+    publicKey: publicKey,
+    displayName: displayName,
+  );
+  await _sendProtocolMessage(message);
+};
+
+_stateManager.onSendContactAccept = (publicKey, displayName) async {
+  final message = ProtocolMessage.contactAccept(
+    publicKey: publicKey,
+    displayName: displayName,
+  );
+  await _sendProtocolMessage(message);
+};
+
+_stateManager.onSendContactReject = () async {
+  final message = ProtocolMessage.contactReject();
+  await _sendProtocolMessage(message);
+};
     
     // Setup event listeners
     _setupEventListeners();
@@ -518,6 +539,28 @@ Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral
   // Handle protocol identity messages ONLY
 try {
   final protocolMessage = ProtocolMessage.fromBytes(data);
+  
+  if (protocolMessage.type == ProtocolMessageType.contactRequest) {
+  _stateManager.handleContactRequest(
+    protocolMessage.contactRequestPublicKey!,
+    protocolMessage.contactRequestDisplayName!,
+  );
+  return;
+}
+
+if (protocolMessage.type == ProtocolMessageType.contactAccept) {
+  _stateManager.handleContactAccept(
+    protocolMessage.contactAcceptPublicKey!,
+    protocolMessage.contactAcceptDisplayName!,
+  );
+  return;
+}
+
+if (protocolMessage.type == ProtocolMessageType.contactReject) {
+  _stateManager.handleContactReject();
+  return;
+}
+
   if (protocolMessage.type == ProtocolMessageType.identity) {
     final publicKey = protocolMessage.identityPublicKey ?? protocolMessage.identityDeviceIdCompat!;
   final displayName = protocolMessage.identityDisplayName!;
@@ -917,6 +960,23 @@ Central? _getConnectedCentral() {
 
 GATTCharacteristic? _getPeripheralMessageCharacteristic() {
   return _connectedCharacteristic;
+}
+
+Future<void> _sendProtocolMessage(ProtocolMessage message) async {
+  if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
+    await centralManager.writeCharacteristic(
+      _connectionManager.connectedDevice!,
+      _connectionManager.messageCharacteristic!,
+      value: message.toBytes(),
+      type: GATTCharacteristicWriteType.withResponse,
+    );
+  } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
+    await peripheralManager.notifyCharacteristic(
+      _connectedCentral!,
+      _connectedCharacteristic!,
+      value: message.toBytes(),
+    );
+  }
 }
   
   Future<void> _sendIdentityExchange() async {

@@ -14,6 +14,7 @@ import '../../core/models/connection_info.dart';
 import '../widgets/pairing_dialog.dart';
 import '../../core/models/pairing_state.dart';
 import '../../core/services/simple_crypto.dart';
+import '../../data/repositories/contact_repository.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode (live connection)
@@ -56,6 +57,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _isLoading = true;
   bool _hasPaired = false;
   bool _pairingDialogShown = false;
+  bool _isContact = false;
+  bool _contactRequestInProgress = false;
   StreamSubscription<String>? _messageSubscription;
   StreamSubscription<ConnectionInfo>? _connectionSubscription;
   String? _currentChatId;
@@ -99,10 +102,26 @@ void initState() {
   if (_isConnectedMode) {
     _setupMessageListener();
     _setupConnectionListener();
+    _setupContactRequestListener();  // ADD THIS
     
     // Check pairing after a delay to ensure connection is stable
     Future.delayed(Duration(seconds: 1), () {
-      if (mounted) _checkPairingStatus();
+      if (mounted) {
+        _checkPairingStatus();
+        _checkContactStatus();
+      }
+    });
+  }
+}
+
+void _checkContactStatus() async {
+  final bleService = ref.read(bleServiceProvider);
+  if (bleService.otherDevicePersistentId != null) {
+    final contact = await bleService.stateManager.contactRepository.getContact(
+      bleService.otherDevicePersistentId!
+    );
+    setState(() {
+      _isContact = contact != null && contact.trustStatus == TrustStatus.verified;
     });
   }
 }
@@ -418,6 +437,18 @@ title: Column(
   ],
 ),
        actions: [
+  if ((connectionInfo?.isConnected ?? false) && 
+    _hasPaired && 
+    !_isContact && 
+    !_contactRequestInProgress)
+  IconButton(
+    onPressed: _sendContactRequest,
+    icon: Icon(Icons.person_add, color: Colors.blue),
+    tooltip: 'Add to contacts',
+  ),
+
+if (_isContact)
+  Icon(Icons.verified_user, color: Colors.green),
   // Show identity request button if connected but no name
   if ((connectionInfo?.isConnected ?? false) && 
       (connectionInfo?.otherUserName == null || connectionInfo!.otherUserName!.isEmpty))
@@ -788,6 +819,89 @@ return FloatingActionButton.small(
   );
 }
 
+
+void _sendContactRequest() async {
+  setState(() => _contactRequestInProgress = true);
+  
+  final bleService = ref.read(bleServiceProvider);
+  
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      title: Text('Add to Contacts?'),
+      content: Text('This will save ${bleService.otherUserName} as a trusted contact with enhanced encryption.'),
+      actions: [
+        TextButton(
+          onPressed: () {
+            Navigator.pop(context);
+            setState(() => _contactRequestInProgress = false);
+          },
+          child: Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () async {
+            Navigator.pop(context);
+            
+            final success = await bleService.stateManager.sendContactRequest();
+            
+            if (success) {
+              setState(() => _isContact = true);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Contact added successfully!')),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Contact request declined')),
+              );
+            }
+            
+            setState(() => _contactRequestInProgress = false);
+          },
+          child: Text('Send Request'),
+        ),
+      ],
+    ),
+  );
+}
+
+// Listen for incoming contact requests
+void _setupContactRequestListener() {
+  final bleService = ref.read(bleServiceProvider);
+  
+  bleService.stateManager.onContactRequestReceived = (publicKey, displayName) {
+    if (!mounted) return;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text('Contact Request'),
+        content: Text('$displayName wants to add you as a trusted contact. This enables enhanced encryption.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              bleService.stateManager.rejectContactRequest();
+              Navigator.pop(context);
+            },
+            child: Text('Decline'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await bleService.stateManager.acceptContactRequest();
+              setState(() => _isContact = true);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Contact added!')),
+              );
+            },
+            child: Text('Accept'),
+          ),
+        ],
+      ),
+    );
+  };
+}
 
   void _sendMessage() async {
   final text = _messageController.text.trim();

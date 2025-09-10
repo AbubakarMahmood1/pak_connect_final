@@ -9,6 +9,9 @@ enum ProtocolMessageType {
   keyExchange,
   pairingCode,
   pairingVerify,
+  contactRequest,
+  contactAccept,
+  contactReject, 
 }
 
 class ProtocolMessage {
@@ -122,6 +125,36 @@ static ProtocolMessage pairingVerify({
   timestamp: DateTime.now(),
 );
 
+static ProtocolMessage contactRequest({
+  required String publicKey,
+  required String displayName,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.contactRequest,
+  payload: {
+    'publicKey': publicKey,
+    'displayName': displayName,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage contactAccept({
+  required String publicKey,
+  required String displayName,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.contactAccept,
+  payload: {
+    'publicKey': publicKey,
+    'displayName': displayName,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage contactReject() => ProtocolMessage(
+  type: ProtocolMessageType.contactReject,
+  payload: {},
+  timestamp: DateTime.now(),
+);
+
 // Helper to extract identity info  
 String? get identityDeviceId => type == ProtocolMessageType.identity ? payload['deviceId'] as String? : null;
 String? get identityDisplayName => type == ProtocolMessageType.identity ? payload['displayName'] as String? : null;
@@ -143,5 +176,10 @@ String? get ackOriginalId => type == ProtocolMessageType.ack ? payload['original
 
 String? get pairingCodeValue => type == ProtocolMessageType.pairingCode ? payload['code'] as String? : null;
 String? get pairingSecretHash => type == ProtocolMessageType.pairingVerify ? payload['secretHash'] as String? : null;
+
+String? get contactRequestPublicKey => type == ProtocolMessageType.contactRequest ? payload['publicKey'] as String? : null;
+String? get contactRequestDisplayName => type == ProtocolMessageType.contactRequest ? payload['displayName'] as String? : null;
+String? get contactAcceptPublicKey => type == ProtocolMessageType.contactAccept ? payload['publicKey'] as String? : null;
+String? get contactAcceptDisplayName => type == ProtocolMessageType.contactAccept ? payload['displayName'] as String? : null;
 
 }
