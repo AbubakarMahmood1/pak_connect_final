@@ -1,6 +1,6 @@
 # Project Structure: lib 
  
-Generated on: Sat 08/30/2025  0:48:13.20 
+Generated on: Tue 09/09/2025  5:40:21.46 
 Location: C:\Users\theab\OneDrive\Desktop\pak_connect\lib 
  
 ```tree 
@@ -16,13 +16,8 @@ C:.
 |   +---constants
 |   |       ble_constants.dart
 |   |       
-|   +---errors
-|   |       ble_exceptions.dart
-|   |       
-|   +---extensions
-|   |       uint8list_extensions.dart
-|   |       
 |   +---models
+|   |       connection_info.dart
 |   |       connection_state.dart
 |   |       protocol_message.dart
 |   |       
@@ -34,12 +29,8 @@ C:.
 |           message_fragmenter.dart
 |           
 +---data
-|   +---models
-|   |       ble_device_model.dart
-|   |       message_model.dart
-|   |       
 |   +---repositories
-|   |       ble_repository_impl.dart
+|   |       chats_repository.dart
 |   |       contact_repository.dart
 |   |       message_repository.dart
 |   |       user_preferences.dart
@@ -51,22 +42,16 @@ C:.
 |           ble_state_manager.dart
 |           
 +---domain
-|   +---entities
-|   |       ble_device.dart
-|   |       message.dart
-|   |       
-|   +---repositories
-|   |       ble_repository.dart
-|   |       
-|   \---usecases
-|           connect_device.dart
-|           send_message.dart
+|   \---entities
+|           chat_list_item.dart
+|           message.dart
 |           
 \---presentation
     +---providers
     |       ble_providers.dart
     |       
     +---screens
+    |       chats_screen.dart
     |       chat_screen.dart
     |       discovery_screen.dart
     |       permission_screen.dart
@@ -94,13 +79,8 @@ C:.
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\constants** 
 - ble_constants.dart 
  
-**C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\errors** 
-- ble_exceptions.dart 
- 
-**C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\extensions** 
-- uint8list_extensions.dart 
- 
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\models** 
+- connection_info.dart 
 - connection_state.dart 
 - protocol_message.dart 
  
@@ -111,12 +91,8 @@ C:.
 - chat_utils.dart 
 - message_fragmenter.dart 
  
-**C:\Users\theab\OneDrive\Desktop\pak_connect\lib\data\models** 
-- ble_device_model.dart 
-- message_model.dart 
- 
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\data\repositories** 
-- ble_repository_impl.dart 
+- chats_repository.dart 
 - contact_repository.dart 
 - message_repository.dart 
 - user_preferences.dart 
@@ -128,20 +104,14 @@ C:.
 - ble_state_manager.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\domain\entities** 
-- ble_device.dart 
+- chat_list_item.dart 
 - message.dart 
- 
-**C:\Users\theab\OneDrive\Desktop\pak_connect\lib\domain\repositories** 
-- ble_repository.dart 
- 
-**C:\Users\theab\OneDrive\Desktop\pak_connect\lib\domain\usecases** 
-- connect_device.dart 
-- send_message.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\presentation\providers** 
 - ble_providers.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\presentation\screens** 
+- chats_screen.dart 
 - chat_screen.dart 
 - discovery_screen.dart 
 - permission_screen.dart 

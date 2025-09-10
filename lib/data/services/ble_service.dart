@@ -78,6 +78,8 @@ int? _peripheralNegotiatedMTU;
   String? get myPersistentId => _stateManager.myPersistentId;
   bool get isActivelyReconnecting => 
     !_stateManager.isPeripheralMode && _connectionManager.isActivelyReconnecting;
+  BLEStateManager get stateManager => _stateManager;
+  BLEConnectionManager get connectionManager => _connectionManager;
 
   
   Future<void> initialize() async {
@@ -213,6 +215,49 @@ _connectionManager.onConnectionInfoChanged = (info) {
 };
     
     await _stateManager.initialize();
+
+// In initialize method, after _stateManager initialization
+_stateManager.onSendPairingCode = (code) async {
+  if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
+    final message = ProtocolMessage.pairingCode(code: code);
+    await centralManager.writeCharacteristic(
+      _connectionManager.connectedDevice!,
+      _connectionManager.messageCharacteristic!,
+      value: message.toBytes(),
+      type: GATTCharacteristicWriteType.withResponse,
+    );
+    _logger.info('Sent pairing code to other device');
+  } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
+    final message = ProtocolMessage.pairingCode(code: code);
+    await peripheralManager.notifyCharacteristic(
+      _connectedCentral!,
+      _connectedCharacteristic!,
+      value: message.toBytes(),
+    );
+    _logger.info('Sent pairing code via peripheral');
+  }
+};
+
+_stateManager.onSendPairingVerification = (hash) async {
+  if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
+    final message = ProtocolMessage.pairingVerify(secretHash: hash);
+    await centralManager.writeCharacteristic(
+      _connectionManager.connectedDevice!,
+      _connectionManager.messageCharacteristic!,
+      value: message.toBytes(),
+      type: GATTCharacteristicWriteType.withResponse,
+    );
+    _logger.info('Sent pairing verification to other device');
+  } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
+    final message = ProtocolMessage.pairingVerify(secretHash: hash);
+    await peripheralManager.notifyCharacteristic(
+      _connectedCentral!,
+      _connectedCharacteristic!,
+      value: message.toBytes(),
+    );
+    _logger.info('Sent pairing verification via peripheral');
+  }
+};
     
     // Setup event listeners
     _setupEventListeners();
@@ -510,6 +555,35 @@ try {
     }
     return;
   }
+} catch (e) {
+  // Not a protocol message, continue to regular message processing
+}
+
+try {
+  final protocolMessage = ProtocolMessage.fromBytes(data);
+  
+  if (protocolMessage.type == ProtocolMessageType.identity) {
+    // ... existing identity handling ...
+    return;
+  }
+  
+  // ADD THIS: Handle pairing messages
+  if (protocolMessage.type == ProtocolMessageType.pairingCode) {
+    final code = protocolMessage.pairingCodeValue;
+    if (code != null) {
+      _stateManager.handleReceivedPairingCode(code);
+    }
+    return;
+  }
+  
+  if (protocolMessage.type == ProtocolMessageType.pairingVerify) {
+    final hash = protocolMessage.pairingSecretHash;
+    if (hash != null) {
+      _stateManager.handlePairingVerification(hash);
+    }
+    return;
+  }
+  
 } catch (e) {
   // Not a protocol message, continue to regular message processing
 }

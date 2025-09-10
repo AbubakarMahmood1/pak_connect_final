@@ -2,11 +2,13 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 enum ProtocolMessageType {
-  identity,        // Device identity with future public key
-  textMessage,     // Regular chat message
-  ack,            // Message acknowledgment
-  ping,           // Connection health check
-  keyExchange,    // Future: public key exchange
+  identity,
+  textMessage,
+  ack,
+  ping,
+  keyExchange,
+  pairingCode,
+  pairingVerify,
 }
 
 class ProtocolMessage {
@@ -100,6 +102,26 @@ static ProtocolMessage identity({
     }
   }
 
+static ProtocolMessage pairingCode({
+  required String code,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.pairingCode,
+  payload: {
+    'code': code,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage pairingVerify({
+  required String secretHash,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.pairingVerify,
+  payload: {
+    'secretHash': secretHash,
+  },
+  timestamp: DateTime.now(),
+);
+
 // Helper to extract identity info  
 String? get identityDeviceId => type == ProtocolMessageType.identity ? payload['deviceId'] as String? : null;
 String? get identityDisplayName => type == ProtocolMessageType.identity ? payload['displayName'] as String? : null;
@@ -118,5 +140,8 @@ bool get isEncrypted => type == ProtocolMessageType.textMessage ? (payload['encr
 
 // Helper for ACK
 String? get ackOriginalId => type == ProtocolMessageType.ack ? payload['originalMessageId'] as String? : null;
+
+String? get pairingCodeValue => type == ProtocolMessageType.pairingCode ? payload['code'] as String? : null;
+String? get pairingSecretHash => type == ProtocolMessageType.pairingVerify ? payload['secretHash'] as String? : null;
 
 }

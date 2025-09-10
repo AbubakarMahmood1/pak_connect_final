@@ -11,6 +11,9 @@ import '../../core/utils/chat_utils.dart';
 import '../widgets/message_bubble.dart';
 import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
+import '../widgets/pairing_dialog.dart';
+import '../../core/models/pairing_state.dart';
+import '../../core/services/simple_crypto.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode (live connection)
@@ -51,6 +54,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   
   List<Message> _messages = [];
   bool _isLoading = true;
+  bool _hasPaired = false;
+  bool _pairingDialogShown = false;
   StreamSubscription<String>? _messageSubscription;
   StreamSubscription<ConnectionInfo>? _connectionSubscription;
   String? _currentChatId;
@@ -94,7 +99,89 @@ void initState() {
   if (_isConnectedMode) {
     _setupMessageListener();
     _setupConnectionListener();
+    
+    // Check pairing after a delay to ensure connection is stable
+    Future.delayed(Duration(seconds: 1), () {
+      if (mounted) _checkPairingStatus();
+    });
   }
+}
+
+void _checkPairingStatus() {
+  // Prevent multiple checks
+  if (_pairingDialogShown) return;
+  
+  final bleService = ref.read(bleServiceProvider);
+
+  if (bleService.stateManager.currentPairing != null) {
+    _logger.info('Pairing already in progress, not showing dialog');
+    return;
+  }
+  
+  // Check if we have a conversation key for this contact
+  if (widget.contactPublicKey != null) {
+    _hasPaired = SimpleCrypto.hasConversationKey(widget.contactPublicKey!);
+  } else if (bleService.otherDevicePersistentId != null) {
+    _hasPaired = SimpleCrypto.hasConversationKey(bleService.otherDevicePersistentId!);
+  }
+  
+  // Show pairing dialog if connected but not paired
+  if (bleService.isConnected && !_hasPaired && !_isRepositoryMode && !_pairingDialogShown) {
+    _pairingDialogShown = true;  // Set flag BEFORE showing dialog
+    _showPairingDialog();
+  }
+}
+
+void _showPairingDialog() async {
+  final bleService = ref.read(bleServiceProvider);
+  
+  // Pause health checks during pairing
+  bleService.connectionManager.setPairingInProgress(true);
+  
+  // Clear any existing pairing first
+  bleService.stateManager.clearPairing();
+  
+  // Generate code ONCE
+  final myCode = bleService.stateManager.generatePairingCode();
+  
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => PairingDialog(
+      myCode: myCode,
+      onCodeEntered: (theirCode) async {
+        final success = await bleService.stateManager.completePairing(theirCode);
+        if (mounted) Navigator.pop(context, success);
+      },
+      onCancel: () {
+        if (mounted) Navigator.pop(context, false);
+      },
+    ),
+  );
+  
+  // Resume health checks after pairing
+  bleService.connectionManager.setPairingInProgress(false);
+  
+  if (result == true) {
+    setState(() => _hasPaired = true);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Secure connection established!')),
+      );
+    }
+  } else {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Pairing cancelled. Messages will not be encrypted.'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+  
+  bleService.stateManager.clearPairing();
+  _pairingDialogShown = false;  // Reset flag after dialog closes
 }
 
 Future<void> _manualReconnection() async {
@@ -330,7 +417,7 @@ title: Column(
     ),
   ],
 ),
-        actions: [
+       actions: [
   // Show identity request button if connected but no name
   if ((connectionInfo?.isConnected ?? false) && 
       (connectionInfo?.otherUserName == null || connectionInfo!.otherUserName!.isEmpty))
@@ -338,6 +425,17 @@ title: Column(
       onPressed: _requestIdentityExchange,
       icon: Icon(Icons.person_search, color: Colors.orange),
       tooltip: 'Request name exchange',
+    ),
+  
+  // Show pairing button if connected with name but not paired
+  if ((connectionInfo?.isConnected ?? false) && 
+      (connectionInfo?.otherUserName != null && connectionInfo!.otherUserName!.isNotEmpty) &&
+      !_hasPaired && 
+      !_isRepositoryMode)
+    IconButton(
+      onPressed: _showPairingDialog,
+      icon: Icon(Icons.lock_open, color: Colors.orange),
+      tooltip: 'Setup secure chat',
     ),
     
   IconButton(
@@ -670,7 +768,7 @@ enabled: isConnected && hasNameExchange,
           valueListenable: _messageController,
           builder: (context, value, child) {
             final hasText = value.text.trim().isNotEmpty;
-final canSend = hasText && isConnected && hasNameExchange;
+final canSend = hasText && isConnected && hasNameExchange && (_hasPaired || _isRepositoryMode);
 return FloatingActionButton.small(
   onPressed: canSend ? _sendMessage : null,
   backgroundColor: canSend

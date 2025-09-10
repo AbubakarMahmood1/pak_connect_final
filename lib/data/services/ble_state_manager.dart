@@ -1,5 +1,9 @@
 import 'dart:async';
+import 'dart:math';
+import 'dart:convert';
 import 'package:logging/logging.dart';
+import 'package:crypto/crypto.dart';
+import '../../core/models/pairing_state.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/services/simple_crypto.dart';
@@ -12,10 +16,16 @@ class BLEStateManager {
   final ContactRepository _contactRepository = ContactRepository();
   final UserPreferences _userPreferences = UserPreferences();
   
+  PairingInfo? _currentPairing;
+  final Map<String, String> _conversationKeys = {};
+
   String? _myUserName;
   String? _otherUserName;
   String? _myPersistentId;
   String? _otherDevicePersistentId;
+  String? _theirReceivedCode;  // Code we received from them
+  bool _weEnteredCode = false;  // Have we entered their code?
+  bool _theyEnteredCode = false; // Have they entered our code?
   
   // Peripheral mode tracking
   bool _isPeripheralMode = false;
@@ -26,11 +36,19 @@ class BLEStateManager {
   String? get otherDevicePersistentId => _otherDevicePersistentId;
   bool get isPeripheralMode => _isPeripheralMode;
   String? get myPersistentId => _myPersistentId;
+  PairingInfo? get currentPairing => _currentPairing;
+  
+
+  Completer<bool>? _pairingCompleter;
+  Timer? _pairingTimeout;
+  String? _receivedPairingCode;
 
   ContactRepository get contactRepository => _contactRepository;
   
   // Callbacks
   Function(String?)? onNameChanged;
+  Function(String)? onSendPairingCode;
+  Function(String)? onSendPairingVerification;
   
   Future<void> initialize() async {
   await loadUserName();
@@ -136,6 +154,219 @@ Future<bool> hasContactKeyChanged(String publicKey, String currentDisplayName) a
     c.displayName == currentDisplayName && c.publicKey != publicKey).toList();
   
   return sameNameContacts.isNotEmpty;
+}
+
+// In ble_state_manager.dart, update generatePairingCode method
+String generatePairingCode() {
+  if (_currentPairing != null && _currentPairing!.state == PairingState.displaying) {
+    _logger.info('Returning existing pairing code: ${_currentPairing!.myCode}');
+    return _currentPairing!.myCode;
+  }
+  
+  final random = Random();
+  final code = (random.nextInt(9000) + 1000).toString();
+  _currentPairing = PairingInfo(
+    myCode: code,
+    state: PairingState.displaying,
+  );
+  
+  // Reset for new pairing attempt
+  _receivedPairingCode = null;
+  _pairingCompleter = Completer<bool>();
+  
+  // Set timeout for pairing
+  _pairingTimeout?.cancel();
+  _pairingTimeout = Timer(Duration(seconds: 60), () {
+    if (_pairingCompleter != null && !_pairingCompleter!.isCompleted) {
+      _pairingCompleter!.complete(false);
+      _logger.warning('Pairing timeout');
+    }
+  });
+  
+  _logger.info('Generated new pairing code: $code');
+  return code;
+}
+
+
+Future<bool> completePairing(String theirCode) async {
+  if (_currentPairing == null) {
+    _logger.warning('No pairing in progress');
+    return false;
+  }
+  
+  _logger.info('User entered code: $theirCode');
+  
+  // Mark that we've entered their code
+  _weEnteredCode = true;
+  _receivedPairingCode = theirCode;
+  
+  _currentPairing = _currentPairing!.copyWith(
+    theirCode: theirCode,
+    state: PairingState.verifying,
+  );
+  
+  try {
+    // Send our code to them (so they know we're ready)
+    _logger.info('Sending our code to other device: ${_currentPairing!.myCode}');
+    await sendPairingCode(_currentPairing!.myCode);
+    
+    // If we already received their code, we can verify immediately
+    if (_theirReceivedCode != null) {
+      _logger.info('We already have their code, proceeding to verify');
+      return await _performVerification();
+    } else {
+      _logger.info('Waiting for other device to send their code...');
+      
+      // Set up completer if needed
+      if (_pairingCompleter == null || _pairingCompleter!.isCompleted) {
+        _pairingCompleter = Completer<bool>();
+      }
+      
+      // Wait for the other device to send their code
+      final success = await _pairingCompleter!.future.timeout(
+        Duration(seconds: 60),
+        onTimeout: () {
+          _logger.warning('Timeout waiting for other device code');
+          return false;
+        },
+      );
+      
+      return success;
+    }
+    
+  } catch (e) {
+    _logger.severe('Pairing failed: $e');
+    _currentPairing = _currentPairing!.copyWith(state: PairingState.failed);
+    return false;
+  } finally {
+    _pairingTimeout?.cancel();
+  }
+}
+
+void handleReceivedPairingCode(String theirCode) {
+  _logger.info('Received pairing code from other device: $theirCode');
+  
+  // Store their code
+  _theirReceivedCode = theirCode;
+  _theyEnteredCode = true;
+  
+  // If we haven't entered a code yet, just store it
+  if (!_weEnteredCode || _receivedPairingCode == null) {
+    _logger.info('Storing their code, waiting for user to enter code');
+    return;
+  }
+  
+  // Both sides have entered codes - verify they match!
+  if (theirCode != _receivedPairingCode) {
+    _logger.severe('CODE MISMATCH! We entered: $_receivedPairingCode, They sent: $theirCode');
+    _logger.severe('This means they entered wrong code!');
+    if (_pairingCompleter != null && !_pairingCompleter!.isCompleted) {
+      _pairingCompleter!.complete(false);
+    }
+    return;
+  }
+  
+  _logger.info('Codes match! Both devices entered correct codes. Starting verification...');
+  
+  // Perform verification since both have entered codes
+  _performVerification().then((success) {
+    if (_pairingCompleter != null && !_pairingCompleter!.isCompleted) {
+      _pairingCompleter!.complete(success);
+    }
+  });
+}
+
+Future<bool> _performVerification() async {
+  if (_currentPairing == null || _receivedPairingCode == null || _theirReceivedCode == null) {
+    _logger.warning('Missing data for verification');
+    return false;
+  }
+  
+  try {
+    final myPublicKey = await getMyPersistentId();
+    final theirPublicKey = _otherDevicePersistentId;
+    
+    if (theirPublicKey == null) {
+      _logger.warning('No other device public key');
+      return false;
+    }
+    
+    // Now compute shared secret (both devices will get same result)
+    final sortedCodes = [_currentPairing!.myCode, _receivedPairingCode!]..sort();
+    final sortedKeys = [myPublicKey, theirPublicKey]..sort();
+    
+    final combinedData = '${sortedCodes[0]}:${sortedCodes[1]}:${sortedKeys[0]}:${sortedKeys[1]}';
+    final sharedSecret = sha256.convert(utf8.encode(combinedData)).toString();
+    
+    _logger.info('Computed shared secret from codes');
+    
+    // Generate and send verification hash
+    final secretHash = sha256.convert(utf8.encode(sharedSecret)).toString().substring(0, 8);
+    _logger.info('Sending verification hash: $secretHash');
+    await sendPairingVerification(secretHash);
+    
+    // Store the conversation key
+    _conversationKeys[theirPublicKey] = sharedSecret;
+    await _contactRepository.cacheSharedSecret(theirPublicKey, sharedSecret);
+    
+    _currentPairing = _currentPairing!.copyWith(
+      state: PairingState.completed,
+      sharedSecret: sharedSecret,
+    );
+    
+    _logger.info('✅ Pairing completed successfully!');
+    
+    // Initialize crypto with conversation key
+    SimpleCrypto.initializeConversation(theirPublicKey, sharedSecret);
+    
+    return true;
+    
+  } catch (e) {
+    _logger.severe('Verification failed: $e');
+    _currentPairing = _currentPairing!.copyWith(state: PairingState.failed);
+    return false;
+  }
+}
+
+// Method to handle verification
+void handlePairingVerification(String theirSecretHash) {
+  _logger.info('Received verification hash from other device: $theirSecretHash');
+  
+  // Only log for debugging - both devices compute same secret independently
+  // No need to compare hashes since we already verified codes match
+  
+  if (_currentPairing != null && _currentPairing!.sharedSecret != null) {
+    final ourHash = sha256.convert(utf8.encode(_currentPairing!.sharedSecret!)).toString().substring(0, 8);
+    if (ourHash == theirSecretHash) {
+      _logger.info('✅ Verification hashes match - pairing confirmed!');
+    } else {
+      _logger.severe('❌ Hash mismatch - something went wrong!');
+    }
+  }
+}
+
+
+Future<void> sendPairingCode(String code) async {
+  onSendPairingCode?.call(code);
+}
+
+Future<void> sendPairingVerification(String hash) async {
+  onSendPairingVerification?.call(hash);
+}
+
+void clearPairing() {
+  _currentPairing = null;
+  _receivedPairingCode = null;
+  _theirReceivedCode = null;
+  _weEnteredCode = false;
+  _theyEnteredCode = false;
+  _pairingCompleter = null;
+  _pairingTimeout?.cancel();
+  _logger.info('Pairing state cleared');
+}
+
+String? getConversationKey(String publicKey) {
+  return _conversationKeys[publicKey];
 }
 
   

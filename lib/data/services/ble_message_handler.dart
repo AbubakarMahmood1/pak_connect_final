@@ -76,8 +76,21 @@ String payload = message;
 bool isEncrypted = false;
 String encryptionMethod = 'none';
 
-// Use cached ECDH encryption
-if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+
+if (contactPublicKey != null && SimpleCrypto.hasConversationKey(contactPublicKey)) {
+  try {
+    payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
+    isEncrypted = true;
+    encryptionMethod = 'conversation';
+    _logger.info('Message encrypted with conversation key');
+  } catch (e) {
+    _logger.warning('Conversation encryption failed: $e');
+    // Don't fall back - if conversation key exists but fails, something is wrong
+    throw Exception('Conversation encryption failed - re-pairing may be required');
+  }
+}
+// Fall back to ECDH if no conversation key
+else if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
   try {
     final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
     if (ecdhEncrypted != null) {
@@ -193,7 +206,20 @@ Future<bool> sendPeripheralMessage({
     String encryptionMethod = 'none';
 
     // ECDH encryption if contact public key available
-if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+if (contactPublicKey != null && SimpleCrypto.hasConversationKey(contactPublicKey)) {
+  try {
+    payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
+    isEncrypted = true;
+    encryptionMethod = 'conversation';
+    _logger.info('Message encrypted with conversation key');
+  } catch (e) {
+    _logger.warning('Conversation encryption failed: $e');
+    // Don't fall back - if conversation key exists but fails, something is wrong
+    throw Exception('Conversation encryption failed - re-pairing may be required');
+  }
+}
+// Fall back to ECDH if no conversation key
+else if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
   try {
     final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
     if (ecdhEncrypted != null) {
@@ -207,10 +233,9 @@ if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
   }
 }
 
-    // NO fallback - either ECDH works or send unencrypted
-    if (!isEncrypted) {
-      _logger.warning('Peripheral sending unencrypted - no ECDH available');
-    }
+if (!isEncrypted) {
+  _logger.warning('Sending unencrypted - no ECDH available');
+}
 
     // Sign the original message content (before encryption)
     final signature = SimpleCrypto.signMessage(message);
@@ -341,62 +366,83 @@ Future<String?> _processCompleteProtocolMessage(
     
     switch (protocolMessage.type) {
       case ProtocolMessageType.textMessage:
-  final messageId = protocolMessage.textMessageId!;
-  final content = protocolMessage.textContent!;
-  final encryptionMethod = protocolMessage.payload['encryptionMethod'] as String?;
-  
-  onMessageIdFound?.call(messageId);
-  
-  // First: Decrypt the message using appropriate method
-  String decryptedContent = content;
-  
-if (protocolMessage.isEncrypted) {
-  if (encryptionMethod == 'ecdh' && senderPublicKey != null && senderPublicKey.isNotEmpty) {
-    try {
-      final decrypted = await SimpleCrypto.decryptFromContact(content, senderPublicKey, _contactRepository);
-      if (decrypted != null) {
-        decryptedContent = decrypted;
-        print('Message decrypted using cached ECDH');
-      } else {
-        return '[ECDH decryption failed]';
-      }
-    } catch (e) {
-      print('ECDH decryption failed: $e');
-      return '[ECDH decryption error]';
-    }
-  } else {
-    // Legacy passphrase decryption
-    if (SimpleCrypto.isInitialized) {
-      try {
-        decryptedContent = SimpleCrypto.decrypt(content);
-        print('Message decrypted using passphrase (legacy)');
-      } catch (e) {
-        print('Legacy decryption failed: $e');
-        return '[Cannot decrypt legacy message]';
-      }
-    } else {
-      return '[No decryption method available]';
-    }
-  }
-}
-  
-  // Then: Verify signature on decrypted content
-  if (protocolMessage.signature != null && senderPublicKey != null) {
-    final isValid = SimpleCrypto.verifySignature(
-      decryptedContent,  // Use decrypted content for verification
-      protocolMessage.signature!, 
-      senderPublicKey
-    );
-    
-    if (!isValid) {
-      _logger.severe('❌ SIGNATURE VERIFICATION FAILED - possible impersonation!');
-      return '[UNTRUSTED MESSAGE - Signature Invalid]';
-    }
-    
-    _logger.info('✅ Signature verified - message authentic');
-  }
-  
-  return decryptedContent;
+        final messageId = protocolMessage.textMessageId!;
+        final content = protocolMessage.textContent!;
+        final encryptionMethod = protocolMessage.payload['encryptionMethod'] as String?;
+        
+        onMessageIdFound?.call(messageId);
+        
+        // First: Decrypt the message using appropriate method
+        String decryptedContent = content;
+        
+        if (protocolMessage.isEncrypted) {
+          // Try conversation encryption first (highest priority)
+          if (encryptionMethod == 'conversation' && senderPublicKey != null) {
+            try {
+              if (SimpleCrypto.hasConversationKey(senderPublicKey)) {
+                decryptedContent = SimpleCrypto.decryptFromConversation(content, senderPublicKey);
+                _logger.info('Message decrypted using conversation key');
+              } else {
+                _logger.warning('No conversation key found for sender');
+                return '[Secure chat not established - pairing required]';
+              }
+            } catch (e) {
+              _logger.severe('Conversation decryption failed: $e');
+              return '[Decryption failed - re-pair with sender]';
+            }
+          } 
+          // Try ECDH encryption
+          else if (encryptionMethod == 'ecdh' && senderPublicKey != null && senderPublicKey.isNotEmpty) {
+            try {
+              final decrypted = await SimpleCrypto.decryptFromContact(content, senderPublicKey, _contactRepository);
+              if (decrypted != null) {
+                decryptedContent = decrypted;
+                _logger.info('Message decrypted using ECDH');
+              } else {
+                return '[ECDH decryption failed]';
+              }
+            } catch (e) {
+              _logger.severe('ECDH decryption failed: $e');
+              return '[ECDH decryption error]';
+            }
+          }
+          // Legacy passphrase decryption (fallback)
+          else if (encryptionMethod == null || encryptionMethod == 'passphrase') {
+            if (SimpleCrypto.isInitialized) {
+              try {
+                decryptedContent = SimpleCrypto.decrypt(content);
+                _logger.info('Message decrypted using passphrase (legacy)');
+              } catch (e) {
+                _logger.severe('Legacy decryption failed: $e');
+                return '[Cannot decrypt legacy message]';
+              }
+            } else {
+              return '[No decryption method available]';
+            }
+          }
+          else {
+            _logger.warning('Unknown encryption method: $encryptionMethod');
+            return '[Unknown encryption method]';
+          }
+        }
+        
+        // Then: Verify signature on decrypted content
+        if (protocolMessage.signature != null && senderPublicKey != null) {
+          final isValid = SimpleCrypto.verifySignature(
+            decryptedContent,  // Use decrypted content for verification
+            protocolMessage.signature!, 
+            senderPublicKey
+          );
+          
+          if (!isValid) {
+            _logger.severe('⌠SIGNATURE VERIFICATION FAILED - possible impersonation!');
+            return '[UNTRUSTED MESSAGE - Signature Invalid]';
+          }
+          
+          _logger.info('✅ Signature verified - message authentic');
+        }
+        
+        return decryptedContent;
         
       case ProtocolMessageType.ack:
         final originalId = protocolMessage.ackOriginalId!;

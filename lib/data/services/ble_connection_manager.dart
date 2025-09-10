@@ -32,6 +32,7 @@ bool _isPeripheralMode = false;
   int _monitoringInterval = 3000; // milliseconds
   int _reconnectAttempts = 0;
   bool _messageOperationInProgress = false;
+  bool _pairingInProgress = false;
   bool _isReconnection = false;
   
   ConnectionMonitorState _monitorState = ConnectionMonitorState.idle;
@@ -153,11 +154,27 @@ bool _isPeripheralMode = false;
     });
   }
 
-  Future<void> _performHealthCheck() async {
-    if (_messageOperationInProgress || !hasBleConnection || _messageCharacteristic == null) {
-  _scheduleNextCheck();
-  return;
+void setPairingInProgress(bool inProgress) {
+  _pairingInProgress = inProgress;
+  if (inProgress) {
+    _logger.info('Pausing health checks during pairing');
+  } else {
+    _logger.info('Resuming health checks after pairing');
+  }
 }
+
+
+  Future<void> _performHealthCheck() async {
+      if (_pairingInProgress) {
+    _logger.info('Skipping health check - pairing in progress');
+    _scheduleNextCheck();
+    return;
+  }
+
+  if (_messageOperationInProgress || !hasBleConnection || _messageCharacteristic == null) {
+    _scheduleNextCheck();
+    return;
+  }
     
     try {
       final pingData = Uint8List.fromList([0x00]);

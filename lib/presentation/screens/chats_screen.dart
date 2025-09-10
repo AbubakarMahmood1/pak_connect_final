@@ -32,6 +32,7 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
     _setupPeriodicRefresh();
   }
 
+
 void _loadChats() async {
   if (!mounted) return;
   setState(() => _isLoading = true);
@@ -225,7 +226,7 @@ void _setupPeriodicRefresh() {
               children: [
                 Icon(Icons.bluetooth_disabled),
                 SizedBox(width: 8),
-                Text('Bluetooth ${state.name} - Enable to see online contacts'),
+                Text('Bluetooth ${state.name} - Allow Permission!'),
               ],
             ),
           );

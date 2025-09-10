@@ -11,6 +11,8 @@ class SimpleCrypto {
   static ECPrivateKey? _privateKey;
   static ECPublicKey? _verifyingKey;
   static Map<String, String> _sharedSecretCache = {};
+  static final Map<String, Encrypter> _conversationEncrypters = {};
+  static final Map<String, IV> _conversationIVs = {};
   
   // Initialize with shared passphrase
   static void initialize(String passphrase) {
@@ -55,6 +57,50 @@ class SimpleCrypto {
     _privateKey = null;
     _verifyingKey = null;
   }
+
+static void initializeConversation(String publicKey, String sharedSecret) {
+  // Generate conversation-specific key and IV
+  final keyBytes = sha256.convert(utf8.encode(sharedSecret + 'CONVERSATION_KEY')).bytes;
+  final key = Key(Uint8List.fromList(keyBytes));
+  
+  final ivBytes = sha256.convert(utf8.encode(sharedSecret + 'CONVERSATION_IV')).bytes.sublist(0, 16);
+  final iv = IV(Uint8List.fromList(ivBytes));
+  
+  _conversationEncrypters[publicKey] = Encrypter(AES(key));
+  _conversationIVs[publicKey] = iv;
+  
+  print('Initialized conversation crypto for ${publicKey.substring(0, 8)}...');
+}
+
+// Add conversation-aware encrypt method
+static String encryptForConversation(String plaintext, String publicKey) {
+  final encrypter = _conversationEncrypters[publicKey];
+  final iv = _conversationIVs[publicKey];
+  
+  if (encrypter == null || iv == null) {
+    throw StateError('No conversation key for $publicKey');
+  }
+  
+  final encrypted = encrypter.encrypt(plaintext, iv: iv);
+  return encrypted.base64;
+}
+
+// Add conversation-aware decrypt method  
+static String decryptFromConversation(String encryptedBase64, String publicKey) {
+  final encrypter = _conversationEncrypters[publicKey];
+  final iv = _conversationIVs[publicKey];
+  
+  if (encrypter == null || iv == null) {
+    throw StateError('No conversation key for $publicKey');
+  }
+  
+  final encrypted = Encrypted.fromBase64(encryptedBase64);
+  return encrypter.decrypt(encrypted, iv: iv);
+}
+
+static bool hasConversationKey(String publicKey) {
+  return _conversationEncrypters.containsKey(publicKey);
+}
 
   // === MESSAGE SIGNING (Direct Constructor Approach) ===
   
