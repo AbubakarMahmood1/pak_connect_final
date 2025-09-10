@@ -76,36 +76,42 @@ String payload = message;
 bool isEncrypted = false;
 String encryptionMethod = 'none';
 
-
-if (contactPublicKey != null && SimpleCrypto.hasConversationKey(contactPublicKey)) {
-  try {
-    payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
-    isEncrypted = true;
-    encryptionMethod = 'conversation';
-    _logger.info('Message encrypted with conversation key');
-  } catch (e) {
-    _logger.warning('Conversation encryption failed: $e');
-    // Don't fall back - if conversation key exists but fails, something is wrong
-    throw Exception('Conversation encryption failed - re-pairing may be required');
-  }
-}
-// Fall back to ECDH if no conversation key
-else if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
-  try {
-    final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
-    if (ecdhEncrypted != null) {
-      payload = ecdhEncrypted;
-      isEncrypted = true;
-      encryptionMethod = 'ecdh';
-      _logger.info('Message encrypted with cached ECDH');
+// Hierarchy: ECDH (if contact) > Conversation (if paired) > Unencrypted
+if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+  // Check if this is a verified contact first (ECDH)
+  final contact = await contactRepository.getContact(contactPublicKey);
+  final isVerifiedContact = contact != null && contact.trustStatus == TrustStatus.verified;
+  
+  if (isVerifiedContact) {
+    // Try ECDH first for verified contacts
+    try {
+      final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
+      if (ecdhEncrypted != null) {
+        payload = ecdhEncrypted;
+        isEncrypted = true;
+        encryptionMethod = 'ecdh';
+        _logger.info('Message encrypted with ECDH (verified contact)');
+      }
+    } catch (e) {
+      _logger.warning('ECDH encryption failed: $e');
     }
-  } catch (e) {
-    _logger.warning('ECDH encryption failed: $e');
+  }
+  
+  // If not encrypted yet, try conversation key (pairing)
+  if (!isEncrypted && SimpleCrypto.hasConversationKey(contactPublicKey)) {
+    try {
+      payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
+      isEncrypted = true;
+      encryptionMethod = 'conversation';
+      _logger.info('Message encrypted with conversation key');
+    } catch (e) {
+      _logger.warning('Conversation encryption failed: $e');
+    }
   }
 }
 
 if (!isEncrypted) {
-  _logger.warning('Sending unencrypted - no ECDH available');
+  _logger.warning('Sending unencrypted - no keys available');
 }
 
 // Sign the original message content (before encryption)

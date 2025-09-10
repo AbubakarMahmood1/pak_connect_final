@@ -108,45 +108,55 @@ void initState() {
     Future.delayed(Duration(seconds: 1), () {
       if (mounted) {
         _checkPairingStatus();
-        _checkContactStatus();
       }
     });
   }
 }
 
-void _checkContactStatus() async {
-  final bleService = ref.read(bleServiceProvider);
-  if (bleService.otherDevicePersistentId != null) {
-    final contact = await bleService.stateManager.contactRepository.getContact(
-      bleService.otherDevicePersistentId!
-    );
-    setState(() {
-      _isContact = contact != null && contact.trustStatus == TrustStatus.verified;
-    });
-  }
-}
-
-void _checkPairingStatus() {
+void _checkPairingStatus() async {
   // Prevent multiple checks
   if (_pairingDialogShown) return;
   
   final bleService = ref.read(bleServiceProvider);
-
-  if (bleService.stateManager.currentPairing != null) {
-    _logger.info('Pairing already in progress, not showing dialog');
+  
+  // Don't check pairing if already in repository mode
+  if (_isRepositoryMode) {
+    _hasPaired = true; // Repository chats always have keys
     return;
   }
   
-  // Check if we have a conversation key for this contact
-  if (widget.contactPublicKey != null) {
-    _hasPaired = SimpleCrypto.hasConversationKey(widget.contactPublicKey!);
-  } else if (bleService.otherDevicePersistentId != null) {
-    _hasPaired = SimpleCrypto.hasConversationKey(bleService.otherDevicePersistentId!);
+  final otherPublicKey = bleService.otherDevicePersistentId;
+  if (otherPublicKey == null) {
+    _logger.warning('No public key available for pairing check');
+    return;
   }
   
-  // Show pairing dialog if connected but not paired
-  if (bleService.isConnected && !_hasPaired && !_isRepositoryMode && !_pairingDialogShown) {
-    _pairingDialogShown = true;  // Set flag BEFORE showing dialog
+  // HIERARCHY: Contact > Cached Pairing > New Pairing
+  
+  // 1. Check if they're a verified contact (strongest security)
+  final contact = await bleService.stateManager.contactRepository.getContact(otherPublicKey);
+  if (contact != null && contact.trustStatus == TrustStatus.verified) {
+    _logger.info('Verified contact detected - using ECDH encryption');
+    _isContact = true;
+    _hasPaired = true; // Contacts are implicitly paired
+    
+    // Ensure ECDH key is loaded
+    await bleService.stateManager.checkExistingPairing(otherPublicKey);
+    return;
+  }
+  
+  // 2. Check for cached conversation key (from previous pairing)
+  final hasExistingPairing = await bleService.stateManager.checkExistingPairing(otherPublicKey);
+  if (hasExistingPairing) {
+    _logger.info('Previous pairing found - restored conversation key');
+    _hasPaired = true;
+    return;
+  }
+  
+  // 3. No existing security - need new pairing
+  _logger.info('No existing security - showing pairing dialog');
+  if (bleService.isConnected && !_pairingDialogShown) {
+    _pairingDialogShown = true;
     _showPairingDialog();
   }
 }
@@ -413,16 +423,36 @@ final actuallyConnected = _isCentralMode
     
     return Scaffold(
       appBar: AppBar(
+// In AppBar title section, add security indicator
 title: Column(
   crossAxisAlignment: CrossAxisAlignment.start,
   children: [
-    Text(
-      _isRepositoryMode 
-        ? 'Chat with ${widget.contactName}'
-        : (connectionInfo?.otherUserName != null && connectionInfo!.otherUserName!.isNotEmpty
-          ? 'Chat with ${connectionInfo!.otherUserName}'
-          : 'Device $_displayContactName...'),
-      style: Theme.of(context).textTheme.titleMedium,
+    Row(
+      children: [
+        Text(
+          _isRepositoryMode 
+            ? 'Chat with ${widget.contactName}'
+            : (connectionInfo?.otherUserName ?? 'Device $_displayContactName...'),
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        SizedBox(width: 8),
+        // Security indicator
+        if (_isContact)
+          Tooltip(
+            message: 'Verified Contact (ECDH)',
+            child: Icon(Icons.verified_user, size: 16, color: Colors.green),
+          )
+        else if (_hasPaired)
+          Tooltip(
+            message: 'Paired (Conversation Key)',
+            child: Icon(Icons.lock, size: 16, color: Colors.blue),
+          )
+        else if (connectionInfo?.isConnected ?? false)
+          Tooltip(
+            message: 'Not Secured',
+            child: Icon(Icons.lock_open, size: 16, color: Colors.orange),
+          ),
+      ],
     ),
     Text(
       _isRepositoryMode 

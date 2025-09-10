@@ -364,6 +364,30 @@ Future<void> sendPairingVerification(String hash) async {
   onSendPairingVerification?.call(hash);
 }
 
+Future<bool> checkExistingPairing(String publicKey) async {
+  try {
+    // Check if we have a cached shared secret for this contact
+    final cachedSecret = await _contactRepository.getCachedSharedSecret(publicKey);
+    
+    if (cachedSecret != null) {
+      _logger.info('Found cached pairing/ECDH secret for $publicKey');
+      
+      // Restore it in SimpleCrypto
+      await SimpleCrypto.restoreConversationKey(publicKey, cachedSecret);
+      
+      // Update local cache
+      _conversationKeys[publicKey] = cachedSecret;
+      
+      return true;
+    }
+    
+    return false;
+  } catch (e) {
+    _logger.warning('Failed to check existing pairing: $e');
+    return false;
+  }
+}
+
 Future<bool> sendContactRequest() async {
   try {
     final myPublicKey = await getMyPersistentId();

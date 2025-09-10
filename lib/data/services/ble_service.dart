@@ -764,14 +764,16 @@ final advertisement = Advertisement(
   Future<void> startAsCentral() async {
   _logger.info('Starting as Central (scanner)...');
   
-  // CRITICAL: Set mode FIRST before any other operations
+  // Set mode FIRST
   _stateManager.setPeripheralMode(false);
   _connectionManager.setPeripheralMode(false);
   
-  // Then clear peripheral state
+  // Clear peripheral-specific state (but NOT encryption keys!)
   _connectedCentral = null;
   _connectedCharacteristic = null;
   _peripheralNegotiatedMTU = null;
+  
+  // Don't call clearOtherUserName() here - it clears too much
   
   try {
     await peripheralManager.stopAdvertising();
@@ -780,24 +782,11 @@ final advertisement = Advertisement(
     // Ignore
   }
   
-  // Now clear connection info (mode is already set correctly)
   _updateConnectionInfo(
     isConnected: false,
     isReady: false,
     otherUserName: null,
     isAdvertising: false,
-    statusMessage: 'Switching to scanner mode...'
-  );
-  
-  _connectionManager.clearConnectionState();
-  _stateManager.clearOtherUserName();
-  _discoveredDevices.clear();
-  _devicesController?.add([]);
-  
-  // Final state update
-  _updateConnectionInfo(
-    isConnected: false,
-    isReady: false,
     statusMessage: 'Ready to scan'
   );
   

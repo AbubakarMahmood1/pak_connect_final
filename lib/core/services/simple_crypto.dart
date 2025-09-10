@@ -335,4 +335,22 @@ static Future<String?> getCachedOrComputeSharedSecret(String contactPublicKey, C
   
   return newSecret;
 }
+
+static Future<void> restoreConversationKey(String publicKey, String cachedSecret) async {
+  try {
+    // Restore the encrypter and IV for this conversation
+    final keyBytes = sha256.convert(utf8.encode(cachedSecret + 'CONVERSATION_KEY')).bytes;
+    final key = Key(Uint8List.fromList(keyBytes));
+    
+    final ivBytes = sha256.convert(utf8.encode(cachedSecret + 'CONVERSATION_IV')).bytes.sublist(0, 16);
+    final iv = IV(Uint8List.fromList(ivBytes));
+    
+    _conversationEncrypters[publicKey] = Encrypter(AES(key));
+    _conversationIVs[publicKey] = iv;
+    
+    print('Restored conversation key for ${publicKey.substring(0, 8)}...');
+  } catch (e) {
+    print('Failed to restore conversation key: $e');
+  }
+}
 }
