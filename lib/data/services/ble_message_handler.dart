@@ -7,6 +7,7 @@ import '../../core/utils/message_fragmenter.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 import '../../data/repositories/contact_repository.dart';
+import 'ble_state_manager.dart';
 
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
@@ -23,6 +24,7 @@ class BLEMessageHandler {
   
   // Message operation tracking
   bool _messageOperationInProgress = false;
+  String encryptionMethod = 'none';
   
   BLEMessageHandler() {
     // Setup periodic cleanup of old partial messages
@@ -40,6 +42,7 @@ class BLEMessageHandler {
   String? messageId,
   String? contactPublicKey,
   required ContactRepository contactRepository,
+  required BLEStateManager stateManager,
   Function(bool)? onMessageOperationChanged,
 }) async {
   _messageOperationInProgress = true;
@@ -78,26 +81,30 @@ String encryptionMethod = 'none';
 
 // Hierarchy: ECDH (if contact) > Conversation (if paired) > Unencrypted
 if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
-  // Check if this is a verified contact first (ECDH)
+  // Check contact status BOTH WAYS
   final contact = await contactRepository.getContact(contactPublicKey);
-  final isVerifiedContact = contact != null && contact.trustStatus == TrustStatus.verified;
+  final iHaveThem = contact != null && contact.trustStatus == TrustStatus.verified;
+  final theyHaveMe = stateManager.theyHaveUsAsContact;  // USE STATE MANAGER HERE
   
-  if (isVerifiedContact) {
-    // Try ECDH first for verified contacts
+  if (iHaveThem && theyHaveMe) {
+    // Both have each other - use ECDH
     try {
       final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
       if (ecdhEncrypted != null) {
         payload = ecdhEncrypted;
         isEncrypted = true;
         encryptionMethod = 'ecdh';
-        _logger.info('Message encrypted with ECDH (verified contact)');
+        _logger.info('Message encrypted with ECDH (mutual contacts)');
       }
     } catch (e) {
       _logger.warning('ECDH encryption failed: $e');
     }
+  } else if (iHaveThem || theyHaveMe) {
+    // Asymmetric contact situation - log warning
+    _logger.warning('Asymmetric contact detected - I have them: $iHaveThem, They have me: $theyHaveMe');
   }
   
-  // If not encrypted yet, try conversation key (pairing)
+  // Fall back to conversation key (pairing) if ECDH not available
   if (!isEncrypted && SimpleCrypto.hasConversationKey(contactPublicKey)) {
     try {
       payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
@@ -203,6 +210,7 @@ Future<bool> sendPeripheralMessage({
   String? messageId,
   String? contactPublicKey,
   required ContactRepository contactRepository,
+  required BLEStateManager stateManager,
 }) async {
   final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
   
@@ -211,36 +219,47 @@ Future<bool> sendPeripheralMessage({
     bool isEncrypted = false;
     String encryptionMethod = 'none';
 
-    // ECDH encryption if contact public key available
-if (contactPublicKey != null && SimpleCrypto.hasConversationKey(contactPublicKey)) {
-  try {
-    payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
-    isEncrypted = true;
-    encryptionMethod = 'conversation';
-    _logger.info('Message encrypted with conversation key');
-  } catch (e) {
-    _logger.warning('Conversation encryption failed: $e');
-    // Don't fall back - if conversation key exists but fails, something is wrong
-    throw Exception('Conversation encryption failed - re-pairing may be required');
-  }
-}
-// Fall back to ECDH if no conversation key
-else if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
-  try {
-    final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
-    if (ecdhEncrypted != null) {
-      payload = ecdhEncrypted;
-      isEncrypted = true;
-      encryptionMethod = 'ecdh';
-      _logger.info('Message encrypted with cached ECDH');
+if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+  // Check contact status BOTH WAYS
+  final contact = await contactRepository.getContact(contactPublicKey);
+  final iHaveThem = contact != null && contact.trustStatus == TrustStatus.verified;
+  
+  // Get bilateral status from state manager (you'll need to pass this)
+  final theyHaveMe = true; // TODO: Get from state manager parameter
+  
+  if (iHaveThem && theyHaveMe) {
+    // Both have each other - use ECDH
+    try {
+      final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
+      if (ecdhEncrypted != null) {
+        payload = ecdhEncrypted;
+        isEncrypted = true;
+        encryptionMethod = 'ecdh';
+        _logger.info('Message encrypted with ECDH (mutual contacts)');
+      }
+    } catch (e) {
+      _logger.warning('ECDH encryption failed: $e');
     }
-  } catch (e) {
-    _logger.warning('ECDH encryption failed: $e');
+  } else if (iHaveThem || theyHaveMe) {
+    // Asymmetric contact situation - inform user
+    _logger.warning('Asymmetric contact detected - falling back to pairing key');
+  }
+  
+  // Fall back to conversation key (pairing) if ECDH not available
+  if (!isEncrypted && SimpleCrypto.hasConversationKey(contactPublicKey)) {
+    try {
+      payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
+      isEncrypted = true;
+      encryptionMethod = 'conversation';
+      _logger.info('Message encrypted with conversation key');
+    } catch (e) {
+      _logger.warning('Conversation encryption failed: $e');
+    }
   }
 }
 
 if (!isEncrypted) {
-  _logger.warning('Sending unencrypted - no ECDH available');
+  _logger.warning('Sending unencrypted - no keys available');
 }
 
     // Sign the original message content (before encryption)

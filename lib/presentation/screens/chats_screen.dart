@@ -9,6 +9,7 @@ import '../widgets/device_tile.dart';
 import 'discovery_screen.dart';
 import 'chat_screen.dart';
 import 'permission_screen.dart';
+import 'qr_contact_screen.dart';
 
 class ChatsScreen extends ConsumerStatefulWidget {
   @override
@@ -123,13 +124,18 @@ void _setupPeriodicRefresh() {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _navigateToDiscovery(),
-        child: Icon(Icons.add),
-        tooltip: 'Find new devices',
-      ),
+floatingActionButton: _buildSpeedDial(),
     );
   }
+
+Widget _buildSpeedDial() {
+  return FloatingActionButton(
+    onPressed: _showAddOptions,
+    child: Icon(Icons.add),
+    tooltip: 'Add contact or discover',
+  );
+}
+
 
   Widget _buildChatTile(ChatListItem chat) {
     return Card(
@@ -264,6 +270,49 @@ onChanged: (query) {
       ),
     );
   }
+
+void _showAddOptions() {
+  showModalBottomSheet(
+    context: context,
+    builder: (context) => Container(
+      padding: EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: Icon(Icons.bluetooth_searching),
+            title: Text('Discover Nearby Devices'),
+            subtitle: Text('Connect via Bluetooth'),
+            onTap: () {
+              Navigator.pop(context);
+              _navigateToDiscovery();
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.qr_code_scanner),
+            title: Text('Add Contact via QR'),
+            subtitle: Text('Exchange QR codes for secure contact'),
+            onTap: () {
+              Navigator.pop(context);
+              _navigateToQRExchange();
+            },
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+void _navigateToQRExchange() async {
+  final result = await Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => QRContactScreen()),
+  );
+  
+  if (result == true) {
+    _loadChats(); // Refresh to show new contact
+  }
+}
 
 void _openChat(ChatListItem chat) async {
   if (!mounted) return;

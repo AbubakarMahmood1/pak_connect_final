@@ -11,7 +11,8 @@ enum ProtocolMessageType {
   pairingVerify,
   contactRequest,
   contactAccept,
-  contactReject, 
+  contactReject,
+  contactStatus, 
 }
 
 class ProtocolMessage {
@@ -152,6 +153,18 @@ static ProtocolMessage contactAccept({
 static ProtocolMessage contactReject() => ProtocolMessage(
   type: ProtocolMessageType.contactReject,
   payload: {},
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage contactStatus({
+  required bool hasAsContact,
+  required String publicKey,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.contactStatus,
+  payload: {
+    'hasAsContact': hasAsContact,
+    'publicKey': publicKey,
+  },
   timestamp: DateTime.now(),
 );
 

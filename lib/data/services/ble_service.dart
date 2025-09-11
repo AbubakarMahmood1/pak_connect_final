@@ -11,6 +11,7 @@ import '../../core/utils/chat_utils.dart';
 import 'ble_connection_manager.dart';
 import 'ble_message_handler.dart';
 import 'ble_state_manager.dart';
+import '../../data/repositories/contact_repository.dart';
 
 class BLEService {
   final _logger = Logger('BLEService');
@@ -216,7 +217,6 @@ _connectionManager.onConnectionInfoChanged = (info) {
     
     await _stateManager.initialize();
 
-// In initialize method, after _stateManager initialization
 _stateManager.onSendPairingCode = (code) async {
   if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
     final message = ProtocolMessage.pairingCode(code: code);
@@ -279,10 +279,28 @@ _stateManager.onSendContactReject = () async {
   final message = ProtocolMessage.contactReject();
   await _sendProtocolMessage(message);
 };
+
+_stateManager.onSendContactStatus = (message) async {
+  await _sendProtocolMessage(message);
+};
+
+_stateManager.onAsymmetricContactDetected = (publicKey, displayName) {
+  // Show UI prompt to add contact
+  _handleAsymmetricContact(publicKey, displayName);
+};
     
     // Setup event listeners
     _setupEventListeners();
   }
+
+void _handleAsymmetricContact(String publicKey, String displayName) {
+  // This would typically show a UI prompt, but since BLEService 
+  // shouldn't handle UI directly, you could emit an event or 
+  // handle it in the chat screen
+  _logger.info('Asymmetric contact detected: $displayName has us but we don\'t have them');
+  
+  // For now, just log it. The UI should handle this through the state manager
+}
 
 void _updateConnectionInfo({
   bool? isConnected,
@@ -558,6 +576,13 @@ if (protocolMessage.type == ProtocolMessageType.contactAccept) {
 
 if (protocolMessage.type == ProtocolMessageType.contactReject) {
   _stateManager.handleContactReject();
+  return;
+}
+
+if (protocolMessage.type == ProtocolMessageType.contactStatus) {
+  final hasAsContact = protocolMessage.payload['hasAsContact'] as bool;
+  final theirPublicKey = protocolMessage.payload['publicKey'] as String;
+  _stateManager.handleContactStatus(hasAsContact, theirPublicKey);
   return;
 }
 
@@ -902,17 +927,18 @@ _updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Connec
   
   int mtuSize = _connectionManager.mtuSize ?? 20;
   
-  return await _messageHandler.sendMessage(
-    centralManager: centralManager,
-    connectedDevice: _connectionManager.connectedDevice!,
-    messageCharacteristic: _connectionManager.messageCharacteristic!,
-    message: message,
-    mtuSize: mtuSize,
-    messageId: messageId,
-    contactPublicKey: _stateManager.otherDevicePersistentId,
-    contactRepository: _stateManager.contactRepository,
-    onMessageOperationChanged: (inProgress) => _connectionManager.setMessageOperationInProgress(inProgress),
-  );
+return await _messageHandler.sendMessage(
+  centralManager: centralManager,
+  connectedDevice: _connectionManager.connectedDevice!,
+  messageCharacteristic: _connectionManager.messageCharacteristic!,
+  message: message,
+  mtuSize: mtuSize,
+  messageId: messageId,
+  contactPublicKey: _stateManager.otherDevicePersistentId,
+  contactRepository: _stateManager.contactRepository,
+  stateManager: _stateManager,
+  onMessageOperationChanged: (inProgress) => _connectionManager.setMessageOperationInProgress(inProgress),
+);
 }
 
 Future<bool> sendPeripheralMessage(String message, {String? messageId}) async {
@@ -940,6 +966,7 @@ Future<bool> sendPeripheralMessage(String message, {String? messageId}) async {
     messageId: messageId,
     contactPublicKey: _stateManager.otherDevicePersistentId,
     contactRepository: _stateManager.contactRepository,
+    stateManager: _stateManager,
   );
 }
 
@@ -995,6 +1022,24 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
     _logger.severe('Identity exchange failed: $e');
     throw e;
   }
+}
+
+Future<void> _exchangeContactStatus() async {
+  final otherPublicKey = _stateManager.otherDevicePersistentId;
+  if (otherPublicKey == null) return;
+  
+  // Check if we have them as contact
+  final contact = await _stateManager.contactRepository.getContact(otherPublicKey);
+  final hasAsContact = contact != null && contact.trustStatus == TrustStatus.verified;
+  
+  // Send our status
+  final myPublicKey = await _stateManager.getMyPersistentId();
+  final statusMessage = ProtocolMessage.contactStatus(
+    hasAsContact: hasAsContact,
+    publicKey: myPublicKey,
+  );
+  
+  await _sendProtocolMessage(statusMessage);
 }
   
   // Delegated methods

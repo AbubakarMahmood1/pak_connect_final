@@ -8,6 +8,7 @@ import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../../core/models/protocol_message.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -23,9 +24,11 @@ class BLEStateManager {
   String? _otherUserName;
   String? _myPersistentId;
   String? _otherDevicePersistentId;
-  String? _theirReceivedCode;  // Code we received from them
-  bool _weEnteredCode = false;  // Have we entered their code?
-  bool _theyEnteredCode = false; // Have they entered our code?
+  String? _theirReceivedCode;
+  bool _weEnteredCode = false;
+  bool _theyEnteredCode = false;
+  bool _theyHaveUsAsContact = false;
+  bool _weHaveThemAsContact = false;
   
   // Peripheral mode tracking
   bool _isPeripheralMode = false;
@@ -39,6 +42,8 @@ class BLEStateManager {
   PairingInfo? get currentPairing => _currentPairing;
   bool get hasContactRequest => _contactRequestPending;
   String? get pendingContactName => _pendingContactName;
+  bool get theyHaveUsAsContact => _theyHaveUsAsContact;
+  bool get weHaveThemAsContact => _weHaveThemAsContact;
 
   bool _contactRequestPending = false;
   String? _pendingContactPublicKey;
@@ -59,6 +64,8 @@ class BLEStateManager {
   Function(String, String)? onSendContactRequest;
   Function(String, String)? onSendContactAccept;
   Function()? onSendContactReject;
+  Function(ProtocolMessage)? onSendContactStatus;
+  Function(String, String)? onAsymmetricContactDetected;
   
   Future<void> initialize() async {
   await loadUserName();
@@ -352,6 +359,38 @@ void handlePairingVerification(String theirSecretHash) {
     } else {
       _logger.severe('❌ Hash mismatch - something went wrong!');
     }
+  }
+}
+
+Future<void> exchangeContactStatus() async {
+  if (_otherDevicePersistentId == null) return;
+  
+  // Check if we have them as contact
+  final contact = await _contactRepository.getContact(_otherDevicePersistentId!);
+  _weHaveThemAsContact = contact != null && contact.trustStatus == TrustStatus.verified;
+  
+  // Send our status
+  final myPublicKey = await getMyPersistentId();
+  final statusMessage = ProtocolMessage.contactStatus(
+    hasAsContact: _weHaveThemAsContact,
+    publicKey: myPublicKey,
+  );
+  
+  onSendContactStatus?.call(statusMessage);
+}
+
+void handleContactStatus(bool theyHaveUsAsContact, String theirPublicKey) {
+  _logger.info('Contact status: They ${theyHaveUsAsContact ? "have" : "don't have"} us as contact');
+  
+  // Check our status
+  final weHaveThem = _contactRepository.getContact(theirPublicKey) != null;
+  
+  if (theyHaveUsAsContact && !weHaveThem) {
+    // They have us but we don't have them - prompt to add
+    onAsymmetricContactDetected?.call(theirPublicKey, _otherUserName ?? 'Unknown');
+  } else if (weHaveThem && !theyHaveUsAsContact) {
+    // We have them but they don't have us - notify them
+    _logger.info('Asymmetric contact - we have them, they need to add us');
   }
 }
 

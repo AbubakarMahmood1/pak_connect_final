@@ -1,6 +1,6 @@
 # Project Structure: lib 
  
-Generated on: Tue 09/09/2025  5:40:21.46 
+Generated on: Thu 09/11/2025  5:55:40.28 
 Location: C:\Users\theab\OneDrive\Desktop\pak_connect\lib 
  
 ```tree 
@@ -19,7 +19,9 @@ C:.
 |   +---models
 |   |       connection_info.dart
 |   |       connection_state.dart
+|   |       pairing_state.dart
 |   |       protocol_message.dart
+|   |       qr_contact_data.dart
 |   |       
 |   +---services
 |   |       simple_crypto.dart
@@ -55,11 +57,13 @@ C:.
     |       chat_screen.dart
     |       discovery_screen.dart
     |       permission_screen.dart
+    |       qr_contact_screen.dart
     |       
     \---widgets
             device_tile.dart
             edit_name_dialog.dart
             message_bubble.dart
+            pairing_dialog.dart
             
 ``` 
  
@@ -82,7 +86,9 @@ C:.
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\models** 
 - connection_info.dart 
 - connection_state.dart 
+- pairing_state.dart 
 - protocol_message.dart 
+- qr_contact_data.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\services** 
 - simple_crypto.dart 
@@ -115,11 +121,13 @@ C:.
 - chat_screen.dart 
 - discovery_screen.dart 
 - permission_screen.dart 
+- qr_contact_screen.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\presentation\widgets** 
 - device_tile.dart 
 - edit_name_dialog.dart 
 - message_bubble.dart 
+- pairing_dialog.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib (Root)** 
 - folder_structure.bat 
