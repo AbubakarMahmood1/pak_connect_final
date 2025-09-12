@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' hide ConnectionState;
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as BLE;
 import '../providers/ble_providers.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../widgets/device_tile.dart';
 import 'discovery_screen.dart';
+import '../widgets/discovery_overlay.dart';
 import 'chat_screen.dart';
 import 'permission_screen.dart';
 import 'qr_contact_screen.dart';
@@ -26,11 +29,15 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
   Timer? _refreshTimer;
   Timer? _searchDebounceTimer;
 
+  bool _showDiscoveryOverlay = false;
+  StreamSubscription? _peripheralConnectionSubscription;
+
   @override
   void initState() {
     super.initState();
     _loadChats();
     _setupPeriodicRefresh();
+    _setupPeripheralConnectionListener();
   }
 
 
@@ -77,56 +84,73 @@ void _setupPeriodicRefresh() {
 }
 
   @override
-  Widget build(BuildContext context) {
-    final bleStateAsync = ref.watch(bleStateProvider);
-    
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Chats'),
-        leading: GestureDetector(
-          onTap: () => _showSettings(),
-          child: Padding(
-            padding: EdgeInsets.all(8.0),
-            child: CircleAvatar(
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              child: Icon(Icons.person, color: Colors.white),
+Widget build(BuildContext context) {
+  final bleStateAsync = ref.watch(bleStateProvider);
+  
+  return Stack(
+    children: [
+      // Main scaffold
+      Scaffold(
+        appBar: AppBar(
+          title: Text('Chats'),
+          leading: GestureDetector(
+            onTap: () => _showSettings(),
+            child: Padding(
+              padding: EdgeInsets.all(8.0),
+              child: CircleAvatar(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                child: Icon(Icons.person, color: Colors.white),
+              ),
             ),
           ),
+          actions: [
+            IconButton(
+              onPressed: () => _showSearch(),
+              icon: Icon(Icons.search),
+            ),
+          ],
         ),
-        actions: [
-          IconButton(
-            onPressed: () => _showSearch(),
-            icon: Icon(Icons.search),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // BLE status banner
-          _buildBLEStatusBanner(bleStateAsync),
-          
-          // Search bar (if active)
-          if (_searchQuery.isNotEmpty) _buildSearchBar(),
-          
-          // Chats list
-          Expanded(
-            child: _isLoading 
-              ? Center(child: CircularProgressIndicator())
-              : _chats.isEmpty 
-                ? _buildEmptyState()
-                : RefreshIndicator(
-                    onRefresh: () async => _loadChats(),
-                    child: ListView.builder(
-                      itemCount: _chats.length,
-                      itemBuilder: (context, index) => _buildChatTile(_chats[index]),
+        body: Column(
+          children: [
+            _buildBLEStatusBanner(bleStateAsync),
+            if (_searchQuery.isNotEmpty) _buildSearchBar(),
+            Expanded(
+              child: _isLoading 
+                ? Center(child: CircularProgressIndicator())
+                : _chats.isEmpty 
+                  ? _buildEmptyState()
+                  : RefreshIndicator(
+                      onRefresh: () async => _loadChats(),
+                      child: ListView.builder(
+                        itemCount: _chats.length,
+                        itemBuilder: (context, index) => _buildChatTile(_chats[index]),
+                      ),
                     ),
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
+        floatingActionButton: _buildSpeedDial(),
       ),
-floatingActionButton: _buildSpeedDial(),
-    );
-  }
+      
+      // Full-screen overlay that covers EVERYTHING including AppBar
+      if (_showDiscoveryOverlay)
+  Positioned.fill(
+    child: PopScope(  // or WillPopScope for older Flutter
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (!didPop) {
+          setState(() => _showDiscoveryOverlay = false);
+        }
+      },
+      child: DiscoveryOverlay(
+        onClose: () => setState(() => _showDiscoveryOverlay = false),
+        onDeviceSelected: _onDeviceSelected,
+      ),
+    ),
+  ),
+    ],
+  );
+}
 
 Widget _buildSpeedDial() {
   return FloatingActionButton(
@@ -206,20 +230,38 @@ Widget _buildSpeedDial() {
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
-          Text('No conversations yet'),
-          SizedBox(height: 8),
-          Text('Tap + to find nearby devices'),
-        ],
-      ),
-    );
-  }
+Widget _buildEmptyState() {
+  return Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.chat_bubble_outline,
+          size: 64,
+          color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5),
+        ),
+        SizedBox(height: 16),
+        Text(
+          'No chats yet',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        SizedBox(height: 8),
+        Text(
+          'Start a conversation by discovering nearby devices',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        SizedBox(height: 24),
+        FilledButton.icon(
+          onPressed: () => setState(() => _showDiscoveryOverlay = true),
+          icon: Icon(Icons.bluetooth_searching),
+          label: Text('Discover Devices'),
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildBLEStatusBanner(AsyncValue<BluetoothLowEnergyState> bleStateAsync) {
     return bleStateAsync.when(
@@ -271,37 +313,82 @@ onChanged: (query) {
     );
   }
 
-void _showAddOptions() {
-  showModalBottomSheet(
-    context: context,
-    builder: (context) => Container(
-      padding: EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: Icon(Icons.bluetooth_searching),
-            title: Text('Discover Nearby Devices'),
-            subtitle: Text('Connect via Bluetooth'),
-            onTap: () {
-              Navigator.pop(context);
-              _navigateToDiscovery();
-            },
-          ),
-          ListTile(
-            leading: Icon(Icons.qr_code_scanner),
-            title: Text('Add Contact via QR'),
-            subtitle: Text('Exchange QR codes for secure contact'),
-            onTap: () {
-              Navigator.pop(context);
-              _navigateToQRExchange();
-            },
-          ),
-        ],
+void _setupPeripheralConnectionListener() {
+    if (!Platform.isAndroid) return;
+    
+    final bleService = ref.read(bleServiceProvider);
+    
+    _peripheralConnectionSubscription = bleService.peripheralManager.connectionStateChanged
+      .distinct((prev, next) => 
+        prev.central.uuid == next.central.uuid && prev.state == next.state)
+      .where((event) => 
+        bleService.isPeripheralMode && 
+        event.state == BLE.ConnectionState.connected)
+      .listen((event) {
+        _handleIncomingPeripheralConnection(event.central);
+      });
+  }
+  
+  void _handleIncomingPeripheralConnection(Central central) {
+    if (!mounted) return;
+    
+    // Automatically open chat for incoming connection
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(central: central),
       ),
-    ),
-  );
-}
+    ).then((_) => _loadChats());
+  }
+
+void _showAddOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Container(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.bluetooth_searching),
+              title: Text('Discover Nearby Devices'),
+              subtitle: Text('Connect via Bluetooth'),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => _showDiscoveryOverlay = true);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.qr_code_scanner),
+              title: Text('Add Contact via QR'),
+              subtitle: Text('Exchange QR codes for secure contact'),
+              onTap: () {
+                Navigator.pop(context);
+                _navigateToQRExchange();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+void _onDeviceSelected(Peripheral device) async {
+    setState(() => _showDiscoveryOverlay = false);
+    
+    // Wait a moment for the overlay to close
+    await Future.delayed(Duration(milliseconds: 300));
+    
+    // Open chat with the connected device
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatScreen(device: device),
+        ),
+      ).then((_) => _loadChats());
+    }
+  }
 
 void _navigateToQRExchange() async {
   final result = await Navigator.push(
@@ -370,6 +457,7 @@ void _openChat(ChatListItem chat) async {
     _refreshTimer?.cancel();
     _searchDebounceTimer?.cancel();
     _searchController.dispose();
+    _peripheralConnectionSubscription?.cancel();
     super.dispose();
   }
 }
