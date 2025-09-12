@@ -1,6 +1,6 @@
 # Project Structure: lib 
  
-Generated on: Thu 09/11/2025  5:55:40.28 
+Generated on: Thu 09/11/2025 18:46:15.62 
 Location: C:\Users\theab\OneDrive\Desktop\pak_connect\lib 
  
 ```tree 
@@ -22,6 +22,7 @@ C:.
 |   |       pairing_state.dart
 |   |       protocol_message.dart
 |   |       qr_contact_data.dart
+|   |       security_state.dart
 |   |       
 |   +---services
 |   |       simple_crypto.dart
@@ -44,13 +45,17 @@ C:.
 |           ble_state_manager.dart
 |           
 +---domain
-|   \---entities
-|           chat_list_item.dart
-|           message.dart
+|   +---entities
+|   |       chat_list_item.dart
+|   |       message.dart
+|   |       
+|   \---services
+|           security_state_computer.dart
 |           
 \---presentation
     +---providers
     |       ble_providers.dart
+    |       security_state_provider.dart
     |       
     +---screens
     |       chats_screen.dart
@@ -89,6 +94,7 @@ C:.
 - pairing_state.dart 
 - protocol_message.dart 
 - qr_contact_data.dart 
+- security_state.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\services** 
 - simple_crypto.dart 
@@ -113,8 +119,12 @@ C:.
 - chat_list_item.dart 
 - message.dart 
  
+**C:\Users\theab\OneDrive\Desktop\pak_connect\lib\domain\services** 
+- security_state_computer.dart 
+ 
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\presentation\providers** 
 - ble_providers.dart 
+- security_state_provider.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\presentation\screens** 
 - chats_screen.dart 

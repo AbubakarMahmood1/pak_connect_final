@@ -6,7 +6,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import '../providers/ble_providers.dart';
-import 'discovery_screen.dart';
+import 'chats_screen.dart';
 
 class PermissionScreen extends ConsumerStatefulWidget {
   @override

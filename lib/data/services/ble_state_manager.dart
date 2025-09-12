@@ -66,17 +66,19 @@ class BLEStateManager {
   Function()? onSendContactReject;
   Function(ProtocolMessage)? onSendContactStatus;
   Function(String, String)? onAsymmetricContactDetected;
+
+   BLEStateManager() {
+    // Any synchronous initialization here
+  }
   
   Future<void> initialize() async {
-  await loadUserName();
-  
-  // Ensure key pair exists
-  await _userPreferences.getOrCreateKeyPair();
-  _myPersistentId = await _userPreferences.getPublicKey();
-  
-  await _initializeCrypto();
-  await _initializeSigning();
-}
+    // All async initialization goes here
+    await loadUserName();
+    await _userPreferences.getOrCreateKeyPair();
+    _myPersistentId = await _userPreferences.getPublicKey();
+    await _initializeCrypto();
+    await _initializeSigning();
+  }
   
 Future<void> loadUserName() async {
   _myUserName = await _userPreferences.getUserName();
@@ -382,6 +384,11 @@ Future<void> exchangeContactStatus() async {
 void handleContactStatus(bool theyHaveUsAsContact, String theirPublicKey) {
   _logger.info('Contact status: They ${theyHaveUsAsContact ? "have" : "don't have"} us as contact');
   
+  // Check if this is actually a state change
+  final previousState = _theyHaveUsAsContact;
+  _theyHaveUsAsContact = theyHaveUsAsContact;
+  _logger.info('Updated _theyHaveUsAsContact = $_theyHaveUsAsContact');
+  
   // Check our status
   final weHaveThem = _contactRepository.getContact(theirPublicKey) != null;
   
@@ -392,8 +399,44 @@ void handleContactStatus(bool theyHaveUsAsContact, String theirPublicKey) {
     // We have them but they don't have us - notify them
     _logger.info('Asymmetric contact - we have them, they need to add us');
   }
+  
+  // Only trigger UI refresh if this was a meaningful state change
+  // AND we're not already in a verified contact state
+  if (previousState != theyHaveUsAsContact && theyHaveUsAsContact && weHaveThem) {
+    _logger.info('Meaningful state change detected - triggering UI refresh');
+    onContactRequestCompleted?.call(true);
+  }
 }
 
+void preserveContactRelationship({
+  String? otherPublicKey,
+  String? otherName,
+  bool? theyHaveUs,
+  bool? weHaveThem,
+}) {
+  if (otherPublicKey != null && otherName != null && theyHaveUs != null && weHaveThem != null) {
+    _logger.info('🔄 Preserving contact relationship across mode switch:');
+    _logger.info('  Other: $otherName (${otherPublicKey.substring(0, 16)}...)');
+    _logger.info('  They have us: $theyHaveUs');
+    _logger.info('  We have them: $weHaveThem');
+    
+    // Preserve identity
+    _otherDevicePersistentId = otherPublicKey;
+    _otherUserName = otherName;
+    
+    // Preserve contact status flags
+    _theyHaveUsAsContact = theyHaveUs;
+    _weHaveThemAsContact = weHaveThem;
+  } else {
+    _logger.info('🔄 No previous relationship to preserve during mode switch');
+    
+    // Clear everything for fresh start
+    _otherDevicePersistentId = null;
+    _otherUserName = null;
+    _theyHaveUsAsContact = false;
+    _weHaveThemAsContact = false;
+  }
+}
 
 Future<void> sendPairingCode(String code) async {
   onSendPairingCode?.call(code);
@@ -425,6 +468,46 @@ Future<bool> checkExistingPairing(String publicKey) async {
     _logger.warning('Failed to check existing pairing: $e');
     return false;
   }
+}
+
+/// Initialize runtime contact flags from repository after identity exchange
+Future<void> initializeContactFlags() async {
+  if (_otherDevicePersistentId == null) return;
+  
+  _logger.info('🔄 Initializing contact flags from repository...');
+  
+  // Initialize OUR knowledge from repository
+  final contact = await _contactRepository.getContact(_otherDevicePersistentId!);
+  _weHaveThemAsContact = contact != null && contact.trustStatus == TrustStatus.verified;
+  
+  // Initialize THEIR knowledge from repository (check if they have us)
+  // This requires checking if we've exchanged contact status before
+  final allContacts = await _contactRepository.getAllContacts();
+  final myPublicKey = await getMyPersistentId();
+  
+  // If they're in our contacts AND we're likely in theirs, assume mutual
+  if (_weHaveThemAsContact) {
+    _theyHaveUsAsContact = true; // Reasonable assumption for existing contacts
+  }
+  
+  _logger.info('  _weHaveThemAsContact = $_weHaveThemAsContact');
+  _logger.info('  _theyHaveUsAsContact = $_theyHaveUsAsContact');
+  
+  _logger.info('✅ Contact flags initialized from repository');
+}
+
+/// Initialize contact relationship flags when existing contact is discovered
+Future<void> initializeContactRelationship(String otherPublicKey) async {
+  _logger.info('🔄 Initializing contact relationship for: ${otherPublicKey.substring(0, 16)}...');
+  
+  // Check if we have them as verified contact
+  final contact = await _contactRepository.getContact(otherPublicKey);
+  _weHaveThemAsContact = contact != null && contact.trustStatus == TrustStatus.verified;
+  
+  _logger.info('  _weHaveThemAsContact = $_weHaveThemAsContact');
+  
+  // Note: _theyHaveUsAsContact will be set during contact status exchange
+  // This just ensures our side is initialized correctly
 }
 
 Future<bool> sendContactRequest() async {
@@ -487,6 +570,9 @@ Future<void> acceptContactRequest() async {
     final myPublicKey = await getMyPersistentId();
     final myName = _myUserName ?? 'User';
     onSendContactAccept?.call(myPublicKey, myName);
+
+    _weHaveThemAsContact = true;
+  _logger.info('Updated local state after accepting: _weHaveThemAsContact = true');
     
     _contactRequestPending = false;
     _pendingContactPublicKey = null;
@@ -524,6 +610,10 @@ void handleContactAccept(String publicKey, String displayName) {
     _contactRepository.cacheSharedSecret(publicKey, sharedSecret);
     _logger.info('ECDH shared secret computed and cached for accepted contact');
   }
+  
+  // Update our local state - we now have them as contact
+  _weHaveThemAsContact = true;
+  _logger.info('Updated local state: _weHaveThemAsContact = true');
   
   // Complete the request
   if (_contactRequestCompleter != null && !_contactRequestCompleter!.isCompleted) {
@@ -563,9 +653,11 @@ String? getConversationKey(String publicKey) {
     _isPeripheralMode = isPeripheral;
   }
   
- void clearOtherUserName() {
+void clearOtherUserName() {
   _otherUserName = null;
   _otherDevicePersistentId = null;
+  _theyHaveUsAsContact = false;
+  _weHaveThemAsContact = false;
   onNameChanged?.call(null);
 }
   

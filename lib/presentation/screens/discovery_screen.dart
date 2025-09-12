@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' hide ConnectionState;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as BLE;
 import 'package:logging/logging.dart';
+import '../../data/services/ble_service.dart';
+import '../../core/models/connection_info.dart';
 import '../providers/ble_providers.dart';
 import '../widgets/device_tile.dart';
 import 'chat_screen.dart';
@@ -43,26 +45,22 @@ void didChangeDependencies() {
   }
 }
 
- void _initializeScreen() {
-    final bleService = ref.read(bleServiceProvider);
-    setState(() {}); // Fresh UI state
-    
-    if (!bleService.isPeripheralMode) {
-      _startScanning();
-    }
+void _initializeScreen() {
+  final bleService = ref.read(bleServiceProvider);
+  setState(() {}); 
+  
+  if (!bleService.isPeripheralMode) {
+    _startScanning();
   }
+}
 
 void _refreshScreen() {
   final bleService = ref.read(bleServiceProvider);
   
-  // Don't refresh if navigated to chat
-  if (_navigatedToChat) {
-    return;
-  }
+  if (_navigatedToChat) return;
   
   setState(() {}); 
   
-  // Only start scanning if truly disconnected and not already scanning
   if (!bleService.isPeripheralMode && 
       !_isScanning && 
       !bleService.isConnected &&
@@ -105,19 +103,28 @@ void _refreshScreen() {
   }
 }
 
-  @override
-  Widget build(BuildContext context) {
-    final bleService = ref.watch(bleServiceProvider);
-    final devicesAsync = ref.watch(discoveredDevicesProvider);
-    final bleStateAsync = ref.watch(bleStateProvider);
-
+@override
+Widget build(BuildContext context) {
+  final bleService = ref.watch(bleServiceProvider);
+  final devicesAsync = ref.watch(discoveredDevicesProvider);
+  final bleStateAsync = ref.watch(bleStateProvider);
   final connectionInfoAsync = ref.watch(connectionInfoProvider);
-  final actualConnectionState = connectionInfoAsync.maybeWhen(
-    data: (info) => info,
-    orElse: () => null,
-  );
 
-    return Scaffold(
+  return _buildContent(
+    bleService: bleService,
+    devicesAsync: devicesAsync,
+    bleStateAsync: bleStateAsync,
+    connectionInfoAsync: connectionInfoAsync,
+  );
+}
+
+Widget _buildContent({
+  required BLEService bleService,
+  required AsyncValue<List<Peripheral>> devicesAsync,
+  required AsyncValue<BluetoothLowEnergyState> bleStateAsync,
+  required AsyncValue<ConnectionInfo> connectionInfoAsync,
+}) {
+  return Scaffold(
       appBar: AppBar(
         title: Text('Find Devices'),
         elevation: 0,
@@ -258,7 +265,7 @@ void _refreshScreen() {
         ],
       ),
     );
-  }
+}
 
   Widget _buildStatusBanner(AsyncValue<BluetoothLowEnergyState> bleStateAsync) {
     return bleStateAsync.when(

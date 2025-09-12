@@ -23,7 +23,7 @@ class BLEService {
   // Sub-components
   late final BLEConnectionManager _connectionManager;
   late final BLEMessageHandler _messageHandler;
-  late final BLEStateManager _stateManager;
+  final BLEStateManager _stateManager = BLEStateManager();
   
   // Streams for UI
   StreamController<ConnectionInfo>? _connectionInfoController;
@@ -114,7 +114,6 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     );
     
     _messageHandler = BLEMessageHandler();
-    _stateManager = BLEStateManager();
     
     // Wire up callbacks
      _connectionManager.onConnectionChanged = (device) {
@@ -150,72 +149,45 @@ _connectionManager.onConnectionInfoChanged = (info) {
   }
   
   await _performNameExchangeWithRetry();
-};
-    
-    _connectionManager.onCharacteristicFound = (characteristic) {
-      // Characteristic found, ready for messaging
-    };
-    
-    _connectionManager.onMtuDetected = (mtu) {
-      _logger.info('MTU detected: $mtu');
-    };
-    
-    _stateManager.onNameChanged = (name) {
-  _logger.info('DEBUG: Name change received: "$name" (peripheral mode: ${_stateManager.isPeripheralMode})');
   
-  if (_stateManager.isPeripheralMode) {
-    // Peripheral mode: only update if we have a connected central
-    if (_connectedCentral != null && name != null && name.isNotEmpty) {
-      _logger.info('Peripheral: Identity exchange complete with $name');
-      _updateConnectionInfo(
-        isConnected: true,
-        isReady: true,
-        otherUserName: name,
-        statusMessage: 'Ready to chat',
-        isAdvertising: false
-      );
-    } else if (name == null && _connectedCentral == null) {
-      // Only clear if we're actually disconnected
-      _updateConnectionInfo(
-        isConnected: false,
-        isReady: false,
-        otherUserName: null,
-        statusMessage: 'Advertising',
-        isAdvertising: true
-      );
-    }
-  } else {
-    // Central mode: only update if we have an actual BLE connection
-    if (_connectionManager.connectedDevice != null) {
-      if (name != null && name.isNotEmpty) {
-        _updateConnectionInfo(
-          isConnected: true,  // Now we're fully connected
-          isReady: true,
-          otherUserName: name,
-          statusMessage: 'Ready to chat'
-        );
-      } else {
-        // Name cleared but still have BLE connection
-        _updateConnectionInfo(
-          isConnected: true,  // Still BLE connected
-          isReady: false,    // But not ready for chat
-          otherUserName: null,
-          statusMessage: 'Exchanging names...'
-        );
+  // NEW: Automatically exchange contact status after identity
+  Future.delayed(Duration(seconds: 2), () async {
+    if (_stateManager.otherDevicePersistentId != null) {
+      try {
+        await _stateManager.exchangeContactStatus();
+        _logger.info('📤 Auto-exchanged contact status after identity');
+      } catch (e) {
+        _logger.warning('Failed to auto-exchange contact status: $e');
       }
-    } else if (name == null) {
-      // No BLE connection and no name - fully disconnected
-      _updateConnectionInfo(
-        isConnected: false,
-        isReady: false,
-        otherUserName: null,
-        statusMessage: 'Disconnected'
-      );
     }
-  }
+  });
 };
     
     await _stateManager.initialize();
+
+_stateManager.onNameChanged = (name) {
+  _logger.info('🎯 onNameChanged triggered: $name');
+  _logger.info('  Current connection state: isConnected=${_currentConnectionInfo.isConnected}, isReady=${_currentConnectionInfo.isReady}');
+  _logger.info('  Current mode: ${_stateManager.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"}');
+  
+  if (name != null && name.isNotEmpty) {
+    _logger.info('  → Updating to ready state');
+    _updateConnectionInfo(
+      isConnected: true,
+      isReady: true,
+      otherUserName: name,
+      statusMessage: 'Ready to chat',
+    );
+  } else {
+    _logger.info('  → Clearing connection state');
+    _updateConnectionInfo(
+      isConnected: false,
+      isReady: false,
+      otherUserName: null,
+      statusMessage: 'Disconnected',
+    );
+  }
+};
 
 _stateManager.onSendPairingCode = (code) async {
   if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
@@ -311,6 +283,14 @@ void _updateConnectionInfo({
   bool? isAdvertising, 
   bool? isReconnecting,
 }) {
+  _logger.info('🔍 _updateConnectionInfo called with:');
+  _logger.info('  isConnected: $isConnected');
+  _logger.info('  isReady: $isReady');
+  _logger.info('  otherUserName: $otherUserName');
+  _logger.info('  statusMessage: $statusMessage');
+  _logger.info('  Current mode: ${_stateManager.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"}');
+  
+
   // Don't let scanning updates override connection state
   if (isScanning != null && isConnected == null && isReady == null) {
     // This is just a scanning update, preserve connection state
@@ -591,7 +571,12 @@ if (protocolMessage.type == ProtocolMessageType.contactStatus) {
   final displayName = protocolMessage.identityDisplayName!;
  
      _stateManager.setOtherDeviceIdentity(publicKey, displayName);
+  await _stateManager.initializeContactFlags();
   await _stateManager.saveContact(publicKey, displayName);
+     _logger.info('🎯 Identity processing complete for ${displayName}');
+_logger.info('  About to trigger name change callback...');
+_logger.info('  Current peripheral mode: ${_stateManager.isPeripheralMode}');
+_logger.info('  Current connection info: isConnected=${_currentConnectionInfo.isConnected}, isReady=${_currentConnectionInfo.isReady}');
      _logger.info('Received public key identity: $displayName (${publicKey.substring(0, 16)}...)');
 
 	final chatsRepo = ChatsRepository();
@@ -700,6 +685,11 @@ try {
   Future<void> startAsPeripheral() async {
     _logger.info('Starting as Peripheral (discoverable)...');
 
+    final preservedOtherPublicKey = _stateManager.otherDevicePersistentId;
+  final preservedOtherName = _stateManager.otherUserName;
+  final preservedTheyHaveUs = _stateManager.theyHaveUsAsContact;
+  final preservedWeHaveThem = _stateManager.weHaveThemAsContact;
+
   _stateManager.setPeripheralMode(true);
   _connectionManager.setPeripheralMode(true);
 
@@ -728,10 +718,15 @@ try {
     statusMessage: 'Switching to peripheral mode...'
   );
     
-    _connectionManager.clearConnectionState();
-    _stateManager.clearOtherUserName();
-    _discoveredDevices.clear();
-    _devicesController?.add([]);
+  _stateManager.preserveContactRelationship(
+    otherPublicKey: preservedOtherPublicKey,
+    otherName: preservedOtherName,
+    theyHaveUs: preservedTheyHaveUs,
+    weHaveThem: preservedWeHaveThem,
+  );
+  
+  _discoveredDevices.clear();
+  _devicesController?.add([]);
     
     try {
       await peripheralManager.removeAllServices();
@@ -788,8 +783,13 @@ final advertisement = Advertisement(
   
   Future<void> startAsCentral() async {
   _logger.info('Starting as Central (scanner)...');
+
+    final preservedOtherPublicKey = _stateManager.otherDevicePersistentId;
+  final preservedOtherName = _stateManager.otherUserName;
+  final preservedTheyHaveUs = _stateManager.theyHaveUsAsContact;
+  final preservedWeHaveThem = _stateManager.weHaveThemAsContact;
   
-  // Set mode FIRST
+  // Set mode
   _stateManager.setPeripheralMode(false);
   _connectionManager.setPeripheralMode(false);
   
@@ -797,8 +797,6 @@ final advertisement = Advertisement(
   _connectedCentral = null;
   _connectedCharacteristic = null;
   _peripheralNegotiatedMTU = null;
-  
-  // Don't call clearOtherUserName() here - it clears too much
   
   try {
     await peripheralManager.stopAdvertising();
@@ -813,6 +811,13 @@ final advertisement = Advertisement(
     otherUserName: null,
     isAdvertising: false,
     statusMessage: 'Ready to scan'
+  );
+
+    _stateManager.preserveContactRelationship(
+    otherPublicKey: preservedOtherPublicKey,
+    otherName: preservedOtherName,
+    theyHaveUs: preservedTheyHaveUs,
+    weHaveThem: preservedWeHaveThem,
   );
   
   _logger.info('Switched to central mode');

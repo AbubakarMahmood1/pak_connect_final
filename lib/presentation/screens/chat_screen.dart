@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../providers/ble_providers.dart';
+import '../providers/security_state_provider.dart';
 import '../../domain/entities/message.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../core/utils/chat_utils.dart';
@@ -14,7 +15,9 @@ import '../../core/models/connection_info.dart';
 import '../widgets/pairing_dialog.dart';
 import '../../core/models/pairing_state.dart';
 import '../../core/services/simple_crypto.dart';
+import '../../core/models/security_state.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../../domain/services/security_state_computer.dart'; 
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode (live connection)
@@ -61,6 +64,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _contactRequestInProgress = false;
   StreamSubscription<String>? _messageSubscription;
   String? _currentChatId;
+  Timer? _stateUpdateTimer;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
   bool get _isRepositoryMode => widget.chatId != null;
@@ -101,13 +105,6 @@ void initState() {
   if (_isConnectedMode) {
     _setupMessageListener();
     _setupContactRequestListener();
-    
-    // Check pairing after a delay to ensure connection is stable
-    Future.delayed(Duration(seconds: 1), () {
-      if (mounted) {
-        _checkPairingStatus();
-      }
-    });
   }
 }
 
@@ -125,23 +122,43 @@ void _checkPairingStatus() async {
   
   final otherPublicKey = bleService.otherDevicePersistentId;
   if (otherPublicKey == null) {
-    _logger.warning('No public key available for pairing check');
+    _logger.warning('No public key available for pairing check - will retry when identity completes');
+    
+    // Set up a listener for when identity exchange completes
+    Timer.periodic(Duration(milliseconds: 500), (timer) {
+      final newOtherPublicKey = bleService.otherDevicePersistentId;
+      if (newOtherPublicKey != null || !mounted) {
+        timer.cancel();
+        if (mounted && newOtherPublicKey != null) {
+          _checkPairingStatus(); // Retry now that we have the key
+        }
+      }
+    });
     return;
   }
   
   // HIERARCHY: Contact > Cached Pairing > New Pairing
   
   // 1. Check if they're a verified contact (strongest security)
-  final contact = await bleService.stateManager.contactRepository.getContact(otherPublicKey);
-  if (contact != null && contact.trustStatus == TrustStatus.verified) {
-    _logger.info('Verified contact detected - using ECDH encryption');
+final contact = await bleService.stateManager.contactRepository.getContact(otherPublicKey);
+if (contact != null && contact.trustStatus == TrustStatus.verified) {
+  _logger.info('✅ CONTACT VERIFIED: Using ECDH encryption for ${contact.displayName}');
+  
+  // *** CRITICAL FIX: Update state manager flags immediately ***
+  await bleService.stateManager.initializeContactRelationship(otherPublicKey);
+  
+  setState(() {
     _isContact = true;
     _hasPaired = true; // Contacts are implicitly paired
-    
-    // Ensure ECDH key is loaded
-    await bleService.stateManager.checkExistingPairing(otherPublicKey);
-    return;
-  }
+  });
+  
+  // Ensure ECDH key is loaded
+  await bleService.stateManager.checkExistingPairing(otherPublicKey);
+  
+  // Send contact status to other device
+  await _sendContactStatusExchange();
+  return;
+}
   
   // 2. Check for cached conversation key (from previous pairing)
   final hasExistingPairing = await bleService.stateManager.checkExistingPairing(otherPublicKey);
@@ -149,6 +166,13 @@ void _checkPairingStatus() async {
     _logger.info('Previous pairing found - restored conversation key');
     _hasPaired = true;
     return;
+  }
+
+  // 2.5. Check if we already paired in this session
+  if (bleService.stateManager.currentPairing?.state == PairingState.completed) {
+  _logger.info('Current session already paired');
+  _hasPaired = true;
+  return;
   }
   
   // 3. No existing security - need new pairing
@@ -190,27 +214,52 @@ void _showPairingDialog() async {
   bleService.connectionManager.setPairingInProgress(false);
   
   if (result == true) {
-    setState(() => _hasPaired = true);
-    // NO TOAST - UI shows lock icon change
-  }
-  
+  setState(() => _hasPaired = true);
+  _logger.info('Pairing successful - keeping session active');
+} else {
+  // Only clear pairing state on failure/cancellation
   bleService.stateManager.clearPairing();
-  _pairingDialogShown = false;  // Reset flag after dialog closes
+  _logger.info('Pairing failed/cancelled - clearing state');
+}
+
+_pairingDialogShown = false;
+}
+
+Future<void> _sendContactStatusExchange() async {
+  final bleService = ref.read(bleServiceProvider);
+  final otherPublicKey = bleService.otherDevicePersistentId;
+  
+  if (otherPublicKey == null) return;
+  
+  try {
+    // Tell them we have them as a verified contact
+    await bleService.stateManager.exchangeContactStatus();
+    _logger.info('📤 Sent contact status to other device');
+  } catch (e) {
+    _logger.warning('Failed to send contact status: $e');
+  }
 }
 
 void _handleAsymmetricContact(String publicKey, String displayName) {
+  // Only show if we're not already handling this
+  if (_contactRequestInProgress) return;
+  
   showDialog(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text('Contact Mismatch'),
+      title: Row(
+        children: [
+          Icon(Icons.sync_problem, color: Colors.orange),
+          SizedBox(width: 8),
+          Text('Contact Sync'),
+        ],
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.sync_problem, size: 48, color: Colors.orange),
-          SizedBox(height: 16),
-          Text('$displayName has you as a verified contact.'),
-          SizedBox(height: 8),
-          Text('Add them back to enable secure ECDH encryption?'),
+          Text('$displayName has you as a verified contact, but you haven\'t added them back yet.'),
+          SizedBox(height: 12),
+          Text('Add them to enable secure ECDH encryption?'),
         ],
       ),
       actions: [
@@ -220,12 +269,23 @@ void _handleAsymmetricContact(String publicKey, String displayName) {
         ),
         FilledButton(
           onPressed: () async {
-            // Add them as contact automatically
-            await _addAsVerifiedContact(publicKey, displayName);
             Navigator.pop(context);
-            setState(() => _isContact = true);
+            await _addAsVerifiedContact(publicKey, displayName);
+            setState(() {
+              _isContact = true;
+              _hasPaired = true;
+            });
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Contact added - ECDH enabled!')),
+              SnackBar(
+                content: Row(
+                  children: [
+                    Icon(Icons.verified_user, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text('Contact added - ECDH encryption enabled!'),
+                  ],
+                ),
+                backgroundColor: Colors.green,
+              ),
             );
           },
           child: Text('Add Contact'),
@@ -443,20 +503,32 @@ Widget build(BuildContext context) {
         next.value?.otherUserName != null && 
         next.value!.otherUserName!.isNotEmpty &&
         previous?.value?.otherUserName != next.value?.otherUserName) {
+      
+      _logger.info('🔄 Identity exchange detected: ${next.value!.otherUserName}');
+      
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _handleIdentityReceived();
+        if (mounted) {
+          _handleIdentityReceived();
+          
+          // Check contact status AFTER identity is established
+          Future.delayed(Duration(milliseconds: 500), () {
+            if (mounted) {
+              _checkPairingStatus();
+            }
+          });
+        }
       });
     }
   });
 
-  // Handle connection state changes
+  // Handle connection state changes for auto-retry
   ref.listen(connectionInfoProvider, (previous, next) {
     if (!mounted) return;
     
     final connectionInfo = next.maybeWhen(
-  data: (info) => info,
-  orElse: () => null,
-);
+      data: (info) => info,
+      orElse: () => null,
+    );
     if (connectionInfo == null) return;
     
     final isConnected = connectionInfo.isConnected;
@@ -482,9 +554,18 @@ Widget build(BuildContext context) {
   try {
     final bleService = ref.watch(bleServiceProvider);
     final connectionInfoAsync = ref.watch(connectionInfoProvider);
-    final bleStateAsync = ref.watch(bleStateProvider);
     
-    // Single source of truth for connection state
+    // Determine the security state key
+    String? securityStateKey;
+    if (_isRepositoryMode) {
+      securityStateKey = 'repo_${widget.chatId}';
+    } else {
+      securityStateKey = bleService.otherDevicePersistentId;
+    }
+    
+    final securityStateAsync = ref.watch(securityStateProvider(securityStateKey));
+    
+    // Connection info for legacy compatibility
     final connectionInfo = connectionInfoAsync.maybeWhen(
       data: (info) => info,
       orElse: () => null,
@@ -505,52 +586,52 @@ Widget build(BuildContext context) {
                 : (connectionInfo?.otherUserName ?? 'Device $_displayContactName...'),
               style: Theme.of(context).textTheme.titleMedium,
             ),
-            Text(
-              _getConnectionStatusText(connectionInfo),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: _getConnectionStatusColor(connectionInfo),
+            // Use SecurityState for status text and color
+            securityStateAsync.when(
+              data: (securityState) => Row(
+                children: [
+                  if (securityState.statusIcon != null) ...[
+                    Icon(
+                      securityState.statusIcon,
+                      size: 12,
+                      color: securityState.statusColor,
+                    ),
+                    SizedBox(width: 4),
+                  ],
+                  Text(
+                    securityState.statusText ?? '',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: securityState.statusColor,
+                    ),
+                  ),
+                ],
+              ),
+              loading: () => Text(
+                'Loading...',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey,
+                ),
+              ),
+              error: (error, stack) => Text(
+                'Error',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.red,
+                ),
               ),
             ),
           ],
         ),
         actions: [
-          // Single security/action button based on state
-          if ((connectionInfo?.isConnected ?? false))
-            _buildSecurityIndicator(connectionInfo),
-
-          if ((connectionInfo?.isConnected ?? false) && 
-              _hasPaired && 
-              !_isContact && 
-              !_contactRequestInProgress)
-            IconButton(
-              onPressed: _sendContactRequest,
-              icon: Icon(Icons.person_add, color: Colors.blue),
-              tooltip: 'Add to contacts',
+          // Use SecurityState for action buttons
+          securityStateAsync.when(
+            data: (securityState) => _buildActionButtons(securityState),
+            loading: () => SizedBox(width: 48), // Placeholder to prevent layout shift
+            error: (error, stack) => IconButton(
+              icon: Icon(Icons.error, color: Colors.red),
+              onPressed: () => _showError('Security state error: $error'),
             ),
-
-          if (_isContact)
-            Icon(Icons.verified_user, color: Colors.green),
-
-          // Show identity request button if connected but no name
-          if ((connectionInfo?.isConnected ?? false) && 
-              (connectionInfo?.otherUserName == null || connectionInfo!.otherUserName!.isEmpty))
-            IconButton(
-              onPressed: _requestIdentityExchange,
-              icon: Icon(Icons.person_search, color: Colors.orange),
-              tooltip: 'Request name exchange',
-            ),
-
-          // Show pairing button if connected with name but not paired
-          if ((connectionInfo?.isConnected ?? false) && 
-              (connectionInfo?.otherUserName != null && connectionInfo!.otherUserName!.isNotEmpty) &&
-              !_hasPaired && 
-              !_isRepositoryMode)
-            IconButton(
-              onPressed: _showPairingDialog,
-              icon: Icon(Icons.lock_open, color: Colors.orange),
-              tooltip: 'Setup secure chat',
-            ),
-
+          ),
+          // Connection info button (always visible)
           IconButton(
             onPressed: () => _showConnectionInfo(),
             icon: Icon(
@@ -571,33 +652,39 @@ Widget build(BuildContext context) {
               _buildReconnectionBanner(),
 
             // Messages list
-            Expanded(
-              child: _isLoading
-                  ? Center(child: CircularProgressIndicator())
-                  : _messages.isEmpty
-                      ? _buildEmptyChat()
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: EdgeInsets.zero,
-                          itemCount: _messages.length + 1,
-                          itemBuilder: (context, index) {
-                            if (index == _messages.length) {
-                              return _buildSubtleRetryIndicator();
-                            }
-                            return MessageBubble(
-                              message: _messages[index],
-                              showAvatar: true,
-                              showStatus: true,
-                              onRetry: _messages[index].status == MessageStatus.failed
-                                  ? () => _retryMessage(_messages[index])
-                                  : null,
-                            );
-                          },
-                        ),
+Expanded(
+  child: _isLoading
+      ? Center(child: CircularProgressIndicator())
+      : _messages.isEmpty
+          ? _buildEmptyChat()
+          : ListView.builder(
+              controller: _scrollController,
+              padding: EdgeInsets.zero,
+              itemCount: _messages.length + 1,
+              itemBuilder: (context, index) {
+                if (index == _messages.length) {
+                  return _buildSubtleRetryIndicator();
+                }
+                return MessageBubble(
+                  message: _messages[index],
+                  showAvatar: true,
+                  showStatus: true,
+                  onRetry: _messages[index].status == MessageStatus.failed
+                      ? () => _retryMessage(_messages[index])
+                      : null,
+                );
+              },
             ),
+),
 
-            // Message input
-            _buildMessageInput(connectionInfo?.isConnected ?? false, connectionInfo?.isReady ?? false),
+            // Message input - use SecurityState for send permission
+            securityStateAsync.when(
+              data: (securityState) => securityState.canSendMessages 
+                ? _buildMessageInput()
+                : _buildDisabledMessageInput(securityState),
+              loading: () => _buildLoadingMessageInput(),
+              error: (error, stack) => _buildDisabledMessageInput(null),
+            ),
           ],
         ),
       ),
@@ -836,123 +923,148 @@ Widget _buildReconnectionBanner() {
     );
   }
 
-Widget _buildSecurityIndicator(ConnectionInfo? connectionInfo) {
-  // Priority: Contact > Paired > Need Pairing > Need Identity
-  
-  if (_isContact) {
-    return Padding(
-      padding: EdgeInsets.only(right: 8),
-      child: Tooltip(
-        message: 'Verified Contact (ECDH)',
-        child: Icon(Icons.verified_user, size: 20, color: Colors.green),
-      ),
-    );
-  }
-  
-  if (_hasPaired) {
-    // Show add contact button if paired but not contact
-    if (!_contactRequestInProgress) {
-      return IconButton(
-        onPressed: _sendContactRequest,
-        icon: Icon(Icons.person_add, size: 20, color: Colors.blue),
-        tooltip: 'Add to contacts',
-      );
-    } else {
-      return Padding(
-        padding: EdgeInsets.only(right: 8),
-        child: Icon(Icons.lock, size: 20, color: Colors.blue),
-      );
+
+Widget _buildActionButtons(SecurityState securityState) {
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (securityState.showPairingButton)
+        IconButton(
+          icon: Icon(Icons.lock_open),
+          onPressed: _showPairingDialog,
+          tooltip: 'Secure Chat',
+        ),
+      if (securityState.showContactAddButton)
+        IconButton(
+          icon: Icon(Icons.person_add),
+          onPressed: _sendContactRequest,
+          tooltip: 'Add Contact',
+        ),
+      if (securityState.showContactSyncButton)
+        IconButton(
+          icon: Icon(Icons.sync),
+          onPressed: () => _handleAsymmetricContact(
+            securityState.otherPublicKey ?? '',
+            securityState.otherUserName ?? 'Unknown',
+          ),
+          tooltip: 'Sync Contact',
+        ),
+      if (securityState.status == SecurityStatus.verifiedContact)
+        Padding(
+          padding: EdgeInsets.only(right: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.verified_user, size: 20, color: Colors.green),
+              SizedBox(width: 4),
+              Text(
+                'ECDH',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+}
+
+Widget _buildDisabledMessageInput(SecurityState? securityState) {
+  String hintText = 'Connect and pair to send messages';
+  if (securityState != null) {
+    switch (securityState.status) {
+      case SecurityStatus.disconnected:
+        hintText = 'Connect to device to send messages';
+        break;
+      case SecurityStatus.connecting:
+        hintText = 'Connecting...';
+        break;
+      case SecurityStatus.exchangingIdentity:
+        hintText = 'Exchanging identities...';
+        break;
+      case SecurityStatus.needsPairing:
+        hintText = 'Tap 🔓 to secure chat first';
+        break;
+      default:
+        hintText = 'Cannot send messages';
     }
   }
   
-  // Not paired - check what's needed
-  if (connectionInfo?.otherUserName == null || connectionInfo!.otherUserName!.isEmpty) {
-    return IconButton(
-      onPressed: _requestIdentityExchange,
-      icon: Icon(Icons.person_search, size: 20, color: Colors.orange),
-      tooltip: 'Request name exchange',
-    );
-  }
-  
-  // Has name but not paired
-  if (!_isRepositoryMode) {
-    return IconButton(
-      onPressed: _showPairingDialog,
-      icon: Icon(Icons.lock_open, size: 20, color: Colors.orange),
-      tooltip: 'Setup encryption',
-    );
-  }
-  
-  return SizedBox.shrink();
-}
-
-Widget _buildMessageInput(bool isConnected, bool hasNameExchange) {
   return Container(
-    padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surface,
-      border: Border(
-        top: BorderSide(
-          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-        ),
-      ),
-    ),
+    padding: EdgeInsets.all(8),
     child: Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.3,
-              minHeight: 48,
-            ),
-            child: TextField(
-              controller: _messageController,
-                decoration: InputDecoration(
-                hintText: isConnected 
-  ? (hasNameExchange ? 'Type a message...' : 'Exchanging names...') 
-  : 'Reconnecting...',
-enabled: isConnected && hasNameExchange,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: Theme.of(context).colorScheme.surfaceVariant,
-                contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              ),
-              maxLines: null,
-              minLines: 1,
-              textCapitalization: TextCapitalization.sentences,
-              scrollPhysics: BouncingScrollPhysics(),
+          child: TextField(
+            enabled: false,
+            decoration: InputDecoration(
+              hintText: hintText,
+              border: OutlineInputBorder(),
             ),
           ),
         ),
         SizedBox(width: 8),
-        ValueListenableBuilder(
-          valueListenable: _messageController,
-          builder: (context, value, child) {
-            final hasText = value.text.trim().isNotEmpty;
-final canSend = hasText && isConnected && hasNameExchange && (_hasPaired || _isRepositoryMode);
-return FloatingActionButton.small(
-  onPressed: canSend ? _sendMessage : null,
-  backgroundColor: canSend
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.surfaceVariant,
-              child: Icon(
-                Icons.send,
-                color: (hasText && isConnected)
-                    ? Theme.of(context).colorScheme.onPrimary
-                    : Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            );
-          },
+        IconButton(
+          icon: Icon(Icons.send),
+          onPressed: null, // Disabled
         ),
       ],
     ),
   );
 }
 
+Widget _buildLoadingMessageInput() {
+  return Container(
+    padding: EdgeInsets.all(8),
+    child: Row(
+      children: [
+        Expanded(
+          child: TextField(
+            enabled: false,
+            decoration: InputDecoration(
+              hintText: 'Loading...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        SizedBox(width: 8),
+        SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildMessageInput() {
+    return Container(
+      padding: EdgeInsets.all(8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _messageController,
+              decoration: InputDecoration(
+                hintText: 'Type a message...',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => _sendMessage(),
+            ),
+          ),
+          SizedBox(width: 8),
+          IconButton(
+            icon: Icon(Icons.send),
+            onPressed: _sendMessage,
+          ),
+        ],
+      ),
+    );
+  }
 
 void _sendContactRequest() async {
   setState(() => _contactRequestInProgress = true);
@@ -1002,6 +1114,20 @@ void _sendContactRequest() async {
 // Listen for incoming contact requests
 void _setupContactRequestListener() {
   final bleService = ref.read(bleServiceProvider);
+
+    bleService.stateManager.onContactRequestCompleted = (success) {
+    if (!mounted) return;
+    _logger.info('Contact operation completed: $success - refreshing UI state');
+    
+    // Force UI state refresh
+    setState(() {
+      _isContact = success;
+      _hasPaired = true; // If contact operation succeeded, we're effectively paired
+    });
+    
+    // Re-check pairing status to update security state
+    _checkPairingStatus();
+  };
   
   bleService.stateManager.onContactRequestReceived = (publicKey, displayName) {
     if (!mounted) return;
@@ -1034,6 +1160,14 @@ void _setupContactRequestListener() {
         ],
       ),
     );
+  };
+  
+  // Handle asymmetric contact detection
+  bleService.stateManager.onAsymmetricContactDetected = (publicKey, displayName) {
+    if (!mounted) return;
+    
+    _logger.info('🔄 Asymmetric contact detected: $displayName');
+    _handleAsymmetricContact(publicKey, displayName);
   };
 }
 
@@ -1298,28 +1432,13 @@ Future<void> _migrateMessages(String oldChatId, String newChatId) async {
     _logger.info('Success: $message');
   }
 
-String _getConnectionStatusText(ConnectionInfo? connectionInfo) {
-  if (_isRepositoryMode) return 'Offline - Message history';
-  if (_isContact) return 'Verified Contact • ECDH';
-  if (_hasPaired) return 'Secured • Paired';
-  if (connectionInfo?.isReady ?? false) return 'Connected • Tap lock to secure';
-  if (connectionInfo?.isConnected ?? false) return 'Setting up...';
-  return connectionInfo?.statusMessage ?? 'Disconnected';
-}
-
-Color _getConnectionStatusColor(ConnectionInfo? connectionInfo) {
-  if (_isContact) return Colors.green;
-  if (_hasPaired) return Colors.blue;
-  if (connectionInfo?.isReady ?? false) return Colors.orange;
-  if (connectionInfo?.isConnected ?? false) return Colors.yellow.shade700;
-  return Colors.red;
-}
   
   @override
 void dispose() {
   _messageSubscription?.cancel();
   _messageController.dispose();
   _scrollController.dispose();
+  _stateUpdateTimer?.cancel();
   super.dispose();
 }
 }
