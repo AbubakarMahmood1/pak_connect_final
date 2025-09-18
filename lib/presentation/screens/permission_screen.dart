@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:io';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -9,12 +9,31 @@ import '../providers/ble_providers.dart';
 import 'chats_screen.dart';
 
 class PermissionScreen extends ConsumerStatefulWidget {
+  const PermissionScreen({super.key});
+
   @override
   ConsumerState<PermissionScreen> createState() => _PermissionScreenState();
 }
 
 class _PermissionScreenState extends ConsumerState<PermissionScreen> {
   bool _isRequestingPermissions = false;
+  Timer? _timeoutTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timeoutTimer = Timer(Duration(seconds: 10), () {
+      if (mounted) {
+        _showError('BLE initialization timed out. Please restart the app.');
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timeoutTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -93,6 +112,12 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
   }
 
   Widget _buildPermissionContent(BuildContext context, BluetoothLowEnergyState state) {
+    // Cancel timeout timer when BLE state is resolved
+    if (state != BluetoothLowEnergyState.unknown && state != BluetoothLowEnergyState.unsupported) {
+      _timeoutTimer?.cancel();
+      _timeoutTimer = null;
+    }
+
     switch (state) {
       case BluetoothLowEnergyState.poweredOn:
         return Column(
@@ -111,7 +136,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
             ),
             SizedBox(height: 24),
             FilledButton(
-              onPressed: () => _navigateToDiscovery(context),
+              onPressed: () => _navigateToChatsScreen(context),
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                 child: Text('Start Chatting'),
@@ -206,8 +231,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
         
       case BluetoothLowEnergyState.unknown:
       case BluetoothLowEnergyState.unsupported:
-      default:
-        return Column(
+      return Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -262,14 +286,14 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
           // Give a moment for user to see success, then navigate
           await Future.delayed(Duration(seconds: 1));
           if (mounted) {
-            _navigateToDiscovery(context);
+            _navigateToChatsScreen(context);
           }
         } else {
           _showPermissionDeniedDialog(statuses);
         }
       } else {
         // iOS - permissions handled automatically by the system
-        _navigateToDiscovery(context);
+        _navigateToChatsScreen(context);
       }
     } catch (e) {
       _showError('Permission request failed: $e');
@@ -381,7 +405,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -410,7 +434,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
   }
 
 
-void _navigateToDiscovery(BuildContext context) {
+void _navigateToChatsScreen(BuildContext context) {
   Navigator.pushReplacement(
     context,
     MaterialPageRoute(builder: (context) => ChatsScreen()),

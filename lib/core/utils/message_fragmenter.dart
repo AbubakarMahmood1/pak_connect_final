@@ -1,7 +1,5 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:math' as math;
-import 'package:logging/logging.dart';
 
 class MessageChunk {
   final String messageId;
@@ -158,7 +156,6 @@ static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String mess
 }
 
 class MessageReassembler {
-  final _logger = Logger('MessageReassembler');
   final Map<String, Map<int, MessageChunk>> _pendingMessages = {};
   final Map<String, DateTime> _messageTimestamps = {};
   

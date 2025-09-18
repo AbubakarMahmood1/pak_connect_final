@@ -1,5 +1,6 @@
+// ignore_for_file: avoid_print
+
 import 'dart:async';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,17 +8,17 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../providers/ble_providers.dart';
 import '../providers/security_state_provider.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/entities/chat_list_item.dart'; 
 import '../../data/repositories/message_repository.dart';
+import '../../data/repositories/chats_repository.dart';
 import '../../core/utils/chat_utils.dart';
 import '../widgets/message_bubble.dart';
-import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
 import '../widgets/pairing_dialog.dart';
-import '../../core/models/pairing_state.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/security_state.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../domain/services/security_state_computer.dart'; 
+import '../../core/services/security_manager.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode (live connection)
@@ -55,22 +56,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final MessageRepository _messageRepository = MessageRepository();
+  static final Map<String, SecurityState> _securityStateCache = {};
   
   List<Message> _messages = [];
   bool _isLoading = true;
-  bool _hasPaired = false;
   bool _pairingDialogShown = false;
-  bool _isContact = false;
   bool _contactRequestInProgress = false;
   StreamSubscription<String>? _messageSubscription;
   String? _currentChatId;
-  Timer? _stateUpdateTimer;
+  int _unreadMessageCount = 0;
+  int _lastReadMessageIndex = -1;
+  bool _showUnreadSeparator = false;
+  Timer? _unreadSeparatorTimer;
+  String? _persistentContactPublicKey;
+ 
+  String get _chatId => _currentChatId!;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
   bool get _isRepositoryMode => widget.chatId != null;
   bool get _isConnectedMode => _isCentralMode || _isPeripheralMode;
-
-  String get _chatId => _currentChatId!;
 
 String get _displayContactName {
   if (_isRepositoryMode) return widget.contactName!;
@@ -83,129 +87,127 @@ String get _displayContactName {
   return 'Unknown';
 }
 
-String get _deviceDisplayName {
-  if (_isCentralMode && widget.device != null) {
-    return widget.device!.uuid.toString().substring(0, 8);
-  } else if (_isPeripheralMode && widget.central != null) {
-    return widget.central!.uuid.toString().substring(0, 8);
-  } else {
-    return 'Unknown';
+String? get securityStateKey {
+    print('🐛 NAV DEBUG: securityStateKey getter called');
+    print('🐛 NAV DEBUG: - _isRepositoryMode: $_isRepositoryMode');
+    print('🐛 NAV DEBUG: - widget.contactPublicKey: ${widget.contactPublicKey?.substring(0, 16)}...');
+    print('🐛 NAV DEBUG: - _persistentContactPublicKey: ${_persistentContactPublicKey?.substring(0, 16)}...');
+    
+    if (_isRepositoryMode) {
+      // Always prioritize widget.contactPublicKey if available from widget
+      if (widget.contactPublicKey != null && widget.contactPublicKey!.isNotEmpty) {
+        final key = 'repo_${widget.contactPublicKey}';
+        print('🐛 NAV DEBUG: - returning repo key with widget: $key');
+        return key;
+      }
+      // Fallback to persistent key
+      if (_persistentContactPublicKey != null && _persistentContactPublicKey!.isNotEmpty) {
+        final key = 'repo_$_persistentContactPublicKey';
+        print('🐛 NAV DEBUG: - returning repo key with persistent: $key');
+        return key;
+      }
+      // Final fallback - but this should be rare
+      final fallbackKey = 'repo_${widget.chatId}';
+      print('🐛 NAV DEBUG: - returning repo key with chatId: $fallbackKey');
+      return fallbackKey;
+    } else {
+      // Live connection mode: prioritize widget.contactPublicKey, then persistent key
+      if (widget.contactPublicKey != null && widget.contactPublicKey!.isNotEmpty) {
+        print('🐛 NAV DEBUG: - returning live widget key: ${widget.contactPublicKey!.substring(0, 16)}...');
+        return widget.contactPublicKey;
+      }
+      if (_persistentContactPublicKey != null) {
+        print('🐛 NAV DEBUG: - returning live persistent key: ${_persistentContactPublicKey!.substring(0, 16)}...');
+        return _persistentContactPublicKey;
+      }
+      
+      // Fallback to current connection if persistent not yet set
+      final bleService = ref.read(bleServiceProvider);
+      final fallbackKey = bleService.otherDevicePersistentId;
+      print('🐛 NAV DEBUG: - returning live fallback key: ${fallbackKey?.substring(0, 16) ?? 'NULL'}...');
+      return fallbackKey;
+    }
   }
-}
 
 @override
-void initState() {
-  super.initState();
-  _currentChatId = _calculateInitialChatId();
-  
-  // Load messages immediately
-  _loadMessages();
-  
-  // Only setup listeners for live connection modes
-  if (_isConnectedMode) {
-    _setupMessageListener();
-    _setupContactRequestListener();
+  void initState() {
+    super.initState();
+    print('🐛 NAV DEBUG: ChatScreen initState() called');
+    print('🐛 NAV DEBUG: - widget.device: ${widget.device?.uuid}');
+    print('🐛 NAV DEBUG: - widget.central: ${widget.central?.uuid}');
+    print('🐛 NAV DEBUG: - widget.chatId: ${widget.chatId}');
+    print('🐛 NAV DEBUG: - widget.contactName: ${widget.contactName}');
+    print('🐛 NAV DEBUG: - widget.contactPublicKey: ${widget.contactPublicKey?.substring(0, 16)}...');
+    
+    _currentChatId = _calculateInitialChatId();
+    print('🐛 NAV DEBUG: - calculated chatId: $_currentChatId');
+    
+    _initializePersistentValues();
+    
+    _loadMessages();
+    _loadUnreadCount();
+    
+    if (_isConnectedMode) {
+      _setupMessageListener();
+      _setupContactRequestListener();
+    }
+    
+    _setupSecurityStateListener();
+    print('🐛 NAV DEBUG: ChatScreen initState() completed');
   }
-}
 
-void _checkPairingStatus() async {
-  // Prevent multiple checks
-  if (_pairingDialogShown) return;
-  
+void _setupSecurityStateListener() {
   final bleService = ref.read(bleServiceProvider);
   
-  // Don't check pairing if already in repository mode
-  if (_isRepositoryMode) {
-    _hasPaired = true; // Repository chats always have keys
-    return;
-  }
-  
-  final otherPublicKey = bleService.otherDevicePersistentId;
-  if (otherPublicKey == null) {
-    _logger.warning('No public key available for pairing check - will retry when identity completes');
+  bleService.stateManager.onContactRequestCompleted = (success) {
+    if (!mounted) return;
+    _logger.info('Contact operation completed: $success - refreshing UI state');
     
-    // Set up a listener for when identity exchange completes
-    Timer.periodic(Duration(milliseconds: 500), (timer) {
-      final newOtherPublicKey = bleService.otherDevicePersistentId;
-      if (newOtherPublicKey != null || !mounted) {
-        timer.cancel();
-        if (mounted && newOtherPublicKey != null) {
-          _checkPairingStatus(); // Retry now that we have the key
+    if (success) {
+      Timer(Duration(milliseconds: 500), () {
+        if (mounted) {
+          ref.invalidate(securityStateProvider(securityStateKey));
         }
-      }
-    });
-    return;
-  }
-  
-  // HIERARCHY: Contact > Cached Pairing > New Pairing
-  
-  // 1. Check if they're a verified contact (strongest security)
-final contact = await bleService.stateManager.contactRepository.getContact(otherPublicKey);
-if (contact != null && contact.trustStatus == TrustStatus.verified) {
-  _logger.info('✅ CONTACT VERIFIED: Using ECDH encryption for ${contact.displayName}');
-  
-  // *** CRITICAL FIX: Update state manager flags immediately ***
-  await bleService.stateManager.initializeContactRelationship(otherPublicKey);
-  
-  setState(() {
-    _isContact = true;
-    _hasPaired = true; // Contacts are implicitly paired
-  });
-  
-  // Ensure ECDH key is loaded
-  await bleService.stateManager.checkExistingPairing(otherPublicKey);
-  
-  // Send contact status to other device
-  await _sendContactStatusExchange();
-  return;
+      });
+    }
+  };
 }
+
+void _userRequestedPairing() async {
+  if (_pairingDialogShown) return;
   
-  // 2. Check for cached conversation key (from previous pairing)
-  final hasExistingPairing = await bleService.stateManager.checkExistingPairing(otherPublicKey);
-  if (hasExistingPairing) {
-    _logger.info('Previous pairing found - restored conversation key');
-    _hasPaired = true;
+  final connectionInfo = ref.read(connectionInfoProvider).value;
+if (!(connectionInfo?.isConnected ?? false)) {
+    _showError('Not connected - cannot pair');
     return;
   }
-
-  // 2.5. Check if we already paired in this session
-  if (bleService.stateManager.currentPairing?.state == PairingState.completed) {
-  _logger.info('Current session already paired');
-  _hasPaired = true;
-  return;
-  }
   
-  // 3. No existing security - need new pairing
-  _logger.info('No existing security - showing pairing dialog');
-  if (bleService.isConnected && !_pairingDialogShown) {
-    _pairingDialogShown = true;
-    _showPairingDialog();
-  }
+  print('🔑 USER: User requested pairing dialog');
+  _pairingDialogShown = true;
+  _showPairingDialog();
 }
 
 void _showPairingDialog() async {
   final bleService = ref.read(bleServiceProvider);
-  
-  // Pause health checks during pairing
   bleService.connectionManager.setPairingInProgress(true);
-  
-  // Clear any existing pairing first
   bleService.stateManager.clearPairing();
   
-  // Generate code ONCE
   final myCode = bleService.stateManager.generatePairingCode();
+  
+  // Capture context before async
+  final navigator = Navigator.of(context);
   
   final result = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
-    builder: (context) => PairingDialog(
+    builder: (dialogContext) => PairingDialog(
       myCode: myCode,
       onCodeEntered: (theirCode) async {
         final success = await bleService.stateManager.completePairing(theirCode);
-        if (mounted) Navigator.pop(context, success);
+        if (mounted) navigator.pop(success);
       },
       onCancel: () {
-        if (mounted) Navigator.pop(context, false);
+        if (mounted) navigator.pop(false);
       },
     ),
   );
@@ -214,30 +216,22 @@ void _showPairingDialog() async {
   bleService.connectionManager.setPairingInProgress(false);
   
   if (result == true) {
-  setState(() => _hasPaired = true);
-  _logger.info('Pairing successful - keeping session active');
-} else {
-  // Only clear pairing state on failure/cancellation
-  bleService.stateManager.clearPairing();
-  _logger.info('Pairing failed/cancelled - clearing state');
-}
-
-_pairingDialogShown = false;
-}
-
-Future<void> _sendContactStatusExchange() async {
-  final bleService = ref.read(bleServiceProvider);
-  final otherPublicKey = bleService.otherDevicePersistentId;
-  
-  if (otherPublicKey == null) return;
-  
-  try {
-    // Tell them we have them as a verified contact
-    await bleService.stateManager.exchangeContactStatus();
-    _logger.info('📤 Sent contact status to other device');
-  } catch (e) {
-    _logger.warning('Failed to send contact status: $e');
+    print('🛠 DEBUG: Pairing completed successfully in chat screen');
+    
+    final otherKey = bleService.otherDevicePersistentId;
+    if (otherKey != null) {
+      print('🛠 DEBUG: Attempting security upgrade for: $otherKey');
+      final upgradeResult = await bleService.stateManager.confirmSecurityUpgrade(otherKey, SecurityLevel.medium);
+      print('🛠 DEBUG: Security upgrade result: $upgradeResult');
+    }
+    
+    _logger.info('Pairing successful - keeping session active');
+  } else {
+    print('🛠 DEBUG: Pairing failed or cancelled');
+    bleService.stateManager.clearPairing();
   }
+
+  _pairingDialogShown = false;
 }
 
 void _handleAsymmetricContact(String publicKey, String displayName) {
@@ -271,22 +265,6 @@ void _handleAsymmetricContact(String publicKey, String displayName) {
           onPressed: () async {
             Navigator.pop(context);
             await _addAsVerifiedContact(publicKey, displayName);
-            setState(() {
-              _isContact = true;
-              _hasPaired = true;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    Icon(Icons.verified_user, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text('Contact added - ECDH encryption enabled!'),
-                  ],
-                ),
-                backgroundColor: Colors.green,
-              ),
-            );
           },
           child: Text('Add Contact'),
         ),
@@ -355,18 +333,43 @@ Future<void> _manualReconnection() async {
   }
 }
 
-Future<void> _restartAdvertising() async {
-  final bleService = ref.read(bleServiceProvider);
-  try {
-    // Stop first, then restart
-    await bleService.peripheralManager.stopAdvertising();
-    await Future.delayed(Duration(milliseconds: 500));
-    await bleService.startAsPeripheral();
-    _showSuccess('Restarted advertising');
-  } catch (e) {
-    _showError('Failed to restart advertising: $e');
+Future<void> _initializePersistentValues() async {
+    print('🐛 NAV DEBUG: _initializePersistentValues() called');
+    print('🐛 NAV DEBUG: - _isRepositoryMode: $_isRepositoryMode');
+    
+    if (_isRepositoryMode) {
+      _persistentContactPublicKey = widget.contactPublicKey;
+      print('🐛 NAV DEBUG: - set persistent key from widget: ${_persistentContactPublicKey?.substring(0, 16)}...');
+    } else {
+      // For live connections, get and cache the values
+      final bleService = ref.read(bleServiceProvider);
+      
+      print('🐛 NAV DEBUG: - bleService.otherDevicePersistentId: ${bleService.otherDevicePersistentId?.substring(0, 16)}...');
+      
+      _persistentContactPublicKey = bleService.otherDevicePersistentId;
+      print('🐛 NAV DEBUG: - set persistent key immediately: ${_persistentContactPublicKey?.substring(0, 16)}...');
+      
+      // If still null, setup listener for when they become available (no race condition)
+      if (_persistentContactPublicKey == null) {
+        print('🐛 NAV DEBUG: - persistent key null, setting up one-time listener');
+        Timer.periodic(Duration(milliseconds: 500), (timer) {
+          if (!mounted) {
+            timer.cancel();
+            return;
+          }
+          final bleService = ref.read(bleServiceProvider);
+          if (bleService.otherDevicePersistentId != null) {
+            print('🐛 NAV DEBUG: - listener found key: ${bleService.otherDevicePersistentId!.substring(0, 16)}...');
+            setState(() {
+              _persistentContactPublicKey = bleService.otherDevicePersistentId;
+            });
+            timer.cancel();
+          }
+        });
+      }
+    }
+    print('🐛 NAV DEBUG: _initializePersistentValues() completed with key: ${_persistentContactPublicKey?.substring(0, 16)}...');
   }
-}
 
   Future<void> _loadMessages() async {
     final messages = await _messageRepository.getMessages(_chatId);
@@ -386,12 +389,9 @@ Future<void> _restartAdvertising() async {
 
   Future<void> _autoRetryFailedMessages() async {
     final bleService = ref.read(bleServiceProvider);
-    bool isConnected;
-
-isConnected = bleService.isConnected;
-
-  if (!isConnected) {
-    _showError('Cannot retry messages - device not connected');
+     final connectionInfo = ref.read(connectionInfoProvider).value;
+if (!(connectionInfo?.isConnected ?? false)) {
+    _showError('Cannot retry - device not connected');
     return;
   }
     
@@ -492,12 +492,102 @@ isConnected = bleService.isConnected;
     await _messageRepository.saveMessage(message);
     setState(() {
       _messages.add(message);
+      if (_showUnreadSeparator) {
+        _showUnreadSeparator = false;
+        _unreadSeparatorTimer?.cancel();
+        _markAsRead();
+      }
     });
     _scrollToBottom();
   }
 
+Future<void> _loadUnreadCount() async {
+  if (_isRepositoryMode) {
+    final chatsRepo = ChatsRepository();
+    final chats = await chatsRepo.getAllChats();
+    final currentChat = chats.firstWhere(
+      (chat) => chat.chatId == _chatId,
+      orElse: () => ChatListItem(
+        chatId: '', 
+        contactName: '', 
+        contactPublicKey: null,
+        lastMessage: null, 
+        lastMessageTime: null,
+        unreadCount: 0, 
+        isOnline: false, 
+        hasUnsentMessages: false,
+        lastSeen: null,
+      ),
+    );
+    
+    setState(() {
+      _unreadMessageCount = currentChat.unreadCount;
+      if (_unreadMessageCount > 0 && _messages.isNotEmpty) {
+        _lastReadMessageIndex = _messages.length - _unreadMessageCount - 1;
+        _showUnreadSeparator = true;
+      }
+    });
+    
+    // Auto-hide separator after 3 seconds
+    if (_showUnreadSeparator) {
+      _startUnreadSeparatorTimer();
+    }
+  }
+}
+
+  void _startUnreadSeparatorTimer() {
+    _unreadSeparatorTimer?.cancel();
+    _unreadSeparatorTimer = Timer(Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _showUnreadSeparator = false;
+        });
+        _markAsRead();
+      }
+    });
+  }
+
+  Future<void> _markAsRead() async {
+  if (_unreadMessageCount > 0) {
+    final chatsRepo = ChatsRepository();
+    await chatsRepo.markChatAsRead(_chatId);
+    setState(() {
+      _unreadMessageCount = 0;
+      _lastReadMessageIndex = -1;
+    });
+  }
+}
+
 @override
 Widget build(BuildContext context) {
+  final securityStateAsync = ref.watch(securityStateProvider(securityStateKey));
+    
+    // Store successful state in cache
+    securityStateAsync.whenData((state) {
+      if (securityStateKey != null) {
+        _securityStateCache[securityStateKey!] = state;
+      }
+    });
+    
+    // Use cached state if provider is loading
+    securityStateAsync.when(
+      data: (state) => state,
+      loading: () => _securityStateCache[securityStateKey ?? ''] ?? SecurityState.disconnected(),
+      error: (error, stack) => SecurityState.disconnected(),
+    );
+
+  print('🛠 DEBUG: SecurityStateProvider called for key: $securityStateKey');
+  print('🛠 DEBUG: SecurityState result: ${securityStateAsync.hasValue ? securityStateAsync.value.toString() : 'LOADING'}');
+
+  ref.watch(connectionInfoProvider);
+  ref.watch(discoveredDevicesProvider);
+  ref.watch(discoveryDataProvider);
+
+  ref.listen(connectionInfoProvider, (previous, next) {
+    _handleConnectionChange(previous?.value, next.value);
+  });
+
+  // Listen for identity changes
   ref.listen(connectionInfoProvider, (previous, next) {
     if (next.hasValue && 
         next.value?.otherUserName != null && 
@@ -510,12 +600,10 @@ Widget build(BuildContext context) {
         if (mounted) {
           _handleIdentityReceived();
           
-          // Check contact status AFTER identity is established
           Future.delayed(Duration(milliseconds: 500), () {
-            if (mounted) {
-              _checkPairingStatus();
-            }
-          });
+  if (mounted) {
+  }
+});
         }
       });
     }
@@ -555,14 +643,7 @@ Widget build(BuildContext context) {
     final bleService = ref.watch(bleServiceProvider);
     final connectionInfoAsync = ref.watch(connectionInfoProvider);
     
-    // Determine the security state key
-    String? securityStateKey;
-    if (_isRepositoryMode) {
-      securityStateKey = 'repo_${widget.chatId}';
-    } else {
-      securityStateKey = bleService.otherDevicePersistentId;
-    }
-    
+    // Use the stabilized security state key getter
     final securityStateAsync = ref.watch(securityStateProvider(securityStateKey));
     
     // Connection info for legacy compatibility
@@ -571,88 +652,61 @@ Widget build(BuildContext context) {
       orElse: () => null,
     );
 
-    final actuallyConnected = _isCentralMode 
-      ? (bleService.isConnected && bleService.connectedDevice?.uuid == widget.device?.uuid)
-      : (bleService.isConnected && _isPeripheralMode);
+final actuallyConnected = connectionInfo?.isConnected ?? false;
     
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _isRepositoryMode 
-                ? 'Chat with ${widget.contactName}'
-                : (connectionInfo?.otherUserName ?? 'Device $_displayContactName...'),
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            // Use SecurityState for status text and color
-            securityStateAsync.when(
-              data: (securityState) => Row(
-                children: [
-                  if (securityState.statusIcon != null) ...[
-                    Icon(
-                      securityState.statusIcon,
-                      size: 12,
-                      color: securityState.statusColor,
-                    ),
-                    SizedBox(width: 4),
-                  ],
-                  Text(
-                    securityState.statusText ?? '',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: securityState.statusColor,
-                    ),
-                  ),
-                ],
-              ),
-              loading: () => Text(
-                'Loading...',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey,
-                ),
-              ),
-              error: (error, stack) => Text(
-                'Error',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.red,
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          // Use SecurityState for action buttons
-          securityStateAsync.when(
-            data: (securityState) => _buildActionButtons(securityState),
-            loading: () => SizedBox(width: 48), // Placeholder to prevent layout shift
-            error: (error, stack) => IconButton(
-              icon: Icon(Icons.error, color: Colors.red),
-              onPressed: () => _showError('Security state error: $error'),
-            ),
-          ),
-          // Connection info button (always visible)
-          IconButton(
-            onPressed: () => _showConnectionInfo(),
-            icon: Icon(
-              (connectionInfo?.isConnected ?? false)
-                  ? Icons.bluetooth_connected
-                  : Icons.bluetooth_disabled,
-              color: (connectionInfo?.isConnected ?? false) ? Colors.green : Colors.red,
-            ),
-          ),
-        ],
+  appBar: AppBar(
+  title: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        _isRepositoryMode 
+          ? 'Chat with ${widget.contactName}'
+          : (connectionInfo?.otherUserName ?? 'Device $_displayContactName...'),
+        style: Theme.of(context).textTheme.titleMedium,
       ),
+      // Simple, clear text status
+      securityStateAsync.when(
+        data: (securityState) => Text(
+          _buildStatusText(connectionInfo, securityState),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: _getStatusColor(securityState),
+          ),
+        ),
+        loading: () => Text(
+          'Loading...',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.grey,
+          ),
+        ),
+        error: (error, stack) => Text(
+          'Error',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.red,
+          ),
+        ),
+      ),
+    ],
+  ),
+  actions: [
+    // Only show relevant action button
+    securityStateAsync.when(
+      data: (securityState) => _buildSingleActionButton(securityState),
+      loading: () => SizedBox(width: 48),
+      error: (error, stack) => SizedBox(width: 48),
+    ),
+  ],
+),
       body: SafeArea(
-        bottom: true,
-        child: Column(
-          children: [
-            // Reconnection banner
-            if (!actuallyConnected || bleService.isActivelyReconnecting)
-              _buildReconnectionBanner(),
+  bottom: true,
+  child: Column(
+    children: [
+      // Reconnection banner
+      if (!actuallyConnected || bleService.isActivelyReconnecting)
+        _buildReconnectionBanner(),
 
-            // Messages list
-Expanded(
+      // Messages list
+      Expanded(
   child: _isLoading
       ? Center(child: CircularProgressIndicator())
       : _messages.isEmpty
@@ -665,7 +719,9 @@ Expanded(
                 if (index == _messages.length) {
                   return _buildSubtleRetryIndicator();
                 }
-                return MessageBubble(
+                
+                // ✅ NEW: Create the message widget
+                Widget messageWidget = MessageBubble(
                   message: _messages[index],
                   showAvatar: true,
                   showStatus: true,
@@ -673,21 +729,50 @@ Expanded(
                       ? () => _retryMessage(_messages[index])
                       : null,
                 );
+                
+                // ✅ NEW: Check if we need to show unread separator BEFORE this message
+                if (_showUnreadSeparator && 
+                    index == _lastReadMessageIndex + 1 && 
+                    _unreadMessageCount > 0) {
+                  // This is the first unread message - show separator above it
+                  return Column(
+                    children: [
+                      _buildUnreadMessageSeparator(),
+                      messageWidget,
+                    ],
+                  );
+                }
+                
+                // ✅ Regular message without separator
+                return messageWidget;
               },
             ),
-),
-
-            // Message input - use SecurityState for send permission
-            securityStateAsync.when(
-              data: (securityState) => securityState.canSendMessages 
-                ? _buildMessageInput()
-                : _buildDisabledMessageInput(securityState),
-              loading: () => _buildLoadingMessageInput(),
-              error: (error, stack) => _buildDisabledMessageInput(null),
+	),
+      Container(
+        padding: EdgeInsets.all(8),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _messageController,
+                decoration: InputDecoration(
+                  hintText: _getMessageHintText(),
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (_) => _sendMessage(),
+              ),
+            ),
+            SizedBox(width: 8),
+            IconButton(
+              icon: Icon(Icons.send),
+              onPressed: _sendMessage, // Always enabled
             ),
           ],
         ),
       ),
+    ],
+  ),
+),
     );
   } catch (e) {
     return Scaffold(
@@ -710,33 +795,83 @@ Expanded(
   }
 }
 
-  Widget _buildConnectionBanner() {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(12),
-      color: Theme.of(context).colorScheme.errorContainer,
-      child: Row(
-        children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: Theme.of(context).colorScheme.onErrorContainer,
-            ),
-          ),
-          SizedBox(width: 8),
-          Text(
-            'Reconnecting... Messages will be sent when connected',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onErrorContainer,
-              fontSize: 12,
-            ),
-          ),
-        ],
+String _buildStatusText(ConnectionInfo? connectionInfo, SecurityState securityState) {
+  final parts = <String>[];
+  
+  // Connection status (only for live connections)
+  if (!_isRepositoryMode && connectionInfo != null) {
+    if (connectionInfo.isConnected && connectionInfo.isReady) {
+      parts.add('Connected');
+    } else if (connectionInfo.isConnected && !connectionInfo.isReady) {
+      parts.add('Connecting');
+    } else if (connectionInfo.isReconnecting) {
+      parts.add('Reconnecting');
+    } else {
+      parts.add('Offline');
+    }
+  }
+  
+  // Security status (always shown)
+  switch (securityState.status) {
+    case SecurityStatus.verifiedContact:
+      parts.add('ECDH Encrypted');
+      break;
+    case SecurityStatus.paired:
+      parts.add('Paired');
+      break;
+    case SecurityStatus.asymmetricContact:
+      parts.add('Contact Sync Needed');
+      break;
+    case SecurityStatus.needsPairing:
+      parts.add('Basic Encryption');
+      break;
+    default:
+      parts.add('Disconnected');
+  }
+  
+  return parts.join(' • ');
+}
+
+Color _getStatusColor(SecurityState securityState) {
+  switch (securityState.status) {
+    case SecurityStatus.verifiedContact:
+      return Colors.green;
+    case SecurityStatus.paired:
+      return Colors.blue;
+    case SecurityStatus.asymmetricContact:
+      return Colors.orange;
+    case SecurityStatus.needsPairing:
+      return Colors.orange;
+    default:
+      return Colors.grey;
+  }
+}
+
+Widget _buildSingleActionButton(SecurityState securityState) {
+  if (securityState.showPairingButton) {
+    return IconButton(
+      icon: Icon(Icons.lock_open),
+      onPressed: _userRequestedPairing,
+      tooltip: 'Secure Chat',
+    );
+  } else if (securityState.showContactAddButton) {
+    return IconButton(
+      icon: Icon(Icons.person_add),
+      onPressed: _sendContactRequest,
+      tooltip: 'Add Contact',
+    );
+  } else if (securityState.showContactSyncButton) {
+    return IconButton(
+      icon: Icon(Icons.sync),
+      onPressed: () => _handleAsymmetricContact(
+        securityState.otherPublicKey ?? '',
+        securityState.otherUserName ?? 'Unknown',
       ),
+      tooltip: 'Sync Contact',
     );
   }
+  return SizedBox(width: 48);
+}
 
 Widget _buildReconnectionBanner() {
   final bleService = ref.read(bleServiceProvider);
@@ -765,7 +900,7 @@ Widget _buildReconnectionBanner() {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(12),
-      color: Theme.of(context).colorScheme.surfaceVariant,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: Row(
         children: [
           Icon(Icons.wifi_tethering, size: 16, color: Colors.green),
@@ -800,6 +935,32 @@ Widget _buildReconnectionBanner() {
   return SizedBox.shrink();
 }
 
+Widget _buildUnreadMessageSeparator() {
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 1,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    Theme.of(context).colorScheme.primary.withValues(),
+                    Theme.of(context).colorScheme.primary.withValues(),
+                    Theme.of(context).colorScheme.primary.withValues(),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyChat() {
     return Center(
       child: Column(
@@ -829,38 +990,6 @@ Widget _buildReconnectionBanner() {
     );
   }
 
-  Widget _buildMessageStatusIcon(MessageStatus status, Message message) {
-    switch (status) {
-      case MessageStatus.sending:
-        return SizedBox(
-          width: 12,
-          height: 12,
-          child: CircularProgressIndicator(
-            strokeWidth: 1,
-            color: Theme.of(context).colorScheme.onPrimary.withOpacity(0.7),
-          ),
-        );
-      case MessageStatus.sent:
-        return Icon(
-          Icons.check,
-          size: 14,
-          color: Theme.of(context).colorScheme.onPrimary.withOpacity(0.7),
-        );
-      case MessageStatus.delivered:
-        return Icon(
-          Icons.done_all,
-          size: 14,
-          color: Colors.green,
-        );
-      case MessageStatus.failed:
-        return Icon(
-          Icons.error_outline,
-          size: 14,
-          color: Colors.red,
-        );
-    }
-  }
-
   Widget _buildSubtleRetryIndicator() {
     final failedCount = _messages.where((m) => m.isFromMe && m.status == MessageStatus.failed).length;
     
@@ -876,10 +1005,10 @@ Widget _buildReconnectionBanner() {
             child: Container(
               padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                  color: Theme.of(context).colorScheme.primary.withValues(),
                   width: 1,
                 ),
               ),
@@ -889,14 +1018,14 @@ Widget _buildReconnectionBanner() {
                   Icon(
                     Icons.info_outline,
                     size: 12,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
                   ),
                   SizedBox(width: 4),
                   Text(
                     '$failedCount failed',
                     style: TextStyle(
                       fontSize: 11,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
                     ),
                   ),
                   SizedBox(width: 6),
@@ -923,160 +1052,25 @@ Widget _buildReconnectionBanner() {
     );
   }
 
-
-Widget _buildActionButtons(SecurityState securityState) {
-  return Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      if (securityState.showPairingButton)
-        IconButton(
-          icon: Icon(Icons.lock_open),
-          onPressed: _showPairingDialog,
-          tooltip: 'Secure Chat',
-        ),
-      if (securityState.showContactAddButton)
-        IconButton(
-          icon: Icon(Icons.person_add),
-          onPressed: _sendContactRequest,
-          tooltip: 'Add Contact',
-        ),
-      if (securityState.showContactSyncButton)
-        IconButton(
-          icon: Icon(Icons.sync),
-          onPressed: () => _handleAsymmetricContact(
-            securityState.otherPublicKey ?? '',
-            securityState.otherUserName ?? 'Unknown',
-          ),
-          tooltip: 'Sync Contact',
-        ),
-      if (securityState.status == SecurityStatus.verifiedContact)
-        Padding(
-          padding: EdgeInsets.only(right: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.verified_user, size: 20, color: Colors.green),
-              SizedBox(width: 4),
-              Text(
-                'ECDH',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.green,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ),
-    ],
-  );
-}
-
-Widget _buildDisabledMessageInput(SecurityState? securityState) {
-  String hintText = 'Connect and pair to send messages';
-  if (securityState != null) {
-    switch (securityState.status) {
-      case SecurityStatus.disconnected:
-        hintText = 'Connect to device to send messages';
-        break;
-      case SecurityStatus.connecting:
-        hintText = 'Connecting...';
-        break;
-      case SecurityStatus.exchangingIdentity:
-        hintText = 'Exchanging identities...';
-        break;
-      case SecurityStatus.needsPairing:
-        hintText = 'Tap 🔓 to secure chat first';
-        break;
-      default:
-        hintText = 'Cannot send messages';
-    }
-  }
-  
-  return Container(
-    padding: EdgeInsets.all(8),
-    child: Row(
-      children: [
-        Expanded(
-          child: TextField(
-            enabled: false,
-            decoration: InputDecoration(
-              hintText: hintText,
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ),
-        SizedBox(width: 8),
-        IconButton(
-          icon: Icon(Icons.send),
-          onPressed: null, // Disabled
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _buildLoadingMessageInput() {
-  return Container(
-    padding: EdgeInsets.all(8),
-    child: Row(
-      children: [
-        Expanded(
-          child: TextField(
-            enabled: false,
-            decoration: InputDecoration(
-              hintText: 'Loading...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ),
-        SizedBox(width: 8),
-        SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _buildMessageInput() {
-    return Container(
-      padding: EdgeInsets.all(8),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _messageController,
-              decoration: InputDecoration(
-                hintText: 'Type a message...',
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (_) => _sendMessage(),
-            ),
-          ),
-          SizedBox(width: 8),
-          IconButton(
-            icon: Icon(Icons.send),
-            onPressed: _sendMessage,
-          ),
-        ],
-      ),
-    );
-  }
-
 void _sendContactRequest() async {
   setState(() => _contactRequestInProgress = true);
   
   final bleService = ref.read(bleServiceProvider);
+  final otherPublicKey = bleService.otherDevicePersistentId;
+  final otherName = bleService.otherUserName;
+  
+  if (otherPublicKey == null || otherName == null) {
+    _showError('Cannot add contact - missing identity');
+    setState(() => _contactRequestInProgress = false);
+    return;
+  }
   
   showDialog(
     context: context,
     barrierDismissible: false,
     builder: (context) => AlertDialog(
       title: Text('Add to Contacts?'),
-      content: Text('This will save ${bleService.otherUserName} as a trusted contact with enhanced encryption.'),
+      content: Text('This will save $otherName as a trusted contact with ECDH encryption.'),
       actions: [
         TextButton(
           onPressed: () {
@@ -1089,22 +1083,41 @@ void _sendContactRequest() async {
           onPressed: () async {
             Navigator.pop(context);
             
-            final success = await bleService.stateManager.sendContactRequest();
-            
-            if (success) {
-              setState(() => _isContact = true);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Contact added successfully!')),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Contact request declined')),
-              );
+            try {
+              // Don't use the complex contact request system for direct addition
+              final contactRepo = ContactRepository();
+              
+              // Check if already exists
+              final existingContact = await contactRepo.getContact(otherPublicKey);
+              
+              if (existingContact != null) {
+                print('🔧 ADD CONTACT: Already exists - just marking as verified');
+                await contactRepo.markContactVerified(otherPublicKey);
+                
+                if (existingContact.securityLevel.index < SecurityLevel.high.index) {
+                  await contactRepo.updateContactSecurityLevel(otherPublicKey, SecurityLevel.high);
+                }
+              } else {
+                print('🔧 ADD CONTACT: Creating new verified contact');
+                await contactRepo.saveContactWithSecurity(otherPublicKey, otherName, SecurityLevel.high);
+                await contactRepo.markContactVerified(otherPublicKey);
+                
+                // Compute ECDH if not already done
+                final sharedSecret = SimpleCrypto.computeSharedSecret(otherPublicKey);
+                if (sharedSecret != null) {
+                  await contactRepo.cacheSharedSecret(otherPublicKey, sharedSecret);
+                }
+              }
+              
+              // Force refresh security state
+              ref.invalidate(securityStateProvider(securityStateKey));              
+            } catch (e) {
+              print('🔧 ADD CONTACT ERROR: $e');
             }
             
             setState(() => _contactRequestInProgress = false);
           },
-          child: Text('Send Request'),
+          child: Text('Add Contact'),
         ),
       ],
     ),
@@ -1118,15 +1131,6 @@ void _setupContactRequestListener() {
     bleService.stateManager.onContactRequestCompleted = (success) {
     if (!mounted) return;
     _logger.info('Contact operation completed: $success - refreshing UI state');
-    
-    // Force UI state refresh
-    setState(() {
-      _isContact = success;
-      _hasPaired = true; // If contact operation succeeded, we're effectively paired
-    });
-    
-    // Re-check pairing status to update security state
-    _checkPairingStatus();
   };
   
   bleService.stateManager.onContactRequestReceived = (publicKey, displayName) {
@@ -1147,16 +1151,12 @@ void _setupContactRequestListener() {
             child: Text('Decline'),
           ),
           FilledButton(
-            onPressed: () async {
-              await bleService.stateManager.acceptContactRequest();
-              setState(() => _isContact = true);
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Contact added!')),
-              );
-            },
-            child: Text('Accept'),
-          ),
+  onPressed: () async {
+    Navigator.pop(context);
+    await bleService.stateManager.acceptContactRequest();
+  },
+  child: Text('Accept'),
+),
         ],
       ),
     );
@@ -1176,7 +1176,10 @@ void _setupContactRequestListener() {
   if (text.isEmpty) return;
 
   _messageController.clear();
-
+  
+  print('🔧 SEND DEBUG: Attempting to send message: "$text"');
+  print('🔧 SEND DEBUG: _isRepositoryMode: $_isRepositoryMode');
+  
   // Create message with sending status
   final message = Message(
     id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -1194,23 +1197,46 @@ void _setupContactRequestListener() {
   });
   _scrollToBottom();
 
-  // Send via appropriate method based on mode
   try {
-    bool success;
+    bool success = false;
     
-    if (_isCentralMode) {
-      // Central mode: send via writeCharacteristic
-      final bleService = ref.read(bleServiceProvider);
-
-if (!bleService.isConnected) {
-  _showError('Not connected - please ensure devices are paired');
-  return;
-}
-      success = await bleService.sendMessage(text, messageId: message.id);
+    if (_isRepositoryMode) {
+      print('🔧 SEND DEBUG: Repository mode - marking as delivered');
+      success = true;
     } else {
-      // Peripheral mode: send via notifications
-      success = await _sendPeripheralMessage(text, message.id);
+      // Live connection mode - ALWAYS TRY TO SEND regardless of security level
+      final connectionInfo = ref.read(connectionInfoProvider).value;
+      
+      print('🔧 SEND DEBUG: Connection info - isConnected: ${connectionInfo?.isConnected}, isReady: ${connectionInfo?.isReady}');
+      
+      if (connectionInfo?.isConnected == true && connectionInfo?.isReady == true) {
+        print('🔧 SEND DEBUG: Connection ready - attempting to send');
+        
+        final bleService = ref.read(bleServiceProvider);
+        
+        if (_isCentralMode) {
+          print('🔧 SEND DEBUG: Using central mode sending');
+          success = await bleService.sendMessage(text, messageId: message.id);
+        } else if (_isPeripheralMode) {
+          print('🔧 SEND DEBUG: Using peripheral mode sending');
+          success = await bleService.sendPeripheralMessage(text, messageId: message.id);
+        } else {
+          print('🔧 SEND DEBUG: No valid connection mode - but attempting anyway');
+          // Try both methods as fallback
+          try {
+            success = await bleService.sendMessage(text, messageId: message.id);
+          } catch (e) {
+            print('🔧 SEND DEBUG: Central send failed, trying peripheral: $e');
+            success = await bleService.sendPeripheralMessage(text, messageId: message.id);
+          }
+        }
+      } else {
+        print('🔧 SEND DEBUG: Not connected - marking as failed for later retry');
+        success = false;
+      }
     }
+    
+    print('🔧 SEND DEBUG: Send result: $success');
     
     final newStatus = success ? MessageStatus.delivered : MessageStatus.failed;
     final updatedMessage = message.copyWith(status: newStatus);
@@ -1224,6 +1250,7 @@ if (!bleService.isConnected) {
     _scrollToBottom();
       
   } catch (e) {
+    print('🔧 SEND DEBUG: Exception caught: $e');
     final failedMessage = message.copyWith(status: MessageStatus.failed);
     await _messageRepository.updateMessage(failedMessage);
     setState(() {
@@ -1232,27 +1259,14 @@ if (!bleService.isConnected) {
         _messages[index] = failedMessage;
       }
     });
-    
-    final errorMsg = e.toString().contains('Write characteristic failed') 
-        ? 'Message failed - device may be disconnected'
-        : 'Message failed - please retry';
-    _showError(errorMsg);
   }
-}
-
-Future<bool> _sendPeripheralMessage(String content, String messageId) async {
-  final bleService = ref.read(bleServiceProvider);
-  
-  // For peripheral mode, we need to send via notifications
-  // This requires the BLE service to handle peripheral message sending
-  return await bleService.sendPeripheralMessage(content, messageId: messageId);
 }
 
   Future<void> _retryMessage(Message failedMessage) async {
     final bleService = ref.read(bleServiceProvider);
     
-    // Check if connected first
-    if (!bleService.isConnected) {
+    final connectionInfo = ref.read(connectionInfoProvider).value;
+if (!(connectionInfo?.isConnected ?? false)) {
       _showError('Not connected. Please reconnect to the device first.');
       return;
     }
@@ -1318,6 +1332,23 @@ Future<bool> _sendPeripheralMessage(String content, String messageId) async {
   });
 }
 
+String _getMessageHintText() {
+  if (_isRepositoryMode) {
+    return 'Type a message...';
+  }
+  
+  final connectionInfo = ref.read(connectionInfoProvider).value;
+  if (connectionInfo?.isConnected != true) {
+    return 'Message will send when connected...';
+  }
+  
+  if (connectionInfo?.isReady != true) {
+    return 'Connecting... message will send when ready...';
+  }
+  
+  return 'Type a message...';
+}
+
 String _calculateInitialChatId() {
   // Repository mode: use provided chatId
   if (_isRepositoryMode) {
@@ -1342,39 +1373,37 @@ String _calculateInitialChatId() {
 }
 
 Future<void> _handleIdentityReceived() async {
-  final bleService = ref.read(bleServiceProvider);
-  final otherPersistentId = bleService.otherDevicePersistentId;
-  final myPersistentId = bleService.myPersistentId;
-  
-  if (otherPersistentId != null && myPersistentId != null) {
-    final newChatId = ChatUtils.generateChatId(myPersistentId, otherPersistentId);
+    final bleService = ref.read(bleServiceProvider);
+    final otherPersistentId = bleService.otherDevicePersistentId;
+    final myPersistentId = bleService.myPersistentId;
     
-    if (newChatId != _currentChatId) {
-      _logger.info('Identity received - migrating from $_currentChatId to $newChatId');
-      await _migrateMessages(_currentChatId!, newChatId);
-      _currentChatId = newChatId;
-      await _loadMessages(); // Reload with new chat ID
+    // UPDATE persistent values when identity is received
+    if (otherPersistentId != null) {
+      setState(() {
+        _persistentContactPublicKey = otherPersistentId;
+      });
+    }
+    
+    if (otherPersistentId != null && myPersistentId != null) {
+      final newChatId = ChatUtils.generateChatId(myPersistentId, otherPersistentId);
+      
+      if (newChatId != _currentChatId) {
+        final messagesToMigrate = await _messageRepository.getMessages(_currentChatId!);
+        
+        if (messagesToMigrate.isNotEmpty) {
+          _logger.info('Identity received - migrating ${messagesToMigrate.length} messages from $_currentChatId to $newChatId');
+          await _migrateMessages(_currentChatId!, newChatId);
+          _currentChatId = newChatId;
+          await _loadMessages();
+        } else {
+          _logger.info('Identity received - switching to persistent chat ID but no messages to migrate');
+          _currentChatId = newChatId;
+        }
+        
+        // IMPORTANT: Don't invalidate security state here - it should persist
+      }
     }
   }
-}
-
-Future<void> _requestIdentityExchange() async {
-  final bleService = ref.read(bleServiceProvider);
-  
-  if (!bleService.isConnected) {
-    _showError('Not connected to request identity');
-    return;
-  }
-  
-  _showSuccess('Requesting identity exchange...');
-  
-  try {
-    await bleService.requestIdentityExchange();
-    _showSuccess('Identity request sent');
-  } catch (e) {
-    _showError('Failed to request identity: $e');
-  }
-}
 
 Future<void> _migrateMessages(String oldChatId, String newChatId) async {
   final oldMessages = await _messageRepository.getMessages(oldChatId);
@@ -1397,32 +1426,27 @@ Future<void> _migrateMessages(String oldChatId, String newChatId) async {
 }
 
 
-  void _showConnectionInfo() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Connection Info'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Device: $_deviceDisplayName'),
-            SizedBox(height: 8),
-            Text('Status: ${ref.read(bleServiceProvider).isConnected ? "Connected" : "Disconnected"}'),
-            SizedBox(height: 8),
-            Text('Messages sent: ${_messages.where((m) => m.isFromMe).length}'),
-            Text('Messages received: ${_messages.where((m) => !m.isFromMe).length}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close'),
-          ),
-        ],
-      ),
-    );
+void _handleConnectionChange(ConnectionInfo? previous, ConnectionInfo? current) {
+  if (!mounted) return;
+  
+  // Only react to meaningful changes
+  final wasConnected = previous?.isConnected ?? false;
+  final isConnected = current?.isConnected ?? false;
+  final wasReady = previous?.isReady ?? false;
+  final isReady = current?.isReady ?? false;
+  
+  if (!wasConnected && isConnected) {
+    _showSuccess('Connected to device!');
+  } else if (wasConnected && !isConnected) {
+    _showError('Device disconnected');
+  } else if (isConnected && !wasReady && isReady) {
+    _showSuccess('Identity exchange complete!');
+    // Trigger auto-retry after identity is established
+    Future.delayed(Duration(milliseconds: 1000), () {
+      if (mounted) _autoRetryFailedMessages();
+    });
   }
+}
 
   void _showError(String message) {
      _logger.warning('Error: $message');
@@ -1433,12 +1457,18 @@ Future<void> _migrateMessages(String oldChatId, String newChatId) async {
   }
 
   
-  @override
+@override
 void dispose() {
+  print('🐛 NAV DEBUG: ChatScreen dispose() called');
+  print('🐛 NAV DEBUG: - Final persistent key: ${_persistentContactPublicKey?.substring(0, 16)}...');
+  print('🐛 NAV DEBUG: - Final chatId: $_currentChatId');
+  
   _messageSubscription?.cancel();
   _messageController.dispose();
   _scrollController.dispose();
-  _stateUpdateTimer?.cancel();
+  _unreadSeparatorTimer?.cancel();
   super.dispose();
+  
+  print('🐛 NAV DEBUG: ChatScreen dispose() completed');
 }
 }

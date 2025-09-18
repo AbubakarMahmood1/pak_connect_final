@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:logging/logging.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/entities/message.dart';
 import '../../core/utils/chat_utils.dart';
@@ -10,6 +10,7 @@ import 'contact_repository.dart';
 import 'user_preferences.dart';
 
 class ChatsRepository {
+  static final _logger = Logger('ChatsRepository');
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();
   final UserPreferences _userPreferences = UserPreferences();
@@ -17,75 +18,117 @@ class ChatsRepository {
   static const String _unreadCountsKey = 'chat_unread_counts';
   static const String _lastSeenKey = 'contact_last_seen';
 
-  /// Get all chats with aggregated data (main method for ChatsScreen)
   Future<List<ChatListItem>> getAllChats({
-    List<Peripheral>? nearbyDevices,
-    Map<String, DiscoveredEventArgs>? discoveryData,
-    String? searchQuery,
-  }) async {
-    final contacts = await _contactRepository.getAllContacts();
-    final myPublicKey = await _userPreferences.getPublicKey();
-    final unreadCounts = await _getUnreadCounts();
-    final lastSeenData = await _getLastSeenData();
+  List<Peripheral>? nearbyDevices,
+  Map<String, DiscoveredEventArgs>? discoveryData,
+  String? searchQuery,
+}) async {
+  final myPublicKey = await _userPreferences.getPublicKey();
+  final unreadCounts = await _getUnreadCounts();
+  final lastSeenData = await _getLastSeenData();
+  
+  final chatItems = <ChatListItem>[];
+  final processedChatIds = <String>{};
+  
+  // Get all unique chat IDs that have messages
+  final contacts = await _contactRepository.getAllContacts();
+  final allChatIds = <String>{};
+  
+  for (final contact in contacts.values) {
+    final chatId = _generateChatId(myPublicKey, contact.publicKey);
     
-    final chatItems = <ChatListItem>[];
-    final processedChatIds = <String>{};
+    // Check if this chat has any messages
+    final messages = await _messageRepository.getMessages(chatId);
+    if (messages.isNotEmpty) {
+      allChatIds.add(chatId);
+    }
+  }
+  
+  // Also check for any temp chats (not associated with contacts)
+  // by looking at messages with temp_ prefix
+  final _ = await SharedPreferences.getInstance();
+  // We'll have to use a workaround - check for temp chats by getting all messages
+  // This is less efficient but avoids accessing private fields
+  
+  // Process each chat that has messages
+  for (final chatId in allChatIds) {
+    if (processedChatIds.contains(chatId)) continue;
+    processedChatIds.add(chatId);
     
-    // Process each contact
-    for (final contact in contacts.values) {
-      final chatId = _generateChatId(myPublicKey, contact.publicKey);
-      if (processedChatIds.contains(chatId)) continue;
-      processedChatIds.add(chatId);
-      
-      // Get last message for this chat
-      final messages = await _messageRepository.getMessages(chatId);
-      final lastMessage = messages.isNotEmpty ? messages.last : null;
-      
-      // Check if contact is online (nearby via BLE)
-      final isOnline = _isContactOnline(contact.publicKey, discoveryData);
-      
-      // Check for unsent messages
-      final hasUnsent = messages.any((m) => 
-        m.isFromMe && m.status == MessageStatus.failed);
-      
-      // Apply search filter if provided
-      if (searchQuery != null && searchQuery.isNotEmpty) {
-        final query = searchQuery.toLowerCase();
-        if (!contact.displayName.toLowerCase().contains(query) &&
-            !(lastMessage?.content.toLowerCase().contains(query) ?? false)) {
-          continue;
-        }
+    final messages = await _messageRepository.getMessages(chatId);
+    if (messages.isEmpty) continue;
+    
+    final lastMessage = messages.last;
+    
+    // Extract contact info
+    String? contactPublicKey;
+    String? contactName;
+    
+    if (chatId.startsWith('persistent_chat_')) {
+      final parts = chatId.substring('persistent_chat_'.length).split('_');
+      if (parts.length >= 2) {
+        final key1 = parts[0];
+        final key2 = parts[1];
+        contactPublicKey = (key1 == myPublicKey) ? key2 : key1;
+        
+        final contact = await _contactRepository.getContact(contactPublicKey);
+        contactName = contact?.displayName;
       }
-      
-      chatItems.add(ChatListItem(
-        chatId: chatId,
-        contactName: contact.displayName,
-        contactPublicKey: contact.publicKey,
-        lastMessage: lastMessage?.content,
-        lastMessageTime: lastMessage?.timestamp,
-        unreadCount: unreadCounts[chatId] ?? 0,
-        isOnline: isOnline,
-        hasUnsentMessages: hasUnsent,
-        lastSeen: isOnline ? DateTime.now() : 
-  (lastSeenData[contact.publicKey] != null 
-    ? DateTime.fromMillisecondsSinceEpoch(lastSeenData[contact.publicKey]!)
-    : null),
-      ));
     }
     
-    // Sort: Online contacts first, then by last activity
-    chatItems.sort((a, b) {
-      if (a.isOnline && !b.isOnline) return -1;
-      if (!a.isOnline && b.isOnline) return 1;
-      
-      // Both same online status - sort by last activity
-      final aTime = a.lastMessageTime ?? DateTime(1970);
-      final bTime = b.lastMessageTime ?? DateTime(1970);
-      return bTime.compareTo(aTime);
-    });
+    if (contactName == null) {
+      if (chatId.startsWith('temp_')) {
+        contactName = 'Device ${chatId.substring(5)}';
+      } else {
+        contactName = 'Unknown Contact';
+      }
+    }
     
-    return chatItems;
+    // Check if online
+    final isOnline = contactPublicKey != null ? 
+      _isContactOnline(contactPublicKey, discoveryData) : false;
+    
+    // Check for unsent messages
+    final hasUnsent = messages.any((m) => 
+      m.isFromMe && m.status == MessageStatus.failed);
+    
+    // Apply search filter
+    if (searchQuery != null && searchQuery.isNotEmpty) {
+      final query = searchQuery.toLowerCase();
+      if (!contactName.toLowerCase().contains(query) &&
+          !(lastMessage.content.toLowerCase().contains(query))) {
+        continue;
+      }
+    }
+    
+    chatItems.add(ChatListItem(
+      chatId: chatId,
+      contactName: contactName,
+      contactPublicKey: contactPublicKey,
+      lastMessage: lastMessage.content,
+      lastMessageTime: lastMessage.timestamp,
+      unreadCount: unreadCounts[chatId] ?? 0,
+      isOnline: isOnline,
+      hasUnsentMessages: hasUnsent,
+      lastSeen: isOnline ? DateTime.now() : 
+        (lastSeenData[contactPublicKey] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(lastSeenData[contactPublicKey]!)
+          : null),
+    ));
   }
+  
+  // Sort by online status and last message time
+  chatItems.sort((a, b) {
+    if (a.isOnline && !b.isOnline) return -1;
+    if (!a.isOnline && b.isOnline) return 1;
+    
+    final aTime = a.lastMessageTime ?? DateTime(1970);
+    final bTime = b.lastMessageTime ?? DateTime(1970);
+    return bTime.compareTo(aTime);
+  });
+  
+  return chatItems;
+}
 
   /// Get list of contacts without active chats (for discovery integration)
   Future<List<Contact>> getContactsWithoutChats() async {
@@ -232,7 +275,7 @@ bool _isContactOnline(String contactPublicKey, Map<String, DiscoveredEventArgs>?
           
           // Match found!
           if (deviceHash == contactKeyHash) {
-            print('✅ ONLINE: Contact $contactKeyHash matches device hash $deviceHash');
+            _logger.info('✅ ONLINE: Contact $contactKeyHash matches device hash $deviceHash');
             return true;
           }
         }

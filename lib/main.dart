@@ -1,174 +1,309 @@
-import 'dart:io' show Platform;
+// Enhanced main.dart with comprehensive feature integration and proper initialization
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart'; // Added for kDebugMode
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:device_info_plus/device_info_plus.dart';
+
+import 'core/app_core.dart';
+import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
-import 'presentation/screens/chats_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Setup logging
+  Logger.root.level = Level.ALL;
   hierarchicalLoggingEnabled = true;
-  
-  // Set up logging to filter out Windows threading errors
-  Logger.root.level = Level.INFO;
   Logger.root.onRecord.listen((record) {
-    final message = record.message;
-    
-    // Filter out all the spam logs
-    if (message.contains('platform thread') ||
-        message.contains('gralloc4') ||
-        message.contains('@set_metadata') ||
-        message.contains('FrameInsert open fail') ||
-        message.contains('MirrorManager') ||
-        message.contains('libEGL') ||
-        message.contains('PerfMonitor') ||
-        message.contains('WindowOnBackDispatcher')) {
-      return; // Skip these spam logs
-    }
-    
-    print('${record.level.name}: ${record.time}: ${record.message}');
+    // Logging is handled by the logger itself, no need to print
   });
-  
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
 
-  runApp(ProviderScope(child: MyApp()));
+  runApp(const ProviderScope(child: PakConnectApp()));
 }
 
-class MyApp extends StatelessWidget {
+class PakConnectApp extends ConsumerWidget {
+  const PakConnectApp({super.key});
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
-      title: 'BLE Chat',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
-      home: AppBootstrap(), // 🆕 Smart permission check
+      title: 'PakConnect - Enhanced Secure Messaging',
+      
+      // Enhanced Material Design 3.0 theme with dark/light support
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.system, // Follows system preference
+      
+      // Accessibility and internationalization
+      debugShowCheckedModeBanner: false,
+      
+      // Enhanced navigation with theme support
+      home: const AppWrapper(),
+      
+      // Theme transitions
+      themeAnimationDuration: const Duration(milliseconds: 300),
+      themeAnimationCurve: Curves.easeInOut,
     );
   }
 }
 
-// 🆕 Smart startup screen that checks permissions first
-class AppBootstrap extends ConsumerStatefulWidget {
+class AppWrapper extends ConsumerStatefulWidget {
+  const AppWrapper({super.key});
+
   @override
-  ConsumerState<AppBootstrap> createState() => _AppBootstrapState();
+  ConsumerState<AppWrapper> createState() => _AppWrapperState();
 }
 
-class _AppBootstrapState extends ConsumerState<AppBootstrap> {
-  bool _isChecking = true;
-  bool _needsPermissions = false;
-
+class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObserver {
+  static final _logger = Logger('AppWrapper');
+  bool _initializationStarted = false;
+  
   @override
   void initState() {
     super.initState();
-    _checkPermissions();
+    WidgetsBinding.instance.addObserver(this);
+    _logger.info('Enhanced PakConnect app started with comprehensive features');
+    _initializeApp();
   }
-
-  Future<void> _checkPermissions() async {
-    try {
-      bool needsPermission = false;
-
-      if (Platform.isAndroid) {
-        final deviceInfo = DeviceInfoPlugin();
-        final androidInfo = await deviceInfo.androidInfo;
-        
-        List<Permission> requiredPermissions = [];
-        
-        if (androidInfo.version.sdkInt >= 31) {
-          // Android 12+ - check granular BLE permissions
-          requiredPermissions = [
-            Permission.bluetoothScan,
-            Permission.bluetoothAdvertise,
-            Permission.bluetoothConnect,
-          ];
-        } else {
-          // Android < 12 - check location permission
-          requiredPermissions = [
-            Permission.locationWhenInUse,
-          ];
-        }
-        
-        for (final permission in requiredPermissions) {
-          final status = await permission.status;
-          if (!status.isGranted) {
-            needsPermission = true;
-            break;
-          }
-        }
+  
+  /// Initialize the app core properly
+  void _initializeApp() {
+    if (_initializationStarted) return;
+    _initializationStarted = true;
+    
+    _logger.info('Starting app initialization...');
+    
+    // Initialize on the next frame to ensure widget is built
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await AppCore.instance.initialize();
+        _logger.info('✅ App core initialized successfully from AppWrapper');
+      } catch (e) {
+        _logger.severe('❌ Failed to initialize app core from AppWrapper: $e');
       }
-      // iOS handles permissions automatically, no check needed
-      
-      if (mounted) {
-        setState(() {
-          _needsPermissions = needsPermission;
-          _isChecking = false;
-        });
-      }
-    } catch (e) {
-      print('Permission check failed: $e');
-      // On error, assume permissions needed to be safe
-      if (mounted) {
-        setState(() {
-          _needsPermissions = true;
-          _isChecking = false;
-        });
+    });
+  }
+  
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    AppCore.instance.dispose();
+    super.dispose();
+  }
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // Only interact with power manager if initialized
+    if (AppCore.instance.isInitialized) { // Fixed: use isInitialized getter
+      switch (state) {
+        case AppLifecycleState.paused:
+          _logger.info('App paused - optimizing power consumption');
+          AppCore.instance.powerManager.overrideScanInterval(15000);
+          break;
+        case AppLifecycleState.resumed:
+          _logger.info('App resumed - restoring normal operation');
+          AppCore.instance.powerManager.resetToDefaults();
+          break;
+        case AppLifecycleState.detached:
+          _logger.info('App detached - performing cleanup');
+          AppCore.instance.dispose();
+          break;
+        default:
+          break;
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isChecking) {
-      // Show loading while checking permissions
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.bluetooth,
-                  size: 60,
-                  color: Colors.white,
-                ),
+    final theme = Theme.of(context);
+    
+    return StreamBuilder<AppStatus>(
+      stream: AppCore.instance.statusStream,
+      initialData: AppStatus.initializing, // Set proper initial data
+      builder: (context, snapshot) {
+        final status = snapshot.data ?? AppStatus.initializing;
+        
+        _logger.info('Current app status: $status');
+        
+        switch (status) {
+          case AppStatus.initializing:
+            return _buildLoadingScreen(theme);
+          case AppStatus.error:
+            return _buildErrorScreen(theme);
+          case AppStatus.ready:
+          case AppStatus.running:
+            return const PermissionScreen();
+          case AppStatus.disposing:
+            return _buildDisposingScreen(theme);
+        }
+      },
+    );
+  }
+  
+  /// Build loading screen during initialization
+  Widget _buildLoadingScreen(ThemeData theme) {
+    return Scaffold(
+      backgroundColor: theme.colorScheme.surface,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // App logo/icon
+            Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(24),
               ),
-              SizedBox(height: 32),
-              Text(
-                'BLE Chat',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+              child: Icon(
+                Icons.message,
+                size: 60,
+                color: theme.colorScheme.onPrimaryContainer,
               ),
-              SizedBox(height: 32),
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text(
-                'Checking permissions...',
-                style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            
+            const SizedBox(height: 32),
+            
+            Text(
+              'PakConnect',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
               ),
-            ],
-          ),
+            ),
+            
+            const SizedBox(height: 8),
+            
+            Text(
+              'Secure • Private • Battery Efficient',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            
+            const SizedBox(height: 48),
+            
+            // Enhanced loading indicator
+            SizedBox(
+              width: 200,
+              child: Column(
+                children: [
+                  LinearProgressIndicator(
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  Text(
+                    'Initializing enhanced security and power management...',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Debug info in debug mode
+                  if (kDebugMode)
+                    Text(
+                      'Status: initializing...',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant.withValues(),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
-      );
-    }
-
-    // Navigate based on permission status
-    if (_needsPermissions) {
-      return PermissionScreen();
-    } else {
-      return ChatsScreen();
-    }
+      ),
+    );
+  }
+  
+  /// Build error screen
+  Widget _buildErrorScreen(ThemeData theme) {
+    return Scaffold(
+      backgroundColor: theme.colorScheme.surface,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 80,
+              color: theme.colorScheme.error,
+            ),
+            
+            const SizedBox(height: 24),
+            
+            Text(
+              'Initialization Failed',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            Text(
+              'Failed to initialize enhanced messaging features.\nCheck logs for details.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            
+            const SizedBox(height: 32),
+            
+            FilledButton.icon(
+              onPressed: () async {
+                try {
+                  _logger.info('Retrying initialization...');
+                  await AppCore.instance.initialize();
+                } catch (e) {
+                  _logger.severe('Retry initialization failed: $e');
+                }
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry Initialization'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  /// Build disposing screen
+  Widget _buildDisposingScreen(ThemeData theme) {
+    return Scaffold(
+      backgroundColor: theme.colorScheme.surface,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(
+              color: theme.colorScheme.primary,
+            ),
+            
+            const SizedBox(height: 24),
+            
+            Text(
+              'Shutting down...',
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

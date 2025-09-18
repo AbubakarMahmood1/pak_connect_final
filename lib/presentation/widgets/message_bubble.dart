@@ -41,7 +41,7 @@ class MessageBubble extends StatelessWidget {
     ? LinearGradient(
         colors: [
           Theme.of(context).colorScheme.primary,
-          Theme.of(context).colorScheme.primary.withOpacity(0.8),
+          Theme.of(context).colorScheme.primary.withValues(),
         ],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
@@ -49,19 +49,19 @@ class MessageBubble extends StatelessWidget {
     : null,
   color: isFromMe 
     ? null  // Use gradient instead
-    : Theme.of(context).colorScheme.surfaceVariant,
+    : Theme.of(context).colorScheme.surfaceContainerHighest,
   borderRadius: BorderRadius.circular(20).copyWith(
     bottomRight: isFromMe ? Radius.circular(6) : Radius.circular(20),
     bottomLeft: isFromMe ? Radius.circular(20) : Radius.circular(6),
   ),
   boxShadow: [
     BoxShadow(
-      color: Colors.black.withOpacity(0.1),
+      color: Colors.black.withValues(),
       blurRadius: 6,
       offset: Offset(0, 2),
     ),
     BoxShadow(
-      color: Colors.black.withOpacity(0.05),
+      color: Colors.black.withValues(),
       blurRadius: 1,
       offset: Offset(0, 1),
     ),
@@ -88,8 +88,8 @@ class MessageBubble extends StatelessWidget {
                           _formatTime(message.timestamp),
                           style: TextStyle(
                             color: isFromMe 
-                                ? Theme.of(context).colorScheme.onPrimary.withOpacity(0.7)
-                                : Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
+                                ? Theme.of(context).colorScheme.onPrimary.withValues()
+                                : Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
                           ),
@@ -116,13 +116,13 @@ class MessageBubble extends StatelessWidget {
     switch (status) {
       case MessageStatus.failed:
       return GestureDetector(
-        onTap: () => onRetry?.call(), // New callback
+        onTap: () => onRetry?.call(),
         child: Container(
           padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: Colors.red.withOpacity(0.1),
+            color: Colors.red.withValues(),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.red.withOpacity(0.3)),
+            border: Border.all(color: Colors.red.withValues()),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -140,16 +140,14 @@ class MessageBubble extends StatelessWidget {
           height: 12,
           child: CircularProgressIndicator(
             strokeWidth: 1,
-            color: Theme.of(context).colorScheme.onPrimary.withOpacity(0.7),
+            color: Theme.of(context).colorScheme.onPrimary.withValues(),
           ),
         );
       case MessageStatus.sent:
-        return Icon(Icons.check, size: 14, color: Theme.of(context).colorScheme.onPrimary.withOpacity(0.7));
+        return Icon(Icons.check, size: 14, color: Theme.of(context).colorScheme.onPrimary.withValues());
       case MessageStatus.delivered:
         return Icon(Icons.done_all, size: 14, color: Colors.green);
-      case MessageStatus.failed:
-        return Icon(Icons.error_outline, size: 14, color: Colors.red);
-    }
+      }
   }
 
   String _formatTime(DateTime timestamp) {
@@ -158,14 +156,5 @@ class MessageBubble extends StatelessWidget {
 
   void _copyMessage(BuildContext context, String content) async {
   await Clipboard.setData(ClipboardData(text: content));
-  
-  // Show brief feedback
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text('Message copied'),
-      duration: Duration(milliseconds: 800),
-      behavior: SnackBarBehavior.floating,
-    ),
-  );
 }
 }

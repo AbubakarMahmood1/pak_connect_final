@@ -277,9 +277,7 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       
       _connectedDevice = device;
       _lastConnectedDevice = device;
-      _logger.info('DEBUG: About to call onConnectionChanged with device: ${device.uuid}');
       onConnectionChanged?.call(_connectedDevice);
-      _logger.info('DEBUG: Called onConnectionChanged');
       
       // Discover GATT services with retry logic
       List<GATTService> services = [];

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../providers/ble_providers.dart';
-import '../screens/chat_screen.dart';
 
 class DeviceTile extends ConsumerWidget {
   final Peripheral device;
@@ -42,7 +41,7 @@ Widget build(BuildContext context, WidgetRef ref) {
     child: ListTile(
       leading: CircleAvatar(
         backgroundColor: isThisDeviceConnected 
-            ? (hasNameExchange ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2))
+            ? (hasNameExchange ? Colors.green.withValues() : Colors.orange.withValues())
             : Theme.of(context).colorScheme.primaryContainer,
         child: Icon(
           Icons.phone_android,

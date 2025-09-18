@@ -1,20 +1,25 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' hide ConnectionState;
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as BLE;
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import '../providers/ble_providers.dart';
 import '../../data/repositories/chats_repository.dart';
+import '../../data/repositories/user_preferences.dart';
 import '../../domain/entities/chat_list_item.dart';
-import '../widgets/device_tile.dart';
-import 'discovery_screen.dart';
+import '../../core/models/connection_status.dart'; 
+import '../../data/services/ble_service.dart';
 import '../widgets/discovery_overlay.dart';
 import 'chat_screen.dart';
-import 'permission_screen.dart';
 import 'qr_contact_screen.dart';
+import '../../core/models/connection_info.dart';
 
 class ChatsScreen extends ConsumerStatefulWidget {
+  const ChatsScreen({super.key});
+
   @override
   ConsumerState<ChatsScreen> createState() => _ChatsScreenState();
 }
@@ -28,7 +33,6 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
   String _searchQuery = '';
   Timer? _refreshTimer;
   Timer? _searchDebounceTimer;
-
   bool _showDiscoveryOverlay = false;
   StreamSubscription? _peripheralConnectionSubscription;
 
@@ -86,6 +90,8 @@ void _setupPeriodicRefresh() {
   @override
 Widget build(BuildContext context) {
   final bleStateAsync = ref.watch(bleStateProvider);
+  ref.watch(connectionInfoProvider);
+  ref.watch(discoveredDevicesProvider);
   
   return Stack(
     children: [
@@ -114,6 +120,7 @@ Widget build(BuildContext context) {
           children: [
             _buildBLEStatusBanner(bleStateAsync),
             if (_searchQuery.isNotEmpty) _buildSearchBar(),
+            
             Expanded(
               child: _isLoading 
                 ? Center(child: CircularProgressIndicator())
@@ -132,12 +139,11 @@ Widget build(BuildContext context) {
         floatingActionButton: _buildSpeedDial(),
       ),
       
-      // Full-screen overlay that covers EVERYTHING including AppBar
       if (_showDiscoveryOverlay)
   Positioned.fill(
-    child: PopScope(  // or WillPopScope for older Flutter
+    child: PopScope(
       canPop: false,
-      onPopInvoked: (didPop) {
+      onPopInvokedWithResult: (didPop, result) {
         if (!didPop) {
           setState(() => _showDiscoveryOverlay = false);
         }
@@ -155,82 +161,175 @@ Widget build(BuildContext context) {
 Widget _buildSpeedDial() {
   return FloatingActionButton(
     onPressed: _showAddOptions,
-    child: Icon(Icons.add),
     tooltip: 'Add contact or discover',
+    child: Icon(Icons.add),
   );
 }
 
 
   Widget _buildChatTile(ChatListItem chat) {
-    return Card(
-      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: chat.isOnline 
-            ? Colors.green.withOpacity(0.2)
-            : Colors.grey.withOpacity(0.2),
-          child: Icon(
-            Icons.person,
-            color: chat.isOnline ? Colors.green : Colors.grey,
+  // Get live connection status
+  final connectionInfo = ref.watch(connectionInfoProvider).value;
+  final bleService = ref.read(bleServiceProvider);
+  final discoveredDevices = ref.watch(discoveredDevicesProvider).value ?? [];
+  final discoveryData = ref.watch(discoveryDataProvider).value ?? {};
+  
+  ConnectionStatus connectionStatus = _determineConnectionStatus(
+    chat, 
+    connectionInfo, 
+    bleService, 
+    discoveredDevices, 
+    discoveryData
+  );
+  
+  // Determine real-time status
+  if (connectionInfo != null && 
+      connectionInfo.isConnected && 
+      connectionInfo.otherUserName == chat.contactName) {
+    connectionStatus = ConnectionStatus.connected;
+  }
+  else if (discoveredDevices.any((device) => 
+    chat.contactPublicKey?.contains(device.uuid.toString()) ?? false)) {
+    connectionStatus = ConnectionStatus.nearby;
+  }
+  else if (chat.isOnline) {
+    connectionStatus = ConnectionStatus.nearby;
+  }
+  else {
+    connectionStatus = ConnectionStatus.offline;
+  }
+  
+  // Now use connectionStatus in the UI
+  return Card(
+    margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+    child: ListTile(
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            backgroundColor: connectionStatus.color.withValues(),
+            child: Icon(
+              Icons.person,
+              color: connectionStatus.color,
+            ),
           ),
-        ),
-        title: Row(
-          children: [
-            Expanded(child: Text(chat.contactName)),
-            if (chat.unreadCount > 0)
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '${chat.unreadCount}',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: connectionStatus.color,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 2),
               ),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (chat.lastMessage != null)
-              Text(
-                chat.lastMessage!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: chat.unreadCount > 0 ? FontWeight.w500 : FontWeight.normal,
-                ),
+            ),
+          ),
+        ],
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              chat.contactName,
+              style: TextStyle(
+                fontWeight: chat.unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
               ),
-            Row(
+            ),
+          ),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: connectionStatus.color.withValues(),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
+                Icon(
+                  connectionStatus.icon,
+                  size: 8,
+                  color: connectionStatus.color,
+                ),
+                SizedBox(width: 4),
                 Text(
-                  chat.displayLastSeen,
+                  connectionStatus.label,
                   style: TextStyle(
-                    fontSize: 12,
-                    color: chat.isOnline ? Colors.green : Colors.grey,
+                    fontSize: 10,
+                    color: connectionStatus.color,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (chat.hasUnsentMessages) ...[
-                  SizedBox(width: 8),
-                  Icon(Icons.error_outline, size: 14, color: Colors.red),
-                  Text(' Failed', style: TextStyle(fontSize: 12, color: Colors.red)),
-                ],
               ],
             ),
-          ],
-        ),
-        onTap: () => _openChat(chat),
+          ),
+        ],
       ),
-    );
-  }
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (chat.lastMessage != null)
+            Text(
+              chat.lastMessage!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: chat.unreadCount > 0 ? FontWeight.w500 : FontWeight.normal,
+              ),
+            ),
+          if (chat.hasUnsentMessages)
+            Row(
+              children: [
+                Icon(Icons.error_outline, size: 12, color: Colors.red),
+                SizedBox(width: 4),
+                Text(
+                  'Message failed to send',
+                  style: TextStyle(fontSize: 11, color: Colors.red),
+                ),
+              ],
+            ),
+        ],
+      ),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (chat.lastMessageTime != null)
+            Text(
+              _formatTime(chat.lastMessageTime!),
+              style: TextStyle(fontSize: 12),
+            ),
+          if (chat.unreadCount > 0)
+            Container(
+              margin: EdgeInsets.only(top: 4),
+              padding: EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                '${chat.unreadCount}',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+      onTap: () => _openChat(chat),
+    ),
+  );
+}
 
 Widget _buildEmptyState() {
+  final devicesAsync = ref.watch(discoveredDevicesProvider);
+  final hasNearbyDevices = devicesAsync.maybeWhen(
+    data: (devices) => devices.isNotEmpty,
+    orElse: () => false,
+  );
+  
   return Center(
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -238,19 +337,14 @@ Widget _buildEmptyState() {
         Icon(
           Icons.chat_bubble_outline,
           size: 64,
-          color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5),
+          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
         ),
         SizedBox(height: 16),
         Text(
-          'No chats yet',
+          hasNearbyDevices 
+            ? 'Connect to a nearby device to start chatting'
+            : 'No conversations yet',
           style: Theme.of(context).textTheme.titleLarge,
-        ),
-        SizedBox(height: 8),
-        Text(
-          'Start a conversation by discovering nearby devices',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
         ),
         SizedBox(height: 24),
         FilledButton.icon(
@@ -313,6 +407,96 @@ onChanged: (query) {
     );
   }
 
+ConnectionStatus _determineConnectionStatus(
+  ChatListItem chat,
+  ConnectionInfo? connectionInfo,
+  BLEService bleService,
+  List<Peripheral> discoveredDevices,
+  Map<String, DiscoveredEventArgs> discoveryData,
+) {
+  // Check if this is the currently connected device
+  if (connectionInfo != null && 
+      connectionInfo.isConnected && 
+      connectionInfo.isReady &&
+      connectionInfo.otherUserName == chat.contactName) {
+    return ConnectionStatus.connected;
+  }
+  
+  // Check if currently connecting to this device
+  if (connectionInfo != null && 
+      connectionInfo.isConnected && 
+      !connectionInfo.isReady &&
+      bleService.otherDevicePersistentId == chat.contactPublicKey) {
+    return ConnectionStatus.connecting;
+  }
+  
+  // Check if device is nearby (discovered via BLE scan)
+  if (chat.contactPublicKey != null) {
+    // Method 1: Check via manufacturer data hash
+    final isOnlineViaHash = _isContactOnlineViaHash(chat.contactPublicKey!, discoveryData);
+    if (isOnlineViaHash) {
+      return ConnectionStatus.nearby;
+    }
+    
+    // Method 2: Check via device UUID mapping (fallback)
+    final isNearbyViaUUID = discoveredDevices.any((device) => 
+      chat.contactPublicKey!.contains(device.uuid.toString())
+    );
+    if (isNearbyViaUUID) {
+      return ConnectionStatus.nearby;
+    }
+  }
+  
+  // Check if recently seen (within last 5 minutes)
+  if (chat.lastSeen != null) {
+    final timeSinceLastSeen = DateTime.now().difference(chat.lastSeen!);
+    if (timeSinceLastSeen.inMinutes <= 5) {
+      return ConnectionStatus.recent;
+    }
+  }
+  
+  return ConnectionStatus.offline;
+}
+
+bool _isContactOnlineViaHash(String contactPublicKey, Map<String, DiscoveredEventArgs> discoveryData) {
+  if (discoveryData.isEmpty) return false;
+  
+  // Generate hash for this contact's public key (same as in ChatUtils)
+  final contactKeyHash = _generatePublicKeyHash(contactPublicKey);
+  
+  // Check each discovered device
+  for (final discoveryEvent in discoveryData.values) {
+    final advertisement = discoveryEvent.advertisement;
+    
+    // Check manufacturer data for our hash
+    if (advertisement.manufacturerSpecificData.isNotEmpty) {
+      for (final manufacturerData in advertisement.manufacturerSpecificData) {
+        // Check if it's our manufacturer ID
+        if (manufacturerData.id == 0x2E19 && manufacturerData.data.length >= 4) {
+          // Convert bytes back to hex string
+          final deviceHash = manufacturerData.data
+            .map((b) => b.toRadixString(16).padLeft(2, '0'))
+            .join();
+          
+          // Match found!
+          if (deviceHash == contactKeyHash) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  
+  return false;
+}
+
+String _generatePublicKeyHash(String publicKey) {
+  // Use same logic as ChatUtils.generatePublicKeyHash
+  final bytes = utf8.encode(publicKey);
+  final digest = sha256.convert(bytes);
+  return digest.toString().substring(0, 8); // First 8 characters
+}
+
 void _setupPeripheralConnectionListener() {
     if (!Platform.isAndroid) return;
     
@@ -323,22 +507,22 @@ void _setupPeripheralConnectionListener() {
         prev.central.uuid == next.central.uuid && prev.state == next.state)
       .where((event) => 
         bleService.isPeripheralMode && 
-        event.state == BLE.ConnectionState.connected)
+        event.state == ble.ConnectionState.connected)
       .listen((event) {
         _handleIncomingPeripheralConnection(event.central);
       });
+
+  bleService.connectionInfo.listen((info) {
+    if (mounted) {
+      setState(() {});
+    }
+  });
   }
-  
+    
   void _handleIncomingPeripheralConnection(Central central) {
     if (!mounted) return;
     
-    // Automatically open chat for incoming connection
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(central: central),
-      ),
-    ).then((_) => _loadChats());
+    _loadChats();
   }
 
 void _showAddOptions() {
@@ -374,21 +558,40 @@ void _showAddOptions() {
   }
 
 void _onDeviceSelected(Peripheral device) async {
-    setState(() => _showDiscoveryOverlay = false);
-    
-    // Wait a moment for the overlay to close
-    await Future.delayed(Duration(milliseconds: 300));
-    
-    // Open chat with the connected device
+  setState(() => _showDiscoveryOverlay = false);
+  
+  // Show a snackbar for connection progress
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation(Colors.white),
+            ),
+          ),
+          SizedBox(width: 12),
+          Text('Connecting to ${device.uuid.toString().substring(0, 8)}...'),
+        ],
+      ),
+      duration: Duration(seconds: 3),
+    ),
+  );
+  
+  // The connection will be handled by the BLE service
+  // The chat list will automatically update to show connection status
+  // User can tap the chat when they see it's connected
+  
+  // Refresh the chat list after a short delay
+  Future.delayed(Duration(seconds: 2), () {
     if (mounted) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ChatScreen(device: device),
-        ),
-      ).then((_) => _loadChats());
+      _loadChats();
     }
-  }
+  });
+}
 
 void _navigateToQRExchange() async {
   final result = await Navigator.push(
@@ -404,10 +607,10 @@ void _navigateToQRExchange() async {
 void _openChat(ChatListItem chat) async {
   if (!mounted) return;
   
-  // Mark as read immediately
   await _chatsRepository.markChatAsRead(chat.chatId);
   
-  // Navigate using repository data - works offline!
+  if (!mounted) return;
+  
   Navigator.push(
     context,
     MaterialPageRoute(
@@ -421,13 +624,6 @@ void _openChat(ChatListItem chat) async {
     if (mounted) _loadChats();
   });
 }
-
-  void _navigateToDiscovery() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => DiscoveryScreen()),
-    ).then((_) => _loadChats());
-  }
 
   void _showSearch() {
     setState(() {
@@ -445,12 +641,258 @@ void _openChat(ChatListItem chat) async {
     _loadChats();
   }
 
-  void _showSettings() {
-    // Navigate to settings (you can implement this later)
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Settings coming soon')),
-    );
+void _showPairingGuide() {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.help_outline, color: Theme.of(context).colorScheme.primary),
+          SizedBox(width: 12),
+          Text('How to....'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildGuideStep(
+              context,
+              '1',
+              'Choose Device Roles',
+              'One device should be in "Discoverable" mode, the other in "Scanner" mode.',
+            ),
+            _buildGuideStep(
+              context,
+              '2',
+              'Start Connection',
+              'Scanner device will find the Discoverable device. Tap to connect.',
+            ),
+            _buildGuideStep(
+              context,
+              '3',
+              'Begin Chatting',
+              'Once connected, you can send messages with automatic encryption.',
+            ),
+            _buildGuideStep(
+              context,
+              '4',
+              'Enhanced Security',
+              'For better security, use pairing, or for the best, add contacts to get ECDH.',
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text('Got it!'),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildGuideStep(BuildContext context, String step, String title, String description) {
+  return Padding(
+    padding: EdgeInsets.only(bottom: 16),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary,
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(
+              step,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              SizedBox(height: 4),
+              Text(
+                description,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+void _showAbout() {
+  showAboutDialog(
+    context: context,
+    applicationName: 'BLE Chat',
+    applicationVersion: '1.0.0',
+    applicationIcon: Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(
+        Icons.bluetooth,
+        color: Theme.of(context).colorScheme.onPrimary,
+        size: 24,
+      ),
+    ),
+    children: [
+      SizedBox(height: 16),
+      Text('Secure offline messaging for family and friends.'),
+      SizedBox(height: 12),
+      Text(
+        'Features:',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
+      Text('• Works without internet'),
+      Text('• Three-tier security system'),
+      Text('• Cross-platform compatibility'),
+      Text('• No data collection'),
+      SizedBox(height: 12),
+      Text(
+        'Your messages never leave your devices.',
+        style: TextStyle(
+          fontStyle: FontStyle.italic,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+    ],
+  );
+}
+
+ void _showSettings() {
+  showModalBottomSheet(
+    context: context,
+    builder: (context) => Container(
+      padding: EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Settings',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          SizedBox(height: 24),
+          ListTile(
+            leading: Icon(Icons.person),
+            title: Text('Your Name'),
+            subtitle: Text('How others see you'),
+            onTap: () {
+              Navigator.pop(context);
+              _editDisplayName();
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.help_outline),
+            title: Text('How to Connect'),
+            subtitle: Text('Step-by-step pairing guide'),
+            onTap: () {
+              Navigator.pop(context);
+              _showPairingGuide();
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.info),
+            title: Text('About'),
+            subtitle: Text('App version and information'),
+            onTap: () {
+              Navigator.pop(context);
+              _showAbout();
+            },
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+void _editDisplayName() async {
+  // Get the username first
+  final currentName = await UserPreferences().getUserName();
+  
+  // Check mounted after async
+  if (!mounted) return;
+  
+  final controller = TextEditingController(text: currentName);
+  
+  // Now it's safe to use context
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('Edit Display Name'),
+      content: TextField(
+        controller: controller,
+        decoration: InputDecoration(
+          labelText: 'Your name',
+          border: OutlineInputBorder(),
+        ),
+        autofocus: true,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext), // Use dialogContext
+          child: Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () async {
+            final navigator = Navigator.of(dialogContext);
+            final messenger = ScaffoldMessenger.of(context);
+            final name = controller.text;
+            
+            navigator.pop(); // Pop first
+            await UserPreferences().setUserName(name);
+            
+            messenger.showSnackBar(
+              SnackBar(content: Text('Name updated')),
+            );
+          },
+          child: Text('Save'),
+        ),
+      ],
+    ),
+  );
+}
+
+  String _formatTime(DateTime time) {
+  final now = DateTime.now();
+  final difference = now.difference(time);
+  
+  if (difference.inDays > 7) {
+    return '${time.day}/${time.month}';
+  } else if (difference.inDays > 0) {
+    return '${difference.inDays}d ago';
+  } else if (difference.inHours > 0) {
+    return '${difference.inHours}h ago';
+  } else if (difference.inMinutes > 0) {
+    return '${difference.inMinutes}m ago';
+  } else {
+    return 'Just now';
   }
+}
 
   @override
   void dispose() {

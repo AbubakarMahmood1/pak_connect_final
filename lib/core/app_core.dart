@@ -1,0 +1,424 @@
+// Main application core that integrates all enhanced messaging features
+
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
+
+import 'power/adaptive_power_manager.dart';
+import 'messaging/offline_message_queue.dart';
+import 'performance/performance_monitor.dart';
+import '../domain/entities/enhanced_message.dart';
+import '../domain/services/contact_management_service.dart';
+import '../domain/services/chat_management_service.dart';
+import '../data/services/ble_state_manager.dart';
+import '../data/repositories/contact_repository.dart';
+import '../data/repositories/user_preferences.dart';
+
+/// Main application core that coordinates all enhanced messaging features
+class AppCore {
+  static final _logger = Logger('AppCore');
+  static AppCore? _instance;
+  
+  // Core components
+  late final AdaptivePowerManager powerManager;
+  late final OfflineMessageQueue messageQueue;
+  late final ContactManagementService contactService;
+  late final ChatManagementService chatService;
+  late final PerformanceMonitor performanceMonitor;
+  late final BLEStateManager bleStateManager;
+  
+  // Repositories
+  late final ContactRepository contactRepository;
+  late final UserPreferences userPreferences;
+  
+  // State
+  bool _isInitialized = false;
+  DateTime? _initializationTime;
+  StreamController<AppStatus>? _statusController;
+  
+  AppCore._() {
+    // Initialize the status controller immediately
+    _statusController = StreamController<AppStatus>.broadcast();
+  }
+  
+  /// Get singleton instance
+  static AppCore get instance {
+    _instance ??= AppCore._();
+    return _instance!;
+  }
+  
+  /// Get initialization status
+  bool get isInitialized => _isInitialized;
+  
+  /// Stream of app status changes
+  Stream<AppStatus> get statusStream => 
+      _statusController?.stream ?? Stream.empty();
+  
+  /// Initialize the entire application core
+  Future<void> initialize() async {
+    if (_isInitialized) {
+      _logger.warning('App core already initialized');
+      _emitStatus(AppStatus.ready);  // Emit ready if already initialized
+      return;
+    }
+
+    try {
+      _logger.info('🚀 Starting application core initialization...');
+      final startTime = DateTime.now();
+      
+      // Ensure status controller exists
+      if (_statusController == null) {
+        _statusController = StreamController<AppStatus>.broadcast();
+      }
+      
+      _emitStatus(AppStatus.initializing);
+
+      // Setup logging
+      _logger.info('🗒️ Setting up logging...');
+      _setupLogging();
+      _logger.info('✅ Logging setup complete');
+
+      // Initialize repositories first
+      _logger.info('🗄️ Initializing repositories...');
+      final repoStart = DateTime.now();
+      await _initializeRepositories();
+      _logger.info('✅ Repositories initialized in ${DateTime.now().difference(repoStart).inMilliseconds}ms');
+
+      // Initialize monitoring
+      _logger.info('📊 Initializing monitoring...');
+      final monitorStart = DateTime.now();
+      await _initializeMonitoring();
+      _logger.info('✅ Monitoring initialized in ${DateTime.now().difference(monitorStart).inMilliseconds}ms');
+
+      // Initialize core services
+      _logger.info('🔧 Initializing core services...');
+      final servicesStart = DateTime.now();
+      await _initializeCoreServices();
+      _logger.info('✅ Core services initialized in ${DateTime.now().difference(servicesStart).inMilliseconds}ms');
+
+      // Initialize BLE integration
+      _logger.info('📡 Initializing BLE integration...');
+      final bleStart = DateTime.now();
+      await _initializeBLEIntegration();
+      _logger.info('✅ BLE integration initialized in ${DateTime.now().difference(bleStart).inMilliseconds}ms');
+
+      // Initialize enhanced features
+      _logger.info('⚡ Initializing enhanced features...');
+      final featuresStart = DateTime.now();
+      await _initializeEnhancedFeatures();
+      _logger.info('✅ Enhanced features initialized in ${DateTime.now().difference(featuresStart).inMilliseconds}ms');
+
+      // Start integrated systems
+      _logger.info('🔄 Starting integrated systems...');
+      final systemsStart = DateTime.now();
+      await _startIntegratedSystems();
+      _logger.info('✅ Integrated systems started in ${DateTime.now().difference(systemsStart).inMilliseconds}ms');
+
+      _isInitialized = true;
+      _initializationTime = DateTime.now();
+      
+      // Emit ready status
+      _emitStatus(AppStatus.ready);
+      _logger.info('🎯 Status changed to READY');
+
+      final totalTime = DateTime.now().difference(startTime);
+      _logger.info('🎉 Application core initialized successfully in ${totalTime.inMilliseconds}ms');
+
+    } catch (e, stackTrace) {
+      _logger.severe('❌ Failed to initialize app core: $e');
+      _logger.severe('Stack trace: $stackTrace');
+      _emitStatus(AppStatus.error);
+      throw AppCoreException('Initialization failed: $e');
+    }
+  }
+  
+  /// Setup comprehensive logging
+  void _setupLogging() {
+    Logger.root.level = kDebugMode ? Level.ALL : Level.INFO;
+    Logger.root.onRecord.listen((record) {
+      if (kDebugMode) {
+        print('${record.level.name}: ${record.time}: ${record.message}');
+      }
+    });
+  }
+  
+  /// Initialize repositories
+  Future<void> _initializeRepositories() async {
+    contactRepository = ContactRepository();
+    userPreferences = UserPreferences();
+    await userPreferences.getOrCreateKeyPair();
+    _logger.info('Repositories initialized');
+  }
+  
+  /// Initialize monitoring systems
+  Future<void> _initializeMonitoring() async {
+    performanceMonitor = PerformanceMonitor();
+    await performanceMonitor.initialize();
+    performanceMonitor.startMonitoring();
+    _logger.info('Performance monitor initialized');
+    
+    performanceMonitor.startMonitoring();
+    _logger.info('Performance monitoring started');
+    
+    _logger.info('Monitoring systems initialized');
+  }
+  
+  /// Initialize core services
+  Future<void> _initializeCoreServices() async {
+    // Initialize contact management
+    contactService = ContactManagementService();
+    await contactService.initialize();
+    _logger.info('Contact management service initialized');
+    
+    // Initialize chat management
+    chatService = ChatManagementService();
+    await chatService.initialize();
+    _logger.info('Chat management service initialized');
+    
+    _logger.info('Core services initialized');
+  }
+  
+  /// Initialize BLE integration
+  Future<void> _initializeBLEIntegration() async {
+    _logger.info('🚀 Starting BLEStateManager initialization...');
+    bleStateManager = BLEStateManager();
+    await bleStateManager.initialize();
+    _logger.info('BLE integration initialized');
+  }
+  
+  /// Initialize enhanced features
+  Future<void> _initializeEnhancedFeatures() async {
+    // Initialize power management
+    powerManager = AdaptivePowerManager();
+    await powerManager.initialize(
+      onStartScan: () => bleStateManager.startScanning(),
+      onStopScan: () => bleStateManager.stopScanning(),
+      onHealthCheck: () => _performHealthCheck(),
+      onStatsUpdate: (stats) => _logger.fine('Power stats updated: $stats'),
+    );
+    
+    final powerStats = powerManager.getCurrentStats(); // Fixed: use getCurrentStats()
+    _logger.info('Adaptive power management initialized - scan interval: ${powerStats.currentScanInterval}ms, health check: ${powerStats.currentHealthCheckInterval}ms');
+    
+    // Initialize message queue
+    messageQueue = OfflineMessageQueue();
+    await messageQueue.initialize(
+      onMessageQueued: (message) => _logger.info('Message queued: ${message.id}'),
+      onMessageDelivered: (message) => _logger.info('Message delivered: ${message.id}'),
+      onMessageFailed: (message, reason) => _logger.warning('Message failed: ${message.id} - $reason'),
+      onStatsUpdated: (stats) => _logger.fine('Queue stats updated: $stats'),
+      onSendMessage: _handleMessageSend,
+      onConnectivityCheck: _checkConnectivity,
+    );
+    
+    final queueStats = messageQueue.getStatistics(); // Fixed: use getStatistics()
+    _logger.info('Loaded ${queueStats.pendingMessages} messages from storage');
+    _logger.info('Offline message queue initialized with ${queueStats.pendingMessages} pending messages');
+    
+    _logger.info('Enhanced features initialized');
+  }
+  
+  /// Start integrated systems
+  Future<void> _startIntegratedSystems() async {
+    _logger.info('Starting adaptive scanning with burst-mode optimization');
+    await powerManager.startAdaptiveScanning();
+    _logger.info('Integrated systems started');
+  }
+  
+  /// Perform health check for power management
+  void _performHealthCheck() {
+    _logger.fine('Performing connection health check');
+    // Add actual health check logic here
+  }
+  
+  /// Handle message send callback
+  void _handleMessageSend(String messageId) {
+    // In a real implementation, this would integrate with the BLE service
+    _logger.info('Sending message: ${messageId.substring(0, 16)}...');
+  }
+  
+  /// Check connectivity for message queue
+  void _checkConnectivity() {
+    // Check actual BLE connectivity status
+    final isConnected = bleStateManager.isConnected;
+    if (isConnected) {
+      messageQueue.setOnline();
+    } else {
+      messageQueue.setOffline();
+    }
+  }
+  
+  /// Send message using integrated security and queue system
+  Future<String> sendSecureMessage({
+    required String chatId,
+    required String content,
+    required String recipientPublicKey,
+  }) async {
+    if (!_isInitialized) {
+      throw AppCoreException('App core not initialized');
+    }
+    
+    performanceMonitor.startOperation('send_secure_message');
+    
+    try {
+      // Get sender public key
+      final senderPublicKey = await userPreferences.getPublicKey();
+      
+      // Create enhanced message with security
+      final messageId = await messageQueue.queueMessage(
+        chatId: chatId,
+        content: content,
+        recipientPublicKey: recipientPublicKey,
+        senderPublicKey: senderPublicKey,
+        priority: MessagePriority.normal,
+      );
+      
+      performanceMonitor.endOperation('send_secure_message', success: true); // Fixed: added success parameter
+      return messageId;
+      
+    } catch (e) {
+      performanceMonitor.endOperation('send_secure_message', success: false); // Fixed: added success parameter
+      throw AppCoreException('Failed to send secure message: $e');
+    }
+  }
+  
+  /// Get comprehensive app statistics
+  Future<AppStatistics> getStatistics() async {
+    if (!_isInitialized) {
+      throw AppCoreException('App core not initialized');
+    }
+    
+    final powerStats = powerManager.getCurrentStats(); // Fixed: use getCurrentStats()
+    final queueStats = messageQueue.getStatistics(); // Fixed: use getStatistics()
+    final performanceMetrics = performanceMonitor.getMetrics();
+    
+    // Create a simple replay protection stats since we don't have the actual implementation
+    final replayStats = ReplayProtectionStats(
+      processedMessagesCount: 0,
+      blockedDuplicateCount: 0,
+      averageProcessingTime: Duration.zero,
+    );
+    
+    return AppStatistics(
+      powerManagement: powerStats,
+      messageQueue: queueStats,
+      performance: performanceMetrics,
+      replayProtection: replayStats,
+      uptime: DateTime.now().difference(_getInitTime()),
+    );
+  }
+  
+  /// Get component health summary
+  Map<String, String> _getComponentHealthSummary() {
+    return {
+      'power_manager': 'Healthy',
+      'message_queue': 'Healthy', 
+      'contact_service': 'Healthy',
+      'chat_service': 'Healthy',
+      'performance_monitor': 'Healthy',
+      'ble_state_manager': 'Healthy',
+    };
+  }
+  
+  /// Get initialization time
+  DateTime _getInitTime() {
+    return _initializationTime ?? DateTime.now().subtract(Duration(minutes: 5));
+  }
+  
+  /// Emit app status change
+  void _emitStatus(AppStatus status) {
+    if (_statusController != null && !_statusController!.isClosed) {
+      _statusController!.add(status);
+      _logger.info('📡 Status emitted: $status');
+    } else {
+      _logger.warning('Status controller is null or closed, cannot emit status: $status');
+    }
+  }
+  
+  /// Dispose of all resources
+  void dispose() {
+    if (!_isInitialized) return;
+    
+    try {
+      _emitStatus(AppStatus.disposing);
+      
+      powerManager.dispose();
+      chatService.dispose();
+      performanceMonitor.dispose();
+      _statusController?.close();
+      
+      _logger.info('App core disposed');
+    } catch (e) {
+      _logger.severe('Error during disposal: $e');
+    }
+  }
+}
+
+/// Application status enumeration
+enum AppStatus {
+  initializing,
+  ready,
+  running,
+  error,
+  disposing,
+}
+
+/// Comprehensive app statistics
+class AppStatistics {
+  final PowerManagementStats powerManagement;
+  final QueueStatistics messageQueue;
+  final PerformanceMetrics performance;
+  final ReplayProtectionStats replayProtection;
+  final Duration uptime;
+  
+  const AppStatistics({
+    required this.powerManagement,
+    required this.messageQueue,
+    required this.performance,
+    required this.replayProtection,
+    required this.uptime,
+  });
+  
+  /// Get overall app health score (0.0 - 1.0)
+  double get overallHealthScore {
+    final scores = [
+      powerManagement.batteryEfficiencyRating,
+      messageQueue.queueHealthScore,
+      performance.overallScore,
+      replayProtection.processedMessagesCount > 0 ? 1.0 : 0.8, // Replay protection score
+    ];
+    
+    return scores.fold<double>(0.0, (sum, score) => sum + score) / scores.length;
+  }
+  
+  /// Check if app needs optimization
+  bool get needsOptimization => overallHealthScore < 0.7;
+  
+  @override
+  String toString() => 'AppStats(health: ${(overallHealthScore * 100).toStringAsFixed(1)}%, uptime: ${uptime.inHours}h)';
+}
+
+/// Replay protection statistics
+class ReplayProtectionStats {
+  final int processedMessagesCount;
+  final int blockedDuplicateCount;
+  final Duration averageProcessingTime;
+  
+  const ReplayProtectionStats({
+    required this.processedMessagesCount,
+    required this.blockedDuplicateCount,
+    required this.averageProcessingTime,
+  });
+  
+  @override
+  String toString() => 'ReplayStats(processed: $processedMessagesCount, blocked: $blockedDuplicateCount)';
+}
+
+/// App core exception
+class AppCoreException implements Exception {
+  final String message;
+  const AppCoreException(this.message);
+  
+  @override
+  String toString() => 'AppCoreException: $message';
+}

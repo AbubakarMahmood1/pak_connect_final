@@ -1,48 +1,71 @@
 import 'dart:convert';
+import 'dart:math';
 
-class QRContactData {
+class QRIntroduction {
   final String publicKey;
-  final String displayName;
-  final int timestamp;
-  final String? signature;
+  final String displayName;  
+  final String introId;
+  final int generatedAt;
   
-  QRContactData({
+  QRIntroduction({
     required this.publicKey,
     required this.displayName,
-    required this.timestamp,
-    this.signature,
+    required this.introId, 
+    required this.generatedAt,
   });
   
-  // Compact format for QR: base64 encoded JSON
-  String toQRString() {
-    final json = {
-      'pk': publicKey,
-      'name': displayName,
-      'ts': timestamp,
-      if (signature != null) 'sig': signature,
-    };
-    return base64Encode(utf8.encode(jsonEncode(json)));
+  static QRIntroduction generate(String publicKey, String displayName) {
+    return QRIntroduction(
+      publicKey: publicKey,
+      displayName: displayName,
+      introId: _generateIntroId(),
+      generatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
   }
   
-  static QRContactData? fromQRString(String qrData) {
+  static String _generateIntroId() {
+    // Simple unique identifier for this introduction
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final random = Random().nextInt(9999);
+    return 'intro_${timestamp}_$random';
+  }
+  
+  String toQRString() {
+    final data = {
+      'pk': publicKey,
+      'name': displayName,
+      'id': introId,
+      'time': generatedAt,
+      'type': 'pak_connect_intro'
+    };
+    return base64Encode(utf8.encode(jsonEncode(data)));
+  }
+  
+  static QRIntroduction? fromQRString(String qrData) {
     try {
-      final json = jsonDecode(utf8.decode(base64Decode(qrData)));
-      return QRContactData(
-        publicKey: json['pk'],
-        displayName: json['name'],
-        timestamp: json['ts'],
-        signature: json['sig'],
+      final decoded = utf8.decode(base64Decode(qrData));
+      final data = jsonDecode(decoded) as Map<String, dynamic>;
+      
+      if (data['type'] != 'pak_connect_intro') return null;
+      
+      return QRIntroduction(
+        publicKey: data['pk'] as String,
+        displayName: data['name'] as String,
+        introId: data['id'] as String,
+        generatedAt: data['time'] as int,
       );
     } catch (e) {
-      print('Invalid QR data: $e');
       return null;
     }
   }
   
-  bool isValid() {
-    // Check timestamp is within 5 minutes
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final age = now - timestamp;
-    return age >= 0 && age < 300; // 5 minutes
+  bool isRecentlyGenerated({int maxAgeMinutes = 30}) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final ageMinutes = (now - generatedAt) / (1000 * 60);
+    return ageMinutes <= maxAgeMinutes;
   }
+
+  bool isValid({int maxAgeMinutes = 5}) {
+  return isRecentlyGenerated(maxAgeMinutes: maxAgeMinutes);
+}
 }

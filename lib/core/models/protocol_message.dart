@@ -12,7 +12,9 @@ enum ProtocolMessageType {
   contactRequest,
   contactAccept,
   contactReject,
-  contactStatus, 
+  contactStatus,
+  cryptoVerification,
+  cryptoVerificationResponse,
 }
 
 class ProtocolMessage {
@@ -194,5 +196,46 @@ String? get contactRequestPublicKey => type == ProtocolMessageType.contactReques
 String? get contactRequestDisplayName => type == ProtocolMessageType.contactRequest ? payload['displayName'] as String? : null;
 String? get contactAcceptPublicKey => type == ProtocolMessageType.contactAccept ? payload['publicKey'] as String? : null;
 String? get contactAcceptDisplayName => type == ProtocolMessageType.contactAccept ? payload['displayName'] as String? : null;
+
+// Crypto verification helpers
+String? get cryptoVerificationChallenge => type == ProtocolMessageType.cryptoVerification ? payload['challenge'] as String? : null;
+String? get cryptoVerificationTestMessage => type == ProtocolMessageType.cryptoVerification ? payload['testMessage'] as String? : null;
+bool get cryptoVerificationRequiresResponse => type == ProtocolMessageType.cryptoVerification ? (payload['requiresResponse'] as bool? ?? false) : false;
+
+String? get cryptoVerificationResponseChallenge => type == ProtocolMessageType.cryptoVerificationResponse ? payload['challenge'] as String? : null;
+String? get cryptoVerificationResponseDecrypted => type == ProtocolMessageType.cryptoVerificationResponse ? payload['decryptedMessage'] as String? : null;
+bool get cryptoVerificationSuccess => type == ProtocolMessageType.cryptoVerificationResponse ? (payload['success'] as bool? ?? false) : false;
+Map<String, dynamic>? get cryptoVerificationResults => type == ProtocolMessageType.cryptoVerificationResponse ? payload['results'] as Map<String, dynamic>? : null;
+
+// Quick constructors for crypto verification
+static ProtocolMessage cryptoVerification({
+  required String challenge,
+  required String testMessage,
+  bool requiresResponse = true,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.cryptoVerification,
+  payload: {
+    'challenge': challenge,
+    'testMessage': testMessage,
+    'requiresResponse': requiresResponse,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage cryptoVerificationResponse({
+  required String challenge,
+  required String decryptedMessage,
+  required bool success,
+  Map<String, dynamic>? results,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.cryptoVerificationResponse,
+  payload: {
+    'challenge': challenge,
+    'decryptedMessage': decryptedMessage,
+    'success': success,
+    if (results != null) 'results': results,
+  },
+  timestamp: DateTime.now(),
+);
 
 }

@@ -1,25 +1,25 @@
 import 'dart:io' show Platform;
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' hide ConnectionState;
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as BLE;
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import 'package:logging/logging.dart';
 import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
 import '../providers/ble_providers.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../screens/chat_screen.dart';
 
 class DiscoveryOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
   final Function(Peripheral) onDeviceSelected;
   
   const DiscoveryOverlay({
-    Key? key,
+    super.key,
     required this.onClose,
     required this.onDeviceSelected,
-  }) : super(key: key);
+  });
   
   @override
   ConsumerState<DiscoveryOverlay> createState() => _DiscoveryOverlayState();
@@ -92,23 +92,21 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       .distinct((prev, next) => 
         prev.central.uuid == next.central.uuid && prev.state == next.state)
       .listen((event) {
-        if (event.state == BLE.ConnectionState.connected) {
+        if (event.state == ble.ConnectionState.connected) {
           _logger.info('Incoming connection detected');
           _handleIncomingConnection(event.central);
         }
       });
   }
   
-  void _handleIncomingConnection(Central central) {
-    if (!mounted) return;
-    
-    // Close the overlay and let ChatsScreen handle it
-    widget.onClose();
+  void _handleIncomingConnection(Central central) async {
+  if (!mounted) return;
+    setState(() {});
   }
   
   Future<void> _startScanning() async {
     if (_isScanning) return;
-    
+    _logger.fine('🔍 OVERLAY DEBUG: Starting scan request - _isScanning was $_isScanning');
     setState(() => _isScanning = true);
     
     try {
@@ -143,42 +141,44 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   }
   
   Future<void> _connectToDevice(Peripheral device) async {
-    await _stopScanning();
-    
-    // Show connecting dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 20),
-            Expanded(child: Text('Connecting to device...')),
-          ],
-        ),
+  await _stopScanning();
+  
+  if (!mounted) return;
+
+  // Show connecting dialog
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      content: Row(
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(width: 20),
+          Expanded(child: Text('Connecting to device...')),
+        ],
       ),
-    );
+    ),
+  );
+  
+  try {
+    final bleService = ref.read(bleServiceProvider);
+    await bleService.connectToDevice(device);
     
-    try {
-      final bleService = ref.read(bleServiceProvider);
-      await bleService.connectToDevice(device);
-      
-      // Wait for identity exchange
-      await Future.delayed(Duration(seconds: 2));
-      
-      if (mounted) {
-        Navigator.pop(context); // Close dialog
-        widget.onDeviceSelected(device);
-      }
-      
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close dialog
-        _showError('Connection failed: ${e.toString()}');
-      }
+    // Wait for identity exchange
+    await Future.delayed(Duration(seconds: 2));
+    
+    if (mounted) {
+      Navigator.pop(context);
+      setState(() {});
+    }
+    
+  } catch (e) {
+    if (mounted) {
+      Navigator.pop(context);
+      _showError('Connection failed: ${e.toString()}');
     }
   }
+}
   
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -197,25 +197,11 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
         await _stopScanning();
         await bleService.startAsPeripheral();
         _setupPeripheralListener();
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Now discoverable by other devices'),
-            duration: Duration(seconds: 2),
-          ),
-        );
       } else {
         _connectionSubscription?.cancel();
         await bleService.startAsCentral();
         await Future.delayed(Duration(milliseconds: 500));
         _startScanning();
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Scanning for devices'),
-            duration: Duration(seconds: 2),
-          ),
-        );
       }
     } catch (e) {
       _showError('Failed to switch mode: $e');
@@ -244,7 +230,7 @@ Widget build(BuildContext context) {
               }
             },
             child: Container(
-              color: Colors.black.withOpacity(0.6),
+              color: Colors.black.withValues(),
             ),
           ),
         ),
@@ -275,7 +261,7 @@ Widget build(BuildContext context) {
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
+                        color: Colors.black.withValues(),
                         blurRadius: 20,
                         spreadRadius: 5,
                       ),
@@ -315,8 +301,8 @@ Widget build(BuildContext context) {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            Theme.of(context).colorScheme.primary.withOpacity(0.1),
-            Theme.of(context).colorScheme.primary.withOpacity(0.05),
+            Theme.of(context).colorScheme.primary.withValues(),
+            Theme.of(context).colorScheme.primary.withValues(),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -328,7 +314,7 @@ Widget build(BuildContext context) {
           Container(
             padding: EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+              color: Theme.of(context).colorScheme.primary.withValues(),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
@@ -364,7 +350,7 @@ Widget build(BuildContext context) {
             onPressed: widget.onClose,
             icon: Icon(Icons.close),
             style: IconButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+              backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
             ),
           ),
         ],
@@ -438,11 +424,11 @@ Widget _buildScannerMode(
             return SizedBox(height: 16);
           }
         },
-        loading: () => Container(
+        loading: () => SizedBox(
           height: 48,
           child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
         ),
-        error: (_, __) => SizedBox(height: 16),
+        error: (_, _) => SizedBox(height: 16),
       ),
       
       Divider(),
@@ -579,7 +565,7 @@ Widget _buildScannerMode(
           Container(
             padding: EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              color: Theme.of(context).colorScheme.primary.withValues(),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Icon(
@@ -601,7 +587,7 @@ Widget _buildScannerMode(
           Container(
             padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceVariant,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
@@ -649,8 +635,8 @@ Widget _buildScannerMode(
             children: [
               CircleAvatar(
                 backgroundColor: isKnown 
-                  ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
-                  : Theme.of(context).colorScheme.surfaceVariant,
+                  ? Theme.of(context).colorScheme.primary.withValues()
+                  : Theme.of(context).colorScheme.surfaceContainerHighest,
                 child: Icon(
                   isKnown ? Icons.person : Icons.bluetooth,
                   color: isKnown 
@@ -697,7 +683,7 @@ Widget _buildScannerMode(
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    color: Theme.of(context).colorScheme.primary.withValues(),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -713,7 +699,23 @@ Widget _buildScannerMode(
             ],
           ),
           trailing: Icon(Icons.chevron_right),
-          onTap: () => _connectToDevice(device),
+onTap: () {
+  // Check if already connected to this device
+  final bleService = ref.read(bleServiceProvider);
+  if (bleService.connectedDevice?.uuid == device.uuid) {
+    // Already connected - open chat
+    widget.onClose();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(device: device),
+      ),
+    );
+  } else {
+    // Not connected - connect first
+    _connectToDevice(device);
+  }
+},
         ),
       ),
     );
@@ -752,7 +754,7 @@ Widget _buildScannerMode(
           Icon(
             Icons.bluetooth_disabled,
             size: 64,
-            color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.3),
+            color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
           ),
           SizedBox(height: 20),
           Text(
@@ -776,6 +778,7 @@ Widget _buildScannerMode(
   
   Widget _buildPeripheralMode(ConnectionInfo? connectionInfo) {
     final isConnected = connectionInfo?.isConnected ?? false;
+    final hasIdentity = connectionInfo?.otherUserName != null;
     
     return Center(
       child: Column(
@@ -803,9 +806,9 @@ Widget _buildScannerMode(
                             shape: BoxShape.circle,
                             border: Border.all(
                               color: isConnected
-                                ? Colors.green.withOpacity(1 - adjustedValue)
+                                ? Colors.green.withValues()
                                 : Theme.of(context).colorScheme.primary
-                                    .withOpacity(1 - adjustedValue),
+                                    .withValues(),
                               width: 2,
                             ),
                           ),
@@ -834,41 +837,50 @@ Widget _buildScannerMode(
             },
           ),
           SizedBox(height: 32),
-          Text(
-            isConnected ? 'Connected!' : 'Discoverable Mode',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: isConnected ? Colors.green : null,
-            ),
+        Text(
+          isConnected ? 'Connected!' : 'Discoverable Mode',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+            color: isConnected ? Colors.green : null,
           ),
-          SizedBox(height: 8),
-          Text(
-            isConnected 
-              ? 'You are now connected'
-              : 'Your device is visible to others',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+        ),
+        SizedBox(height: 8),
+        Text(
+          isConnected 
+            ? 'You are now connected'
+            : 'Your device is visible to others',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-          if (isConnected && connectionInfo?.otherUserName != null) ...[
-            SizedBox(height: 16),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                'Connected to: ${connectionInfo!.otherUserName}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ),
-          ],
+        ),
+        
+        // NEW: Show chat button when connected with identity
+        if (isConnected && hasIdentity) ...[
+          SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: () {
+              final bleService = ref.read(bleServiceProvider);
+              final central = bleService.connectedCentral;
+              if (central != null) {
+                widget.onClose();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ChatScreen(central: central),
+                  ),
+                );
+              }
+            },
+            icon: Icon(Icons.chat),
+            label: Text('Chat with ${connectionInfo!.otherUserName}'),
+          ),
         ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
+
   
   @override
   void dispose() {

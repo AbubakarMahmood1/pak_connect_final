@@ -8,18 +8,18 @@ import '../../data/repositories/chats_repository.dart';
 final bleServiceProvider = Provider<BLEService>((ref) {
   final service = BLEService();
   service.initialize();
-  
+
   ref.onDispose(() {
     service.dispose();
   });
-  
+
   return service;
 });
 
 // BLE State provider
 final bleStateProvider = StreamProvider<BluetoothLowEnergyState>((ref) {
   final service = ref.watch(bleServiceProvider);
-  return Stream.periodic(Duration(seconds: 1), (_) => service.state);
+  return Stream.fromFuture(service.initializationComplete).asyncExpand((_) => Stream.periodic(Duration(seconds: 1), (_) => service.state));
 });
 
 // Discovered devices provider

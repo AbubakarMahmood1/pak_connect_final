@@ -1,6 +1,9 @@
+// ignore_for_file: avoid_print
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/utils/message_fragmenter.dart';
@@ -8,6 +11,7 @@ import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_state_manager.dart';
+import '../../core/services/security_manager.dart';
 
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
@@ -23,8 +27,16 @@ class BLEMessageHandler {
   Timer? _cleanupTimer;
   
   // Message operation tracking
-  bool _messageOperationInProgress = false;
   String encryptionMethod = 'none';
+  
+  // Contact request callbacks
+  Function(String, String)? onContactRequestReceived;
+  Function(String, String)? onContactAcceptReceived;
+  Function()? onContactRejectReceived;
+  
+  // Crypto verification callbacks
+  Function(String, String)? onCryptoVerificationReceived;
+  Function(String, String, bool, Map<String, dynamic>?)? onCryptoVerificationResponseReceived;
   
   BLEMessageHandler() {
     // Setup periodic cleanup of old partial messages
@@ -45,99 +57,65 @@ class BLEMessageHandler {
   required BLEStateManager stateManager,
   Function(bool)? onMessageOperationChanged,
 }) async {
-  _messageOperationInProgress = true;
   final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
   
   try {
-  onMessageOperationChanged?.call(true);
-  try {
-    final pingData = Uint8List.fromList([0x00]);
+    onMessageOperationChanged?.call(true);
     
-    await centralManager.writeCharacteristic(
-      connectedDevice,
-      messageCharacteristic,
-      value: pingData,
-      type: GATTCharacteristicWriteType.withResponse,
-    );
-    
-    _logger.info('Connection validation (ping) successful');
-  } catch (e) {
-    _logger.severe('Connection validation failed: $e');
-    
-    // CRITICAL: Force disconnect to trigger auto-reconnection
-    _logger.warning('🔥 Forcing disconnect to trigger reconnection...');
+    // Connection validation ping
     try {
-      await centralManager.disconnect(connectedDevice);
-    } catch (disconnectError) {
-      _logger.warning('Force disconnect failed: $disconnectError');
-    }
-    
-    throw Exception('Connection unhealthy - forced disconnect');
-  }
-    
-String payload = message;
-bool isEncrypted = false;
-String encryptionMethod = 'none';
-
-// Hierarchy: ECDH (if contact) > Conversation (if paired) > Unencrypted
-if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
-  // Check contact status BOTH WAYS
-  final contact = await contactRepository.getContact(contactPublicKey);
-  final iHaveThem = contact != null && contact.trustStatus == TrustStatus.verified;
-  final theyHaveMe = stateManager.theyHaveUsAsContact;  // USE STATE MANAGER HERE
-  
-  if (iHaveThem && theyHaveMe) {
-    // Both have each other - use ECDH
-    try {
-      final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
-      if (ecdhEncrypted != null) {
-        payload = ecdhEncrypted;
-        isEncrypted = true;
-        encryptionMethod = 'ecdh';
-        _logger.info('Message encrypted with ECDH (mutual contacts)');
+      final pingData = Uint8List.fromList([0x00]);
+      await centralManager.writeCharacteristic(
+        connectedDevice,
+        messageCharacteristic,
+        value: pingData,
+        type: GATTCharacteristicWriteType.withResponse,
+      );
+      _logger.info('Connection validation (ping) successful');
+    } catch (e) {
+      _logger.severe('Connection validation failed: $e');
+      _logger.warning('🔥 Forcing disconnect to trigger reconnection...');
+      try {
+        await centralManager.disconnect(connectedDevice);
+      } catch (disconnectError) {
+        _logger.warning('Force disconnect failed: $disconnectError');
       }
-    } catch (e) {
-      _logger.warning('ECDH encryption failed: $e');
+      throw Exception('Connection unhealthy - forced disconnect');
     }
-  } else if (iHaveThem || theyHaveMe) {
-    // Asymmetric contact situation - log warning
-    _logger.warning('Asymmetric contact detected - I have them: $iHaveThem, They have me: $theyHaveMe');
-  }
-  
-  // Fall back to conversation key (pairing) if ECDH not available
-  if (!isEncrypted && SimpleCrypto.hasConversationKey(contactPublicKey)) {
-    try {
-      payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
-      isEncrypted = true;
-      encryptionMethod = 'conversation';
-      _logger.info('Message encrypted with conversation key');
-    } catch (e) {
-      _logger.warning('Conversation encryption failed: $e');
+    
+    // 🔧 NEW: Use simplified encryption
+    String payload = message;
+    String encryptionMethod = 'none';
+    
+    if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+      try {
+        payload = await SecurityManager.encryptMessage(message, contactPublicKey, contactRepository);
+        encryptionMethod = await _getSimpleEncryptionMethod(contactPublicKey, contactRepository);
+        _logger.info('🔒 MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method');
+      } catch (e) {
+        _logger.warning('🔒 MESSAGE: Encryption failed, sending unencrypted: $e');
+        encryptionMethod = 'none';
+      }
+    } else {
+      _logger.info('🔒 MESSAGE: No contact key, sending unencrypted');
     }
-  }
-}
 
-if (!isEncrypted) {
-  _logger.warning('Sending unencrypted - no keys available');
-}
+    // Sign the original message content (before encryption)
+    final signature = SimpleCrypto.signMessage(message);
 
-// Sign the original message content (before encryption)
-final signature = SimpleCrypto.signMessage(message);
+    final protocolMessage = ProtocolMessage(
+      type: ProtocolMessageType.textMessage,
+      payload: {
+        'messageId': msgId,
+        'content': payload,
+        'encrypted': encryptionMethod != 'none',
+        'encryptionMethod': encryptionMethod,
+      },
+      timestamp: DateTime.now(),
+      signature: signature,
+    );
 
-final protocolMessage = ProtocolMessage(
-  type: ProtocolMessageType.textMessage,
-  payload: {
-    'messageId': msgId,
-    'content': payload,
-    'encrypted': isEncrypted,
-    'encryptionMethod': encryptionMethod,
-  },
-  timestamp: DateTime.now(),
-  signature: signature,
-);
-
-final jsonBytes = protocolMessage.toBytes();
-
+    final jsonBytes = protocolMessage.toBytes();
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
     _logger.info('Created ${chunks.length} chunks for message: $msgId');
     
@@ -154,24 +132,24 @@ final jsonBytes = protocolMessage.toBytes();
       }
     });
     
-// Send each chunk via write characteristic (central mode)
-for (int i = 0; i < chunks.length; i++) {
-  final chunk = chunks[i];
-  final chunkData = chunk.toBytes();
-  
-  _logger.info('Sending central chunk ${i + 1}/${chunks.length} for message: $msgId');
-  
-  await centralManager.writeCharacteristic(
-    connectedDevice,
-    messageCharacteristic,
-    value: chunkData,
-    type: GATTCharacteristicWriteType.withResponse,
-  );
-  
-  if (i < chunks.length - 1) {
-    await Future.delayed(Duration(milliseconds: 100));
-  }
-}
+    // Send each chunk via write characteristic (central mode)
+    for (int i = 0; i < chunks.length; i++) {
+      final chunk = chunks[i];
+      final chunkData = chunk.toBytes();
+      
+      _logger.info('Sending central chunk ${i + 1}/${chunks.length} for message: $msgId');
+      
+      await centralManager.writeCharacteristic(
+        connectedDevice,
+        messageCharacteristic,
+        value: chunkData,
+        type: GATTCharacteristicWriteType.withResponse,
+      );
+      
+      if (i < chunks.length - 1) {
+        await Future.delayed(Duration(milliseconds: 100));
+      }
+    }
     
     _logger.info('All chunks sent for message: $msgId, waiting for ACK...');
     
@@ -216,51 +194,20 @@ Future<bool> sendPeripheralMessage({
   
   try {
     String payload = message;
-    bool isEncrypted = false;
     String encryptionMethod = 'none';
-
-if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
-  // Check contact status BOTH WAYS
-  final contact = await contactRepository.getContact(contactPublicKey);
-  final iHaveThem = contact != null && contact.trustStatus == TrustStatus.verified;
-  
-  // Get bilateral status from state manager (you'll need to pass this)
-  final theyHaveMe = true; // TODO: Get from state manager parameter
-  
-  if (iHaveThem && theyHaveMe) {
-    // Both have each other - use ECDH
-    try {
-      final ecdhEncrypted = await SimpleCrypto.encryptForContact(message, contactPublicKey, contactRepository);
-      if (ecdhEncrypted != null) {
-        payload = ecdhEncrypted;
-        isEncrypted = true;
-        encryptionMethod = 'ecdh';
-        _logger.info('Message encrypted with ECDH (mutual contacts)');
+    
+    if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+      try {
+        payload = await SecurityManager.encryptMessage(message, contactPublicKey, contactRepository);
+        encryptionMethod = await _getSimpleEncryptionMethod(contactPublicKey, contactRepository);
+        _logger.info('🔒 PERIPHERAL MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method');
+      } catch (e) {
+        _logger.warning('🔒 PERIPHERAL MESSAGE: Encryption failed, sending unencrypted: $e');
+        encryptionMethod = 'none';
       }
-    } catch (e) {
-      _logger.warning('ECDH encryption failed: $e');
+    } else {
+      _logger.info('🔒 PERIPHERAL MESSAGE: No contact key, sending unencrypted');
     }
-  } else if (iHaveThem || theyHaveMe) {
-    // Asymmetric contact situation - inform user
-    _logger.warning('Asymmetric contact detected - falling back to pairing key');
-  }
-  
-  // Fall back to conversation key (pairing) if ECDH not available
-  if (!isEncrypted && SimpleCrypto.hasConversationKey(contactPublicKey)) {
-    try {
-      payload = SimpleCrypto.encryptForConversation(message, contactPublicKey);
-      isEncrypted = true;
-      encryptionMethod = 'conversation';
-      _logger.info('Message encrypted with conversation key');
-    } catch (e) {
-      _logger.warning('Conversation encryption failed: $e');
-    }
-  }
-}
-
-if (!isEncrypted) {
-  _logger.warning('Sending unencrypted - no keys available');
-}
 
     // Sign the original message content (before encryption)
     final signature = SimpleCrypto.signMessage(message);
@@ -270,7 +217,7 @@ if (!isEncrypted) {
       payload: {
         'messageId': msgId,
         'content': payload,
-        'encrypted': isEncrypted,
+        'encrypted': encryptionMethod != 'none',
         'encryptionMethod': encryptionMethod,
       },
       timestamp: DateTime.now(),
@@ -395,73 +342,46 @@ Future<String?> _processCompleteProtocolMessage(
         final content = protocolMessage.textContent!;
         final encryptionMethod = protocolMessage.payload['encryptionMethod'] as String?;
         
+      print('🔧 DECRYPT DEBUG: Received message with encryption method: $encryptionMethod');
+      print('🔧 DECRYPT DEBUG: Message encrypted flag: ${protocolMessage.isEncrypted}');
+      print('🔧 DECRYPT DEBUG: Sender public key: ${senderPublicKey?.substring(0, 16)}...');
+      
+
         onMessageIdFound?.call(messageId);
         
-        // First: Decrypt the message using appropriate method
+        // 🔧 NEW: Use simplified decryption
         String decryptedContent = content;
         
-        if (protocolMessage.isEncrypted) {
-          // Try conversation encryption first (highest priority)
-          if (encryptionMethod == 'conversation' && senderPublicKey != null) {
-            try {
-              if (SimpleCrypto.hasConversationKey(senderPublicKey)) {
-                decryptedContent = SimpleCrypto.decryptFromConversation(content, senderPublicKey);
-                _logger.info('Message decrypted using conversation key');
-              } else {
-                _logger.warning('No conversation key found for sender');
-                return '[Secure chat not established - pairing required]';
-              }
-            } catch (e) {
-              _logger.severe('Conversation decryption failed: $e');
-              return '[Decryption failed - re-pair with sender]';
-            }
-          } 
-          // Try ECDH encryption
-          else if (encryptionMethod == 'ecdh' && senderPublicKey != null && senderPublicKey.isNotEmpty) {
-            try {
-              final decrypted = await SimpleCrypto.decryptFromContact(content, senderPublicKey, _contactRepository);
-              if (decrypted != null) {
-                decryptedContent = decrypted;
-                _logger.info('Message decrypted using ECDH');
-              } else {
-                return '[ECDH decryption failed]';
-              }
-            } catch (e) {
-              _logger.severe('ECDH decryption failed: $e');
-              return '[ECDH decryption error]';
-            }
-          }
-          // Legacy passphrase decryption (fallback)
-          else if (encryptionMethod == null || encryptionMethod == 'passphrase') {
-            if (SimpleCrypto.isInitialized) {
-              try {
-                decryptedContent = SimpleCrypto.decrypt(content);
-                _logger.info('Message decrypted using passphrase (legacy)');
-              } catch (e) {
-                _logger.severe('Legacy decryption failed: $e');
-                return '[Cannot decrypt legacy message]';
-              }
-            } else {
-              return '[No decryption method available]';
-            }
-          }
-          else {
-            _logger.warning('Unknown encryption method: $encryptionMethod');
-            return '[Unknown encryption method]';
-          }
+        if (protocolMessage.isEncrypted && senderPublicKey != null && senderPublicKey.isNotEmpty) {
+          try {
+            decryptedContent = await SecurityManager.decryptMessage(content, senderPublicKey, _contactRepository);
+            _logger.info('🔒 MESSAGE: Decrypted successfully');
+          }  catch (e) {
+        _logger.severe('🔒 MESSAGE: Decryption failed: $e');
+        
+        // Don't return error message immediately - try to show what we can
+        if (e.toString().contains('security resync requested')) {
+          return '[🔄 Security resync in progress - message will be readable after reconnection]';
+        } else {
+          return '[❌ Could not decrypt message - please reconnect to resync security]';
+        }
+      }
+        } else if (protocolMessage.isEncrypted) {
+          _logger.warning('🔒 MESSAGE: Encrypted but no sender key available');
+          return '[❌ Encrypted message but no sender identity]';
         }
         
-        // Then: Verify signature on decrypted content
+        // Verify signature on decrypted content
         if (protocolMessage.signature != null && senderPublicKey != null) {
           final isValid = SimpleCrypto.verifySignature(
-            decryptedContent,  // Use decrypted content for verification
-            protocolMessage.signature!, 
+            decryptedContent,
+            protocolMessage.signature!,
             senderPublicKey
           );
           
           if (!isValid) {
-            _logger.severe('⌠SIGNATURE VERIFICATION FAILED - possible impersonation!');
-            return '[UNTRUSTED MESSAGE - Signature Invalid]';
+            _logger.severe('❌ SIGNATURE VERIFICATION FAILED - possible impersonation!');
+            return '[❌ UNTRUSTED MESSAGE - Signature Invalid]';
           }
           
           _logger.info('✅ Signature verified - message authentic');
@@ -478,7 +398,59 @@ Future<String?> _processCompleteProtocolMessage(
         return null;
         
       case ProtocolMessageType.identity:
-        // Identity should be handled at service level, not here
+        return null;
+        
+      case ProtocolMessageType.contactRequest:
+        // Handle incoming contact request
+        final requestPublicKey = protocolMessage.contactRequestPublicKey;
+        final requestDisplayName = protocolMessage.contactRequestDisplayName;
+        
+        if (requestPublicKey != null && requestDisplayName != null) {
+          _logger.info('📱 CONTACT REQUEST: Received from $requestDisplayName');
+          // This will be handled by the BLE state manager via callback
+          onContactRequestReceived?.call(requestPublicKey, requestDisplayName);
+        }
+        return null;
+        
+      case ProtocolMessageType.contactAccept:
+        // Handle contact request acceptance
+        final acceptPublicKey = protocolMessage.contactAcceptPublicKey;
+        final acceptDisplayName = protocolMessage.contactAcceptDisplayName;
+        
+        if (acceptPublicKey != null && acceptDisplayName != null) {
+          _logger.info('📱 CONTACT ACCEPT: Received from $acceptDisplayName');
+          onContactAcceptReceived?.call(acceptPublicKey, acceptDisplayName);
+        }
+        return null;
+        
+      case ProtocolMessageType.contactReject:
+        // Handle contact request rejection
+        _logger.info('📱 CONTACT REJECT: Received');
+        onContactRejectReceived?.call();
+        return null;
+        
+      case ProtocolMessageType.cryptoVerification:
+        // Handle crypto verification challenge
+        final challenge = protocolMessage.cryptoVerificationChallenge;
+        final testMessage = protocolMessage.cryptoVerificationTestMessage;
+        
+        if (challenge != null && testMessage != null) {
+          _logger.info('🔍 CRYPTO VERIFICATION: Received challenge');
+          onCryptoVerificationReceived?.call(challenge, testMessage);
+        }
+        return null;
+        
+      case ProtocolMessageType.cryptoVerificationResponse:
+        // Handle crypto verification response
+        final challenge = protocolMessage.cryptoVerificationResponseChallenge;
+        final decryptedMessage = protocolMessage.cryptoVerificationResponseDecrypted;
+        final success = protocolMessage.cryptoVerificationSuccess;
+        final results = protocolMessage.cryptoVerificationResults;
+        
+        if (challenge != null && decryptedMessage != null) {
+          _logger.info('🔍 CRYPTO VERIFICATION: Received response (success: $success)');
+          onCryptoVerificationResponseReceived?.call(challenge, decryptedMessage, success, results);
+        }
         return null;
         
       default:
@@ -488,7 +460,74 @@ Future<String?> _processCompleteProtocolMessage(
     _logger.severe('Failed to process protocol message: $e');
     return null;
   }
-}  
+}
+
+Future<void> handleQRIntroductionClaim({
+  required String otherPublicKey, 
+  required String introId, 
+  required int scannedTime,
+  required String theirName,
+  required BLEStateManager stateManager,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final sessionData = prefs.getString('my_qr_session_$introId');
+  
+  if (sessionData != null) {
+    final session = jsonDecode(sessionData);
+    final startedShowing = session['started_showing'] as int;
+    final stoppedShowing = session['stopped_showing'] as int?;
+    
+    // Check if their scan time is within our showing window
+    final isValidTime = scannedTime >= startedShowing && 
+      (stoppedShowing == null || scannedTime <= stoppedShowing);
+    
+    if (isValidTime) {
+      _logger.info('✅ Valid QR introduction from $theirName');
+    } else {
+      _logger.info('❌ Invalid QR introduction timeframe from $theirName');
+    }
+  } else {
+    _logger.info('❓ Unknown QR introduction from $theirName');
+  }
+  
+  // QR verification complete - existing connection flow will handle pairing
+}
+
+Future<bool> checkQRIntroductionMatch({
+  required String otherPublicKey, 
+  required String theirName,
+}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final introData = prefs.getString('scanned_intro_$otherPublicKey');
+  
+  if (introData != null) {
+    final intro = jsonDecode(introData);
+    final introId = intro['intro_id'] as String;
+    
+    _logger.info('✅ Found matching QR introduction: $introId for $theirName');
+    return true;
+  }
+  
+  return false;
+}
+
+/// Get encryption method from security state
+Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepository contactRepository) async {
+  if (contactPublicKey == null || contactPublicKey.isEmpty) {
+    return 'global';
+  }
+  
+  final level = await SecurityManager.getCurrentLevel(contactPublicKey, contactRepository);
+  
+  switch (level) {
+    case SecurityLevel.high:
+      return 'ecdh';
+    case SecurityLevel.medium:  
+      return 'pairing';
+    case SecurityLevel.low:
+      return 'global';
+  }
+}
   
   void dispose() {
     _cleanupTimer?.cancel();
@@ -498,4 +537,41 @@ Future<String?> _processCompleteProtocolMessage(
     _messageTimeouts.clear();
     _messageAcks.clear();
   }
+}
+
+/// Encryption method result
+class MessageEncryptionMethod {
+  final String method;
+  final bool isEncrypted;
+  final String description;
+  
+  const MessageEncryptionMethod._({
+    required this.method,
+    required this.isEncrypted,
+    required this.description,
+  });
+  
+  factory MessageEncryptionMethod.ecdh() => MessageEncryptionMethod._(
+    method: 'ecdh',
+    isEncrypted: true,
+    description: 'ECDH + Global Encryption',
+  );
+  
+  factory MessageEncryptionMethod.conversation() => MessageEncryptionMethod._(
+    method: 'conversation',
+    isEncrypted: true,
+    description: 'Pairing Key + Global Encryption',
+  );
+  
+  factory MessageEncryptionMethod.global() => MessageEncryptionMethod._(
+    method: 'global',
+    isEncrypted: true,
+    description: 'Global Encryption Only',
+  );
+  
+  factory MessageEncryptionMethod.none() => MessageEncryptionMethod._(
+    method: 'none',
+    isEncrypted: false,
+    description: 'No Encryption',
+  );
 }

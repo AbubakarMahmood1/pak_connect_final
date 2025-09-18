@@ -1,21 +1,24 @@
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:qr_barcode_dialog_scanner/qr_barcode_dialog_scanner.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/qr_contact_data.dart';
-import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
-import '../../core/services/simple_crypto.dart';
+
 
 class QRContactScreen extends ConsumerStatefulWidget {
+  const QRContactScreen({super.key});
+
   @override
   ConsumerState<QRContactScreen> createState() => _QRContactScreenState();
 }
 
 class _QRContactScreenState extends ConsumerState<QRContactScreen> {
   String? _myQRData;
-  QRContactData? _scannedContact;
+  QRIntroduction? _scannedContact;
   bool _hasScanned = false;
   
   @override
@@ -25,20 +28,55 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
   }
   
   Future<void> _generateMyQR() async {
-    final userPrefs = UserPreferences();
-    final publicKey = await userPrefs.getPublicKey();
-    final displayName = await userPrefs.getUserName();
-    
-    final contactData = QRContactData(
-      publicKey: publicKey,
-      displayName: displayName,
-      timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    );
-    
-    setState(() {
-      _myQRData = contactData.toQRString();
-    });
+  final userPrefs = UserPreferences();
+  final publicKey = await userPrefs.getPublicKey();
+  final displayName = await userPrefs.getUserName();
+  
+  // Generate simple introduction
+  final introduction = QRIntroduction.generate(publicKey, displayName);
+  
+  // Track this QR showing session
+  await _trackQRSession(introduction);
+
+  setState(() {
+    _myQRData = introduction.toQRString();
+  });
+}
+
+Future<void> _trackQRSession(QRIntroduction intro) async {
+  final prefs = await SharedPreferences.getInstance();
+  
+  // Store when I started showing this QR
+  await prefs.setString('my_qr_session_${intro.introId}', jsonEncode({
+    'intro_id': intro.introId,
+    'started_showing': intro.generatedAt,
+    'stopped_showing': null, // Will be set when QR screen closes
+    'public_key': intro.publicKey,
+    'display_name': intro.displayName,
+  }));
+
+  // Logger('QRContactScreen').fine('📝 Started showing QR: ${intro.introId}');
+}
+
+void _stopTrackingQRSession() async {
+  try {
+    final intro = QRIntroduction.fromQRString(_myQRData!);
+    if (intro != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionData = prefs.getString('my_qr_session_${intro.introId}');
+      
+      if (sessionData != null) {
+        final data = jsonDecode(sessionData);
+        data['stopped_showing'] = DateTime.now().millisecondsSinceEpoch;
+
+        await prefs.setString('my_qr_session_${intro.introId}', jsonEncode(data));
+        // Logger('QRContactScreen').fine('📝 Stopped showing QR: ${intro.introId}');
+      }
+    }
+  } catch (e) {
+    // Logger('QRContactScreen').warning('Error stopping QR session tracking: $e');
   }
+}
   
   @override
   Widget build(BuildContext context) {
@@ -74,7 +112,7 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(),
                   blurRadius: 10,
                 ),
               ],
@@ -143,7 +181,7 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
   
   void _processScannedQR(String qrData) {
     try {
-      final contact = QRContactData.fromQRString(qrData);
+      final contact = QRIntroduction.fromQRString(qrData);
       
       if (contact == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -209,6 +247,7 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
                   children: [
                     CircleAvatar(
                       backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                      radius: 30,
                       child: Text(
                         _scannedContact!.displayName[0].toUpperCase(),
                         style: TextStyle(
@@ -217,7 +256,6 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      radius: 30,
                     ),
                     SizedBox(height: 12),
                     Text(
@@ -228,7 +266,7 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
                     Container(
                       padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceVariant,
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
@@ -264,7 +302,7 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
                   child: Text('Cancel'),
                 ),
                 FilledButton.icon(
-                  onPressed: _saveContact,
+                  onPressed: _saveScannedIntroduction,
                   icon: Icon(Icons.check),
                   label: Text('Add Contact'),
                 ),
@@ -276,63 +314,66 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
     );
   }
   
-  Future<void> _saveContact() async {
-    if (_scannedContact == null) return;
+  Future<void> _saveScannedIntroduction() async {
+  if (_scannedContact == null) return;
+  
+  try {
+    final intro = _scannedContact!;
     
-    try {
-      // Check if already exists
-      final contactRepo = ContactRepository();
-      final existing = await contactRepo.getContact(_scannedContact!.publicKey);
-      
-      if (existing != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Contact already exists')),
-        );
-        Navigator.pop(context, false);
-        return;
-      }
-      
-      // Save as verified contact
-      await contactRepo.saveContact(
-        _scannedContact!.publicKey,
-        _scannedContact!.displayName,
-      );
-      await contactRepo.markContactVerified(_scannedContact!.publicKey);
-      
-      // Compute and cache ECDH shared secret
-      final sharedSecret = SimpleCrypto.computeSharedSecret(_scannedContact!.publicKey);
-      if (sharedSecret != null) {
-        await contactRepo.cacheSharedSecret(_scannedContact!.publicKey, sharedSecret);
-        
-        // Also restore it in SimpleCrypto for immediate use
-        await SimpleCrypto.restoreConversationKey(
-          _scannedContact!.publicKey, 
-          sharedSecret
-        );
-      }
-      
+    if (!intro.isRecentlyGenerated(maxAgeMinutes: 30)) {
       if (mounted) {
-        Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Contact added successfully!'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-          ),
+          SnackBar(content: Text('QR code is too old (max 30 minutes)')),
         );
       }
-    } catch (e) {
+      return;
+    }
+    
+    await _storeIntroduction(intro);
+    
+    if (mounted) {
+      Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to add contact: $e'),
-          backgroundColor: Theme.of(context).colorScheme.error,
+          content: Text('Introduction saved! Connect via Bluetooth to chat with ${intro.displayName}'),
+          duration: Duration(seconds: 3),
+          backgroundColor: Colors.blue,
         ),
       );
     }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to process QR: $e')),
+      );
+    }
   }
+}
+
+Future<void> _storeIntroduction(QRIntroduction intro) async {
+  final prefs = await SharedPreferences.getInstance();
+  final scannedAt = DateTime.now().millisecondsSinceEpoch;
+  
+  // Store "I met this person via QR"
+  await prefs.setString('scanned_intro_${intro.publicKey}', jsonEncode({
+    'intro_id': intro.introId,
+    'their_public_key': intro.publicKey,
+    'their_name': intro.displayName,
+    'scanned_at': scannedAt,
+    'qr_generated_at': intro.generatedAt,
+    'status': 'introduction_only',
+  }));
+
+  // Logger('QRContactScreen').fine('👋 Stored introduction: ${intro.displayName} (${intro.introId})');
+}
+
+@override
+void dispose() {
+  // Mark when I stopped showing QR
+  if (_myQRData != null) {
+    _stopTrackingQRSession();
+  }
+  super.dispose();
+}
+
 }

@@ -1,7 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/services/ble_service.dart';
 
 enum SecurityStatus {
   disconnected,           // No connection
@@ -136,7 +133,7 @@ class SecurityState {
     statusIcon: Icons.lock_open,
     otherUserName: otherUserName,
     otherPublicKey: otherPublicKey,
-    canSendMessages: false, // Force pairing first
+    canSendMessages: true,
     showContactAddButton: false,
     showPairingButton: true,
     showContactSyncButton: false,
