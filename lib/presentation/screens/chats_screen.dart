@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' hide ConnectionState;
@@ -16,6 +14,7 @@ import '../widgets/discovery_overlay.dart';
 import 'chat_screen.dart';
 import 'qr_contact_screen.dart';
 import '../../core/models/connection_info.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
 
 class ChatsScreen extends ConsumerStatefulWidget {
   const ChatsScreen({super.key});
@@ -433,7 +432,7 @@ ConnectionStatus _determineConnectionStatus(
   // Check if device is nearby (discovered via BLE scan)
   if (chat.contactPublicKey != null) {
     // Method 1: Check via manufacturer data hash
-    final isOnlineViaHash = _isContactOnlineViaHash(chat.contactPublicKey!, discoveryData);
+    final isOnlineViaHash = _isContactOnlineViaHash(chat.contactPublicKey!, discoveryData.cast<String, DiscoveredDevice>());
     if (isOnlineViaHash) {
       return ConnectionStatus.nearby;
     }
@@ -458,43 +457,17 @@ ConnectionStatus _determineConnectionStatus(
   return ConnectionStatus.offline;
 }
 
-bool _isContactOnlineViaHash(String contactPublicKey, Map<String, DiscoveredEventArgs> discoveryData) {
+bool _isContactOnlineViaHash(String contactPublicKey, Map<String, DiscoveredDevice> discoveryData) {
   if (discoveryData.isEmpty) return false;
   
-  // Generate hash for this contact's public key (same as in ChatUtils)
-  final contactKeyHash = _generatePublicKeyHash(contactPublicKey);
-  
-  // Check each discovered device
-  for (final discoveryEvent in discoveryData.values) {
-    final advertisement = discoveryEvent.advertisement;
-    
-    // Check manufacturer data for our hash
-    if (advertisement.manufacturerSpecificData.isNotEmpty) {
-      for (final manufacturerData in advertisement.manufacturerSpecificData) {
-        // Check if it's our manufacturer ID
-        if (manufacturerData.id == 0x2E19 && manufacturerData.data.length >= 4) {
-          // Convert bytes back to hex string
-          final deviceHash = manufacturerData.data
-            .map((b) => b.toRadixString(16).padLeft(2, '0'))
-            .join();
-          
-          // Match found!
-          if (deviceHash == contactKeyHash) {
-            return true;
-          }
-        }
-      }
+  for (final device in discoveryData.values) {
+    if (device.isKnownContact && 
+        device.contactInfo?.publicKey == contactPublicKey) {
+      return true;
     }
   }
   
   return false;
-}
-
-String _generatePublicKeyHash(String publicKey) {
-  // Use same logic as ChatUtils.generatePublicKeyHash
-  final bytes = utf8.encode(publicKey);
-  final digest = sha256.convert(bytes);
-  return digest.toString().substring(0, 8); // First 8 characters
 }
 
 void _setupPeripheralConnectionListener() {

@@ -23,6 +23,8 @@ class ProtocolMessage {
   final Map<String, dynamic> payload;
   final DateTime timestamp;
   final String? signature;
+  final bool useEphemeralSigning;
+  final String? ephemeralSigningKey;
   
   ProtocolMessage({
     required this.type,
@@ -30,6 +32,8 @@ class ProtocolMessage {
     required this.payload,
     required this.timestamp,
     this.signature,
+    this.useEphemeralSigning = false,
+    this.ephemeralSigningKey,
   });
   
   Uint8List toBytes() {
@@ -39,6 +43,8 @@ class ProtocolMessage {
       'payload': payload,
       'timestamp': timestamp.millisecondsSinceEpoch,
       if (signature != null) 'signature': signature,
+      'useEphemeralSigning': useEphemeralSigning,
+      if (ephemeralSigningKey != null) 'ephemeralSigningKey': ephemeralSigningKey,
     };
     return Uint8List.fromList(utf8.encode(jsonEncode(json)));
   }
@@ -51,6 +57,8 @@ class ProtocolMessage {
       payload: Map<String, dynamic>.from(json['payload']),
       timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
       signature: json['signature'],
+      useEphemeralSigning: json['useEphemeralSigning'] ?? false,
+      ephemeralSigningKey: json['ephemeralSigningKey'],
     );
   }
   

@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'dart:io' show Platform;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import '../../core/discovery/batch_processor.dart';
+import '../../core/security/hint_cache_manager.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../core/constants/ble_constants.dart';
 import '../../core/models/connection_info.dart';
@@ -15,6 +17,9 @@ import 'ble_message_handler.dart';
 import 'ble_state_manager.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../core/services/security_manager.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/security/ephemeral_key_manager.dart';
+import '../../core/security/background_cache_service.dart';
 
 // Helper class to buffer messages until identity exchange completes
 class _BufferedMessage {
@@ -57,7 +62,7 @@ class BLEService {
 
   
   // Discovery management
-  final List<Peripheral> _discoveredDevices = [];
+  List<Peripheral> _discoveredDevices = [];
 
 // Peripheral mode connection tracking
 Central? _connectedCentral;
@@ -161,13 +166,18 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
       centralManager: centralManager,
       peripheralManager: peripheralManager,
     );
+
+    await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
     
     _messageHandler = BLEMessageHandler();
-    
+    BackgroundCacheService.initialize();
+
     // Connect message handler callbacks to state manager
     _messageHandler.onContactRequestReceived = _stateManager.handleContactRequest;
     _messageHandler.onContactAcceptReceived = _stateManager.handleContactAccept;
     _messageHandler.onContactRejectReceived = _stateManager.handleContactReject;
+
+    await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
     
     // Wire up callbacks
      _connectionManager.onConnectionChanged = (device) {
@@ -480,26 +490,22 @@ peripheralManager.mtuChanged.listen((event) {
   _peripheralNegotiatedMTU = event.mtu;
 });
 
-// Store discovery data with advertisements for online detection
-final Map<String, DiscoveredEventArgs> discoveryData = {};
-
 centralManager.discovered.listen((event) {
-   print('🔍 DISCOVERY: Found ${event.peripheral.uuid} with RSSI: ${event.rssi}');
-  final device = event.peripheral;
-  final deviceId = device.uuid.toString();
+  print('🔍 DISCOVERY: Found ${event.peripheral.uuid} with RSSI: ${event.rssi}');
   
-  // Store the full discovery event (includes advertisement data)
-  discoveryData[deviceId] = event;
-  
-  // Remove any existing entry for this device first
-  _discoveredDevices.removeWhere((d) => d.uuid == device.uuid);
-  
-  // Add the fresh entry
-  _discoveredDevices.add(device);
-  
+  // ✅ Use deduplication manager instead of direct list management
+  DeviceDeduplicationManager.processDiscoveredDevice(event);
+});
+
+// ✅ Listen to deduplicated device stream
+DeviceDeduplicationManager.uniqueDevicesStream.listen((uniqueDevices) {
+  _discoveredDevices = uniqueDevices.values.map((d) => d.peripheral).toList();
   _devicesController?.add(List.from(_discoveredDevices));
-  _discoveryDataController?.add(Map.from(discoveryData));
-  _logger.info('Device discovered: $deviceId with advertisement data');
+});
+
+// ✅ Cleanup stale devices periodically
+Timer.periodic(Duration(minutes: 1), (timer) {
+  DeviceDeduplicationManager.removeStaleDevices();
 });
     
     // Connection state changes
@@ -932,9 +938,8 @@ Future<void> _processMessage(
       
       await peripheralManager.addService(service);
       
-      final myPublicKey = await _stateManager.getMyPersistentId();
-      final keyHash = ChatUtils.generatePublicKeyHash(myPublicKey);
-      final hashBytes = ChatUtils.hashToBytes(keyHash);
+      final ephemeralKey = EphemeralKeyManager.generateMyEphemeralKey();
+      final ephemeralBytes = ChatUtils.hashToBytes(ephemeralKey);
 
 final advertisement = Advertisement(
   name: 'BLE Chat Device',
@@ -942,7 +947,7 @@ final advertisement = Advertisement(
   manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
     ManufacturerSpecificData(
       id: 0x2E19, // Our custom manufacturer ID
-      data: hashBytes,
+      data: ephemeralBytes,
     ),
   ],
 );
@@ -1333,11 +1338,21 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
   }
   
   void dispose() {
+  // Dispose ephemeral system components
+  BackgroundCacheService.dispose();
+  DeviceDeduplicationManager.dispose();
+  HintCacheManager.dispose();
+  BatchProcessor.dispose();
+  
+  // Dispose existing components
   _connectionManager.dispose();
   _messageHandler.dispose();
   _stateManager.dispose();
+  
+  // Close all stream controllers
   _devicesController?.close();
   _messagesController?.close();
   _connectionInfoController?.close();
+  _discoveryDataController?.close();
 }
 }

@@ -6,8 +6,8 @@ import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import '../../core/security/signing_manager.dart';
 import '../../core/utils/message_fragmenter.dart';
-import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_state_manager.dart';
@@ -101,19 +101,24 @@ class BLEMessageHandler {
     }
 
     // Sign the original message content (before encryption)
-    final signature = SimpleCrypto.signMessage(message);
+    final trustLevel = await SecurityManager.getCurrentLevel(
+    contactPublicKey ?? '', contactRepository);
+    final signingInfo = SigningManager.getSigningInfo(trustLevel);
+    final signature = SigningManager.signMessage(message, trustLevel);
 
-    final protocolMessage = ProtocolMessage(
-      type: ProtocolMessageType.textMessage,
-      payload: {
-        'messageId': msgId,
-        'content': payload,
-        'encrypted': encryptionMethod != 'none',
-        'encryptionMethod': encryptionMethod,
-      },
-      timestamp: DateTime.now(),
-      signature: signature,
-    );
+  final protocolMessage = ProtocolMessage(
+    type: ProtocolMessageType.textMessage,
+    payload: {
+      'messageId': msgId,
+      'content': payload,
+      'encrypted': encryptionMethod != 'none',
+      'encryptionMethod': encryptionMethod,
+    },
+    timestamp: DateTime.now(),
+    signature: signature,
+    useEphemeralSigning: signingInfo.useEphemeralSigning,
+    ephemeralSigningKey: signingInfo.signingKey,
+  );
 
     final jsonBytes = protocolMessage.toBytes();
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
@@ -210,19 +215,24 @@ Future<bool> sendPeripheralMessage({
     }
 
     // Sign the original message content (before encryption)
-    final signature = SimpleCrypto.signMessage(message);
+    final trustLevel = await SecurityManager.getCurrentLevel(
+    contactPublicKey ?? '', contactRepository);
+    final signingInfo = SigningManager.getSigningInfo(trustLevel);
+    final signature = SigningManager.signMessage(message, trustLevel);
 
-    final protocolMessage = ProtocolMessage(
-      type: ProtocolMessageType.textMessage,
-      payload: {
-        'messageId': msgId,
-        'content': payload,
-        'encrypted': encryptionMethod != 'none',
-        'encryptionMethod': encryptionMethod,
-      },
-      timestamp: DateTime.now(),
-      signature: signature,
-    );
+  final protocolMessage = ProtocolMessage(
+    type: ProtocolMessageType.textMessage,
+    payload: {
+      'messageId': msgId,
+      'content': payload,
+      'encrypted': encryptionMethod != 'none',
+      'encryptionMethod': encryptionMethod,
+    },
+    timestamp: DateTime.now(),
+    signature: signature,
+    useEphemeralSigning: signingInfo.useEphemeralSigning,
+    ephemeralSigningKey: signingInfo.signingKey,
+  );
 
     final jsonBytes = protocolMessage.toBytes();
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
@@ -372,20 +382,43 @@ Future<String?> _processCompleteProtocolMessage(
         }
         
         // Verify signature on decrypted content
-        if (protocolMessage.signature != null && senderPublicKey != null) {
-          final isValid = SimpleCrypto.verifySignature(
-            decryptedContent,
-            protocolMessage.signature!,
-            senderPublicKey
-          );
-          
-          if (!isValid) {
-            _logger.severe('❌ SIGNATURE VERIFICATION FAILED - possible impersonation!');
-            return '[❌ UNTRUSTED MESSAGE - Signature Invalid]';
-          }
-          
-          _logger.info('✅ Signature verified - message authentic');
-        }
+        if (protocolMessage.signature != null) {
+  String verifyingKey;
+  
+  if (protocolMessage.useEphemeralSigning) {
+    // Global message - use ephemeral key from message
+    if (protocolMessage.ephemeralSigningKey == null) {
+      _logger.severe('❌ Ephemeral message missing signing key');
+      return '[❌ Invalid ephemeral message]';
+    }
+    verifyingKey = protocolMessage.ephemeralSigningKey!;
+  } else {
+    // Trusted message - use real key from identity
+    if (senderPublicKey == null) {
+      _logger.severe('❌ Trusted message but no sender identity');
+      return '[❌ Missing sender identity]';
+    }
+    verifyingKey = senderPublicKey;
+  }
+  
+  final isValid = SigningManager.verifySignature(
+    decryptedContent,
+    protocolMessage.signature!,
+    verifyingKey,
+    protocolMessage.useEphemeralSigning
+  );
+  
+  if (!isValid) {
+    _logger.severe('❌ SIGNATURE VERIFICATION FAILED');
+    return '[❌ UNTRUSTED MESSAGE - Signature Invalid]';
+  }
+  
+  if (protocolMessage.useEphemeralSigning) {
+    _logger.info('✅ Ephemeral signature verified - message authentic but anonymous');
+  } else {
+    _logger.info('✅ Real signature verified - message authentic and identified');
+  }
+}
         
         return decryptedContent;
         
