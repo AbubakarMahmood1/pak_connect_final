@@ -74,7 +74,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
   bool get _isRepositoryMode => widget.chatId != null;
-  bool get _isConnectedMode => _isCentralMode || _isPeripheralMode;
+  bool get _isConnectedMode {
+  final bleService = ref.read(bleServiceProvider);
+  final connectionInfo = ref.read(connectionInfoProvider).value;
+  return connectionInfo?.isConnected == true;
+}
 
 String get _displayContactName {
   if (_isRepositoryMode) return widget.contactName!;
@@ -88,46 +92,17 @@ String get _displayContactName {
 }
 
 String? get securityStateKey {
-    print('🐛 NAV DEBUG: securityStateKey getter called');
-    print('🐛 NAV DEBUG: - _isRepositoryMode: $_isRepositoryMode');
-    print('🐛 NAV DEBUG: - widget.contactPublicKey: ${widget.contactPublicKey?.substring(0, 16)}...');
-    print('🐛 NAV DEBUG: - _persistentContactPublicKey: ${_persistentContactPublicKey?.substring(0, 16)}...');
-    
-    if (_isRepositoryMode) {
-      // Always prioritize widget.contactPublicKey if available from widget
-      if (widget.contactPublicKey != null && widget.contactPublicKey!.isNotEmpty) {
-        final key = 'repo_${widget.contactPublicKey}';
-        print('🐛 NAV DEBUG: - returning repo key with widget: $key');
-        return key;
-      }
-      // Fallback to persistent key
-      if (_persistentContactPublicKey != null && _persistentContactPublicKey!.isNotEmpty) {
-        final key = 'repo_$_persistentContactPublicKey';
-        print('🐛 NAV DEBUG: - returning repo key with persistent: $key');
-        return key;
-      }
-      // Final fallback - but this should be rare
-      final fallbackKey = 'repo_${widget.chatId}';
-      print('🐛 NAV DEBUG: - returning repo key with chatId: $fallbackKey');
-      return fallbackKey;
-    } else {
-      // Live connection mode: prioritize widget.contactPublicKey, then persistent key
-      if (widget.contactPublicKey != null && widget.contactPublicKey!.isNotEmpty) {
-        print('🐛 NAV DEBUG: - returning live widget key: ${widget.contactPublicKey!.substring(0, 16)}...');
-        return widget.contactPublicKey;
-      }
-      if (_persistentContactPublicKey != null) {
-        print('🐛 NAV DEBUG: - returning live persistent key: ${_persistentContactPublicKey!.substring(0, 16)}...');
-        return _persistentContactPublicKey;
-      }
-      
-      // Fallback to current connection if persistent not yet set
-      final bleService = ref.read(bleServiceProvider);
-      final fallbackKey = bleService.otherDevicePersistentId;
-      print('🐛 NAV DEBUG: - returning live fallback key: ${fallbackKey?.substring(0, 16) ?? 'NULL'}...');
-      return fallbackKey;
-    }
+  final publicKey = widget.contactPublicKey ?? _persistentContactPublicKey;
+  
+  if (publicKey != null && publicKey.isNotEmpty) {
+    // Force repository lookup for all known contacts
+    return 'repo_$publicKey';
   }
+  
+  // Only use live mode for truly unknown connections
+  final bleService = ref.read(bleServiceProvider);
+  return bleService.otherDevicePersistentId;
+}
 
 @override
   void initState() {
@@ -147,14 +122,24 @@ String? get securityStateKey {
     _loadMessages();
     _loadUnreadCount();
     
-    if (_isConnectedMode) {
-      _setupMessageListener();
-      _setupContactRequestListener();
-    }
+    _checkAndSetupLiveMessaging();
     
     _setupSecurityStateListener();
     print('🐛 NAV DEBUG: ChatScreen initState() completed');
   }
+
+void _checkAndSetupLiveMessaging() {
+  final bleService = ref.read(bleServiceProvider);
+  final connectionInfo = ref.read(connectionInfoProvider).value;
+  
+  if (connectionInfo?.isConnected == true) {
+    _setupMessageListener();
+    _setupContactRequestListener();
+    _logger.info('✅ Live messaging enabled - BLE connection detected');
+  } else {
+    _logger.info('📦 Repository mode only - no BLE connection');
+  }
+}
 
 void _setupSecurityStateListener() {
   final bleService = ref.read(bleServiceProvider);
@@ -1178,7 +1163,6 @@ void _setupContactRequestListener() {
   _messageController.clear();
   
   print('🔧 SEND DEBUG: Attempting to send message: "$text"');
-  print('🔧 SEND DEBUG: _isRepositoryMode: $_isRepositoryMode');
   
   // Create message with sending status
   final message = Message(
@@ -1200,40 +1184,31 @@ void _setupContactRequestListener() {
   try {
     bool success = false;
     
-    if (_isRepositoryMode) {
-      print('🔧 SEND DEBUG: Repository mode - marking as delivered');
-      success = true;
-    } else {
-      // Live connection mode - ALWAYS TRY TO SEND regardless of security level
-      final connectionInfo = ref.read(connectionInfoProvider).value;
+    // FIXED: Check BLE connection regardless of repository mode
+    final connectionInfo = ref.read(connectionInfoProvider).value;
+    final isConnected = connectionInfo?.isConnected == true;
+    final isReady = connectionInfo?.isReady == true;
+    
+    print('🔧 SEND DEBUG: BLE connection check - isConnected: $isConnected, isReady: $isReady');
+    
+    if (isConnected && isReady) {
+      // We have an active BLE connection - send via BLE
+      print('🔧 SEND DEBUG: Active BLE connection detected - sending via BLE');
       
-      print('🔧 SEND DEBUG: Connection info - isConnected: ${connectionInfo?.isConnected}, isReady: ${connectionInfo?.isReady}');
+      final bleService = ref.read(bleServiceProvider);
       
-      if (connectionInfo?.isConnected == true && connectionInfo?.isReady == true) {
-        print('🔧 SEND DEBUG: Connection ready - attempting to send');
-        
-        final bleService = ref.read(bleServiceProvider);
-        
-        if (_isCentralMode) {
-          print('🔧 SEND DEBUG: Using central mode sending');
-          success = await bleService.sendMessage(text, messageId: message.id);
-        } else if (_isPeripheralMode) {
-          print('🔧 SEND DEBUG: Using peripheral mode sending');
-          success = await bleService.sendPeripheralMessage(text, messageId: message.id);
-        } else {
-          print('🔧 SEND DEBUG: No valid connection mode - but attempting anyway');
-          // Try both methods as fallback
-          try {
-            success = await bleService.sendMessage(text, messageId: message.id);
-          } catch (e) {
-            print('🔧 SEND DEBUG: Central send failed, trying peripheral: $e');
-            success = await bleService.sendPeripheralMessage(text, messageId: message.id);
-          }
-        }
+      // Determine mode by checking actual BLE state, not widget parameters
+      if (bleService.stateManager.isPeripheralMode) {
+        print('🔧 SEND DEBUG: Using peripheral mode sending');
+        success = await bleService.sendPeripheralMessage(text, messageId: message.id);
       } else {
-        print('🔧 SEND DEBUG: Not connected - marking as failed for later retry');
-        success = false;
+        print('🔧 SEND DEBUG: Using central mode sending');
+        success = await bleService.sendMessage(text, messageId: message.id);
       }
+    } else {
+      // No BLE connection - store for later or mark as failed
+      print('🔧 SEND DEBUG: No BLE connection - storing message for later retry');
+      success = false; // Will be marked as failed for retry when reconnected
     }
     
     print('🔧 SEND DEBUG: Send result: $success');

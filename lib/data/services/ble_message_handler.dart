@@ -461,31 +461,6 @@ Future<String?> _processCompleteProtocolMessage(
         _logger.info('📱 CONTACT REJECT: Received');
         onContactRejectReceived?.call();
         return null;
-        
-      case ProtocolMessageType.cryptoVerification:
-        // Handle crypto verification challenge
-        final challenge = protocolMessage.cryptoVerificationChallenge;
-        final testMessage = protocolMessage.cryptoVerificationTestMessage;
-        
-        if (challenge != null && testMessage != null) {
-          _logger.info('🔍 CRYPTO VERIFICATION: Received challenge');
-          onCryptoVerificationReceived?.call(challenge, testMessage);
-        }
-        return null;
-        
-      case ProtocolMessageType.cryptoVerificationResponse:
-        // Handle crypto verification response
-        final challenge = protocolMessage.cryptoVerificationResponseChallenge;
-        final decryptedMessage = protocolMessage.cryptoVerificationResponseDecrypted;
-        final success = protocolMessage.cryptoVerificationSuccess;
-        final results = protocolMessage.cryptoVerificationResults;
-        
-        if (challenge != null && decryptedMessage != null) {
-          _logger.info('🔍 CRYPTO VERIFICATION: Received response (success: $success)');
-          onCryptoVerificationResponseReceived?.call(challenge, decryptedMessage, success, results);
-        }
-        return null;
-        
       default:
         return null;
     }

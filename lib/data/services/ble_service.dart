@@ -309,13 +309,13 @@ _stateManager.onSendContactStatus = (message) async {
 };
 
 // Wire crypto verification callbacks
-_stateManager.onSendCryptoVerification = (message) async {
-  await _sendProtocolMessage(message);
-};
+//_stateManager.onSendCryptoVerification = (message) async {
+  //await _sendProtocolMessage(message);
+//};
 
-_stateManager.onSendCryptoVerificationResponse = (message) async {
-  await _sendProtocolMessage(message);
-};
+//_stateManager.onSendCryptoVerificationResponse = (message) async {
+  //await _sendProtocolMessage(message);
+//};
 
 // Replace asymmetric contact detection with mutual consent requirement
 _stateManager.onMutualConsentRequired = (publicKey, displayName) {
@@ -757,24 +757,28 @@ if (protocolMessage.type == ProtocolMessageType.contactStatus) {
     
     // Handle crypto verification messages
     if (protocolMessage.type == ProtocolMessageType.cryptoVerification) {
-      final challenge = protocolMessage.cryptoVerificationChallenge;
-      final testMessage = protocolMessage.cryptoVerificationTestMessage;
-      if (challenge != null && testMessage != null) {
-        await _stateManager.handleCryptoVerificationChallenge(challenge, testMessage);
-      }
-      return;
-    }
+  final challenge = protocolMessage.cryptoVerificationChallenge;
+  final testMessage = protocolMessage.cryptoVerificationTestMessage;
+  if (challenge != null && testMessage != null) {
+    // DISABLED: No longer handle crypto verification challenges
+    _logger.info('🔍 VERIFICATION: Crypto challenge received but challenges disabled - ignoring');
+    // await _stateManager.handleCryptoVerificationChallenge(challenge, testMessage);
+  }
+  return;
+}
     
     if (protocolMessage.type == ProtocolMessageType.cryptoVerificationResponse) {
-      final challenge = protocolMessage.cryptoVerificationResponseChallenge;
-      final decryptedMessage = protocolMessage.cryptoVerificationResponseDecrypted;
-      final success = protocolMessage.cryptoVerificationSuccess;
-      final results = protocolMessage.cryptoVerificationResults;
-      if (challenge != null && decryptedMessage != null) {
-        await _stateManager.handleCryptoVerificationResponse(challenge, decryptedMessage, success, results);
-      }
-      return;
-    }
+  final challenge = protocolMessage.cryptoVerificationResponseChallenge;
+  final decryptedMessage = protocolMessage.cryptoVerificationResponseDecrypted;
+  final success = protocolMessage.cryptoVerificationSuccess;
+  final results = protocolMessage.cryptoVerificationResults;
+  if (challenge != null && decryptedMessage != null) {
+    // DISABLED: No longer handle crypto verification responses
+    _logger.info('🔍 VERIFICATION: Crypto response received but challenges disabled - ignoring');
+    // await _stateManager.handleCryptoVerificationResponse(challenge, decryptedMessage, success, results);
+  }
+  return;
+}
     
   } catch (e) {
     // Not a protocol message, continue to regular message processing
