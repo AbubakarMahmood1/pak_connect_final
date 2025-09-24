@@ -1,4 +1,4 @@
-// WhatsApp-inspired chat management system with comprehensive message operations
+// WhatsApp-inspired chat management system with comprehensive message operations and archive integration
 
 import 'dart:async';
 import 'dart:convert';
@@ -6,9 +6,15 @@ import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/message_repository.dart';
+import '../../data/repositories/archive_repository.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/chat_list_item.dart';
+import '../../domain/entities/archived_chat.dart';
+import '../../domain/entities/archived_message.dart';
+import '../../core/models/archive_models.dart';
+import 'archive_management_service.dart';
+import 'archive_search_service.dart';
 
 /// Comprehensive chat management service with WhatsApp-inspired features
 class ChatManagementService {
@@ -16,6 +22,9 @@ class ChatManagementService {
   
   final ChatsRepository _chatsRepository = ChatsRepository();
   final MessageRepository _messageRepository = MessageRepository();
+  final ArchiveRepository _archiveRepository = ArchiveRepository();
+  final ArchiveManagementService _archiveManagementService = ArchiveManagementService();
+  final ArchiveSearchService _archiveSearchService = ArchiveSearchService();
   
   static const String _starredMessagesKey = 'starred_messages';
   static const String _archivedChatsKey = 'archived_chats';
@@ -41,7 +50,13 @@ class ChatManagementService {
   /// Initialize chat management service
   Future<void> initialize() async {
     await _loadCachedData();
-    _logger.info('Chat management service initialized');
+    
+    // Initialize archive services
+    await _archiveRepository.initialize();
+    await _archiveManagementService.initialize();
+    await _archiveSearchService.initialize();
+    
+    _logger.info('Chat management service initialized with archive support');
   }
   
   /// Get all chats with enhanced filtering and sorting
@@ -68,7 +83,7 @@ class ChatManagementService {
     }
   }
   
-  /// Search messages across all chats or within specific chat
+  /// Search messages across all chats or within specific chat (backward compatible)
   Future<MessageSearchResult> searchMessages({
     required String query,
     String? chatId,
@@ -128,8 +143,108 @@ class ChatManagementService {
       );
       
     } catch (e) {
-      _logger.severe('Message search failed: $e');
+      _logger.severe('Unified message search failed: $e');
       return MessageSearchResult.empty();
+    }
+  }
+  
+  /// Search messages across all chats including archives
+  Future<UnifiedSearchResult> searchMessagesUnified({
+    required String query,
+    String? chatId,
+    MessageSearchFilter? filter,
+    bool includeArchives = false,
+    int limit = 50,
+  }) async {
+    try {
+      final startTime = DateTime.now();
+      
+      if (query.trim().isEmpty) {
+        return UnifiedSearchResult.empty();
+      }
+      
+      // Add to search history
+      _addToMessageSearchHistory(query);
+      
+      List<EnhancedMessage> liveResults = [];
+      List<ArchivedMessage> archiveResults = [];
+      
+      if (chatId != null) {
+        // Search within specific chat
+        final messages = await _messageRepository.getMessages(chatId);
+        liveResults = messages.map((m) => EnhancedMessage.fromMessage(m)).toList();
+      } else {
+        // Search across all live chats
+        final chats = await _chatsRepository.getAllChats();
+        for (final chat in chats) {
+          final messages = await _messageRepository.getMessages(chat.chatId);
+          liveResults.addAll(messages.map((m) => EnhancedMessage.fromMessage(m)));
+        }
+      }
+      
+      // Perform text search on live messages
+      var filteredLiveResults = _performMessageTextSearch(liveResults, query);
+      
+      // Apply additional filters to live results
+      if (filter != null) {
+        filteredLiveResults = _applyMessageSearchFilter(filteredLiveResults, filter);
+      }
+      
+      // Search archives if requested
+      if (includeArchives) {
+        try {
+          final archiveFilter = _convertToArchiveFilter(filter, chatId);
+          final archiveSearchResult = await _archiveSearchService.search(
+            query: query,
+            filter: archiveFilter,
+            limit: limit,
+          );
+          archiveResults = archiveSearchResult.messages;
+        } catch (e) {
+          _logger.warning('Archive search failed: $e');
+        }
+      }
+      
+      // Combine and limit results
+      final totalLiveResults = filteredLiveResults.length;
+      final totalArchiveResults = archiveResults.length;
+      final totalResults = totalLiveResults + totalArchiveResults;
+      
+      if (totalResults > limit) {
+        // Proportionally limit results
+        final liveLimit = ((totalLiveResults / totalResults) * limit).round();
+        final archiveLimit = limit - liveLimit;
+        
+        if (filteredLiveResults.length > liveLimit) {
+          filteredLiveResults = filteredLiveResults.take(liveLimit).toList();
+        }
+        if (archiveResults.length > archiveLimit) {
+          archiveResults = archiveResults.take(archiveLimit).toList();
+        }
+      }
+      
+      // Group results by chats
+      final liveResultsByChat = _groupResultsByChat(filteredLiveResults);
+      final archiveResultsByChat = _groupArchiveResultsByChat(archiveResults);
+      
+      final searchTime = DateTime.now().difference(startTime);
+      
+      return UnifiedSearchResult(
+        liveResults: filteredLiveResults,
+        archiveResults: archiveResults,
+        liveResultsByChat: liveResultsByChat,
+        archiveResultsByChat: archiveResultsByChat,
+        query: query,
+        totalLiveResults: filteredLiveResults.length,
+        totalArchiveResults: archiveResults.length,
+        searchTime: searchTime,
+        hasMore: totalResults < (liveResults.length + (includeArchives ? 1000 : 0)), // Estimate
+        includeArchives: includeArchives,
+      );
+      
+    } catch (e) {
+      _logger.severe('Unified message search failed: $e');
+      return UnifiedSearchResult.empty();
     }
   }
   
@@ -235,19 +350,65 @@ class ChatManagementService {
     }
   }
   
-  /// Archive/unarchive chat
-  Future<ChatOperationResult> toggleChatArchive(String chatId) async {
+  /// Archive/unarchive chat with enhanced archive system
+  Future<ChatOperationResult> toggleChatArchive(String chatId, {
+    String? reason,
+    bool useEnhancedArchive = true,
+  }) async {
     try {
       if (_archivedChats.contains(chatId)) {
+        // Unarchive (restore if enhanced)
+        if (useEnhancedArchive) {
+          // Find archive by original chat ID
+          final archives = await _archiveRepository.getArchivedChats(
+            filter: ArchiveSearchFilter(contactFilter: chatId),
+          );
+          
+          if (archives.isNotEmpty) {
+            final archiveToRestore = archives.first;
+            final restoreResult = await _archiveManagementService.restoreChat(
+              archiveId: archiveToRestore.id,
+            );
+            
+            if (restoreResult.success) {
+              _archivedChats.remove(chatId);
+              await _saveArchivedChats();
+              _chatUpdatesController.add(ChatUpdateEvent.unarchived(chatId));
+              return ChatOperationResult.success('Chat restored from enhanced archive');
+            } else {
+              return ChatOperationResult.failure('Failed to restore enhanced archive: ${restoreResult.message}');
+            }
+          }
+        }
+        
+        // Fallback to simple unarchive
         _archivedChats.remove(chatId);
         await _saveArchivedChats();
         _chatUpdatesController.add(ChatUpdateEvent.unarchived(chatId));
         return ChatOperationResult.success('Chat unarchived');
       } else {
-        _archivedChats.add(chatId);
-        await _saveArchivedChats();
-        _chatUpdatesController.add(ChatUpdateEvent.archived(chatId));
-        return ChatOperationResult.success('Chat archived');
+        // Archive with enhanced system
+        if (useEnhancedArchive) {
+          final archiveResult = await _archiveManagementService.archiveChat(
+            chatId: chatId,
+            reason: reason ?? 'User archived via chat management',
+          );
+          
+          if (archiveResult.success) {
+            _archivedChats.add(chatId);
+            await _saveArchivedChats();
+            _chatUpdatesController.add(ChatUpdateEvent.archived(chatId));
+            return ChatOperationResult.success('Chat archived with enhanced system');
+          } else {
+            return ChatOperationResult.failure('Enhanced archive failed: ${archiveResult.message}');
+          }
+        } else {
+          // Simple archive
+          _archivedChats.add(chatId);
+          await _saveArchivedChats();
+          _chatUpdatesController.add(ChatUpdateEvent.archived(chatId));
+          return ChatOperationResult.success('Chat archived');
+        }
       }
     } catch (e) {
       return ChatOperationResult.failure('Failed to toggle archive: $e');
@@ -764,10 +925,256 @@ class ChatManagementService {
     }
   }
   
+  // Private helper methods for archive integration
+  
+  ArchiveSearchFilter? _convertToArchiveFilter(MessageSearchFilter? filter, String? chatId) {
+    if (filter == null && chatId == null) return null;
+    
+    return ArchiveSearchFilter(
+      contactFilter: chatId,
+      messageTypeFilter: filter != null ? ArchiveMessageTypeFilter(
+        isFromMe: filter.fromMe,
+        hasAttachments: filter.hasAttachments,
+        wasStarred: filter.isStarred,
+      ) : null,
+      dateRange: filter?.dateRange != null ? ArchiveDateRange(
+        start: filter!.dateRange!.start,
+        end: filter.dateRange!.end,
+      ) : null,
+    );
+  }
+  
+  MessageSearchFilter? _convertFromArchiveFilter(ArchiveSearchFilter? filter) {
+    if (filter == null) return null;
+    
+    return MessageSearchFilter(
+      fromMe: filter.messageTypeFilter?.isFromMe,
+      hasAttachments: filter.messageTypeFilter?.hasAttachments,
+      isStarred: filter.messageTypeFilter?.wasStarred,
+      dateRange: filter.dateRange != null ? DateTimeRange(
+        start: filter.dateRange!.start,
+        end: filter.dateRange!.end,
+      ) : null,
+    );
+  }
+  
+  Map<String, List<ArchivedMessage>> _groupArchiveResultsByChat(List<ArchivedMessage> results) {
+    final grouped = <String, List<ArchivedMessage>>{};
+    
+    for (final message in results) {
+      grouped.putIfAbsent(message.chatId, () => []).add(message);
+    }
+    
+    return grouped;
+  }
+  
+  AdvancedSearchResult _convertToAdvancedSearchResult(UnifiedSearchResult legacyResult, String query) {
+    // Convert unified result to advanced result format
+    final archiveResult = ArchiveSearchResult.fromResults(
+      messages: legacyResult.archiveResults,
+      chats: [], // Would need to populate from archive data
+      query: query,
+      searchTime: legacyResult.searchTime,
+    );
+    
+    return AdvancedSearchResult.fromSearchResult(
+      searchResult: archiveResult,
+      query: query,
+      searchTime: legacyResult.searchTime,
+      suggestions: [],
+    );
+  }
+  
+  ArchivedChatAnalytics _calculateArchivedChatAnalytics(ArchivedChat archive) {
+    final totalMessages = archive.messageCount;
+    final myMessages = archive.messages.where((m) => m.isFromMe).length;
+    final theirMessages = totalMessages - myMessages;
+    final starredCount = archive.messages.where((m) => m.isStarred).length;
+    
+    return ArchivedChatAnalytics(
+      archiveId: archive.id,
+      totalMessages: totalMessages,
+      myMessages: myMessages,
+      theirMessages: theirMessages,
+      starredMessages: starredCount,
+      archivedAt: archive.archivedAt,
+      originalDateRange: archive.lastMessageTime != null && archive.messages.isNotEmpty
+        ? DateTimeRange(
+            start: archive.messages.map((m) => m.originalTimestamp).reduce((a, b) => a.isBefore(b) ? a : b),
+            end: archive.lastMessageTime!,
+          )
+        : null,
+      averageMessageLength: archive.messages.isNotEmpty
+        ? archive.messages.map((m) => m.content.length).reduce((a, b) => a + b) / archive.messages.length
+        : 0.0,
+      compressionRatio: archive.compressionInfo?.compressionRatio ?? 1.0,
+    );
+  }
+  
+  CombinedChatMetrics _calculateCombinedMetrics(ChatAnalytics liveAnalytics, ArchivedChatAnalytics? archiveAnalytics) {
+    final totalLiveMessages = liveAnalytics.totalMessages;
+    final totalArchivedMessages = archiveAnalytics?.totalMessages ?? 0;
+    final totalMessages = totalLiveMessages + totalArchivedMessages;
+    
+    return CombinedChatMetrics(
+      totalMessages: totalMessages,
+      liveMessages: totalLiveMessages,
+      archivedMessages: totalArchivedMessages,
+      archivePercentage: totalMessages > 0 ? (totalArchivedMessages / totalMessages) * 100 : 0.0,
+      hasArchives: archiveAnalytics != null,
+      oldestMessage: _getOldestMessageDate(liveAnalytics, archiveAnalytics),
+      newestMessage: _getNewestMessageDate(liveAnalytics, archiveAnalytics),
+    );
+  }
+  
+  DateTime? _getOldestMessageDate(ChatAnalytics liveAnalytics, ArchivedChatAnalytics? archiveAnalytics) {
+    final liveOldest = liveAnalytics.firstMessage;
+    final archivedOldest = archiveAnalytics?.originalDateRange?.start;
+    
+    if (liveOldest == null && archivedOldest == null) return null;
+    if (liveOldest == null) return archivedOldest;
+    if (archivedOldest == null) return liveOldest;
+    
+    return liveOldest.isBefore(archivedOldest) ? liveOldest : archivedOldest;
+  }
+  
+  DateTime? _getNewestMessageDate(ChatAnalytics liveAnalytics, ArchivedChatAnalytics? archiveAnalytics) {
+    final liveNewest = liveAnalytics.lastMessage;
+    final archivedNewest = archiveAnalytics?.originalDateRange?.end;
+    
+    if (liveNewest == null && archivedNewest == null) return null;
+    if (liveNewest == null) return archivedNewest;
+    if (archivedNewest == null) return liveNewest;
+    
+    return liveNewest.isAfter(archivedNewest) ? liveNewest : archivedNewest;
+  }
+  
+  /// Get archive management service for advanced operations
+  ArchiveManagementService get archiveManager => _archiveManagementService;
+  
+  /// Get archive search service for advanced search
+  ArchiveSearchService get archiveSearch => _archiveSearchService;
+  
+  /// Search across both live and archived content with advanced options
+  Future<AdvancedSearchResult> performAdvancedSearch({
+    required String query,
+    ArchiveSearchFilter? filter,
+    SearchOptions? options,
+    bool includeLive = true,
+    bool includeArchives = true,
+  }) async {
+    try {
+      if (includeArchives) {
+        return await _archiveSearchService.search(
+          query: query,
+          filter: filter,
+          options: options,
+        );
+      } else if (includeLive) {
+        // Convert to unified search for live content
+        final unifiedResult = await searchMessagesUnified(
+          query: query,
+          filter: _convertFromArchiveFilter(filter),
+          includeArchives: false,
+        );
+        
+        // Convert to AdvancedSearchResult format
+        return _convertToAdvancedSearchResult(unifiedResult, query);
+      } else {
+        return AdvancedSearchResult.error(
+          query: query,
+          error: 'No search scope specified',
+          searchTime: Duration.zero,
+        );
+      }
+    } catch (e) {
+      _logger.severe('Advanced search failed: $e');
+      return AdvancedSearchResult.error(
+        query: query,
+        error: 'Advanced search failed: $e',
+        searchTime: Duration.zero,
+      );
+    }
+  }
+  
+  /// Get comprehensive chat analytics including archive data
+  Future<ComprehensiveChatAnalytics> getComprehensiveChatAnalytics(String chatId) async {
+    try {
+      // Get live chat analytics
+      final liveAnalytics = await getChatAnalytics(chatId);
+      
+      // Get archive analytics
+      ArchivedChatAnalytics? archiveAnalytics;
+      try {
+        final archives = await _archiveRepository.getArchivedChats(
+          filter: ArchiveSearchFilter(contactFilter: chatId),
+        );
+        
+        if (archives.isNotEmpty) {
+          final archive = await _archiveRepository.getArchivedChat(archives.first.id);
+          if (archive != null) {
+            archiveAnalytics = _calculateArchivedChatAnalytics(archive);
+          }
+        }
+      } catch (e) {
+        _logger.warning('Failed to get archive analytics: $e');
+      }
+      
+      return ComprehensiveChatAnalytics(
+        chatId: chatId,
+        liveAnalytics: liveAnalytics,
+        archiveAnalytics: archiveAnalytics,
+        combinedMetrics: _calculateCombinedMetrics(liveAnalytics, archiveAnalytics),
+      );
+      
+    } catch (e) {
+      _logger.severe('Failed to get comprehensive analytics: $e');
+      return ComprehensiveChatAnalytics.error(chatId);
+    }
+  }
+  
+  /// Archive multiple chats in batch
+  Future<BatchArchiveResult> batchArchiveChats({
+    required List<String> chatIds,
+    String? reason,
+    bool useEnhancedArchive = true,
+  }) async {
+    final results = <String, ChatOperationResult>{};
+    
+    for (final chatId in chatIds) {
+      try {
+        final result = await toggleChatArchive(
+          chatId,
+          reason: reason,
+          useEnhancedArchive: useEnhancedArchive,
+        );
+        results[chatId] = result;
+      } catch (e) {
+        results[chatId] = ChatOperationResult.failure('Batch archive failed: $e');
+      }
+    }
+    
+    final successful = results.values.where((r) => r.success).length;
+    final failed = results.length - successful;
+    
+    return BatchArchiveResult(
+      results: results,
+      totalProcessed: chatIds.length,
+      successful: successful,
+      failed: failed,
+    );
+  }
+  
   /// Dispose of resources
-  void dispose() {
-    _chatUpdatesController.close();
-    _messageUpdatesController.close();
+  Future<void> dispose() async {
+    await _chatUpdatesController.close();
+    await _messageUpdatesController.close();
+    
+    // Dispose archive services
+    await _archiveManagementService.dispose();
+    await _archiveSearchService.dispose();
+    _archiveRepository.dispose();
+    
     _logger.info('Chat management service disposed');
   }
 }
@@ -961,6 +1368,176 @@ class _MessageDeleted extends MessageUpdateEvent {
   _MessageDeleted(String messageId, this.chatId) : super(messageId, DateTime.now());
 }
 
+// Extended data classes for archive integration
+
+/// Unified search result combining live and archived content
+class UnifiedSearchResult {
+  final List<EnhancedMessage> liveResults;
+  final List<ArchivedMessage> archiveResults;
+  final Map<String, List<EnhancedMessage>> liveResultsByChat;
+  final Map<String, List<ArchivedMessage>> archiveResultsByChat;
+  final String query;
+  final int totalLiveResults;
+  final int totalArchiveResults;
+  final Duration searchTime;
+  final bool hasMore;
+  final bool includeArchives;
+  
+  const UnifiedSearchResult({
+    required this.liveResults,
+    required this.archiveResults,
+    required this.liveResultsByChat,
+    required this.archiveResultsByChat,
+    required this.query,
+    required this.totalLiveResults,
+    required this.totalArchiveResults,
+    required this.searchTime,
+    required this.hasMore,
+    required this.includeArchives,
+  });
+  
+  factory UnifiedSearchResult.empty() => const UnifiedSearchResult(
+    liveResults: [],
+    archiveResults: [],
+    liveResultsByChat: {},
+    archiveResultsByChat: {},
+    query: '',
+    totalLiveResults: 0,
+    totalArchiveResults: 0,
+    searchTime: Duration.zero,
+    hasMore: false,
+    includeArchives: false,
+  );
+  
+  int get totalResults => totalLiveResults + totalArchiveResults;
+  bool get hasResults => totalResults > 0;
+  bool get hasLiveResults => totalLiveResults > 0;
+  bool get hasArchiveResults => totalArchiveResults > 0;
+}
+
+/// Comprehensive chat analytics including live and archived data
+class ComprehensiveChatAnalytics {
+  final String chatId;
+  final ChatAnalytics liveAnalytics;
+  final ArchivedChatAnalytics? archiveAnalytics;
+  final CombinedChatMetrics combinedMetrics;
+  final String? error;
+  
+  const ComprehensiveChatAnalytics({
+    required this.chatId,
+    required this.liveAnalytics,
+    this.archiveAnalytics,
+    required this.combinedMetrics,
+    this.error,
+  });
+  
+  factory ComprehensiveChatAnalytics.error(String chatId) => ComprehensiveChatAnalytics(
+    chatId: chatId,
+    liveAnalytics: ChatAnalytics.empty(chatId),
+    combinedMetrics: CombinedChatMetrics.empty(),
+    error: 'Failed to generate comprehensive analytics',
+  );
+  
+  bool get hasError => error != null;
+  bool get hasArchiveData => archiveAnalytics != null;
+  double get totalConversationDurationDays => combinedMetrics.conversationDurationDays;
+}
+
+/// Analytics for archived chat data
+class ArchivedChatAnalytics {
+  final String archiveId;
+  final int totalMessages;
+  final int myMessages;
+  final int theirMessages;
+  final int starredMessages;
+  final DateTime archivedAt;
+  final DateTimeRange? originalDateRange;
+  final double averageMessageLength;
+  final double compressionRatio;
+  
+  const ArchivedChatAnalytics({
+    required this.archiveId,
+    required this.totalMessages,
+    required this.myMessages,
+    required this.theirMessages,
+    required this.starredMessages,
+    required this.archivedAt,
+    this.originalDateRange,
+    required this.averageMessageLength,
+    required this.compressionRatio,
+  });
+  
+  Duration? get originalConversationDuration => originalDateRange?.duration;
+  double get messageDistribution => totalMessages > 0 ? myMessages / totalMessages : 0.0;
+}
+
+/// Combined metrics from live and archived data
+class CombinedChatMetrics {
+  final int totalMessages;
+  final int liveMessages;
+  final int archivedMessages;
+  final double archivePercentage;
+  final bool hasArchives;
+  final DateTime? oldestMessage;
+  final DateTime? newestMessage;
+  
+  const CombinedChatMetrics({
+    required this.totalMessages,
+    required this.liveMessages,
+    required this.archivedMessages,
+    required this.archivePercentage,
+    required this.hasArchives,
+    this.oldestMessage,
+    this.newestMessage,
+  });
+  
+  factory CombinedChatMetrics.empty() => const CombinedChatMetrics(
+    totalMessages: 0,
+    liveMessages: 0,
+    archivedMessages: 0,
+    archivePercentage: 0.0,
+    hasArchives: false,
+  );
+  
+  Duration? get totalConversationDuration => oldestMessage != null && newestMessage != null
+    ? newestMessage!.difference(oldestMessage!)
+    : null;
+  
+  double get conversationDurationDays => totalConversationDuration?.inDays.toDouble() ?? 0.0;
+  
+  bool get isPrimarilyArchived => archivePercentage > 50.0;
+}
+
+/// Result of batch archive operation
+class BatchArchiveResult {
+  final Map<String, ChatOperationResult> results;
+  final int totalProcessed;
+  final int successful;
+  final int failed;
+  
+  const BatchArchiveResult({
+    required this.results,
+    required this.totalProcessed,
+    required this.successful,
+    required this.failed,
+  });
+  
+  bool get allSuccessful => failed == 0;
+  bool get allFailed => successful == 0;
+  bool get partialSuccess => successful > 0 && failed > 0;
+  double get successRate => totalProcessed > 0 ? successful / totalProcessed : 0.0;
+  
+  List<String> get successfulChatIds => results.entries
+    .where((entry) => entry.value.success)
+    .map((entry) => entry.key)
+    .toList();
+    
+  List<String> get failedChatIds => results.entries
+    .where((entry) => !entry.value.success)
+    .map((entry) => entry.key)
+    .toList();
+}
+
 extension _FirstWhereOrNull<T> on Iterable<T> {
   T? get firstOrNull {
     final iterator = this.iterator;
@@ -969,4 +1546,8 @@ extension _FirstWhereOrNull<T> on Iterable<T> {
     }
     return null;
   }
+}
+
+extension DateTimeRangeExtension on DateTimeRange {
+  Duration get duration => end.difference(start);
 }

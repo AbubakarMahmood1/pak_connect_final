@@ -1,6 +1,6 @@
 # Project Structure: lib 
  
-Generated on: Wed 09/17/2025 15:01:11.24 
+Generated on: Mon 09/22/2025 22:14:47.68 
 Location: C:\Users\theab\OneDrive\Desktop\pak_connect\lib 
  
 ```tree 
@@ -17,16 +17,26 @@ C:.
 |   +---constants
 |   |       ble_constants.dart
 |   |       
+|   +---demo
+|   |       mesh_demo_utils.dart
+|   |       
+|   +---discovery
+|   |       batch_processor.dart
+|   |       device_deduplication_manager.dart
+|   |       
 |   +---integration
 |   |       app_integration_service.dart
 |   |       
 |   +---messaging
+|   |       mesh_relay_engine.dart
 |   |       offline_message_queue.dart
+|   |       queue_sync_manager.dart
 |   |       
 |   +---models
 |   |       connection_info.dart
 |   |       connection_state.dart
 |   |       connection_status.dart
+|   |       mesh_relay_models.dart
 |   |       message_priority.dart
 |   |       message_queue.dart
 |   |       pairing_state.dart
@@ -39,9 +49,16 @@ C:.
 |   |       
 |   +---power
 |   |       adaptive_power_manager.dart
+|   |       ephemeral_power_manager.dart
 |   |       
 |   +---security
+|   |       background_cache_service.dart
+|   |       contact_recognizer.dart
+|   |       ephemeral_key_manager.dart
+|   |       hint_cache_manager.dart
 |   |       message_security.dart
+|   |       signing_manager.dart
+|   |       spam_prevention_manager.dart
 |   |       
 |   +---services
 |   |       security_manager.dart
@@ -75,11 +92,13 @@ C:.
 |   \---services
 |           chat_management_service.dart
 |           contact_management_service.dart
+|           mesh_networking_service.dart
 |           security_state_computer.dart
 |           
 \---presentation
     +---providers
     |       ble_providers.dart
+    |       mesh_networking_provider.dart
     |       security_state_provider.dart
     |       
     +---screens
@@ -120,16 +139,26 @@ C:.
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\constants** 
 - ble_constants.dart 
  
+**C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\demo** 
+- mesh_demo_utils.dart 
+ 
+**C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\discovery** 
+- batch_processor.dart 
+- device_deduplication_manager.dart 
+ 
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\integration** 
 - app_integration_service.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\messaging** 
+- mesh_relay_engine.dart 
 - offline_message_queue.dart 
+- queue_sync_manager.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\models** 
 - connection_info.dart 
 - connection_state.dart 
 - connection_status.dart 
+- mesh_relay_models.dart 
 - message_priority.dart 
 - message_queue.dart 
 - pairing_state.dart 
@@ -142,9 +171,16 @@ C:.
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\power** 
 - adaptive_power_manager.dart 
+- ephemeral_power_manager.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\security** 
+- background_cache_service.dart 
+- contact_recognizer.dart 
+- ephemeral_key_manager.dart 
+- hint_cache_manager.dart 
 - message_security.dart 
+- signing_manager.dart 
+- spam_prevention_manager.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\core\services** 
 - security_manager.dart 
@@ -176,10 +212,12 @@ C:.
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\domain\services** 
 - chat_management_service.dart 
 - contact_management_service.dart 
+- mesh_networking_service.dart 
 - security_state_computer.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\presentation\providers** 
 - ble_providers.dart 
+- mesh_networking_provider.dart 
 - security_state_provider.dart 
  
 **C:\Users\theab\OneDrive\Desktop\pak_connect\lib\presentation\screens** 

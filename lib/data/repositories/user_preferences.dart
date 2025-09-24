@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:logging/logging.dart';
 import 'dart:typed_data';
+import 'dart:async';
 
 class UserPreferences {
   static final _logger = Logger('UserPreferences');
@@ -11,18 +12,37 @@ class UserPreferences {
   static const String _publicKeyKey = 'ecdh_public_key_v2';
   static const String _privateKeyKey = 'ecdh_private_key_v2';
   
+  // USERNAME PROPAGATION FIX: Stream controller for reactive updates
+  static StreamController<String>? _usernameStreamController;
+  
+  /// Get username change stream for reactive updates
+  static Stream<String> get usernameStream {
+    _usernameStreamController ??= StreamController<String>.broadcast();
+    return _usernameStreamController!.stream;
+  }
+  
   Future<String> getUserName() async {
-  final prefs = await SharedPreferences.getInstance();
-  final name = prefs.getString(_userNameKey) ?? 'User';
-  _logger.fine('🔧 NAME DEBUG: Retrieved from SharedPreferences: "$name"');
-  return name;
-}
+    final prefs = await SharedPreferences.getInstance();
+    final name = prefs.getString(_userNameKey) ?? 'User';
+    _logger.fine('🔧 NAME DEBUG: Retrieved from SharedPreferences: "$name"');
+    return name;
+  }
   
   Future<void> setUserName(String name) async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString(_userNameKey, name.trim());
-  _logger.fine('🔧 NAME DEBUG: Saved to SharedPreferences: "${name.trim()}"');
-}
+    final prefs = await SharedPreferences.getInstance();
+    final trimmedName = name.trim();
+    await prefs.setString(_userNameKey, trimmedName);
+    _logger.fine('🔧 NAME DEBUG: Saved to SharedPreferences: "$trimmedName"');
+    
+    // USERNAME PROPAGATION FIX: Notify reactive listeners
+    _usernameStreamController?.add(trimmedName);
+  }
+  
+  /// Clean up stream controller
+  static void dispose() {
+    _usernameStreamController?.close();
+    _usernameStreamController = null;
+  }
   
   // Get or create persistent device ID
 Future<String> getOrCreateDeviceId() async {

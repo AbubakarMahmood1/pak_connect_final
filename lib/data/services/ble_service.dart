@@ -21,6 +21,13 @@ import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/security/background_cache_service.dart';
 
+/// Enum to track the source of scanning requests for better coordination
+enum ScanningSource {
+  manual,        // User-initiated scanning (DiscoveryOverlay)
+  burst,         // Adaptive power manager burst scanning
+  system,        // Other system-initiated scanning
+}
+
 // Helper class to buffer messages until identity exchange completes
 class _BufferedMessage {
   final Uint8List data;
@@ -77,6 +84,7 @@ String? extractedMessageId;
 final List<_BufferedMessage> _messageBuffer = [];
 
   bool _isDiscoveryActive = false;
+  ScanningSource? _currentScanningSource;
   
   // Stream getters
   Stream<ConnectionInfo> get connectionInfo => _connectionInfoController!.stream;
@@ -178,6 +186,13 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     _messageHandler.onContactRejectReceived = _stateManager.handleContactReject;
 
     await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
+    
+    // CRITICAL FIX: Initialize message handler with current node ID
+    final myNodeId = await _stateManager.getMyPersistentId();
+    print('🔧 BLE SERVICE: Initializing message handler with node ID: ${myNodeId.substring(0, 16)}...');
+    
+    // Initialize the message handler with the current node ID for proper routing
+    _messageHandler.setCurrentNodeId(myNodeId);
     
     // Wire up callbacks
      _connectionManager.onConnectionChanged = (device) {
@@ -1009,50 +1024,71 @@ final advertisement = Advertisement(
   _logger.info('Switched to central mode');
 }
   
- Future<void> startScanning() async {
+ Future<void> startScanning({ScanningSource source = ScanningSource.system}) async {
   if (_stateManager.isPeripheralMode) {
     throw Exception('Cannot scan while in peripheral mode');
   }
   
-  // 🔍 CHECK: Prevent double discovery
+  // 🔧 ENHANCED: Check for scanning conflicts with better logging
   if (_isDiscoveryActive) {
-    _logger.info('🔍 Discovery already active - skipping startScanning request');
-    return;
+    final currentSource = _currentScanningSource?.name ?? 'unknown';
+    final newSource = source.name;
+    
+    if (_currentScanningSource != source) {
+      _logger.warning('🔍 Scanning conflict detected: ${newSource} scanning requested while ${currentSource} scanning is active');
+      _logger.info('🔍 Coordination: Allowing ${newSource} to take over from ${currentSource}');
+      
+      // Allow manual scanning to interrupt burst scanning for better UX
+      if (source == ScanningSource.manual && _currentScanningSource == ScanningSource.burst) {
+        _logger.info('🔍 Manual scanning takes priority over burst scanning - stopping current scan');
+        await stopScanning();
+      } else {
+        _logger.info('🔍 Discovery already active from ${currentSource} - skipping ${newSource} request');
+        return;
+      }
+    } else {
+      _logger.info('🔍 Discovery already active from same source (${currentSource}) - skipping request');
+      return;
+    }
   }
   
   _discoveredDevices.clear();
   _devicesController?.add([]);
+  _currentScanningSource = source;
   
-  _logger.info('Starting BLE scan...');
+  _logger.info('🔍 Starting ${source.name} BLE scan...');
   _updateConnectionInfo(
     isScanning: true, 
     statusMessage: isConnected ? 'Ready to chat' : 'Scanning for devices...'
   );
   
-  print('🔍 DEBUG: startScanning called - _isDiscoveryActive: $_isDiscoveryActive, isPeripheralMode: ${_stateManager.isPeripheralMode}');
+  print('🔍 DEBUG: startScanning called - source: ${source.name}, _isDiscoveryActive: $_isDiscoveryActive, isPeripheralMode: ${_stateManager.isPeripheralMode}');
 
   try {
     _isDiscoveryActive = true;
     await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
-    _logger.info('🔍 Discovery started successfully');
+    _logger.info('🔍 ${source.name.toUpperCase()} discovery started successfully');
   } catch (e) {
     _isDiscoveryActive = false;
+    _currentScanningSource = null;
     _updateConnectionInfo(isScanning: false);
     rethrow;
   }
 }
 
 Future<void> stopScanning() async {
-  _logger.info('Stopping BLE scan...');
+  final currentSource = _currentScanningSource?.name ?? 'unknown';
+  _logger.info('🔍 Stopping ${currentSource} BLE scan...');
   
   if (_isDiscoveryActive) {
     try {
       await centralManager.stopDiscovery();
-      _logger.info('🔍 Discovery stopped successfully');
+      _logger.info('🔍 ${currentSource.toUpperCase()} discovery stopped successfully');
     } catch (e) {
-      _logger.warning('🔍 Error stopping discovery: $e');
+      _logger.warning('🔍 Error stopping ${currentSource} discovery: $e');
     } finally {
       _isDiscoveryActive = false;
+      _currentScanningSource = null; // 🔧 NEW: Clear scanning source
     }
   }
   
@@ -1100,6 +1136,65 @@ Future<void> requestIdentityExchange() async {
   
   _logger.info('Manually requesting identity exchange');
   await _sendIdentityExchange();
+}
+
+/// USERNAME PROPAGATION FIX: Enhanced identity re-exchange for real-time username updates
+Future<void> triggerIdentityReExchange() async {
+  _logger.info('🔄 USERNAME PROPAGATION: Triggering identity re-exchange for updated username');
+  
+  try {
+    // Force reload username from storage to ensure we have the latest
+    await _stateManager.loadUserName();
+    
+    // Re-send identity with updated username
+    if (_stateManager.isPeripheralMode) {
+      await _sendPeripheralIdentityExchange();
+    } else {
+      await _sendIdentityExchange();
+    }
+    
+    _logger.info('✅ USERNAME PROPAGATION: Identity re-exchange completed successfully');
+  } catch (e) {
+    _logger.warning('❌ USERNAME PROPAGATION: Identity re-exchange failed: $e');
+  }
+}
+
+/// Send identity in peripheral mode
+Future<void> _sendPeripheralIdentityExchange() async {
+  if (!_stateManager.isPeripheralMode || _connectedCentral == null || _connectedCharacteristic == null) {
+    _logger.warning('Cannot send peripheral identity - not in peripheral mode or no central connected');
+    return;
+  }
+  
+  try {
+    // CRITICAL: Ensure username is loaded before sending
+    if (_stateManager.myUserName == null || _stateManager.myUserName!.isEmpty) {
+      await _stateManager.loadUserName();
+    }
+    
+    final myPublicKey = await _stateManager.getMyPersistentId();
+    final displayName = _stateManager.myUserName ?? 'User';
+    
+    _logger.info('Sending peripheral identity re-exchange:');
+    _logger.info('  Public key: ${myPublicKey.substring(0, 16)}...');
+    _logger.info('  Display name: $displayName');
+    
+    final protocolMessage = ProtocolMessage.identity(
+      publicKey: myPublicKey,
+      displayName: displayName,
+    );
+    
+    await peripheralManager.notifyCharacteristic(
+      _connectedCentral!,
+      _connectedCharacteristic!,
+      value: protocolMessage.toBytes(),
+    );
+    
+    _logger.info('✅ Peripheral identity re-exchange sent successfully');
+  } catch (e) {
+    _logger.severe('❌ Peripheral identity re-exchange failed: $e');
+    rethrow;
+  }
 }
 
 Future<void> _performNameExchangeWithRetry() async {

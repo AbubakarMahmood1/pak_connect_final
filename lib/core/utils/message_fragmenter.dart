@@ -20,7 +20,10 @@ class MessageChunk {
 
   // Ultra-compact format: "shortId|idx|total|content"
   Uint8List toBytes() {
-  final shortId = messageId.substring(messageId.length - 6);
+  // FIX: Ensure we don't try to get more characters than available
+  final shortId = messageId.length >= 6
+    ? messageId.substring(messageId.length - 6)
+    : messageId; // Use full messageId if less than 6 chars
   final binaryFlag = isBinary ? '1' : '0';
   final compactString = '$shortId|$chunkIndex|$totalChunks|$binaryFlag|$content';
   return Uint8List.fromList(utf8.encode(compactString));
@@ -115,7 +118,10 @@ static List<MessageChunk> fragment(String message, int maxChunkSize) {
 
 static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String messageId) {
   final timestamp = DateTime.now();
-  final shortId = messageId.substring(messageId.length - 6);
+  // FIX: Ensure we don't try to get more characters than available
+  final shortId = messageId.length >= 6
+    ? messageId.substring(messageId.length - 6)
+    : messageId; // Use full messageId if less than 6 chars
   
   // Convert bytes back to string to ensure UTF-8 boundary safety
   final originalString = utf8.decode(data);
@@ -134,8 +140,8 @@ static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String mess
   
   for (int i = 0; i < totalChunks; i++) {
     final start = i * contentSpace;
-    final end = (start + contentSpace < originalString.length) 
-        ? start + contentSpace 
+    final end = (start + contentSpace < originalString.length)
+        ? start + contentSpace
         : originalString.length;
     
     final chunkContent = originalString.substring(start, end);

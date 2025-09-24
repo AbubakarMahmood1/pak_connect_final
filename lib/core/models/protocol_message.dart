@@ -15,6 +15,9 @@ enum ProtocolMessageType {
   contactStatus,
   cryptoVerification,
   cryptoVerificationResponse,
+  meshRelay,
+  queueSync,
+  relayAck,
 }
 
 class ProtocolMessage {
@@ -242,6 +245,71 @@ static ProtocolMessage cryptoVerificationResponse({
     'decryptedMessage': decryptedMessage,
     'success': success,
     if (results != null) 'results': results,
+  },
+  timestamp: DateTime.now(),
+);
+
+// Mesh relay helpers
+String? get meshRelayOriginalMessageId => type == ProtocolMessageType.meshRelay ? payload['originalMessageId'] as String? : null;
+String? get meshRelayOriginalSender => type == ProtocolMessageType.meshRelay ? payload['originalSender'] as String? : null;
+String? get meshRelayFinalRecipient => type == ProtocolMessageType.meshRelay ? payload['finalRecipient'] as String? : null;
+Map<String, dynamic>? get meshRelayMetadata => type == ProtocolMessageType.meshRelay ? payload['relayMetadata'] as Map<String, dynamic>? : null;
+Map<String, dynamic>? get meshRelayOriginalPayload => type == ProtocolMessageType.meshRelay ? payload['originalPayload'] as Map<String, dynamic>? : null;
+
+// Queue sync helpers
+String? get queueSyncHash => type == ProtocolMessageType.queueSync ? payload['queueHash'] as String? : null;
+List<String>? get queueSyncMessageIds => type == ProtocolMessageType.queueSync ?
+  (payload['messageIds'] as List<dynamic>?)?.cast<String>() : null;
+int? get queueSyncTimestamp => type == ProtocolMessageType.queueSync ? payload['syncTimestamp'] as int? : null;
+
+// Relay ack helpers
+String? get relayAckOriginalMessageId => type == ProtocolMessageType.relayAck ? payload['originalMessageId'] as String? : null;
+String? get relayAckRelayNode => type == ProtocolMessageType.relayAck ? payload['relayNode'] as String? : null;
+bool get relayAckDelivered => type == ProtocolMessageType.relayAck ? (payload['delivered'] as bool? ?? false) : false;
+
+// Mesh relay constructors
+static ProtocolMessage meshRelay({
+  required String originalMessageId,
+  required String originalSender,
+  required String finalRecipient,
+  required Map<String, dynamic> relayMetadata,
+  required Map<String, dynamic> originalPayload,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.meshRelay,
+  payload: {
+    'originalMessageId': originalMessageId,
+    'originalSender': originalSender,
+    'finalRecipient': finalRecipient,
+    'relayMetadata': relayMetadata,
+    'originalPayload': originalPayload,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage queueSync({
+  required String queueHash,
+  required List<String> messageIds,
+  int? syncTimestamp,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.queueSync,
+  payload: {
+    'queueHash': queueHash,
+    'messageIds': messageIds,
+    'syncTimestamp': syncTimestamp ?? DateTime.now().millisecondsSinceEpoch,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage relayAck({
+  required String originalMessageId,
+  required String relayNode,
+  required bool delivered,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.relayAck,
+  payload: {
+    'originalMessageId': originalMessageId,
+    'relayNode': relayNode,
+    'delivered': delivered,
   },
   timestamp: DateTime.now(),
 );

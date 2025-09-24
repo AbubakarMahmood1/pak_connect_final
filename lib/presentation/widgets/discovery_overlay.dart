@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' hide ConnectionState;
@@ -9,6 +10,7 @@ import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
 import '../providers/ble_providers.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../../core/security/hint_cache_manager.dart';
 import '../screens/chat_screen.dart';
 
 class DiscoveryOverlay extends ConsumerStatefulWidget {
@@ -59,6 +61,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     
     _animationController.forward();
     _loadContacts();
+    _updateHintCache();
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeDiscovery();
@@ -69,6 +72,15 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     final contacts = await _contactRepository.getAllContacts();
     if (mounted) {
       setState(() => _contacts = contacts);
+    }
+  }
+  
+  Future<void> _updateHintCache() async {
+    try {
+      await HintCacheManager.updateCache();
+      _logger.fine('✅ Hint cache updated for discovery overlay');
+    } catch (e) {
+      _logger.warning('Failed to update hint cache: $e');
     }
   }
   
@@ -111,7 +123,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     
     try {
       final bleService = ref.read(bleServiceProvider);
-      await bleService.startScanning();
+      await bleService.startScanning(source: ScanningSource.manual);
       
       Future.delayed(Duration(seconds: 10), () {
         if (mounted && _isScanning) {
@@ -219,7 +231,7 @@ Widget build(BuildContext context) {
     color: Colors.transparent,
     child: Stack(
       children: [
-        // Background with tap OR swipe to close
+        // Background with blur effect and tap OR swipe to close
         Positioned.fill(
           child: GestureDetector(
             onTap: widget.onClose,
@@ -229,8 +241,11 @@ Widget build(BuildContext context) {
                 widget.onClose();
               }
             },
-            child: Container(
-              color: Colors.black.withValues(),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 8.0, sigmaY: 8.0),
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.3), // 🔧 IMPROVED: Subtle overlay with blur
+              ),
             ),
           ),
         ),
@@ -604,22 +619,34 @@ Widget _buildScannerMode(
   }
   
   Widget _buildDeviceItem(
-    Peripheral device, 
+    Peripheral device,
     DiscoveredEventArgs? advertisement,
     bool isKnown,
   ) {
-    // Get device name from your existing contact system or use UUID
+    // Get device name using enhanced name resolution
     String deviceName = 'Unknown Device';
+    bool isContactResolved = false;
     
-    if (isKnown) {
-      // Find the matching contact
-      final matchingContact = _contacts.values.firstWhere(
-        (contact) => contact.publicKey.contains(device.uuid.toString()),
-        orElse: () => _contacts.values.first, // This should never happen if isKnown is true
-      );
-      deviceName = matchingContact.displayName;
-    } else {
-      // Use the UUID as a fallback identifier for unknown devices
+    // Try to resolve name from ephemeral hints in advertisement data
+    if (advertisement != null && advertisement.advertisement.manufacturerSpecificData.isNotEmpty) {
+      deviceName = _resolveDeviceNameFromHints(advertisement);
+      isContactResolved = deviceName != 'Unknown Device';
+    }
+    
+    // Fallback to contact system if hints didn't work
+    if (!isContactResolved && isKnown) {
+      final matchingContact = _contacts.values.where((contact) =>
+        contact.publicKey.contains(device.uuid.toString())
+      ).firstOrNull;
+      
+      if (matchingContact != null) {
+        deviceName = matchingContact.displayName;
+        isContactResolved = true;
+      }
+    }
+    
+    // Final fallback to UUID
+    if (!isContactResolved) {
       deviceName = 'Device ${device.uuid.toString().substring(0, 8)}';
     }
     
@@ -629,22 +656,22 @@ Widget _buildScannerMode(
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Card(
-        elevation: isKnown ? 2 : 1,
+        elevation: isContactResolved ? 2 : 1,
         child: ListTile(
           leading: Stack(
             children: [
               CircleAvatar(
-                backgroundColor: isKnown 
+                backgroundColor: isContactResolved
                   ? Theme.of(context).colorScheme.primary.withValues()
                   : Theme.of(context).colorScheme.surfaceContainerHighest,
                 child: Icon(
-                  isKnown ? Icons.person : Icons.bluetooth,
-                  color: isKnown 
+                  isContactResolved ? Icons.person : Icons.bluetooth,
+                  color: isContactResolved
                     ? Theme.of(context).colorScheme.primary
                     : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
-              if (isKnown)
+              if (isContactResolved)
                 Positioned(
                   right: 0,
                   bottom: 0,
@@ -663,7 +690,7 @@ Widget _buildScannerMode(
           title: Text(
             deviceName,
             style: TextStyle(
-              fontWeight: isKnown ? FontWeight.bold : FontWeight.normal,
+              fontWeight: isContactResolved ? FontWeight.bold : FontWeight.normal,
             ),
           ),
           subtitle: Row(
@@ -678,7 +705,7 @@ Widget _buildScannerMode(
                 'Signal: $signalStrength',
                 style: TextStyle(fontSize: 12),
               ),
-              if (isKnown) ...[
+              if (isContactResolved) ...[
                 SizedBox(width: 8),
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -719,6 +746,44 @@ onTap: () {
         ),
       ),
     );
+  }
+  
+  /// Resolve device name from ephemeral hints in advertisement data
+  String _resolveDeviceNameFromHints(DiscoveredEventArgs advertisement) {
+    try {
+      // Check manufacturer specific data for ephemeral hints
+      for (final manufacturerData in advertisement.advertisement.manufacturerSpecificData) {
+        final data = manufacturerData.data;
+        if (data.isNotEmpty) {
+          // Try to decode as ephemeral hint
+          final hintString = String.fromCharCodes(data);
+          final contactHint = HintCacheManager.getContactFromCache(hintString);
+          
+          if (contactHint != null) {
+            _logger.fine('✅ Resolved device name from hint: ${contactHint.contact.contact.displayName}');
+            return contactHint.contact.contact.displayName;
+          }
+        }
+      }
+      
+      // Also check service data
+      for (final entry in advertisement.advertisement.serviceData.entries) {
+        final data = entry.value;
+        if (data.isNotEmpty) {
+          final hintString = String.fromCharCodes(data);
+          final contactHint = HintCacheManager.getContactFromCache(hintString);
+          
+          if (contactHint != null) {
+            _logger.fine('✅ Resolved device name from service hint: ${contactHint.contact.contact.displayName}');
+            return contactHint.contact.contact.displayName;
+          }
+        }
+      }
+    } catch (e) {
+      _logger.warning('Error resolving device name from hints: $e');
+    }
+    
+    return 'Unknown Device';
   }
   
   String _getSignalStrength(int rssi) {

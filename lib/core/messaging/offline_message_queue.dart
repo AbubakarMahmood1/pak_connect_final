@@ -2,23 +2,39 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../security/message_security.dart';
+import '../models/mesh_relay_models.dart';
 
 /// Comprehensive offline message queue with intelligent retry and delivery management
 class OfflineMessageQueue {
   static final _logger = Logger('OfflineMessageQueue');
   
   static const String _queueKey = 'offline_message_queue_v2';
+  static const String _legacyQueueKey = 'offline_message_queue_v1'; // Backward compatibility
+  static const String _deletedMessagesKey = 'deleted_message_ids_v1';
+  static const String _queueHashKey = 'queue_hash_cache_v1';
+  static const String _migrationKey = 'queue_migration_completed_v2';
   static const int _maxRetries = 5;
   static const Duration _initialDelay = Duration(seconds: 2);
   static const Duration _maxDelay = Duration(minutes: 10);
   
+  // Performance optimization constants
+  static const int _hashCacheTimeout = 30; // seconds
+  static const int _maxDeletedIdsToKeep = 5000;
+  static const int _cleanupThreshold = 10000;
+  
   // Queue management
   final List<QueuedMessage> _messageQueue = [];
   final Map<String, Timer> _activeRetries = {};
+  
+  // Queue hash synchronization
+  final Set<String> _deletedMessageIds = {};
+  String? _cachedQueueHash;
+  DateTime? _lastHashCalculation;
   
   // Connection monitoring
   bool _isOnline = false;
@@ -54,7 +70,10 @@ class OfflineMessageQueue {
     this.onConnectivityCheck = onConnectivityCheck;
     
     await _loadQueueFromStorage();
+    await _loadDeletedMessageIds();
+    await _performMigrationIfNeeded();
     _startConnectivityMonitoring();
+    _startPeriodicCleanup();
     
     _logger.info('Offline message queue initialized with ${_messageQueue.length} pending messages');
   }
@@ -513,11 +532,369 @@ class OfflineMessageQueue {
           .toList();
       
       await prefs.setStringList(_queueKey, queueJson);
+      
+      // Invalidate hash cache since queue changed
+      _cachedQueueHash = null;
+      _lastHashCalculation = null;
     } catch (e) {
       _logger.warning('Failed to save message queue: $e');
     }
   }
   
+  /// Load deleted message IDs from persistent storage
+  Future<void> _loadDeletedMessageIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final deletedIds = prefs.getStringList(_deletedMessagesKey) ?? [];
+      _deletedMessageIds.clear();
+      _deletedMessageIds.addAll(deletedIds);
+      
+      _logger.info('Loaded ${_deletedMessageIds.length} deleted message IDs');
+    } catch (e) {
+      _logger.severe('Failed to load deleted message IDs: $e');
+    }
+  }
+  
+  /// Save deleted message IDs to persistent storage
+  Future<void> _saveDeletedMessageIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_deletedMessagesKey, _deletedMessageIds.toList());
+    } catch (e) {
+      _logger.warning('Failed to save deleted message IDs: $e');
+    }
+  }
+  
+  // ===== QUEUE HASH SYNCHRONIZATION METHODS =====
+  
+  /// Calculate deterministic hash of current queue state
+  /// Excludes delivered/expired messages and includes deleted message tracking
+  String calculateQueueHash({bool forceRecalculation = false}) {
+    if (!forceRecalculation && _cachedQueueHash != null && _lastHashCalculation != null) {
+      // Use cache if less than 30 seconds old
+      final cacheAge = DateTime.now().difference(_lastHashCalculation!);
+      if (cacheAge.inSeconds < 30) {
+        return _cachedQueueHash!;
+      }
+    }
+    
+    // Get syncable messages (excluding delivered/failed)
+    final syncableMessages = _messageQueue
+        .where((m) => m.status != QueuedMessageStatus.delivered &&
+                     m.status != QueuedMessageStatus.failed)
+        .toList();
+    
+    // Sort by message ID for consistent ordering
+    syncableMessages.sort((a, b) => a.id.compareTo(b.id));
+    
+    // Create hash input combining message metadata and deleted IDs
+    final hashComponents = <String>[];
+    
+    // Add active message metadata
+    for (final message in syncableMessages) {
+      final messageData = _getMessageHashData(message);
+      hashComponents.add(messageData);
+    }
+    
+    // Add deleted message IDs (sorted for consistency)
+    final sortedDeletedIds = _deletedMessageIds.toList()..sort();
+    hashComponents.addAll(sortedDeletedIds.map((id) => 'deleted:$id'));
+    
+    // Calculate final hash
+    final combinedData = hashComponents.join('|');
+    final bytes = utf8.encode(combinedData);
+    final digest = sha256.convert(bytes);
+    
+    // Cache result
+    _cachedQueueHash = digest.toString();
+    _lastHashCalculation = DateTime.now();
+    
+    _logger.fine('Calculated queue hash: ${_cachedQueueHash!.substring(0, 16)}... (${syncableMessages.length} messages, ${_deletedMessageIds.length} deleted)');
+    
+    return _cachedQueueHash!;
+  }
+  
+  /// Get hash data for a specific message
+  String _getMessageHashData(QueuedMessage message) {
+    return [
+      message.id,
+      message.status.index.toString(),
+      message.queuedAt.millisecondsSinceEpoch.toString(),
+      message.priority.index.toString(),
+      message.attempts.toString(),
+      message.messageHash ?? '',
+    ].join(':');
+  }
+  
+  /// Get queue sync information for mesh networking
+  QueueSyncMessage createSyncMessage(String nodeId) {
+    final syncableMessages = _messageQueue
+        .where((m) => m.status != QueuedMessageStatus.delivered &&
+                     m.status != QueuedMessageStatus.failed)
+        .toList();
+    
+    final messageIds = syncableMessages.map((m) => m.id).toList();
+    final messageHashes = <String, String>{};
+    
+    for (final message in syncableMessages) {
+      if (message.messageHash != null) {
+        messageHashes[message.id] = message.messageHash!;
+      }
+    }
+    
+    final stats = QueueSyncStats(
+      totalMessages: _messageQueue.length,
+      pendingMessages: _messageQueue.where((m) => m.status == QueuedMessageStatus.pending).length,
+      failedMessages: _messageQueue.where((m) => m.status == QueuedMessageStatus.failed).length,
+      lastSyncTime: DateTime.now(),
+      successRate: getStatistics().successRate,
+    );
+    
+    return QueueSyncMessage.createRequest(
+      messageIds: messageIds,
+      nodeId: nodeId,
+      messageHashes: messageHashes.isNotEmpty ? messageHashes : null,
+    );
+  }
+  
+  /// Compare queue hashes to determine if synchronization is needed
+  bool needsSynchronization(String otherQueueHash) {
+    final currentHash = calculateQueueHash();
+    return currentHash != otherQueueHash;
+  }
+  
+  /// Get missing messages compared to another queue
+  List<String> getMissingMessageIds(List<String> otherMessageIds) {
+    final currentIds = _messageQueue
+        .where((m) => m.status != QueuedMessageStatus.delivered &&
+                     m.status != QueuedMessageStatus.failed)
+        .map((m) => m.id)
+        .toSet();
+    
+    return otherMessageIds.where((id) => !currentIds.contains(id) &&
+                                        !_deletedMessageIds.contains(id)).toList();
+  }
+  
+  /// Get excess messages that the other queue doesn't have
+  List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
+    final otherIdSet = otherMessageIds.toSet();
+    
+    return _messageQueue
+        .where((m) => m.status != QueuedMessageStatus.delivered &&
+                     m.status != QueuedMessageStatus.failed &&
+                     !otherIdSet.contains(m.id))
+        .toList();
+  }
+  
+  /// Mark message as deleted for sync purposes
+  Future<void> markMessageDeleted(String messageId) async {
+    _deletedMessageIds.add(messageId);
+    await _saveDeletedMessageIds();
+    
+    // Remove from active queue if present
+    _removeMessageFromQueue(messageId);
+    await _saveQueueToStorage();
+    
+    _logger.info('Message marked as deleted: ${messageId.substring(0, 16)}...');
+  }
+  
+  /// Check if message was deleted
+  bool isMessageDeleted(String messageId) {
+    return _deletedMessageIds.contains(messageId);
+  }
+  
+  /// Clean up old deleted message IDs with improved performance
+  Future<void> cleanupOldDeletedIds() async {
+    final initialCount = _deletedMessageIds.length;
+    
+    // Performance-optimized cleanup based on size threshold
+    if (_deletedMessageIds.length > _cleanupThreshold) {
+      final deletedList = _deletedMessageIds.toList()..sort();
+      _deletedMessageIds.clear();
+      _deletedMessageIds.addAll(deletedList.take(_maxDeletedIdsToKeep));
+      
+      await _saveDeletedMessageIds();
+      _logger.info('Cleaned up ${initialCount - _deletedMessageIds.length} old deleted message IDs (performance optimization)');
+    }
+  }
+  
+  /// Invalidate hash cache (call after manual queue modifications)
+  void invalidateHashCache() {
+    _cachedQueueHash = null;
+    _lastHashCalculation = null;
+  }
+
+  /// Perform legacy data migration for backward compatibility
+  Future<void> _performMigrationIfNeeded() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final migrationCompleted = prefs.getBool(_migrationKey) ?? false;
+      
+      if (!migrationCompleted) {
+        _logger.info('Starting queue data migration for backward compatibility...');
+        
+        // Check for legacy queue data
+        final legacyQueueJson = prefs.getStringList(_legacyQueueKey);
+        if (legacyQueueJson != null && legacyQueueJson.isNotEmpty) {
+          _logger.info('Found ${legacyQueueJson.length} messages in legacy format, migrating...');
+          
+          int migratedCount = 0;
+          for (final json in legacyQueueJson) {
+            try {
+              final legacyData = jsonDecode(json) as Map<String, dynamic>;
+              
+              // Create new QueuedMessage with backward compatibility
+              final migratedMessage = _migrateLegacyMessage(legacyData);
+              if (migratedMessage != null) {
+                _messageQueue.add(migratedMessage);
+                migratedCount++;
+              }
+            } catch (e) {
+              _logger.warning('Failed to migrate legacy message: $e');
+            }
+          }
+          
+          if (migratedCount > 0) {
+            await _saveQueueToStorage();
+            _logger.info('Successfully migrated $migratedCount messages from legacy format');
+          }
+          
+          // Remove legacy data after successful migration
+          await prefs.remove(_legacyQueueKey);
+        }
+        
+        // Mark migration as completed
+        await prefs.setBool(_migrationKey, true);
+        _logger.info('Queue data migration completed');
+      }
+    } catch (e) {
+      _logger.severe('Failed to perform queue migration: $e');
+    }
+  }
+  
+  /// Migrate legacy message format to new format
+  QueuedMessage? _migrateLegacyMessage(Map<String, dynamic> legacyData) {
+    try {
+      // Handle potential differences in legacy format
+      final id = legacyData['id'] as String?;
+      final chatId = legacyData['chatId'] as String?;
+      final content = legacyData['content'] as String?;
+      final recipientKey = legacyData['recipientPublicKey'] as String? ?? legacyData['recipientId'] as String?;
+      final senderKey = legacyData['senderPublicKey'] as String? ?? legacyData['senderId'] as String?;
+      
+      if (id == null || chatId == null || content == null || recipientKey == null || senderKey == null) {
+        _logger.warning('Legacy message missing required fields, skipping migration');
+        return null;
+      }
+      
+      // Create new message with default values for new fields
+      return QueuedMessage(
+        id: id,
+        chatId: chatId,
+        content: content,
+        recipientPublicKey: recipientKey,
+        senderPublicKey: senderKey,
+        priority: MessagePriority.values[legacyData['priority'] ?? 2], // Default to normal
+        queuedAt: DateTime.fromMillisecondsSinceEpoch(legacyData['queuedAt'] ?? DateTime.now().millisecondsSinceEpoch),
+        maxRetries: legacyData['maxRetries'] ?? _maxRetries,
+        status: QueuedMessageStatus.values[legacyData['status'] ?? 0], // Default to pending
+        attempts: legacyData['attempts'] ?? 0,
+        // New fields get default values
+        isRelayMessage: false,
+        senderRateCount: 0,
+      );
+    } catch (e) {
+      _logger.warning('Failed to migrate legacy message: $e');
+      return null;
+    }
+  }
+  
+  /// Start periodic cleanup for performance optimization
+  void _startPeriodicCleanup() {
+    Timer.periodic(Duration(hours: 6), (timer) {
+      _performPeriodicMaintenance();
+    });
+  }
+  
+  /// Perform periodic maintenance tasks
+  Future<void> _performPeriodicMaintenance() async {
+    try {
+      _logger.info('Starting periodic queue maintenance...');
+      
+      // Clean up old deleted IDs
+      await cleanupOldDeletedIds();
+      
+      // Clean up expired messages (older than 30 days)
+      await _cleanupExpiredMessages();
+      
+      // Optimize storage if needed
+      await _optimizeStorage();
+      
+      // Invalidate old hash cache
+      if (_lastHashCalculation != null) {
+        final cacheAge = DateTime.now().difference(_lastHashCalculation!);
+        if (cacheAge.inHours > 1) {
+          invalidateHashCache();
+        }
+      }
+      
+      _logger.info('Periodic queue maintenance completed');
+    } catch (e) {
+      _logger.warning('Periodic maintenance failed: $e');
+    }
+  }
+  
+  /// Clean up expired messages for performance
+  Future<void> _cleanupExpiredMessages() async {
+    final cutoffDate = DateTime.now().subtract(Duration(days: 30));
+    final initialCount = _messageQueue.length;
+    
+    _messageQueue.removeWhere((message) {
+      // Remove old delivered or failed messages
+      if (message.status == QueuedMessageStatus.delivered || message.status == QueuedMessageStatus.failed) {
+        final messageAge = message.deliveredAt ?? message.failedAt ?? message.queuedAt;
+        return messageAge.isBefore(cutoffDate);
+      }
+      return false;
+    });
+    
+    final removedCount = initialCount - _messageQueue.length;
+    if (removedCount > 0) {
+      await _saveQueueToStorage();
+      _logger.info('Cleaned up $removedCount expired messages');
+    }
+  }
+  
+  /// Optimize storage by defragmenting data
+  Future<void> _optimizeStorage() async {
+    try {
+      // Force a complete save to optimize storage structure
+      await _saveQueueToStorage();
+      
+      // Check if we need to compact deleted IDs
+      if (_deletedMessageIds.length > _maxDeletedIdsToKeep * 2) {
+        await cleanupOldDeletedIds();
+      }
+      
+      _logger.fine('Storage optimization completed');
+    } catch (e) {
+      _logger.warning('Storage optimization failed: $e');
+    }
+  }
+  
+  /// Get performance statistics
+  Map<String, dynamic> getPerformanceStats() {
+    return {
+      'totalMessages': _messageQueue.length,
+      'deletedIdsCount': _deletedMessageIds.length,
+      'hashCacheAge': _lastHashCalculation != null
+          ? DateTime.now().difference(_lastHashCalculation!).inSeconds
+          : null,
+      'hashCached': _cachedQueueHash != null,
+      'memoryOptimized': _deletedMessageIds.length <= _maxDeletedIdsToKeep,
+    };
+  }
+
   /// Dispose of resources
   void dispose() {
     _connectivityCheckTimer?.cancel();
@@ -548,6 +925,25 @@ class QueuedMessage {
   DateTime? failedAt;
   String? failureReason;
   
+  // Mesh relay fields (optional for backward compatibility)
+  /// Indicates if this is a relay message
+  final bool isRelayMessage;
+  
+  /// Relay metadata for mesh routing (only present for relay messages)
+  final RelayMetadata? relayMetadata;
+  
+  /// Original message ID (for relay messages, different from relay wrapper ID)
+  final String? originalMessageId;
+  
+  /// Node that created this relay (current relay node's public key)
+  final String? relayNodeId;
+  
+  /// Message hash for deduplication across the mesh
+  final String? messageHash;
+  
+  /// Rate limiting: sender's message count in current time window
+  final int senderRateCount;
+  
   QueuedMessage({
     required this.id,
     required this.chatId,
@@ -566,7 +962,79 @@ class QueuedMessage {
     this.deliveredAt,
     this.failedAt,
     this.failureReason,
+    // Relay-specific fields
+    this.isRelayMessage = false,
+    this.relayMetadata,
+    this.originalMessageId,
+    this.relayNodeId,
+    this.messageHash,
+    this.senderRateCount = 0,
   });
+  
+  /// Create a relay message from a MeshRelayMessage
+  factory QueuedMessage.fromRelayMessage({
+    required MeshRelayMessage relayMessage,
+    required String chatId,
+    required int maxRetries,
+    QueuedMessageStatus status = QueuedMessageStatus.pending,
+  }) {
+    return QueuedMessage(
+      id: '${relayMessage.originalMessageId}_relay_${DateTime.now().millisecondsSinceEpoch}',
+      chatId: chatId,
+      content: relayMessage.originalContent,
+      recipientPublicKey: relayMessage.relayMetadata.finalRecipient,
+      senderPublicKey: relayMessage.relayMetadata.originalSender,
+      priority: relayMessage.relayMetadata.priority,
+      queuedAt: relayMessage.relayedAt,
+      maxRetries: maxRetries,
+      status: status,
+      // Relay-specific fields
+      isRelayMessage: true,
+      relayMetadata: relayMessage.relayMetadata,
+      originalMessageId: relayMessage.originalMessageId,
+      relayNodeId: relayMessage.relayNodeId,
+      messageHash: relayMessage.relayMetadata.messageHash,
+      senderRateCount: relayMessage.relayMetadata.senderRateCount,
+    );
+  }
+  
+  /// Check if message can be relayed further
+  bool get canRelay => isRelayMessage && relayMetadata != null && relayMetadata!.canRelay;
+  
+  /// Get relay hop count
+  int get relayHopCount => relayMetadata?.hopCount ?? 0;
+  
+  /// Check if this message has exceeded TTL
+  bool get hasExceededTTL => relayMetadata != null && relayMetadata!.hopCount >= relayMetadata!.ttl;
+  
+  /// Create next hop relay message
+  QueuedMessage createNextHopRelay(String nextRelayNodeId) {
+    if (!canRelay || relayMetadata == null) {
+      throw RelayException('Cannot create next hop: message cannot be relayed');
+    }
+    
+    final nextMetadata = relayMetadata!.nextHop(nextRelayNodeId);
+    
+    return QueuedMessage(
+      id: '${originalMessageId}_relay_${DateTime.now().millisecondsSinceEpoch}',
+      chatId: chatId,
+      content: content,
+      recipientPublicKey: recipientPublicKey,
+      senderPublicKey: senderPublicKey,
+      priority: priority,
+      queuedAt: DateTime.now(),
+      maxRetries: maxRetries,
+      replyToMessageId: replyToMessageId,
+      attachments: attachments,
+      // Relay-specific fields
+      isRelayMessage: true,
+      relayMetadata: nextMetadata,
+      originalMessageId: originalMessageId,
+      relayNodeId: nextRelayNodeId,
+      messageHash: messageHash,
+      senderRateCount: senderRateCount,
+    );
+  }
   
   /// Convert to JSON for storage
   Map<String, dynamic> toJson() => {
@@ -587,6 +1055,13 @@ class QueuedMessage {
     'deliveredAt': deliveredAt?.millisecondsSinceEpoch,
     'failedAt': failedAt?.millisecondsSinceEpoch,
     'failureReason': failureReason,
+    // Relay-specific fields (for backward compatibility, only include if present)
+    'isRelayMessage': isRelayMessage,
+    if (relayMetadata != null) 'relayMetadata': relayMetadata!.toJson(),
+    if (originalMessageId != null) 'originalMessageId': originalMessageId,
+    if (relayNodeId != null) 'relayNodeId': relayNodeId,
+    if (messageHash != null) 'messageHash': messageHash,
+    'senderRateCount': senderRateCount,
   };
   
   /// Create from JSON
@@ -603,19 +1078,28 @@ class QueuedMessage {
     attachments: List<String>.from(json['attachments'] ?? []),
     status: QueuedMessageStatus.values[json['status']],
     attempts: json['attempts'] ?? 0,
-    lastAttemptAt: json['lastAttemptAt'] != null 
-      ? DateTime.fromMillisecondsSinceEpoch(json['lastAttemptAt']) 
+    lastAttemptAt: json['lastAttemptAt'] != null
+      ? DateTime.fromMillisecondsSinceEpoch(json['lastAttemptAt'])
       : null,
-    nextRetryAt: json['nextRetryAt'] != null 
-      ? DateTime.fromMillisecondsSinceEpoch(json['nextRetryAt']) 
+    nextRetryAt: json['nextRetryAt'] != null
+      ? DateTime.fromMillisecondsSinceEpoch(json['nextRetryAt'])
       : null,
-    deliveredAt: json['deliveredAt'] != null 
-      ? DateTime.fromMillisecondsSinceEpoch(json['deliveredAt']) 
+    deliveredAt: json['deliveredAt'] != null
+      ? DateTime.fromMillisecondsSinceEpoch(json['deliveredAt'])
       : null,
-    failedAt: json['failedAt'] != null 
-      ? DateTime.fromMillisecondsSinceEpoch(json['failedAt']) 
+    failedAt: json['failedAt'] != null
+      ? DateTime.fromMillisecondsSinceEpoch(json['failedAt'])
       : null,
     failureReason: json['failureReason'],
+    // Relay-specific fields (backward compatible - default to false/null if not present)
+    isRelayMessage: json['isRelayMessage'] ?? false,
+    relayMetadata: json['relayMetadata'] != null
+      ? RelayMetadata.fromJson(json['relayMetadata'])
+      : null,
+    originalMessageId: json['originalMessageId'],
+    relayNodeId: json['relayNodeId'],
+    messageHash: json['messageHash'],
+    senderRateCount: json['senderRateCount'] ?? 0,
   );
 }
 

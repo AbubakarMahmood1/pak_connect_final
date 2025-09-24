@@ -1,24 +1,31 @@
 // ignore_for_file: avoid_print
 
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../providers/ble_providers.dart';
 import '../providers/security_state_provider.dart';
+import '../providers/mesh_networking_provider.dart';
+import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/entities/message.dart';
-import '../../domain/entities/chat_list_item.dart'; 
+import '../../domain/entities/chat_list_item.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../core/utils/chat_utils.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/chat_search_bar.dart';
 import '../../core/models/connection_info.dart';
 import '../widgets/pairing_dialog.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/security_state.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/security_manager.dart';
+import '../../core/services/persistent_chat_state_manager.dart';
+import '../../core/messaging/offline_message_queue.dart';
+import '../../core/services/message_retry_coordinator.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode (live connection)
@@ -56,6 +63,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final MessageRepository _messageRepository = MessageRepository();
+  late final MessageRetryCoordinator _retryCoordinator;
   static final Map<String, SecurityState> _securityStateCache = {};
   
   List<Message> _messages = [];
@@ -63,12 +71,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _pairingDialogShown = false;
   bool _contactRequestInProgress = false;
   StreamSubscription<String>? _messageSubscription;
+  bool _messageListenerActive = false;
+  final List<String> _messageBuffer = [];
+  PersistentChatStateManager? _persistentChatManager;
   String? _currentChatId;
   int _unreadMessageCount = 0;
   int _lastReadMessageIndex = -1;
   bool _showUnreadSeparator = false;
   Timer? _unreadSeparatorTimer;
   String? _persistentContactPublicKey;
+
+  // Search state
+  bool _isSearchMode = false;
+  String _searchQuery = '';
+  List<SearchResult> _searchResults = [];
+  int _currentSearchIndex = -1;
+  
+  // Smart routing demo state
+  bool _showMeshStats = false;
+  bool _demoModeEnabled = true; // Auto-enable demo mode
+  StreamSubscription? _meshEventSubscription;
+  bool _meshInitializing = false; // 🔧 FIX: Start false, check actual state
+  String _initializationStatus = 'Checking...';
+  Timer? _initializationTimeoutTimer;
  
   String get _chatId => _currentChatId!;
   bool get _isPeripheralMode => widget.central != null;
@@ -122,7 +147,10 @@ String? get securityStateKey {
     _loadMessages();
     _loadUnreadCount();
     
+    _setupPersistentChatManager();
     _checkAndSetupLiveMessaging();
+    _setupMeshNetworking();
+    _initializeRetryCoordinator();
     
     _setupSecurityStateListener();
     print('🐛 NAV DEBUG: ChatScreen initState() completed');
@@ -139,6 +167,134 @@ void _checkAndSetupLiveMessaging() {
   } else {
     _logger.info('📦 Repository mode only - no BLE connection');
   }
+}
+
+/// Set up mesh networking integration with auto demo mode
+void _setupMeshNetworking() {
+  try {
+    _logger.info('Setting up mesh networking for chat screen with auto demo mode');
+    
+    // 🔧 FIX: Check current mesh state before showing banner
+    final meshStatusAsync = ref.read(meshNetworkStatusProvider);
+    meshStatusAsync.when(
+      data: (status) {
+        if (status.isInitialized) {
+          // Mesh already initialized - no banner needed
+          setState(() {
+            _meshInitializing = false;
+            _demoModeEnabled = true;
+            _initializationStatus = 'Ready - Demo Mode Active';
+          });
+          _logger.info('✅ Mesh already initialized - skipping banner');
+        } else {
+          // Mesh still initializing - show banner with timeout
+          setState(() {
+            _meshInitializing = true;
+            _initializationStatus = 'Initializing mesh network...';
+          });
+          _startInitializationTimeoutTimer();
+          _logger.info('🔄 Mesh still initializing - showing banner with timeout');
+        }
+      },
+      loading: () {
+        // Mesh status unknown - show banner briefly
+        setState(() {
+          _meshInitializing = true;
+          _initializationStatus = 'Checking mesh status...';
+        });
+        _startInitializationTimeoutTimer();
+        _logger.info('🔍 Mesh status unknown - showing banner with short timeout');
+      },
+      error: (error, stack) {
+        // Error getting status - don't show banner
+        setState(() {
+          _meshInitializing = false;
+          _initializationStatus = 'Mesh ready (fallback)';
+        });
+        _logger.warning('⚠️ Mesh status error - skipping banner: $error');
+      },
+    );
+    
+    // Listen to mesh demo events for UI feedback
+    final meshService = ref.read(meshNetworkingServiceProvider);
+    _meshEventSubscription = meshService.demoEvents.listen((event) {
+      if (!mounted) return;
+      
+      // Handle different demo event types
+      _handleMeshDemoEvent(event);
+    });
+    
+    // Note: Mesh initialization monitoring moved to build() method to comply with Riverpod rules
+    _logger.info('Mesh networking integration set up with auto demo mode');
+  } catch (e) {
+    _logger.warning('Failed to set up mesh networking: $e');
+    setState(() {
+      _meshInitializing = false;
+      _initializationStatus = 'Failed to initialize';
+    });
+  }
+}
+
+/// Start timeout timer to prevent persistent initialization banner
+void _startInitializationTimeoutTimer() {
+  _initializationTimeoutTimer?.cancel();
+  
+  // Use shorter timeout for status checking, longer for actual initialization
+  final timeoutDuration = _initializationStatus.contains('Checking') 
+    ? Duration(seconds: 3)  // Quick timeout for status check
+    : Duration(seconds: 15); // Normal timeout for initialization
+    
+  _initializationTimeoutTimer = Timer(timeoutDuration, () {
+    if (mounted && _meshInitializing) {
+      _logger.info('🕐 Mesh initialization timeout reached - forcing banner to hide');
+      setState(() {
+        _meshInitializing = false;
+        _initializationStatus = 'Ready (timeout fallback)';
+        _demoModeEnabled = true; // Enable demo mode as fallback
+      });
+      _showSuccess('Mesh networking ready (fallback mode)');
+    }
+  });
+}
+
+/// Handle mesh initialization status changes (logic only, no ref.listen)
+void _handleMeshInitializationStatusChange(AsyncValue<MeshNetworkStatus>? previous, AsyncValue<MeshNetworkStatus> next) {
+  if (!mounted) return;
+  
+  next.when(
+    data: (status) {
+      if (status.isInitialized && _meshInitializing) {
+        // 🔧 NEW: Cancel timeout timer since proper initialization completed
+        _initializationTimeoutTimer?.cancel();
+        setState(() {
+          _meshInitializing = false;
+          _demoModeEnabled = true;
+          _initializationStatus = 'Ready - Demo Mode Active';
+        });
+        _logger.info('✅ Mesh networking initialized - Demo mode automatically enabled');
+        _showSuccess('🎓 Smart routing demo mode activated');
+      } else if (!status.isInitialized && !_meshInitializing) {
+        setState(() {
+          _initializationStatus = status.isDemoMode ? 'Demo Mode Ready' : 'Initializing...';
+        });
+      }
+    },
+    loading: () {
+      if (!_meshInitializing) {
+        setState(() {
+          _meshInitializing = true;
+          _initializationStatus = 'Initializing mesh network...';
+        });
+      }
+    },
+    error: (error, stack) {
+      setState(() {
+        _meshInitializing = false;
+        _initializationStatus = 'Initialization failed';
+      });
+      _logger.severe('Mesh initialization error: $error');
+    },
+  );
 }
 
 void _setupSecurityStateListener() {
@@ -364,6 +520,9 @@ Future<void> _initializePersistentValues() async {
     });
     _scrollToBottom();
     
+    // Process any buffered messages from previous lifecycle
+    await _processBufferedMessages();
+    
     // Auto-retry failed messages after a short delay
     Future.delayed(Duration(milliseconds: 1000), () {
       if (mounted) {
@@ -372,33 +531,109 @@ Future<void> _initializePersistentValues() async {
     });
   }
 
-  Future<void> _autoRetryFailedMessages() async {
-    final bleService = ref.read(bleServiceProvider);
-     final connectionInfo = ref.read(connectionInfoProvider).value;
-if (!(connectionInfo?.isConnected ?? false)) {
-    _showError('Cannot retry - device not connected');
-    return;
-  }
-    
-    // Find failed messages
-    final failedMessages = _messages.where((m) => m.isFromMe && m.status == MessageStatus.failed).toList();
-    
-    if (failedMessages.isEmpty) {
-    _logger.info('No failed messages to retry');
-    return;
-  }
-    _logger.info('Found ${failedMessages.length} failed messages to retry');
-
-    // Sort by timestamp to preserve order
-    failedMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    
-    _showSuccess('Retrying ${failedMessages.length} failed message${failedMessages.length > 1 ? 's' : ''}...');
-    
-    // Retry each message with delay
-    for (int i = 0; i < failedMessages.length; i++) {
-      final message = failedMessages[i];
+  /// Initialize the retry coordinator for coordinated message retry across both systems
+  void _initializeRetryCoordinator() {
+    try {
+      // Access the offline message queue through mesh networking service
+      final meshService = ref.read(meshNetworkingServiceProvider);
       
-      // Update to sending status
+      // For now, we'll create a simple offline queue instance
+      // In a full implementation, this would be injected properly
+      final offlineQueue = OfflineMessageQueue();
+      
+      _retryCoordinator = MessageRetryCoordinator(
+        messageRepository: _messageRepository,
+        offlineQueue: offlineQueue,
+        meshService: meshService,
+      );
+      
+      _logger.info('✅ MessageRetryCoordinator initialized successfully');
+    } catch (e) {
+      _logger.warning('⚠️ Failed to initialize MessageRetryCoordinator: $e');
+      // Will fallback to individual system retries
+    }
+  }
+
+  /// Unified retry system using the MessageRetryCoordinator
+  Future<void> _autoRetryFailedMessages() async {
+    try {
+      _logger.info('🔄 Starting coordinated retry using MessageRetryCoordinator');
+      
+      // Get the connection info but be less strict about connectivity
+      final connectionInfo = ref.read(connectionInfoProvider).value;
+      final isConnected = connectionInfo?.isConnected ?? false;
+      final isReady = connectionInfo?.isReady ?? false;
+      
+      // Show initial feedback
+      if (!isConnected) {
+        _logger.info('⚠️ Connection not established but proceeding with retry - coordinator will handle queuing');
+        _showSuccess('Attempting retry - messages will be queued if connection fails...');
+      } else {
+        _showSuccess('Connection available - retrying failed messages...');
+      }
+
+      // Use the coordinator to get unified retry status
+      final retryStatus = await _retryCoordinator.getFailedMessageStatus(_chatId);
+      
+      if (retryStatus.hasError) {
+        _logger.warning('⚠️ Error getting retry status: ${retryStatus.error}');
+        _showError('Failed to check message status - ${retryStatus.error}');
+        return;
+      }
+      
+      if (!retryStatus.hasFailedMessages) {
+        _logger.info('✅ No failed messages found in either persistence system');
+        return;
+      }
+
+      _logger.info('🎯 Coordinator found ${retryStatus.totalFailed} total failed messages to retry');
+      _showSuccess('Retrying ${retryStatus.totalFailed} failed message${retryStatus.totalFailed > 1 ? 's' : ''}...');
+
+      // Use coordinated retry with proper callback functions
+      final retryResult = await _retryCoordinator.retryAllFailedMessages(
+        chatId: _chatId,
+        allowPartialConnection: true,
+        onRepositoryMessageRetry: (Message message) async {
+          // Handle repository message retry
+          await _retryRepositoryMessage(message);
+        },
+        onQueueMessageRetry: (QueuedMessage queuedMessage) async {
+          // Handle queue message retry - delegate to queue system
+          _logger.info('📤 Delegating queue message retry to OfflineMessageQueue');
+        },
+      );
+
+      // Update UI based on results
+      _scrollToBottom();
+      
+      // Show coordinated completion status
+      final stillFailed = _messages.where((m) => m.isFromMe && m.status == MessageStatus.failed).length;
+      
+      if (retryResult.success && retryResult.totalSucceeded > 0) {
+        _showSuccess('✅ ${retryResult.message}');
+      } else if (stillFailed > 0) {
+        _showError('⚠️ ${retryResult.message}');
+      } else {
+        _showSuccess('✅ All messages processed - ${retryResult.message}');
+      }
+      
+      _logger.info('🏁 Coordinated retry completed: ${retryResult.totalSucceeded}/${retryResult.totalAttempted} succeeded');
+      
+    } catch (e) {
+      _logger.severe('💥 Coordinated retry system encountered an error: $e');
+      _showError('Retry coordination error - falling back to individual retry');
+      
+      // Fallback to the old individual retry system
+      await _fallbackRetryFailedMessages();
+    }
+  }
+
+  /// Retry a repository message with enhanced delivery strategies
+  Future<void> _retryRepositoryMessage(Message message) async {
+    try {
+      _logger.info('🔄 Retrying repository message: ${message.id.substring(0, 8)}... - "${message.content.substring(0, min(20, message.content.length))}..."');
+      
+      // Update to sending status with optimistic UI update
       final retryMessage = message.copyWith(status: MessageStatus.sending);
       await _messageRepository.updateMessage(retryMessage);
       setState(() {
@@ -408,60 +643,169 @@ if (!(connectionInfo?.isConnected ?? false)) {
         }
       });
       
-      try {
-  bool success;
-  
-  if (_isCentralMode) {
-    success = await bleService.sendMessage(message.content, messageId: message.id);
-  } else {
-    // Peripheral mode: use peripheral sending method
-    success = await bleService.sendPeripheralMessage(message.content, messageId: message.id);
-  }
-  
-  final newStatus = success ? MessageStatus.delivered : MessageStatus.failed;
-  final updatedMessage = retryMessage.copyWith(status: newStatus);
-  await _messageRepository.updateMessage(updatedMessage);
-  setState(() {
-    final index = _messages.indexWhere((m) => m.id == message.id);
-    if (index != -1) {
-      _messages[index] = updatedMessage;
-    }
-  });
-  _scrollToBottom();
-      } catch (e) {
-        // Mark as failed again
-        final failedAgain = retryMessage.copyWith(status: MessageStatus.failed);
-        await _messageRepository.updateMessage(failedAgain);
-        setState(() {
-          final index = _messages.indexWhere((m) => m.id == message.id);
-          if (index != -1) {
-            _messages[index] = failedAgain;
-          }
-        });
+      bool success = false;
+      final connectionInfo = ref.read(connectionInfoProvider).value;
+      final isConnected = connectionInfo?.isConnected ?? false;
+      final isReady = connectionInfo?.isReady ?? false;
+      
+      // Enhanced delivery attempt with multiple strategies
+      if (isConnected && isReady) {
+        // Try direct BLE delivery first
+        final bleService = ref.read(bleServiceProvider);
+        
+        if (_isCentralMode) {
+          success = await bleService.sendMessage(message.content, messageId: message.id);
+        } else {
+          success = await bleService.sendPeripheralMessage(message.content, messageId: message.id);
+        }
+        
+        _logger.info('📡 Direct BLE retry result for message ${message.id.substring(0, 8)}: $success');
       }
       
-      // Rate limiting: delay between retries
-      if (i < failedMessages.length - 1) {
-        await Future.delayed(Duration(milliseconds: 500));
+      // If direct delivery failed or not connected, try smart routing (if demo enabled)
+      if (!success && _demoModeEnabled && _persistentContactPublicKey != null) {
+        try {
+          final meshController = ref.read(meshNetworkingControllerProvider);
+          final meshResult = await meshController.sendMeshMessage(
+            content: message.content,
+            recipientPublicKey: _persistentContactPublicKey!,
+            isDemo: _demoModeEnabled,
+          );
+          
+          if (meshResult.isSuccess) {
+            success = true;
+            _logger.info('🧠 Smart routing retry successful for message ${message.id.substring(0, 8)}');
+          }
+        } catch (e) {
+          _logger.warning('⚠️ Smart routing retry failed: $e');
+        }
       }
-    }
-    
-    // Show completion message
-    final stillFailed = _messages.where((m) => m.isFromMe && m.status == MessageStatus.failed).length;
-    if (stillFailed == 0) {
-      _showSuccess('All messages delivered!');
-    } else {
-      _showError('$stillFailed message${stillFailed > 1 ? 's' : ''} still failed');
+      
+      // Update message status based on result
+      final newStatus = success ? MessageStatus.delivered : MessageStatus.failed;
+      final updatedMessage = retryMessage.copyWith(status: newStatus);
+      await _messageRepository.updateMessage(updatedMessage);
+      setState(() {
+        final index = _messages.indexWhere((m) => m.id == message.id);
+        if (index != -1) {
+          _messages[index] = updatedMessage;
+        }
+      });
+      
+    } catch (e) {
+      // Mark as failed again and continue
+      _logger.severe('❌ Repository message retry failed for ${message.id.substring(0, 8)}: $e');
+      final failedAgain = message.copyWith(status: MessageStatus.failed);
+      await _messageRepository.updateMessage(failedAgain);
+      setState(() {
+        final index = _messages.indexWhere((m) => m.id == message.id);
+        if (index != -1) {
+          _messages[index] = failedAgain;
+        }
+      });
+      rethrow; // Let coordinator handle the failure
     }
   }
 
-  void _setupMessageListener() {
-    final bleService = ref.read(bleServiceProvider);
-    _messageSubscription = bleService.receivedMessages.listen((content) {
-      if (mounted) {
-        _addReceivedMessage(content);
+  /// Fallback retry mechanism if coordinator fails
+  Future<void> _fallbackRetryFailedMessages() async {
+    _logger.warning('🔄 Using fallback retry mechanism');
+    
+    // Simple retry of repository messages only
+    final failedMessages = _messages.where((m) => m.isFromMe && m.status == MessageStatus.failed).toList();
+    
+    if (failedMessages.isEmpty) {
+      _logger.info('✅ No repository failed messages to retry in fallback mode');
+      return;
+    }
+    
+    int successCount = 0;
+    for (final message in failedMessages) {
+      try {
+        await _retryRepositoryMessage(message);
+        successCount++;
+      } catch (e) {
+        _logger.warning('⚠️ Fallback retry failed for message: $e');
       }
-    });
+      
+      // Add delay between retries
+      await Future.delayed(Duration(milliseconds: 500));
+    }
+    
+    if (successCount > 0) {
+      _showSuccess('✅ Fallback retry delivered $successCount message${successCount > 1 ? 's' : ''}');
+    } else {
+      _showError('⚠️ Fallback retry failed - messages will retry automatically when connection improves');
+    }
+  }
+
+  void _setupPersistentChatManager() {
+    _persistentChatManager = ref.read(persistentChatStateManagerProvider);
+    
+    // Register this chat screen with the persistent manager
+    _persistentChatManager!.registerChatScreen(_chatId, _handlePersistentMessage);
+    
+    print('🐛 NAV DEBUG: Registered with PersistentChatStateManager for $_chatId');
+  }
+  
+  void _handlePersistentMessage(String content) async {
+    print('🐛 NAV DEBUG: Received message through persistent manager: ${content.length} chars');
+    await _addReceivedMessage(content);
+  }
+
+  void _setupPersistentMessageListener() {
+    // Setup immediate listener if already connected
+    final connectionInfo = ref.read(connectionInfoProvider).value;
+    if (connectionInfo?.isConnected == true) {
+      _activateMessageListener();
+    }
+  }
+  
+  void _handleConnectionBasedMessageListener(ConnectionInfo? connectionInfo) {
+    if (connectionInfo?.isConnected == true && connectionInfo?.isReady == true) {
+      _activateMessageListener();
+    } else {
+      _deactivateMessageListener();
+    }
+  }
+  
+  void _activateMessageListener() {
+    if (_messageListenerActive) return;
+    
+    print('🐛 NAV DEBUG: Activating persistent message listener');
+    _messageListenerActive = true;
+    
+    final bleService = ref.read(bleServiceProvider);
+    
+    // Use persistent manager if available, otherwise fall back to direct subscription
+    if (_persistentChatManager != null && !_persistentChatManager!.hasActiveListener(_chatId)) {
+      print('🐛 NAV DEBUG: Setting up persistent listener through manager');
+      _persistentChatManager!.setupPersistentListener(_chatId, bleService.receivedMessages);
+    } else {
+      print('🐛 NAV DEBUG: Using direct message subscription (fallback)');
+      _messageSubscription = bleService.receivedMessages.listen((content) {
+        if (mounted && _messageListenerActive) {
+          _addReceivedMessage(content);
+        } else if (!mounted) {
+          // Buffer message if screen is being disposed/recreated
+          _messageBuffer.add(content);
+          print('🐛 NAV DEBUG: Message buffered during disposal: ${content.length} chars');
+        }
+      });
+    }
+  }
+  
+  void _deactivateMessageListener() {
+    if (!_messageListenerActive) return;
+    
+    print('🐛 NAV DEBUG: Deactivating message listener');
+    _messageListenerActive = false;
+    // Don't cancel persistent listener - it's managed by the persistent manager
+  }
+
+  void _setupMessageListener() {
+    // Legacy method - now handled by persistent listener
+    _activateMessageListener();
   }
 
   Future<void> _addReceivedMessage(String content) async {
@@ -475,15 +819,30 @@ if (!(connectionInfo?.isConnected ?? false)) {
     );
     
     await _messageRepository.saveMessage(message);
-    setState(() {
-      _messages.add(message);
-      if (_showUnreadSeparator) {
-        _showUnreadSeparator = false;
-        _unreadSeparatorTimer?.cancel();
-        _markAsRead();
-      }
-    });
-    _scrollToBottom();
+    
+    if (mounted) {
+      setState(() {
+        _messages.add(message);
+        if (_showUnreadSeparator) {
+          _showUnreadSeparator = false;
+          _unreadSeparatorTimer?.cancel();
+          _markAsRead();
+        }
+      });
+      _scrollToBottom();
+    }
+  }
+  
+  Future<void> _processBufferedMessages() async {
+    if (_messageBuffer.isEmpty) return;
+    
+    print('🐛 NAV DEBUG: Processing ${_messageBuffer.length} buffered messages');
+    final bufferedMessages = List<String>.from(_messageBuffer);
+    _messageBuffer.clear();
+    
+    for (final content in bufferedMessages) {
+      await _addReceivedMessage(content);
+    }
   }
 
 Future<void> _loadUnreadCount() async {
@@ -572,6 +931,11 @@ Widget build(BuildContext context) {
     _handleConnectionChange(previous?.value, next.value);
   });
 
+  // Listen for mesh initialization status changes (moved from _monitorMeshInitialization method)
+  ref.listen(meshNetworkStatusProvider, (previous, next) {
+    _handleMeshInitializationStatusChange(previous, next);
+  });
+
   // Listen for identity changes
   ref.listen(connectionInfoProvider, (previous, next) {
     if (next.hasValue && 
@@ -646,7 +1010,7 @@ final actuallyConnected = connectionInfo?.isConnected ?? false;
     children: [
       Text(
         _isRepositoryMode 
-          ? 'Chat with ${widget.contactName}'
+          ? '${widget.contactName}'  // 🔧 REMOVED: Redundant "Chat with" text
           : (connectionInfo?.otherUserName ?? 'Device $_displayContactName...'),
         style: Theme.of(context).textTheme.titleMedium,
       ),
@@ -674,6 +1038,20 @@ final actuallyConnected = connectionInfo?.isConnected ?? false;
     ],
   ),
   actions: [
+    // Search button
+    IconButton(
+      icon: Icon(_isSearchMode ? Icons.close : Icons.search),
+      onPressed: _toggleSearchMode,
+      tooltip: _isSearchMode ? 'Exit search' : 'Search messages',
+    ),
+    // 🔧 REMOVED: FYP Demo indicator for better UX
+    // Stats button
+    if (_demoModeEnabled)
+      IconButton(
+        icon: Icon(_showMeshStats ? Icons.analytics : Icons.analytics_outlined),
+        onPressed: _toggleMeshStats,
+        tooltip: 'Smart Routing Statistics',
+      ),
     // Only show relevant action button
     securityStateAsync.when(
       data: (securityState) => _buildSingleActionButton(securityState),
@@ -690,6 +1068,21 @@ final actuallyConnected = connectionInfo?.isConnected ?? false;
       if (!actuallyConnected || bleService.isActivelyReconnecting)
         _buildReconnectionBanner(),
 
+      // Initialization status and smart routing demo panel
+      if (_meshInitializing)
+        _buildInitializationStatusPanel(),
+      if (_demoModeEnabled && _showMeshStats && !_meshInitializing)
+        _buildSmartRoutingStatsPanel(),
+
+      // Search bar (when in search mode)
+      if (_isSearchMode)
+        ChatSearchBar(
+          messages: _messages,
+          onSearch: _onSearch,
+          onNavigateToResult: _navigateToSearchResult,
+          onExitSearch: _toggleSearchMode,
+        ),
+
       // Messages list
       Expanded(
   child: _isLoading
@@ -704,20 +1097,22 @@ final actuallyConnected = connectionInfo?.isConnected ?? false;
                 if (index == _messages.length) {
                   return _buildSubtleRetryIndicator();
                 }
-                
+
                 // ✅ NEW: Create the message widget
                 Widget messageWidget = MessageBubble(
                   message: _messages[index],
                   showAvatar: true,
                   showStatus: true,
+                  searchQuery: _isSearchMode ? _searchQuery : null,
                   onRetry: _messages[index].status == MessageStatus.failed
                       ? () => _retryMessage(_messages[index])
                       : null,
+                  onDelete: (messageId, deleteForEveryone) => _deleteMessage(messageId, deleteForEveryone),
                 );
-                
+
                 // ✅ NEW: Check if we need to show unread separator BEFORE this message
-                if (_showUnreadSeparator && 
-                    index == _lastReadMessageIndex + 1 && 
+                if (_showUnreadSeparator &&
+                    index == _lastReadMessageIndex + 1 &&
                     _unreadMessageCount > 0) {
                   // This is the first unread message - show separator above it
                   return Column(
@@ -727,12 +1122,12 @@ final actuallyConnected = connectionInfo?.isConnected ?? false;
                     ],
                   );
                 }
-                
+
                 // ✅ Regular message without separator
                 return messageWidget;
               },
             ),
-	),
+ ),
       Container(
         padding: EdgeInsets.all(8),
         child: Row(
@@ -1184,20 +1579,57 @@ void _setupContactRequestListener() {
   try {
     bool success = false;
     
-    // FIXED: Check BLE connection regardless of repository mode
+    // ENHANCED: Check both BLE and mesh connectivity options
     final connectionInfo = ref.read(connectionInfoProvider).value;
     final isConnected = connectionInfo?.isConnected == true;
     final isReady = connectionInfo?.isReady == true;
     
-    print('🔧 SEND DEBUG: BLE connection check - isConnected: $isConnected, isReady: $isReady');
+    print('🔧 SEND DEBUG: Connection check - BLE: $isConnected/$isReady, Demo enabled: $_demoModeEnabled');
     
-    if (isConnected && isReady) {
-      // We have an active BLE connection - send via BLE
-      print('🔧 SEND DEBUG: Active BLE connection detected - sending via BLE');
+    // Try smart routing first if demo mode enabled
+    if (_demoModeEnabled && _persistentContactPublicKey != null) {
+      final bleService = ref.read(bleServiceProvider);
+      final connectedNodeId = bleService.otherDevicePersistentId;
+      final isDirectRecipient = connectedNodeId == _persistentContactPublicKey;
+      
+      if (!isDirectRecipient || !isConnected) {
+        print('🔧 SEND DEBUG: Attempting smart mesh relay to ${_persistentContactPublicKey!.substring(0, 8)}...');
+        
+        try {
+          final meshController = ref.read(meshNetworkingControllerProvider);
+          final meshResult = await meshController.sendMeshMessage(
+            content: text,
+            recipientPublicKey: _persistentContactPublicKey!,
+            isDemo: _demoModeEnabled,
+          );
+          
+          if (meshResult.isSuccess) {
+            success = true;
+            print('🔧 SEND DEBUG: Smart routing successful - ${meshResult.type.name}');
+            
+            if (meshResult.isRelay) {
+              _showSuccess('🧠 Message sent via smart routing');
+            } else {
+              _showSuccess('📱 Message sent directly');
+            }
+          } else {
+            print('🔧 SEND DEBUG: Smart routing failed - ${meshResult.error}');
+            _showError('Smart routing failed: ${meshResult.error}');
+          }
+          
+        } catch (e) {
+          print('🔧 SEND DEBUG: Smart routing exception: $e');
+          _showError('Smart routing error: $e');
+        }
+      }
+    }
+    
+    // Fallback to direct BLE if mesh didn't work or isn't enabled
+    if (!success && isConnected && isReady) {
+      print('🔧 SEND DEBUG: Fallback to direct BLE sending');
       
       final bleService = ref.read(bleServiceProvider);
       
-      // Determine mode by checking actual BLE state, not widget parameters
       if (bleService.stateManager.isPeripheralMode) {
         print('🔧 SEND DEBUG: Using peripheral mode sending');
         success = await bleService.sendPeripheralMessage(text, messageId: message.id);
@@ -1205,10 +1637,9 @@ void _setupContactRequestListener() {
         print('🔧 SEND DEBUG: Using central mode sending');
         success = await bleService.sendMessage(text, messageId: message.id);
       }
-    } else {
-      // No BLE connection - store for later or mark as failed
-      print('🔧 SEND DEBUG: No BLE connection - storing message for later retry');
-      success = false; // Will be marked as failed for retry when reconnected
+    } else if (!success) {
+      print('🔧 SEND DEBUG: No delivery method available - storing for later');
+      success = false;
     }
     
     print('🔧 SEND DEBUG: Send result: $success');
@@ -1291,7 +1722,50 @@ if (!(connectionInfo?.isConnected ?? false)) {
     }
   }
 
-  void _scrollToBottom() {
+ Future<void> _deleteMessage(String messageId, bool deleteForEveryone) async {
+   try {
+     // Delete from local repository
+     final success = await _messageRepository.deleteMessage(messageId);
+     
+     if (success) {
+       // Remove from UI immediately (optimistic update)
+       setState(() {
+         _messages.removeWhere((message) => message.id == messageId);
+       });
+       
+       // If deleteForEveryone is true and we have a connection, send deletion request
+       if (deleteForEveryone) {
+         final connectionInfo = ref.read(connectionInfoProvider).value;
+         if (connectionInfo?.isConnected == true) {
+           final bleService = ref.read(bleServiceProvider);
+           
+           try {
+             // Send deletion request to the other device
+             // This is a simplified implementation - in a real app you'd need a proper protocol
+             final deletionMessage = 'DELETE_MESSAGE:$messageId';
+             await bleService.sendMessage(deletionMessage);
+             
+             _showSuccess('Message deleted for everyone');
+           } catch (e) {
+             _logger.warning('Failed to send deletion request: $e');
+             _showSuccess('Message deleted locally (remote deletion failed)');
+           }
+         } else {
+           _showSuccess('Message deleted locally (not connected for remote deletion)');
+         }
+       } else {
+         _showSuccess('Message deleted');
+       }
+     } else {
+       _showError('Failed to delete message');
+     }
+   } catch (e) {
+     _logger.severe('Error deleting message: $e');
+     _showError('Failed to delete message: $e');
+   }
+ }
+
+ void _scrollToBottom() {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     if (_scrollController.hasClients && mounted) {
       Future.delayed(Duration(milliseconds: 50), () {
@@ -1432,18 +1906,363 @@ void _handleConnectionChange(ConnectionInfo? previous, ConnectionInfo? current) 
   }
 
   
+/// Handle mesh demo events for UI feedback
+void _handleMeshDemoEvent(DemoEvent event) {
+  // This is a simplified handler since we can't access private classes
+  final eventString = event.toString();
+  
+  if (eventString.contains('MessageDelivered')) {
+    _showSuccess('✅ Mesh message delivered!');
+  } else if (eventString.contains('MessageFailed')) {
+    _showError('❌ Mesh delivery failed');
+  } else if (eventString.contains('MessageRelayed')) {
+    _showSuccess('🔀 Message relayed through mesh');
+  } else if (eventString.contains('RelayDecisionMade')) {
+    _showSuccess('🤔 Relay decision processed');
+  }
+}
+
+/// Toggle FYP Demo Mode on/off
+void _toggleDemoMode() async {
+  setState(() {
+    _demoModeEnabled = !_demoModeEnabled;
+  });
+  
+  try {
+    final meshService = ref.read(meshNetworkingServiceProvider);
+    
+    if (_demoModeEnabled) {
+      // Initialize FYP demo scenario
+      final demoResult = await meshService.initializeDemoScenario(DemoScenarioType.aToBtoC);
+      
+      if (demoResult.success) {
+        _showSuccess('🎓 FYP Demo Mode Enabled - Smart routing decisions will be visualized');
+        _logger.info('Demo scenario initialized: ${demoResult.message}');
+      } else {
+        _showError('Failed to initialize demo: ${demoResult.message}');
+      }
+    } else {
+      // Disable demo mode
+      meshService.clearDemoData();
+      _showSuccess('📱 Production Mode - Normal smart routing operation');
+    }
+    
+  } catch (e) {
+    _logger.severe('Failed to toggle demo mode: $e');
+    _showError('Demo mode toggle failed: $e');
+  }
+  
+  _logger.info('FYP Demo mode toggled: $_demoModeEnabled');
+}
+
+/// Toggle smart routing statistics display
+void _toggleMeshStats() {
+  setState(() {
+    _showMeshStats = !_showMeshStats;
+  });
+
+  _logger.info('Smart routing stats display toggled: $_showMeshStats');
+}
+
+/// Toggle search mode
+void _toggleSearchMode() {
+  setState(() {
+    if (_isSearchMode) {
+      // Exit search mode
+      _isSearchMode = false;
+      _searchQuery = '';
+      _searchResults = [];
+      _currentSearchIndex = -1;
+    } else {
+      // Enter search mode
+      _isSearchMode = true;
+    }
+  });
+
+  _logger.info('Search mode toggled: $_isSearchMode');
+}
+
+/// Handle search query changes
+void _onSearch(String query, List<SearchResult> results) {
+  setState(() {
+    _searchQuery = query;
+    _searchResults = results;
+    _currentSearchIndex = results.isNotEmpty ? 0 : -1;
+  });
+}
+
+/// Navigate to a specific search result
+void _navigateToSearchResult(int messageIndex) {
+  if (messageIndex >= 0 && messageIndex < _messages.length) {
+    _scrollController.animateTo(
+      // Calculate approximate position - this is a simple estimation
+      messageIndex * 120.0, // Rough estimate of message height
+      duration: Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+}
+
+/// Build smart routing statistics panel
+Widget _buildSmartRoutingStatsPanel() {
+  return Consumer(
+    builder: (context, ref, child) {
+      final meshStatus = ref.watch(meshNetworkStatusProvider);
+      final relayStats = ref.watch(relayStatisticsProvider);
+      
+      return Container(
+        padding: EdgeInsets.all(12),
+        margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outline.withValues(),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.school, size: 16, color: Colors.blue),
+                SizedBox(width: 8),
+                Text(
+                  'Smart Routing',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
+                ),
+                Spacer(),
+                // Health indicator
+                meshStatus.when(
+                  data: (status) => Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: status.isInitialized ? Colors.green : Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  loading: () => SizedBox(
+                    width: 8,
+                    height: 8,
+                    child: CircularProgressIndicator(strokeWidth: 1),
+                  ),
+                  error: (_, _) => Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            // Demo mode indicator
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.blue.withValues()),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.info_outline, size: 12, color: Colors.blue),
+                  SizedBox(width: 4),
+                  Text(
+                    'Demo Mode: Routing decisions are visualized for FYP evaluation',
+                    style: TextStyle(fontSize: 10, color: Colors.blue),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 8),
+            // Stats display
+            meshStatus.when(
+              data: (status) => _buildSmartRoutingStatsContent(status),
+              loading: () => Text('Loading smart routing stats...', style: Theme.of(context).textTheme.bodySmall),
+              error: (error, _) => Text('Error: $error', style: Theme.of(context).textTheme.bodySmall),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+/// Build smart routing statistics content
+Widget _buildSmartRoutingStatsContent(MeshNetworkStatus status) {
+  final stats = status.statistics;
+  
+  return Column(
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: _buildStatItem(
+              'Node ID',
+              status.currentNodeId?.substring(0, 8) ?? 'Unknown',
+            ),
+          ),
+          Expanded(
+            child: _buildStatItem(
+              'Smart Router',
+              status.isInitialized ? '🧠 Active' : '❌ Inactive',
+            ),
+          ),
+        ],
+      ),
+      SizedBox(height: 4),
+      if (stats.relayStatistics != null) ...[
+        Row(
+          children: [
+            Expanded(
+              child: _buildStatItem(
+                'Smart Routes',
+                '${stats.relayStatistics!.totalRelayed}',
+              ),
+            ),
+            Expanded(
+              child: _buildStatItem(
+                'Blocked',
+                '${stats.relayStatistics!.totalBlocked}',
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: _buildStatItem(
+                'Route Efficiency',
+                '${(stats.relayStatistics!.relayEfficiency * 100).toStringAsFixed(1)}%',
+              ),
+            ),
+            Expanded(
+              child: _buildStatItem(
+                'Topology Nodes',
+                '${stats.queueStatistics?.pendingMessages ?? 0}',
+              ),
+            ),
+          ],
+        ),
+      ],
+    ],
+  );
+}
+
+/// Build individual stat item
+Widget _buildStatItem(String label, String value) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          color: Colors.grey[600],
+        ),
+      ),
+      Text(
+        value,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    ],
+  );
+}
+
+/// Build initialization status panel
+Widget _buildInitializationStatusPanel() {
+  return Container(
+    padding: EdgeInsets.all(12),
+    margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(
+        color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
+      ),
+    ),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+          ),
+        ),
+        SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Smart Routing Mesh Network',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                ),
+              ),
+              Text(
+                _initializationStatus,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+        // 🔧 REMOVED: FYP Demo label for cleaner UX
+      ],
+    ),
+  );
+}
+
 @override
 void dispose() {
   print('🐛 NAV DEBUG: ChatScreen dispose() called');
   print('🐛 NAV DEBUG: - Final persistent key: ${_persistentContactPublicKey?.substring(0, 16)}...');
   print('🐛 NAV DEBUG: - Final chatId: $_currentChatId');
+  print('🐛 NAV DEBUG: - Message listener active: $_messageListenerActive');
+  print('🐛 NAV DEBUG: - Buffered messages: ${_messageBuffer.length}');
+  print('🐛 NAV DEBUG: - Persistent manager buffered: ${_persistentChatManager?.getBufferedMessageCount(_chatId) ?? 0}');
   
-  _messageSubscription?.cancel();
+  // Unregister from persistent manager (but keep listener active for buffering)
+  if (_persistentChatManager != null) {
+    _persistentChatManager!.unregisterChatScreen(_chatId);
+    print('🐛 NAV DEBUG: Unregistered from PersistentChatStateManager');
+  }
+  
+  // Deactivate listener but don't cancel subscription to allow message buffering
+  _messageListenerActive = false;
+  
+  // Only cancel direct subscriptions (persistent manager handles its own)
+  if (_messageSubscription != null) {
+    _messageSubscription!.cancel();
+    _messageSubscription = null;
+  }
+  
+  _meshEventSubscription?.cancel();
+  _initializationTimeoutTimer?.cancel();
+  
   _messageController.dispose();
   _scrollController.dispose();
   _unreadSeparatorTimer?.cancel();
+  
   super.dispose();
   
-  print('🐛 NAV DEBUG: ChatScreen dispose() completed');
+  print('🐛 NAV DEBUG: ChatScreen dispose() completed - persistent listener maintained');
 }
 }

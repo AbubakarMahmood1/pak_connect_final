@@ -1,21 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../domain/entities/message.dart';
+import 'message_context_menu.dart';
+import 'delete_confirmation_dialog.dart';
 
 class MessageBubble extends StatelessWidget {
   final Message message;
   final bool showAvatar;
   final bool showStatus;
+  final String? searchQuery;
   final VoidCallback? onLongPress;
   final VoidCallback? onRetry;
+  final Function(String messageId, bool deleteForEveryone)? onDelete;
 
   const MessageBubble({
     super.key,
     required this.message,
     this.showAvatar = true,
     this.showStatus = true,
+    this.searchQuery,
     this.onLongPress,
     this.onRetry,
+    this.onDelete,
   });
 
   @override
@@ -27,10 +33,11 @@ class MessageBubble extends StatelessWidget {
       child: Row(
         mainAxisAlignment: isFromMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Flexible(
             child: GestureDetector(
-              onLongPress: onLongPress ?? () => _copyMessage(context, message.content),
+              onLongPress: onLongPress ?? () => _showContextMenu(context),
               child: Container(
                 constraints: BoxConstraints(
                   maxWidth: MediaQuery.of(context).size.width * 0.75,
@@ -70,33 +77,27 @@ class MessageBubble extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      message.content,
-                      style: TextStyle(
-                        color: isFromMe 
-                            ? Theme.of(context).colorScheme.onPrimary
-                            : Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontSize: 16,
-                        height: 1.3,
-                      ),
-                    ),
+                    _buildMessageText(context, isFromMe),
                     SizedBox(height: 4),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          _formatTime(message.timestamp),
-                          style: TextStyle(
-                            color: isFromMe 
-                                ? Theme.of(context).colorScheme.onPrimary.withValues()
-                                : Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
+                        Flexible(
+                          child: Text(
+                            _formatTime(message.timestamp),
+                            style: TextStyle(
+                              color: isFromMe
+                                  ? Theme.of(context).colorScheme.onPrimary.withValues()
+                                  : Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         if (isFromMe && showStatus) ...[
                           SizedBox(width: 4),
-                          _buildStatusIcon(context, message.status),
+                          Flexible(child: _buildStatusIcon(context, message.status)),
                         ],
                       ],
                     ),
@@ -129,7 +130,13 @@ class MessageBubble extends StatelessWidget {
             children: [
               Icon(Icons.error, size: 12, color: Colors.red),
               SizedBox(width: 4),
-              Text('Tap to retry', style: TextStyle(fontSize: 10, color: Colors.red)),
+              Flexible(
+                child: Text(
+                  'Tap to retry',
+                  style: TextStyle(fontSize: 10, color: Colors.red),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),
@@ -155,6 +162,117 @@ class MessageBubble extends StatelessWidget {
   }
 
   void _copyMessage(BuildContext context, String content) async {
-  await Clipboard.setData(ClipboardData(text: content));
-}
+    await Clipboard.setData(ClipboardData(text: content));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Message copied to clipboard'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _showContextMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => MessageContextMenu(
+        message: message,
+        onCopy: () => _copyMessage(context, message.content),
+        onDelete: message.isFromMe ? () => _confirmDelete(context) : null,
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => DeleteConfirmationDialog(
+        message: message,
+        onConfirm: (deleteForEveryone) {
+          onDelete?.call(message.id, deleteForEveryone);
+        },
+      ),
+    );
+  }
+
+  Widget _buildMessageText(BuildContext context, bool isFromMe) {
+    if (searchQuery == null || searchQuery!.isEmpty) {
+      // No search query, return plain text
+      return Text(
+        message.content,
+        style: TextStyle(
+          color: isFromMe
+              ? Theme.of(context).colorScheme.onPrimary
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 16,
+          height: 1.3,
+        ),
+        softWrap: true,
+        overflow: TextOverflow.visible,
+      );
+    }
+
+    // Build highlighted text
+    final spans = <TextSpan>[];
+    final text = message.content;
+    final query = searchQuery!.toLowerCase();
+    final lowerText = text.toLowerCase();
+
+    int start = 0;
+    int index = lowerText.indexOf(query, start);
+
+    while (index != -1) {
+      // Add text before match
+      if (index > start) {
+        spans.add(TextSpan(
+          text: text.substring(start, index),
+          style: TextStyle(
+            color: isFromMe
+                ? Theme.of(context).colorScheme.onPrimary
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 16,
+            height: 1.3,
+          ),
+        ));
+      }
+
+      // Add highlighted match
+      spans.add(TextSpan(
+        text: text.substring(index, index + query.length),
+        style: TextStyle(
+          color: isFromMe
+              ? Theme.of(context).colorScheme.onPrimary
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 16,
+          height: 1.3,
+          backgroundColor: Colors.yellow.withOpacity(0.7),
+          fontWeight: FontWeight.bold,
+        ),
+      ));
+
+      start = index + query.length;
+      index = lowerText.indexOf(query, start);
+    }
+
+    // Add remaining text
+    if (start < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(start),
+        style: TextStyle(
+          color: isFromMe
+              ? Theme.of(context).colorScheme.onPrimary
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 16,
+          height: 1.3,
+        ),
+      ));
+    }
+
+    return RichText(
+      text: TextSpan(children: spans),
+    );
+  }
 }

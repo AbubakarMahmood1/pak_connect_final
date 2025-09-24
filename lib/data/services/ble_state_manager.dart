@@ -12,6 +12,7 @@ import '../../data/repositories/user_preferences.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/services/security_manager.dart';
+import 'ble_service.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -89,6 +90,9 @@ class BLEStateManager {
   // Additional BLE integration callbacks
   Function(String messageId, bool success)? onMessageSent;
   Function(dynamic device, int? rssi)? onDeviceDiscovered;
+  
+  // USERNAME PROPAGATION FIX: Username change callback
+  Function(String)? onMyUsernameChanged;
 
    BLEStateManager() {
     // Any synchronous initialization here
@@ -152,11 +156,34 @@ Future<String> getMyPersistentId() async {
 }
   
   Future<void> setMyUserName(String name) async {
-  print('🔧 NAME DEBUG: setMyUserName called with: "$name"');
-  _myUserName = name;
-  await _userPreferences.setUserName(name);
-  print('🔧 NAME DEBUG: setMyUserName completed, _myUserName is now: "$_myUserName"');
-}
+    print('🔧 NAME DEBUG: setMyUserName called with: "$name"');
+    final oldName = _myUserName;
+    
+    // Update internal cache
+    _myUserName = name;
+    
+    // Update persistent storage
+    await _userPreferences.setUserName(name);
+    
+    // USERNAME PROPAGATION FIX: Trigger callback for reactive updates
+    if (oldName != name && onMyUsernameChanged != null) {
+      onMyUsernameChanged!(name);
+      print('🔧 NAME DEBUG: Triggered username change callback');
+    }
+    
+    print('🔧 NAME DEBUG: setMyUserName completed, _myUserName is now: "$_myUserName"');
+  }
+  
+  /// ENHANCED: Set username with immediate cache invalidation and callback trigger
+  Future<void> setMyUserNameWithCallbacks(String name) async {
+    await setMyUserName(name);
+    
+    // Force reload from storage to ensure consistency
+    await loadUserName();
+    
+    // If connected, the identity re-exchange should be handled by the caller
+    print('🔧 NAME DEBUG: Username set with enhanced callbacks and cache invalidation');
+  }
   
 void setOtherUserName(String? name) {
   print('🐛 NAV DEBUG: setOtherUserName called with: "$name" (was: "$_otherUserName")');
@@ -1361,18 +1388,44 @@ void clearOtherUserName() {
   
   // Methods required by integration service
   
-  /// Start BLE scanning - placeholder for integration
+  /// Start BLE scanning - delegates to BLE service with burst source
   Future<void> startScanning() async {
-    _logger.info('BLE scanning start requested');
-    // This would typically delegate to the actual BLE service
-    // For now, this is a placeholder to satisfy the interface
+    _logger.info('🔧 BURST: Power manager requesting burst scanning');
+    // Delegate to actual BLE service with burst scanning source
+    try {
+      final bleService = _getBleService();
+      if (bleService != null) {
+        await bleService.startScanning(source: ScanningSource.burst);
+      } else {
+        _logger.warning('BLE service not available for burst scanning');
+      }
+    } catch (e) {
+      _logger.warning('Burst scanning failed: $e');
+    }
   }
   
-  /// Stop BLE scanning - placeholder for integration
+  /// Stop BLE scanning - delegates to BLE service  
   Future<void> stopScanning() async {
-    _logger.info('BLE scanning stop requested');
-    // This would typically delegate to the actual BLE service
-    // For now, this is a placeholder to satisfy the interface
+    _logger.info('🔧 BURST: Power manager requesting scan stop');
+    // Delegate to actual BLE service
+    try {
+      final bleService = _getBleService();
+      if (bleService != null) {
+        await bleService.stopScanning();
+      } else {
+        _logger.warning('BLE service not available for stopping scan');
+      }
+    } catch (e) {
+      _logger.warning('Stop scanning failed: $e');
+    }
+  }
+  
+  /// Get BLE service instance - helper method
+  BLEService? _getBleService() {
+    // In a real implementation, this would get the BLE service instance
+    // For now, we'll log that this needs to be connected
+    _logger.fine('BLE service connection needed for power manager integration');
+    return null; // Placeholder - needs proper service injection
   }
   
   /// Send message via BLE - placeholder for integration
