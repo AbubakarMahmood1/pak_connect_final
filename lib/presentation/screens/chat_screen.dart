@@ -1606,12 +1606,25 @@ void _setupContactRequestListener() {
           if (meshResult.isSuccess) {
             success = true;
             print('🔧 SEND DEBUG: Smart routing successful - ${meshResult.type.name}');
-            
+
             if (meshResult.isRelay) {
               _showSuccess('🧠 Message sent via smart routing');
             } else {
               _showSuccess('📱 Message sent directly');
             }
+
+            // Early return to prevent duplicate BLE transmission
+            print('🔧 SEND DEBUG: Mesh successful - skipping BLE fallback');
+            final newStatus = MessageStatus.delivered;
+            final updatedMessage = message.copyWith(status: newStatus);
+            await _messageRepository.updateMessage(updatedMessage);
+            setState(() {
+              final index = _messages.indexWhere((m) => m.id == message.id);
+              if (index != -1) {
+                _messages[index] = updatedMessage;
+              }
+            });
+            return;
           } else {
             print('🔧 SEND DEBUG: Smart routing failed - ${meshResult.error}');
             _showError('Smart routing failed: ${meshResult.error}');
