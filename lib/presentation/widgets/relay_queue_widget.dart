@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../core/utils/mesh_debug_logger.dart';
+import '../../domain/entities/enhanced_message.dart';
 
 /// Widget for displaying and managing relay message queue
 /// Shows pending messages, delivery status, and manual retry options
@@ -58,7 +59,23 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       builder: (context, snapshot) {
         final status = snapshot.data;
 
+        // 🔍 DEBUG: Log what RelayQueueWidget is receiving
+        print('🔍 RELAY QUEUE WIDGET DEBUG:');
+        print('  - snapshot.hasData: ${snapshot.hasData}');
+        print('  - snapshot.hasError: ${snapshot.hasError}');
+        print('  - status == null: ${status == null}');
+        if (status != null) {
+          print('  - status.isInitialized: ${status.isInitialized}');
+          print('  - status.queueMessages: ${status.queueMessages?.length ?? "null"}');
+          if (status.queueMessages != null && status.queueMessages!.isNotEmpty) {
+            final content = status.queueMessages!.first.content;
+            final preview = content.length > 20 ? content.substring(0, 20) + '...' : content;
+            print('  - First message: $preview');
+          }
+        }
+
         if (status == null) {
+          print('ℹ️ RelayQueueWidget: Loading state displayed - MeshNetworkStatus is null');
           // Cancel timeout if we get data
           if (_timeoutReached) {
             _loadingTimeout?.cancel();
@@ -287,22 +304,29 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   
   /// Build the main queue list
   Widget _buildQueueList(MeshNetworkStatus status) {
-    final queueStats = status.statistics.queueStatistics;
-    
-    if (queueStats == null) {
+    final queueMessages = status.queueMessages;
+
+    // 🔍 DEBUG: Log queue list building
+    print('🔍 BUILDING QUEUE LIST:');
+    print('  - queueMessages == null: ${queueMessages == null}');
+    print('  - queueMessages.length: ${queueMessages?.length ?? "null"}');
+
+    if (queueMessages == null) {
+      print('  - Returning: Queue information unavailable');
       return _buildEmptyState('Queue information unavailable');
     }
-    
-    final totalMessages = queueStats.pendingMessages + queueStats.sendingMessages + queueStats.retryingMessages;
-    
-    if (totalMessages == 0) {
+
+    if (queueMessages.isEmpty) {
+      print('  - Returning: No messages in relay queue');
       return _buildEmptyState('No messages in relay queue');
     }
-    
+
+    print('  - Returning: ListView with ${queueMessages.length} messages');
+
     return ListView.builder(
       padding: EdgeInsets.symmetric(vertical: 8),
-      itemCount: totalMessages,
-      itemBuilder: (context, index) => _buildQueueItem(index, queueStats),
+      itemCount: queueMessages.length,
+      itemBuilder: (context, index) => _buildRealQueueItem(queueMessages[index]),
     );
   }
   
@@ -341,19 +365,19 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     );
   }
   
-  /// Build individual queue item
-  Widget _buildQueueItem(int index, QueueStatistics queueStats) {
-    final isPending = index < queueStats.pendingMessages;
-    final isSending = !isPending && (index - queueStats.pendingMessages) < queueStats.sendingMessages;
-    final isRetrying = !isPending && !isSending;
+  /// Build real queue item from QueuedMessage
+  Widget _buildRealQueueItem(QueuedMessage message) {
+    final isPending = message.status == QueuedMessageStatus.pending;
+    final isSending = message.status == QueuedMessageStatus.sending;
+    final isRetrying = message.status == QueuedMessageStatus.retrying;
     
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       elevation: 1,
       child: ListTile(
-        leading: _buildMessageIcon(isPending, isSending, isRetrying),
-        title: Text(_buildMessageTitle(index, isPending, isSending, isRetrying)),
-        subtitle: Text(_buildMessageSubtitle(isPending, isSending, isRetrying)),
+        leading: _buildRealMessageIcon(message),
+        title: Text(_buildRealMessageTitle(message)),
+        subtitle: Text(_buildRealMessageSubtitle(message)),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -361,18 +385,18 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
             Container(
               padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.blue[100],
+                color: _getPriorityColor(message.priority),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
-                'Normal',
-                style: TextStyle(fontSize: 10, color: Colors.blue[700]),
+                message.priority.name.toUpperCase(),
+                style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
               ),
             ),
             SizedBox(width: 8),
-            
+
             // Action button
-            _buildActionButton(index, isPending, isSending, isRetrying),
+            _buildRealActionButton(message),
           ],
         ),
       ),
@@ -458,7 +482,137 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       ],
     );
   }
-  
+
+  /// Build icon for real message based on status and type
+  Widget _buildRealMessageIcon(QueuedMessage message) {
+    if (message.status == QueuedMessageStatus.sending) {
+      return CircularProgressIndicator(strokeWidth: 2);
+    } else if (message.status == QueuedMessageStatus.retrying) {
+      return Icon(Icons.refresh, color: Colors.orange[600]);
+    } else if (message.isRelayMessage) {
+      return CircleAvatar(
+        backgroundColor: Colors.purple[100],
+        child: Icon(Icons.route, color: Colors.purple[700], size: 20),
+      );
+    } else {
+      return CircleAvatar(
+        backgroundColor: Colors.blue[100],
+        child: Icon(Icons.message, color: Colors.blue[700], size: 20),
+      );
+    }
+  }
+
+  /// Build title for real message
+  String _buildRealMessageTitle(QueuedMessage message) {
+    if (message.status == QueuedMessageStatus.sending) {
+      return 'Sending message...';
+    } else if (message.status == QueuedMessageStatus.retrying) {
+      return 'Retrying message delivery (${message.attempts}/${message.maxRetries})';
+    } else if (message.isRelayMessage && message.relayMetadata != null) {
+      return 'Relay: "${_truncateContent(message.content)}"';
+    } else {
+      return 'Direct: "${_truncateContent(message.content)}"';
+    }
+  }
+
+  /// Build subtitle for real message
+  String _buildRealMessageSubtitle(QueuedMessage message) {
+    final recipientShort = message.recipientPublicKey.length > 12
+        ? '${message.recipientPublicKey.substring(0, 12)}...'
+        : message.recipientPublicKey;
+
+    if (message.status == QueuedMessageStatus.sending) {
+      return 'To: $recipientShort';
+    } else if (message.status == QueuedMessageStatus.retrying) {
+      return 'To: $recipientShort • Next retry in ${_getRetryTime(message)}';
+    } else if (message.isRelayMessage && message.relayMetadata != null) {
+      return 'Final recipient: $recipientShort • Hop ${message.relayMetadata!.hopCount}/${message.relayMetadata!.ttl}';
+    } else {
+      return 'To: $recipientShort • Queued ${_getQueueTime(message)}';
+    }
+  }
+
+  /// Build action button for real message
+  Widget _buildRealActionButton(QueuedMessage message) {
+    if (message.status == QueuedMessageStatus.sending) {
+      return SizedBox(width: 24); // Empty space during sending
+    }
+
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: Colors.grey[600]),
+      onSelected: (value) => _handleRealMessageAction(value, message),
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: 'retry',
+          child: Row(
+            children: [
+              Icon(Icons.send, color: Colors.green[600], size: 18),
+              SizedBox(width: 8),
+              Text('Retry Now'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'priority',
+          child: Row(
+            children: [
+              Icon(Icons.priority_high, color: Colors.orange[600], size: 18),
+              SizedBox(width: 8),
+              Text('Set High Priority'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'remove',
+          child: Row(
+            children: [
+              Icon(Icons.delete, color: Colors.red[600], size: 18),
+              SizedBox(width: 8),
+              Text('Remove'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Get priority color
+  Color _getPriorityColor(MessagePriority priority) {
+    switch (priority) {
+      case MessagePriority.urgent:
+        return Colors.red[600]!;
+      case MessagePriority.high:
+        return Colors.orange[600]!;
+      case MessagePriority.normal:
+        return Colors.blue[600]!;
+      case MessagePriority.low:
+        return Colors.grey[600]!;
+    }
+  }
+
+  /// Truncate content for display
+  String _truncateContent(String content) {
+    if (content.length <= 30) return content;
+    return '${content.substring(0, 30)}...';
+  }
+
+  /// Get retry time string
+  String _getRetryTime(QueuedMessage message) {
+    if (message.nextRetryAt == null) return 'soon';
+    final diff = message.nextRetryAt!.difference(DateTime.now());
+    if (diff.isNegative) return 'now';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m';
+    return '${diff.inSeconds}s';
+  }
+
+  /// Get queue time string
+  String _getQueueTime(QueuedMessage message) {
+    final diff = DateTime.now().difference(message.queuedAt);
+    if (diff.inHours > 0) return '${diff.inHours}h ago';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
+    return '${diff.inSeconds}s ago';
+  }
+
   /// Build action buttons at bottom of queue
   Widget _buildActionButtons() {
     return Container(
@@ -510,6 +664,21 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     MeshDebugLogger.info('UI Action', 'Queue refresh requested');
   }
   
+  /// Handle real message actions
+  void _handleRealMessageAction(String action, QueuedMessage message) {
+    switch (action) {
+      case 'retry':
+        _retryRealMessage(message);
+        break;
+      case 'priority':
+        _setPriorityReal(message);
+        break;
+      case 'remove':
+        _removeRealMessage(message);
+        break;
+    }
+  }
+
   void _handleMessageAction(String action, int messageIndex) {
     switch (action) {
       case 'retry':
@@ -523,7 +692,84 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
         break;
     }
   }
-  
+
+  /// Real action methods that interact with MeshNetworkingService
+
+  void _retryRealMessage(QueuedMessage message) async {
+    try {
+      final success = await widget.meshService.retryMessage(message.id);
+      final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success
+              ? '🔄 Retrying message ${messageIdShort}...'
+              : '❌ Failed to retry message ${messageIdShort}...'),
+          backgroundColor: success ? Colors.green[600] : Colors.red[600],
+        ),
+      );
+
+      MeshDebugLogger.info('UI Action', 'Real retry ${success ? "successful" : "failed"} for message ${messageIdShort}...');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error retrying message: $e'),
+          backgroundColor: Colors.red[600],
+        ),
+      );
+    }
+  }
+
+  void _setPriorityReal(QueuedMessage message) async {
+    try {
+      final success = await widget.meshService.setPriority(message.id, MessagePriority.high);
+      final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success
+              ? '⚡ Priority updated for ${messageIdShort}...'
+              : '⚠️ Priority update not supported for ${messageIdShort}...'),
+          backgroundColor: success ? Colors.orange[600] : Colors.grey[600],
+        ),
+      );
+
+      MeshDebugLogger.info('UI Action', 'Real priority change ${success ? "successful" : "failed"} for message ${messageIdShort}...');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error setting priority: $e'),
+          backgroundColor: Colors.red[600],
+        ),
+      );
+    }
+  }
+
+  void _removeRealMessage(QueuedMessage message) async {
+    try {
+      final success = await widget.meshService.removeMessage(message.id);
+      final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success
+              ? '🗑️ Message ${messageIdShort}... removed from queue'
+              : '❌ Failed to remove message ${messageIdShort}...'),
+          backgroundColor: success ? Colors.red[600] : Colors.grey[600],
+        ),
+      );
+
+      MeshDebugLogger.info('UI Action', 'Real removal ${success ? "successful" : "failed"} for message ${messageIdShort}...');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error removing message: $e'),
+          backgroundColor: Colors.red[600],
+        ),
+      );
+    }
+  }
+
   void _retryMessage(int index) {
     // Implement manual retry
     ScaffoldMessenger.of(context).showSnackBar(
@@ -562,14 +808,28 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     MeshDebugLogger.info('UI Action', 'Message removal requested for message $index');
   }
   
-  void _retryAllMessages() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('🚀 Retrying all pending messages...'),
-        backgroundColor: Colors.green[600],
-      ),
-    );
-    MeshDebugLogger.info('UI Action', 'Retry all messages requested');
+  void _retryAllMessages() async {
+    try {
+      final retriedCount = await widget.meshService.retryAllMessages();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(retriedCount > 0
+              ? '🚀 Retrying $retriedCount failed messages...'
+              : '✅ No failed messages to retry'),
+          backgroundColor: Colors.green[600],
+        ),
+      );
+
+      MeshDebugLogger.info('UI Action', 'Retry all messages: $retriedCount messages queued for retry');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error retrying messages: $e'),
+          backgroundColor: Colors.red[600],
+        ),
+      );
+    }
   }
   
   void _clearFailedMessages() {

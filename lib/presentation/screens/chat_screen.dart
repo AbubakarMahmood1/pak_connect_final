@@ -26,6 +26,7 @@ import '../../core/services/security_manager.dart';
 import '../../core/services/persistent_chat_state_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/services/message_retry_coordinator.dart';
+import '../../core/app_core.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode (live connection)
@@ -512,6 +513,29 @@ Future<void> _initializePersistentValues() async {
     print('🐛 NAV DEBUG: _initializePersistentValues() completed with key: ${_persistentContactPublicKey?.substring(0, 16)}...');
   }
 
+  /// Check if there are messages queued for relay that should prevent disconnection
+  bool _hasMessagesQueuedForRelay() {
+    try {
+      final offlineQueue = OfflineMessageQueue();
+      final queuedMessages = offlineQueue.getPendingMessages();
+
+      // Check if any queued messages are for this chat and intended for relay
+      final chatMessages = queuedMessages.where((msg) =>
+        msg.recipientPublicKey == _persistentContactPublicKey
+      );
+
+      if (chatMessages.isNotEmpty) {
+        _logger.info('🔄 Found ${chatMessages.length} messages queued for relay in this chat');
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      _logger.warning('Error checking relay queue: $e');
+      return false;
+    }
+  }
+
   Future<void> _loadMessages() async {
     final messages = await _messageRepository.getMessages(_chatId);
     setState(() {
@@ -980,10 +1004,16 @@ Widget build(BuildContext context) {
       });
     } else {
       _showError('Device disconnected');
-      
+
       final bleService = ref.read(bleServiceProvider);
       if (!bleService.isPeripheralMode) {
-        bleService.startConnectionMonitoring();
+        // 🎯 RELAY-AWARE FIX: Check if we have messages queued for relay before triggering reconnection
+        if (_hasMessagesQueuedForRelay()) {
+          _logger.info('🔄 Not triggering reconnection - messages queued for relay via current connection');
+          _showInfo('Messages queued for relay - maintaining connection');
+        } else {
+          bleService.startConnectionMonitoring();
+        }
       }
     }
   });
@@ -1577,95 +1607,51 @@ void _setupContactRequestListener() {
   _scrollToBottom();
 
   try {
-    bool success = false;
-    
-    // ENHANCED: Check both BLE and mesh connectivity options
-    final connectionInfo = ref.read(connectionInfoProvider).value;
-    final isConnected = connectionInfo?.isConnected == true;
-    final isReady = connectionInfo?.isReady == true;
-    
-    print('🔧 SEND DEBUG: Connection check - BLE: $isConnected/$isReady, Demo enabled: $_demoModeEnabled');
-    
-    // Try smart routing first if demo mode enabled
-    if (_demoModeEnabled && _persistentContactPublicKey != null) {
-      final bleService = ref.read(bleServiceProvider);
-      final connectedNodeId = bleService.otherDevicePersistentId;
-      final isDirectRecipient = connectedNodeId == _persistentContactPublicKey;
-      
-      if (!isDirectRecipient || !isConnected) {
-        print('🔧 SEND DEBUG: Attempting smart mesh relay to ${_persistentContactPublicKey!.substring(0, 8)}...');
-        
-        try {
-          final meshController = ref.read(meshNetworkingControllerProvider);
-          final meshResult = await meshController.sendMeshMessage(
-            content: text,
-            recipientPublicKey: _persistentContactPublicKey!,
-            isDemo: _demoModeEnabled,
-          );
-          
-          if (meshResult.isSuccess) {
-            success = true;
-            print('🔧 SEND DEBUG: Smart routing successful - ${meshResult.type.name}');
+    print('🔧 SEND DEBUG: Using AppCore.sendSecureMessage() for unified routing');
 
-            if (meshResult.isRelay) {
-              _showSuccess('🧠 Message sent via smart routing');
-            } else {
-              _showSuccess('📱 Message sent directly');
-            }
+    // Check if we have recipient public key
+    if (_persistentContactPublicKey == null) {
+      print('🔧 SEND DEBUG: No recipient public key available');
+      _showError('Recipient not available for secure messaging');
 
-            // Early return to prevent duplicate BLE transmission
-            print('🔧 SEND DEBUG: Mesh successful - skipping BLE fallback');
-            final newStatus = MessageStatus.delivered;
-            final updatedMessage = message.copyWith(status: newStatus);
-            await _messageRepository.updateMessage(updatedMessage);
-            setState(() {
-              final index = _messages.indexWhere((m) => m.id == message.id);
-              if (index != -1) {
-                _messages[index] = updatedMessage;
-              }
-            });
-            return;
-          } else {
-            print('🔧 SEND DEBUG: Smart routing failed - ${meshResult.error}');
-            _showError('Smart routing failed: ${meshResult.error}');
-          }
-          
-        } catch (e) {
-          print('🔧 SEND DEBUG: Smart routing exception: $e');
-          _showError('Smart routing error: $e');
+      // Mark message as failed
+      final failedMessage = message.copyWith(status: MessageStatus.failed);
+      await _messageRepository.updateMessage(failedMessage);
+      setState(() {
+        final index = _messages.indexWhere((m) => m.id == message.id);
+        if (index != -1) {
+          _messages[index] = failedMessage;
         }
-      }
+      });
+      return;
     }
-    
-    // Fallback to direct BLE if mesh didn't work or isn't enabled
-    if (!success && isConnected && isReady) {
-      print('🔧 SEND DEBUG: Fallback to direct BLE sending');
-      
-      final bleService = ref.read(bleServiceProvider);
-      
-      if (bleService.stateManager.isPeripheralMode) {
-        print('🔧 SEND DEBUG: Using peripheral mode sending');
-        success = await bleService.sendPeripheralMessage(text, messageId: message.id);
-      } else {
-        print('🔧 SEND DEBUG: Using central mode sending');
-        success = await bleService.sendMessage(text, messageId: message.id);
-      }
-    } else if (!success) {
-      print('🔧 SEND DEBUG: No delivery method available - storing for later');
-      success = false;
-    }
-    
-    print('🔧 SEND DEBUG: Send result: $success');
-    
-    final newStatus = success ? MessageStatus.delivered : MessageStatus.failed;
-    final updatedMessage = message.copyWith(status: newStatus);
-    await _messageRepository.updateMessage(updatedMessage);
+
+    // Use AppCore's unified secure messaging system
+    final messageId = await AppCore.instance.sendSecureMessage(
+      chatId: _chatId,
+      content: text,
+      recipientPublicKey: _persistentContactPublicKey!,
+    );
+
+    print('🔧 SEND DEBUG: Message queued with AppCore, messageId: ${messageId.substring(0, 16)}...');
+
+    // Update message status to sent (queue system will handle delivery)
+    final queuedMessage = message.copyWith(
+      status: MessageStatus.sent, // Queue will handle delivery status
+    );
+
+    await _messageRepository.updateMessage(queuedMessage);
     setState(() {
       final index = _messages.indexWhere((m) => m.id == message.id);
       if (index != -1) {
-        _messages[index] = updatedMessage;
+        _messages[index] = queuedMessage;
       }
     });
+
+    print('🔧 SEND DEBUG: Message ${message.id} -> Queue ID ${messageId.substring(0, 16)}...');
+
+    _showSuccess('✅ Message queued for secure delivery');
+    print('🔧 SEND DEBUG: Message successfully queued through AppCore');
     _scrollToBottom();
       
   } catch (e) {
@@ -1912,6 +1898,10 @@ void _handleConnectionChange(ConnectionInfo? previous, ConnectionInfo? current) 
 
   void _showError(String message) {
      _logger.warning('Error: $message');
+  }
+
+  void _showInfo(String message) {
+    _logger.info('Info: $message');
   }
 
   void _showSuccess(String message) {

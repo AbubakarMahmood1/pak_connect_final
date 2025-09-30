@@ -3,6 +3,8 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
 import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
+import '../../core/scanning/burst_scanning_controller.dart';
+import '../../core/power/adaptive_power_manager.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -130,6 +132,92 @@ final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
 final discoveryDataProvider = StreamProvider<Map<String, DiscoveredEventArgs>>((ref) {
   final service = ref.watch(bleServiceProvider);
   return service.discoveryData;
+});
+
+// =============================================================================
+// BURST SCANNING INTEGRATION
+// =============================================================================
+
+/// Burst scanning controller provider - manages the integration between power manager and BLE
+final burstScanningControllerProvider = FutureProvider<BurstScanningController>((ref) async {
+  final controller = BurstScanningController();
+  final bleService = ref.watch(bleServiceProvider);
+
+  try {
+    await controller.initialize(bleService);
+
+    // 🔥 AUTO-START: Immediately begin adaptive burst scanning
+    await controller.startBurstScanning();
+
+    ref.onDispose(() {
+      controller.dispose();
+    });
+    return controller;
+  } catch (e) {
+    controller.dispose();
+    rethrow;
+  }
+});
+
+/// Eager burst scanning initializer - forces burst scanning to start during app initialization
+final eagerBurstScanningProvider = FutureProvider<bool>((ref) async {
+  // This provider eagerly initializes burst scanning by watching the controller
+  final controller = await ref.watch(burstScanningControllerProvider.future);
+  return true; // Return success flag
+});
+
+/// Burst scanning status provider - streams real-time burst scanning status
+final burstScanningStatusProvider = StreamProvider<BurstScanningStatus>((ref) {
+  final controllerAsync = ref.watch(burstScanningControllerProvider);
+
+  return controllerAsync.when(
+    data: (controller) => controller.statusStream,
+    loading: () => Stream.value(BurstScanningStatus(
+      isBurstActive: false,
+      currentScanInterval: 60000,
+      powerStats: PowerManagementStats(
+        currentScanInterval: 60000,
+        currentHealthCheckInterval: 30000,
+        consecutiveSuccessfulChecks: 0,
+        consecutiveFailedChecks: 0,
+        connectionQualityScore: 0.5,
+        connectionStabilityScore: 0.5,
+        timeSinceLastSuccess: Duration.zero,
+        qualityMeasurementsCount: 0,
+        isBurstMode: false,
+      ),
+    )),
+    error: (error, stack) => Stream.value(BurstScanningStatus(
+      isBurstActive: false,
+      currentScanInterval: 60000,
+      powerStats: PowerManagementStats(
+        currentScanInterval: 60000,
+        currentHealthCheckInterval: 30000,
+        consecutiveSuccessfulChecks: 0,
+        consecutiveFailedChecks: 0,
+        connectionQualityScore: 0.5,
+        connectionStabilityScore: 0.5,
+        timeSinceLastSuccess: Duration.zero,
+        qualityMeasurementsCount: 0,
+        isBurstMode: false,
+      ),
+    )),
+  );
+});
+
+/// Burst scanning operations provider - provides methods to control burst scanning
+final burstScanningOperationsProvider = Provider<BurstScanningOperations?>((ref) {
+  final controllerAsync = ref.watch(burstScanningControllerProvider);
+  final bleService = ref.watch(bleServiceProvider);
+
+  return controllerAsync.when(
+    data: (controller) => BurstScanningOperations(
+      controller: controller,
+      bleService: bleService,
+    ),
+    loading: () => null,
+    error: (error, stack) => null,
+  );
 });
 
 // =============================================================================
@@ -535,5 +623,70 @@ class MessageSendCapabilities {
     if (canSendDirect) methods.add(MessageSendMethod.direct);
     if (canSendMesh) methods.add(MessageSendMethod.mesh);
     return methods;
+  }
+}
+
+/// Burst scanning operations class for UI control
+class BurstScanningOperations {
+  final BurstScanningController controller;
+  final BLEService bleService;
+
+  const BurstScanningOperations({
+    required this.controller,
+    required this.bleService,
+  });
+
+  /// Start burst scanning
+  Future<void> startBurstScanning() async {
+    await controller.startBurstScanning();
+  }
+
+  /// Stop burst scanning
+  Future<void> stopBurstScanning() async {
+    await controller.stopBurstScanning();
+  }
+
+  /// Trigger manual scan (overrides burst timing)
+  Future<void> triggerManualScan() async {
+    await controller.triggerManualScan();
+  }
+
+  /// Report connection success for adaptive power management
+  void reportConnectionSuccess({
+    int? rssi,
+    double? connectionTime,
+    bool? dataTransferSuccess,
+  }) {
+    controller.reportConnectionSuccess(
+      rssi: rssi,
+      connectionTime: connectionTime,
+      dataTransferSuccess: dataTransferSuccess,
+    );
+  }
+
+  /// Report connection failure for adaptive power management
+  void reportConnectionFailure({
+    String? reason,
+    int? rssi,
+    double? attemptTime,
+  }) {
+    controller.reportConnectionFailure(
+      reason: reason,
+      rssi: rssi,
+      attemptTime: attemptTime,
+    );
+  }
+
+  /// Get current status
+  BurstScanningStatus getCurrentStatus() {
+    return controller.getCurrentStatus();
+  }
+
+  /// Check if device is in peripheral mode (can't do burst scanning)
+  bool get canPerformBurstScanning => !bleService.isPeripheralMode;
+
+  /// Check if burst scanning is available
+  bool get isBurstScanningAvailable {
+    return canPerformBurstScanning && bleService.isBluetoothReady;
   }
 }

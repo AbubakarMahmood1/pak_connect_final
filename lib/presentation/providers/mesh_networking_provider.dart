@@ -11,6 +11,7 @@ import '../../data/services/ble_message_handler.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import 'ble_providers.dart';
 
 /// Logger for mesh networking providers
@@ -21,6 +22,29 @@ final _messageHandlerProvider = Provider<BLEMessageHandler>((ref) => BLEMessageH
 final _contactRepositoryProvider = Provider<ContactRepository>((ref) => ContactRepository());
 final _chatManagementServiceProvider = Provider<ChatManagementService>((ref) => ChatManagementService());
 final _messageRepositoryProvider = Provider<MessageRepository>((ref) => MessageRepository());
+
+/// Provider for Bluetooth state monitor
+final bluetoothStateMonitorProvider = Provider<BluetoothStateMonitor>((ref) {
+  return BluetoothStateMonitor.instance;
+});
+
+/// Stream provider for Bluetooth state information
+final bluetoothStateProvider = StreamProvider<BluetoothStateInfo>((ref) {
+  final monitor = ref.watch(bluetoothStateMonitorProvider);
+  return monitor.stateStream;
+});
+
+/// Stream provider for Bluetooth status messages
+final bluetoothStatusMessageProvider = StreamProvider<BluetoothStatusMessage>((ref) {
+  final monitor = ref.watch(bluetoothStateMonitorProvider);
+  return monitor.messageStream;
+});
+
+/// Provider for current Bluetooth ready state
+final bluetoothReadyProvider = Provider<bool>((ref) {
+  final monitor = ref.watch(bluetoothStateMonitorProvider);
+  return monitor.isBluetoothReady;
+});
 
 /// Provider for MeshNetworkingService (Singleton to prevent multiple instances)
 final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
@@ -54,7 +78,7 @@ final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
 /// Stream provider for mesh network status with fallback
 final meshNetworkStatusProvider = StreamProvider<MeshNetworkStatus>((ref) {
   final service = ref.watch(meshNetworkingServiceProvider);
-  
+
   return service.meshStatus.handleError((error) {
     _logger.warning('Mesh status stream error: $error');
     // Return a default status to prevent infinite loading
@@ -63,6 +87,7 @@ final meshNetworkStatusProvider = StreamProvider<MeshNetworkStatus>((ref) {
       currentNodeId: null,
       isDemoMode: true,
       isConnected: false,
+      queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
       statistics: MeshNetworkStatistics(
         nodeId: 'error',
         isInitialized: false,
@@ -524,12 +549,20 @@ extension MeshNetworkingProviderExtensions on WidgetRef {
 Future<void> _initializeServiceAsync(MeshNetworkingService service, Ref ref) async {
   try {
     _logger.info('Initializing mesh networking service with auto demo mode...');
-    
+
     // Initialize with demo mode enabled by default
     await service.initialize(enableDemo: true);
-    
+
     _logger.info('✅ Mesh networking service initialized successfully');
-    
+
+    // CRITICAL FIX: Add a small delay then force a status broadcast
+    // This ensures any late-subscribing widgets get the final initialized status
+    await Future.delayed(Duration(milliseconds: 100));
+
+    // Force a final status broadcast to ensure all listeners get the initialized state
+    service.refreshMeshStatus();
+    _logger.info('🔄 Final status broadcast sent to ensure all widgets receive initialized state');
+
   } catch (e) {
     _logger.severe('❌ Failed to initialize mesh networking service: $e');
     // Don't rethrow - let the service handle fallback status broadcasting

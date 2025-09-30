@@ -115,11 +115,12 @@ lib/
 - **Next**: Fuzzy search implementation and performance optimization
 
 ### Key Technologies
-- **Flutter 3.35.3** with Dart 3.9.2
-- **Riverpod** for state management
-- **bluetooth_low_energy** for mesh networking
-- **encrypt** and **pointycastle** for cryptography
-- **flutter_secure_storage** for secure data persistence
+- **Flutter** with Dart 3.9.0+
+- **Riverpod 3.0** for state management
+- **bluetooth_low_energy 6.1.0** for mesh networking
+- **encrypt 5.0.3** and **pointycastle 3.9.1** for cryptography
+- **flutter_secure_storage 9.2.4** for secure data persistence
+- **riverpod_generator 3.0.0** and **build_runner 2.5.4** for code generation
 
 ### Testing Approach
 The test suite includes comprehensive mesh networking integration tests, message routing validation, and relay system verification. Always run the full test suite before making changes to core networking or security components.

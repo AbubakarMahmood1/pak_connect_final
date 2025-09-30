@@ -11,6 +11,7 @@ import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
+import '../../core/app_core.dart';
 import '../../data/services/ble_service.dart';
 import '../../data/services/ble_message_handler.dart';
 import '../../data/repositories/contact_repository.dart';
@@ -159,16 +160,27 @@ class MeshNetworkingService {
 
   /// Initialize core mesh networking components
   Future<void> _initializeCoreComponents() async {
-    // Initialize message queue
-    _messageQueue = OfflineMessageQueue();
-    await _messageQueue!.initialize(
-      onMessageQueued: _handleMessageQueued,
-      onMessageDelivered: _handleMessageDelivered,
-      onMessageFailed: _handleMessageFailed,
-      onStatsUpdated: _handleQueueStatsUpdated,
-      onSendMessage: _handleSendMessage,
-      onConnectivityCheck: _handleConnectivityCheck,
-    );
+    // Use AppCore's shared message queue instead of creating a separate instance
+    _logger.info('🔗 Using AppCore\'s shared message queue for mesh networking');
+
+    // Get the shared queue from AppCore - ensure AppCore is initialized first
+    if (!AppCore.instance.isInitialized) {
+      _logger.warning('AppCore not initialized, initializing now...');
+      await AppCore.instance.initialize();
+    }
+
+    _messageQueue = AppCore.instance.messageQueue;
+    _logger.info('✅ Connected to shared message queue with ${_messageQueue!.getStatistics().pendingMessages} pending messages');
+
+    // Reconfigure the shared queue to use mesh networking specific callbacks
+    _logger.info('🔄 Reconfiguring shared queue callbacks for mesh networking...');
+    _messageQueue!.onMessageQueued = _handleMessageQueued;
+    _messageQueue!.onMessageDelivered = _handleMessageDelivered;
+    _messageQueue!.onMessageFailed = _handleMessageFailed;
+    _messageQueue!.onStatsUpdated = _handleQueueStatsUpdated;
+    _messageQueue!.onSendMessage = (messageId) => _handleSendMessage(messageId);
+    _messageQueue!.onConnectivityCheck = _handleConnectivityCheck;
+    _logger.info('✅ Queue callbacks reconfigured for mesh networking');
 
     // Initialize spam prevention
     _spamPrevention = SpamPreventionManager();
@@ -330,6 +342,7 @@ class MeshNetworkingService {
         currentNodeId: _currentNodeId,
         isDemoMode: _isDemoMode,
         isConnected: false,
+        queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
         statistics: MeshNetworkStatistics(
           nodeId: _currentNodeId ?? 'unknown',
           isInitialized: false,
@@ -671,6 +684,11 @@ class MeshNetworkingService {
     _logger.info('Demo data cleared');
   }
 
+  /// Force refresh mesh status broadcast (for provider initialization)
+  void refreshMeshStatus() {
+    _broadcastMeshStatus();
+  }
+
   /// Sync queues with connected nodes
   Future<Map<String, QueueSyncResult>> syncQueuesWithPeers() async {
     if (_queueSyncManager == null) {
@@ -683,6 +701,103 @@ class MeshNetworkingService {
     }
 
     return await _queueSyncManager!.forceSyncAll(availableNodes);
+  }
+
+  /// Retry a specific message in the queue
+  Future<bool> retryMessage(String messageId) async {
+    if (_messageQueue == null) {
+      _logger.warning('Cannot retry message: queue not initialized');
+      return false;
+    }
+
+    try {
+      final message = _messageQueue!.getMessageById(messageId);
+      if (message == null) {
+        _logger.warning('Message not found for retry: ${messageId.substring(0, 16)}...');
+        return false;
+      }
+
+      // Reset message status to pending for retry
+      message.status = QueuedMessageStatus.pending;
+      message.attempts = 0;
+      message.nextRetryAt = null;
+      message.failureReason = null;
+
+      // Trigger immediate delivery attempt if online
+      if (_messageQueue!.getStatistics().isOnline) {
+        await _handleSendMessage(messageId);
+      }
+
+      _logger.info('Message retry initiated: ${messageId.substring(0, 16)}...');
+      _broadcastMeshStatus();
+      return true;
+
+    } catch (e) {
+      _logger.severe('Failed to retry message: $e');
+      return false;
+    }
+  }
+
+  /// Remove a specific message from the queue
+  Future<bool> removeMessage(String messageId) async {
+    if (_messageQueue == null) {
+      _logger.warning('Cannot remove message: queue not initialized');
+      return false;
+    }
+
+    try {
+      await _messageQueue!.removeMessage(messageId);
+      _logger.info('Message removed from queue: ${messageId.substring(0, 16)}...');
+      _broadcastMeshStatus();
+      return true;
+
+    } catch (e) {
+      _logger.severe('Failed to remove message: $e');
+      return false;
+    }
+  }
+
+  /// Set high priority for a specific message
+  Future<bool> setPriority(String messageId, MessagePriority priority) async {
+    if (_messageQueue == null) {
+      _logger.warning('Cannot set priority: queue not initialized');
+      return false;
+    }
+
+    try {
+      final message = _messageQueue!.getMessageById(messageId);
+      if (message == null) {
+        _logger.warning('Message not found for priority change: ${messageId.substring(0, 16)}...');
+        return false;
+      }
+
+      // Note: QueuedMessage priority is final, so this is a limitation
+      // In a real implementation, you'd need to recreate the message with new priority
+      _logger.info('Priority change requested for message: ${messageId.substring(0, 16)}... (current limitation: priority is immutable)');
+      return false;
+
+    } catch (e) {
+      _logger.severe('Failed to set message priority: $e');
+      return false;
+    }
+  }
+
+  /// Retry all failed messages
+  Future<int> retryAllMessages() async {
+    if (_messageQueue == null) {
+      return 0;
+    }
+
+    try {
+      await _messageQueue!.retryFailedMessages();
+      _broadcastMeshStatus();
+      _logger.info('All failed messages queued for retry');
+      return _messageQueue!.getMessagesByStatus(QueuedMessageStatus.failed).length;
+
+    } catch (e) {
+      _logger.severe('Failed to retry all messages: $e');
+      return 0;
+    }
   }
 
   // Event handlers for core components
@@ -720,17 +835,71 @@ class MeshNetworkingService {
     _broadcastMeshStatus();
   }
 
-  void _handleSendMessage(String messageId) {
+  Future<void> _handleSendMessage(String messageId) async {
     final truncatedId = messageId.length > 16 ? messageId.substring(0, 16) : messageId;
     _logger.fine('Send message request: $truncatedId...');
-    // This would trigger actual BLE message sending
-    // For now, simulate through the BLE service
+
+    try {
+      // Get the message from queue
+      final message = _messageQueue?.getMessageById(messageId);
+      if (message == null) {
+        _logger.severe('Message not found in queue: $truncatedId...');
+        _messageQueue?.markMessageFailed(messageId, 'Message not found in queue');
+        return;
+      }
+
+      // Send via real BLE service - preserve original intended recipient for relay
+      final success = await _bleService.sendMessage(
+        message.content,
+        messageId: messageId,
+        originalIntendedRecipient: message.recipientPublicKey, // Preserve original recipient
+      );
+
+      if (success) {
+        _logger.info('Message successfully sent via BLE: $truncatedId...');
+        _messageQueue?.markMessageDelivered(messageId);
+      } else {
+        _logger.warning('Failed to send message via BLE: $truncatedId...');
+        _messageQueue?.markMessageFailed(messageId, 'BLE transmission failed');
+      }
+
+    } catch (e) {
+      _logger.severe('Error sending message $truncatedId...: $e');
+      _messageQueue?.markMessageFailed(messageId, 'Send error: $e');
+      // Ensure we return early after handling the exception
+      return;
+    }
+  }
+
+  /// Check if a message should be relayed through the specified device
+  bool _shouldRelayThroughDevice(QueuedMessage message, String deviceId) {
+    try {
+      // Simple heuristic: if the message recipient is not the connected device,
+      // and no direct connection to recipient exists, relay through this device
+
+      // For now, return true for any offline recipient (Ali) when relay node (Arshad) is available
+      // This will be refined when proper topology tracking is implemented
+      return true;
+
+    } catch (e) {
+      _logger.warning('Error checking relay route: $e');
+      return false; // Conservative fallback
+    }
   }
 
   void _handleConnectivityCheck() {
-    // Update online/offline status based on BLE connection
-    final isOnline = _bleService.isConnected;
-    _messageQueue?.setOnline();
+    // PROPER FIX: Use the exact same connectivity check as sendMessage()
+    // This ensures queue connectivity matches actual sending capability
+    final hasPhysicalConnection = _bleService.connectionManager.hasBleConnection &&
+                                 _bleService.connectionManager.messageCharacteristic != null;
+
+    if (hasPhysicalConnection) {
+      _messageQueue?.setOnline();
+      _logger.fine('Queue connectivity: ONLINE - BLE connection ready for sending');
+    } else {
+      _messageQueue?.setOffline();
+      _logger.fine('Queue connectivity: OFFLINE - No BLE connection or characteristic');
+    }
   }
 
   void _handleRelayMessage(MeshRelayMessage message, String nextHopNodeId) async {
@@ -893,21 +1062,32 @@ class MeshNetworkingService {
         MeshDebugLogger.warning('QUEUE_DELIVERY', 'Message queue not initialized', messageId: 'N/A');
         return;
       }
-      
-      // Get all pending messages for this device
-      final pendingMessages = _messageQueue!.getMessagesByStatus(QueuedMessageStatus.pending)
+
+      // Get direct messages for this device
+      final directMessages = _messageQueue!.getMessagesByStatus(QueuedMessageStatus.pending)
           .where((msg) => msg.recipientPublicKey == deviceId)
           .toList();
-      
-      if (pendingMessages.isEmpty) {
+
+      // Get relay messages that should go through this device
+      final relayMessages = _messageQueue!.getMessagesByStatus(QueuedMessageStatus.pending)
+          .where((msg) => msg.recipientPublicKey != deviceId && _shouldRelayThroughDevice(msg, deviceId))
+          .toList();
+
+      final allMessages = [...directMessages, ...relayMessages];
+
+      if (allMessages.isEmpty) {
         MeshDebugLogger.info('No queued messages', 'No pending messages for ${deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId}...');
         return;
       }
+
+      final directCount = directMessages.length;
+      final relayCount = relayMessages.length;
+      _logger.info('Found ${directCount} direct + ${relayCount} relay messages for ${deviceId.substring(0, 8)}...');
       
-      MeshDebugLogger.queueDeliveryTriggered(deviceId, pendingMessages.length);
+      MeshDebugLogger.queueDeliveryTriggered(deviceId, allMessages.length);
       
       // Sort by priority and queue time for optimal delivery order
-      pendingMessages.sort((a, b) {
+      allMessages.sort((a, b) {
         final priorityCompare = b.priority.index.compareTo(a.priority.index);
         if (priorityCompare != 0) return priorityCompare;
         return a.queuedAt.compareTo(b.queuedAt);
@@ -917,8 +1097,8 @@ class MeshNetworkingService {
       int failed = 0;
       
       // Process messages with staggered delays to prevent network congestion
-      for (int i = 0; i < pendingMessages.length; i++) {
-        final message = pendingMessages[i];
+      for (int i = 0; i < allMessages.length; i++) {
+        final message = allMessages[i];
         
         try {
           // Add delay to prevent network congestion (except for first message)
@@ -930,9 +1110,9 @@ class MeshNetworkingService {
           
           // Trigger delivery through the queue's internal system
           if (_handleSendMessage != null) {
-            _handleSendMessage!(message.id);
+            await _handleSendMessage(message.id);
             successful++;
-            
+
             MeshDebugLogger.deliverySuccess(message.id, deviceId);
           } else {
             failed++;
@@ -945,7 +1125,7 @@ class MeshNetworkingService {
         }
       }
       
-      MeshDebugLogger.queueDeliveryComplete(deviceId, pendingMessages.length, successful, failed);
+      MeshDebugLogger.queueDeliveryComplete(deviceId, allMessages.length, successful, failed);
       
       // Update mesh status after queue processing
       _broadcastMeshStatus();
@@ -978,6 +1158,7 @@ class MeshNetworkingService {
         currentNodeId: null,  // Not yet determined
         isDemoMode: false,    // Default
         isConnected: false,   // Default until BLE connection is checked
+        queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
         statistics: MeshNetworkStatistics(
           nodeId: 'initializing',
           isInitialized: false,
@@ -1032,6 +1213,7 @@ class MeshNetworkingService {
         currentNodeId: _currentNodeId,
         isDemoMode: _isDemoMode,
         isConnected: _bleService.isConnected,
+        queueMessages: _messageQueue?.getMessagesByStatus(QueuedMessageStatus.pending) ?? [], // CRITICAL FIX
         statistics: MeshNetworkStatistics(
           nodeId: _currentNodeId ?? 'initializing',
           isInitialized: false,
@@ -1064,12 +1246,22 @@ class MeshNetworkingService {
   }
 
   void _broadcastMeshStatus() {
+    // Get current queue messages for UI display (including failed for migration period)
+    final List<QueuedMessage> queueMessages = [
+      ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.pending) ?? <QueuedMessage>[],
+      ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.failed) ?? <QueuedMessage>[],
+    ];
+
+    // Debug: Log queue message count for development
+    _logger.fine('Broadcasting mesh status with ${queueMessages.length} queue messages');
+
     final status = MeshNetworkStatus(
       isInitialized: _isInitialized,
       currentNodeId: _currentNodeId,
       isDemoMode: _isDemoMode,
       isConnected: _bleService.isConnected,
       statistics: getNetworkStatistics(),
+      queueMessages: queueMessages,
     );
 
     _lastMeshStatus = status;
@@ -1137,6 +1329,7 @@ class MeshNetworkStatus {
   final bool isDemoMode;
   final bool isConnected;
   final MeshNetworkStatistics statistics;
+  final List<QueuedMessage>? queueMessages;
 
   const MeshNetworkStatus({
     required this.isInitialized,
@@ -1144,6 +1337,7 @@ class MeshNetworkStatus {
     required this.isDemoMode,
     required this.isConnected,
     required this.statistics,
+    this.queueMessages,
   });
 }
 

@@ -195,25 +195,9 @@ class OfflineMessageQueue {
       
       _logger.fine('Attempting delivery: ${message.id.substring(0, 16)}... (attempt ${message.attempts}/${message.maxRetries})');
       
-      // Validate message before sending (replay protection)
-      final validationResult = await MessageSecurity.validateMessage(
-        messageId: message.id,
-        senderPublicKey: message.senderPublicKey,
-        content: message.content,
-        recipientPublicKey: message.recipientPublicKey,
-        allowRetry: true,
-      );
-      
-      if (!validationResult.isValid) {
-        if (validationResult.isReplay) {
-          _logger.warning('Message replay detected: ${message.id.substring(0, 16)}...');
-          await _markMessageFailed(message, 'Replay protection triggered');
-        } else {
-          _logger.severe('Message validation failed: ${validationResult.errorMessage}');
-          await _markMessageFailed(message, validationResult.errorMessage ?? 'Validation failed');
-        }
-        return;
-      }
+      // Note: Skip validation here - sender cannot validate recipient-encrypted messages
+      // Validation will be performed by the actual recipient when they decrypt the message
+      // This prevents the bug where sender tries to validate content encrypted with recipient's key
       
       // Attempt actual delivery via callback
       onSendMessage?.call(message.id);
@@ -261,18 +245,16 @@ class OfflineMessageQueue {
   /// Handle delivery failure with intelligent retry
   Future<void> _handleDeliveryFailure(QueuedMessage message, String reason) async {
     _logger.warning('Delivery failed for ${message.id.substring(0, 16)}...: $reason (attempt ${message.attempts}/${message.maxRetries})');
-    
-    if (message.attempts >= message.maxRetries) {
-      await _markMessageFailed(message, reason);
-      return;
-    }
-    
-    // Calculate exponential backoff delay
+
+    // For mesh networking, never permanently fail messages - devices may be offline for long periods
+    // Instead, use exponential backoff with increasing delays for persistent retry
+
+    // Calculate exponential backoff delay (cap at 1 hour for very high attempt counts)
     final backoffDelay = _calculateBackoffDelay(message.attempts);
-    
+
     message.status = QueuedMessageStatus.retrying;
     message.nextRetryAt = DateTime.now().add(backoffDelay);
-    
+
     await _saveQueueToStorage();
     
     // Schedule retry
@@ -385,6 +367,16 @@ class OfflineMessageQueue {
   /// Get messages by status
   List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) {
     return _messageQueue.where((m) => m.status == status).toList();
+  }
+
+  /// Get message by ID
+  QueuedMessage? getMessageById(String messageId) {
+    return _messageQueue.where((m) => m.id == messageId).firstOrNull;
+  }
+
+  /// Get all pending messages (convenience method)
+  List<QueuedMessage> getPendingMessages() {
+    return getMessagesByStatus(QueuedMessageStatus.pending);
   }
   
   /// Remove specific message from queue

@@ -143,6 +143,7 @@ class BLEMessageHandler {
   required int mtuSize,
   String? messageId,
   String? contactPublicKey,
+  String? originalIntendedRecipient, // For relay messages: preserve original recipient
   required ContactRepository contactRepository,
   required BLEStateManager stateManager,
   Function(bool)? onMessageOperationChanged,
@@ -203,7 +204,7 @@ class BLEMessageHandler {
       'content': payload,
       'encrypted': encryptionMethod != 'none',
       'encryptionMethod': encryptionMethod,
-      'intendedRecipient': contactPublicKey, // Add recipient for routing
+      'intendedRecipient': originalIntendedRecipient ?? contactPublicKey, // Use original recipient for relay, connected device for direct
     },
     timestamp: DateTime.now(),
     signature: signature,
@@ -296,6 +297,7 @@ Future<bool> sendPeripheralMessage({
   required int mtuSize,
   String? messageId,
   String? contactPublicKey,
+  String? originalIntendedRecipient, // For relay messages: preserve original recipient
   required ContactRepository contactRepository,
   required BLEStateManager stateManager,
 }) async {
@@ -331,7 +333,7 @@ Future<bool> sendPeripheralMessage({
       'content': payload,
       'encrypted': encryptionMethod != 'none',
       'encryptionMethod': encryptionMethod,
-      'intendedRecipient': contactPublicKey, // Add recipient for routing
+      'intendedRecipient': originalIntendedRecipient ?? contactPublicKey, // Use original recipient for relay, connected device for direct
     },
     timestamp: DateTime.now(),
     signature: signature,

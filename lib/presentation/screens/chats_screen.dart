@@ -130,14 +130,53 @@ Widget build(BuildContext context) {
       // Main scaffold with tabs
       Scaffold(
         appBar: AppBar(
-          title: Text('PakConnect'),
+          title: Consumer(
+            builder: (context, ref, child) {
+              final usernameAsync = ref.watch(usernameStreamProvider);
+              return usernameAsync.when(
+                data: (username) => GestureDetector(
+                  onTap: () => _editDisplayName(),
+                  child: Text(
+                    username.isEmpty ? 'PakConnect' : username,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                loading: () => Text('PakConnect'),
+                error: (_, __) => Text('PakConnect'),
+              );
+            },
+          ),
           leading: GestureDetector(
             onTap: () => _showSettings(),
             child: Padding(
               padding: EdgeInsets.all(8.0),
-              child: CircleAvatar(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                child: Icon(Icons.person, color: Colors.white),
+              child: Consumer(
+                builder: (context, ref, child) {
+                  final usernameAsync = ref.watch(usernameStreamProvider);
+                  return usernameAsync.when(
+                    data: (username) => CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      child: Text(
+                        username.isNotEmpty ? username[0].toUpperCase() : 'P',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                    loading: () => CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      child: Icon(Icons.person, color: Colors.white),
+                    ),
+                    error: (_, __) => CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      child: Icon(Icons.person, color: Colors.white),
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -309,7 +348,7 @@ Widget _buildRelayQueueTab() {
   return Consumer(
     builder: (context, ref, child) {
       final meshService = ref.watch(meshNetworkingServiceProvider);
-      
+
       return RelayQueueWidget(
         meshService: meshService,
         onRequestClose: () => _handleRelayQueueClose(),
@@ -1034,15 +1073,6 @@ void _showAbout() {
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           SizedBox(height: 24),
-          ListTile(
-            leading: Icon(Icons.person),
-            title: Text('Your Name'),
-            subtitle: Text('How others see you'),
-            onTap: () {
-              Navigator.pop(context);
-              _editDisplayName();
-            },
-          ),
           ListTile(
             leading: Icon(Icons.help_outline),
             title: Text('How to Connect'),

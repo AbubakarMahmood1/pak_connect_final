@@ -3,11 +3,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // Added for kDebugMode
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 
 import 'core/app_core.dart';
 import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
+import 'presentation/screens/chats_screen.dart';
+import 'presentation/providers/ble_providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -100,12 +103,12 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
     if (AppCore.instance.isInitialized) { // Fixed: use isInitialized getter
       switch (state) {
         case AppLifecycleState.paused:
-          _logger.info('App paused - optimizing power consumption');
-          AppCore.instance.powerManager.overrideScanInterval(15000);
+          _logger.info('App paused - power management handled by burst scanning controller');
+          // Note: Power management is now handled automatically by BurstScanningController
           break;
         case AppLifecycleState.resumed:
-          _logger.info('App resumed - restoring normal operation');
-          AppCore.instance.powerManager.resetToDefaults();
+          _logger.info('App resumed - power management handled by burst scanning controller');
+          // Note: Power management is now handled automatically by BurstScanningController
           break;
         case AppLifecycleState.detached:
           _logger.info('App detached - performing cleanup');
@@ -136,7 +139,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
             return _buildErrorScreen(theme);
           case AppStatus.ready:
           case AppStatus.running:
-            return const PermissionScreen();
+            return _buildAppWithBurstScanning();
           case AppStatus.disposing:
             return _buildDisposingScreen(theme);
         }
@@ -304,6 +307,32 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
           ],
         ),
       ),
+    );
+  }
+
+  /// Build app with burst scanning eagerly initialized and smart navigation
+  Widget _buildAppWithBurstScanning() {
+    return Consumer(
+      builder: (context, ref, child) {
+        // Eagerly initialize burst scanning
+        ref.watch(eagerBurstScanningProvider);
+
+        // Check BLE state to determine initial screen
+        final bleStateAsync = ref.watch(bleStateProvider);
+
+        return bleStateAsync.when(
+          data: (state) {
+            // If Bluetooth is already ready, skip permission screen
+            if (state == BluetoothLowEnergyState.poweredOn) {
+              return const ChatsScreen();
+            }
+            // Otherwise show permission screen
+            return const PermissionScreen();
+          },
+          loading: () => _buildLoadingScreen(Theme.of(context)),
+          error: (error, stack) => const PermissionScreen(),
+        );
+      },
     );
   }
 }

@@ -34,12 +34,12 @@ class MessageSecurity {
         'RECIPIENT:${recipientPublicKey ?? 'BROADCAST'}',
         'CONTENT_HASH:${_hashContent(content)}',
         'NONCE:$nonce',
-        'TIMESTAMP:$timestamp',
         'VERSION:2'
       ];
       
-      // Generate cryptographic hash
-      final messageData = components.join('|');
+      // Generate cryptographic hash with timestamp (matching validation logic)
+      final componentsWithTimestamp = [...components, 'TIMESTAMP:$timestamp'];
+      final messageData = componentsWithTimestamp.join('|');
       final messageHash = sha256.convert(utf8.encode(messageData));
       
       // Create message ID with format: VERSION.NONCE.HASH

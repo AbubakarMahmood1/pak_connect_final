@@ -42,6 +42,7 @@ bool _isPeripheralMode = false;
   static const int maxReconnectAttempts = 5;
   static const int minInterval = 3000;
   static const int maxInterval = 30000;
+  static const int healthCheckInterval = 5000;
   
   // Callbacks for parent service
   Function(Peripheral?)? onConnectionChanged;
@@ -68,8 +69,11 @@ bool _isPeripheralMode = false;
     bool get isActivelyReconnecting => 
     _isMonitoring && _monitorState == ConnectionMonitorState.reconnecting;
   
-  bool get isHealthChecking => 
+  bool get isHealthChecking =>
     _isMonitoring && _monitorState == ConnectionMonitorState.healthChecking;
+
+  bool get hasConnection => hasBleConnection;
+  bool get _isReady => _connectionState == ChatConnectionState.ready;
 
 
   void _updateConnectionState(ChatConnectionState newState, {String? error}) {
@@ -211,10 +215,19 @@ void setPairingInProgress(bool inProgress) {
       stopConnectionMonitoring();
       return;
     }
-    
+
+    // 🎯 RELAY-AWARE FIX: Don't disconnect if we have a viable relay connection
+    if (_hasViableRelayConnection()) {
+      _logger.info('🔄 Maintaining current connection for relay - not reconnecting');
+      _reconnectAttempts = 0; // Reset since we're not actually failing
+      _monitorState = ConnectionMonitorState.healthChecking;
+      _monitoringInterval = healthCheckInterval;
+      return;
+    }
+
     _reconnectAttempts++;
     _logger.info('Reconnect attempt $_reconnectAttempts/$maxReconnectAttempts');
-    
+
     try {
       final foundDevice = await scanForSpecificDevice(timeout: Duration(seconds: 8));
       
@@ -471,7 +484,34 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     onCharacteristicFound?.call(null);
     onMtuDetected?.call(null);
   }
-  
+
+  /// 🎯 NEW: Check if current connection can serve as relay for pending messages
+  bool _hasViableRelayConnection() {
+    try {
+      // Must have active connection
+      if (!hasConnection || _connectedDevice == null) {
+        return false;
+      }
+
+      // Must have message characteristic to relay messages
+      if (_messageCharacteristic == null) {
+        return false;
+      }
+
+      // Connection must be ready (completed identity exchange)
+      if (!_isReady) {
+        return false;
+      }
+
+      _logger.info('🔄 Viable relay connection detected: ${_connectedDevice?.uuid}');
+      return true;
+
+    } catch (e) {
+      _logger.warning('Error checking relay viability: $e');
+      return false;
+    }
+  }
+
   void dispose() {
     stopConnectionMonitoring();
   }

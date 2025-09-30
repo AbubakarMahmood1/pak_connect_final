@@ -20,6 +20,7 @@ import '../../core/services/security_manager.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/security/background_cache_service.dart';
+import '../../core/bluetooth/bluetooth_state_monitor.dart';
 
 /// Enum to track the source of scanning requests for better coordination
 enum ScanningSource {
@@ -67,6 +68,9 @@ class BLEService {
   StreamController<String>? _messagesController;
   StreamController<Map<String, DiscoveredEventArgs>>? _discoveryDataController;
 
+  // Bluetooth state monitoring
+  final BluetoothStateMonitor _bluetoothStateMonitor = BluetoothStateMonitor.instance;
+
   
   // Discovery management
   List<Peripheral> _discoveredDevices = [];
@@ -93,6 +97,11 @@ final List<_BufferedMessage> _messageBuffer = [];
   Stream<String> get receivedMessages => _messagesController!.stream;
   Stream<Map<String, DiscoveredEventArgs>> get discoveryData => _discoveryDataController!.stream;
   Central? get connectedCentral => _connectedCentral;
+
+  // Bluetooth state monitoring getters
+  Stream<BluetoothStateInfo> get bluetoothStateStream => _bluetoothStateMonitor.stateStream;
+  Stream<BluetoothStatusMessage> get bluetoothMessageStream => _bluetoothStateMonitor.messageStream;
+  bool get isBluetoothReady => _bluetoothStateMonitor.isBluetoothReady;
  
   ConnectionInfo? _lastEmittedConnectionInfo;
 
@@ -176,9 +185,18 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     );
 
     await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
-    
+
     _messageHandler = BLEMessageHandler();
     BackgroundCacheService.initialize();
+
+    // Initialize Bluetooth state monitoring
+    _logger.info('🔵 Initializing Bluetooth state monitor...');
+    await _bluetoothStateMonitor.initialize(
+      onBluetoothReady: _onBluetoothBecameReady,
+      onBluetoothUnavailable: _onBluetoothBecameUnavailable,
+      onInitializationRetry: _onBluetoothInitializationRetry,
+    );
+    _logger.info('✅ Bluetooth state monitor initialized');
 
     // Connect message handler callbacks to state manager
     _messageHandler.onContactRequestReceived = _stateManager.handleContactRequest;
@@ -1231,7 +1249,7 @@ Future<void> _performNameExchangeWithRetry() async {
 _updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Connection failed');
 }
   
-  Future<bool> sendMessage(String message, {String? messageId}) async {
+  Future<bool> sendMessage(String message, {String? messageId, String? originalIntendedRecipient}) async {
 
   if (!_connectionManager.hasBleConnection || _connectionManager.messageCharacteristic == null) {
     throw Exception('Not connected to any device');
@@ -1247,6 +1265,7 @@ return await _messageHandler.sendMessage(
   mtuSize: mtuSize,
   messageId: messageId,
   contactPublicKey: _stateManager.otherDevicePersistentId,
+  originalIntendedRecipient: originalIntendedRecipient, // Pass through for relay messages
   contactRepository: _stateManager.contactRepository,
   stateManager: _stateManager,
   onMessageOperationChanged: (inProgress) => _connectionManager.setMessageOperationInProgress(inProgress),
@@ -1435,19 +1454,147 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
       return false;
     }
   }
-  
+
+  /// Handle when Bluetooth becomes ready
+  void _onBluetoothBecameReady() {
+    _logger.info('🔵 Bluetooth state monitor: Bluetooth became ready');
+
+    // Update connection info to reflect ready state
+    if (_stateManager.isPeripheralMode) {
+      _updateConnectionInfo(statusMessage: 'Bluetooth ready - can advertise');
+    } else {
+      _updateConnectionInfo(statusMessage: 'Bluetooth ready - can scan');
+    }
+
+    // If we were in an error state due to Bluetooth, clear it
+    if (_currentConnectionInfo.statusMessage?.contains('Bluetooth') == true) {
+      // Restart any suspended operations
+      if (_stateManager.isPeripheralMode && !isConnected) {
+        _logger.info('🔵 Restarting peripheral advertising after Bluetooth became ready');
+        Future.delayed(Duration(milliseconds: 500), () async {
+          try {
+            await startAsPeripheral();
+          } catch (e) {
+            _logger.warning('Failed to restart peripheral mode: $e');
+          }
+        });
+      }
+    }
+  }
+
+  /// Handle when Bluetooth becomes unavailable
+  void _onBluetoothBecameUnavailable() {
+    _logger.warning('🔵 Bluetooth state monitor: Bluetooth became unavailable');
+
+    // Clear all connections and reset state
+    _stateManager.clearSessionState();
+    _connectedCentral = null;
+    _connectedCharacteristic = null;
+
+    // Update connection info with appropriate message
+    _updateConnectionInfo(
+      isConnected: false,
+      isReady: false,
+      isScanning: false,
+      isAdvertising: false,
+      otherUserName: null,
+      statusMessage: 'Bluetooth required for mesh networking',
+    );
+  }
+
+  /// Handle Bluetooth initialization retry
+  void _onBluetoothInitializationRetry() {
+    _logger.info('🔵 Bluetooth state monitor: Retrying initialization');
+
+    // Update status to show we're retrying
+    _updateConnectionInfo(
+      statusMessage: 'Checking Bluetooth status...',
+    );
+  }
+
+  /// Enhanced scanning method with Bluetooth state validation
+  Future<void> startScanningWithValidation({ScanningSource source = ScanningSource.system}) async {
+    // Check Bluetooth state first
+    if (!_bluetoothStateMonitor.isBluetoothReady) {
+      final currentState = _bluetoothStateMonitor.currentState;
+      _logger.warning('🔵 Cannot start scanning - Bluetooth not ready: $currentState');
+
+      String errorMessage;
+      switch (currentState) {
+        case BluetoothLowEnergyState.poweredOff:
+          errorMessage = 'Please enable Bluetooth to scan for devices';
+          break;
+        case BluetoothLowEnergyState.unauthorized:
+          errorMessage = 'Bluetooth permission required for scanning';
+          break;
+        case BluetoothLowEnergyState.unsupported:
+          errorMessage = 'Bluetooth not supported on this device';
+          break;
+        default:
+          errorMessage = 'Bluetooth not available for scanning';
+      }
+
+      _updateConnectionInfo(
+        isScanning: false,
+        statusMessage: errorMessage,
+      );
+
+      throw Exception(errorMessage);
+    }
+
+    // Proceed with normal scanning
+    await startScanning(source: source);
+  }
+
+  /// Enhanced peripheral mode with Bluetooth state validation
+  Future<void> startAsPeripheralWithValidation() async {
+    // Check Bluetooth state first
+    if (!_bluetoothStateMonitor.isBluetoothReady) {
+      final currentState = _bluetoothStateMonitor.currentState;
+      _logger.warning('🔵 Cannot start peripheral mode - Bluetooth not ready: $currentState');
+
+      String errorMessage;
+      switch (currentState) {
+        case BluetoothLowEnergyState.poweredOff:
+          errorMessage = 'Please enable Bluetooth to become discoverable';
+          break;
+        case BluetoothLowEnergyState.unauthorized:
+          errorMessage = 'Bluetooth permission required for advertising';
+          break;
+        case BluetoothLowEnergyState.unsupported:
+          errorMessage = 'Bluetooth advertising not supported';
+          break;
+        default:
+          errorMessage = 'Bluetooth not available for advertising';
+      }
+
+      _updateConnectionInfo(
+        isAdvertising: false,
+        statusMessage: errorMessage,
+      );
+
+      throw Exception(errorMessage);
+    }
+
+    // Proceed with normal peripheral mode
+    await startAsPeripheral();
+  }
+
   void dispose() {
+  // Dispose Bluetooth state monitor
+  _bluetoothStateMonitor.dispose();
+
   // Dispose ephemeral system components
   BackgroundCacheService.dispose();
   DeviceDeduplicationManager.dispose();
   HintCacheManager.dispose();
   BatchProcessor.dispose();
-  
+
   // Dispose existing components
   _connectionManager.dispose();
   _messageHandler.dispose();
   _stateManager.dispose();
-  
+
   // Close all stream controllers
   _devicesController?.close();
   _messagesController?.close();

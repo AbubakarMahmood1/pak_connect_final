@@ -24,6 +24,7 @@ class AdaptivePowerManager {
   Timer? _scanTimer;
   Timer? _healthCheckTimer;
   Timer? _burstTimer;
+  DateTime? _nextScheduledScanTime; // Track actual scheduled time with randomization
   
   // Connection quality tracking
   final List<ConnectionQualityMeasurement> _qualityHistory = [];
@@ -59,8 +60,13 @@ class AdaptivePowerManager {
   /// Start adaptive scanning with burst-mode optimization
   Future<void> startAdaptiveScanning() async {
     await _stopAllTimers();
-    
+
     _logger.info('Starting adaptive scanning with burst-mode optimization');
+
+    // Start with immediate first scan for better UX
+    _logger.info('🔥 IMMEDIATE: Starting initial burst scan for first-time experience');
+    _startBurstScan();
+
     _scheduleNextScan();
     _scheduleHealthCheck();
   }
@@ -123,15 +129,18 @@ class AdaptivePowerManager {
     // Add randomization (±20%) to prevent network-wide synchronization
     final randomOffset = (_currentScanInterval * 0.4 * _random.nextDouble()) - (_currentScanInterval * 0.2);
     final actualInterval = (_currentScanInterval + randomOffset).round().clamp(_minScanInterval, _maxScanInterval);
-    
+
+    // Track the actual scheduled time for accurate UI countdown
+    _nextScheduledScanTime = DateTime.now().add(Duration(milliseconds: actualInterval));
+
     _scanTimer = Timer(Duration(milliseconds: actualInterval), () {
       if (!_isBurstMode) {
         _startBurstScan();
       }
       _scheduleNextScan();
     });
-    
-    _logger.fine('Next scan scheduled in ${actualInterval}ms (base: ${_currentScanInterval}ms)');
+
+    _logger.fine('Next scan scheduled in ${actualInterval}ms (base: ${_currentScanInterval}ms) at ${_nextScheduledScanTime}');
   }
   
   /// Execute burst-mode scanning for battery efficiency
@@ -345,7 +354,7 @@ class AdaptivePowerManager {
     final recentQuality = _calculateRecentQualityScore();
     final stability = _calculateConnectionStability();
     final timeSinceLastSuccess = DateTime.now().difference(_lastSuccessfulConnection);
-    
+
     return PowerManagementStats(
       currentScanInterval: _currentScanInterval,
       currentHealthCheckInterval: _currentHealthCheckInterval,
@@ -356,8 +365,12 @@ class AdaptivePowerManager {
       timeSinceLastSuccess: timeSinceLastSuccess,
       qualityMeasurementsCount: _qualityHistory.length,
       isBurstMode: _isBurstMode,
+      nextScheduledScanTime: _nextScheduledScanTime,
     );
   }
+
+  /// Get the actual next scheduled scan time (with randomization)
+  DateTime? get nextScheduledScanTime => _nextScheduledScanTime;
   
   /// Manual override for scan interval (temporary)
   void overrideScanInterval(int milliseconds) {
@@ -413,7 +426,8 @@ class PowerManagementStats {
   final Duration timeSinceLastSuccess;
   final int qualityMeasurementsCount;
   final bool isBurstMode;
-  
+  final DateTime? nextScheduledScanTime;
+
   const PowerManagementStats({
     required this.currentScanInterval,
     required this.currentHealthCheckInterval,
@@ -424,6 +438,7 @@ class PowerManagementStats {
     required this.timeSinceLastSuccess,
     required this.qualityMeasurementsCount,
     required this.isBurstMode,
+    this.nextScheduledScanTime,
   });
   
   /// Get battery efficiency rating (0.0 - 1.0)
