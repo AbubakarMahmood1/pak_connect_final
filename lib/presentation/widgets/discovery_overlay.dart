@@ -10,10 +10,8 @@ import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
 import '../providers/ble_providers.dart';
 import '../../data/repositories/contact_repository.dart';
-import 'burst_status_widget.dart';
 import '../../core/security/hint_cache_manager.dart';
 import '../screens/chat_screen.dart';
-import '../../core/scanning/burst_scanning_controller.dart';
 
 class DiscoveryOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -1073,7 +1071,7 @@ onTap: () {
             final isActuallyScanning = _isScanning || burstStatus.isBurstActive || burstStatus.isManualActive;
             final statusText = isActuallyScanning
               ? 'Searching for devices...'
-              : 'Ready to scan';
+              : 'Waiting scan - Tap timer for manual scan';
 
             return Center(
               child: Column(
@@ -1149,7 +1147,7 @@ onTap: () {
     // Color scheme: RED for scanning, BLUE for waiting
     final primaryColor = isAnyScanning ? Colors.red : Colors.blue;
     final backgroundColor = isAnyScanning
-      ? Colors.red.withOpacity(0.1)
+      ? Colors.red.withValues(alpha: 0.1)
       : theme.colorScheme.surfaceContainerHighest;
 
     // Calculate progress and display values
@@ -1216,7 +1214,7 @@ onTap: () {
           }
         }
       },
-      child: Container(
+      child: SizedBox(
         width: 70,
         height: 70,
         child: Stack(
@@ -1267,7 +1265,7 @@ onTap: () {
                     displayLabel,
                     style: TextStyle(
                       fontSize: 10,
-                      color: primaryColor.withOpacity(0.7),
+                      color: primaryColor.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
@@ -1305,7 +1303,7 @@ onTap: () {
         shape: BoxShape.circle,
         color: theme.colorScheme.surfaceContainerHighest,
         border: Border.all(
-          color: theme.colorScheme.outline.withOpacity(0.5),
+          color: theme.colorScheme.outline.withValues(alpha: 0.5),
           width: 2,
         ),
       ),

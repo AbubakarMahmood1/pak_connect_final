@@ -176,7 +176,7 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
         color: Theme.of(context).colorScheme.surface,
         border: Border(
           bottom: BorderSide(
-            color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+            color: Theme.of(context).colorScheme.outline.withValues(),
             width: 1,
           ),
         ),

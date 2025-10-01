@@ -38,7 +38,7 @@ class ArchiveSearchService {
   final List<SavedSearch> _savedSearches = [];
   
   // Performance tracking
-  final Map<String, Duration> _searchTimes = {};
+  //final Map<String, Duration> _searchTimes = {};
   int _totalSearches = 0;
   
   // Event streams

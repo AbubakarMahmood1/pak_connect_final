@@ -69,7 +69,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
           print('  - status.queueMessages: ${status.queueMessages?.length ?? "null"}');
           if (status.queueMessages != null && status.queueMessages!.isNotEmpty) {
             final content = status.queueMessages!.first.content;
-            final preview = content.length > 20 ? content.substring(0, 20) + '...' : content;
+            final preview = content.length > 20 ? '${content.substring(0, 20)}...' : content;
             print('  - First message: $preview');
           }
         }
@@ -367,10 +367,6 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   
   /// Build real queue item from QueuedMessage
   Widget _buildRealQueueItem(QueuedMessage message) {
-    final isPending = message.status == QueuedMessageStatus.pending;
-    final isSending = message.status == QueuedMessageStatus.sending;
-    final isRetrying = message.status == QueuedMessageStatus.retrying;
-    
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       elevation: 1,
@@ -400,86 +396,6 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
           ],
         ),
       ),
-    );
-  }
-  
-  /// Build icon for message based on status
-  Widget _buildMessageIcon(bool isPending, bool isSending, bool isRetrying) {
-    if (isSending) {
-      return CircularProgressIndicator(strokeWidth: 2);
-    } else if (isRetrying) {
-      return Icon(Icons.refresh, color: Colors.orange[600]);
-    } else {
-      return CircleAvatar(
-        backgroundColor: Colors.blue[100],
-        child: Icon(Icons.message, color: Colors.blue[700], size: 20),
-      );
-    }
-  }
-  
-  /// Build title for message item
-  String _buildMessageTitle(int index, bool isPending, bool isSending, bool isRetrying) {
-    if (isSending) {
-      return 'Sending message...';
-    } else if (isRetrying) {
-      return 'Retrying message delivery';
-    } else {
-      return 'Message awaiting relay';
-    }
-  }
-  
-  /// Build subtitle for message item
-  String _buildMessageSubtitle(bool isPending, bool isSending, bool isRetrying) {
-    if (isSending) {
-      return 'Currently being delivered';
-    } else if (isRetrying) {
-      return 'Will retry automatically';
-    } else {
-      return 'Waiting for device connection';
-    }
-  }
-  
-  /// Build action button for message item
-  Widget _buildActionButton(int index, bool isPending, bool isSending, bool isRetrying) {
-    if (isSending) {
-      return SizedBox(width: 24); // Empty space during sending
-    }
-    
-    return PopupMenuButton<String>(
-      icon: Icon(Icons.more_vert, color: Colors.grey[600]),
-      onSelected: (value) => _handleMessageAction(value, index),
-      itemBuilder: (context) => [
-        PopupMenuItem(
-          value: 'retry',
-          child: Row(
-            children: [
-              Icon(Icons.send, color: Colors.green[600], size: 18),
-              SizedBox(width: 8),
-              Text('Retry Now'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'priority',
-          child: Row(
-            children: [
-              Icon(Icons.priority_high, color: Colors.orange[600], size: 18),
-              SizedBox(width: 8),
-              Text('Set High Priority'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'remove',
-          child: Row(
-            children: [
-              Icon(Icons.delete, color: Colors.red[600], size: 18),
-              SizedBox(width: 8),
-              Text('Remove'),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -679,20 +595,6 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     }
   }
 
-  void _handleMessageAction(String action, int messageIndex) {
-    switch (action) {
-      case 'retry':
-        _retryMessage(messageIndex);
-        break;
-      case 'priority':
-        _setPriority(messageIndex);
-        break;
-      case 'remove':
-        _removeMessage(messageIndex);
-        break;
-    }
-  }
-
   /// Real action methods that interact with MeshNetworkingService
 
   void _retryRealMessage(QueuedMessage message) async {
@@ -700,17 +602,21 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       final success = await widget.meshService.retryMessage(message.id);
       final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
 
+      if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(success
-              ? '🔄 Retrying message ${messageIdShort}...'
-              : '❌ Failed to retry message ${messageIdShort}...'),
+              ? '🔄 Retrying message $messageIdShort...'
+              : '❌ Failed to retry message $messageIdShort...'),
           backgroundColor: success ? Colors.green[600] : Colors.red[600],
         ),
       );
 
-      MeshDebugLogger.info('UI Action', 'Real retry ${success ? "successful" : "failed"} for message ${messageIdShort}...');
+      MeshDebugLogger.info('UI Action', 'Real retry ${success ? "successful" : "failed"} for message $messageIdShort...');
     } catch (e) {
+      if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error retrying message: $e'),
@@ -725,17 +631,21 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       final success = await widget.meshService.setPriority(message.id, MessagePriority.high);
       final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
 
+      if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(success
-              ? '⚡ Priority updated for ${messageIdShort}...'
-              : '⚠️ Priority update not supported for ${messageIdShort}...'),
+              ? '⚡ Priority updated for $messageIdShort...'
+              : '⚠️ Priority update not supported for $messageIdShort...'),
           backgroundColor: success ? Colors.orange[600] : Colors.grey[600],
         ),
       );
 
-      MeshDebugLogger.info('UI Action', 'Real priority change ${success ? "successful" : "failed"} for message ${messageIdShort}...');
+      MeshDebugLogger.info('UI Action', 'Real priority change ${success ? "successful" : "failed"} for message $messageIdShort...');
     } catch (e) {
+      if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error setting priority: $e'),
@@ -750,17 +660,21 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       final success = await widget.meshService.removeMessage(message.id);
       final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
 
+      if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(success
-              ? '🗑️ Message ${messageIdShort}... removed from queue'
-              : '❌ Failed to remove message ${messageIdShort}...'),
+              ? '🗑️ Message $messageIdShort... removed from queue'
+              : '❌ Failed to remove message $messageIdShort...'),
           backgroundColor: success ? Colors.red[600] : Colors.grey[600],
         ),
       );
 
-      MeshDebugLogger.info('UI Action', 'Real removal ${success ? "successful" : "failed"} for message ${messageIdShort}...');
+      MeshDebugLogger.info('UI Action', 'Real removal ${success ? "successful" : "failed"} for message $messageIdShort...');
     } catch (e) {
+      if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error removing message: $e'),
@@ -769,49 +683,13 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       );
     }
   }
-
-  void _retryMessage(int index) {
-    // Implement manual retry
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('🔄 Retrying message delivery...'),
-        backgroundColor: Colors.green[600],
-      ),
-    );
-    MeshDebugLogger.info('UI Action', 'Manual retry requested for message $index');
-  }
-  
-  void _setPriority(int index) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('⚡ Message priority set to high'),
-        backgroundColor: Colors.orange[600],
-      ),
-    );
-    MeshDebugLogger.info('UI Action', 'Priority change requested for message $index');
-  }
-  
-  void _removeMessage(int index) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('🗑️ Message removed from queue'),
-        backgroundColor: Colors.red[600],
-        action: SnackBarAction(
-          label: 'UNDO',
-          textColor: Colors.white,
-          onPressed: () {
-            MeshDebugLogger.info('UI Action', 'Message removal undone');
-          },
-        ),
-      ),
-    );
-    MeshDebugLogger.info('UI Action', 'Message removal requested for message $index');
-  }
   
   void _retryAllMessages() async {
     try {
       final retriedCount = await widget.meshService.retryAllMessages();
 
+      if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(retriedCount > 0
@@ -823,6 +701,8 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
 
       MeshDebugLogger.info('UI Action', 'Retry all messages: $retriedCount messages queued for retry');
     } catch (e) {
+      if (!mounted) return;
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error retrying messages: $e'),

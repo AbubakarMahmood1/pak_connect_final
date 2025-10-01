@@ -38,7 +38,7 @@ class ScanningStatusWidget extends ConsumerWidget {
         height: 40,
         decoration: BoxDecoration(
           color: isScanning
-            ? theme.colorScheme.primary.withOpacity(0.1)
+            ? theme.colorScheme.primary.withValues(alpha: .1)
             : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(12),
         ),
@@ -50,8 +50,8 @@ class ScanningStatusWidget extends ConsumerWidget {
               CircularProgressIndicator(
                 value: _calculateProgress(burstStatus.secondsUntilNextScan!, 60),
                 strokeWidth: 2,
-                backgroundColor: theme.colorScheme.outline.withOpacity(0.2),
-                valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary.withOpacity(0.3)),
+                backgroundColor: theme.colorScheme.outline.withValues(alpha: .2),
+                valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary.withValues(alpha: .3)),
               ),
 
             // Main icon

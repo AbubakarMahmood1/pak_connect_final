@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
@@ -69,7 +70,9 @@ class UsernameOperations {
         await _triggerIdentityReExchange(bleService, newUsername);
       }
       
-      // 4. Refresh the current username provider
+      // 4. Refresh the current username provider to trigger reactive updates
+      // Explicitly ignore the return value as we only want to trigger the refresh
+      // ignore: unused_result
       _ref.refresh(currentUsernameProvider);
     } catch (e) {
       rethrow;
@@ -84,7 +87,9 @@ class UsernameOperations {
       
     } catch (e) {
       // Log error but don't fail the username update
+      if(kDebugMode){
       print('Failed to re-exchange identity: $e');
+      }
     }
   }
 }
@@ -162,8 +167,9 @@ final burstScanningControllerProvider = FutureProvider<BurstScanningController>(
 /// Eager burst scanning initializer - forces burst scanning to start during app initialization
 final eagerBurstScanningProvider = FutureProvider<bool>((ref) async {
   // This provider eagerly initializes burst scanning by watching the controller
-  final controller = await ref.watch(burstScanningControllerProvider.future);
-  return true; // Return success flag
+  // The act of watching ensures the controller is initialized, even if we don't use it directly
+  await ref.watch(burstScanningControllerProvider.future);
+  return true; // Return success flag indicating initialization completed
 });
 
 /// Burst scanning status provider - streams real-time burst scanning status

@@ -5,10 +5,7 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/repositories/archive_repository.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/message_repository.dart';
 import '../../domain/entities/archived_chat.dart';
-import '../../domain/entities/chat_list_item.dart';
 import '../../core/models/archive_models.dart';
 
 /// Comprehensive archive management service with business logic and automation
@@ -17,13 +14,14 @@ class ArchiveManagementService {
   
   // Dependencies
   final ArchiveRepository _archiveRepository = ArchiveRepository();
-  final ChatsRepository _chatsRepository = ChatsRepository();
-  final MessageRepository _messageRepository = MessageRepository();
+  // Note: ChatsRepository and MessageRepository would be used for business context gathering
+  // when those features are implemented (currently stubs). All archive operations
+  // are delegated to _archiveRepository which handles its own data access.
   
   // Configuration keys
   static const String _configKey = 'archive_management_config_v2';
   static const String _policyKey = 'archive_policies_v2';
-  static const String _scheduledTasksKey = 'archive_scheduled_tasks_v2';
+  // Note: _scheduledTasksKey removed - scheduled archive tasks feature not yet implemented
   
   // Event streams for real-time updates
   final _archiveUpdatesController = StreamController<ArchiveUpdateEvent>.broadcast();

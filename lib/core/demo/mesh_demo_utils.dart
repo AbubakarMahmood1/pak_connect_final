@@ -16,8 +16,6 @@ class MeshDemoUtils {
     String? nodeBId,
     String? nodeCId,
   }) {
-    final random = Random();
-    
     // Generate realistic node IDs if not provided
     nodeAId ??= _generateDemoNodeId('NodeA');
     nodeBId ??= _generateDemoNodeId('NodeB');
@@ -126,7 +124,7 @@ class MeshDemoUtils {
     for (int i = 0; i < nodeCount; i++) {
       for (int j = i + 1; j < nodeCount; j++) {
         steps.add(DemoStep(
-          id: 'sync_${i}_${j}',
+          id: 'sync_${i}_$j',
           description: 'Sync queues between ${nodes[i].name} and ${nodes[j].name}',
           fromNodeId: nodes[i].id,
           toNodeId: nodes[j].id,

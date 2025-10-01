@@ -1,19 +1,17 @@
 // Comprehensive tests for the queue hash synchronization system
 
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
 
 // Import the classes we're testing
-import '../lib/core/messaging/offline_message_queue.dart';
-import '../lib/core/messaging/queue_sync_manager.dart';
-import '../lib/core/models/mesh_relay_models.dart';
-import '../lib/domain/entities/enhanced_message.dart';
-import '../lib/data/services/ble_message_handler.dart';
-import '../lib/core/models/protocol_message.dart';
-import '../lib/data/repositories/contact_repository.dart';
+import 'package:pak_connect/core/messaging/offline_message_queue.dart';
+import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/core/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/data/services/ble_message_handler.dart';
+import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 void main() {
   group('Queue Hash Synchronization System Tests', () {

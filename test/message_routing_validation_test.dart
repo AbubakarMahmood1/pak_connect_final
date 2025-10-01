@@ -2,10 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'dart:typed_data';
 import 'dart:convert';
 
-import '../lib/data/services/ble_message_handler.dart';
-import '../lib/core/models/protocol_message.dart';
-import '../lib/core/services/security_manager.dart';
-import '../lib/data/repositories/contact_repository.dart';
+import 'package:pak_connect/data/services/ble_message_handler.dart';
+import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/core/services/security_manager.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 // Minimal stub for ContactRepository to avoid dependencies
 class MinimalContactRepository extends ContactRepository {

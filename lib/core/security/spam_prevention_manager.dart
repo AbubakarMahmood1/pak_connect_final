@@ -19,10 +19,8 @@ class SpamPreventionManager {
   static const double spamScoreThreshold = 0.7;
   
   // Storage keys
-  static const String _rateLimitKey = 'spam_prevention_rate_limit_v1';
   static const String _trustScoreKey = 'spam_prevention_trust_score_v1';
   static const String _messageHashKey = 'spam_prevention_message_hashes_v1';
-  static const String _relayStatsKey = 'spam_prevention_relay_stats_v1';
   
   // In-memory tracking for performance
   final Map<String, List<int>> _hourlyRelayCount = {};

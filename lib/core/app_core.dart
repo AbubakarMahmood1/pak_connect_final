@@ -68,9 +68,7 @@ class AppCore {
       final startTime = DateTime.now();
       
       // Ensure status controller exists
-      if (_statusController == null) {
-        _statusController = StreamController<AppStatus>.broadcast();
-      }
+      _statusController ??= StreamController<AppStatus>.broadcast();
       
       _emitStatus(AppStatus.initializing);
 
@@ -233,12 +231,6 @@ class AppCore {
     _logger.info('Integrated systems started');
   }
   
-  /// Perform health check for power management
-  void _performHealthCheck() {
-    _logger.fine('Performing connection health check');
-    // Add actual health check logic here
-  }
-  
   /// Handle message send callback
   void _handleMessageSend(String messageId) {
     // In a real implementation, this would integrate with the BLE service
@@ -322,18 +314,6 @@ class AppCore {
       replayProtection: replayStats,
       uptime: DateTime.now().difference(_getInitTime()),
     );
-  }
-  
-  /// Get component health summary
-  Map<String, String> _getComponentHealthSummary() {
-    return {
-      'power_manager': 'Healthy',
-      'message_queue': 'Healthy', 
-      'contact_service': 'Healthy',
-      'chat_service': 'Healthy',
-      'performance_monitor': 'Healthy',
-      'ble_state_manager': 'Healthy',
-    };
   }
   
   /// Get initialization time

@@ -1,5 +1,6 @@
 /// Coordinates message retry operations between MessageRepository and OfflineMessageQueue
 /// Solves the dual persistence system conflict for retry all functionality
+library;
 
 import 'dart:async';
 import 'package:logging/logging.dart';
@@ -14,15 +15,13 @@ class MessageRetryCoordinator {
   
   final MessageRepository _messageRepository;
   final OfflineMessageQueue _offlineQueue;
-  final MeshNetworkingService? _meshService;
   
   MessageRetryCoordinator({
     required MessageRepository messageRepository,
     required OfflineMessageQueue offlineQueue,
-    MeshNetworkingService? meshService,
+    MeshNetworkingService? meshService, // Kept for API compatibility but not used
   }) : _messageRepository = messageRepository,
-       _offlineQueue = offlineQueue,
-       _meshService = meshService;
+       _offlineQueue = offlineQueue;
 
   /// Get unified failed message count from both persistence systems
   Future<MessageRetryStatus> getFailedMessageStatus(String chatId) async {
@@ -117,8 +116,7 @@ class MessageRetryCoordinator {
           // For reporting purposes, assume all were attempted
           queueAttempted = status.queueFailedMessages.length;
           
-          // Check how many succeeded by getting updated stats
-          final updatedStats = _offlineQueue.getStatistics();
+          // Check how many succeeded by counting remaining failed messages
           final remainingFailed = _offlineQueue.getMessagesByStatus(QueuedMessageStatus.failed)
               .where((qm) => qm.chatId == chatId)
               .length;

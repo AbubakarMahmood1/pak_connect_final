@@ -52,7 +52,7 @@ class NetworkTopologyAnalyzer {
     try {
       final truncatedFrom = from.length > 8 ? from.substring(0, 8) : from;
       final truncatedTo = to.length > 8 ? to.substring(0, 8) : to;
-      _logger.info('Adding connection: ${truncatedFrom}... -> ${truncatedTo}...');
+      _logger.info('Adding connection: $truncatedFrom... -> $truncatedTo...');
       
       // Update topology
       _currentTopology = _currentTopology.withConnection(from, to, quality);
@@ -80,7 +80,7 @@ class NetworkTopologyAnalyzer {
     try {
       final truncatedFrom = from.length > 8 ? from.substring(0, 8) : from;
       final truncatedTo = to.length > 8 ? to.substring(0, 8) : to;
-      _logger.info('Removing connection: ${truncatedFrom}... -> ${truncatedTo}...');
+      _logger.info('Removing connection: $truncatedFrom... -> $truncatedTo...');
       
       // Update topology
       _currentTopology = _currentTopology.withoutConnection(from, to);
@@ -114,7 +114,7 @@ class NetworkTopologyAnalyzer {
         
         final truncatedFrom = from.length > 8 ? from.substring(0, 8) : from;
         final truncatedTo = to.length > 8 ? to.substring(0, 8) : to;
-        _logger.info('Updated connection quality: ${truncatedFrom}... -> ${truncatedTo}... to ${quality.name}');
+        _logger.info('Updated connection quality: $truncatedFrom... -> $truncatedTo... to ${quality.name}');
       }
       
     } catch (e) {
@@ -129,7 +129,7 @@ class NetworkTopologyAnalyzer {
       
       // Get current node ID (non-blocking)
       final currentNodeId = await bleService.getMyPublicKey();
-      if (currentNodeId == null || currentNodeId.isEmpty) {
+      if (currentNodeId.isEmpty) {
         _logger.warning('Cannot discover nodes: no current node ID');
         return;
       }
@@ -157,7 +157,7 @@ class NetworkTopologyAnalyzer {
           );
           
           final truncatedConnected = connectedNodeId.length > 8 ? connectedNodeId.substring(0, 8) : connectedNodeId;
-          _logger.info('Discovered connection via BLE: ${truncatedConnected}...');
+          _logger.info('Discovered connection via BLE: $truncatedConnected...');
         }
       }
       

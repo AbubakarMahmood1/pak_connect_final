@@ -29,19 +29,6 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     });
   }
 
-  /// Check if we should auto-navigate for returning users
-  void _checkAutoNavigation() {
-    if (!mounted) return;
-
-    final bleStateAsync = ref.read(bleStateProvider);
-    bleStateAsync.whenData((state) {
-      if (state == BluetoothLowEnergyState.poweredOn) {
-        // Auto-navigate for returning users when Bluetooth is already ready
-        _navigateToChatsScreen(context);
-      }
-    });
-  }
-
   @override
   void dispose() {
     _timeoutTimer?.cancel();

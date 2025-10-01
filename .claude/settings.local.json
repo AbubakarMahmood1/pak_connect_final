@@ -5,7 +5,8 @@
       "Bash(dart compile:*)",
       "Bash(echo:*)",
       "Bash(flutter build:*)",
-      "Bash(flutter run:*)"
+      "Bash(flutter run:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

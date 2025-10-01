@@ -140,7 +140,7 @@ class AdaptivePowerManager {
       _scheduleNextScan();
     });
 
-    _logger.fine('Next scan scheduled in ${actualInterval}ms (base: ${_currentScanInterval}ms) at ${_nextScheduledScanTime}');
+    _logger.fine('Next scan scheduled in ${actualInterval}ms (base: ${_currentScanInterval}ms) at $_nextScheduledScanTime');
   }
   
   /// Execute burst-mode scanning for battery efficiency

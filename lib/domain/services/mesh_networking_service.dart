@@ -48,7 +48,8 @@ class MeshNetworkingService {
   final BLEService _bleService;
   final BLEMessageHandler _messageHandler;
   final ContactRepository _contactRepository;
-  final ChatManagementService _chatManagementService;
+  // Note: _chatManagementService kept for API compatibility but not currently used
+  // May be needed for future chat-related mesh operations (group chats, etc.)
   final MessageRepository _messageRepository;
   
   // State management
@@ -97,13 +98,13 @@ class MeshNetworkingService {
     required BLEService bleService,
     required BLEMessageHandler messageHandler,
     required ContactRepository contactRepository,
-    required ChatManagementService chatManagementService,
+    required ChatManagementService chatManagementService, // Kept for API compatibility
     required MessageRepository messageRepository,
   }) : _bleService = bleService,
        _messageHandler = messageHandler,
        _contactRepository = contactRepository,
-       _chatManagementService = chatManagementService,
        _messageRepository = messageRepository {
+    // Note: chatManagementService parameter accepted but not stored as it's not currently used
     // 🔧 CRITICAL FIX: Broadcast initial status to prevent null stream
     _logger.info('MeshNetworkingService constructor - broadcasting initial status to prevent loading loop');
     _broadcastInitialStatus();
@@ -1082,7 +1083,7 @@ class MeshNetworkingService {
 
       final directCount = directMessages.length;
       final relayCount = relayMessages.length;
-      _logger.info('Found ${directCount} direct + ${relayCount} relay messages for ${deviceId.substring(0, 8)}...');
+      _logger.info('Found $directCount direct + $relayCount relay messages for ${deviceId.substring(0, 8)}...');
       
       MeshDebugLogger.queueDeliveryTriggered(deviceId, allMessages.length);
       

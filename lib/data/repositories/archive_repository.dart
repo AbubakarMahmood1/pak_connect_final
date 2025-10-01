@@ -17,10 +17,9 @@ class ArchiveRepository {
   
   // Storage keys
   static const String _archivedChatsKey = 'archived_chats_v2';
-  static const String _archiveMetadataKey = 'archive_metadata_v2';
   static const String _archiveIndexKey = 'archive_search_index_v2';
   static const String _archiveStatsKey = 'archive_statistics_v2';
-  static const String _compressionCacheKey = 'compression_cache_v2';
+  // Note: _archiveMetadataKey and _compressionCacheKey removed as they were unused placeholders for future features
   
   // Dependencies
   final MessageRepository _messageRepository = MessageRepository();
@@ -61,7 +60,6 @@ class ArchiveRepository {
     bool compressLargeArchives = true,
   }) async {
     final startTime = DateTime.now();
-    final operationId = 'archive_${DateTime.now().millisecondsSinceEpoch}';
     
     try {
       _logger.info('Starting archive operation for chat: $chatId');
@@ -922,10 +920,9 @@ class ArchiveRepository {
   
   Future<void> _updateArchiveStatistics(ArchiveOperationType operation, int sizeChange) async {
     try {
-      final stats = await getArchiveStatistics();
-      // Update statistics based on operation
-      // Implementation would update counters and save back to storage
-      _logger.info('Updated archive statistics for $operation operation');
+      // TODO: Implementation would fetch stats, update counters based on operation, and save back to storage
+      // For now, just log the operation
+      _logger.info('Updated archive statistics for $operation operation (size change: $sizeChange bytes)');
     } catch (e) {
       _logger.warning('Failed to update archive statistics: $e');
     }

@@ -85,8 +85,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   // Search state
   bool _isSearchMode = false;
   String _searchQuery = '';
-  List<SearchResult> _searchResults = [];
-  int _currentSearchIndex = -1;
   
   // Smart routing demo state
   bool _showMeshStats = false;
@@ -100,11 +98,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
   bool get _isRepositoryMode => widget.chatId != null;
-  bool get _isConnectedMode {
-  final bleService = ref.read(bleServiceProvider);
-  final connectionInfo = ref.read(connectionInfoProvider).value;
-  return connectionInfo?.isConnected == true;
-}
 
 String get _displayContactName {
   if (_isRepositoryMode) return widget.contactName!;
@@ -158,7 +151,6 @@ String? get securityStateKey {
   }
 
 void _checkAndSetupLiveMessaging() {
-  final bleService = ref.read(bleServiceProvider);
   final connectionInfo = ref.read(connectionInfoProvider).value;
   
   if (connectionInfo?.isConnected == true) {
@@ -586,7 +578,6 @@ Future<void> _initializePersistentValues() async {
       // Get the connection info but be less strict about connectivity
       final connectionInfo = ref.read(connectionInfoProvider).value;
       final isConnected = connectionInfo?.isConnected ?? false;
-      final isReady = connectionInfo?.isReady ?? false;
       
       // Show initial feedback
       if (!isConnected) {
@@ -776,22 +767,6 @@ Future<void> _initializePersistentValues() async {
     print('🐛 NAV DEBUG: Received message through persistent manager: ${content.length} chars');
     await _addReceivedMessage(content);
   }
-
-  void _setupPersistentMessageListener() {
-    // Setup immediate listener if already connected
-    final connectionInfo = ref.read(connectionInfoProvider).value;
-    if (connectionInfo?.isConnected == true) {
-      _activateMessageListener();
-    }
-  }
-  
-  void _handleConnectionBasedMessageListener(ConnectionInfo? connectionInfo) {
-    if (connectionInfo?.isConnected == true && connectionInfo?.isReady == true) {
-      _activateMessageListener();
-    } else {
-      _deactivateMessageListener();
-    }
-  }
   
   void _activateMessageListener() {
     if (_messageListenerActive) return;
@@ -817,14 +792,6 @@ Future<void> _initializePersistentValues() async {
         }
       });
     }
-  }
-  
-  void _deactivateMessageListener() {
-    if (!_messageListenerActive) return;
-    
-    print('🐛 NAV DEBUG: Deactivating message listener');
-    _messageListenerActive = false;
-    // Don't cancel persistent listener - it's managed by the persistent manager
   }
 
   void _setupMessageListener() {
@@ -1925,39 +1892,6 @@ void _handleMeshDemoEvent(DemoEvent event) {
   }
 }
 
-/// Toggle FYP Demo Mode on/off
-void _toggleDemoMode() async {
-  setState(() {
-    _demoModeEnabled = !_demoModeEnabled;
-  });
-  
-  try {
-    final meshService = ref.read(meshNetworkingServiceProvider);
-    
-    if (_demoModeEnabled) {
-      // Initialize FYP demo scenario
-      final demoResult = await meshService.initializeDemoScenario(DemoScenarioType.aToBtoC);
-      
-      if (demoResult.success) {
-        _showSuccess('🎓 FYP Demo Mode Enabled - Smart routing decisions will be visualized');
-        _logger.info('Demo scenario initialized: ${demoResult.message}');
-      } else {
-        _showError('Failed to initialize demo: ${demoResult.message}');
-      }
-    } else {
-      // Disable demo mode
-      meshService.clearDemoData();
-      _showSuccess('📱 Production Mode - Normal smart routing operation');
-    }
-    
-  } catch (e) {
-    _logger.severe('Failed to toggle demo mode: $e');
-    _showError('Demo mode toggle failed: $e');
-  }
-  
-  _logger.info('FYP Demo mode toggled: $_demoModeEnabled');
-}
-
 /// Toggle smart routing statistics display
 void _toggleMeshStats() {
   setState(() {
@@ -1974,8 +1908,6 @@ void _toggleSearchMode() {
       // Exit search mode
       _isSearchMode = false;
       _searchQuery = '';
-      _searchResults = [];
-      _currentSearchIndex = -1;
     } else {
       // Enter search mode
       _isSearchMode = true;
@@ -1989,8 +1921,7 @@ void _toggleSearchMode() {
 void _onSearch(String query, List<SearchResult> results) {
   setState(() {
     _searchQuery = query;
-    _searchResults = results;
-    _currentSearchIndex = results.isNotEmpty ? 0 : -1;
+    // Search results are handled by the search widget directly
   });
 }
 
@@ -2011,7 +1942,6 @@ Widget _buildSmartRoutingStatsPanel() {
   return Consumer(
     builder: (context, ref, child) {
       final meshStatus = ref.watch(meshNetworkStatusProvider);
-      final relayStats = ref.watch(relayStatisticsProvider);
       
       return Container(
         padding: EdgeInsets.all(12),

@@ -248,7 +248,7 @@ class MessageBubble extends StatelessWidget {
               : Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 16,
           height: 1.3,
-          backgroundColor: Colors.yellow.withOpacity(0.7),
+          backgroundColor: Colors.yellow.withValues(),
           fontWeight: FontWeight.bold,
         ),
       ));

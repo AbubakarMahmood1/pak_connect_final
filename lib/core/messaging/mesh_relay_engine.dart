@@ -61,7 +61,7 @@ MeshRelayEngine({
     this.onStatsUpdated = onStatsUpdated;
     
     final truncatedNodeId = _currentNodeId.length > 16 ? _currentNodeId.substring(0, 16) : _currentNodeId;
-    _logger.info('MeshRelayEngine initialized for node: ${truncatedNodeId}... (smart routing: ${_smartRouter != null})');
+    _logger.info('MeshRelayEngine initialized for node: $truncatedNodeId... (smart routing: ${_smartRouter != null})');
   }
 
   /// Process incoming relay message and decide what to do
@@ -77,7 +77,7 @@ MeshRelayEngine({
       final truncatedFromNode = fromNodeId.length > 8
           ? fromNodeId.substring(0, 8)
           : fromNodeId;
-      _logger.info('Processing relay message ${truncatedMessageId}... from ${truncatedFromNode}...');
+      _logger.info('Processing relay message $truncatedMessageId... from $truncatedFromNode...');
       
       // Step 1: Spam prevention check
       final spamCheck = await _spamPrevention.checkIncomingRelay(
@@ -220,7 +220,7 @@ MeshRelayEngine({
       final truncatedRecipient = finalRecipientPublicKey.length > 8
           ? finalRecipientPublicKey.substring(0, 8)
           : finalRecipientPublicKey;
-      _logger.info('Created outgoing relay for ${truncatedMessageId}... to ${truncatedRecipient}...');
+      _logger.info('Created outgoing relay for $truncatedMessageId... to $truncatedRecipient...');
       
       return relayMessage;
       
@@ -299,7 +299,7 @@ MeshRelayEngine({
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
           ? relayMessage.originalMessageId.substring(0, 16)
           : relayMessage.originalMessageId;
-      _logger.info('Delivering message to self: ${truncatedMessageId}...');
+      _logger.info('Delivering message to self: $truncatedMessageId...');
       
       // Extract original content
       final originalContent = relayMessage.originalContent;
@@ -352,7 +352,7 @@ MeshRelayEngine({
             final truncatedNextHop = routingDecision.nextHop!.length > 8
                 ? routingDecision.nextHop!.substring(0, 8)
                 : routingDecision.nextHop!;
-            _logger.info('✅ Smart router chose: ${truncatedNextHop}... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})');
+            _logger.info('✅ Smart router chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})');
             return routingDecision.nextHop;
           } else {
             _logger.warning('⚠️ Smart router failed: ${routingDecision.reason}');
@@ -369,7 +369,7 @@ MeshRelayEngine({
       final truncatedChosenHop = chosenHop.length > 8
           ? chosenHop.substring(0, 8)
           : chosenHop;
-      _logger.info('📍 Selected hop: ${truncatedChosenHop}... from ${validHops.length} valid options');
+      _logger.info('📍 Selected hop: $truncatedChosenHop... from ${validHops.length} valid options');
       return chosenHop;
       
     } catch (e) {
@@ -421,7 +421,7 @@ MeshRelayEngine({
       final truncatedNextHop = nextHopNodeId.length > 8
           ? nextHopNodeId.substring(0, 8)
           : nextHopNodeId;
-      _logger.info('Relayed message ${truncatedMessageId}... to ${truncatedNextHop}...');
+      _logger.info('Relayed message $truncatedMessageId... to $truncatedNextHop...');
       
     } catch (e) {
       _logger.severe('Failed to relay to next hop: $e');

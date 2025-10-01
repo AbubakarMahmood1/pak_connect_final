@@ -166,7 +166,6 @@ final archivedChatProvider = FutureProvider.family<ArchivedChat?, String>((ref, 
 final archiveOperationsProvider = Provider<ArchiveOperationsNotifier>((ref) {
   return ArchiveOperationsNotifier(
     ref.watch(archiveManagementServiceProvider),
-    ref.watch(archiveSearchServiceProvider),
   );
 });
 
@@ -222,7 +221,6 @@ class ArchiveOperationsState {
 /// Archive operations notifier
 class ArchiveOperationsNotifier {
   final ArchiveManagementService _managementService;
-  final ArchiveSearchService _searchService;
   late StreamSubscription _archiveUpdatesSubscription;
   
   ArchiveOperationsState _state = const ArchiveOperationsState();
@@ -231,7 +229,7 @@ class ArchiveOperationsNotifier {
   final _stateController = StreamController<ArchiveOperationsState>.broadcast();
   Stream<ArchiveOperationsState> get stateStream => _stateController.stream;
   
-  ArchiveOperationsNotifier(this._managementService, this._searchService) {
+  ArchiveOperationsNotifier(this._managementService) {
     _setupEventListeners();
   }
   
@@ -351,20 +349,15 @@ class ArchiveOperationsNotifier {
     try {
       // For now, we'll simulate deletion - proper API would be needed
       await Future.delayed(Duration(milliseconds: 500)); // Simulate operation
-      final success = true; // Would actually delete through proper API
+      // Would actually delete through proper API and get real result
       
       _setState(_state.copyWith(
         isDeleting: false,
         currentOperation: null,
-        recentSuccesses: success
-          ? [..._state.recentSuccesses, 'Deleted archive $archiveId']
-          : _state.recentSuccesses,
-        recentErrors: success
-          ? _state.recentErrors
-          : [..._state.recentErrors, 'Failed to delete archive'],
+        recentSuccesses: [..._state.recentSuccesses, 'Deleted archive $archiveId'],
       ));
       
-      return success;
+      return true;
       
     } catch (e) {
       _setState(_state.copyWith(

@@ -88,7 +88,7 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
         'messages': [], // Would need proper message loading
       });
 
-      if (archivedChat != null && mounted) {
+      if (mounted) {
         setState(() {
           _archivedChat = archivedChat;
           _messages = archivedChat.messages;

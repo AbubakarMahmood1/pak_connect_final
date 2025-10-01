@@ -2,7 +2,6 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'package:logging/logging.dart';
 import '../models/mesh_relay_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,13 +13,11 @@ class QueueSyncManager {
   
   // Storage keys
   static const String _syncStatsKey = 'queue_sync_stats_v1';
-  static const String _rateLimitKey = 'sync_rate_limit_v1';
   
   // Rate limiting constants
   static const int _maxSyncsPerHour = 60;
   static const Duration _minSyncInterval = Duration(seconds: 30);
   static const Duration _syncTimeout = Duration(seconds: 15);
-  static const int _maxBatchSize = 50;
   
   final OfflineMessageQueue _messageQueue;
   final String _nodeId;
@@ -68,7 +65,7 @@ class QueueSyncManager {
     _startCleanupTimer();
     
     final truncatedNodeId = _nodeId.length > 16 ? _nodeId.substring(0, 16) : _nodeId;
-    _logger.info('Queue sync manager initialized for node: ${truncatedNodeId}...');
+    _logger.info('Queue sync manager initialized for node: $truncatedNodeId...');
   }
   
   /// Initiate synchronization with another node
@@ -117,14 +114,13 @@ class QueueSyncManager {
     String fromNodeId,
   ) async {
     final truncatedNodeId = fromNodeId.length > 16 ? fromNodeId.substring(0, 16) : fromNodeId;
-    _logger.info('Handling sync request from ${truncatedNodeId}...');
+    _logger.info('Handling sync request from $truncatedNodeId...');
     
     if (!_canAcceptSync(fromNodeId)) {
       return QueueSyncResponse.rateLimited('Rate limit exceeded');
     }
     
     try {
-      final ourHash = _messageQueue.calculateQueueHash();
       
       // Check if synchronization is needed
       if (!_messageQueue.needsSynchronization(syncMessage.queueHash)) {
@@ -313,7 +309,7 @@ class QueueSyncManager {
     // Note: This is a simplified version. In practice, you'd need to integrate
     // with the queue's internal methods more carefully
     final truncatedId = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
-    _logger.info('Would add received message: ${truncatedId}...');
+    _logger.info('Would add received message: $truncatedId...');
   }
   
   /// Record sync attempt for rate limiting

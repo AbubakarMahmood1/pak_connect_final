@@ -62,7 +62,6 @@ class BLEMessageHandler {
   Function(RelayStatistics stats)? onRelayStatsUpdated;
   
   // Relay system components
-  QueueSyncManager? _queueSyncManager;
   MeshRelayEngine? _relayEngine;
   SpamPreventionManager? _spamPrevention;
   String? _currentNodeId;
@@ -873,31 +872,24 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
     }
   }
   
-  /// Set queue sync manager reference
+  /// Set queue sync manager reference (deprecated - not currently used)
+  /// This method is kept for API compatibility but doesn't store the manager
+  /// as queue sync integration is not yet implemented.
+  @Deprecated('Queue sync manager integration is not yet implemented')
   void setQueueSyncManager(QueueSyncManager syncManager) {
-    _queueSyncManager = syncManager;
+    // TODO: Integrate queue sync manager when implementation is ready
+    _logger.info('Queue sync manager setter called but not yet integrated');
   }
 
   /// Handle relay message forwarding to next hop
   Future<void> _handleRelayToNextHop(MeshRelayMessage message, String nextHopNodeId) async {
     try {
-      // Create protocol message for relay
-      final protocolMessage = ProtocolMessage.meshRelay(
-        originalMessageId: message.originalMessageId,
-        originalSender: message.relayMetadata.originalSender,
-        finalRecipient: message.relayMetadata.finalRecipient,
-        relayMetadata: message.relayMetadata.toJson(),
-        originalPayload: {
-          'content': message.originalContent,
-          'encrypted': message.encryptedPayload != null,
-          if (message.encryptedPayload != null) 'encryptedPayload': message.encryptedPayload,
-        },
-      );
-      
       _logger.info('🔀 RELAY FORWARD: Preparing to send relay message to ${_safeTruncate(nextHopNodeId, 8)}...');
       
+      // TODO: Create and send protocol message for relay when BLE service layer integration is ready
       // The actual sending would be handled by the BLE service layer
       // This is where we'd integrate with the connection manager
+      // For now, this is a stub that logs the relay attempt
       
     } catch (e) {
       _logger.severe('Failed to handle relay to next hop: $e');

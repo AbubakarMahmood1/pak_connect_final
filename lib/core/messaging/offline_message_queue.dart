@@ -16,14 +16,12 @@ class OfflineMessageQueue {
   static const String _queueKey = 'offline_message_queue_v2';
   static const String _legacyQueueKey = 'offline_message_queue_v1'; // Backward compatibility
   static const String _deletedMessagesKey = 'deleted_message_ids_v1';
-  static const String _queueHashKey = 'queue_hash_cache_v1';
   static const String _migrationKey = 'queue_migration_completed_v2';
   static const int _maxRetries = 5;
   static const Duration _initialDelay = Duration(seconds: 2);
   static const Duration _maxDelay = Duration(minutes: 10);
   
   // Performance optimization constants
-  static const int _hashCacheTimeout = 30; // seconds
   static const int _maxDeletedIdsToKeep = 5000;
   static const int _cleanupThreshold = 10000;
   
@@ -270,30 +268,6 @@ class OfflineMessageQueue {
     _activeRetries[message.id] = retryTimer;
     
     _logger.info('Retry scheduled for ${message.id.substring(0, 16)}... in ${backoffDelay.inSeconds}s');
-  }
-  
-  /// Mark message as permanently failed
-  Future<void> _markMessageFailed(QueuedMessage message, String reason) async {
-    message.status = QueuedMessageStatus.failed;
-    message.failureReason = reason;
-    message.failedAt = DateTime.now();
-    
-    _cancelRetryTimer(message.id);
-    
-    // Keep failed messages for a while for debugging/retry
-    // Remove after 24 hours
-    Timer(Duration(hours: 24), () {
-      _removeMessageFromQueue(message.id);
-      _saveQueueToStorage();
-    });
-    
-    await _saveQueueToStorage();
-    
-    _totalFailed++;
-    onMessageFailed?.call(message, reason);
-    _updateStatistics();
-    
-    _logger.severe('Message permanently failed: ${message.id.substring(0, 16)}... - $reason');
   }
   
   /// Get current queue statistics
@@ -634,13 +608,6 @@ class OfflineMessageQueue {
       }
     }
     
-    final stats = QueueSyncStats(
-      totalMessages: _messageQueue.length,
-      pendingMessages: _messageQueue.where((m) => m.status == QueuedMessageStatus.pending).length,
-      failedMessages: _messageQueue.where((m) => m.status == QueuedMessageStatus.failed).length,
-      lastSyncTime: DateTime.now(),
-      successRate: getStatistics().successRate,
-    );
     
     return QueueSyncMessage.createRequest(
       messageIds: messageIds,

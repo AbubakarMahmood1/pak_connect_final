@@ -227,7 +227,7 @@ class ArchivedChat {
     }
     
     if (messageCount > 1000) {
-      warnings.add('Large archive (${messageCount} messages) - restoration may take longer');
+      warnings.add('Large archive ($messageCount messages) - restoration may take longer');
     }
     
     if (isCompressed && estimatedSize > 1024 * 1024) { // 1MB

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,7 +15,6 @@ import '../../core/models/connection_status.dart';
 import '../../data/services/ble_service.dart';
 import '../widgets/discovery_overlay.dart';
 import '../widgets/relay_queue_widget.dart';
-import '../widgets/queue_status_indicator.dart';
 import 'chat_screen.dart';
 import 'qr_contact_screen.dart';
 import 'archive_screen.dart';
@@ -121,7 +121,6 @@ void _setupPeriodicRefresh() {
   @override
 Widget build(BuildContext context) {
   final bleStateAsync = ref.watch(bleStateProvider);
-  final meshStatusAsync = ref.watch(meshNetworkStatusProvider);
   ref.watch(connectionInfoProvider);
   ref.watch(discoveredDevicesProvider);
   
@@ -144,7 +143,7 @@ Widget build(BuildContext context) {
                   ),
                 ),
                 loading: () => Text('PakConnect'),
-                error: (_, __) => Text('PakConnect'),
+                error: (_, _) => Text('PakConnect'),
               );
             },
           ),
@@ -171,7 +170,7 @@ Widget build(BuildContext context) {
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       child: Icon(Icons.person, color: Colors.white),
                     ),
-                    error: (_, __) => CircleAvatar(
+                    error: (_, _) => CircleAvatar(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       child: Icon(Icons.person, color: Colors.white),
                     ),
@@ -1148,7 +1147,9 @@ void _editDisplayName() async {
                 SnackBar(content: Text('Name updated and synced across devices')),
               );
             } catch (e) {
+              if(kDebugMode){
               print('Error updating name: $e');
+              }
             }
           },
           child: Text('Save'),

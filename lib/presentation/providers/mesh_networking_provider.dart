@@ -171,15 +171,14 @@ final meshNetworkingUIStateProvider = Provider<MeshNetworkingUIState>((ref) {
 /// Controller provider for mesh networking actions
 final meshNetworkingControllerProvider = Provider<MeshNetworkingController>((ref) {
   final service = ref.watch(meshNetworkingServiceProvider);
-  return MeshNetworkingController(service, ref);
+  return MeshNetworkingController(service);
 });
 
 /// Controller class for mesh networking actions
 class MeshNetworkingController {
   final MeshNetworkingService _service;
-  final Ref _ref;
 
-  MeshNetworkingController(this._service, this._ref);
+  MeshNetworkingController(this._service);
 
   /// Send mesh message
   Future<MeshSendResult> sendMeshMessage({

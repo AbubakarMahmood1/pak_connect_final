@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
-import '../../core/models/archive_models.dart';
 import '../../domain/services/archive_search_service.dart';
 import '../providers/archive_provider.dart';
 import 'archived_chat_tile.dart';

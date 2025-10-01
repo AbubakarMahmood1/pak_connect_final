@@ -8,11 +8,11 @@ class BluetoothStatusWidget extends StatelessWidget {
   final VoidCallback? onOpenSettings;
 
   const BluetoothStatusWidget({
-    Key? key,
+    super.key,
     required this.message,
     this.onRefresh,
     this.onOpenSettings,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +55,7 @@ class BluetoothStatusWidget extends StatelessWidget {
                       Text(
                         message.actionHint!,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withOpacity(0.7),
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                         ),
                       ),
                     ],
@@ -135,32 +135,32 @@ class BluetoothStatusWidget extends StatelessWidget {
   Color _getBackgroundColor(ThemeData theme) {
     switch (message.type) {
       case BluetoothMessageType.ready:
-        return Colors.green.withOpacity(0.1);
+        return Colors.green.withValues(alpha: 0.1);
       case BluetoothMessageType.disabled:
       case BluetoothMessageType.unauthorized:
       case BluetoothMessageType.unsupported:
-        return Colors.orange.withOpacity(0.1);
+        return Colors.orange.withValues(alpha: .1);
       case BluetoothMessageType.unknown:
       case BluetoothMessageType.initializing:
-        return theme.colorScheme.primary.withOpacity(0.1);
+        return theme.colorScheme.primary.withValues(alpha: .1);
       case BluetoothMessageType.error:
-        return Colors.red.withOpacity(0.1);
+        return Colors.red.withValues(alpha: .1);
     }
   }
 
   Color _getBorderColor(ThemeData theme) {
     switch (message.type) {
       case BluetoothMessageType.ready:
-        return Colors.green.withOpacity(0.3);
+        return Colors.green.withValues(alpha:0.3);
       case BluetoothMessageType.disabled:
       case BluetoothMessageType.unauthorized:
       case BluetoothMessageType.unsupported:
-        return Colors.orange.withOpacity(0.3);
+        return Colors.orange.withValues(alpha:0.3);
       case BluetoothMessageType.unknown:
       case BluetoothMessageType.initializing:
-        return theme.colorScheme.primary.withOpacity(0.3);
+        return theme.colorScheme.primary.withValues(alpha:0.3);
       case BluetoothMessageType.error:
-        return Colors.red.withOpacity(0.3);
+        return Colors.red.withValues(alpha:0.3);
     }
   }
 
@@ -182,10 +182,10 @@ class BluetoothStatusListener extends StatelessWidget {
   final Stream<BluetoothStatusMessage> messageStream;
 
   const BluetoothStatusListener({
-    Key? key,
+    super.key,
     required this.builder,
     required this.messageStream,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -205,11 +205,11 @@ class BluetoothBanner extends StatelessWidget {
   final VoidCallback? onAction;
 
   const BluetoothBanner({
-    Key? key,
+    super.key,
     required this.message,
     this.onDismiss,
     this.onAction,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -241,7 +241,7 @@ class BluetoothBanner extends StatelessWidget {
             Text(
               message.actionHint!,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withOpacity(0.7),
+                color: theme.colorScheme.onSurface.withValues(alpha:0.7),
               ),
             ),
           ],
@@ -298,11 +298,11 @@ class BluetoothBanner extends StatelessWidget {
       case BluetoothMessageType.disabled:
       case BluetoothMessageType.unauthorized:
       case BluetoothMessageType.unsupported:
-        return Colors.orange.withOpacity(0.1);
+        return Colors.orange.withValues(alpha:0.1);
       case BluetoothMessageType.error:
-        return Colors.red.withOpacity(0.1);
+        return Colors.red.withValues(alpha: 0.1);
       default:
-        return theme.colorScheme.primary.withOpacity(0.1);
+        return theme.colorScheme.primary.withValues(alpha:0.1);
     }
   }
 

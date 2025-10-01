@@ -4,21 +4,16 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import '../lib/domain/services/mesh_networking_service.dart';
-import '../lib/core/messaging/mesh_relay_engine.dart';
-import '../lib/core/messaging/queue_sync_manager.dart';
-import '../lib/core/security/spam_prevention_manager.dart';
-import '../lib/core/messaging/offline_message_queue.dart';
-import '../lib/data/repositories/contact_repository.dart';
-import '../lib/domain/services/chat_management_service.dart';
-import '../lib/data/repositories/message_repository.dart';
-import '../lib/data/services/ble_service.dart';
-import '../lib/data/services/ble_message_handler.dart';
-import '../lib/core/demo/mesh_demo_utils.dart';
-import '../lib/core/models/mesh_relay_models.dart';
-import '../lib/domain/entities/enhanced_message.dart';
-import '../lib/domain/entities/message.dart';
-import '../lib/core/services/security_manager.dart';
+import 'package:pak_connect/domain/services/mesh_networking_service.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
+import 'package:pak_connect/domain/services/chat_management_service.dart';
+import 'package:pak_connect/data/repositories/message_repository.dart';
+import 'package:pak_connect/data/services/ble_service.dart';
+import 'package:pak_connect/data/services/ble_message_handler.dart';
+import 'package:pak_connect/core/demo/mesh_demo_utils.dart';
+import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/core/services/security_manager.dart';
 
 void main() {
   group('Mesh Networking Integration Tests', () {

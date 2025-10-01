@@ -182,22 +182,20 @@ class SmartMeshRouter {
     
     for (final route in routes) {
       double qualityScore = 1.0;
-      int connectionCount = 0;
-      
+
       // Calculate quality score for each hop in the route
       for (int i = 0; i < route.hops.length - 1; i++) {
         final fromNode = route.hops[i];
         final toNode = route.hops[i + 1];
-        
+
         double hopScore = 0.7; // Default score
-        
+
         // Get quality score if we have data
         if (fromNode == _currentNodeId) {
           hopScore = await _qualityMonitor.getConnectionScore(toNode);
         }
-        
+
         qualityScore *= hopScore;
-        connectionCount++;
       }
       
       // Adjust score based on route characteristics
@@ -279,7 +277,6 @@ class SmartMeshRouter {
         return sortedRoutes.first;
         
       case MessagePriority.normal:
-      default:
         // Use the already sorted route (based on strategy)
         return sortedRoutes.first;
     }

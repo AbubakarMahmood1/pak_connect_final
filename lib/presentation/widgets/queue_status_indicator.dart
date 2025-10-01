@@ -10,11 +10,11 @@ class QueueStatusIndicator extends StatelessWidget {
   final VoidCallback? onTap;
   
   const QueueStatusIndicator({
-    Key? key,
+    super.key,
     this.queueStats,
     this.isCompact = false,
     this.onTap,
-  }) : super(key: key);
+  });
   
   @override
   Widget build(BuildContext context) {

@@ -1,11 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import '../lib/core/services/message_retry_coordinator.dart';
-import '../lib/data/repositories/message_repository.dart';
-import '../lib/core/messaging/offline_message_queue.dart';
-import '../lib/domain/entities/message.dart';
-import '../lib/domain/services/mesh_networking_service.dart';
-import '../lib/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/core/services/message_retry_coordinator.dart';
+import 'package:pak_connect/data/repositories/message_repository.dart';
+import 'package:pak_connect/core/messaging/offline_message_queue.dart';
+import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 /// Test to verify the message retry coordination functionality
 /// This addresses the "retry all" bug by testing coordination between persistence systems

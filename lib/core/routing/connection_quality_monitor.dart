@@ -19,7 +19,6 @@ class ConnectionQualityMonitor {
   Timer? _historyCleanupTimer;
   
   static const Duration _monitoringInterval = Duration(seconds: 10);
-  static const Duration _historyRetention = Duration(hours: 1);
   static const int _maxHistoryEntries = 360; // 1 hour of 10-second intervals
 
   /// Initialize the connection quality monitor
@@ -55,7 +54,7 @@ class ConnectionQualityMonitor {
   void recordMessageSent(String nodeId, String messageId) {
     _messagesSent[nodeId] = (_messagesSent[nodeId] ?? 0) + 1;
     final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
-    _logger.fine('Message sent to ${truncatedNodeId}...: $messageId');
+    _logger.fine('Message sent to $truncatedNodeId...: $messageId');
   }
 
   /// Record a message acknowledgment to track delivery success
@@ -67,7 +66,7 @@ class ConnectionQualityMonitor {
     }
     
     final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
-    _logger.fine('Message acknowledged from ${truncatedNodeId}...: $messageId (latency: ${latency?.toStringAsFixed(0)}ms)');
+    _logger.fine('Message acknowledged from $truncatedNodeId...: $messageId (latency: ${latency?.toStringAsFixed(0)}ms)');
   }
 
   /// Measure connection quality with BLE service
@@ -110,7 +109,7 @@ class ConnectionQualityMonitor {
       _lastUpdate[nodeId] = DateTime.now();
 
       final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
-      _logger.fine('Updated metrics for ${truncatedNodeId}...: ${metrics.quality.name} (score: ${metrics.qualityScore.toStringAsFixed(2)})');
+      _logger.fine('Updated metrics for $truncatedNodeId...: ${metrics.quality.name} (score: ${metrics.qualityScore.toStringAsFixed(2)})');
 
     } catch (e) {
       _logger.warning('Failed to measure connection quality for $nodeId: $e');
@@ -137,7 +136,7 @@ class ConnectionQualityMonitor {
     _lastUpdate[nodeId] = DateTime.now();
 
     final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
-    _logger.info('Simulated connection degradation for ${truncatedNodeId}...: ${degradedMetrics.quality.name}');
+    _logger.info('Simulated connection degradation for $truncatedNodeId...: ${degradedMetrics.quality.name}');
   }
 
   /// Simulate connection improvement for demo purposes
@@ -160,7 +159,7 @@ class ConnectionQualityMonitor {
     _lastUpdate[nodeId] = DateTime.now();
 
     final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
-    _logger.info('Simulated connection improvement for ${truncatedNodeId}...: ${improvedMetrics.quality.name}');
+    _logger.info('Simulated connection improvement for $truncatedNodeId...: ${improvedMetrics.quality.name}');
   }
 
   /// Get connection quality statistics for all monitored connections
@@ -348,15 +347,12 @@ class ConnectionQualityMonitor {
     _lastUpdate[nodeId] = DateTime.now();
 
     final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
-    _logger.fine('Degraded stale connection ${truncatedNodeId}...: ${degradedMetrics.quality.name}');
+    _logger.fine('Degraded stale connection $truncatedNodeId...: ${degradedMetrics.quality.name}');
   }
 
   /// Clean up old history data
   void _cleanupHistory() {
     try {
-      final now = DateTime.now();
-      final cutoff = now.subtract(_historyRetention);
-      
       // For simplicity, we'll just limit the size of history arrays
       // In a real implementation, you'd store timestamps with each measurement
       

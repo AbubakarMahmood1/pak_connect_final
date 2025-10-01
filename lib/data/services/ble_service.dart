@@ -793,9 +793,7 @@ if (protocolMessage.type == ProtocolMessageType.contactStatus) {
   final challenge = protocolMessage.cryptoVerificationChallenge;
   final testMessage = protocolMessage.cryptoVerificationTestMessage;
   if (challenge != null && testMessage != null) {
-    // DISABLED: No longer handle crypto verification challenges
     _logger.info('🔍 VERIFICATION: Crypto challenge received but challenges disabled - ignoring');
-    // await _stateManager.handleCryptoVerificationChallenge(challenge, testMessage);
   }
   return;
 }
@@ -803,12 +801,8 @@ if (protocolMessage.type == ProtocolMessageType.contactStatus) {
     if (protocolMessage.type == ProtocolMessageType.cryptoVerificationResponse) {
   final challenge = protocolMessage.cryptoVerificationResponseChallenge;
   final decryptedMessage = protocolMessage.cryptoVerificationResponseDecrypted;
-  final success = protocolMessage.cryptoVerificationSuccess;
-  final results = protocolMessage.cryptoVerificationResults;
   if (challenge != null && decryptedMessage != null) {
-    // DISABLED: No longer handle crypto verification responses
     _logger.info('🔍 VERIFICATION: Crypto response received but challenges disabled - ignoring');
-    // await _stateManager.handleCryptoVerificationResponse(challenge, decryptedMessage, success, results);
   }
   return;
 }
@@ -1053,19 +1047,19 @@ final advertisement = Advertisement(
     final newSource = source.name;
     
     if (_currentScanningSource != source) {
-      _logger.warning('🔍 Scanning conflict detected: ${newSource} scanning requested while ${currentSource} scanning is active');
-      _logger.info('🔍 Coordination: Allowing ${newSource} to take over from ${currentSource}');
+      _logger.warning('🔍 Scanning conflict detected: $newSource scanning requested while $currentSource scanning is active');
+      _logger.info('🔍 Coordination: Allowing $newSource to take over from $currentSource');
       
       // Allow manual scanning to interrupt burst scanning for better UX
       if (source == ScanningSource.manual && _currentScanningSource == ScanningSource.burst) {
         _logger.info('🔍 Manual scanning takes priority over burst scanning - stopping current scan');
         await stopScanning();
       } else {
-        _logger.info('🔍 Discovery already active from ${currentSource} - skipping ${newSource} request');
+        _logger.info('🔍 Discovery already active from $currentSource - skipping $newSource request');
         return;
       }
     } else {
-      _logger.info('🔍 Discovery already active from same source (${currentSource}) - skipping request');
+      _logger.info('🔍 Discovery already active from same source ($currentSource) - skipping request');
       return;
     }
   }
@@ -1096,14 +1090,14 @@ final advertisement = Advertisement(
 
 Future<void> stopScanning() async {
   final currentSource = _currentScanningSource?.name ?? 'unknown';
-  _logger.info('🔍 Stopping ${currentSource} BLE scan...');
+  _logger.info('🔍 Stopping $currentSource BLE scan...');
   
   if (_isDiscoveryActive) {
     try {
       await centralManager.stopDiscovery();
       _logger.info('🔍 ${currentSource.toUpperCase()} discovery stopped successfully');
     } catch (e) {
-      _logger.warning('🔍 Error stopping ${currentSource} discovery: $e');
+      _logger.warning('🔍 Error stopping $currentSource discovery: $e');
     } finally {
       _isDiscoveryActive = false;
       _currentScanningSource = null; // 🔧 NEW: Clear scanning source

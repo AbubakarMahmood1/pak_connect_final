@@ -6,8 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/presentation/screens/chat_screen.dart';
 import 'package:pak_connect/core/services/persistent_chat_state_manager.dart';
-import 'package:pak_connect/domain/entities/message.dart';
-import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/security_state_provider.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
@@ -17,13 +15,11 @@ void main() {
   group('ChatScreen Lifecycle Persistence Tests', () {
     late ProviderContainer container;
     late PersistentChatStateManager persistentManager;
-    late MessageRepository messageRepository;
     late StreamController<String> mockMessageStreamController;
 
     setUp(() {
       container = ProviderContainer();
       persistentManager = PersistentChatStateManager();
-      messageRepository = MessageRepository();
       mockMessageStreamController = StreamController<String>.broadcast();
     });
 
