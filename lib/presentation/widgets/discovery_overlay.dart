@@ -33,6 +33,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     with SingleTickerProviderStateMixin {
   final _logger = Logger('DiscoveryOverlay');
   bool _isScanning = false;
+  DateTime? _scanStartTime;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
@@ -97,8 +98,24 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   /// Get unified scanning state that considers both manual and burst scanning
   bool _getUnifiedScanningState() {
     final burstStatusAsync = ref.read(burstScanningStatusProvider);
-    final isBurstActive = burstStatusAsync.value?.isBurstActive ?? false;
-    return _isScanning || isBurstActive;
+    final burstStatus = burstStatusAsync.value;
+    final isBurstActive = burstStatus?.isBurstActive ?? false;
+    final isManualActive = burstStatus?.isManualActive ?? false;
+    return _isScanning || isBurstActive || isManualActive;
+  }
+
+  /// Check if manual scan override is allowed (no scanning currently active)
+  bool _canTriggerManualScan() {
+    final burstStatusAsync = ref.read(burstScanningStatusProvider);
+    final burstStatus = burstStatusAsync.value;
+
+    // Prevent manual scan if any scanning is active
+    if (_isScanning || (burstStatus?.isBurstActive ?? false) || (burstStatus?.isManualActive ?? false)) {
+      return false;
+    }
+
+    // Use burst controller's canOverride logic for additional checks
+    return burstStatus?.canOverride ?? true;
   }
 
   /// Clean up devices not seen recently
@@ -154,9 +171,16 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   }
   
   Future<void> _startScanning() async {
-    if (_isScanning) return;
-    _logger.fine('🔍 OVERLAY DEBUG: Starting manual scan request - _isScanning was $_isScanning');
-    setState(() => _isScanning = true);
+    if (!_canTriggerManualScan()) {
+      _logger.warning('Manual scan blocked - scanning already active or not allowed');
+      return;
+    }
+
+    _logger.fine('🔍 OVERLAY DEBUG: Starting manual scan request');
+    setState(() {
+      _isScanning = true;
+      _scanStartTime = DateTime.now();
+    });
 
     try {
       // 🔧 INTEGRATION: Use burst scanning operations for better coordination
@@ -165,24 +189,30 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       // This will trigger manual override that takes priority over burst scanning
       if (burstOperations != null) {
         await burstOperations.triggerManualScan();
+        _logger.info('✅ MANUAL: Manual scan started via burst controller');
+
+        // Manual scans via burst controller don't have fixed duration
+        // They will be stopped by user interaction or burst system
       } else {
         // Fallback to direct BLE service if burst operations not available
         final bleService = ref.read(bleServiceProvider);
         await bleService.startScanning(source: ScanningSource.manual);
+        _logger.info('✅ MANUAL: Manual scan started via BLE service');
+
+        // Auto-stop fallback scans after 30 seconds
+        Future.delayed(Duration(seconds: 30), () {
+          if (mounted && _isScanning) {
+            _stopScanning();
+          }
+        });
       }
-
-      _logger.info('✅ MANUAL: Manual scan started via burst controller');
-
-      // Auto-stop after 10 seconds
-      Future.delayed(Duration(seconds: 10), () {
-        if (mounted && _isScanning) {
-          _stopScanning();
-        }
-      });
     } catch (e) {
       _logger.warning('Failed to start manual scanning: $e');
       if (mounted) {
-        setState(() => _isScanning = false);
+        setState(() {
+          _isScanning = false;
+          _scanStartTime = null;
+        });
         _showError('Failed to start scanning');
       }
     }
@@ -190,13 +220,21 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   
   Future<void> _stopScanning() async {
     if (!_isScanning) return;
-    
+
+    _logger.fine('🔍 OVERLAY DEBUG: Stopping manual scan');
+
     try {
       final bleService = ref.read(bleServiceProvider);
       await bleService.stopScanning();
+      _logger.info('✅ MANUAL: Manual scan stopped successfully');
+    } catch (e) {
+      _logger.warning('Error stopping manual scan: $e');
     } finally {
       if (mounted) {
-        setState(() => _isScanning = false);
+        setState(() {
+          _isScanning = false;
+          _scanStartTime = null;
+        });
       }
     }
   }
@@ -582,19 +620,17 @@ Widget _buildScannerMode(
                       ),
                     ),
 
-                  // Manual refresh button
-                  if (totalShown > 0)
+                  // Hint text for manual scanning (only show when not scanning)
+                  if (totalShown > 0 && !_getUnifiedScanningState())
                     Padding(
                       padding: EdgeInsets.all(16),
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          _deviceLastSeen.clear();
-                          if (!_getUnifiedScanningState()) {
-                            await _startScanning();
-                          }
-                        },
-                        icon: Icon(Icons.refresh),
-                        label: Text('Refresh Device List'),
+                      child: Text(
+                        'Tap the timer circle above to scan for more devices',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontStyle: FontStyle.italic,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
                     ),
 
@@ -603,16 +639,7 @@ Widget _buildScannerMode(
                 ],
               );
             },
-            loading: () => Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Loading devices...'),
-              ],
-            ),
-          ),
+            loading: () => _buildBurstAwareLoadingState(),
           error: (error, stack) => Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -914,14 +941,16 @@ onTap: () {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-          if (!_getUnifiedScanningState()) ...[
-            SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _startScanning,
-              icon: Icon(Icons.refresh),
-              label: Text('Scan Now'),
+          SizedBox(height: 16),
+          // Only show hint when not scanning
+          if (!_getUnifiedScanningState())
+            Text(
+              'Tap the timer circle above to scan manually',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontStyle: FontStyle.italic,
+              ),
             ),
-          ],
         ],
       ),
     );
@@ -1032,6 +1061,62 @@ onTap: () {
   );
 }
 
+  /// Build clean loading state that works with countdown timer (no redundancy)
+  Widget _buildBurstAwareLoadingState() {
+    return Consumer(
+      builder: (context, ref, child) {
+        final burstStatusAsync = ref.watch(burstScanningStatusProvider);
+
+        return burstStatusAsync.when(
+          data: (burstStatus) {
+            // Simple status - let the countdown timer handle timing details
+            final isActuallyScanning = _isScanning || burstStatus.isBurstActive || burstStatus.isManualActive;
+            final statusText = isActuallyScanning
+              ? 'Searching for devices...'
+              : 'Ready to scan';
+
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Only show progress indicator if actually scanning
+                  if (isActuallyScanning) ...[
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                  ],
+                  Text(
+                    statusText,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+          loading: () => Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Initializing...'),
+              ],
+            ),
+          ),
+          error: (error, stack) => Center(
+            child: Text(
+              'Ready to scan',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// Build minimalist scanning circle with countdown
   Widget _buildMinimalistScanningCircle() {
     return Consumer(
@@ -1056,28 +1141,79 @@ onTap: () {
     );
   }
 
-  /// Build scanning circle based on current burst scanning status
+  /// Build unified clickable timer circle - RED when scanning, BLUE when waiting
   Widget _buildScanningCircleWithStatus(dynamic burstStatus, dynamic operations) {
     final theme = Theme.of(context);
-    final isAnyScanning = _isScanning || burstStatus.isBurstActive;
+    final isAnyScanning = _isScanning || burstStatus.isBurstActive || burstStatus.isManualActive;
 
-    // Calculate progress for countdown circle using actual scan interval
+    // Color scheme: RED for scanning, BLUE for waiting
+    final primaryColor = isAnyScanning ? Colors.red : Colors.blue;
+    final backgroundColor = isAnyScanning
+      ? Colors.red.withOpacity(0.1)
+      : theme.colorScheme.surfaceContainerHighest;
+
+    // Calculate progress and display values
     double? progress;
-    if (!isAnyScanning && burstStatus.secondsUntilNextScan != null && burstStatus.secondsUntilNextScan! > 0) {
-      // Use actual scan interval from burst status for accurate progress
-      final totalSeconds = (burstStatus.currentScanInterval / 1000).round();
-      final remaining = burstStatus.secondsUntilNextScan!;
-      final calculatedProgress = (totalSeconds - remaining) / totalSeconds;
-      progress = calculatedProgress.clamp(0.0, 1.0); // Ensure valid range
+    int? displayNumber;
+    String? displayLabel;
+
+    if (isAnyScanning) {
+      // RED MODE: Show scan duration countdown/countup
+      if (burstStatus.isManualActive && burstStatus.manualScanElapsed != null) {
+        // Manual scan - show elapsed time counting up to 30s with progress circle
+        final elapsed = burstStatus.manualScanElapsed!;
+        final totalDuration = 30; // Manual scans last 30 seconds
+        progress = elapsed / totalDuration;
+        displayNumber = elapsed;
+        displayLabel = 'sec';
+      } else if (burstStatus.isBurstActive && burstStatus.burstTimeRemaining != null) {
+        // Burst scan - use burstTimeRemaining from controller (20 second duration)
+        final remaining = burstStatus.burstTimeRemaining!;
+        final totalDuration = 20; // Burst scans last 20 seconds
+        final elapsed = totalDuration - remaining;
+        progress = elapsed / totalDuration;
+        displayNumber = remaining;
+        displayLabel = 'sec';
+      } else if (_isScanning && _scanStartTime != null) {
+        // Fallback manual scan via local state - show elapsed time (no fixed end time)
+        final elapsed = DateTime.now().difference(_scanStartTime!).inSeconds;
+        displayNumber = elapsed;
+        displayLabel = 'sec';
+        progress = null; // No progress circle for fallback manual scans
+      } else {
+        // Scanning without duration info - just show spinner
+        displayNumber = null;
+        displayLabel = null;
+      }
+    } else {
+      // BLUE MODE: Show countdown to next scan (only when no scanning is active)
+      if (burstStatus.secondsUntilNextScan != null && burstStatus.secondsUntilNextScan! > 0) {
+        final totalSeconds = (burstStatus.currentScanInterval / 1000).round();
+        final remaining = burstStatus.secondsUntilNextScan!;
+        progress = (totalSeconds - remaining) / totalSeconds;
+        displayNumber = remaining;
+        displayLabel = 'sec';
+      }
     }
 
     return GestureDetector(
-      onTap: isAnyScanning ? null : () async {
-        // Manual scan only when idle
-        if (operations != null) {
-          await operations.triggerManualScan();
+      onTap: () async {
+        if (isAnyScanning) {
+          // Click during scanning = stop scanning (only if manual scan)
+          if (burstStatus.isManualActive) {
+            // Manual scan is active via burst controller - cannot stop manually
+            // Manual scans run for their full 30-second duration
+          } else if (_isScanning) {
+            // Fallback manual scan via local state - can be stopped
+            await _stopScanning();
+          }
+          // Note: Can't stop burst scans manually, they run their course
         } else {
-          await _startScanning();
+          // Click during waiting = start manual scan immediately
+          if (_canTriggerManualScan()) {
+            // Use unified manual scan method that coordinates with burst system
+            await _startScanning();
+          }
         }
       },
       child: Container(
@@ -1092,70 +1228,66 @@ onTap: () {
               height: 70,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isAnyScanning
-                  ? theme.colorScheme.primary.withOpacity(0.1)
-                  : theme.colorScheme.surfaceContainerHighest,
+                color: backgroundColor,
                 border: Border.all(
-                  color: isAnyScanning
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outline.withOpacity(0.5),
+                  color: primaryColor,
                   width: 2,
                 ),
               ),
             ),
 
-            // Countdown progress circle (only when waiting)
-            if (progress != null && !isAnyScanning)
+            // Progress circle (both scanning and waiting)
+            if (progress != null)
               SizedBox(
                 width: 70,
                 height: 70,
                 child: CircularProgressIndicator(
-                  value: progress,
+                  value: progress.clamp(0.0, 1.0),
                   strokeWidth: 3,
                   backgroundColor: Colors.transparent,
-                  valueColor: AlwaysStoppedAnimation(Colors.blue),
+                  valueColor: AlwaysStoppedAnimation(primaryColor),
                 ),
               ),
 
             // Center content
-            if (isAnyScanning)
-              // Spinning indicator when scanning
+            if (displayNumber != null && displayLabel != null)
+              // Show countdown number
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '$displayNumber',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                  Text(
+                    displayLabel,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: primaryColor.withOpacity(0.7),
+                    ),
+                  ),
+                ],
+              )
+            else if (isAnyScanning)
+              // Scanning without duration - show spinner
               SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation(Colors.blue),
+                  valueColor: AlwaysStoppedAnimation(primaryColor),
                 ),
               )
-            else if (burstStatus.secondsUntilNextScan != null && burstStatus.secondsUntilNextScan! > 0)
-              // Countdown number when waiting
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '${burstStatus.secondsUntilNextScan}',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  Text(
-                    'sec',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              )
             else
-              // Scan icon when ready
+              // Ready to scan - show icon
               Icon(
                 Icons.bluetooth_searching,
                 size: 28,
-                color: theme.colorScheme.primary,
+                color: primaryColor,
               ),
           ],
         ),
@@ -1212,152 +1344,6 @@ onTap: () {
     );
   }
 
-  /// Build intelligent scan button that consolidates all scanning state
-  Widget _buildIntelligentScanButton() {
-    return Consumer(
-      builder: (context, ref, child) {
-        final burstStatusAsync = ref.watch(burstScanningStatusProvider);
-        final burstOperations = ref.read(burstScanningOperationsProvider);
-
-        return Container(
-          margin: EdgeInsets.symmetric(horizontal: 16),
-          child: burstStatusAsync.when(
-            data: (burstStatus) => _buildScanButtonWithStatus(burstStatus, burstOperations),
-            loading: () => _buildLoadingScanButton(),
-            error: (error, stack) => _buildErrorScanButton(),
-          ),
-        );
-      },
-    );
-  }
-
-  /// Build scan button based on current burst scanning status
-  Widget _buildScanButtonWithStatus(dynamic burstStatus, dynamic operations) {
-    final theme = Theme.of(context);
-    final isAnyScanning = _isScanning || burstStatus.isBurstActive;
-
-    if (isAnyScanning) {
-      // Any scanning in progress
-      return _buildScanButton(
-        icon: SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.onPrimary),
-          ),
-        ),
-        label: _isScanning ? 'Scanning devices...' : 'Auto scanning...',
-        onPressed: null,
-        isActive: true,
-      );
-    } else if (burstStatus.secondsUntilNextScan != null &&
-               burstStatus.secondsUntilNextScan! > 0 &&
-               burstStatus.secondsUntilNextScan! <= 60) {
-      // Countdown to next scan
-      return _buildScanButton(
-        icon: Icon(Icons.schedule, size: 20, color: theme.colorScheme.primary),
-        label: 'Next scan in ${burstStatus.secondsUntilNextScan}s',
-        onPressed: () async {
-          if (operations != null) {
-            await operations.triggerManualScan();
-          } else {
-            await _startScanning();
-          }
-        },
-        isActive: false,
-      );
-    } else {
-      // Ready to scan
-      return _buildScanButton(
-        icon: Icon(Icons.search, size: 20, color: theme.colorScheme.primary),
-        label: 'Scan for devices',
-        onPressed: () async {
-          if (operations != null) {
-            await operations.triggerManualScan();
-          } else {
-            await _startScanning();
-          }
-        },
-        isActive: false,
-      );
-    }
-  }
-
-  /// Build the actual scan button with consistent styling
-  Widget _buildScanButton({
-    required Widget icon,
-    required String label,
-    required VoidCallback? onPressed,
-    required bool isActive,
-  }) {
-    final theme = Theme.of(context);
-
-    return Container(
-      height: 56,
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        style: FilledButton.styleFrom(
-          backgroundColor: isActive
-              ? theme.colorScheme.primary
-              : theme.colorScheme.primaryContainer,
-          foregroundColor: isActive
-              ? theme.colorScheme.onPrimary
-              : theme.colorScheme.onPrimaryContainer,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        icon: icon,
-        label: Text(label),
-      ),
-    );
-  }
-
-  /// Build loading scan button
-  Widget _buildLoadingScanButton() {
-    return Container(
-      height: 56,
-      child: OutlinedButton.icon(
-        onPressed: null,
-        icon: SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-        label: Text('Initializing Scanner...'),
-        style: OutlinedButton.styleFrom(
-          minimumSize: Size(double.infinity, 56),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Build error scan button
-  Widget _buildErrorScanButton() {
-    final theme = Theme.of(context);
-
-    return Container(
-      height: 56,
-      child: OutlinedButton.icon(
-        onPressed: () async => await _startScanning(),
-        icon: Icon(Icons.error_outline, color: theme.colorScheme.error),
-        label: Text('Scanner Error • Tap to Retry'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: theme.colorScheme.error,
-          side: BorderSide(color: theme.colorScheme.error),
-          minimumSize: Size(double.infinity, 56),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   void dispose() {

@@ -174,6 +174,7 @@ final burstScanningStatusProvider = StreamProvider<BurstScanningStatus>((ref) {
     data: (controller) => controller.statusStream,
     loading: () => Stream.value(BurstScanningStatus(
       isBurstActive: false,
+      isManualActive: false,
       currentScanInterval: 60000,
       powerStats: PowerManagementStats(
         currentScanInterval: 60000,
@@ -189,6 +190,7 @@ final burstScanningStatusProvider = StreamProvider<BurstScanningStatus>((ref) {
     )),
     error: (error, stack) => Stream.value(BurstScanningStatus(
       isBurstActive: false,
+      isManualActive: false,
       currentScanInterval: 60000,
       powerStats: PowerManagementStats(
         currentScanInterval: 60000,

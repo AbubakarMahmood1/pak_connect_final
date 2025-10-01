@@ -13,9 +13,12 @@ class BurstScanningController {
 
   // Status tracking
   bool _isBurstActive = false;
+  bool _isManualActive = false;
   DateTime? _nextScanTime;
   DateTime? _burstEndTime;
+  DateTime? _manualScanEndTime;
   Timer? _statusUpdateTimer;
+  Timer? _manualScanTimer;
 
   // Status stream
   final StreamController<BurstScanningStatus> _statusController =
@@ -166,17 +169,56 @@ class BurstScanningController {
         _burstEndTime = null;
       }
 
+      // Cancel any existing manual scan timer
+      _manualScanTimer?.cancel();
+      _manualScanTimer = null;
+
       // Start manual scanning (this will take priority)
       await _bleService?.startScanning(source: ScanningSource.manual);
       _logger.info('✅ MANUAL: Manual scan started successfully');
 
-      // Reset next scan time
-      final stats = _powerManager.getCurrentStats();
-      _nextScanTime = DateTime.now().add(Duration(milliseconds: stats.currentScanInterval + 10000)); // Add delay after manual
+      // Set manual scan active with 30-second duration
+      _isManualActive = true;
+      _manualScanEndTime = DateTime.now().add(Duration(seconds: 30));
+
+      // Set timer to automatically stop manual scan after 30 seconds
+      _manualScanTimer = Timer(Duration(seconds: 30), () async {
+        _logger.info('🔥 MANUAL: 30-second manual scan completed, stopping...');
+        await _stopManualScan();
+      });
+
+      // Don't update next scan time during manual scan - will be set after manual scan ends
+      _nextScanTime = null;
 
     } catch (e) {
       _logger.severe('❌ MANUAL: Failed to start manual scan: $e');
+      _isManualActive = false;
+      _manualScanEndTime = null;
     }
+
+    _updateStatus();
+  }
+
+  /// Stop manual scan and transition to next scheduled scan
+  Future<void> _stopManualScan() async {
+    if (!_isManualActive) return;
+
+    _logger.info('🔥 MANUAL: Stopping manual scan');
+    _isManualActive = false;
+    _manualScanEndTime = null;
+    _manualScanTimer?.cancel();
+    _manualScanTimer = null;
+
+    try {
+      await _bleService?.stopScanning();
+      _logger.info('✅ MANUAL: Manual scan stopped successfully');
+    } catch (e) {
+      _logger.warning('❌ MANUAL: Error stopping manual scan: $e');
+    }
+
+    // Set next scan time after manual scan completes
+    final stats = _powerManager.getCurrentStats();
+    _nextScanTime = DateTime.now().add(Duration(milliseconds: stats.currentScanInterval));
 
     _updateStatus();
   }
@@ -187,9 +229,20 @@ class BurstScanningController {
 
     int? secondsUntilNextScan;
     int? burstTimeRemaining;
+    int? manualScanElapsed;
+    int? manualScanRemaining;
 
-    // 🔧 FIX: Use actual scheduled time from power manager for accurate countdown
-    if (!_isBurstActive) {
+    // Calculate manual scan timers
+    if (_isManualActive && _manualScanEndTime != null) {
+      final now = DateTime.now();
+      final elapsed = now.difference(_manualScanEndTime!.subtract(Duration(seconds: 30))).inSeconds;
+      final remaining = _manualScanEndTime!.difference(now).inSeconds;
+      manualScanElapsed = elapsed > 0 ? elapsed : 0;
+      manualScanRemaining = remaining > 0 ? remaining : 0;
+    }
+
+    // Only calculate next scan time if no active scanning
+    if (!_isBurstActive && !_isManualActive) {
       if (stats.nextScheduledScanTime != null) {
         // Use actual scheduled time from power manager (includes randomization)
         final remaining = stats.nextScheduledScanTime!.difference(DateTime.now()).inSeconds;
@@ -208,8 +261,11 @@ class BurstScanningController {
 
     return BurstScanningStatus(
       isBurstActive: _isBurstActive,
+      isManualActive: _isManualActive,
       secondsUntilNextScan: secondsUntilNextScan,
       burstTimeRemaining: burstTimeRemaining,
+      manualScanElapsed: manualScanElapsed,
+      manualScanRemaining: manualScanRemaining,
       currentScanInterval: stats.currentScanInterval,
       powerStats: stats,
     );
@@ -233,6 +289,7 @@ class BurstScanningController {
   /// Dispose of resources
   void dispose() {
     _statusUpdateTimer?.cancel();
+    _manualScanTimer?.cancel();
     _powerManager.dispose();
     _statusController.close();
     _logger.info('🔥 Burst scanning controller disposed');
@@ -242,22 +299,30 @@ class BurstScanningController {
 /// Burst scanning status information
 class BurstScanningStatus {
   final bool isBurstActive;
+  final bool isManualActive;
   final int? secondsUntilNextScan;
   final int? burstTimeRemaining;
+  final int? manualScanElapsed;
+  final int? manualScanRemaining;
   final int currentScanInterval;
   final PowerManagementStats powerStats;
 
   const BurstScanningStatus({
     required this.isBurstActive,
+    required this.isManualActive,
     this.secondsUntilNextScan,
     this.burstTimeRemaining,
+    this.manualScanElapsed,
+    this.manualScanRemaining,
     required this.currentScanInterval,
     required this.powerStats,
   });
 
   /// Get human-readable status message
   String get statusMessage {
-    if (isBurstActive && burstTimeRemaining != null) {
+    if (isManualActive && manualScanElapsed != null) {
+      return 'Manual scanning... ${manualScanElapsed}s elapsed';
+    } else if (isBurstActive && burstTimeRemaining != null) {
       return 'Burst scanning... ${burstTimeRemaining}s remaining';
     } else if (secondsUntilNextScan != null && secondsUntilNextScan! > 0) {
       return 'Next scan in ${secondsUntilNextScan}s';
@@ -269,7 +334,7 @@ class BurstScanningStatus {
   }
 
   /// Check if manual override is available
-  bool get canOverride => !isBurstActive && (secondsUntilNextScan ?? 0) > 5;
+  bool get canOverride => !isBurstActive && !isManualActive && (secondsUntilNextScan ?? 0) > 5;
 
   /// Get scanning efficiency rating
   String get efficiencyRating {
@@ -281,5 +346,5 @@ class BurstScanningStatus {
   }
 
   @override
-  String toString() => 'BurstStatus(active: $isBurstActive, next: ${secondsUntilNextScan}s, burst: ${burstTimeRemaining}s)';
+  String toString() => 'BurstStatus(burst: $isBurstActive, manual: $isManualActive, next: ${secondsUntilNextScan}s, burstRemaining: ${burstTimeRemaining}s, manualElapsed: ${manualScanElapsed}s)';
 }
