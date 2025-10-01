@@ -30,8 +30,6 @@ class DiscoveryOverlay extends ConsumerStatefulWidget {
 class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     with SingleTickerProviderStateMixin {
   final _logger = Logger('DiscoveryOverlay');
-  bool _isScanning = false;
-  DateTime? _scanStartTime;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
@@ -93,13 +91,12 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     }
   }
 
-  /// Get unified scanning state that considers both manual and burst scanning
+  /// Get unified scanning state that considers burst scanning
   bool _getUnifiedScanningState() {
     final burstStatusAsync = ref.read(burstScanningStatusProvider);
     final burstStatus = burstStatusAsync.value;
     final isBurstActive = burstStatus?.isBurstActive ?? false;
-    final isManualActive = burstStatus?.isManualActive ?? false;
-    return _isScanning || isBurstActive || isManualActive;
+    return isBurstActive;
   }
 
   /// Check if manual scan override is allowed (no scanning currently active)
@@ -107,8 +104,8 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     final burstStatusAsync = ref.read(burstScanningStatusProvider);
     final burstStatus = burstStatusAsync.value;
 
-    // Prevent manual scan if any scanning is active
-    if (_isScanning || (burstStatus?.isBurstActive ?? false) || (burstStatus?.isManualActive ?? false)) {
+    // Prevent manual scan if burst scanning is active
+    if (burstStatus?.isBurstActive ?? false) {
       return false;
     }
 
@@ -168,77 +165,26 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     setState(() {});
   }
   
+  /// Trigger immediate burst scan (manual override)
   Future<void> _startScanning() async {
     if (!_canTriggerManualScan()) {
-      _logger.warning('Manual scan blocked - scanning already active or not allowed');
       return;
     }
 
-    _logger.fine('🔍 OVERLAY DEBUG: Starting manual scan request');
-    setState(() {
-      _isScanning = true;
-      _scanStartTime = DateTime.now();
-    });
-
     try {
-      // 🔧 INTEGRATION: Use burst scanning operations for better coordination
       final burstOperations = ref.read(burstScanningOperationsProvider);
-
-      // This will trigger manual override that takes priority over burst scanning
       if (burstOperations != null) {
+        _logger.info('🔥 MANUAL: User requested immediate scan');
         await burstOperations.triggerManualScan();
-        _logger.info('✅ MANUAL: Manual scan started via burst controller');
-
-        // Manual scans via burst controller don't have fixed duration
-        // They will be stopped by user interaction or burst system
-      } else {
-        // Fallback to direct BLE service if burst operations not available
-        final bleService = ref.read(bleServiceProvider);
-        await bleService.startScanning(source: ScanningSource.manual);
-        _logger.info('✅ MANUAL: Manual scan started via BLE service');
-
-        // Auto-stop fallback scans after 30 seconds
-        Future.delayed(Duration(seconds: 30), () {
-          if (mounted && _isScanning) {
-            _stopScanning();
-          }
-        });
       }
     } catch (e) {
-      _logger.warning('Failed to start manual scanning: $e');
-      if (mounted) {
-        setState(() {
-          _isScanning = false;
-          _scanStartTime = null;
-        });
-        _showError('Failed to start scanning');
-      }
-    }
-  }
-  
-  Future<void> _stopScanning() async {
-    if (!_isScanning) return;
-
-    _logger.fine('🔍 OVERLAY DEBUG: Stopping manual scan');
-
-    try {
-      final bleService = ref.read(bleServiceProvider);
-      await bleService.stopScanning();
-      _logger.info('✅ MANUAL: Manual scan stopped successfully');
-    } catch (e) {
-      _logger.warning('Error stopping manual scan: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isScanning = false;
-          _scanStartTime = null;
-        });
-      }
+      _logger.warning('Failed to trigger immediate scan: $e');
+      _showError('Failed to start scanning');
     }
   }
   
   Future<void> _connectToDevice(Peripheral device) async {
-  await _stopScanning();
+  // No need to stop scanning - burst scans handle themselves
   
   if (!mounted) return;
 
@@ -291,13 +237,14 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     
     try {
       if (toPeripheral) {
-        await _stopScanning();
+        // Burst scanning handles stopping automatically when switching to peripheral
         await bleService.startAsPeripheral();
         _setupPeripheralListener();
       } else {
         _connectionSubscription?.cancel();
         await bleService.startAsCentral();
         await Future.delayed(Duration(milliseconds: 500));
+        // Trigger immediate burst scan when switching to central mode
         _startScanning();
       }
     } catch (e) {
@@ -1068,7 +1015,7 @@ onTap: () {
         return burstStatusAsync.when(
           data: (burstStatus) {
             // Simple status - let the countdown timer handle timing details
-            final isActuallyScanning = _isScanning || burstStatus.isBurstActive || burstStatus.isManualActive;
+            final isActuallyScanning = burstStatus.isBurstActive;
             final statusText = isActuallyScanning
               ? 'Searching for devices...'
               : 'Waiting scan - Tap timer for manual scan';
@@ -1142,11 +1089,11 @@ onTap: () {
   /// Build unified clickable timer circle - RED when scanning, BLUE when waiting
   Widget _buildScanningCircleWithStatus(dynamic burstStatus, dynamic operations) {
     final theme = Theme.of(context);
-    final isAnyScanning = _isScanning || burstStatus.isBurstActive || burstStatus.isManualActive;
+    final isScanning = burstStatus.isBurstActive;
 
     // Color scheme: RED for scanning, BLUE for waiting
-    final primaryColor = isAnyScanning ? Colors.red : Colors.blue;
-    final backgroundColor = isAnyScanning
+    final primaryColor = isScanning ? Colors.red : Colors.blue;
+    final backgroundColor = isScanning
       ? Colors.red.withValues(alpha: 0.1)
       : theme.colorScheme.surfaceContainerHighest;
 
@@ -1155,36 +1102,23 @@ onTap: () {
     int? displayNumber;
     String? displayLabel;
 
-    if (isAnyScanning) {
-      // RED MODE: Show scan duration countdown/countup
-      if (burstStatus.isManualActive && burstStatus.manualScanElapsed != null) {
-        // Manual scan - show elapsed time counting up to 30s with progress circle
-        final elapsed = burstStatus.manualScanElapsed!;
-        final totalDuration = 30; // Manual scans last 30 seconds
-        progress = elapsed / totalDuration;
-        displayNumber = elapsed;
-        displayLabel = 'sec';
-      } else if (burstStatus.isBurstActive && burstStatus.burstTimeRemaining != null) {
-        // Burst scan - use burstTimeRemaining from controller (20 second duration)
+    if (isScanning) {
+      // RED MODE: Show burst scan countdown
+      if (burstStatus.burstTimeRemaining != null) {
+        // Burst scan - show remaining time (20 second duration)
         final remaining = burstStatus.burstTimeRemaining!;
         final totalDuration = 20; // Burst scans last 20 seconds
         final elapsed = totalDuration - remaining;
         progress = elapsed / totalDuration;
         displayNumber = remaining;
         displayLabel = 'sec';
-      } else if (_isScanning && _scanStartTime != null) {
-        // Fallback manual scan via local state - show elapsed time (no fixed end time)
-        final elapsed = DateTime.now().difference(_scanStartTime!).inSeconds;
-        displayNumber = elapsed;
-        displayLabel = 'sec';
-        progress = null; // No progress circle for fallback manual scans
       } else {
         // Scanning without duration info - just show spinner
         displayNumber = null;
         displayLabel = null;
       }
     } else {
-      // BLUE MODE: Show countdown to next scan (only when no scanning is active)
+      // BLUE MODE: Show countdown to next scan
       if (burstStatus.secondsUntilNextScan != null && burstStatus.secondsUntilNextScan! > 0) {
         final totalSeconds = (burstStatus.currentScanInterval / 1000).round();
         final remaining = burstStatus.secondsUntilNextScan!;
@@ -1192,24 +1126,14 @@ onTap: () {
         displayNumber = remaining;
         displayLabel = 'sec';
       }
+      // else: Ready to scan (BLUE icon, no timer)
     }
 
     return GestureDetector(
       onTap: () async {
-        if (isAnyScanning) {
-          // Click during scanning = stop scanning (only if manual scan)
-          if (burstStatus.isManualActive) {
-            // Manual scan is active via burst controller - cannot stop manually
-            // Manual scans run for their full 30-second duration
-          } else if (_isScanning) {
-            // Fallback manual scan via local state - can be stopped
-            await _stopScanning();
-          }
-          // Note: Can't stop burst scans manually, they run their course
-        } else {
-          // Click during waiting = start manual scan immediately
+        if (!isScanning) {
+          // Click during waiting = trigger immediate burst scan
           if (_canTriggerManualScan()) {
-            // Use unified manual scan method that coordinates with burst system
             await _startScanning();
           }
         }
@@ -1270,7 +1194,7 @@ onTap: () {
                   ),
                 ],
               )
-            else if (isAnyScanning)
+            else if (isScanning)
               // Scanning without duration - show spinner
               SizedBox(
                 width: 20,

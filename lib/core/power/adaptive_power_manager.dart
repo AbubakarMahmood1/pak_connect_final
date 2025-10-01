@@ -76,6 +76,25 @@ class AdaptivePowerManager {
     await _stopAllTimers();
     _logger.info('Stopped adaptive scanning');
   }
+
+  /// Trigger an immediate burst scan (manual override)
+  Future<void> triggerImmediateScan() async {
+    if (_isBurstMode) {
+      _logger.info('Already in burst mode, ignoring manual trigger');
+      return;
+    }
+
+    _logger.info('🔥 MANUAL: Triggering immediate burst scan');
+
+    // Cancel current scan timer
+    _scanTimer?.cancel();
+
+    // Start burst scan immediately
+    _startBurstScan();
+
+    // Reschedule next scan
+    _scheduleNextScan();
+  }
   
   /// Report connection success for adaptive adjustment
   void reportConnectionSuccess({
