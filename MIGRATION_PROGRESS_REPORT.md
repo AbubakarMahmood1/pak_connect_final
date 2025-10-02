@@ -2,7 +2,7 @@
 
 **Date**: 2025-10-02
 **Branch**: `feature/sqlite-migration`
-**Status**: ✅ **Phase 1 Complete** - ContactRepository Migrated Successfully
+**Status**: ✅ **Phase 2 In Progress** - MessageRepository Migrated Successfully
 
 ---
 
@@ -10,16 +10,19 @@
 
 **What we're doing**: Migrating from SharedPreferences to SQLite for better performance, scalability, and search capabilities.
 
-**Current Progress**: **35% Complete**
+**Current Progress**: **50% Complete**
 - ✅ Database foundation (100%)
 - ✅ Migration tooling (100%)
 - ✅ ContactRepository (100%)
-- ⏳ MessageRepository (0%)
+- ✅ MessageRepository (100%)
 - ⏳ ChatsRepository (0%)
 - ⏳ OfflineMessageQueue (0%)
 - ⏳ ArchiveRepository (0%)
 
-**Key Achievement**: ContactRepository migrated with **13/13 tests passing**, zero breaking changes to existing code.
+**Key Achievements**:
+- ContactRepository migrated with **13/13 tests passing**
+- MessageRepository migrated with **14/14 tests passing**
+- Zero breaking changes to existing code
 
 ---
 
@@ -105,74 +108,69 @@ Future<bool> deleteContact(String publicKey)
 
 **Important**: `cacheSharedSecret()` and `getCachedSharedSecret()` still use FlutterSecureStorage (correct - encryption keys should NOT be in SQLite!)
 
+### 4. MessageRepository ✅
+
+**Files**:
+- `lib/data/repositories/message_repository.dart` (NEW - SQLite version)
+- `lib/data/repositories/message_repository_OLD_SHAREDPREFS.dart` (backup)
+- `test/message_repository_sqlite_test.dart` (14 tests)
+
+**Migration Strategy**:
+- Kept **exact same interface** → zero breaking changes
+- Changed implementation from SharedPreferences to SQLite
+- Handles both `Message` and `EnhancedMessage` seamlessly
+- Old code backed up with `_OLD_SHAREDPREFS` suffix
+
+**Performance Improvement**:
+- Before: O(n) - load ALL messages, parse ALL, filter in memory (WORST bottleneck)
+- After: O(log n) - indexed SQL queries on chat_id and timestamp
+- Expected: 10-100x faster for typical message volumes
+
+**Test Results**: 14/14 passing (100% success rate)
+
+**Key Methods Migrated**:
+```dart
+Future<List<Message>> getMessages(String chatId)
+Future<void> saveMessage(Message message)
+Future<void> updateMessage(Message message)
+Future<void> clearMessages(String chatId)
+Future<bool> deleteMessage(String messageId)
+Future<List<Message>> getAllMessages()
+Future<List<Message>> getMessagesForContact(String publicKey)
+```
+
+**Complex Features Handled**:
+- **EnhancedMessage support**: Automatically detects and returns appropriate type
+- **JSON blob storage**: reactions, attachments, delivery/read receipts, encryption info
+- **Smart type detection**: Returns `Message` or `EnhancedMessage` based on stored fields
+- **Foreign key enforcement**: Messages cascade delete when chat is deleted
+
+**Test Coverage**:
+```
+✅ Save and retrieve basic messages
+✅ Save and retrieve EnhancedMessages with all fields
+✅ Multiple messages sorted by timestamp
+✅ Update message status and content
+✅ Update EnhancedMessage with reactions
+✅ Delete individual messages
+✅ Clear all messages for a chat
+✅ Get all messages across chats
+✅ Get messages for specific contact
+✅ EnhancedMessage with minimal fields
+✅ Preserve created_at on update
+✅ Multiple chats isolation
+✅ Non-existent chat handling
+✅ Non-existent message deletion
+```
+
+**Important Design Decision**: The repository intelligently returns `Message` or `EnhancedMessage` based on whether enhanced fields are present. This maintains backward compatibility while supporting advanced features.
+
 ---
 
 ## What Needs to Be Done Next
 
-### Priority 1: MessageRepository (MOST CRITICAL)
+### Priority 1: ChatsRepository (NEXT CRITICAL TASK)
 
-**File to migrate**: `lib/data/repositories/message_repository.dart`
-
-**Why critical**:
-- Core functionality - all messaging flows through here
-- Most complex due to EnhancedMessage
-- Currently has O(n) performance bottleneck (loads ALL messages on every operation)
-
-**Current Issues**:
-```dart
-// CURRENT BAD CODE (from message_repository.dart)
-Future<List<Message>> getMessages(String chatId) async {
-  final prefs = await SharedPreferences.getInstance();
-  final messagesJson = prefs.getStringList(_messagesKey) ?? [];  // ❌ Load ALL
-
-  return messagesJson
-      .map((json) => Message.fromJson(jsonDecode(json)))           // ❌ Parse ALL
-      .where((message) => message.chatId == chatId)                // ❌ Filter ALL
-      .toList();
-}
-```
-
-**What SQLite version should do**:
-```dart
-Future<List<Message>> getMessages(String chatId) async {
-  final db = await DatabaseHelper.database;
-
-  final results = await db.query(
-    'messages',
-    where: 'chat_id = ?',
-    whereArgs: [chatId],
-    orderBy: 'timestamp ASC',
-  );
-
-  return results.map((row) => Message.fromDatabase(row)).toList();
-}
-```
-
-**EnhancedMessage Complexity**:
-The actual messages use `EnhancedMessage` which has:
-- Basic fields: id, chatId, content, timestamp, isFromMe, status
-- Threading: replyToMessageId, threadId
-- Status: isStarred, isForwarded, priority
-- Edits: editedAt, originalContent
-- Complex objects (JSON blobs):
-  - `metadata_json` - Map<String, dynamic>
-  - `delivery_receipt_json` - MessageDeliveryReceipt
-  - `read_receipt_json` - MessageReadReceipt
-  - `reactions_json` - List\<MessageReaction>
-  - `attachments_json` - List\<MessageAttachment>
-  - `encryption_info_json` - MessageEncryptionInfo
-
-**Approach**:
-1. Read `lib/domain/entities/message.dart` and `lib/domain/entities/enhanced_message.dart`
-2. Create `Message.fromDatabase()` factory that handles JSON deserialization
-3. Create `Message.toDatabase()` that serializes complex objects to JSON
-4. Update all repository methods to use SQLite queries
-5. Write comprehensive tests
-6. Backup old file, replace with new version
-
-**Expected time**: 2-3 hours (most complex repository)
-
-### Priority 2: ChatsRepository
 
 **File to migrate**: `lib/data/repositories/chats_repository.dart`
 
@@ -183,9 +181,9 @@ The actual messages use `EnhancedMessage` which has:
 
 **SQLite benefit**: Proper relational data with foreign keys to contacts table
 
-**Expected time**: 1-2 hours
+**Expected time**: 1-2 hours (simpler than MessageRepository)
 
-### Priority 3: OfflineMessageQueue (CRITICAL FOR MESH!)
+### Priority 2: OfflineMessageQueue (CRITICAL FOR MESH!)
 
 **File to migrate**: `lib/core/messaging/offline_message_queue.dart`
 
@@ -212,7 +210,7 @@ The actual messages use `EnhancedMessage` which has:
 
 **Expected time**: 3-4 hours (complex but schema is ready)
 
-### Priority 4: ArchiveRepository
+### Priority 3: ArchiveRepository
 
 **File to migrate**: `lib/data/repositories/archive_repository.dart`
 
@@ -260,27 +258,24 @@ ORDER BY timestamp DESC;
    ```bash
    flutter test test/database_initialization_test.dart
    flutter test test/contact_repository_sqlite_test.dart
+   flutter test test/message_repository_sqlite_test.dart
    ```
 
-4. **Start with MessageRepository** (most important next step):
+4. **Start with ChatsRepository** (next step):
    ```bash
    # Read the current implementation
-   cat lib/data/repositories/message_repository.dart
-
-   # Read the entity structure
-   cat lib/domain/entities/message.dart
-   cat lib/domain/entities/enhanced_message.dart
+   cat lib/data/repositories/chats_repository.dart
    ```
 
-5. **Follow the same pattern used for ContactRepository**:
-   - Create `lib/data/repositories/message_repository_sqlite.dart`
+5. **Follow the same pattern used for ContactRepository and MessageRepository**:
+   - Create `lib/data/repositories/chats_repository_sqlite.dart`
    - Keep same public interface (all method signatures identical)
    - Change implementation to use SQLite queries
-   - Handle JSON serialization for EnhancedMessage complex objects
-   - Write comprehensive tests in `test/message_repository_sqlite_test.dart`
+   - Replace comma-separated strings with proper relational data
+   - Write comprehensive tests in `test/chats_repository_sqlite_test.dart`
    - Run tests until all pass
-   - Backup old: `mv message_repository.dart message_repository_OLD_SHAREDPREFS.dart`
-   - Replace: `mv message_repository_sqlite.dart message_repository.dart`
+   - Backup old: `mv chats_repository.dart chats_repository_OLD_SHAREDPREFS.dart`
+   - Replace: `mv chats_repository_sqlite.dart chats_repository.dart`
    - Commit with descriptive message
 
 ### Testing Strategy (IMPORTANT!)
@@ -422,15 +417,17 @@ test/
 lib/data/repositories/
 ├── contact_repository.dart                      ✅ NEW - SQLite version
 ├── contact_repository_OLD_SHAREDPREFS.dart      📦 Backup
-├── message_repository.dart                      ⏳ TODO - migrate next
-├── chats_repository.dart                        ⏳ TODO
+├── message_repository.dart                      ✅ NEW - SQLite version
+├── message_repository_OLD_SHAREDPREFS.dart      📦 Backup
+├── chats_repository.dart                        ⏳ TODO - migrate next
 └── archive_repository.dart                      ⏳ TODO
 
 lib/core/messaging/
 └── offline_message_queue.dart                   ⏳ TODO - CRITICAL!
 
 test/
-└── contact_repository_sqlite_test.dart          ✅ 13/13 passing
+├── contact_repository_sqlite_test.dart          ✅ 13/13 passing
+└── message_repository_sqlite_test.dart          ✅ 14/14 passing
 ```
 
 ### Migration Planning Documents
@@ -446,10 +443,12 @@ project_root/
 ## Current Branch State
 
 **Branch**: `feature/sqlite-migration`
-**Commits ahead of main**: 3
+**Commits ahead of main**: 5
 
 **Recent commits**:
 ```
+3d065f3 - feat: Migrate MessageRepository to SQLite
+2ae2f44 - docs: Add comprehensive migration progress report
 cc345d5 - feat: Migrate ContactRepository to SQLite
 b3a7ec4 - feat: Add optional MigrationService
 93f75f4 - feat: Add comprehensive SQLite database schema
@@ -457,7 +456,7 @@ b3a7ec4 - feat: Add optional MigrationService
 
 **Working directory**: Clean (all changes committed)
 
-**Next action after session**: Continue with MessageRepository migration
+**Next action after session**: Continue with ChatsRepository migration
 
 ---
 
@@ -471,7 +470,7 @@ b3a7ec4 - feat: Add optional MigrationService
 
 ### After (SQLite)
 - **Contacts**: O(log n) - indexed queries ✅
-- **Messages**: O(log n) - indexed by chat_id, timestamp
+- **Messages**: O(log n) - indexed by chat_id, timestamp ✅
 - **Chats**: O(log n) - proper relational queries
 - **Archive search**: O(log n) - FTS5 full-text search
 
@@ -538,10 +537,10 @@ Before marking a repository as "complete":
 **Phase 1** ✅ (COMPLETE):
 - DatabaseHelper created and tested
 - ContactRepository migrated and tested
+- MessageRepository migrated and tested
 
 **Phase 2** ⏳ (IN PROGRESS):
-- MessageRepository migrated ← **YOU ARE HERE**
-- ChatsRepository migrated
+- ChatsRepository migrated ← **YOU ARE HERE**
 - OfflineMessageQueue migrated
 
 **Phase 3** ⏳ (PENDING):
@@ -597,7 +596,7 @@ Before marking a repository as "complete":
 **Repository**: `https://github.com/AbubakarMahmood1/pak_connect_final.git`
 
 **If resuming in new session**, provide this context:
-> "I'm continuing the SQLite migration for pak_connect. We've completed ContactRepository migration (13/13 tests passing). The next step is migrating MessageRepository which handles EnhancedMessage with complex JSON objects. Branch: feature/sqlite-migration. See MIGRATION_PROGRESS_REPORT.md for full context."
+> "I'm continuing the SQLite migration for pak_connect. We've completed ContactRepository (13/13 tests) and MessageRepository (14/14 tests). The next step is migrating ChatsRepository. Branch: feature/sqlite-migration. See MIGRATION_PROGRESS_REPORT.md for full context."
 
 ---
 
@@ -611,6 +610,7 @@ git log --oneline -5
 # Run tests
 flutter test test/database_initialization_test.dart
 flutter test test/contact_repository_sqlite_test.dart
+flutter test test/message_repository_sqlite_test.dart
 flutter test  # Run all
 
 # Analyze code
@@ -636,14 +636,15 @@ Continue SQLite migration for pak_connect app.
 
 CONTEXT:
 - Branch: feature/sqlite-migration
-- Completed: DatabaseHelper (13 tables + FTS5), MigrationService, ContactRepository (13/13 tests ✅)
-- Next: MessageRepository migration (handles EnhancedMessage with JSON blobs)
+- Completed: DatabaseHelper, MigrationService, ContactRepository (13/13 tests ✅), MessageRepository (14/14 tests ✅)
+- Next: ChatsRepository migration (simpler than MessageRepository)
 - See: MIGRATION_PROGRESS_REPORT.md for full details
+- Current progress: 50% complete
 
 TASK:
-Migrate MessageRepository from SharedPreferences to SQLite following the same pattern as ContactRepository:
-1. Create message_repository_sqlite.dart
-2. Handle EnhancedMessage JSON serialization (reactions, attachments, etc.)
+Migrate ChatsRepository from SharedPreferences to SQLite following the same pattern:
+1. Create chats_repository_sqlite.dart
+2. Replace comma-separated strings with proper relational queries
 3. Write comprehensive tests
 4. Replace old implementation
 
@@ -653,5 +654,5 @@ Follow incremental testing approach. Don't skip steps.
 ---
 
 **End of Progress Report**
-**Status**: Ready to continue with MessageRepository migration
-**Confidence Level**: High - solid foundation, clear path forward
+**Status**: Ready to continue with ChatsRepository migration
+**Confidence Level**: High - strong momentum, 50% complete
