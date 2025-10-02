@@ -257,14 +257,7 @@ void main() {
     });
     
     test('End-to-end relay flow simulation', () {
-      // 1. Create original message
-      final originalMsg = ProtocolMessage.textMessage(
-        messageId: 'original-msg',
-        content: 'Hello from mesh network!',
-        encrypted: false,
-      );
-      
-      // 2. Create relay metadata
+      // 1. Create relay metadata
       final relayMetadata = RelayMetadata.create(
         originalMessageContent: 'Hello from mesh network!',
         priority: MessagePriority.normal,
@@ -272,16 +265,16 @@ void main() {
         finalRecipient: 'bob-key',
         currentNodeId: 'relay-node-1',
       );
-      
-      // 3. Create mesh relay message
+
+      // 2. Create mesh relay message
       final meshRelay = MeshRelayMessage.createRelay(
         originalMessageId: 'original-msg',
         originalContent: 'Hello from mesh network!',
         metadata: relayMetadata,
         relayNodeId: 'relay-node-1',
       );
-      
-      // 4. Convert to protocol message for transmission
+
+      // 3. Convert to protocol message for transmission
       final relayProtocolMsg = ProtocolMessage.meshRelay(
         originalMessageId: meshRelay.originalMessageId,
         originalSender: meshRelay.relayMetadata.originalSender,

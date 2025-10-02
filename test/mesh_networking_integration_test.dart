@@ -350,9 +350,3 @@ void _mockDirectConnection(BLEService bleService, String nodeId) {
   // to simulate being connected to the specified node
   Logger('MeshNetworkingIntegrationTest').info('Mock: Simulating direct connection to $nodeId');
 }
-
-void _mockNoConnection(BLEService bleService) {
-  // In a real implementation, this would mock the BLE service
-  // to simulate no connections available
-  Logger('MeshNetworkingIntegrationTest').info('Mock: Simulating no connections available');
-}

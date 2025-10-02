@@ -131,7 +131,8 @@ void main() {
       expect(retryResult.repositoryAttempted, 1);
       expect(retryResult.repositorySucceeded, 1);
       expect(repoRetryWasCalled, true);
-      
+      expect(queueRetryWasCalled, true);
+
       // Verify message was updated in repository
       final updatedMessages = await messageRepository.getMessages(chatId);
       final updatedMessage = updatedMessages.firstWhere((m) => m.id == 'coord_repo_msg');

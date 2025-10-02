@@ -435,17 +435,11 @@ void main() {
 
     testWidgets('Integration with BLE Message Handler', (WidgetTester tester) async {
       // Test integration with BLE message handler
-      bool relayReceived = false;
-      String? receivedContent;
-      String? receivedSender;
-      
       await messageHandler.initializeRelaySystem(
         currentNodeId: nodeB,
         messageQueue: messageQueue,
         onRelayMessageReceived: (messageId, content, sender) {
-          relayReceived = true;
-          receivedContent = content;
-          receivedSender = sender;
+          // Callback registered but not tested in this test
         },
       );
       
