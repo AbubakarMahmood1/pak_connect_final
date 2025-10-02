@@ -8,9 +8,12 @@ import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 void main() {
+  final testLogger = Logger('AliArshadAbubakarRelayTest');
+
   // Setup logging
   Logger.root.level = Level.WARNING; // Reduce logging to avoid noise
   Logger.root.onRecord.listen((record) {
+    // ignore: avoid_print
     print('${record.level.name}: ${record.message}');
   });
 
@@ -31,7 +34,7 @@ void main() {
         await spamPrevention.initialize();
       } catch (e) {
         // Ignore SharedPreferences errors in test environment
-        print('Warning: ${e.toString()}');
+        testLogger.warning('Initialization error (expected in test): $e');
       }
       
       final relayEngine = MeshRelayEngine(
@@ -87,7 +90,7 @@ void main() {
       expect(deliveryResult.content, equals('Hello Abubakar from Ali!'),
         reason: 'Content should be preserved through relay');
       
-      print('✅ Ali → Arshad → Abubakar relay test passed!');
+      testLogger.info('✅ Ali → Arshad → Abubakar relay test passed!');
     });
 
     test('Relay node does not process messages not intended for them', () async {
@@ -118,7 +121,7 @@ void main() {
       expect(processResult.isDelivered, isFalse, reason: 'Arshad should not process message intended for Abubakar');
       expect(processResult.nextHopNodeId, equals(abubakar), reason: 'Should be forwarded to correct recipient');
       
-      print('✅ Relay routing validation test passed!');
+      testLogger.info('✅ Relay routing validation test passed!');
     });
 
     test('Final recipient receives relayed message correctly', () async {
@@ -151,7 +154,7 @@ void main() {
         reason: 'Original content should be preserved');
       expect(deliveryResult.isRelayed, isFalse, reason: 'Final recipient should not relay further');
       
-      print('✅ Final recipient delivery test passed!');
+      testLogger.info('✅ Final recipient delivery test passed!');
     });
 
     test('Relay statistics are updated correctly', () async {
@@ -184,7 +187,7 @@ void main() {
       expect(stats.totalRelayed, equals(3), reason: 'Should count relayed messages');
       expect(stats.relayEfficiency, greaterThan(0.0), reason: 'Should have positive efficiency');
       
-      print('✅ Relay statistics test passed!');
+      testLogger.info('✅ Relay statistics test passed!');
     });
   });
 }

@@ -14,25 +14,28 @@ import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 void main() {
+  final testLogger = Logger('QueueSyncSystemTest');
+
   group('Queue Hash Synchronization System Tests', () {
     late OfflineMessageQueue queue1;
     late OfflineMessageQueue queue2;
     late QueueSyncManager syncManager1;
     late QueueSyncManager syncManager2;
-    
+
     const String testNodeId1 = 'test_node_1_public_key_12345678901234567890';
     const String testNodeId2 = 'test_node_2_public_key_12345678901234567890';
     const String testSenderKey = 'sender_public_key_12345678901234567890';
     const String testRecipientKey = 'recipient_public_key_12345678901234567890';
-    
+
     setUp(() async {
       // Initialize shared preferences for testing
       SharedPreferences.setMockInitialValues({});
-      
+
       // Set up logging for tests
       Logger.root.level = Level.INFO;
       Logger.root.onRecord.listen((record) {
-        print('${record.level.name}: ${record.time}: ${record.message}');
+        // ignore: avoid_print
+        testLogger.info('${record.level.name}: ${record.time}: ${record.message}');
       });
       
       // Initialize queues
@@ -125,8 +128,8 @@ void main() {
         
         // Note: This test expects that the hash is based on sorted message IDs
         // The actual result may vary based on implementation details
-        print('Queue 1 hash: $hash1');
-        print('Queue 2 hash: $hash2');
+        testLogger.info('Queue 1 hash: $hash1');
+        testLogger.info('Queue 2 hash: $hash2');
       });
       
       test('should exclude delivered messages from hash', () async {
@@ -541,7 +544,7 @@ void main() {
         
         // Should have cleaned up some old IDs
         // Note: This test depends on the cleanup implementation
-        print('Deleted IDs count after cleanup: ${queue1.isMessageDeleted('msg_0')}');
+        testLogger.info('Deleted IDs count after cleanup: ${queue1.isMessageDeleted('msg_0')}');
       });
       
       test('should handle sync timeout scenarios', () async {
@@ -550,7 +553,7 @@ void main() {
         
         // Should handle timeout gracefully
         expect(result, isNotNull);
-        print('Sync result type: ${result.type}');
+        testLogger.info('Sync result type: ${result.type}');
       });
     });
   });
@@ -588,7 +591,7 @@ void main() {
       expect(hash, isNotEmpty);
       expect(stopwatch.elapsedMilliseconds, lessThan(1000)); // Should be fast
       
-      print('Hash calculation for $messageCount messages took: ${stopwatch.elapsedMilliseconds}ms');
+      testLogger.info('Hash calculation for $messageCount messages took: ${stopwatch.elapsedMilliseconds}ms');
     });
     
     test('should cache hash calculations for performance', () async {
@@ -615,8 +618,8 @@ void main() {
       expect(hash1, equals(hash2));
       expect(stopwatch2.elapsedMicroseconds, lessThan(stopwatch1.elapsedMicroseconds));
       
-      print('First calculation: ${stopwatch1.elapsedMilliseconds}ms');
-      print('Cached calculation: ${stopwatch2.elapsedMicroseconds}μs');
+      testLogger.info('First calculation: ${stopwatch1.elapsedMilliseconds}ms');
+      testLogger.info('Cached calculation: ${stopwatch2.elapsedMicroseconds}μs');
     });
   });
 }

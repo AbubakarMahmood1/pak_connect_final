@@ -31,6 +31,7 @@ void main() {
       // Configure logging for tests
       Logger.root.level = Level.INFO;
       Logger.root.onRecord.listen((record) {
+        // ignore: avoid_print
         print('${record.time}: ${record.loggerName}: ${record.level.name}: ${record.message}');
       });
     });
@@ -347,11 +348,11 @@ BLEService _createMockBLEService() {
 void _mockDirectConnection(BLEService bleService, String nodeId) {
   // In a real implementation, this would mock the BLE service
   // to simulate being connected to the specified node
-  print('Mock: Simulating direct connection to $nodeId');
+  Logger('MeshNetworkingIntegrationTest').info('Mock: Simulating direct connection to $nodeId');
 }
 
 void _mockNoConnection(BLEService bleService) {
   // In a real implementation, this would mock the BLE service
   // to simulate no connections available
-  print('Mock: Simulating no connections available');
+  Logger('MeshNetworkingIntegrationTest').info('Mock: Simulating no connections available');
 }

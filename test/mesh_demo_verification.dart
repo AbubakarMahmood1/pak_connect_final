@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 // Verification script for mesh networking demo functionality
 // Tests core demo capabilities without requiring BLE hardware
 // Perfect for FYP evaluation and demonstration

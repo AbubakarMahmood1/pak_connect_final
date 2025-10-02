@@ -9,9 +9,12 @@ import 'package:pak_connect/domain/entities/enhanced_message.dart';
 /// Test to verify the message retry coordination functionality
 /// This addresses the "retry all" bug by testing coordination between persistence systems
 void main() {
+  final testLogger = Logger('MessageRetryCoordinationTest');
+
   // Set up logging for tests
   Logger.root.level = Level.INFO;
   Logger.root.onRecord.listen((record) {
+    // ignore: avoid_print
     print('${record.level.name}: ${record.time}: ${record.message}');
   });
 
@@ -83,7 +86,7 @@ void main() {
       expect(retryStatus.totalFailed, greaterThanOrEqualTo(2));
       expect(retryStatus.hasFailedMessages, true);
       
-      print('✅ Successfully detected ${retryStatus.totalFailed} failed messages across both systems');
+      testLogger.info('✅ Successfully detected ${retryStatus.totalFailed} failed messages across both systems');
     });
 
     test('should coordinate retry across both systems', () async {
@@ -116,11 +119,11 @@ void main() {
           final successMessage = message.copyWith(status: MessageStatus.delivered);
           await messageRepository.updateMessage(successMessage);
           
-          print('📱 Repository message retry callback executed for: ${message.id}');
+          testLogger.info('📱 Repository message retry callback executed for: ${message.id}');
         },
         onQueueMessageRetry: (QueuedMessage queuedMessage) async {
           queueRetryWasCalled = true;
-          print('📤 Queue message retry callback executed for: ${queuedMessage.id}');
+          testLogger.info('📤 Queue message retry callback executed for: ${queuedMessage.id}');
         },
       );
       
@@ -134,7 +137,7 @@ void main() {
       final updatedMessage = updatedMessages.firstWhere((m) => m.id == 'coord_repo_msg');
       expect(updatedMessage.status, MessageStatus.delivered);
       
-      print('✅ Coordinated retry completed successfully: ${retryResult.message}');
+      testLogger.info('✅ Coordinated retry completed successfully: ${retryResult.message}');
     });
 
     test('should handle mixed success/failure scenarios', () async {
@@ -194,7 +197,7 @@ void main() {
       expect(successfulMessage.status, MessageStatus.delivered);
       expect(failedMessage.status, MessageStatus.failed);
       
-      print('✅ Mixed scenario handled correctly: ${retryResult.successRate * 100}% success rate');
+      testLogger.info('✅ Mixed scenario handled correctly: ${retryResult.successRate * 100}% success rate');
     });
 
     test('should report system health accurately', () async {
@@ -242,9 +245,9 @@ void main() {
       expect(health.overallHealth, greaterThan(0.0));
       expect(health.totalMessages, greaterThanOrEqualTo(3));
       
-      print('✅ System health assessment: ${(health.overallHealth * 100).toStringAsFixed(1)}% overall health');
-      print('   Repository: ${health.totalRepositoryMessages} total, ${health.failedRepositoryMessages} failed');
-      print('   Queue: ${health.totalQueueMessages} total, ${health.failedQueueMessages} failed');
+      testLogger.info('✅ System health assessment: ${(health.overallHealth * 100).toStringAsFixed(1)}% overall health');
+      testLogger.info('   Repository: ${health.totalRepositoryMessages} total, ${health.failedRepositoryMessages} failed');
+      testLogger.info('   Queue: ${health.totalQueueMessages} total, ${health.failedQueueMessages} failed');
     });
 
     test('should handle empty retry scenarios gracefully', () async {
@@ -270,7 +273,7 @@ void main() {
       expect(retryResult.totalSucceeded, 0);
       expect(retryResult.message, contains('No failed messages'));
       
-      print('✅ Empty retry scenario handled gracefully: ${retryResult.message}');
+      testLogger.info('✅ Empty retry scenario handled gracefully: ${retryResult.message}');
     });
   });
 
@@ -296,7 +299,7 @@ void main() {
       expect(retrievedMessages.first.id, equals('compat_test_msg'));
       expect(retrievedMessages.first.status, MessageStatus.delivered);
       
-      print('✅ MessageRepository compatibility maintained');
+      testLogger.info('✅ MessageRepository compatibility maintained');
     });
 
     test('should maintain backward compatibility with OfflineMessageQueue', () async {
@@ -318,7 +321,7 @@ void main() {
         final stats = queue.getStatistics();
         expect(stats.totalQueued, greaterThan(0));
         
-        print('✅ OfflineMessageQueue compatibility maintained');
+        testLogger.info('✅ OfflineMessageQueue compatibility maintained');
       } finally {
         queue.dispose();
       }

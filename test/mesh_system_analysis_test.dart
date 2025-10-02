@@ -12,9 +12,12 @@ import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/core/routing/connection_quality_monitor.dart';
 
 void main() {
+  final testLogger = Logger('MeshSystemAnalysisTest');
+
   // Setup logging
   Logger.root.level = Level.WARNING; // Reduce logging noise
   Logger.root.onRecord.listen((record) {
+    // ignore: avoid_print
     print('${record.level.name}: ${record.message}');
   });
 
@@ -140,11 +143,11 @@ void main() {
       topologyAnalyzer.dispose();
       qualityMonitor.dispose();
       
-      print('✅ Mesh system analysis test passed!');
-      print('  - Analysis completed in ${analysisDuration.inMilliseconds}ms');
-      print('  - Smart routing: ${routingDecision.isSuccessful}');
-      print('  - Topology nodes: ${topologyStats.totalNodes}');
-      print('  - Quality monitoring: ${qualityStats.deliveryRate * 100}% delivery rate');
+      testLogger.info('✅ Mesh system analysis test passed!');
+      testLogger.info('  - Analysis completed in ${analysisDuration.inMilliseconds}ms');
+      testLogger.info('  - Smart routing: ${routingDecision.isSuccessful}');
+      testLogger.info('  - Topology nodes: ${topologyStats.totalNodes}');
+      testLogger.info('  - Quality monitoring: ${qualityStats.deliveryRate * 100}% delivery rate');
     });
 
     test('Sync/relay node analysis does not block operations', () async {
@@ -204,9 +207,9 @@ void main() {
       expect(relayMessages, equals(5), reason: 'All relay messages should be created');
       expect(statisticsResults, equals(3), reason: 'All statistics requests should complete');
       
-      print('✅ Non-blocking analysis test passed!');
-      print('  - ${operations.length} concurrent operations completed in ${totalDuration.inMilliseconds}ms');
-      print('  - No blocking detected');
+      testLogger.info('✅ Non-blocking analysis test passed!');
+      testLogger.info('  - ${operations.length} concurrent operations completed in ${totalDuration.inMilliseconds}ms');
+      testLogger.info('  - No blocking detected');
     });
 
     test('Relay message validation prevents incorrect processing', () async {
@@ -272,10 +275,10 @@ void main() {
       expect(result.nextHopNodeId, equals(abubakar),
         reason: 'Message should be forwarded to correct recipient');
       
-      print('✅ Message validation test passed!');
-      print('  - Ali → Arshad → Abubakar routing validated');
-      print('  - Relay nodes correctly forward messages');
-      print('  - Final recipients receive correct content');
+      testLogger.info('✅ Message validation test passed!');
+      testLogger.info('  - Ali → Arshad → Abubakar routing validated');
+      testLogger.info('  - Relay nodes correctly forward messages');
+      testLogger.info('  - Final recipients receive correct content');
     });
   });
 }
