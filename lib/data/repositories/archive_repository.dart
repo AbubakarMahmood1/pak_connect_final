@@ -1,57 +1,39 @@
-// Archive repository with comprehensive CRUD operations, caching, and compression
+// Archive repository with SQLite and FTS5 full-text search
 
 import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../core/models/archive_models.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/chats_repository.dart';
+import '../../data/database/database_helper.dart';
 
-/// Repository for managing archived chats with advanced features
+/// Repository for managing archived chats with SQLite and FTS5 search
 class ArchiveRepository {
   static final _logger = Logger('ArchiveRepository');
-  
-  // Storage keys
-  static const String _archivedChatsKey = 'archived_chats_v2';
-  static const String _archiveIndexKey = 'archive_search_index_v2';
-  static const String _archiveStatsKey = 'archive_statistics_v2';
-  // Note: _archiveMetadataKey and _compressionCacheKey removed as they were unused placeholders for future features
-  
+
   // Dependencies
   final MessageRepository _messageRepository = MessageRepository();
   final ChatsRepository _chatsRepository = ChatsRepository();
-  
-  // In-memory caches for performance (LRU implementation)
-  final Map<String, ArchivedChat> _archiveCache = {};
-  final Map<String, List<ArchivedChatSummary>> _summaryCache = {};
-  final Map<String, ArchiveSearchResult> _searchCache = {};
-  final List<String> _cacheAccessOrder = [];
-  static const int _maxCacheSize = 50;
-  
-  // Search index for fast lookups
-  final Map<String, Set<String>> _searchIndex = {}; // word -> archive IDs
-  final Map<String, Set<String>> _contactIndex = {}; // contact -> archive IDs
-  final Map<String, Set<String>> _dateIndex = {}; // date key -> archive IDs
-  
+
   // Performance tracking
   final Map<String, Duration> _operationTimes = {};
   int _operationsCount = 0;
-  
-  /// Initialize repository and load cached data
+
+  /// Initialize repository
   Future<void> initialize() async {
     try {
-      await _loadSearchIndex();
-      await _loadCachedSummaries();
+      await DatabaseHelper.database;
       _logger.info('Archive repository initialized successfully');
     } catch (e) {
       _logger.severe('Failed to initialize archive repository: $e');
     }
   }
-  
+
   /// Archive a chat with all its messages
   Future<ArchiveOperationResult> archiveChat({
     required String chatId,
@@ -60,14 +42,14 @@ class ArchiveRepository {
     bool compressLargeArchives = true,
   }) async {
     final startTime = DateTime.now();
-    
+
     try {
       _logger.info('Starting archive operation for chat: $chatId');
-      
+
       // Get chat and messages
       final chats = await _chatsRepository.getAllChats();
       final chatItem = chats.where((c) => c.chatId == chatId).firstOrNull;
-      
+
       if (chatItem == null) {
         return ArchiveOperationResult.failure(
           message: 'Chat not found: $chatId',
@@ -75,7 +57,7 @@ class ArchiveRepository {
           operationTime: DateTime.now().difference(startTime),
         );
       }
-      
+
       final messages = await _messageRepository.getMessages(chatId);
       if (messages.isEmpty) {
         return ArchiveOperationResult.failure(
@@ -84,10 +66,10 @@ class ArchiveRepository {
           operationTime: DateTime.now().difference(startTime),
         );
       }
-      
+
       // Convert to enhanced messages
       final enhancedMessages = messages.map((m) => EnhancedMessage.fromMessage(m)).toList();
-      
+
       // Create archived chat
       final archiveId = _generateArchiveId(chatId);
       final archivedChat = ArchivedChat.fromChatAndMessages(
@@ -97,31 +79,51 @@ class ArchiveRepository {
         archiveReason: archiveReason,
         customData: customData,
       );
-      
+
       // Apply compression if needed
       ArchivedChat finalArchive = archivedChat;
       if (compressLargeArchives && archivedChat.estimatedSize > 10240) { // 10KB threshold
         finalArchive = await _compressArchive(archivedChat);
       }
-      
-      // Store the archive
-      await _storeArchivedChat(finalArchive);
-      
-      // Update search index
-      await _indexArchivedChat(finalArchive);
-      
-      // Update statistics
-      await _updateArchiveStatistics(ArchiveOperationType.archive, finalArchive.estimatedSize);
-      
+
+      // Store the archive in SQLite transaction
+      final db = await DatabaseHelper.database;
+      await db.transaction((txn) async {
+        // Insert archived chat
+        await txn.insert('archived_chats', {
+          'archive_id': finalArchive.id,
+          'original_chat_id': chatId,
+          'contact_name': finalArchive.contactName,
+          'contact_public_key': chatItem.contactPublicKey,
+          'archived_at': finalArchive.archivedAt.millisecondsSinceEpoch,
+          'last_message_time': finalArchive.lastMessageTime?.millisecondsSinceEpoch,
+          'message_count': finalArchive.messageCount,
+          'archive_reason': archiveReason,
+          'estimated_size': finalArchive.estimatedSize,
+          'is_compressed': finalArchive.isCompressed ? 1 : 0,
+          'compression_ratio': finalArchive.compressionInfo?.compressionRatio,
+          'metadata_json': jsonEncode(finalArchive.metadata),
+          'compression_info_json': finalArchive.compressionInfo != null
+              ? jsonEncode(finalArchive.compressionInfo!.toJson())
+              : null,
+          'custom_data_json': customData != null ? jsonEncode(customData) : null,
+          'created_at': DateTime.now().millisecondsSinceEpoch,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        });
+
+        // Insert archived messages with searchable text for FTS5
+        for (final message in finalArchive.messages) {
+          await txn.insert('archived_messages', _archivedMessageToMap(message, finalArchive.id));
+        }
+        // FTS5 index is automatically updated via triggers!
+      });
+
       // Clear original chat data
       await _messageRepository.clearMessages(chatId);
-      
-      // Update cache
-      _updateCache(finalArchive);
-      
+
       final operationTime = DateTime.now().difference(startTime);
       _recordOperationTime('archive', operationTime);
-      
+
       final warnings = <String>[];
       if (finalArchive.isCompressed) {
         warnings.add('Archive was compressed to save space');
@@ -129,9 +131,9 @@ class ArchiveRepository {
       if (messages.length > 1000) {
         warnings.add('Large archive created - search indexing may take additional time');
       }
-      
+
       _logger.info('Successfully archived chat $chatId as $archiveId in ${operationTime.inMilliseconds}ms');
-      
+
       return ArchiveOperationResult.success(
         message: 'Chat archived successfully',
         operationType: ArchiveOperationType.archive,
@@ -145,11 +147,11 @@ class ArchiveRepository {
         },
         warnings: warnings,
       );
-      
+
     } catch (e) {
       final operationTime = DateTime.now().difference(startTime);
       _logger.severe('Archive operation failed for $chatId: $e');
-      
+
       return ArchiveOperationResult.failure(
         message: 'Failed to archive chat: $e',
         operationType: ArchiveOperationType.archive,
@@ -158,14 +160,14 @@ class ArchiveRepository {
       );
     }
   }
-  
+
   /// Restore an archived chat
   Future<ArchiveOperationResult> restoreChat(String archiveId) async {
     final startTime = DateTime.now();
-    
+
     try {
       _logger.info('Starting restore operation for archive: $archiveId');
-      
+
       // Get archived chat
       final archivedChat = await getArchivedChat(archiveId);
       if (archivedChat == null) {
@@ -175,17 +177,17 @@ class ArchiveRepository {
           operationTime: DateTime.now().difference(startTime),
         );
       }
-      
+
       // Check restoration compatibility
       final preview = archivedChat.getRestorationPreview();
       final warnings = List<String>.from(preview.warnings);
-      
+
       // Decompress if necessary
       ArchivedChat workingArchive = archivedChat;
       if (archivedChat.isCompressed) {
         workingArchive = await _decompressArchive(archivedChat);
       }
-      
+
       // Restore messages
       int restoredCount = 0;
       for (final archivedMessage in workingArchive.messages) {
@@ -198,7 +200,7 @@ class ArchiveRepository {
           warnings.add('Some messages could not be restored');
         }
       }
-      
+
       if (restoredCount == 0) {
         return ArchiveOperationResult.failure(
           message: 'No messages could be restored from archive',
@@ -206,14 +208,12 @@ class ArchiveRepository {
           operationTime: DateTime.now().difference(startTime),
         );
       }
-      
-      // Don't automatically delete archive - let user decide
-      
+
       final operationTime = DateTime.now().difference(startTime);
       _recordOperationTime('restore', operationTime);
-      
+
       _logger.info('Successfully restored $restoredCount messages from archive $archiveId');
-      
+
       return ArchiveOperationResult.success(
         message: 'Chat restored successfully',
         operationType: ArchiveOperationType.restore,
@@ -226,11 +226,11 @@ class ArchiveRepository {
         },
         warnings: warnings,
       );
-      
+
     } catch (e) {
       final operationTime = DateTime.now().difference(startTime);
       _logger.severe('Restore operation failed for $archiveId: $e');
-      
+
       return ArchiveOperationResult.failure(
         message: 'Failed to restore chat: $e',
         operationType: ArchiveOperationType.restore,
@@ -239,7 +239,7 @@ class ArchiveRepository {
       );
     }
   }
-  
+
   /// Get all archived chats (summaries for performance)
   Future<List<ArchivedChatSummary>> getArchivedChats({
     ArchiveSearchFilter? filter,
@@ -247,197 +247,217 @@ class ArchiveRepository {
     String? afterCursor,
   }) async {
     try {
-      // Check cache first
-      final cacheKey = _generateCacheKey('summaries', filter?.toJson());
-      if (_summaryCache.containsKey(cacheKey)) {
-        var results = _summaryCache[cacheKey]!;
-        
-        // Apply cursor-based pagination if needed
-        if (afterCursor != null) {
-          final cursorIndex = results.indexWhere((s) => s.id == afterCursor);
-          if (cursorIndex >= 0 && cursorIndex < results.length - 1) {
-            results = results.sublist(cursorIndex + 1);
-          }
-        }
-        
-        // Apply limit
-        if (limit != null && results.length > limit) {
-          results = results.take(limit).toList();
-        }
-        
-        return results;
+      final db = await DatabaseHelper.database;
+
+      // Build query with filters
+      final where = <String>[];
+      final whereArgs = <dynamic>[];
+
+      if (filter?.contactFilter != null) {
+        where.add('contact_name LIKE ?');
+        whereArgs.add('%${filter!.contactFilter}%');
       }
-      
-      // Load from storage
-      final prefs = await SharedPreferences.getInstance();
-      final archiveData = prefs.getStringList(_archivedChatsKey) ?? [];
-      
-      List<ArchivedChatSummary> summaries = [];
-      
-      for (final jsonString in archiveData) {
-        try {
-          final json = jsonDecode(jsonString);
-          final archive = ArchivedChat.fromJson(json);
-          summaries.add(archive.toSummary());
-        } catch (e) {
-          _logger.warning('Failed to parse archive summary: $e');
+
+      if (filter?.dateRange != null) {
+        where.add('archived_at >= ? AND archived_at <= ?');
+        whereArgs.add(filter!.dateRange!.start.millisecondsSinceEpoch);
+        whereArgs.add(filter.dateRange!.end.millisecondsSinceEpoch);
+      }
+
+      if (filter?.onlyCompressed == true) {
+        where.add('is_compressed = 1');
+      }
+
+      if (filter?.sizeFilter != null) {
+        switch (filter!.sizeFilter!) {
+          case ArchiveSizeFilter.small:
+            where.add('estimated_size <= 1024');
+            break;
+          case ArchiveSizeFilter.medium:
+            where.add('estimated_size > 1024 AND estimated_size <= 1048576');
+            break;
+          case ArchiveSizeFilter.large:
+            where.add('estimated_size > 1048576');
+            break;
         }
       }
-      
-      // Apply filters
-      if (filter != null) {
-        summaries = _applyFilterToSummaries(summaries, filter);
-      }
-      
-      // Sort results
-      summaries = _sortSummaries(summaries, filter?.sortBy ?? ArchiveSortOption.dateArchived);
-      
-      // Cache results
-      _summaryCache[cacheKey] = List.from(summaries);
-      
-      // Apply pagination
+
+      // Cursor-based pagination
       if (afterCursor != null) {
-        final cursorIndex = summaries.indexWhere((s) => s.id == afterCursor);
-        if (cursorIndex >= 0 && cursorIndex < summaries.length - 1) {
-          summaries = summaries.sublist(cursorIndex + 1);
+        where.add('archive_id > ?');
+        whereArgs.add(afterCursor);
+      }
+
+      // Build sort clause
+      String orderBy = 'archived_at DESC';
+      if (filter?.sortBy != null) {
+        switch (filter!.sortBy) {
+          case ArchiveSortOption.dateArchived:
+            orderBy = 'archived_at DESC';
+            break;
+          case ArchiveSortOption.dateOriginal:
+            orderBy = 'last_message_time DESC';
+            break;
+          case ArchiveSortOption.contactName:
+            orderBy = 'contact_name ASC';
+            break;
+          case ArchiveSortOption.messageCount:
+            orderBy = 'message_count DESC';
+            break;
+          case ArchiveSortOption.size:
+            orderBy = 'estimated_size DESC';
+            break;
+          case ArchiveSortOption.relevance:
+            orderBy = 'archived_at DESC'; // Default to date for relevance
+            break;
         }
       }
-      
-      if (limit != null && summaries.length > limit) {
-        summaries = summaries.take(limit).toList();
-      }
-      
-      return summaries;
-      
+
+      final results = await db.query(
+        'archived_chats',
+        where: where.isNotEmpty ? where.join(' AND ') : null,
+        whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+        orderBy: orderBy,
+        limit: limit,
+      );
+
+      return results.map((row) => _mapToArchivedChatSummary(row)).toList();
+
     } catch (e) {
       _logger.severe('Failed to get archived chats: $e');
       return [];
     }
   }
-  
+
   /// Get specific archived chat with full data
   Future<ArchivedChat?> getArchivedChat(String archiveId) async {
     try {
-      // Check cache first
-      if (_archiveCache.containsKey(archiveId)) {
-        _updateCacheAccess(archiveId);
-        return _archiveCache[archiveId];
+      final db = await DatabaseHelper.database;
+
+      // Get archive metadata
+      final archiveResults = await db.query(
+        'archived_chats',
+        where: 'archive_id = ?',
+        whereArgs: [archiveId],
+      );
+
+      if (archiveResults.isEmpty) {
+        return null;
       }
-      
-      // Load from storage
-      final prefs = await SharedPreferences.getInstance();
-      final archiveData = prefs.getStringList(_archivedChatsKey) ?? [];
-      
-      for (final jsonString in archiveData) {
-        try {
-          final json = jsonDecode(jsonString);
-          if (json['id'] == archiveId) {
-            final archive = ArchivedChat.fromJson(json);
-            _updateCache(archive);
-            return archive;
-          }
-        } catch (e) {
-          _logger.warning('Failed to parse archive $archiveId: $e');
-        }
-      }
-      
-      return null;
-      
+
+      final archiveRow = archiveResults.first;
+
+      // Get all messages for this archive
+      final messageResults = await db.query(
+        'archived_messages',
+        where: 'archive_id = ?',
+        whereArgs: [archiveId],
+        orderBy: 'timestamp ASC',
+      );
+
+      final messages = messageResults.map((row) => _mapToArchivedMessage(row)).toList();
+
+      return _mapToArchivedChat(archiveRow, messages);
+
     } catch (e) {
       _logger.severe('Failed to get archived chat $archiveId: $e');
       return null;
     }
   }
-  
-  /// Search archived messages
+
+  /// Search archived messages using FTS5 (BIG WIN - replaces 300+ lines!)
   Future<ArchiveSearchResult> searchArchives({
     required String query,
     ArchiveSearchFilter? filter,
     int limit = 50,
   }) async {
     final startTime = DateTime.now();
-    
+
     try {
       if (query.trim().isEmpty) {
         return ArchiveSearchResult.empty(query);
       }
-      
-      // Check search cache
-      final cacheKey = _generateSearchCacheKey(query, filter);
-      if (_searchCache.containsKey(cacheKey)) {
-        return _searchCache[cacheKey]!;
-      }
-      
+
       _logger.info('Searching archives for: "$query"');
-      
-      // Use search index for fast lookups
-      final candidateArchiveIds = _findCandidateArchives(query, filter);
-      
-      final matchingMessages = <ArchivedMessage>[];
-      final matchingChats = <ArchivedChatSummary>[];
-      
-      // Search through candidate archives
-      for (final archiveId in candidateArchiveIds) {
-        final archive = await getArchivedChat(archiveId);
-        if (archive == null) continue;
-        
-        // Search messages in this archive
-        final archiveMatches = _searchMessagesInArchive(archive, query, filter);
-        matchingMessages.addAll(archiveMatches);
-        
-        if (archiveMatches.isNotEmpty) {
-          matchingChats.add(archive.toSummary());
-        }
-        
-        // Early exit if we have enough results
-        if (matchingMessages.length >= limit * 2) break;
+
+      final db = await DatabaseHelper.database;
+
+      // FTS5 search - ONE QUERY replaces 300+ lines of manual indexing!
+      final searchQuery = '''
+        SELECT am.*
+        FROM archived_messages am
+        WHERE am.rowid IN (
+          SELECT rowid FROM archived_messages_fts
+          WHERE archived_messages_fts MATCH ?
+        )
+        ORDER BY am.timestamp DESC
+        LIMIT ?
+      ''';
+
+      final results = await db.rawQuery(searchQuery, [query, limit * 2]);
+
+      final matchingMessages = results.map((row) => _mapToArchivedMessage(row)).toList();
+
+      // Apply additional filters if needed
+      List<ArchivedMessage> filteredMessages = matchingMessages;
+      if (filter?.messageTypeFilter != null) {
+        filteredMessages = _applyMessageTypeFilter(matchingMessages, filter!.messageTypeFilter!);
       }
-      
-      // Sort by relevance
-      matchingMessages.sort((a, b) => _calculateRelevanceScore(b, query).compareTo(_calculateRelevanceScore(a, query)));
-      
+
+      // Get unique archive IDs
+      final archiveIds = filteredMessages.map((m) => m.archiveId).toSet();
+
+      // Get chat summaries for matching archives
+      final chatSummaries = <ArchivedChatSummary>[];
+      for (final archiveId in archiveIds) {
+        final chatResult = await db.query(
+          'archived_chats',
+          where: 'archive_id = ?',
+          whereArgs: [archiveId],
+        );
+        if (chatResult.isNotEmpty) {
+          chatSummaries.add(_mapToArchivedChatSummary(chatResult.first));
+        }
+      }
+
       // Limit results
-      final limitedMessages = matchingMessages.take(limit).toList();
-      
+      final limitedMessages = filteredMessages.take(limit).toList();
+
       final searchTime = DateTime.now().difference(startTime);
       _recordOperationTime('search', searchTime);
-      
+
       final result = ArchiveSearchResult.fromResults(
         messages: limitedMessages,
-        chats: matchingChats,
+        chats: chatSummaries,
         query: query,
         filter: filter,
         searchTime: searchTime,
-        hasMore: matchingMessages.length > limit,
+        hasMore: filteredMessages.length > limit,
         searchStats: {
-          'candidateArchives': candidateArchiveIds.length,
-          'searchedArchives': candidateArchiveIds.length,
-          'indexHits': candidateArchiveIds.length,
+          'ftsResults': results.length,
+          'archivesSearched': archiveIds.length,
+          'method': 'FTS5',
         },
       );
-      
-      // Cache result
-      _searchCache[cacheKey] = result;
-      _maintainSearchCacheSize();
-      
-      _logger.info('Search completed: found ${result.totalResults} results in ${result.formattedSearchTime}');
-      
+
+      _logger.info('FTS5 search completed: found ${result.totalResults} results in ${result.formattedSearchTime}');
+
       return result;
-      
+
     } catch (e) {
       _logger.severe('Search failed for "$query": $e');
       return ArchiveSearchResult.empty(query);
     }
   }
-  
+
   /// Permanently delete an archived chat
   Future<ArchiveOperationResult> permanentlyDeleteArchive(String archiveId) async {
     final startTime = DateTime.now();
-    
+
     try {
       _logger.info('Permanently deleting archive: $archiveId');
-      
-      // Get archive for size tracking
+
+      // Get archive for metadata
       final archive = await getArchivedChat(archiveId);
       if (archive == null) {
         return ArchiveOperationResult.failure(
@@ -446,38 +466,20 @@ class ArchiveRepository {
           operationTime: DateTime.now().difference(startTime),
         );
       }
-      
-      // Remove from storage
-      final prefs = await SharedPreferences.getInstance();
-      final archiveData = prefs.getStringList(_archivedChatsKey) ?? [];
-      
-      final updatedData = archiveData.where((jsonString) {
-        try {
-          final json = jsonDecode(jsonString);
-          return json['id'] != archiveId;
-        } catch (e) {
-          return true; // Keep if can't parse (don't accidentally delete)
-        }
-      }).toList();
-      
-      await prefs.setStringList(_archivedChatsKey, updatedData);
-      
-      // Remove from search index
-      await _removeFromSearchIndex(archiveId);
-      
-      // Remove from cache
-      _archiveCache.remove(archiveId);
-      _cacheAccessOrder.remove(archiveId);
-      _clearCacheForArchive(archiveId);
-      
-      // Update statistics
-      await _updateArchiveStatistics(ArchiveOperationType.delete, -archive.estimatedSize);
-      
+
+      // Delete from database (CASCADE will auto-delete messages and FTS5 entries)
+      final db = await DatabaseHelper.database;
+      await db.delete(
+        'archived_chats',
+        where: 'archive_id = ?',
+        whereArgs: [archiveId],
+      );
+
       final operationTime = DateTime.now().difference(startTime);
       _recordOperationTime('delete', operationTime);
-      
+
       _logger.info('Successfully deleted archive $archiveId');
-      
+
       return ArchiveOperationResult.success(
         message: 'Archive deleted permanently',
         operationType: ArchiveOperationType.delete,
@@ -488,11 +490,11 @@ class ArchiveRepository {
           'sizeFreed': archive.estimatedSize,
         },
       );
-      
+
     } catch (e) {
       final operationTime = DateTime.now().difference(startTime);
       _logger.severe('Delete operation failed for $archiveId: $e');
-      
+
       return ArchiveOperationResult.failure(
         message: 'Failed to delete archive: $e',
         operationType: ArchiveOperationType.delete,
@@ -501,484 +503,80 @@ class ArchiveRepository {
       );
     }
   }
-  
+
   /// Get archive statistics
   Future<ArchiveStatistics> getArchiveStatistics() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final statsJson = prefs.getString(_archiveStatsKey);
-      
-      if (statsJson != null) {
-        // Load cached statistics
-        final json = jsonDecode(statsJson);
-        return _parseArchiveStatistics(json);
-      }
-      
-      // Calculate statistics from scratch
-      return await _calculateArchiveStatistics();
-      
-    } catch (e) {
-      _logger.severe('Failed to get archive statistics: $e');
-      return ArchiveStatistics.empty();
-    }
-  }
-  
-  /// Clear all cache
-  void clearCache() {
-    _archiveCache.clear();
-    _summaryCache.clear();
-    _searchCache.clear();
-    _cacheAccessOrder.clear();
-    _logger.info('Archive repository cache cleared');
-  }
-  
-  /// Dispose and cleanup
-  void dispose() {
-    clearCache();
-    _logger.info('Archive repository disposed');
-  }
-  
-  // Private helper methods
-  
-  String _generateArchiveId(String chatId) {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final hash = '${chatId}_$timestamp'.hashCode.abs();
-    return 'archive_$hash';
-  }
-  
-  Future<void> _storeArchivedChat(ArchivedChat archive) async {
-    final prefs = await SharedPreferences.getInstance();
-    final archiveData = prefs.getStringList(_archivedChatsKey) ?? [];
-    
-    final jsonString = jsonEncode(archive.toJson());
-    archiveData.add(jsonString);
-    
-    await prefs.setStringList(_archivedChatsKey, archiveData);
-  }
-  
-  Future<ArchivedChat> _compressArchive(ArchivedChat archive) async {
-    try {
-      // Simple compression simulation (in real implementation, use gzip)
-      final originalJson = jsonEncode(archive.toJson());
-      final originalSize = originalJson.length;
-      
-      // Simulate compression by removing some whitespace and optimizing
-      final compressedSize = (originalSize * 0.7).round(); // 30% reduction simulation
-      
-      final compressionInfo = ArchiveCompressionInfo(
-        algorithm: 'simulated_gzip',
-        originalSize: originalSize,
-        compressedSize: compressedSize,
-        compressionRatio: compressedSize / originalSize,
-        compressedAt: DateTime.now(),
-      );
-      
-      return archive.copyWith(compressionInfo: compressionInfo);
-    } catch (e) {
-      _logger.warning('Compression failed, storing uncompressed: $e');
-      return archive;
-    }
-  }
-  
-  Future<ArchivedChat> _decompressArchive(ArchivedChat archive) async {
-    // In real implementation, decompress the data
-    // For simulation, just return the archive
-    return archive;
-  }
-  
-  Future<void> _indexArchivedChat(ArchivedChat archive) async {
-    // Index archive content for search
-    final words = <String>{};
-    
-    // Index contact name
-    words.addAll(_tokenizeText(archive.contactName));
-    
-    // Index message content
-    for (final message in archive.messages) {
-      words.addAll(_tokenizeText(message.searchableText));
-    }
-    
-    // Update search index
-    for (final word in words) {
-      _searchIndex.putIfAbsent(word, () => {}).add(archive.id);
-    }
-    
-    // Update contact index
-    _contactIndex.putIfAbsent(archive.contactName.toLowerCase(), () => {}).add(archive.id);
-    
-    // Update date index
-    final dateKey = _formatDateForIndex(archive.archivedAt);
-    _dateIndex.putIfAbsent(dateKey, () => {}).add(archive.id);
-    
-    // Save index
-    await _saveSearchIndex();
-  }
-  
-  Set<String> _tokenizeText(String text) {
-    return text.toLowerCase()
-        .replaceAll(RegExp(r'[^\w\s]'), ' ')
-        .split(RegExp(r'\s+'))
-        .where((word) => word.length > 2)
-        .toSet();
-  }
-  
-  String _formatDateForIndex(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}';
-  }
-  
-  Set<String> _findCandidateArchives(String query, ArchiveSearchFilter? filter) {
-    final candidates = <String>{};
-    final queryWords = _tokenizeText(query);
-    
-    // Use word-based search index
-    for (final word in queryWords) {
-      final wordMatches = _searchIndex[word] ?? {};
-      if (candidates.isEmpty) {
-        candidates.addAll(wordMatches);
-      } else {
-        // Intersection for AND logic
-        candidates.retainWhere((id) => wordMatches.contains(id));
-      }
-    }
-    
-    // Apply additional filters
-    if (filter?.contactFilter != null) {
-      final contactMatches = _contactIndex[filter!.contactFilter!.toLowerCase()] ?? {};
-      candidates.retainWhere((id) => contactMatches.contains(id));
-    }
-    
-    if (filter?.dateRange != null) {
-      // Simple date filtering (more sophisticated logic would go here)
-      final startMonth = _formatDateForIndex(filter!.dateRange!.start);
-      final endMonth = _formatDateForIndex(filter.dateRange!.end);
-      
-      final dateMatches = <String>{};
-      for (final entry in _dateIndex.entries) {
-        if (entry.key.compareTo(startMonth) >= 0 && entry.key.compareTo(endMonth) <= 0) {
-          dateMatches.addAll(entry.value);
-        }
-      }
-      candidates.retainWhere((id) => dateMatches.contains(id));
-    }
-    
-    return candidates;
-  }
-  
-  List<ArchivedMessage> _searchMessagesInArchive(
-    ArchivedChat archive,
-    String query,
-    ArchiveSearchFilter? filter,
-  ) {
-    final matches = <ArchivedMessage>[];
-    final queryLower = query.toLowerCase();
-    
-    for (final message in archive.messages) {
-      // Check if message matches query
-      if (!message.searchableText.contains(queryLower)) continue;
-      
-      // Apply message type filters
-      if (filter?.messageTypeFilter != null) {
-        final typeFilter = filter!.messageTypeFilter!;
-        
-        if (typeFilter.isFromMe != null && message.isFromMe != typeFilter.isFromMe) continue;
-        if (typeFilter.hasAttachments != null && message.attachments.isNotEmpty != typeFilter.hasAttachments) continue;
-        if (typeFilter.wasStarred != null && message.isStarred != typeFilter.wasStarred) continue;
-        if (typeFilter.wasEdited != null && message.wasEdited != typeFilter.wasEdited) continue;
-      }
-      
-      matches.add(message);
-    }
-    
-    return matches;
-  }
-  
-  double _calculateRelevanceScore(ArchivedMessage message, String query) {
-    final queryLower = query.toLowerCase();
-    final contentLower = message.searchableText;
-    
-    double score = 0.0;
-    
-    // Exact phrase match
-    if (contentLower.contains(queryLower)) {
-      score += 10.0;
-    }
-    
-    // Word matches
-    final queryWords = queryLower.split(' ');
-    final contentWords = contentLower.split(' ');
-    
-    for (final queryWord in queryWords) {
-      for (final contentWord in contentWords) {
-        if (contentWord.startsWith(queryWord)) {
-          score += 5.0;
-        } else if (contentWord.contains(queryWord)) {
-          score += 2.0;
-        }
-      }
-    }
-    
-    // Boost for recent messages
-    final age = DateTime.now().difference(message.originalTimestamp);
-    if (age.inDays < 30) score += 1.0;
-    if (age.inDays < 7) score += 2.0;
-    
-    // Boost for important messages
-    if (message.isStarred) score += 3.0;
-    if (message.priority.index > 1) score += 1.0;
-    
-    return score;
-  }
-  
-  void _updateCache(ArchivedChat archive) {
-    _archiveCache[archive.id] = archive;
-    _updateCacheAccess(archive.id);
-    _maintainCacheSize();
-  }
-  
-  void _updateCacheAccess(String archiveId) {
-    _cacheAccessOrder.remove(archiveId);
-    _cacheAccessOrder.add(archiveId);
-  }
-  
-  void _maintainCacheSize() {
-    while (_archiveCache.length > _maxCacheSize) {
-      final oldestId = _cacheAccessOrder.removeAt(0);
-      _archiveCache.remove(oldestId);
-    }
-  }
-  
-  void _maintainSearchCacheSize() {
-    while (_searchCache.length > 20) {
-      final oldestKey = _searchCache.keys.first;
-      _searchCache.remove(oldestKey);
-    }
-  }
-  
-  void _clearCacheForArchive(String archiveId) {
-    _summaryCache.clear(); // Clear summary cache as it may contain this archive
-    _searchCache.clear(); // Clear search cache as results may reference this archive
-  }
-  
-  String _generateCacheKey(String prefix, Map<String, dynamic>? data) {
-    final dataHash = data?.toString().hashCode.abs() ?? 0;
-    return '${prefix}_$dataHash';
-  }
-  
-  String _generateSearchCacheKey(String query, ArchiveSearchFilter? filter) {
-    final filterHash = filter?.toJson().toString().hashCode.abs() ?? 0;
-    return 'search_${query.hashCode.abs()}_$filterHash';
-  }
-  
-  void _recordOperationTime(String operation, Duration time) {
-    _operationTimes[operation] = time;
-    _operationsCount++;
-  }
-  
-  List<ArchivedChatSummary> _applyFilterToSummaries(
-    List<ArchivedChatSummary> summaries,
-    ArchiveSearchFilter filter,
-  ) {
-    return summaries.where((summary) {
-      if (filter.contactFilter != null && 
-          !summary.contactName.toLowerCase().contains(filter.contactFilter!.toLowerCase())) {
-        return false;
-      }
-      
-      if (filter.dateRange != null && 
-          !filter.dateRange!.contains(summary.archivedAt)) {
-        return false;
-      }
-      
-      if (filter.onlyCompressed == true && !summary.isCompressed) {
-        return false;
-      }
-      
-      if (filter.onlySearchable == true && !summary.isSearchable) {
-        return false;
-      }
-      
-      if (filter.sizeFilter != null) {
-        switch (filter.sizeFilter!) {
-          case ArchiveSizeFilter.small:
-            if (summary.estimatedSize > 1024) return false;
-            break;
-          case ArchiveSizeFilter.medium:
-            if (summary.estimatedSize <= 1024 || summary.estimatedSize > 1024 * 1024) return false;
-            break;
-          case ArchiveSizeFilter.large:
-            if (summary.estimatedSize <= 1024 * 1024) return false;
-            break;
-        }
-      }
-      
-      return true;
-    }).toList();
-  }
-  
-  List<ArchivedChatSummary> _sortSummaries(
-    List<ArchivedChatSummary> summaries,
-    ArchiveSortOption sortBy,
-  ) {
-    summaries.sort((a, b) {
-      switch (sortBy) {
-        case ArchiveSortOption.dateArchived:
-          return b.archivedAt.compareTo(a.archivedAt);
-        case ArchiveSortOption.dateOriginal:
-          return (b.lastMessageTime ?? DateTime.fromMillisecondsSinceEpoch(0))
-              .compareTo(a.lastMessageTime ?? DateTime.fromMillisecondsSinceEpoch(0));
-        case ArchiveSortOption.contactName:
-          return a.contactName.compareTo(b.contactName);
-        case ArchiveSortOption.messageCount:
-          return b.messageCount.compareTo(a.messageCount);
-        case ArchiveSortOption.size:
-          return b.estimatedSize.compareTo(a.estimatedSize);
-        default:
-          return b.archivedAt.compareTo(a.archivedAt);
-      }
-    });
-    
-    return summaries;
-  }
-  
-  Future<void> _loadSearchIndex() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final indexJson = prefs.getString(_archiveIndexKey);
-      
-      if (indexJson != null) {
-        final indexData = jsonDecode(indexJson);
-        
-        // Load search index
-        final searchIndexData = indexData['searchIndex'] as Map<String, dynamic>? ?? {};
-        for (final entry in searchIndexData.entries) {
-          _searchIndex[entry.key] = Set<String>.from(entry.value);
-        }
-        
-        // Load contact index
-        final contactIndexData = indexData['contactIndex'] as Map<String, dynamic>? ?? {};
-        for (final entry in contactIndexData.entries) {
-          _contactIndex[entry.key] = Set<String>.from(entry.value);
-        }
-        
-        // Load date index
-        final dateIndexData = indexData['dateIndex'] as Map<String, dynamic>? ?? {};
-        for (final entry in dateIndexData.entries) {
-          _dateIndex[entry.key] = Set<String>.from(entry.value);
-        }
-        
-        _logger.info('Loaded search index with ${_searchIndex.length} terms');
-      }
-    } catch (e) {
-      _logger.warning('Failed to load search index: $e');
-    }
-  }
-  
-  Future<void> _saveSearchIndex() async {
-    try {
-      final indexData = {
-        'searchIndex': _searchIndex.map((key, value) => MapEntry(key, value.toList())),
-        'contactIndex': _contactIndex.map((key, value) => MapEntry(key, value.toList())),
-        'dateIndex': _dateIndex.map((key, value) => MapEntry(key, value.toList())),
-      };
-      
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_archiveIndexKey, jsonEncode(indexData));
-    } catch (e) {
-      _logger.warning('Failed to save search index: $e');
-    }
-  }
-  
-  Future<void> _removeFromSearchIndex(String archiveId) async {
-    // Remove archive ID from all index entries
-    for (final wordSet in _searchIndex.values) {
-      wordSet.remove(archiveId);
-    }
-    for (final contactSet in _contactIndex.values) {
-      contactSet.remove(archiveId);
-    }
-    for (final dateSet in _dateIndex.values) {
-      dateSet.remove(archiveId);
-    }
-    
-    // Remove empty entries
-    _searchIndex.removeWhere((key, value) => value.isEmpty);
-    _contactIndex.removeWhere((key, value) => value.isEmpty);
-    _dateIndex.removeWhere((key, value) => value.isEmpty);
-    
-    await _saveSearchIndex();
-  }
-  
-  Future<void> _loadCachedSummaries() async {
-    // Load frequently accessed summaries into cache
-    try {
-      final summaries = await getArchivedChats(limit: 20);
-      _summaryCache['recent'] = summaries;
-    } catch (e) {
-      _logger.warning('Failed to load cached summaries: $e');
-    }
-  }
-  
-  Future<void> _updateArchiveStatistics(ArchiveOperationType operation, int sizeChange) async {
-    try {
-      // TODO: Implementation would fetch stats, update counters based on operation, and save back to storage
-      // For now, just log the operation
-      _logger.info('Updated archive statistics for $operation operation (size change: $sizeChange bytes)');
-    } catch (e) {
-      _logger.warning('Failed to update archive statistics: $e');
-    }
-  }
-  
-  Future<ArchiveStatistics> _calculateArchiveStatistics() async {
-    try {
-      final summaries = await getArchivedChats();
-      
-      // Calculate basic statistics
-      final totalArchives = summaries.length;
-      var totalMessages = 0;
-      var compressedArchives = 0;
-      var searchableArchives = 0;
-      var totalSize = 0;
-      
+      final db = await DatabaseHelper.database;
+
+      // Use SQL aggregation for efficient statistics
+      final statsResult = await db.rawQuery('''
+        SELECT
+          COUNT(*) as total_archives,
+          SUM(message_count) as total_messages,
+          SUM(CASE WHEN is_compressed = 1 THEN 1 ELSE 0 END) as compressed_archives,
+          SUM(estimated_size) as total_size,
+          MIN(archived_at) as oldest_archive,
+          MAX(archived_at) as newest_archive,
+          AVG(compression_ratio) as avg_compression_ratio
+        FROM archived_chats
+      ''');
+
+      final stats = statsResult.first;
+      final totalArchives = stats['total_archives'] as int? ?? 0;
+      final totalMessages = stats['total_messages'] as int? ?? 0;
+      final compressedArchives = stats['compressed_archives'] as int? ?? 0;
+      final totalSize = stats['total_size'] as int? ?? 0;
+      final oldestArchive = stats['oldest_archive'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(stats['oldest_archive'] as int)
+          : null;
+      final newestArchive = stats['newest_archive'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(stats['newest_archive'] as int)
+          : null;
+      final avgCompressionRatio = stats['avg_compression_ratio'] as double? ?? 0.7;
+
+      // Archives by month
+      final monthResults = await db.rawQuery('''
+        SELECT
+          strftime('%Y-%m', datetime(archived_at / 1000, 'unixepoch')) as month,
+          COUNT(*) as count
+        FROM archived_chats
+        GROUP BY month
+        ORDER BY month DESC
+      ''');
+
       final archivesByMonth = <String, int>{};
-      final messagesByContact = <String, int>{};
-      
-      DateTime? oldestArchive;
-      DateTime? newestArchive;
-      
-      for (final summary in summaries) {
-        totalMessages += summary.messageCount;
-        totalSize += summary.estimatedSize;
-        
-        if (summary.isCompressed) compressedArchives++;
-        if (summary.isSearchable) searchableArchives++;
-        
-        // Track by month
-        final monthKey = _formatDateForIndex(summary.archivedAt);
-        archivesByMonth[monthKey] = (archivesByMonth[monthKey] ?? 0) + 1;
-        
-        // Track by contact
-        messagesByContact[summary.contactName] = 
-          (messagesByContact[summary.contactName] ?? 0) + summary.messageCount;
-        
-        // Track date range
-        if (oldestArchive == null || summary.archivedAt.isBefore(oldestArchive)) {
-          oldestArchive = summary.archivedAt;
-        }
-        if (newestArchive == null || summary.archivedAt.isAfter(newestArchive)) {
-          newestArchive = summary.archivedAt;
-        }
+      for (final row in monthResults) {
+        archivesByMonth[row['month'] as String] = row['count'] as int;
       }
-      
+
+      // Messages by contact
+      final contactResults = await db.rawQuery('''
+        SELECT
+          contact_name,
+          SUM(message_count) as total_messages
+        FROM archived_chats
+        GROUP BY contact_name
+        ORDER BY total_messages DESC
+        LIMIT 10
+      ''');
+
+      final messagesByContact = <String, int>{};
+      for (final row in contactResults) {
+        messagesByContact[row['contact_name'] as String] = row['total_messages'] as int;
+      }
+
+      // Calculate average age
       final averageAge = totalArchives > 0 && newestArchive != null && oldestArchive != null
-        ? newestArchive.difference(oldestArchive) 
-        : Duration.zero;
-      
-      // Create performance stats
+          ? newestArchive.difference(oldestArchive)
+          : Duration.zero;
+
+      // Performance stats
       final performanceStats = ArchivePerformanceStats(
         averageArchiveTime: _operationTimes['archive'] ?? Duration.zero,
         averageRestoreTime: _operationTimes['restore'] ?? Duration.zero,
         averageSearchTime: _operationTimes['search'] ?? Duration.zero,
-        averageMemoryUsage: _archiveCache.length * 1024.0, // Rough estimate
+        averageMemoryUsage: 0.0, // No in-memory cache with SQLite
         operationsCount: _operationsCount,
         operationCounts: {
           'archive': _operationTimes.containsKey('archive') ? 1 : 0,
@@ -987,32 +585,248 @@ class ArchiveRepository {
         },
         recentOperationTimes: _operationTimes.values.toList(),
       );
-      
+
       return ArchiveStatistics(
         totalArchives: totalArchives,
         totalMessages: totalMessages,
         compressedArchives: compressedArchives,
-        searchableArchives: searchableArchives,
+        searchableArchives: totalArchives, // All archives searchable with FTS5!
         totalSizeBytes: totalSize,
-        compressedSizeBytes: totalSize, // Simplified for now
+        compressedSizeBytes: totalSize,
         archivesByMonth: archivesByMonth,
         messagesByContact: messagesByContact,
-        averageCompressionRatio: 0.7, // Simplified
+        averageCompressionRatio: avgCompressionRatio,
         oldestArchive: oldestArchive,
         newestArchive: newestArchive,
         averageArchiveAge: averageAge,
         performanceStats: performanceStats,
       );
-      
+
     } catch (e) {
-      _logger.severe('Failed to calculate archive statistics: $e');
+      _logger.severe('Failed to get archive statistics: $e');
       return ArchiveStatistics.empty();
     }
   }
-  
-  ArchiveStatistics _parseArchiveStatistics(Map<String, dynamic> json) {
-    // Parse statistics from JSON (simplified implementation)
-    return ArchiveStatistics.empty(); // Would implement full parsing
+
+  /// Clear all cache (no-op for SQLite, kept for interface compatibility)
+  void clearCache() {
+    _logger.info('Archive repository cache cleared (no-op for SQLite)');
+  }
+
+  /// Dispose and cleanup
+  void dispose() {
+    _logger.info('Archive repository disposed');
+  }
+
+  // Private helper methods
+
+  String _generateArchiveId(String chatId) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final hash = '${chatId}_$timestamp'.hashCode.abs();
+    return 'archive_$hash';
+  }
+
+  Future<ArchivedChat> _compressArchive(ArchivedChat archive) async {
+    try {
+      // Simple compression simulation (in real implementation, use gzip)
+      final originalJson = jsonEncode(archive.toJson());
+      final originalSize = originalJson.length;
+
+      // Simulate compression by removing some whitespace and optimizing
+      final compressedSize = (originalSize * 0.7).round(); // 30% reduction simulation
+
+      final compressionInfo = ArchiveCompressionInfo(
+        algorithm: 'simulated_gzip',
+        originalSize: originalSize,
+        compressedSize: compressedSize,
+        compressionRatio: compressedSize / originalSize,
+        compressedAt: DateTime.now(),
+      );
+
+      return archive.copyWith(compressionInfo: compressionInfo);
+    } catch (e) {
+      _logger.warning('Compression failed, storing uncompressed: $e');
+      return archive;
+    }
+  }
+
+  Future<ArchivedChat> _decompressArchive(ArchivedChat archive) async {
+    // In real implementation, decompress the data
+    // For simulation, just return the archive
+    return archive;
+  }
+
+  void _recordOperationTime(String operation, Duration time) {
+    _operationTimes[operation] = time;
+    _operationsCount++;
+  }
+
+  List<ArchivedMessage> _applyMessageTypeFilter(
+    List<ArchivedMessage> messages,
+    ArchiveMessageTypeFilter filter,
+  ) {
+    return messages.where((message) {
+      if (filter.isFromMe != null && message.isFromMe != filter.isFromMe) return false;
+      if (filter.hasAttachments != null && message.attachments.isNotEmpty != filter.hasAttachments) return false;
+      if (filter.wasStarred != null && message.isStarred != filter.wasStarred) return false;
+      if (filter.wasEdited != null && message.wasEdited != filter.wasEdited) return false;
+      return true;
+    }).toList();
+  }
+
+  // Mapping methods
+
+  Map<String, dynamic> _archivedMessageToMap(ArchivedMessage message, String archiveId) {
+    return {
+      'id': message.id,
+      'archive_id': archiveId,
+      'original_message_id': message.originalMessageId,
+      'content': message.content,
+      'timestamp': message.timestamp.millisecondsSinceEpoch,
+      'is_from_me': message.isFromMe ? 1 : 0,
+      'status': message.status.index,
+      'reply_to_message_id': message.replyToMessageId,
+      'thread_id': message.threadId,
+      'is_starred': message.isStarred ? 1 : 0,
+      'is_forwarded': message.isForwarded ? 1 : 0,
+      'priority': message.priority.index,
+      'edited_at': message.editedAt?.millisecondsSinceEpoch,
+      'original_content': message.originalContent,
+      'has_media': message.hasMedia ? 1 : 0,
+      'media_type': message.mediaType,
+      'archived_at': message.archivedAt.millisecondsSinceEpoch,
+      'original_timestamp': message.originalTimestamp.millisecondsSinceEpoch,
+      'metadata_json': message.metadata.isNotEmpty ? jsonEncode(message.metadata) : null,
+      'delivery_receipt_json': message.deliveryReceipt != null
+          ? jsonEncode(message.deliveryReceipt!.toJson())
+          : null,
+      'read_receipt_json': message.readReceipt != null
+          ? jsonEncode(message.readReceipt!.toJson())
+          : null,
+      'reactions_json': message.reactions.isNotEmpty
+          ? jsonEncode(message.reactions.map((r) => r.toJson()).toList())
+          : null,
+      'attachments_json': message.attachments.isNotEmpty
+          ? jsonEncode(message.attachments.map((a) => a.toJson()).toList())
+          : null,
+      'encryption_info_json': message.encryptionInfo != null
+          ? jsonEncode(message.encryptionInfo!.toJson())
+          : null,
+      'archive_metadata_json': message.archiveMetadata.isNotEmpty
+          ? jsonEncode(message.archiveMetadata)
+          : null,
+      'preserved_state_json': message.preservedState.isNotEmpty
+          ? jsonEncode(message.preservedState)
+          : null,
+      'searchable_text': message.searchableText, // KEY for FTS5!
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    };
+  }
+
+  ArchivedMessage _mapToArchivedMessage(Map<String, dynamic> row) {
+    return ArchivedMessage(
+      id: row['id'] as String,
+      archiveId: row['archive_id'] as String,
+      originalMessageId: row['original_message_id'] as String,
+      content: row['content'] as String,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
+      isFromMe: (row['is_from_me'] as int) == 1,
+      status: MessageStatus.values[row['status'] as int],
+      replyToMessageId: row['reply_to_message_id'] as String?,
+      threadId: row['thread_id'] as String?,
+      isStarred: (row['is_starred'] as int? ?? 0) == 1,
+      isForwarded: (row['is_forwarded'] as int? ?? 0) == 1,
+      priority: MessagePriority.values[row['priority'] as int? ?? 1],
+      editedAt: row['edited_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['edited_at'] as int)
+          : null,
+      originalContent: row['original_content'] as String?,
+      hasMedia: (row['has_media'] as int? ?? 0) == 1,
+      mediaType: row['media_type'] as String?,
+      archivedAt: DateTime.fromMillisecondsSinceEpoch(row['archived_at'] as int),
+      originalTimestamp: DateTime.fromMillisecondsSinceEpoch(row['original_timestamp'] as int),
+      metadata: row['metadata_json'] != null
+          ? Map<String, dynamic>.from(jsonDecode(row['metadata_json'] as String))
+          : {},
+      deliveryReceipt: row['delivery_receipt_json'] != null
+          ? MessageDeliveryReceipt.fromJson(jsonDecode(row['delivery_receipt_json'] as String))
+          : null,
+      readReceipt: row['read_receipt_json'] != null
+          ? MessageReadReceipt.fromJson(jsonDecode(row['read_receipt_json'] as String))
+          : null,
+      reactions: row['reactions_json'] != null
+          ? (jsonDecode(row['reactions_json'] as String) as List)
+              .map((r) => MessageReaction.fromJson(r))
+              .toList()
+          : [],
+      attachments: row['attachments_json'] != null
+          ? (jsonDecode(row['attachments_json'] as String) as List)
+              .map((a) => MessageAttachment.fromJson(a))
+              .toList()
+          : [],
+      encryptionInfo: row['encryption_info_json'] != null
+          ? MessageEncryptionInfo.fromJson(jsonDecode(row['encryption_info_json'] as String))
+          : null,
+      archiveMetadata: row['archive_metadata_json'] != null
+          ? Map<String, dynamic>.from(jsonDecode(row['archive_metadata_json'] as String))
+          : {},
+      preservedState: row['preserved_state_json'] != null
+          ? Map<String, dynamic>.from(jsonDecode(row['preserved_state_json'] as String))
+          : {},
+    );
+  }
+
+  ArchivedChatSummary _mapToArchivedChatSummary(Map<String, dynamic> row) {
+    return ArchivedChatSummary(
+      id: row['archive_id'] as String,
+      contactName: row['contact_name'] as String,
+      archivedAt: DateTime.fromMillisecondsSinceEpoch(row['archived_at'] as int),
+      lastMessageTime: row['last_message_time'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['last_message_time'] as int)
+          : null,
+      messageCount: row['message_count'] as int,
+      estimatedSize: row['estimated_size'] as int,
+      isCompressed: (row['is_compressed'] as int? ?? 0) == 1,
+      isSearchable: true, // All archives searchable with FTS5
+      archiveReason: row['archive_reason'] as String?,
+    );
+  }
+
+  ArchivedChat _mapToArchivedChat(Map<String, dynamic> archiveRow, List<ArchivedMessage> messages) {
+    final compressionInfoJson = archiveRow['compression_info_json'] as String?;
+    final metadataJson = archiveRow['metadata_json'] as String?;
+
+    return ArchivedChat(
+      id: archiveRow['archive_id'] as String,
+      originalChatId: archiveRow['original_chat_id'] as String,
+      contactName: archiveRow['contact_name'] as String,
+      contactPublicKey: archiveRow['contact_public_key'] as String?,
+      messages: messages,
+      archivedAt: DateTime.fromMillisecondsSinceEpoch(archiveRow['archived_at'] as int),
+      lastMessageTime: archiveRow['last_message_time'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(archiveRow['last_message_time'] as int)
+          : null,
+      messageCount: archiveRow['message_count'] as int,
+      metadata: metadataJson != null
+          ? ArchiveMetadata.fromJson(jsonDecode(metadataJson))
+          : ArchiveMetadata(
+              version: '1.0',
+              reason: archiveRow['archive_reason'] as String? ?? 'Unknown',
+              originalUnreadCount: 0,
+              wasOnline: false,
+              hadUnsentMessages: false,
+              estimatedStorageSize: archiveRow['estimated_size'] as int? ?? 0,
+              archiveSource: 'migration',
+              tags: [],
+              hasSearchIndex: true,
+            ),
+      compressionInfo: compressionInfoJson != null
+          ? ArchiveCompressionInfo.fromJson(jsonDecode(compressionInfoJson))
+          : null,
+      customData: archiveRow['custom_data_json'] != null
+          ? Map<String, dynamic>.from(jsonDecode(archiveRow['custom_data_json'] as String))
+          : null,
+    );
   }
 }
 
