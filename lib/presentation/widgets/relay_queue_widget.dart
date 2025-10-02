@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../core/utils/mesh_debug_logger.dart';
+import '../../core/utils/app_logger.dart';
 import '../../domain/entities/enhanced_message.dart';
 
 /// Widget for displaying and managing relay message queue
@@ -23,6 +24,7 @@ class RelayQueueWidget extends StatefulWidget {
 }
 
 class _RelayQueueWidgetState extends State<RelayQueueWidget> {
+  static final _logger = AppLogger.getLogger(LoggerNames.ui);
   Timer? _loadingTimeout;
   bool _timeoutReached = false;
 
@@ -60,22 +62,22 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
         final status = snapshot.data;
 
         // 🔍 DEBUG: Log what RelayQueueWidget is receiving
-        print('🔍 RELAY QUEUE WIDGET DEBUG:');
-        print('  - snapshot.hasData: ${snapshot.hasData}');
-        print('  - snapshot.hasError: ${snapshot.hasError}');
-        print('  - status == null: ${status == null}');
+        _logger.fine('🔍 RELAY QUEUE WIDGET DEBUG:');
+        _logger.fine('  - snapshot.hasData: ${snapshot.hasData}');
+        _logger.fine('  - snapshot.hasError: ${snapshot.hasError}');
+        _logger.fine('  - status == null: ${status == null}');
         if (status != null) {
-          print('  - status.isInitialized: ${status.isInitialized}');
-          print('  - status.queueMessages: ${status.queueMessages?.length ?? "null"}');
+          _logger.fine('  - status.isInitialized: ${status.isInitialized}');
+          _logger.fine('  - status.queueMessages: ${status.queueMessages?.length ?? "null"}');
           if (status.queueMessages != null && status.queueMessages!.isNotEmpty) {
             final content = status.queueMessages!.first.content;
             final preview = content.length > 20 ? '${content.substring(0, 20)}...' : content;
-            print('  - First message: $preview');
+            _logger.fine('  - First message: $preview');
           }
         }
 
         if (status == null) {
-          print('ℹ️ RelayQueueWidget: Loading state displayed - MeshNetworkStatus is null');
+          _logger.fine('ℹ️ RelayQueueWidget: Loading state displayed - MeshNetworkStatus is null');
           // Cancel timeout if we get data
           if (_timeoutReached) {
             _loadingTimeout?.cancel();
@@ -307,21 +309,21 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     final queueMessages = status.queueMessages;
 
     // 🔍 DEBUG: Log queue list building
-    print('🔍 BUILDING QUEUE LIST:');
-    print('  - queueMessages == null: ${queueMessages == null}');
-    print('  - queueMessages.length: ${queueMessages?.length ?? "null"}');
+    _logger.fine('🔍 BUILDING QUEUE LIST:');
+    _logger.fine('  - queueMessages == null: ${queueMessages == null}');
+    _logger.fine('  - queueMessages.length: ${queueMessages?.length ?? "null"}');
 
     if (queueMessages == null) {
-      print('  - Returning: Queue information unavailable');
+      _logger.fine('  - Returning: Queue information unavailable');
       return _buildEmptyState('Queue information unavailable');
     }
 
     if (queueMessages.isEmpty) {
-      print('  - Returning: No messages in relay queue');
+      _logger.fine('  - Returning: No messages in relay queue');
       return _buildEmptyState('No messages in relay queue');
     }
 
-    print('  - Returning: ListView with ${queueMessages.length} messages');
+    _logger.fine('  - Returning: ListView with ${queueMessages.length} messages');
 
     return ListView.builder(
       padding: EdgeInsets.symmetric(vertical: 8),

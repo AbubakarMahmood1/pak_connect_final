@@ -934,13 +934,13 @@ class MeshNetworkingService {
       final truncatedSender = originalSender.length > 8 ? originalSender.substring(0, 8) : originalSender;
       final truncatedCurrentNode = _currentNodeId != null && _currentNodeId!.length > 8 ? _currentNodeId!.substring(0, 8) : _currentNodeId;
       
-      print('🎯 MESH DELIVERY START: Message $truncatedMessageId...');
-      print('🎯 FROM ORIGINAL SENDER: $truncatedSender...');
-      print('🎯 TO CURRENT USER: $truncatedCurrentNode...');
-      
+      _logger.fine('🎯 MESH DELIVERY START: Message $truncatedMessageId...');
+      _logger.fine('🎯 FROM ORIGINAL SENDER: $truncatedSender...');
+      _logger.fine('🎯 TO CURRENT USER: $truncatedCurrentNode...');
+
       // 🔍 CRITICAL FIX: Generate chat ID using original sender (not relay node)
       final chatId = ChatUtils.generateChatId(_currentNodeId!, originalSender);
-      print('🎯 CHAT ID GENERATED: ${chatId.length > 16 ? chatId.substring(0, 16) : chatId}...');
+      _logger.fine('🎯 CHAT ID GENERATED: ${chatId.length > 16 ? chatId.substring(0, 16) : chatId}...');
       
       // Create message with proper attribution to original sender
       final message = Message(
@@ -954,7 +954,7 @@ class MeshNetworkingService {
       
       // Save to repository with confirmation
       await _messageRepository.saveMessage(message);
-      print('✅ MESH DELIVERY SUCCESS: Message stored in chat with original sender $truncatedSender...');
+      _logger.info('✅ MESH DELIVERY SUCCESS: Message stored in chat with original sender $truncatedSender...');
       
       // Update demo tracking
       if (_isDemoMode) {
@@ -968,8 +968,7 @@ class MeshNetworkingService {
       _broadcastMeshStatus();
       
     } catch (e) {
-      print('❌ MESH DELIVERY ERROR: Failed to deliver message to self: $e');
-      _logger.severe('Failed to save delivered message: $e');
+      _logger.severe('❌ MESH DELIVERY ERROR: Failed to deliver message to self: $e');
       
       // Still broadcast status for error tracking
       _broadcastMeshStatus();

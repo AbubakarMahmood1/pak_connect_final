@@ -7,8 +7,10 @@ import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'hint_cache_manager.dart';
+import '../utils/app_logger.dart';
 
 class EphemeralKeyManager {
+  static final _logger = AppLogger.getLogger(LoggerNames.keyManagement);
   static const int hintlength = 8;
   
   static String? _userSalt;
@@ -91,10 +93,10 @@ class EphemeralKeyManager {
       _ephemeralSigningPublicKey = publicKey.Q!.getEncoded(false)
           .map((b) => b.toRadixString(16).padLeft(2, '0')).join();
       _ephemeralSigningPrivateKey = privateKey.d!.toRadixString(16);
-      
-      print('✅ Generated ephemeral signing keys');
+
+      _logger.info('✅ Generated ephemeral signing keys');
     } catch (e) {
-      print('❌ Failed to generate ephemeral signing keys: $e');
+      _logger.severe('❌ Failed to generate ephemeral signing keys: $e');
       rethrow;
     }
   }
@@ -118,13 +120,13 @@ class EphemeralKeyManager {
     if (savedSession != null && savedTime != null) {
       _currentSessionKey = savedSession;
       _sessionStartTime = DateTime.fromMillisecondsSinceEpoch(savedTime);
-      
+
       final sessionAge = DateTime.now().difference(_sessionStartTime!);
       if (sessionAge > Duration(hours: 6)) {
-        print('🔄 Saved session too old, generating new one...');
+        _logger.info('🔄 Saved session too old, generating new one...');
         await _generateNewSession();
       } else {
-        print('✅ Restored ephemeral session: $_currentSessionKey');
+        _logger.info('✅ Restored ephemeral session: $_currentSessionKey');
         // NEW: Restore signing keys
         await _tryRestoreSigningKeys();
       }
@@ -144,13 +146,13 @@ class EphemeralKeyManager {
   }
 
   static Future<void> rotateSession() async {
-    print('🔄 Rotating ephemeral session with new signing keys...');
+    _logger.info('🔄 Rotating ephemeral session with new signing keys...');
     await _generateNewSession();
-    
+
     // Notify cache manager
     HintCacheManager.onSessionRotated();
-    
-    print('✅ New ephemeral session with fresh signing keys: $_currentSessionKey');
+
+    _logger.info('✅ New ephemeral session with fresh signing keys: $_currentSessionKey');
   }
   
   // Getters for debugging and UI

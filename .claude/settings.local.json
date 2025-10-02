@@ -6,7 +6,8 @@
       "Bash(echo:*)",
       "Bash(flutter build:*)",
       "Bash(flutter run:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []

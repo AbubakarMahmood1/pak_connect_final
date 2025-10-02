@@ -7,6 +7,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 
 import 'core/app_core.dart';
+import 'core/utils/app_logger.dart';
 import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
 import 'presentation/screens/chats_screen.dart';
@@ -14,13 +15,9 @@ import 'presentation/providers/ble_providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Setup logging
-  Logger.root.level = Level.ALL;
-  hierarchicalLoggingEnabled = true;
-  Logger.root.onRecord.listen((record) {
-    // Logging is handled by the logger itself, no need to print
-  });
+
+  // Setup logging with AppLogger (handles debug/release modes automatically)
+  AppLogger.initialize();
 
   runApp(const ProviderScope(child: PakConnectApp()));
 }
