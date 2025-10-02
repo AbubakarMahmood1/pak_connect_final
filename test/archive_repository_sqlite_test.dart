@@ -88,6 +88,7 @@ void main() {
         'id': 'archived_msg_${timestamp}_${chatId}_$i',
         'archive_id': archiveId,
         'original_message_id': 'msg_${chatId}_$i',
+        'chat_id': chatId,
         'content': 'Test message $i for $contactName',
         'timestamp': msgTime.millisecondsSinceEpoch,
         'is_from_me': i % 2 == 0 ? 1 : 0,

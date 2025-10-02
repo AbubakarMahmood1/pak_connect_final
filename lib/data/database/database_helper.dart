@@ -9,7 +9,7 @@ class DatabaseHelper {
   static final _logger = Logger('DatabaseHelper');
   static Database? _database;
   static const String _databaseName = 'pak_connect.db';
-  static const int _databaseVersion = 1;
+  static const int _databaseVersion = 2; // Incremented for chat_id column in archived_messages
 
   /// Get database instance (singleton pattern)
   static Future<Database> get database async {
@@ -323,6 +323,7 @@ class DatabaseHelper {
         id TEXT PRIMARY KEY,
         archive_id TEXT NOT NULL,
         original_message_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
 
         -- Basic message fields
         content TEXT NOT NULL,
@@ -470,11 +471,110 @@ class DatabaseHelper {
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     _logger.info('Upgrading database from v$oldVersion to v$newVersion');
 
-    // Future schema migrations will go here
-    // Example:
-    // if (oldVersion < 2) {
-    //   await db.execute('ALTER TABLE messages ADD COLUMN new_field TEXT');
-    // }
+    // Migration from version 1 to 2: Add chat_id to archived_messages
+    if (oldVersion < 2) {
+      // Drop and recreate archived_messages_fts triggers
+      await db.execute('DROP TRIGGER IF EXISTS archived_msg_fts_insert');
+      await db.execute('DROP TRIGGER IF EXISTS archived_msg_fts_update');
+      await db.execute('DROP TRIGGER IF EXISTS archived_msg_fts_delete');
+
+      // Drop FTS5 table
+      await db.execute('DROP TABLE IF EXISTS archived_messages_fts');
+
+      // Create temp table with new schema
+      await db.execute('''
+        CREATE TABLE archived_messages_new (
+          id TEXT PRIMARY KEY,
+          archive_id TEXT NOT NULL,
+          original_message_id TEXT NOT NULL,
+          chat_id TEXT NOT NULL DEFAULT '',
+          content TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          is_from_me INTEGER NOT NULL,
+          status INTEGER NOT NULL,
+          reply_to_message_id TEXT,
+          thread_id TEXT,
+          is_starred INTEGER DEFAULT 0,
+          is_forwarded INTEGER DEFAULT 0,
+          priority INTEGER DEFAULT 1,
+          edited_at INTEGER,
+          original_content TEXT,
+          has_media INTEGER DEFAULT 0,
+          media_type TEXT,
+          archived_at INTEGER NOT NULL,
+          original_timestamp INTEGER NOT NULL,
+          metadata_json TEXT,
+          delivery_receipt_json TEXT,
+          read_receipt_json TEXT,
+          reactions_json TEXT,
+          attachments_json TEXT,
+          encryption_info_json TEXT,
+          archive_metadata_json TEXT,
+          preserved_state_json TEXT,
+          searchable_text TEXT,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (archive_id) REFERENCES archived_chats(archive_id) ON DELETE CASCADE
+        )
+      ''');
+
+      // Copy data from old table (if it exists)
+      await db.execute('''
+        INSERT INTO archived_messages_new
+        SELECT id, archive_id, original_message_id, '', content, timestamp, is_from_me, status,
+               reply_to_message_id, thread_id, is_starred, is_forwarded, priority,
+               edited_at, original_content, has_media, media_type, archived_at, original_timestamp,
+               metadata_json, delivery_receipt_json, read_receipt_json, reactions_json,
+               attachments_json, encryption_info_json, archive_metadata_json, preserved_state_json,
+               searchable_text, created_at
+        FROM archived_messages
+      ''');
+
+      // Drop old table
+      await db.execute('DROP TABLE archived_messages');
+
+      // Rename new table
+      await db.execute('ALTER TABLE archived_messages_new RENAME TO archived_messages');
+
+      // Recreate indexes
+      await db.execute('CREATE INDEX idx_archived_msg_archive ON archived_messages(archive_id, timestamp)');
+      await db.execute('CREATE INDEX idx_archived_msg_starred ON archived_messages(is_starred) WHERE is_starred = 1');
+
+      // Recreate FTS5 table
+      await db.execute('''
+        CREATE VIRTUAL TABLE archived_messages_fts USING fts5(
+          searchable_text,
+          content=archived_messages,
+          content_rowid=rowid,
+          tokenize="porter"
+        )
+      ''');
+
+      // Recreate triggers
+      await db.execute('''
+        CREATE TRIGGER archived_msg_fts_insert AFTER INSERT ON archived_messages
+        BEGIN
+          INSERT INTO archived_messages_fts(rowid, searchable_text)
+          VALUES (new.rowid, new.searchable_text);
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER archived_msg_fts_update AFTER UPDATE ON archived_messages
+        BEGIN
+          UPDATE archived_messages_fts SET searchable_text = new.searchable_text
+          WHERE rowid = new.rowid;
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER archived_msg_fts_delete AFTER DELETE ON archived_messages
+        BEGIN
+          DELETE FROM archived_messages_fts WHERE rowid = old.rowid;
+        END
+      ''');
+
+      _logger.info('Migration to v2 complete: Added chat_id to archived_messages');
+    }
   }
 
   /// Close the database

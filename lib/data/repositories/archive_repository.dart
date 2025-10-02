@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/entities/message.dart';
 import '../../core/models/archive_models.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/chats_repository.dart';
@@ -677,10 +678,18 @@ class ArchiveRepository {
   // Mapping methods
 
   Map<String, dynamic> _archivedMessageToMap(ArchivedMessage message, String archiveId) {
+    // Determine media type from attachments
+    String? mediaType;
+    if (message.attachments.isNotEmpty) {
+      final firstAttachment = message.attachments.first;
+      mediaType = firstAttachment.type.toString().split('.').last;
+    }
+
     return {
       'id': message.id,
       'archive_id': archiveId,
-      'original_message_id': message.originalMessageId,
+      'original_message_id': message.id, // Use message id as original
+      'chat_id': message.chatId,
       'content': message.content,
       'timestamp': message.timestamp.millisecondsSinceEpoch,
       'is_from_me': message.isFromMe ? 1 : 0,
@@ -692,11 +701,13 @@ class ArchiveRepository {
       'priority': message.priority.index,
       'edited_at': message.editedAt?.millisecondsSinceEpoch,
       'original_content': message.originalContent,
-      'has_media': message.hasMedia ? 1 : 0,
-      'media_type': message.mediaType,
+      'has_media': message.attachments.isNotEmpty ? 1 : 0,
+      'media_type': mediaType,
       'archived_at': message.archivedAt.millisecondsSinceEpoch,
       'original_timestamp': message.originalTimestamp.millisecondsSinceEpoch,
-      'metadata_json': message.metadata.isNotEmpty ? jsonEncode(message.metadata) : null,
+      'metadata_json': message.metadata != null && message.metadata!.isNotEmpty
+          ? jsonEncode(message.metadata)
+          : null,
       'delivery_receipt_json': message.deliveryReceipt != null
           ? jsonEncode(message.deliveryReceipt!.toJson())
           : null,
@@ -712,10 +723,8 @@ class ArchiveRepository {
       'encryption_info_json': message.encryptionInfo != null
           ? jsonEncode(message.encryptionInfo!.toJson())
           : null,
-      'archive_metadata_json': message.archiveMetadata.isNotEmpty
-          ? jsonEncode(message.archiveMetadata)
-          : null,
-      'preserved_state_json': message.preservedState.isNotEmpty
+      'archive_metadata_json': jsonEncode(message.archiveMetadata.toJson()),
+      'preserved_state_json': message.preservedState != null && message.preservedState!.isNotEmpty
           ? jsonEncode(message.preservedState)
           : null,
       'searchable_text': message.searchableText, // KEY for FTS5!
@@ -725,29 +734,20 @@ class ArchiveRepository {
 
   ArchivedMessage _mapToArchivedMessage(Map<String, dynamic> row) {
     return ArchivedMessage(
+      // Message base fields
       id: row['id'] as String,
-      archiveId: row['archive_id'] as String,
-      originalMessageId: row['original_message_id'] as String,
+      chatId: row['chat_id'] as String,
       content: row['content'] as String,
       timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
       isFromMe: (row['is_from_me'] as int) == 1,
       status: MessageStatus.values[row['status'] as int],
+
+      // EnhancedMessage fields
       replyToMessageId: row['reply_to_message_id'] as String?,
       threadId: row['thread_id'] as String?,
-      isStarred: (row['is_starred'] as int? ?? 0) == 1,
-      isForwarded: (row['is_forwarded'] as int? ?? 0) == 1,
-      priority: MessagePriority.values[row['priority'] as int? ?? 1],
-      editedAt: row['edited_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row['edited_at'] as int)
-          : null,
-      originalContent: row['original_content'] as String?,
-      hasMedia: (row['has_media'] as int? ?? 0) == 1,
-      mediaType: row['media_type'] as String?,
-      archivedAt: DateTime.fromMillisecondsSinceEpoch(row['archived_at'] as int),
-      originalTimestamp: DateTime.fromMillisecondsSinceEpoch(row['original_timestamp'] as int),
       metadata: row['metadata_json'] != null
           ? Map<String, dynamic>.from(jsonDecode(row['metadata_json'] as String))
-          : {},
+          : null,
       deliveryReceipt: row['delivery_receipt_json'] != null
           ? MessageDeliveryReceipt.fromJson(jsonDecode(row['delivery_receipt_json'] as String))
           : null,
@@ -758,27 +758,48 @@ class ArchiveRepository {
           ? (jsonDecode(row['reactions_json'] as String) as List)
               .map((r) => MessageReaction.fromJson(r))
               .toList()
-          : [],
+          : const [],
+      isStarred: (row['is_starred'] as int? ?? 0) == 1,
+      isForwarded: (row['is_forwarded'] as int? ?? 0) == 1,
+      priority: MessagePriority.values[row['priority'] as int? ?? 1],
+      editedAt: row['edited_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['edited_at'] as int)
+          : null,
+      originalContent: row['original_content'] as String?,
       attachments: row['attachments_json'] != null
           ? (jsonDecode(row['attachments_json'] as String) as List)
               .map((a) => MessageAttachment.fromJson(a))
               .toList()
-          : [],
+          : const [],
       encryptionInfo: row['encryption_info_json'] != null
           ? MessageEncryptionInfo.fromJson(jsonDecode(row['encryption_info_json'] as String))
           : null,
+
+      // ArchivedMessage specific fields
+      archivedAt: DateTime.fromMillisecondsSinceEpoch(row['archived_at'] as int),
+      originalTimestamp: DateTime.fromMillisecondsSinceEpoch(row['original_timestamp'] as int),
+      archiveId: row['archive_id'] as String,
       archiveMetadata: row['archive_metadata_json'] != null
-          ? Map<String, dynamic>.from(jsonDecode(row['archive_metadata_json'] as String))
-          : {},
+          ? ArchiveMessageMetadata.fromJson(jsonDecode(row['archive_metadata_json'] as String))
+          : ArchiveMessageMetadata(
+              archiveVersion: '1.0',
+              preservationLevel: ArchivePreservationLevel.complete,
+              indexingStatus: ArchiveIndexingStatus.indexed,
+              compressionApplied: false,
+              originalSize: 0,
+              additionalData: {},
+            ),
+      originalSearchableText: row['searchable_text'] as String?,
       preservedState: row['preserved_state_json'] != null
           ? Map<String, dynamic>.from(jsonDecode(row['preserved_state_json'] as String))
-          : {},
+          : null,
     );
   }
 
   ArchivedChatSummary _mapToArchivedChatSummary(Map<String, dynamic> row) {
     return ArchivedChatSummary(
       id: row['archive_id'] as String,
+      originalChatId: row['original_chat_id'] as String,
       contactName: row['contact_name'] as String,
       archivedAt: DateTime.fromMillisecondsSinceEpoch(row['archived_at'] as int),
       lastMessageTime: row['last_message_time'] != null
@@ -787,8 +808,8 @@ class ArchiveRepository {
       messageCount: row['message_count'] as int,
       estimatedSize: row['estimated_size'] as int,
       isCompressed: (row['is_compressed'] as int? ?? 0) == 1,
+      tags: [], // Tags can be extracted from metadata_json if needed
       isSearchable: true, // All archives searchable with FTS5
-      archiveReason: row['archive_reason'] as String?,
     );
   }
 
