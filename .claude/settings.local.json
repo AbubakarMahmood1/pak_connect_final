@@ -7,7 +7,10 @@
       "Bash(flutter build:*)",
       "Bash(flutter run:*)",
       "Bash(git checkout:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(flutter pub:*)",
+      "Bash(flutter test:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
