@@ -301,21 +301,6 @@ class ChatsRepository {
     return 'persistent_chat_${ids[0]}_${ids[1]}';
   }
 
-  /// Get device to public key mapping (for internal use)
-  Future<Map<String, String>> _getDeviceToPublicKeyMapping() async {
-    final db = await DatabaseHelper.database;
-
-    final rows = await db.query('device_mappings');
-
-    final mapping = <String, String>{};
-    for (final row in rows) {
-      final deviceUuid = row['device_uuid'] as String;
-      final publicKey = row['public_key'] as String;
-      mapping[deviceUuid] = publicKey;
-    }
-
-    return mapping;
-  }
 
   /// Online detection using public key hash matching
   bool _isContactOnline(String contactPublicKey, Map<String, DiscoveredEventArgs>? discoveryData) {

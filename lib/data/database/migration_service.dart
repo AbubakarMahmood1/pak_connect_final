@@ -6,10 +6,6 @@ import 'package:sqflite/sqflite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
 import 'package:crypto/crypto.dart';
-import '../../domain/entities/message.dart';
-import '../../domain/entities/enhanced_message.dart';
-import '../repositories/contact_repository.dart';
-import '../repositories/message_repository.dart';
 import 'database_helper.dart';
 
 /// Migration result with detailed statistics
@@ -63,7 +59,6 @@ class MigrationService {
       }
 
       final prefs = await SharedPreferences.getInstance();
-      final db = await DatabaseHelper.database;
 
       // Check if already migrated
       final migrated = prefs.getBool('sqlite_migration_completed') ?? false;
@@ -229,9 +224,8 @@ class MigrationService {
       }
     }
 
-    // Get unread counts and last seen data
+    // Get unread counts
     final unreadCounts = await _getUnreadCounts(prefs);
-    final lastSeenData = await _getLastSeenData(prefs);
 
     int count = 0;
     final now = DateTime.now().millisecondsSinceEpoch;

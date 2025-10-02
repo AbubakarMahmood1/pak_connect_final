@@ -41,7 +41,7 @@ class OfflineMessageQueue {
   // Statistics
   int _totalQueued = 0;
   int _totalDelivered = 0;
-  int _totalFailed = 0;
+  final int _totalFailed = 0;
   
   // Callbacks
   Function(QueuedMessage message)? onMessageQueued;

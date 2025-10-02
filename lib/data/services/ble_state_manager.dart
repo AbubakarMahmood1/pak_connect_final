@@ -246,7 +246,7 @@ Future<void> markContactVerified(String publicKey) async {
 
 Future<TrustStatus> getContactTrustStatus(String publicKey) async {
   final contact = await _contactRepository.getContact(publicKey);
-  return contact?.trustStatus ?? TrustStatus.new_contact;
+  return contact?.trustStatus ?? TrustStatus.newContact;
 }
 
 Future<bool> hasContactKeyChanged(String publicKey, String currentDisplayName) async {

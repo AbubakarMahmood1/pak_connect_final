@@ -262,7 +262,6 @@ void main() {
     test('Get contacts without chats', () async {
       final contactRepo = ContactRepository();
       final messageRepo = MessageRepository();
-      final chatsRepo = ChatsRepository();
 
       // Create contacts
       await contactRepo.saveContact('alice_key', 'Alice');

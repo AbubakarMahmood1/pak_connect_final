@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
-import 'package:sqflite/sqflite.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/enhanced_message.dart';

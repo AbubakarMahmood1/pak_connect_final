@@ -3,7 +3,6 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/archive_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
-import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/core/models/archive_models.dart';
 

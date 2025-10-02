@@ -10,9 +10,9 @@ import '../../core/services/security_manager.dart';
 import '../database/database_helper.dart';
 
 enum TrustStatus {
-  new_contact,    // 👤 Identity: Never verified this person
+  newContact,     // 👤 Identity: Never verified this person
   verified,       // 👤 Identity: Confirmed this is really them
-  key_changed,    // 👤 Identity: Their key changed (security warning)
+  keyChanged,     // 👤 Identity: Their key changed (security warning)
 }
 
 class Contact {
@@ -107,7 +107,6 @@ class ContactRepository {
 
   /// Save or update a contact
   Future<void> saveContact(String publicKey, String displayName) async {
-    final db = await _db;
     final existing = await getContact(publicKey);
     final now = DateTime.now();
 
@@ -115,7 +114,7 @@ class ContactRepository {
       final contact = Contact(
         publicKey: publicKey,
         displayName: displayName,
-        trustStatus: TrustStatus.new_contact,
+        trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
         firstSeen: now,
         lastSeen: now,
@@ -303,7 +302,7 @@ class ContactRepository {
       final resetContact = Contact(
         publicKey: contact.publicKey,
         displayName: contact.displayName,
-        trustStatus: TrustStatus.new_contact, // Reset trust
+        trustStatus: TrustStatus.newContact, // Reset trust
         securityLevel: SecurityLevel.low,      // Reset to low
         firstSeen: contact.firstSeen,
         lastSeen: DateTime.now(),
@@ -345,7 +344,7 @@ class ContactRepository {
       final contact = Contact(
         publicKey: publicKey,
         displayName: displayName,
-        trustStatus: TrustStatus.new_contact,
+        trustStatus: TrustStatus.newContact,
         securityLevel: initialLevel,
         firstSeen: now,
         lastSeen: now,

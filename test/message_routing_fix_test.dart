@@ -2,7 +2,6 @@ import 'package:test/test.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'dart:convert';
 
 void main() {
   group('Message Routing Fix Tests', () {
@@ -35,8 +34,7 @@ void main() {
       );
       
       final messageBytes = protocolMessage.toBytes();
-      final messageJson = utf8.decode(messageBytes);
-      
+
       // Process the message as if it came from Ali (same as current user)
       final result = await messageHandler.processReceivedData(
         messageBytes,

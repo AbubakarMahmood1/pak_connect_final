@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import '../../data/database/database_helper.dart';
-import 'package:sqflite/sqflite.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../security/message_security.dart';
 import '../models/mesh_relay_models.dart';
@@ -14,10 +13,6 @@ import '../models/mesh_relay_models.dart';
 class OfflineMessageQueue {
   static final _logger = Logger('OfflineMessageQueue');
 
-  static const String _queueKey = 'offline_message_queue_v2';
-  static const String _legacyQueueKey = 'offline_message_queue_v1'; // Backward compatibility
-  static const String _deletedMessagesKey = 'deleted_message_ids_v1';
-  static const String _migrationKey = 'queue_migration_completed_v2';
   static const int _maxRetries = 5;
   static const Duration _initialDelay = Duration(seconds: 2);
   static const Duration _maxDelay = Duration(minutes: 10);
@@ -42,7 +37,7 @@ class OfflineMessageQueue {
   // Statistics
   int _totalQueued = 0;
   int _totalDelivered = 0;
-  int _totalFailed = 0;
+  final int _totalFailed = 0;
 
   // Callbacks
   Function(QueuedMessage message)? onMessageQueued;

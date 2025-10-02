@@ -90,14 +90,14 @@ void main() {
       
       test('should handle message ordering consistently', () async {
         // Add messages in different orders to different queues
-        final messageId1 = await queue1.queueMessage(
+        await queue1.queueMessage(
           chatId: 'test_chat',
           content: 'Message A',
           recipientPublicKey: testRecipientKey,
           senderPublicKey: testSenderKey,
         );
-        
-        final messageId2 = await queue1.queueMessage(
+
+        await queue1.queueMessage(
           chatId: 'test_chat',
           content: 'Message B',
           recipientPublicKey: testRecipientKey,
@@ -492,7 +492,7 @@ void main() {
       });
       
       test('should handle queue persistence', () async {
-        final messageId = await queue1.queueMessage(
+        await queue1.queueMessage(
           chatId: 'test_chat',
           content: 'Persistent message',
           recipientPublicKey: testRecipientKey,

@@ -6,10 +6,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:crypto/crypto.dart';
 import '../../core/services/security_manager.dart';
 
-enum TrustStatus { 
-  new_contact,    // 👤 Identity: Never verified this person
-  verified,       // 👤 Identity: Confirmed this is really them  
-  key_changed,    // 👤 Identity: Their key changed (security warning)
+enum TrustStatus {
+  newContact,     // 👤 Identity: Never verified this person
+  verified,       // 👤 Identity: Confirmed this is really them
+  keyChanged,     // 👤 Identity: Their key changed (security warning)
 }
 
 class Contact {
@@ -80,7 +80,7 @@ class ContactRepository {
       final contact = Contact(
         publicKey: publicKey,
         displayName: displayName,
-        trustStatus: TrustStatus.new_contact,
+        trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
         firstSeen: now,
         lastSeen: now,
@@ -257,7 +257,7 @@ Future<bool> resetContactSecurity(String publicKey, String reason) async {
     final resetContact = Contact(
       publicKey: contact.publicKey,
       displayName: contact.displayName,
-      trustStatus: TrustStatus.new_contact, // Reset trust
+      trustStatus: TrustStatus.newContact, // Reset trust
       securityLevel: SecurityLevel.low,      // Reset to low
       firstSeen: contact.firstSeen,
       lastSeen: DateTime.now(),
@@ -298,7 +298,7 @@ Future<void> saveContactWithSecurity(String publicKey, String displayName, Secur
     final contact = Contact(
       publicKey: publicKey,
       displayName: displayName,
-      trustStatus: TrustStatus.new_contact,
+      trustStatus: TrustStatus.newContact,
       securityLevel: initialLevel,
       firstSeen: now,
       lastSeen: now,

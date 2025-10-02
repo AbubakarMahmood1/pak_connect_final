@@ -1,9 +1,8 @@
 // Test SQLite-based ContactRepository implementation
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:pak_connect/data/repositories/contact_repository_sqlite.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 
@@ -35,7 +34,7 @@ void main() {
       expect(contact, isNotNull);
       expect(contact!.displayName, equals('Test User'));
       expect(contact.publicKey, equals('test_key_123'));
-      expect(contact.trustStatus, equals(TrustStatus.new_contact));
+      expect(contact.trustStatus, equals(TrustStatus.newContact));
       expect(contact.securityLevel, equals(SecurityLevel.low));
     });
 
@@ -125,7 +124,7 @@ void main() {
 
       final contact = await repo.getContact('reset_test');
       expect(contact!.securityLevel, equals(SecurityLevel.low));
-      expect(contact.trustStatus, equals(TrustStatus.new_contact));
+      expect(contact.trustStatus, equals(TrustStatus.newContact));
     });
 
     // TODO: Debug delete test - likely FlutterSecureStorage mocking issue

@@ -75,23 +75,23 @@ class EnhancedContact {
     switch (trustStatus) {
       case TrustStatus.verified:
         return 'Verified Contact';
-      case TrustStatus.new_contact:
+      case TrustStatus.newContact:
         return 'New Contact';
-      case TrustStatus.key_changed:
+      case TrustStatus.keyChanged:
         return 'Security Warning';
     }
   }
   
   /// Check if contact needs attention (security issues, etc.)
   bool get needsAttention {
-    return trustStatus == TrustStatus.key_changed ||
+    return trustStatus == TrustStatus.keyChanged ||
            (securityLevel == SecurityLevel.low && isRecentlyActive) ||
            contact.isSecurityStale;
   }
   
   /// Get attention reason
   String? get attentionReason {
-    if (trustStatus == TrustStatus.key_changed) {
+    if (trustStatus == TrustStatus.keyChanged) {
       return 'Security key has changed';
     }
     if (contact.isSecurityStale) {

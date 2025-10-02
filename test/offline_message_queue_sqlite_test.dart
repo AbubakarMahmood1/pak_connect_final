@@ -1,8 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue_sqlite.dart';
+import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:logging/logging.dart';
 
