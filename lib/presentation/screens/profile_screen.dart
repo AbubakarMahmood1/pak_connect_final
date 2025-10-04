@@ -42,12 +42,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Future<void> _loadProfileData() async {
-    final deviceId = await _userPreferences.getDeviceId();
+    final deviceId = await _userPreferences.getOrCreateDeviceId();
     final publicKey = await _userPreferences.getPublicKey();
 
     if (mounted) {
       setState(() {
-        _deviceId = deviceId ?? 'N/A';
+        _deviceId = deviceId;
         _publicKey = publicKey;
       });
     }
@@ -305,7 +305,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           physics: NeverScrollableScrollPhysics(),
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          childAspectRatio: 1.3,
+          childAspectRatio: 1.4,
           children: [
             _buildStatCard(
               theme,
@@ -350,25 +350,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }) {
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(16),
+        padding: EdgeInsets.all(12),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 32),
-            SizedBox(height: 8),
+            Icon(icon, color: color, size: 28),
+            SizedBox(height: 6),
             Text(
               value,
-              style: theme.textTheme.headlineSmall?.copyWith(
+              style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: theme.colorScheme.onSurface,
               ),
             ),
-            SizedBox(height: 4),
+            SizedBox(height: 2),
             Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
