@@ -9,28 +9,62 @@ import '../../core/services/security_manager.dart';
 import '../entities/enhanced_contact.dart';
 
 /// Comprehensive contact management service with advanced search and privacy features
+/// Singleton pattern to prevent multiple service instances
 class ContactManagementService {
   static final _logger = Logger('ContactManagementService');
-  final ContactRepository _contactRepository = ContactRepository();
-  final MessageRepository _messageRepository = MessageRepository();
+
+  // Singleton instance
+  static ContactManagementService? _instance;
+
+  /// Get the singleton instance
+  static ContactManagementService get instance {
+    _instance ??= ContactManagementService._internal();
+    return _instance!;
+  }
+
+  /// Private constructor for singleton
+  ContactManagementService._internal({
+    ContactRepository? contactRepository,
+    MessageRepository? messageRepository,
+  }) : _contactRepository = contactRepository ?? ContactRepository(),
+       _messageRepository = messageRepository ?? MessageRepository() {
+    _logger.info('✅ ContactManagementService singleton instance created');
+  }
+
+  /// Factory constructor (redirects to instance getter)
+  factory ContactManagementService() => instance;
+
+  // Dependencies (injected for testability)
+  final ContactRepository _contactRepository;
+  final MessageRepository _messageRepository;
+
   static const String _settingsPrefix = 'contact_mgmt_';
   static const String _searchHistoryKey = 'contact_search_history';
   static const String _contactGroupsKey = 'contact_groups';
-  
+
   // Privacy settings
   bool _allowAddressBookSync = false;
   bool _allowContactExport = false;
   bool _enableContactAnalytics = false;
-  
+
   // Search and filtering
   final List<String> _recentSearches = [];
   final Map<String, ContactGroup> _contactGroups = {};
-  
-  /// Initialize contact management service
+
+  // State tracking
+  bool _isInitialized = false;
+
+  /// Initialize contact management service (idempotent - safe to call multiple times)
   Future<void> initialize() async {
+    if (_isInitialized) {
+      _logger.fine('ContactManagementService already initialized - skipping');
+      return;
+    }
+
     await _loadSettings();
     await _loadSearchHistory();
     await _loadContactGroups();
+    _isInitialized = true;
     _logger.info('Contact management service initialized');
   }
   

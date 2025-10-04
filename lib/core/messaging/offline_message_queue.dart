@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../data/database/database_helper.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../security/message_security.dart';
@@ -90,6 +91,7 @@ class OfflineMessageQueue {
         recipientPublicKey: recipientPublicKey,
       );
 
+      final now = DateTime.now();
       final queuedMessage = QueuedMessage(
         id: messageId,
         chatId: chatId,
@@ -97,17 +99,18 @@ class OfflineMessageQueue {
         recipientPublicKey: recipientPublicKey,
         senderPublicKey: senderPublicKey,
         priority: priority,
-        queuedAt: DateTime.now(),
+        queuedAt: now,
         replyToMessageId: replyToMessageId,
         attachments: attachments,
         attempts: 0,
         maxRetries: _getMaxRetriesForPriority(priority),
+        expiresAt: _calculateExpiryTime(now, priority),
       );
 
       // Add to queue with priority ordering
       _insertMessageByPriority(queuedMessage);
 
-      await _saveQueueToStorage();
+      await _saveMessageToStorage(queuedMessage);
 
       _totalQueued++;
       onMessageQueued?.call(queuedMessage);
@@ -185,7 +188,7 @@ class OfflineMessageQueue {
       message.attempts++;
       message.lastAttemptAt = DateTime.now();
 
-      await _saveQueueToStorage();
+      await _saveMessageToStorage(message);
 
       _logger.fine('Attempting delivery: ${message.id.substring(0, 16)}... (attempt ${message.attempts}/${message.maxRetries})');
 
@@ -196,11 +199,11 @@ class OfflineMessageQueue {
       // Attempt actual delivery via callback
       onSendMessage?.call(message.id);
 
-      // For now, simulate successful delivery after callback
-      // In a real implementation, this would be called by the BLE service
-      Timer(Duration(seconds: 2), () async {
-        await _simulateDeliveryResult(message, success: true);
-      });
+      // Set to awaitingAck status - will be marked delivered when ACK received
+      message.status = QueuedMessageStatus.awaitingAck;
+      await _saveMessageToStorage(message);
+
+      _logger.info('Message sent, awaiting ACK: ${message.id.substring(0, 16)}...');
 
     } catch (e) {
       _logger.severe('Delivery attempt failed for ${message.id.substring(0, 16)}...: $e');
@@ -219,7 +222,7 @@ class OfflineMessageQueue {
     _cancelRetryTimer(messageId);
     _removeMessageFromQueue(messageId);
 
-    await _saveQueueToStorage();
+    await _deleteMessageFromStorage(messageId);
 
     _totalDelivered++;
     onMessageDelivered?.call(message);
@@ -249,7 +252,7 @@ class OfflineMessageQueue {
     message.status = QueuedMessageStatus.retrying;
     message.nextRetryAt = DateTime.now().add(backoffDelay);
 
-    await _saveQueueToStorage();
+    await _saveMessageToStorage(message);
 
     // Schedule retry
     final retryTimer = Timer(backoffDelay, () async {
@@ -257,7 +260,7 @@ class OfflineMessageQueue {
         await _tryDeliveryForMessage(message);
       } else {
         message.status = QueuedMessageStatus.pending;
-        await _saveQueueToStorage();
+        await _saveMessageToStorage(message);
       }
     });
 
@@ -353,7 +356,46 @@ class OfflineMessageQueue {
   Future<void> removeMessage(String messageId) async {
     _cancelRetryTimer(messageId);
     _removeMessageFromQueue(messageId);
-    await _saveQueueToStorage();
+    await _deleteMessageFromStorage(messageId);
+  }
+
+  /// Change priority of a queued message
+  /// Returns true if successful, false if message not found
+  Future<bool> changePriority(String messageId, MessagePriority newPriority) async {
+    try {
+      final message = _messageQueue.where((m) => m.id == messageId).firstOrNull;
+      if (message == null) {
+        _logger.warning('Cannot change priority: message ${messageId.substring(0, 16)}... not found');
+        return false;
+      }
+
+      // Don't change if already at desired priority
+      if (message.priority == newPriority) {
+        _logger.fine('Message ${messageId.substring(0, 16)}... already at priority ${newPriority.name}');
+        return true;
+      }
+
+      final oldPriority = message.priority;
+      message.priority = newPriority;
+
+      // Re-sort queue to maintain priority ordering
+      _messageQueue.sort((a, b) {
+        final priorityCompare = b.priority.index.compareTo(a.priority.index);
+        if (priorityCompare != 0) return priorityCompare;
+        return a.queuedAt.compareTo(b.queuedAt); // Secondary sort by queue time
+      });
+
+      await _saveMessageToStorage(message);
+
+      _logger.info('Changed message ${messageId.substring(0, 16)}... priority: '
+          '${oldPriority.name} → ${newPriority.name}');
+
+      return true;
+
+    } catch (e) {
+      _logger.severe('Failed to change message priority: $e');
+      return false;
+    }
   }
 
   // Private methods
@@ -410,6 +452,33 @@ class OfflineMessageQueue {
     }
   }
 
+  /// Calculate expiry time based on priority
+  /// Urgent messages have longer TTL to ensure delivery even with long offline periods
+  DateTime _calculateExpiryTime(DateTime queuedAt, MessagePriority priority) {
+    Duration ttl;
+    switch (priority) {
+      case MessagePriority.urgent:
+        ttl = Duration(hours: 24); // 24 hours for critical messages
+        break;
+      case MessagePriority.high:
+        ttl = Duration(hours: 12); // 12 hours for important messages
+        break;
+      case MessagePriority.normal:
+        ttl = Duration(hours: 6);  // 6 hours for regular messages
+        break;
+      case MessagePriority.low:
+        ttl = Duration(hours: 3);  // 3 hours for low priority
+        break;
+    }
+    return queuedAt.add(ttl);
+  }
+
+  /// Check if message has expired
+  bool _isMessageExpired(QueuedMessage message) {
+    if (message.expiresAt == null) return false;
+    return DateTime.now().isAfter(message.expiresAt!);
+  }
+
   /// Start connectivity monitoring
   void _startConnectivityMonitoring() {
     _connectivityCheckTimer = Timer.periodic(Duration(seconds: 30), (timer) {
@@ -452,17 +521,6 @@ class OfflineMessageQueue {
     onStatsUpdated?.call(stats);
   }
 
-  /// Simulate delivery result (for testing)
-  Future<void> _simulateDeliveryResult(QueuedMessage message, {required bool success}) async {
-    await Future.delayed(Duration(milliseconds: 500)); // Simulate network delay
-
-    if (success) {
-      await markMessageDelivered(message.id);
-    } else {
-      await markMessageFailed(message.id, 'Simulated delivery failure');
-    }
-  }
-
   /// Convert QueuedMessage to database row
   Map<String, dynamic> _queuedMessageToDb(QueuedMessage message) {
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -484,6 +542,7 @@ class OfflineMessageQueue {
       'delivered_at': message.deliveredAt?.millisecondsSinceEpoch,
       'failed_at': message.failedAt?.millisecondsSinceEpoch,
       'failure_reason': message.failureReason,
+      'expires_at': message.expiresAt?.millisecondsSinceEpoch,
       'is_relay_message': message.isRelayMessage ? 1 : 0,
       'original_message_id': message.originalMessageId,
       'relay_node_id': message.relayNodeId,
@@ -527,6 +586,9 @@ class OfflineMessageQueue {
           ? DateTime.fromMillisecondsSinceEpoch(row['failed_at'] as int)
           : null,
       failureReason: row['failure_reason'] as String?,
+      expiresAt: row['expires_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['expires_at'] as int)
+          : null,
       isRelayMessage: (row['is_relay_message'] as int) == 1,
       relayMetadata: row['relay_metadata_json'] != null
           ? RelayMetadata.fromJson(jsonDecode(row['relay_metadata_json'] as String))
@@ -563,14 +625,54 @@ class OfflineMessageQueue {
     }
   }
 
-  /// Save queue to persistent storage
+  /// Save a single message to persistent storage (optimized for individual updates)
+  Future<void> _saveMessageToStorage(QueuedMessage message) async {
+    try {
+      final db = await DatabaseHelper.database;
+
+      // Use INSERT OR REPLACE for efficiency - updates if exists, inserts if not
+      await db.insert(
+        'offline_message_queue',
+        _queuedMessageToDb(message),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      // Invalidate hash cache since queue changed
+      _cachedQueueHash = null;
+      _lastHashCalculation = null;
+    } catch (e) {
+      _logger.warning('Failed to save message ${message.id.substring(0, 16)}...: $e');
+    }
+  }
+
+  /// Remove a single message from persistent storage
+  Future<void> _deleteMessageFromStorage(String messageId) async {
+    try {
+      final db = await DatabaseHelper.database;
+
+      await db.delete(
+        'offline_message_queue',
+        where: 'message_id = ?',
+        whereArgs: [messageId],
+      );
+
+      // Invalidate hash cache since queue changed
+      _cachedQueueHash = null;
+      _lastHashCalculation = null;
+    } catch (e) {
+      _logger.warning('Failed to delete message ${messageId.substring(0, 16)}...: $e');
+    }
+  }
+
+  /// Save entire queue to persistent storage (used for initial load and bulk operations)
+  /// For individual message updates, use _saveMessageToStorage for better performance
   Future<void> _saveQueueToStorage() async {
     try {
       final db = await DatabaseHelper.database;
 
       // Use transaction for atomic operations
       await db.transaction((txn) async {
-        // Clear and reinsert all messages (simpler than tracking individual changes)
+        // Clear and reinsert all messages
         await txn.delete('offline_message_queue');
 
         for (final message in _messageQueue) {
@@ -819,23 +921,58 @@ class OfflineMessageQueue {
   }
 
   /// Clean up expired messages for performance
+  /// Removes both TTL-expired messages and old delivered/failed messages
   Future<void> _cleanupExpiredMessages() async {
     final cutoffDate = DateTime.now().subtract(Duration(days: 30));
-    final initialCount = _messageQueue.length;
+    int ttlExpiredCount = 0;
+    int oldMessagesCount = 0;
+
+    final expiredIds = <String>[];
 
     _messageQueue.removeWhere((message) {
+      // Remove messages that have exceeded their TTL
+      if (message.status == QueuedMessageStatus.pending ||
+          message.status == QueuedMessageStatus.retrying) {
+        if (_isMessageExpired(message)) {
+          ttlExpiredCount++;
+          expiredIds.add(message.id);
+          _logger.info('Message ${message.id.substring(0, 16)}... expired (TTL exceeded)');
+          return true;
+        }
+      }
+
       // Remove old delivered or failed messages
-      if (message.status == QueuedMessageStatus.delivered || message.status == QueuedMessageStatus.failed) {
+      if (message.status == QueuedMessageStatus.delivered ||
+          message.status == QueuedMessageStatus.failed) {
         final messageAge = message.deliveredAt ?? message.failedAt ?? message.queuedAt;
-        return messageAge.isBefore(cutoffDate);
+        if (messageAge.isBefore(cutoffDate)) {
+          oldMessagesCount++;
+          expiredIds.add(message.id);
+          return true;
+        }
       }
       return false;
     });
 
-    final removedCount = initialCount - _messageQueue.length;
-    if (removedCount > 0) {
-      await _saveQueueToStorage();
-      _logger.info('Cleaned up $removedCount expired messages');
+    // Delete expired messages from storage
+    if (expiredIds.isNotEmpty) {
+      final db = await DatabaseHelper.database;
+      await db.transaction((txn) async {
+        for (final id in expiredIds) {
+          await txn.delete(
+            'offline_message_queue',
+            where: 'message_id = ?',
+            whereArgs: [id],
+          );
+        }
+      });
+
+      // Invalidate hash cache
+      _cachedQueueHash = null;
+      _lastHashCalculation = null;
+
+      _logger.info('Cleaned up ${expiredIds.length} expired messages '
+          '(TTL: $ttlExpiredCount, Old: $oldMessagesCount)');
     }
   }
 
@@ -884,7 +1021,7 @@ class QueuedMessage {
   final String content;
   final String recipientPublicKey;
   final String senderPublicKey;
-  final MessagePriority priority;
+  MessagePriority priority; // Mutable to allow priority changes
   final DateTime queuedAt;
   final String? replyToMessageId;
   final List<String> attachments;
@@ -898,6 +1035,10 @@ class QueuedMessage {
   DateTime? deliveredAt;
   DateTime? failedAt;
   String? failureReason;
+
+  /// Expiry timestamp - messages expire if not delivered by this time
+  /// TTL is priority-based: urgent=24h, high=12h, normal=6h, low=3h
+  final DateTime? expiresAt;
 
   // Mesh relay fields (optional for backward compatibility)
   /// Indicates if this is a relay message
@@ -936,6 +1077,7 @@ class QueuedMessage {
     this.deliveredAt,
     this.failedAt,
     this.failureReason,
+    this.expiresAt,
     // Relay-specific fields
     this.isRelayMessage = false,
     this.relayMetadata,
@@ -952,16 +1094,37 @@ class QueuedMessage {
     required int maxRetries,
     QueuedMessageStatus status = QueuedMessageStatus.pending,
   }) {
+    final queuedAt = relayMessage.relayedAt;
+    final priority = relayMessage.relayMetadata.priority;
+
+    // Calculate expiry time based on priority
+    Duration ttl;
+    switch (priority) {
+      case MessagePriority.urgent:
+        ttl = Duration(hours: 24);
+        break;
+      case MessagePriority.high:
+        ttl = Duration(hours: 12);
+        break;
+      case MessagePriority.normal:
+        ttl = Duration(hours: 6);
+        break;
+      case MessagePriority.low:
+        ttl = Duration(hours: 3);
+        break;
+    }
+
     return QueuedMessage(
       id: '${relayMessage.originalMessageId}_relay_${DateTime.now().millisecondsSinceEpoch}',
       chatId: chatId,
       content: relayMessage.originalContent,
       recipientPublicKey: relayMessage.relayMetadata.finalRecipient,
       senderPublicKey: relayMessage.relayMetadata.originalSender,
-      priority: relayMessage.relayMetadata.priority,
-      queuedAt: relayMessage.relayedAt,
+      priority: priority,
+      queuedAt: queuedAt,
       maxRetries: maxRetries,
       status: status,
+      expiresAt: queuedAt.add(ttl),
       // Relay-specific fields
       isRelayMessage: true,
       relayMetadata: relayMessage.relayMetadata,
@@ -1081,6 +1244,7 @@ class QueuedMessage {
 enum QueuedMessageStatus {
   pending,
   sending,
+  awaitingAck,  // Waiting for final recipient ACK in mesh relay
   retrying,
   delivered,
   failed,

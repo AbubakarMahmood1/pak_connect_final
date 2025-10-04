@@ -1,14 +1,33 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
+import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 void main() {
   final testLogger = Logger('AliArshadAbubakarRelayTest');
+
+  // Initialize sqflite_ffi for testing
+  setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
+  setUp(() async {
+    // Clean database before each test
+    await DatabaseHelper.close();
+    await DatabaseHelper.deleteDatabase();
+  });
+
+  tearDownAll(() async {
+    await DatabaseHelper.deleteDatabase();
+  });
 
   // Setup logging
   Logger.root.level = Level.WARNING; // Reduce logging to avoid noise

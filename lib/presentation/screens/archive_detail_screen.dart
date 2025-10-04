@@ -183,8 +183,7 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
 
     if (confirmed == true && mounted) {
       try {
-        final archiveNotifier = ref.read(archiveOperationsProvider);
-        final result = await archiveNotifier.restoreChat(archiveId: _archivedChat!.id);
+        final result = await ref.read(archiveOperationsProvider.notifier).restoreChat(archiveId: _archivedChat!.id);
 
         if (mounted) {
           if (result.success) {
@@ -277,8 +276,7 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
 
     if (confirmed == true && mounted) {
       try {
-        final archiveNotifier = ref.read(archiveOperationsProvider);
-        final success = await archiveNotifier.deleteArchivedChat(_archivedChat!.id);
+        final success = await ref.read(archiveOperationsProvider.notifier).deleteArchivedChat(_archivedChat!.id);
 
         if (mounted) {
           if (success) {

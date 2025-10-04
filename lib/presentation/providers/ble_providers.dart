@@ -13,84 +13,97 @@ import 'mesh_networking_provider.dart';
 import '../../data/repositories/user_preferences.dart';
 
 // =============================================================================
-// REACTIVE USERNAME PROVIDERS
+// REACTIVE USERNAME PROVIDERS (RIVERPOD 3.0 MODERN APPROACH)
 // =============================================================================
 
-/// Current username provider
-final currentUsernameProvider = FutureProvider<String>((ref) async {
-  return await UserPreferences().getUserName();
-});
+/// Modern AsyncNotifier for username management with real-time updates
+class UsernameNotifier extends AsyncNotifier<String> {
+  @override
+  Future<String> build() async {
+    // Initial load from storage
+    return await UserPreferences().getUserName();
+  }
 
-/// Username stream provider for reactive updates
-final usernameStreamProvider = StreamProvider<String>((ref) {
-  final controller = StreamController<String>.broadcast();
-  
-  // Initialize with current username
-  UserPreferences().getUserName().then((name) {
-    if (!controller.isClosed) {
-      controller.add(name);
+  /// Update username with full BLE integration and real-time UI updates
+  Future<void> updateUsername(String newUsername) async {
+    final bleService = ref.read(bleServiceProvider);
+
+    // Set loading state
+    state = const AsyncValue.loading();
+
+    try {
+      // 1. Update username in storage
+      await UserPreferences().setUserName(newUsername);
+
+      // 2. Update BLE state manager cache
+      await bleService.stateManager.setMyUserName(newUsername);
+
+      // 3. Trigger identity re-exchange if connected
+      if (bleService.isConnected) {
+        await _triggerIdentityReExchange(bleService, newUsername);
+      }
+
+      // 4. Update state - this triggers UI rebuild automatically
+      state = AsyncValue.data(newUsername);
+
+    } catch (e, stackTrace) {
+      // Set error state
+      state = AsyncValue.error(e, stackTrace);
+      rethrow;
     }
-  });
-  
-  ref.onDispose(() {
-    controller.close();
-  });
-  
-  return controller.stream;
+  }
+
+  /// Trigger identity re-exchange for immediate username propagation
+  Future<void> _triggerIdentityReExchange(BLEService bleService, String newUsername) async {
+    try {
+      await bleService.triggerIdentityReExchange();
+    } catch (e) {
+      // Log error but don't fail the username update
+      if(kDebugMode){
+        print('Failed to re-exchange identity: $e');
+      }
+    }
+  }
+}
+
+/// Primary username provider - use this throughout the app
+final usernameProvider = AsyncNotifierProvider<UsernameNotifier, String>(() {
+  return UsernameNotifier();
 });
 
-/// Username update operations provider
+/// Legacy compatibility - redirect to modern provider
+@Deprecated('Use usernameProvider instead')
+final currentUsernameProvider = FutureProvider<String>((ref) async {
+  return ref.watch(usernameProvider.future);
+});
+
+/// Legacy compatibility - redirect to modern provider
+@Deprecated('Use usernameProvider instead')
+final usernameStreamProvider = StreamProvider<String>((ref) {
+  return ref.watch(usernameProvider.future).asStream();
+});
+
+/// Legacy compatibility - use usernameProvider.notifier instead
+@Deprecated('Use usernameProvider.notifier.updateUsername() instead')
 final usernameOperationsProvider = Provider<UsernameOperations>((ref) {
   return UsernameOperations(ref);
 });
 
 // =============================================================================
-// USERNAME OPERATIONS CLASS
+// LEGACY USERNAME OPERATIONS CLASS (DEPRECATED)
 // =============================================================================
 
 /// Username operations for reactive updates with BLE integration
+@Deprecated('Use usernameProvider.notifier.updateUsername() instead')
 class UsernameOperations {
   final Ref _ref;
-  
+
   const UsernameOperations(this._ref);
-  
+
   /// Update username with full BLE state manager integration and identity re-exchange
   Future<void> updateUsernameWithBLE(String newUsername) async {
-    final bleService = _ref.read(bleServiceProvider);
-    
-    try {
-      // 1. Update username in storage (triggers reactive updates)
-      await UserPreferences().setUserName(newUsername);
-      
-      // 2. Update BLE state manager cache (we'll enhance this method next)
-      await bleService.stateManager.setMyUserName(newUsername);
-      
-      // 3. Trigger identity re-exchange if connected
-      if (bleService.isConnected) {
-        await _triggerIdentityReExchange(bleService, newUsername);
-      }
-      
-      // 4. Refresh the current username provider to trigger reactive updates
-      // Explicitly ignore the return value as we only want to trigger the refresh
-      // ignore: unused_result
-      _ref.refresh(currentUsernameProvider);
-    } catch (e) {
-      rethrow;
-    }
-  }
-  
-  /// Trigger identity re-exchange for immediate username propagation
-  Future<void> _triggerIdentityReExchange(BLEService bleService, String newUsername) async {
-    try {
-      // Use the new enhanced identity re-exchange method
-      await bleService.triggerIdentityReExchange();
-      
-    } catch (e) {
-      // Log error but don't fail the username update
-      if(kDebugMode){
-      print('Failed to re-exchange identity: $e');
-      }
-    }
+    // Delegate to modern provider
+    await _ref.read(usernameProvider.notifier).updateUsername(newUsername);
   }
 }
 

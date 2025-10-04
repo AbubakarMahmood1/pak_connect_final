@@ -21,6 +21,11 @@ import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/security/background_cache_service.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
+import '../../core/services/hint_advertisement_service.dart';
+import '../../core/services/hint_scanner_service.dart';
+import '../../data/repositories/intro_hint_repository.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../domain/entities/sensitive_contact_hint.dart';
 
 /// Enum to track the source of scanning requests for better coordination
 enum ScanningSource {
@@ -61,12 +66,18 @@ class BLEService {
   late final BLEConnectionManager _connectionManager;
   late final BLEMessageHandler _messageHandler;
   final BLEStateManager _stateManager = BLEStateManager();
-  
+
+  // Hint system
+  late final HintScannerService _hintScanner;
+  final _introHintRepo = IntroHintRepository();
+  final _contactRepo = ContactRepository();
+
   // Streams for UI
   StreamController<ConnectionInfo>? _connectionInfoController;
   StreamController<List<Peripheral>>? _devicesController;
   StreamController<String>? _messagesController;
   StreamController<Map<String, DiscoveredEventArgs>>? _discoveryDataController;
+  StreamController<String>? _hintMatchController;
 
   // Bluetooth state monitoring
   final BluetoothStateMonitor _bluetoothStateMonitor = BluetoothStateMonitor.instance;
@@ -96,6 +107,7 @@ final List<_BufferedMessage> _messageBuffer = [];
   Stream<List<Peripheral>> get discoveredDevices => _devicesController!.stream;
   Stream<String> get receivedMessages => _messagesController!.stream;
   Stream<Map<String, DiscoveredEventArgs>> get discoveryData => _discoveryDataController!.stream;
+  Stream<String> get hintMatches => _hintMatchController!.stream;
   Central? get connectedCentral => _connectedCentral;
 
   // Bluetooth state monitoring getters
@@ -160,12 +172,14 @@ final List<_BufferedMessage> _messageBuffer = [];
     _devicesController?.close();
     _messagesController?.close();
     _discoveryDataController?.close();
+    _hintMatchController?.close();
 
     // Initialize new stream controllers
     _connectionInfoController = StreamController<ConnectionInfo>.broadcast();
     _devicesController = StreamController<List<Peripheral>>.broadcast();
     _messagesController = StreamController<String>.broadcast();
     _discoveryDataController = StreamController<Map<String, DiscoveredEventArgs>>.broadcast();
+    _hintMatchController = StreamController<String>.broadcast();
 
 
 if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManager.isPeripheralMode) {
@@ -188,6 +202,11 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
 
     _messageHandler = BLEMessageHandler();
     BackgroundCacheService.initialize();
+
+    // Initialize hint scanner service
+    _hintScanner = HintScannerService(contactRepository: _contactRepo);
+    await _hintScanner.initialize();
+    _logger.info('✅ Hint scanner initialized');
 
     // Initialize Bluetooth state monitoring
     _logger.info('🔵 Initializing Bluetooth state monitor...');
@@ -523,11 +542,30 @@ peripheralManager.mtuChanged.listen((event) {
   _peripheralNegotiatedMTU = event.mtu;
 });
 
-centralManager.discovered.listen((event) {
+centralManager.discovered.listen((event) async {
   print('🔍 DISCOVERY: Found ${event.peripheral.uuid} with RSSI: ${event.rssi}');
-  
+
   // ✅ Use deduplication manager instead of direct list management
   DeviceDeduplicationManager.processDiscoveredDevice(event);
+
+  // Check hints if manufacturer data present
+  final mfgData = event.advertisement.manufacturerSpecificData;
+  if (mfgData.isNotEmpty) {
+    for (final data in mfgData) {
+      if (data.id == 0x2E19 && data.data.length == 15) {
+        // Our hint format - check for matches
+        final match = await _hintScanner.checkDevice(data.data);
+
+        if (match.isContact) {
+          _logger.info('✅ CONTACT NEARBY: ${match.contactName}');
+          _hintMatchController?.add('✅ Contact nearby: ${match.contactName}');
+        } else if (match.isIntro) {
+          _logger.info('👋 INTRO MATCH: ${match.introHint?.displayName}');
+          _hintMatchController?.add('👋 Found: ${match.introHint?.displayName} (from QR)');
+        }
+      }
+    }
+  }
 });
 
 // ✅ Listen to deduplicated device stream
@@ -969,19 +1007,43 @@ Future<void> _processMessage(
       
       await peripheralManager.addService(service);
       
-      final ephemeralKey = EphemeralKeyManager.generateMyEphemeralKey();
-      final ephemeralBytes = ChatUtils.hashToBytes(ephemeralKey);
+      // Get intro hint (if any active QR)
+      final introHint = await _introHintRepo.getMostRecentActiveHint();
 
-final advertisement = Advertisement(
-  name: 'BLE Chat Device',
-  serviceUUIDs: [BLEConstants.serviceUUID],
-  manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
-    ManufacturerSpecificData(
-      id: 0x2E19, // Our custom manufacturer ID
-      data: ephemeralBytes,
-    ),
-  ],
-);
+      // Compute my ephemeral hint for contacts
+      final myPublicKey = await _stateManager.getMyPersistentId();
+      final mySharedSeed = await _getOrGenerateMySharedSeed(myPublicKey);
+      final mySensitiveHint = mySharedSeed != null
+          ? SensitiveContactHint.compute(
+              contactPublicKey: myPublicKey,
+              sharedSeed: mySharedSeed,
+            )
+          : null;
+
+      // Pack hints into 10-byte advertisement (optimized for BLE size limits)
+      final advData = HintAdvertisementService.packAdvertisement(
+        introHint: introHint,
+        ephemeralHint: mySensitiveHint,
+      );
+
+      _logger.info('📡 Advertising: intro=${introHint?.hintHex ?? "none"}, sensitive=${mySensitiveHint?.hintHex ?? "none"}');
+
+      // Advertisement breakdown (fits in 31-byte Android limit):
+      // - Service UUID: 16 bytes (128-bit)
+      // - Manufacturer ID: 2 bytes
+      // - Manufacturer data: 10 bytes (compressed hints)
+      // - BLE overhead: ~3 bytes
+      // Total: ~31 bytes (perfect fit!)
+      final advertisement = Advertisement(
+        name: null,  // Removed to save space - service UUID is sufficient for discovery
+        serviceUUIDs: [BLEConstants.serviceUUID],
+        manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
+          ManufacturerSpecificData(
+            id: 0x2E19, // Our custom manufacturer ID
+            data: advData,
+          ),
+        ],
+      );
       
       await peripheralManager.startAdvertising(advertisement);
       _stateManager.setPeripheralMode(true);
@@ -1574,7 +1636,25 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
     await startAsPeripheral();
   }
 
+  /// Get or generate my personal shared seed for hint generation
+  Future<Uint8List?> _getOrGenerateMySharedSeed(String myPublicKey) async {
+    // Try to get existing seed
+    var seed = await _contactRepo.getCachedSharedSeedBytes(myPublicKey);
+
+    if (seed == null) {
+      // Generate new personal seed
+      seed = SensitiveContactHint.generateSharedSeed();
+      await _contactRepo.cacheSharedSeedBytes(myPublicKey, seed);
+      _logger.info('Generated new personal shared seed');
+    }
+
+    return seed;
+  }
+
   void dispose() {
+  // Dispose hint scanner
+  _hintScanner.dispose();
+
   // Dispose Bluetooth state monitor
   _bluetoothStateMonitor.dispose();
 
@@ -1594,5 +1674,6 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
   _messagesController?.close();
   _connectionInfoController?.close();
   _discoveryDataController?.close();
+  _hintMatchController?.close();
 }
 }

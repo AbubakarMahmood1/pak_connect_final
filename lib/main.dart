@@ -12,6 +12,7 @@ import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
 import 'presentation/screens/chats_screen.dart';
 import 'presentation/providers/ble_providers.dart';
+import 'presentation/providers/theme_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,20 +28,23 @@ class PakConnectApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Watch theme mode from persistent settings
+    final themeMode = ref.watch(themeModeProvider);
+
     return MaterialApp(
       title: 'PakConnect - Enhanced Secure Messaging',
-      
+
       // Enhanced Material Design 3.0 theme with dark/light support
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system, // Follows system preference
-      
+      themeMode: themeMode, // Uses persistent user preference
+
       // Accessibility and internationalization
       debugShowCheckedModeBanner: false,
-      
+
       // Enhanced navigation with theme support
       home: const AppWrapper(),
-      
+
       // Theme transitions
       themeAnimationDuration: const Duration(milliseconds: 300),
       themeAnimationCurve: Curves.easeInOut,

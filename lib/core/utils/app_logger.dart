@@ -124,4 +124,5 @@ class LoggerNames {
   static const contact = 'Contact';
   static const ui = 'UI';
   static const power = 'Power';
+  static const hintSystem = 'HintSystem';
 }

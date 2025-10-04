@@ -17,14 +17,38 @@ import 'archive_management_service.dart';
 import 'archive_search_service.dart';
 
 /// Comprehensive chat management service with WhatsApp-inspired features
+/// Singleton pattern to prevent multiple service instances
 class ChatManagementService {
   static final _logger = Logger('ChatManagementService');
-  
-  final ChatsRepository _chatsRepository = ChatsRepository();
-  final MessageRepository _messageRepository = MessageRepository();
-  final ArchiveRepository _archiveRepository = ArchiveRepository();
-  final ArchiveManagementService _archiveManagementService = ArchiveManagementService();
-  final ArchiveSearchService _archiveSearchService = ArchiveSearchService();
+
+  // Singleton instance
+  static ChatManagementService? _instance;
+
+  /// Get the singleton instance
+  static ChatManagementService get instance {
+    _instance ??= ChatManagementService._internal();
+    return _instance!;
+  }
+
+  /// Private constructor for singleton
+  ChatManagementService._internal()
+      : _chatsRepository = ChatsRepository(),
+        _messageRepository = MessageRepository(),
+        _archiveRepository = ArchiveRepository.instance,
+        _archiveManagementService = ArchiveManagementService.instance,
+        _archiveSearchService = ArchiveSearchService.instance {
+    _logger.info('✅ ChatManagementService singleton instance created');
+  }
+
+  /// Factory constructor (redirects to instance getter)
+  factory ChatManagementService() => instance;
+
+  // Dependencies - use singleton instances where available
+  final ChatsRepository _chatsRepository;
+  final MessageRepository _messageRepository;
+  final ArchiveRepository _archiveRepository;
+  final ArchiveManagementService _archiveManagementService;
+  final ArchiveSearchService _archiveSearchService;
   
   static const String _starredMessagesKey = 'starred_messages';
   static const String _archivedChatsKey = 'archived_chats';

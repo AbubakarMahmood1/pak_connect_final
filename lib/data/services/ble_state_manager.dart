@@ -13,6 +13,7 @@ import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/services/security_manager.dart';
 import 'ble_service.dart';
+import '../../domain/entities/sensitive_contact_hint.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -848,7 +849,12 @@ Future<void> _finalizeContactAddition(String publicKey, String displayName, bool
       await SimpleCrypto.restoreConversationKey(publicKey, sharedSecret);
       _logger.info('📱 FINALIZE: ECDH secret computed and cached');
     }
-    
+
+    // Generate and store shared seed for hint system
+    final sharedSeed = SensitiveContactHint.generateSharedSeed();
+    await _contactRepository.cacheSharedSeedBytes(publicKey, sharedSeed);
+    _logger.info('📱 FINALIZE: Shared seed generated for hint system');
+
     // Mark bilateral sync as complete since we have mutual consent
     _markBilateralSyncComplete(publicKey);
     

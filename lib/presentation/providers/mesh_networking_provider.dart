@@ -18,9 +18,10 @@ import 'ble_providers.dart';
 final _logger = Logger('MeshNetworkingProvider');
 
 /// Singleton providers for service dependencies
+/// ✅ FIXED: Services now use singleton pattern to prevent re-initialization
 final _messageHandlerProvider = Provider<BLEMessageHandler>((ref) => BLEMessageHandler());
 final _contactRepositoryProvider = Provider<ContactRepository>((ref) => ContactRepository());
-final _chatManagementServiceProvider = Provider<ChatManagementService>((ref) => ChatManagementService());
+final _chatManagementServiceProvider = Provider<ChatManagementService>((ref) => ChatManagementService.instance);
 final _messageRepositoryProvider = Provider<MessageRepository>((ref) => MessageRepository());
 
 /// Provider for Bluetooth state monitor

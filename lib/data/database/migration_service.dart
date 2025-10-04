@@ -2,7 +2,7 @@
 // Handles contacts, messages, chats, offline queue with validation
 
 import 'dart:convert';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
 import 'package:crypto/crypto.dart';

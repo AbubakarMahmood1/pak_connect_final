@@ -13,25 +13,64 @@ import '../../data/repositories/chats_repository.dart';
 import '../../data/database/database_helper.dart';
 
 /// Repository for managing archived chats with SQLite and FTS5 search
+/// Singleton pattern to prevent multiple instances and redundant initialization
 class ArchiveRepository {
   static final _logger = Logger('ArchiveRepository');
 
-  // Dependencies
-  final MessageRepository _messageRepository = MessageRepository();
-  final ChatsRepository _chatsRepository = ChatsRepository();
+  // Singleton instance with lazy initialization
+  static ArchiveRepository? _instance;
+  static final _initLock = Object();
+
+  /// Get the singleton instance
+  static ArchiveRepository get instance {
+    if (_instance == null) {
+      synchronized(_initLock, () {
+        _instance ??= ArchiveRepository._internal();
+      });
+    }
+    return _instance!;
+  }
+
+  /// Private constructor for singleton
+  ArchiveRepository._internal({
+    MessageRepository? messageRepository,
+    ChatsRepository? chatsRepository,
+  }) : _messageRepository = messageRepository ?? MessageRepository(),
+       _chatsRepository = chatsRepository ?? ChatsRepository() {
+    _logger.info('✅ ArchiveRepository singleton instance created');
+  }
+
+  /// Factory constructor (redirects to instance getter)
+  factory ArchiveRepository() => instance;
+
+  // Dependencies (injected via constructor for testability)
+  final MessageRepository _messageRepository;
+  final ChatsRepository _chatsRepository;
 
   // Performance tracking
   final Map<String, Duration> _operationTimes = {};
   int _operationsCount = 0;
+  bool _isInitialized = false;
 
-  /// Initialize repository
+  /// Initialize repository (idempotent - safe to call multiple times)
   Future<void> initialize() async {
+    if (_isInitialized) {
+      _logger.fine('ArchiveRepository already initialized - skipping');
+      return;
+    }
+
     try {
       await DatabaseHelper.database;
+      _isInitialized = true;
       _logger.info('Archive repository initialized successfully');
     } catch (e) {
       _logger.severe('Failed to initialize archive repository: $e');
     }
+  }
+
+  /// Helper for synchronized block (Dart doesn't have built-in synchronized)
+  static void synchronized(Object lock, void Function() block) {
+    block(); // In production, use package:synchronized for true locking
   }
 
   /// Archive a chat with all its messages

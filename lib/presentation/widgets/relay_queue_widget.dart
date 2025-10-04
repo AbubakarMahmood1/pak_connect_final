@@ -28,6 +28,10 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   Timer? _loadingTimeout;
   bool _timeoutReached = false;
 
+  // ✅ FIX: Track last logged status to prevent duplicate logs
+  MeshNetworkStatus? _lastLoggedStatus;
+  bool? _lastHasData;
+
   @override
   void initState() {
     super.initState();
@@ -61,23 +65,23 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       builder: (context, snapshot) {
         final status = snapshot.data;
 
-        // 🔍 DEBUG: Log what RelayQueueWidget is receiving
-        _logger.fine('🔍 RELAY QUEUE WIDGET DEBUG:');
-        _logger.fine('  - snapshot.hasData: ${snapshot.hasData}');
-        _logger.fine('  - snapshot.hasError: ${snapshot.hasError}');
-        _logger.fine('  - status == null: ${status == null}');
-        if (status != null) {
-          _logger.fine('  - status.isInitialized: ${status.isInitialized}');
-          _logger.fine('  - status.queueMessages: ${status.queueMessages?.length ?? "null"}');
-          if (status.queueMessages != null && status.queueMessages!.isNotEmpty) {
-            final content = status.queueMessages!.first.content;
-            final preview = content.length > 20 ? '${content.substring(0, 20)}...' : content;
-            _logger.fine('  - First message: $preview');
-          }
+        // ✅ FIX: Only log when status actually changes (not on every rebuild)
+        final statusChanged = _lastLoggedStatus != status;
+        final dataStateChanged = _lastHasData != snapshot.hasData;
+
+        if (statusChanged || dataStateChanged) {
+          _logger.fine('🔍 RELAY QUEUE STATUS CHANGE:');
+          _logger.fine('  - hasData: ${snapshot.hasData}, initialized: ${status?.isInitialized ?? false}');
+          _logger.fine('  - queue: ${status?.queueMessages?.length ?? 0} messages');
+
+          _lastLoggedStatus = status;
+          _lastHasData = snapshot.hasData;
         }
 
         if (status == null) {
-          _logger.fine('ℹ️ RelayQueueWidget: Loading state displayed - MeshNetworkStatus is null');
+          if (statusChanged) {
+            _logger.fine('ℹ️ RelayQueueWidget: Loading state - waiting for status');
+          }
           // Cancel timeout if we get data
           if (_timeoutReached) {
             _loadingTimeout?.cancel();
@@ -308,22 +312,15 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   Widget _buildQueueList(MeshNetworkStatus status) {
     final queueMessages = status.queueMessages;
 
-    // 🔍 DEBUG: Log queue list building
-    _logger.fine('🔍 BUILDING QUEUE LIST:');
-    _logger.fine('  - queueMessages == null: ${queueMessages == null}');
-    _logger.fine('  - queueMessages.length: ${queueMessages?.length ?? "null"}');
+    // ✅ FIX: No need to log on every build - status changes are already logged above
 
     if (queueMessages == null) {
-      _logger.fine('  - Returning: Queue information unavailable');
       return _buildEmptyState('Queue information unavailable');
     }
 
     if (queueMessages.isEmpty) {
-      _logger.fine('  - Returning: No messages in relay queue');
       return _buildEmptyState('No messages in relay queue');
     }
-
-    _logger.fine('  - Returning: ListView with ${queueMessages.length} messages');
 
     return ListView.builder(
       padding: EdgeInsets.symmetric(vertical: 8),

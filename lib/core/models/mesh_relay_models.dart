@@ -52,19 +52,21 @@ class RelayMetadata {
     required String currentNodeId,
   }) {
     final ttl = _getTTLForPriority(priority);
+    final timestamp = DateTime.now();
     final messageHash = _generateMessageHash(
       originalMessageContent,
       originalSender,
       finalRecipient,
+      timestamp,
     );
-    
+
     return RelayMetadata(
       ttl: ttl,
       hopCount: 1,
       routingPath: [currentNodeId],
       messageHash: messageHash,
       priority: priority,
-      relayTimestamp: DateTime.now(),
+      relayTimestamp: timestamp,
       originalSender: originalSender,
       finalRecipient: finalRecipient,
     );
@@ -101,7 +103,21 @@ class RelayMetadata {
   
   /// Get remaining hops
   int get remainingHops => ttl - hopCount;
-  
+
+  /// Get reverse routing path for ACK propagation
+  /// This allows ACK to travel backward through the relay chain
+  List<String> get ackRoutingPath => routingPath.reversed.toList();
+
+  /// Get previous hop in the chain (where to send ACK back to)
+  /// Returns null if this is the originator (no previous hop)
+  String? get previousHop {
+    if (routingPath.length < 2) return null;
+    return routingPath[routingPath.length - 2]; // Second-to-last node
+  }
+
+  /// Check if this is the originator of the message
+  bool get isOriginator => routingPath.length == 1;
+
   /// Convert to JSON for serialization
   Map<String, dynamic> toJson() => {
     'ttl': ttl,
@@ -143,12 +159,14 @@ class RelayMetadata {
   }
   
   /// Generate cryptographic hash for message deduplication
+  /// Includes timestamp to ensure identical messages sent at different times have unique hashes
   static String _generateMessageHash(
     String content,
     String sender,
     String recipient,
+    DateTime timestamp,
   ) {
-    final combinedData = '$content:$sender:$recipient';
+    final combinedData = '$content:$sender:$recipient:${timestamp.millisecondsSinceEpoch}';
     final bytes = utf8.encode(combinedData);
     final digest = sha256.convert(bytes);
     return digest.toString();
@@ -171,13 +189,10 @@ class MeshRelayMessage {
   
   /// Timestamp when this relay was created
   final DateTime relayedAt;
-  
+
   /// Optional: Encrypted payload if message requires encryption
   final String? encryptedPayload;
-  
-  /// Signature of the relay operation
-  final String? relaySignature;
-  
+
   const MeshRelayMessage({
     required this.originalMessageId,
     required this.originalContent,
@@ -185,7 +200,6 @@ class MeshRelayMessage {
     required this.relayNodeId,
     required this.relayedAt,
     this.encryptedPayload,
-    this.relaySignature,
   });
   
   /// Create relay message for forwarding
@@ -234,9 +248,8 @@ class MeshRelayMessage {
     'relayNodeId': relayNodeId,
     'relayedAt': relayedAt.millisecondsSinceEpoch,
     if (encryptedPayload != null) 'encryptedPayload': encryptedPayload,
-    if (relaySignature != null) 'relaySignature': relaySignature,
   };
-  
+
   /// Create from JSON
   factory MeshRelayMessage.fromJson(Map<String, dynamic> json) => MeshRelayMessage(
     originalMessageId: json['originalMessageId'],
@@ -245,7 +258,6 @@ class MeshRelayMessage {
     relayNodeId: json['relayNodeId'],
     relayedAt: DateTime.fromMillisecondsSinceEpoch(json['relayedAt']),
     encryptedPayload: json['encryptedPayload'],
-    relaySignature: json['relaySignature'],
   );
 }
 

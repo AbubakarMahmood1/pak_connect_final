@@ -11,51 +11,74 @@ import '../../domain/entities/archived_message.dart';
 import '../../core/models/archive_models.dart';
 
 /// Advanced search service for archived chats and messages with full-text capabilities
+/// Singleton pattern to prevent multiple service instances
 class ArchiveSearchService {
   static final _logger = Logger('ArchiveSearchService');
-  
-  // Dependencies
-  final ArchiveRepository _archiveRepository = ArchiveRepository();
-  
+
+  // Singleton instance
+  static ArchiveSearchService? _instance;
+
+  /// Get the singleton instance
+  static ArchiveSearchService get instance {
+    _instance ??= ArchiveSearchService._internal();
+    return _instance!;
+  }
+
+  /// Private constructor for singleton
+  ArchiveSearchService._internal({
+    ArchiveRepository? archiveRepository,
+  }) : _archiveRepository = archiveRepository ?? ArchiveRepository.instance {
+    _logger.info('✅ ArchiveSearchService singleton instance created');
+  }
+
+  /// Factory constructor (redirects to instance getter)
+  factory ArchiveSearchService() => instance;
+
+  // Dependencies (injected for testability)
+  final ArchiveRepository _archiveRepository;
+
   // Storage keys
   static const String _searchHistoryKey = 'archive_search_history_v2';
   static const String _searchPreferencesKey = 'archive_search_preferences_v2';
   static const String _searchAnalyticsKey = 'archive_search_analytics_v2';
   static const String _savedSearchesKey = 'archive_saved_searches_v2';
-  
+
   // Search index and cache
   final Map<String, Set<String>> _termIndex = {}; // term -> archive IDs
   final Map<String, Set<String>> _fuzzyIndex = {}; // soundex -> archive IDs
   final Map<String, SearchResultCache> _searchCache = {};
   final Map<String, SearchSuggestionCache> _suggestionCache = {};
-  
+
   // Configuration
   SearchServiceConfig _config = SearchServiceConfig.defaultConfig();
-  
+
   // Search history and analytics
   final List<ArchiveSearchEntry> _searchHistory = [];
   final Map<String, SearchAnalytics> _queryAnalytics = {};
   final List<SavedSearch> _savedSearches = [];
-  
+
   // Performance tracking
   //final Map<String, Duration> _searchTimes = {};
   int _totalSearches = 0;
-  
+
   // Event streams
   final _searchUpdatesController = StreamController<ArchiveSearchEvent>.broadcast();
   final _suggestionUpdatesController = StreamController<SearchSuggestionEvent>.broadcast();
-  
+
   /// Stream of search events
   Stream<ArchiveSearchEvent> get searchUpdates => _searchUpdatesController.stream;
-  
+
   /// Stream of suggestion events
   Stream<SearchSuggestionEvent> get suggestionUpdates => _suggestionUpdatesController.stream;
-  
+
   bool _isInitialized = false;
-  
-  /// Initialize the archive search service
+
+  /// Initialize the archive search service (idempotent - safe to call multiple times)
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (_isInitialized) {
+      _logger.fine('ArchiveSearchService already initialized - skipping');
+      return;
+    }
     
     try {
       _logger.info('Initializing archive search service');

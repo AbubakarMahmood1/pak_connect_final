@@ -30,7 +30,7 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final operationsState = ref.watch(archiveOperationsStateProvider);
+    final operationsState = ref.watch(archiveOperationsProvider);
     
     return AlertDialog(
       title: Row(
@@ -346,7 +346,7 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
   
   Widget _buildRestoringIndicator(BuildContext context) {
     final theme = Theme.of(context);
-    final operationsState = ref.watch(archiveOperationsStateProvider);
+    final operationsState = ref.watch(archiveOperationsProvider);
     
     return Container(
       padding: const EdgeInsets.all(12),
@@ -421,8 +421,7 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
     });
     
     try {
-      final notifier = ref.read(archiveOperationsProvider);
-      final result = await notifier.restoreChat(
+      final result = await ref.read(archiveOperationsProvider.notifier).restoreChat(
         archiveId: widget.archive.id,
         overwriteExisting: _overwriteExisting,
       );

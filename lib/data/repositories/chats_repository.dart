@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/entities/message.dart';
 import '../../core/utils/chat_utils.dart';
@@ -334,5 +334,49 @@ class ChatsRepository {
     }
 
     return false;
+  }
+
+  // =========================
+  // STATISTICS METHODS
+  // =========================
+
+  /// Get total chat count (non-archived)
+  Future<int> getChatCount() async {
+    try {
+      final db = await DatabaseHelper.database;
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM chats WHERE is_archived = 0',
+      );
+      return Sqflite.firstIntValue(result) ?? 0;
+    } catch (e) {
+      _logger.warning('Failed to get chat count: $e');
+      return 0;
+    }
+  }
+
+  /// Get archived chat count
+  Future<int> getArchivedChatCount() async {
+    try {
+      final db = await DatabaseHelper.database;
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM chats WHERE is_archived = 1',
+      );
+      return Sqflite.firstIntValue(result) ?? 0;
+    } catch (e) {
+      _logger.warning('Failed to get archived chat count: $e');
+      return 0;
+    }
+  }
+
+  /// Get total message count across all chats
+  Future<int> getTotalMessageCount() async {
+    try {
+      final db = await DatabaseHelper.database;
+      final result = await db.rawQuery('SELECT COUNT(*) as count FROM messages');
+      return Sqflite.firstIntValue(result) ?? 0;
+    } catch (e) {
+      _logger.warning('Failed to get total message count: $e');
+      return 0;
+    }
   }
 }

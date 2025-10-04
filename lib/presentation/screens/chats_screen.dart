@@ -17,13 +17,18 @@ import '../widgets/discovery_overlay.dart';
 import '../widgets/relay_queue_widget.dart';
 import 'chat_screen.dart';
 import 'qr_contact_screen.dart';
+import 'contacts_screen.dart';
 import 'archive_screen.dart';
+import 'profile_screen.dart';
+import 'settings_screen.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../domain/services/chat_management_service.dart';
 
 /// Menu actions for chats screen
 enum ChatsMenuAction {
+  openProfile,
+  openContacts,
   openArchives,
   settings,
 }
@@ -131,7 +136,7 @@ Widget build(BuildContext context) {
         appBar: AppBar(
           title: Consumer(
             builder: (context, ref, child) {
-              final usernameAsync = ref.watch(usernameStreamProvider);
+              final usernameAsync = ref.watch(usernameProvider);
               return usernameAsync.when(
                 data: (username) => GestureDetector(
                   onTap: () => _editDisplayName(),
@@ -148,12 +153,12 @@ Widget build(BuildContext context) {
             },
           ),
           leading: GestureDetector(
-            onTap: () => _showSettings(),
+            onTap: () => _openProfile(),
             child: Padding(
               padding: EdgeInsets.all(8.0),
               child: Consumer(
                 builder: (context, ref, child) {
-                  final usernameAsync = ref.watch(usernameStreamProvider);
+                  final usernameAsync = ref.watch(usernameProvider);
                   return usernameAsync.when(
                     data: (username) => CircleAvatar(
                       backgroundColor: Theme.of(context).colorScheme.primary,
@@ -239,6 +244,26 @@ Widget build(BuildContext context) {
             PopupMenuButton<ChatsMenuAction>(
               onSelected: _handleMenuAction,
               itemBuilder: (context) => [
+                PopupMenuItem<ChatsMenuAction>(
+                  value: ChatsMenuAction.openProfile,
+                  child: Row(
+                    children: [
+                      Icon(Icons.person, size: 18),
+                      SizedBox(width: 8),
+                      Text('Profile'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem<ChatsMenuAction>(
+                  value: ChatsMenuAction.openContacts,
+                  child: Row(
+                    children: [
+                      Icon(Icons.contacts, size: 18),
+                      SizedBox(width: 8),
+                      Text('Contacts'),
+                    ],
+                  ),
+                ),
                 PopupMenuItem<ChatsMenuAction>(
                   value: ChatsMenuAction.openArchives,
                   child: Row(
@@ -916,189 +941,23 @@ void _openChat(ChatListItem chat) async {
     _loadChats();
   }
 
-void _showPairingGuide() {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: Row(
-        children: [
-          Icon(Icons.help_outline, color: Theme.of(context).colorScheme.primary),
-          SizedBox(width: 12),
-          Text('How to....'),
-        ],
-      ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildGuideStep(
-              context,
-              '1',
-              'Choose Device Roles',
-              'One device should be in "Discoverable" mode, the other in "Scanner" mode.',
-            ),
-            _buildGuideStep(
-              context,
-              '2',
-              'Start Connection',
-              'Scanner device will find the Discoverable device. Tap to connect.',
-            ),
-            _buildGuideStep(
-              context,
-              '3',
-              'Begin Chatting',
-              'Once connected, you can send messages with automatic encryption.',
-            ),
-            _buildGuideStep(
-              context,
-              '4',
-              'Enhanced Security',
-              'For better security, use pairing, or for the best, add contacts to get ECDH.',
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Got it!'),
-        ),
-      ],
-    ),
-  );
-}
+  void _showSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+    );
+  }
 
-Widget _buildGuideStep(BuildContext context, String step, String title, String description) {
-  return Padding(
-    padding: EdgeInsets.only(bottom: 16),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Text(
-              step,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
-        SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              SizedBox(height: 4),
-              Text(
-                description,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-void _showAbout() {
-  showAboutDialog(
-    context: context,
-    applicationName: 'BLE Chat',
-    applicationVersion: '1.0.0',
-    applicationIcon: Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary,
-        shape: BoxShape.circle,
-      ),
-      child: Icon(
-        Icons.bluetooth,
-        color: Theme.of(context).colorScheme.onPrimary,
-        size: 24,
-      ),
-    ),
-    children: [
-      SizedBox(height: 16),
-      Text('Secure offline messaging for family and friends.'),
-      SizedBox(height: 12),
-      Text(
-        'Features:',
-        style: TextStyle(fontWeight: FontWeight.w600),
-      ),
-      Text('• Works without internet'),
-      Text('• Three-tier security system'),
-      Text('• Cross-platform compatibility'),
-      Text('• No data collection'),
-      SizedBox(height: 12),
-      Text(
-        'Your messages never leave your devices.',
-        style: TextStyle(
-          fontStyle: FontStyle.italic,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-      ),
-    ],
-  );
-}
-
- void _showSettings() {
-  showModalBottomSheet(
-    context: context,
-    builder: (context) => Container(
-      padding: EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Settings',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          SizedBox(height: 24),
-          ListTile(
-            leading: Icon(Icons.help_outline),
-            title: Text('How to Connect'),
-            subtitle: Text('Step-by-step pairing guide'),
-            onTap: () {
-              Navigator.pop(context);
-              _showPairingGuide();
-            },
-          ),
-          ListTile(
-            leading: Icon(Icons.info),
-            title: Text('About'),
-            subtitle: Text('App version and information'),
-            onTap: () {
-              Navigator.pop(context);
-              _showAbout();
-            },
-          ),
-        ],
-      ),
-    ),
-  );
-}
+  void _openProfile() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProfileScreen()),
+    );
+  }
 
 void _editDisplayName() async {
-  // Get the username first using reactive provider
-  final currentName = await ref.read(currentUsernameProvider.future);
+  // Get the username first using modern AsyncNotifier provider
+  final currentName = await ref.read(usernameProvider.future);
   
   // Check mounted after async
   if (!mounted) return;
@@ -1139,10 +998,9 @@ void _editDisplayName() async {
             navigator.pop(); // Pop first
             
             try {
-              // USERNAME PROPAGATION FIX: Use reactive username operations
-              final usernameOps = ref.read(usernameOperationsProvider);
-              await usernameOps.updateUsernameWithBLE(name);
-              
+              // Use modern AsyncNotifier provider for real-time updates
+              await ref.read(usernameProvider.notifier).updateUsername(name);
+
               messenger.showSnackBar(
                 SnackBar(content: Text('Name updated and synced across devices')),
               );
@@ -1192,6 +1050,12 @@ void _editDisplayName() async {
 
   void _handleMenuAction(ChatsMenuAction action) {
     switch (action) {
+      case ChatsMenuAction.openProfile:
+        _openProfile();
+        break;
+      case ChatsMenuAction.openContacts:
+        _openContacts();
+        break;
       case ChatsMenuAction.openArchives:
         _openArchives();
         break;
@@ -1199,6 +1063,13 @@ void _editDisplayName() async {
         _showSettings();
         break;
     }
+  }
+
+  void _openContacts() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ContactsScreen()),
+    );
   }
   
   void _openArchives() {
@@ -1276,8 +1147,7 @@ void _editDisplayName() async {
   
   Future<void> _archiveChat(ChatListItem chat) async {
     try {
-      final archiveNotifier = ref.read(archiveOperationsProvider);
-      final result = await archiveNotifier.archiveChat(
+      final result = await ref.read(archiveOperationsProvider.notifier).archiveChat(
         chatId: chat.chatId,
         reason: 'User archived from chat list',
         metadata: {

@@ -766,16 +766,13 @@ class MeshNetworkingService {
     }
 
     try {
-      final message = _messageQueue!.getMessageById(messageId);
-      if (message == null) {
-        _logger.warning('Message not found for priority change: ${messageId.substring(0, 16)}...');
-        return false;
+      final success = await _messageQueue!.changePriority(messageId, priority);
+
+      if (success) {
+        _logger.info('Successfully changed priority for message ${messageId.substring(0, 16)}... to ${priority.name}');
       }
 
-      // Note: QueuedMessage priority is final, so this is a limitation
-      // In a real implementation, you'd need to recreate the message with new priority
-      _logger.info('Priority change requested for message: ${messageId.substring(0, 16)}... (current limitation: priority is immutable)');
-      return false;
+      return success;
 
     } catch (e) {
       _logger.severe('Failed to set message priority: $e');
@@ -873,18 +870,64 @@ class MeshNetworkingService {
   }
 
   /// Check if a message should be relayed through the specified device
-  bool _shouldRelayThroughDevice(QueuedMessage message, String deviceId) {
+  /// Uses smart routing and topology analysis to determine optimal relay decisions
+  Future<bool> _shouldRelayThroughDevice(QueuedMessage message, String deviceId) async {
     try {
-      // Simple heuristic: if the message recipient is not the connected device,
-      // and no direct connection to recipient exists, relay through this device
+      final finalRecipient = message.recipientPublicKey;
 
-      // For now, return true for any offline recipient (Ali) when relay node (Arshad) is available
-      // This will be refined when proper topology tracking is implemented
-      return true;
+      // Don't relay if the message is already for this device (direct delivery)
+      if (finalRecipient == deviceId) {
+        return false; // This should be sent directly, not relayed
+      }
+
+      // If we can deliver directly to final recipient, don't relay through intermediate
+      if (_bleService.otherDevicePersistentId == finalRecipient) {
+        return false; // Direct connection to recipient exists
+      }
+
+      // Check if this is a relay message - examine relay metadata
+      if (message.isRelayMessage && message.relayMetadata != null) {
+        // Don't create loops - if device is already in routing path
+        if (message.relayMetadata!.hasNodeInPath(deviceId)) {
+          return false;
+        }
+
+        // Don't relay if TTL would be exceeded
+        if (!message.relayMetadata!.canRelay) {
+          return false;
+        }
+      }
+
+      // Use smart router if available for intelligent routing decisions
+      if (_smartRouter != null) {
+        try {
+          // Use smart router to determine if this device should be used as relay
+          final routingDecision = await _smartRouter!.determineOptimalRoute(
+            finalRecipient: finalRecipient,
+            availableHops: [deviceId],
+            priority: message.priority,
+          );
+
+          if (routingDecision.isSuccessful && routingDecision.nextHop == deviceId) {
+            return true; // Smart router selected this device as next hop
+          }
+
+        } catch (e) {
+          _logger.fine('Smart routing check failed, using fallback: $e');
+          // Continue to fallback heuristic
+        }
+      }
+
+      // Fallback heuristic: If device is connected and we can't reach recipient directly
+      // and the device is not the final recipient, try relaying through it
+      final isDeviceConnected = _bleService.otherDevicePersistentId == deviceId;
+      final cannotReachRecipientDirectly = _bleService.otherDevicePersistentId != finalRecipient;
+
+      return isDeviceConnected && cannotReachRecipientDirectly;
 
     } catch (e) {
       _logger.warning('Error checking relay route: $e');
-      return false; // Conservative fallback
+      return false; // Conservative fallback: don't relay on error
     }
   }
 
@@ -1040,10 +1083,13 @@ class MeshNetworkingService {
       // 🌐 DEVICE CAME ONLINE
       MeshDebugLogger.deviceConnected(connectedDeviceId);
       _messageQueue?.setOnline();
-      
+
       // 🎯 CRITICAL ENHANCEMENT: Auto-deliver queued messages to newly connected device
       await _deliverQueuedMessagesToDevice(connectedDeviceId);
-      
+
+      // 🔄 Auto-trigger queue synchronization with connected device
+      await _syncQueueWithDevice(connectedDeviceId);
+
     } else if (!isOnline) {
       // 🔌 DEVICE WENT OFFLINE
       if (connectedDeviceId != null && connectedDeviceId.isNotEmpty) {
@@ -1069,9 +1115,16 @@ class MeshNetworkingService {
           .toList();
 
       // Get relay messages that should go through this device
-      final relayMessages = _messageQueue!.getMessagesByStatus(QueuedMessageStatus.pending)
-          .where((msg) => msg.recipientPublicKey != deviceId && _shouldRelayThroughDevice(msg, deviceId))
+      final pendingMessages = _messageQueue!.getMessagesByStatus(QueuedMessageStatus.pending)
+          .where((msg) => msg.recipientPublicKey != deviceId)
           .toList();
+
+      final relayMessages = <QueuedMessage>[];
+      for (final msg in pendingMessages) {
+        if (await _shouldRelayThroughDevice(msg, deviceId)) {
+          relayMessages.add(msg);
+        }
+      }
 
       final allMessages = [...directMessages, ...relayMessages];
 
@@ -1132,6 +1185,48 @@ class MeshNetworkingService {
       
     } catch (e) {
       MeshDebugLogger.error('QUEUE_DELIVERY', e.toString());
+    }
+  }
+
+  /// Synchronize message queue with connected device via hash comparison
+  Future<void> _syncQueueWithDevice(String deviceId) async {
+    try {
+      if (_messageQueue == null) {
+        _logger.warning('Queue sync skipped - message queue not initialized');
+        return;
+      }
+
+      if (_currentNodeId == null) {
+        _logger.warning('Queue sync skipped - current node ID not set');
+        return;
+      }
+
+      final truncatedDeviceId = deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId;
+      _logger.info('🔄 Starting queue sync with $truncatedDeviceId...');
+
+      // Calculate our queue hash
+      final ourHash = _messageQueue!.calculateQueueHash();
+      final ourHashPreview = ourHash.substring(0, 16);
+
+      // Create sync request message
+      final syncMessage = _messageQueue!.createSyncMessage(_currentNodeId!);
+
+      _logger.info('🔄 Our queue hash: $ourHashPreview... (${syncMessage.messageIds.length} messages)');
+
+      // Send sync message via queue sync manager if available
+      if (_queueSyncManager != null) {
+        try {
+          await _queueSyncManager!.initiateSync(deviceId);
+          _logger.info('✅ Queue sync request sent to $truncatedDeviceId...');
+        } catch (e) {
+          _logger.warning('Queue sync request failed: $e');
+        }
+      } else {
+        _logger.info('Queue sync manager not available - sync request skipped');
+      }
+
+    } catch (e) {
+      _logger.severe('Failed to sync queue with device: $e');
     }
   }
 

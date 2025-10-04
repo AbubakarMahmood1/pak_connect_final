@@ -1,10 +1,11 @@
 // SQLite-based contact repository with security levels and trust management
 // Replaces SharedPreferences with efficient database queries
 
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../../core/services/security_manager.dart';
 import '../database/database_helper.dart';
@@ -203,6 +204,32 @@ class ContactRepository {
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
     final key = _sharedSecretPrefix + keyHash.substring(0, 16);
     return await _secureStorage.read(key: key);
+  }
+
+  /// Cache shared seed as bytes (for hint system)
+  Future<void> cacheSharedSeedBytes(String publicKey, Uint8List seedBytes) async {
+    final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
+    final key = '$_sharedSecretPrefix${keyHash.substring(0, 16)}_seed';
+
+    // Convert bytes to base64 for storage
+    final base64Seed = base64Encode(seedBytes);
+    await _secureStorage.write(key: key, value: base64Seed);
+  }
+
+  /// Get cached shared seed as bytes (for hint system)
+  Future<Uint8List?> getCachedSharedSeedBytes(String publicKey) async {
+    final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
+    final key = '$_sharedSecretPrefix${keyHash.substring(0, 16)}_seed';
+
+    final base64Seed = await _secureStorage.read(key: key);
+    if (base64Seed == null) return null;
+
+    try {
+      return Uint8List.fromList(base64Decode(base64Seed));
+    } catch (e) {
+      _logger.warning('Failed to decode shared seed for $publicKey: $e');
+      return null;
+    }
   }
 
   /// Get contact name by public key
@@ -408,5 +435,75 @@ class ContactRepository {
       data,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  // =========================
+  // STATISTICS METHODS
+  // =========================
+
+  /// Get total contact count
+  Future<int> getContactCount() async {
+    try {
+      final db = await _db;
+      final result = await db.rawQuery('SELECT COUNT(*) as count FROM contacts');
+      return Sqflite.firstIntValue(result) ?? 0;
+    } catch (e) {
+      _logger.warning('Failed to get contact count: $e');
+      return 0;
+    }
+  }
+
+  /// Get verified contact count
+  Future<int> getVerifiedContactCount() async {
+    try {
+      final db = await _db;
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM contacts WHERE trust_status = ?',
+        [TrustStatus.verified.index],
+      );
+      return Sqflite.firstIntValue(result) ?? 0;
+    } catch (e) {
+      _logger.warning('Failed to get verified contact count: $e');
+      return 0;
+    }
+  }
+
+  /// Get contact count by security level
+  Future<Map<SecurityLevel, int>> getContactsBySecurityLevel() async {
+    try {
+      final db = await _db;
+      final Map<SecurityLevel, int> counts = {};
+
+      for (final level in SecurityLevel.values) {
+        final result = await db.rawQuery(
+          'SELECT COUNT(*) as count FROM contacts WHERE security_level = ?',
+          [level.index],
+        );
+        counts[level] = Sqflite.firstIntValue(result) ?? 0;
+      }
+
+      return counts;
+    } catch (e) {
+      _logger.warning('Failed to get contacts by security level: $e');
+      return {};
+    }
+  }
+
+  /// Get recently active contacts (last 7 days)
+  Future<int> getRecentlyActiveContactCount() async {
+    try {
+      final db = await _db;
+      final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).millisecondsSinceEpoch;
+
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM contacts WHERE last_seen >= ?',
+        [sevenDaysAgo],
+      );
+
+      return Sqflite.firstIntValue(result) ?? 0;
+    } catch (e) {
+      _logger.warning('Failed to get recently active contact count: $e');
+      return 0;
+    }
   }
 }

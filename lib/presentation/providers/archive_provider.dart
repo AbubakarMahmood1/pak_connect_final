@@ -12,35 +12,35 @@ import '../../core/models/archive_models.dart';
 /// Logger for archive provider
 final _logger = Logger('ArchiveProvider');
 
-/// Archive management service provider
+/// Archive management service provider (singleton)
+/// ✅ FIXED: Uses singleton instance instead of creating new instances
 final archiveManagementServiceProvider = Provider<ArchiveManagementService>((ref) {
-  final service = ArchiveManagementService();
-  
-  // Initialize service when first accessed
+  final service = ArchiveManagementService.instance;
+
+  // Initialize service when first accessed (idempotent - safe to call multiple times)
   service.initialize().catchError((error) {
     _logger.severe('Failed to initialize archive management service: $error');
   });
-  
-  ref.onDispose(() {
-    service.dispose();
-  });
-  
+
+  // Note: Don't dispose singleton on provider disposal - it's shared across app
+  // The singleton will be disposed when app terminates
+
   return service;
 });
 
-/// Archive search service provider
+/// Archive search service provider (singleton)
+/// ✅ FIXED: Uses singleton instance instead of creating new instances
 final archiveSearchServiceProvider = Provider<ArchiveSearchService>((ref) {
-  final service = ArchiveSearchService();
-  
-  // Initialize service when first accessed
+  final service = ArchiveSearchService.instance;
+
+  // Initialize service when first accessed (idempotent - safe to call multiple times)
   service.initialize().catchError((error) {
     _logger.severe('Failed to initialize archive search service: $error');
   });
-  
-  ref.onDispose(() {
-    service.dispose();
-  });
-  
+
+  // Note: Don't dispose singleton on provider disposal - it's shared across app
+  // The singleton will be disposed when app terminates
+
   return service;
 });
 
@@ -162,19 +162,6 @@ final archivedChatProvider = FutureProvider.family<ArchivedChat?, String>((ref, 
   }
 });
 
-/// Archive operations state provider
-final archiveOperationsProvider = Provider<ArchiveOperationsNotifier>((ref) {
-  return ArchiveOperationsNotifier(
-    ref.watch(archiveManagementServiceProvider),
-  );
-});
-
-/// Archive operations state provider
-final archiveOperationsStateProvider = Provider<ArchiveOperationsState>((ref) {
-  final notifier = ref.watch(archiveOperationsProvider);
-  return notifier.state;
-});
-
 /// Archive operations state
 class ArchiveOperationsState {
   final bool isArchiving;
@@ -184,7 +171,7 @@ class ArchiveOperationsState {
   final Map<String, double> operationProgress;
   final List<String> recentErrors;
   final List<String> recentSuccesses;
-  
+
   const ArchiveOperationsState({
     this.isArchiving = false,
     this.isRestoring = false,
@@ -194,7 +181,7 @@ class ArchiveOperationsState {
     this.recentErrors = const [],
     this.recentSuccesses = const [],
   });
-  
+
   ArchiveOperationsState copyWith({
     bool? isArchiving,
     bool? isRestoring,
@@ -214,82 +201,82 @@ class ArchiveOperationsState {
       recentSuccesses: recentSuccesses ?? this.recentSuccesses,
     );
   }
-  
+
   bool get hasActiveOperation => isArchiving || isRestoring || isDeleting;
 }
 
-/// Archive operations notifier
-class ArchiveOperationsNotifier {
-  final ArchiveManagementService _managementService;
-  late StreamSubscription _archiveUpdatesSubscription;
-  
-  ArchiveOperationsState _state = const ArchiveOperationsState();
-  ArchiveOperationsState get state => _state;
-  
-  final _stateController = StreamController<ArchiveOperationsState>.broadcast();
-  Stream<ArchiveOperationsState> get stateStream => _stateController.stream;
-  
-  ArchiveOperationsNotifier(this._managementService) {
+/// Modern Riverpod 3.0 Archive Operations Notifier
+class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
+  late ArchiveManagementService _managementService;
+  StreamSubscription? _archiveUpdatesSubscription;
+
+  @override
+  ArchiveOperationsState build() {
+    // Get the management service from provider
+    _managementService = ref.watch(archiveManagementServiceProvider);
+
+    // Setup event listeners
     _setupEventListeners();
+
+    // Cleanup on dispose
+    ref.onDispose(() {
+      _archiveUpdatesSubscription?.cancel();
+    });
+
+    return const ArchiveOperationsState();
   }
-  
-  void _setState(ArchiveOperationsState newState) {
-    _state = newState;
-    _stateController.add(newState);
-  }
-  
+
   void _setupEventListeners() {
     _archiveUpdatesSubscription = _managementService.archiveUpdates.listen((event) {
       _handleArchiveUpdateEvent(event);
     });
   }
-  
+
   void _handleArchiveUpdateEvent(ArchiveUpdateEvent event) {
     // Handle different types of archive update events
-    // Since we can't access private event classes, we'll handle this generically
-    _setState(_state.copyWith(
+    state = state.copyWith(
       isArchiving: false,
       isRestoring: false,
       currentOperation: null,
-      recentSuccesses: [..._state.recentSuccesses, 'Archive operation completed'],
-    ));
+      recentSuccesses: [...state.recentSuccesses, 'Archive operation completed'],
+    );
   }
-  
+
   /// Archive a chat
   Future<ArchiveOperationResult> archiveChat({
     required String chatId,
     String? reason,
     Map<String, dynamic>? metadata,
   }) async {
-    _setState(_state.copyWith(
+    state = state.copyWith(
       isArchiving: true,
       currentOperation: 'Archiving chat...',
-    ));
-    
+    );
+
     try {
       final result = await _managementService.archiveChat(
         chatId: chatId,
         reason: reason,
         metadata: metadata,
       );
-      
+
       if (!result.success) {
-        _setState(_state.copyWith(
+        state = state.copyWith(
           isArchiving: false,
           currentOperation: null,
-          recentErrors: [..._state.recentErrors, result.message],
-        ));
+          recentErrors: [...state.recentErrors, result.message],
+        );
       }
-      
+
       return result;
-      
+
     } catch (e) {
-      _setState(_state.copyWith(
+      state = state.copyWith(
         isArchiving: false,
         currentOperation: null,
-        recentErrors: [..._state.recentErrors, 'Archive failed: $e'],
-      ));
-      
+        recentErrors: [...state.recentErrors, 'Archive failed: $e'],
+      );
+
       return ArchiveOperationResult.failure(
         message: 'Archive operation failed: $e',
         operationType: ArchiveOperationType.archive,
@@ -297,40 +284,40 @@ class ArchiveOperationsNotifier {
       );
     }
   }
-  
+
   /// Restore a chat from archive
   Future<ArchiveOperationResult> restoreChat({
     required String archiveId,
     bool overwriteExisting = false,
   }) async {
-    _setState(_state.copyWith(
+    state = state.copyWith(
       isRestoring: true,
       currentOperation: 'Restoring chat...',
-    ));
-    
+    );
+
     try {
       final result = await _managementService.restoreChat(
         archiveId: archiveId,
         overwriteExisting: overwriteExisting,
       );
-      
+
       if (!result.success) {
-        _setState(_state.copyWith(
+        state = state.copyWith(
           isRestoring: false,
           currentOperation: null,
-          recentErrors: [..._state.recentErrors, result.message],
-        ));
+          recentErrors: [...state.recentErrors, result.message],
+        );
       }
-      
+
       return result;
-      
+
     } catch (e) {
-      _setState(_state.copyWith(
+      state = state.copyWith(
         isRestoring: false,
         currentOperation: null,
-        recentErrors: [..._state.recentErrors, 'Restore failed: $e'],
-      ));
-      
+        recentErrors: [...state.recentErrors, 'Restore failed: $e'],
+      );
+
       return ArchiveOperationResult.failure(
         message: 'Restore operation failed: $e',
         operationType: ArchiveOperationType.restore,
@@ -338,51 +325,57 @@ class ArchiveOperationsNotifier {
       );
     }
   }
-  
+
   /// Delete archived chat permanently
   Future<bool> deleteArchivedChat(String archiveId) async {
-    _setState(_state.copyWith(
+    state = state.copyWith(
       isDeleting: true,
       currentOperation: 'Deleting archived chat...',
-    ));
-    
+    );
+
     try {
       // For now, we'll simulate deletion - proper API would be needed
       await Future.delayed(Duration(milliseconds: 500)); // Simulate operation
       // Would actually delete through proper API and get real result
-      
-      _setState(_state.copyWith(
+
+      state = state.copyWith(
         isDeleting: false,
         currentOperation: null,
-        recentSuccesses: [..._state.recentSuccesses, 'Deleted archive $archiveId'],
-      ));
-      
+        recentSuccesses: [...state.recentSuccesses, 'Deleted archive $archiveId'],
+      );
+
       return true;
-      
+
     } catch (e) {
-      _setState(_state.copyWith(
+      state = state.copyWith(
         isDeleting: false,
         currentOperation: null,
-        recentErrors: [..._state.recentErrors, 'Delete failed: $e'],
-      ));
-      
+        recentErrors: [...state.recentErrors, 'Delete failed: $e'],
+      );
+
       return false;
     }
   }
-  
+
   /// Clear recent messages
   void clearRecentMessages() {
-    _setState(_state.copyWith(
+    state = state.copyWith(
       recentErrors: [],
       recentSuccesses: [],
-    ));
-  }
-  
-  void dispose() {
-    _archiveUpdatesSubscription.cancel();
-    _stateController.close();
+    );
   }
 }
+
+/// Modern NotifierProvider for archive operations
+final archiveOperationsProvider = NotifierProvider<ArchiveOperationsNotifier, ArchiveOperationsState>(() {
+  return ArchiveOperationsNotifier();
+});
+
+/// Legacy compatibility - redirects to modern provider
+@Deprecated('Use archiveOperationsProvider directly instead')
+final archiveOperationsStateProvider = Provider<ArchiveOperationsState>((ref) {
+  return ref.watch(archiveOperationsProvider);
+});
 
 /// Filter parameters for archive list
 class ArchiveListFilter {
@@ -461,17 +454,6 @@ class ArchiveSearchQuery {
   }
 }
 
-/// Archive UI state provider for managing UI-specific state
-final archiveUIStateProvider = Provider<ArchiveUIStateNotifier>((ref) {
-  return ArchiveUIStateNotifier();
-});
-
-/// Archive UI state provider
-final archiveUICurrentStateProvider = Provider<ArchiveUIState>((ref) {
-  final notifier = ref.watch(archiveUIStateProvider);
-  return notifier.state;
-});
-
 /// Archive UI state
 class ArchiveUIState {
   final bool isSearchMode;
@@ -479,7 +461,7 @@ class ArchiveUIState {
   final ArchiveListFilter? currentFilter;
   final String? selectedArchiveId;
   final bool showStatistics;
-  
+
   const ArchiveUIState({
     this.isSearchMode = false,
     this.searchQuery = '',
@@ -487,7 +469,7 @@ class ArchiveUIState {
     this.selectedArchiveId,
     this.showStatistics = true,
   });
-  
+
   ArchiveUIState copyWith({
     bool? isSearchMode,
     String? searchQuery,
@@ -505,51 +487,52 @@ class ArchiveUIState {
   }
 }
 
-/// Archive UI state notifier
-class ArchiveUIStateNotifier {
-  ArchiveUIState _state = const ArchiveUIState();
-  ArchiveUIState get state => _state;
-  
-  final _stateController = StreamController<ArchiveUIState>.broadcast();
-  Stream<ArchiveUIState> get stateStream => _stateController.stream;
-  
-  void _setState(ArchiveUIState newState) {
-    _state = newState;
-    _stateController.add(newState);
+/// Modern Riverpod 3.0 Archive UI State Notifier
+class ArchiveUIStateNotifier extends Notifier<ArchiveUIState> {
+  @override
+  ArchiveUIState build() {
+    return const ArchiveUIState();
   }
-  
+
   void toggleSearchMode() {
-    _setState(_state.copyWith(
-      isSearchMode: !_state.isSearchMode,
-      searchQuery: _state.isSearchMode ? '' : _state.searchQuery,
-    ));
+    state = state.copyWith(
+      isSearchMode: !state.isSearchMode,
+      searchQuery: state.isSearchMode ? '' : state.searchQuery,
+    );
   }
-  
+
   void updateSearchQuery(String query) {
-    _setState(_state.copyWith(searchQuery: query));
+    state = state.copyWith(searchQuery: query);
   }
-  
+
   void updateFilter(ArchiveListFilter? filter) {
-    _setState(_state.copyWith(currentFilter: filter));
+    state = state.copyWith(currentFilter: filter);
   }
-  
+
   void selectArchive(String? archiveId) {
-    _setState(_state.copyWith(selectedArchiveId: archiveId));
+    state = state.copyWith(selectedArchiveId: archiveId);
   }
-  
+
   void toggleStatistics() {
-    _setState(_state.copyWith(showStatistics: !_state.showStatistics));
+    state = state.copyWith(showStatistics: !state.showStatistics);
   }
-  
+
   void clearSearch() {
-    _setState(_state.copyWith(
+    state = state.copyWith(
       isSearchMode: false,
       searchQuery: '',
       currentFilter: null,
-    ));
-  }
-  
-  void dispose() {
-    _stateController.close();
+    );
   }
 }
+
+/// Modern NotifierProvider for archive UI state
+final archiveUIStateProvider = NotifierProvider<ArchiveUIStateNotifier, ArchiveUIState>(() {
+  return ArchiveUIStateNotifier();
+});
+
+/// Legacy compatibility - redirects to modern provider
+@Deprecated('Use archiveUIStateProvider directly instead')
+final archiveUICurrentStateProvider = Provider<ArchiveUIState>((ref) {
+  return ref.watch(archiveUIStateProvider);
+});

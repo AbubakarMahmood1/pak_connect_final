@@ -14,6 +14,8 @@ import '../domain/services/chat_management_service.dart';
 import '../data/services/ble_state_manager.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
+import '../data/repositories/archive_repository.dart';
+import '../data/database/database_helper.dart';
 
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
@@ -31,6 +33,7 @@ class AppCore {
   // Repositories
   late final ContactRepository contactRepository;
   late final UserPreferences userPreferences;
+  late final ArchiveRepository archiveRepository;
   
   // State
   bool _isInitialized = false;
@@ -143,9 +146,20 @@ class AppCore {
   
   /// Initialize repositories
   Future<void> _initializeRepositories() async {
+    // Initialize database first to ensure it's ready
+    _logger.info('Initializing database...');
+    await DatabaseHelper.database;
+    _logger.info('Database initialized successfully');
+    
+    // Initialize repositories
     contactRepository = ContactRepository();
     userPreferences = UserPreferences();
+    archiveRepository = ArchiveRepository();
+    
+    // Initialize async repository components
     await userPreferences.getOrCreateKeyPair();
+    await archiveRepository.initialize();
+    
     _logger.info('Repositories initialized');
   }
   

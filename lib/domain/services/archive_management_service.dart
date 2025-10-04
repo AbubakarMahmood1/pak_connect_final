@@ -9,47 +9,71 @@ import '../../domain/entities/archived_chat.dart';
 import '../../core/models/archive_models.dart';
 
 /// Comprehensive archive management service with business logic and automation
+/// Singleton pattern to prevent multiple service instances
 class ArchiveManagementService {
   static final _logger = Logger('ArchiveManagementService');
-  
-  // Dependencies
-  final ArchiveRepository _archiveRepository = ArchiveRepository();
+
+  // Singleton instance
+  static ArchiveManagementService? _instance;
+
+  /// Get the singleton instance
+  static ArchiveManagementService get instance {
+    // Dart is single-threaded, simple null-check is sufficient
+    _instance ??= ArchiveManagementService._internal();
+    return _instance!;
+  }
+
+  /// Private constructor for singleton
+  ArchiveManagementService._internal({
+    ArchiveRepository? archiveRepository,
+  }) : _archiveRepository = archiveRepository ?? ArchiveRepository.instance {
+    _logger.info('✅ ArchiveManagementService singleton instance created');
+  }
+
+  /// Factory constructor (redirects to instance getter)
+  factory ArchiveManagementService() => instance;
+
+  // Dependencies (injected for testability)
+  final ArchiveRepository _archiveRepository;
   // Note: ChatsRepository and MessageRepository would be used for business context gathering
   // when those features are implemented (currently stubs). All archive operations
   // are delegated to _archiveRepository which handles its own data access.
-  
+
   // Configuration keys
   static const String _configKey = 'archive_management_config_v2';
   static const String _policyKey = 'archive_policies_v2';
   // Note: _scheduledTasksKey removed - scheduled archive tasks feature not yet implemented
-  
+
   // Event streams for real-time updates
   final _archiveUpdatesController = StreamController<ArchiveUpdateEvent>.broadcast();
   final _policyUpdatesController = StreamController<ArchivePolicyEvent>.broadcast();
   final _maintenanceUpdatesController = StreamController<ArchiveMaintenanceEvent>.broadcast();
-  
+
   /// Stream of archive operation events
   Stream<ArchiveUpdateEvent> get archiveUpdates => _archiveUpdatesController.stream;
-  
+
   /// Stream of policy change events
   Stream<ArchivePolicyEvent> get policyUpdates => _policyUpdatesController.stream;
-  
+
   /// Stream of maintenance operation events
   Stream<ArchiveMaintenanceEvent> get maintenanceUpdates => _maintenanceUpdatesController.stream;
-  
+
   // Configuration and policies
   ArchiveManagementConfig _config = ArchiveManagementConfig.defaultConfig();
   List<ArchivePolicy> _policies = [];
-  
+
   // State tracking
   bool _isInitialized = false;
   Timer? _maintenanceTimer;
   Timer? _policyEvaluationTimer;
   final Set<String> _operationsInProgress = {};
-  
-  /// Initialize the archive management service
+
+  /// Initialize the archive management service (idempotent - safe to call multiple times)
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (_isInitialized) {
+      _logger.fine('ArchiveManagementService already initialized - skipping');
+      return;
+    }
     
     try {
       _logger.info('Initializing archive management service');

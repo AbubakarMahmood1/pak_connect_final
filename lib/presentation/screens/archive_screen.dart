@@ -41,8 +41,8 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   
   @override
   Widget build(BuildContext context) {
-    final uiState = ref.watch(archiveUICurrentStateProvider);
-    final operationsState = ref.watch(archiveOperationsStateProvider);
+    final uiState = ref.watch(archiveUIStateProvider);
+    final operationsState = ref.watch(archiveOperationsProvider);
     
     return Scaffold(
       appBar: _buildAppBar(context, uiState),
@@ -262,7 +262,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
               onTap: () => _openArchiveDetail(archive),
               onRestore: () => _restoreChat(archive),
               onDelete: () => _deleteChat(archive),
-              isSelected: archive.id == ref.read(archiveUIStateProvider).state.selectedArchiveId,
+              isSelected: archive.id == ref.read(archiveUIStateProvider).selectedArchiveId,
             );
           },
         );
@@ -460,21 +460,18 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   // Event handlers
   
   void _toggleSearch() {
-    final notifier = ref.read(archiveUIStateProvider);
-    notifier.toggleSearchMode();
+    ref.read(archiveUIStateProvider.notifier).toggleSearchMode();
   }
-  
+
   void _clearSearch() {
     _searchController.clear();
-    final notifier = ref.read(archiveUIStateProvider);
-    notifier.clearSearch();
+    ref.read(archiveUIStateProvider.notifier).clearSearch();
   }
-  
+
   void _handleSearchQueryChanged(String query) {
     _searchDebounceTimer?.cancel();
     _searchDebounceTimer = Timer(const Duration(milliseconds: 300), () {
-      final notifier = ref.read(archiveUIStateProvider);
-      notifier.updateSearchQuery(query);
+      ref.read(archiveUIStateProvider.notifier).updateSearchQuery(query);
     });
   }
   
@@ -504,8 +501,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
         sortBy: sortOption,
       );
     });
-    final notifier = ref.read(archiveUIStateProvider);
-    notifier.updateFilter(_currentFilter);
+    ref.read(archiveUIStateProvider.notifier).updateFilter(_currentFilter);
   }
   
   Future<void> _handleRefresh() async {
@@ -549,8 +545,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   }
   
   Future<void> _restoreChat(ArchivedChatSummary archive) async {
-    final notifier = ref.read(archiveOperationsProvider);
-    final result = await notifier.restoreChat(archiveId: archive.id);
+    final result = await ref.read(archiveOperationsProvider.notifier).restoreChat(archiveId: archive.id);
     
     if (mounted) {
       if (result.success) {
@@ -576,8 +571,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   }
   
   Future<void> _deleteChat(ArchivedChatSummary archive) async {
-    final notifier = ref.read(archiveOperationsProvider);
-    final success = await notifier.deleteArchivedChat(archive.id);
+    final success = await ref.read(archiveOperationsProvider.notifier).deleteArchivedChat(archive.id);
     
     if (mounted) {
       if (success) {

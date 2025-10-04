@@ -60,10 +60,12 @@ class BLEMessageHandler {
   Function(String originalMessageId, String content, String originalSender)? onRelayMessageReceived;
   Function(RelayDecision decision)? onRelayDecisionMade;
   Function(RelayStatistics stats)? onRelayStatsUpdated;
-  
+  Function(ProtocolMessage message)? onSendAckMessage;  // Callback for sending ACK protocol messages
+
   // Relay system components
   MeshRelayEngine? _relayEngine;
   SpamPreventionManager? _spamPrevention;
+  OfflineMessageQueue? _messageQueue;  // Reference to message queue for ACK handling
   String? _currentNodeId;
   
   BLEMessageHandler() {
@@ -93,7 +95,8 @@ class BLEMessageHandler {
   }) async {
     try {
       _currentNodeId = currentNodeId;
-      
+      _messageQueue = messageQueue;
+
       // 🚨 DIAGNOSTIC: Check for bounds error in init
       print('🔧 INIT DIAGNOSTIC: Node ID length: ${currentNodeId.length}');
       print('🔧 INIT DEBUG: Setting current node ID to: ${_safeTruncate(currentNodeId, 16)}...');
@@ -440,7 +443,26 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
         // Text messages should go through the complete message processing pipeline
         // where routing validation and decryption happens
         return await _processCompleteProtocolMessage(jsonMessage, onMessageIdFound, senderPublicKey);
-        
+
+      case ProtocolMessageType.relayAck:
+        final originalMessageId = protocolMessage.relayAckOriginalMessageId;
+        final relayNode = protocolMessage.relayAckRelayNode;
+        final delivered = protocolMessage.relayAckDelivered;
+        final ackRoutingPath = protocolMessage.payload['ackRoutingPath'] as List<dynamic>?;
+
+        if (originalMessageId == null) {
+          _logger.warning('Received relayAck with no message ID');
+          return null;
+        }
+
+        await _handleRelayAck(
+          originalMessageId: originalMessageId,
+          relayNode: relayNode ?? 'unknown',
+          delivered: delivered,
+          ackRoutingPath: ackRoutingPath?.cast<String>(),
+        );
+        return null;
+
       default:
         _logger.warning('Unexpected direct protocol message type: ${protocolMessage.type}');
         return null;
@@ -797,6 +819,14 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
       switch (result.type) {
         case RelayProcessingType.deliveredToSelf:
           _logger.info('🔀 MESH RELAY: Message delivered to self');
+
+          // Send ACK back to originator through relay chain
+          await _sendRelayAck(
+            originalMessageId: relayMessage.originalMessageId,
+            relayMetadata: relayMessage.relayMetadata,
+            delivered: true,
+          );
+
           return result.content;
           
         case RelayProcessingType.relayed:
@@ -941,11 +971,127 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
     required String originalSenderPublicKey,
   }) async {
     if (_relayEngine == null) return false;
-    
+
     return await _relayEngine!.shouldAttemptDecryption(
       finalRecipientPublicKey: finalRecipientPublicKey,
       originalSenderPublicKey: originalSenderPublicKey,
     );
+  }
+
+  /// Send relay ACK back through the relay chain
+  Future<void> _sendRelayAck({
+    required String originalMessageId,
+    required RelayMetadata relayMetadata,
+    required bool delivered,
+  }) async {
+    try {
+      // Get previous hop (where to send ACK)
+      final previousHop = relayMetadata.previousHop;
+      if (previousHop == null) {
+        _logger.info('🔙 No previous hop for ACK - message was direct delivery');
+        return;
+      }
+
+      if (_currentNodeId == null) {
+        _logger.warning('Cannot send ACK - current node ID not set');
+        return;
+      }
+
+      final truncatedMessageId = originalMessageId.length > 16
+          ? originalMessageId.substring(0, 16)
+          : originalMessageId;
+      final truncatedPrevHop = previousHop.length > 8
+          ? previousHop.substring(0, 8)
+          : previousHop;
+
+      _logger.info('🔙 Sending relayAck for $truncatedMessageId... to previous hop: $truncatedPrevHop...');
+
+      // Create relayAck protocol message with routing path for backward propagation
+      final ackMessage = ProtocolMessage.relayAck(
+        originalMessageId: originalMessageId,
+        relayNode: _currentNodeId!,
+        delivered: delivered,
+      );
+
+      // Add ACK routing path for backward propagation
+      ackMessage.payload['ackRoutingPath'] = relayMetadata.ackRoutingPath;
+
+      // Send via callback (will be handled by BLE service)
+      onSendAckMessage?.call(ackMessage);
+
+      _logger.info('✅ RelayAck sent for $truncatedMessageId...');
+
+    } catch (e) {
+      _logger.severe('Failed to send relay ACK: $e');
+    }
+  }
+
+  /// Handle received relay ACK
+  Future<void> _handleRelayAck({
+    required String originalMessageId,
+    required String relayNode,
+    required bool delivered,
+    List<String>? ackRoutingPath,
+  }) async {
+    try {
+      if (_currentNodeId == null) {
+        _logger.warning('Cannot handle ACK - current node ID not set');
+        return;
+      }
+
+      final truncatedMessageId = originalMessageId.length > 16
+          ? originalMessageId.substring(0, 16)
+          : originalMessageId;
+      final truncatedRelayNode = relayNode.length > 8
+          ? relayNode.substring(0, 8)
+          : relayNode;
+
+      _logger.info('🔙 Received relayAck for $truncatedMessageId... from $truncatedRelayNode...');
+
+      // Check if this ACK is for a message WE originated
+      final queuedMessage = _messageQueue?.getMessageById(originalMessageId);
+
+      if (queuedMessage != null) {
+        // This is for our message - mark as delivered and remove from queue
+        _logger.info('✅ ACK for our originated message - marking as delivered');
+        await _messageQueue?.markMessageDelivered(originalMessageId);
+        return;
+      }
+
+      // We're a relay node - propagate ACK backward
+      if (ackRoutingPath != null && ackRoutingPath.isNotEmpty) {
+        final currentIndex = ackRoutingPath.indexOf(_currentNodeId!);
+
+        if (currentIndex > 0) {
+          // There's a previous hop - forward ACK backward
+          final previousHop = ackRoutingPath[currentIndex - 1];
+
+          final truncatedPrevHop = previousHop.length > 8
+              ? previousHop.substring(0, 8)
+              : previousHop;
+
+          _logger.info('⚡ Propagating ACK backward to $truncatedPrevHop...');
+
+          final forwardAck = ProtocolMessage.relayAck(
+            originalMessageId: originalMessageId,
+            relayNode: _currentNodeId!,
+            delivered: delivered,
+          );
+          forwardAck.payload['ackRoutingPath'] = ackRoutingPath;
+
+          onSendAckMessage?.call(forwardAck);
+
+          _logger.info('✅ ACK propagated for $truncatedMessageId...');
+        } else {
+          _logger.info('🏁 This is the originator - ACK propagation complete');
+        }
+      } else {
+        _logger.warning('⚠️ No ackRoutingPath in relay ACK - cannot propagate backward');
+      }
+
+    } catch (e) {
+      _logger.severe('Failed to handle relay ACK: $e');
+    }
   }
 
   /// Get relay engine statistics
