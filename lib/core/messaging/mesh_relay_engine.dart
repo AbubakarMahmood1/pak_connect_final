@@ -21,10 +21,10 @@ class MeshRelayEngine {
   
   // Smart routing integration
   SmartMeshRouter? _smartRouter;
-  
-  // Node identification
-  late final String _currentNodeId;
-  
+
+  // Node identification (NOT final to allow re-initialization in tests and node identity changes)
+  late String _currentNodeId;
+
   // Relay statistics
   int _totalRelayed = 0;
   int _totalDropped = 0;
