@@ -10,8 +10,13 @@ import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/security_state_provider.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/models/security_state.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('ChatScreen Lifecycle Persistence Tests', () {
     late ProviderContainer container;
     late PersistentChatStateManager persistentManager;
