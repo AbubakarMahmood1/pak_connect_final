@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:logging/logging.dart';
 import '../providers/ble_providers.dart';
+import '../widgets/import_dialog.dart';
 import 'chats_screen.dart';
 
 class PermissionScreen extends ConsumerStatefulWidget {
@@ -16,6 +18,7 @@ class PermissionScreen extends ConsumerStatefulWidget {
 }
 
 class _PermissionScreenState extends ConsumerState<PermissionScreen> {
+  final _logger = Logger('PermissionScreen');
   bool _isRequestingPermissions = false;
   Timer? _timeoutTimer;
 
@@ -55,15 +58,11 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
                   color: Theme.of(context).colorScheme.primary,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(
-                  Icons.bluetooth,
-                  size: 60,
-                  color: Colors.white,
-                ),
+                child: Icon(Icons.bluetooth, size: 60, color: Colors.white),
               ),
-              
+
               SizedBox(height: 32),
-              
+
               // App Title
               Text(
                 'BLE Chat',
@@ -72,9 +71,9 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              
+
               SizedBox(height: 16),
-              
+
               // Subtitle
               Text(
                 'Secure offline messaging\nfor family & friends',
@@ -83,9 +82,9 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
-              
+
               SizedBox(height: 48),
-              
+
               // Permission status and button
               Center(
                 child: bleStateAsync.when(
@@ -94,9 +93,9 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
                   error: (err, stack) => Text('Error: $err'),
                 ),
               ),
-              
+
               SizedBox(height: 24),
-              
+
               // Why is this needed? button
               Center(
                 child: TextButton(
@@ -111,9 +110,13 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     );
   }
 
-  Widget _buildPermissionContent(BuildContext context, BluetoothLowEnergyState state) {
+  Widget _buildPermissionContent(
+    BuildContext context,
+    BluetoothLowEnergyState state,
+  ) {
     // Cancel timeout timer when BLE state is resolved
-    if (state != BluetoothLowEnergyState.unknown && state != BluetoothLowEnergyState.unsupported) {
+    if (state != BluetoothLowEnergyState.unknown &&
+        state != BluetoothLowEnergyState.unsupported) {
       _timeoutTimer?.cancel();
       _timeoutTimer = null;
     }
@@ -124,11 +127,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(
-              Icons.check_circle,
-              color: Colors.green,
-              size: 48,
-            ),
+            Icon(Icons.check_circle, color: Colors.green, size: 48),
             SizedBox(height: 16),
             Text(
               'All set! Ready to chat',
@@ -139,12 +138,18 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
               onPressed: () => _navigateToChatsScreen(context),
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                child: Text('Start Chatting'),
+                child: Text('Start Anew'),
               ),
+            ),
+            SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _showImportDialog(context),
+              icon: Icon(Icons.upload_file),
+              label: Text('Import Existing Data'),
             ),
           ],
         );
-        
+
       case BluetoothLowEnergyState.unauthorized:
         return Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -169,23 +174,28 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
             ),
             SizedBox(height: 24),
             FilledButton(
-              onPressed: _isRequestingPermissions ? null : _requestBLEPermissions,
+              onPressed: _isRequestingPermissions
+                  ? null
+                  : _requestBLEPermissions,
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                child: _isRequestingPermissions 
-                  ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        ),
-                        SizedBox(width: 8),
-                        Text('Requesting...'),
-                      ],
-                    )
-                  : Text('Grant Permission'),
+                child: _isRequestingPermissions
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Text('Requesting...'),
+                        ],
+                      )
+                    : Text('Grant Permission'),
               ),
             ),
             SizedBox(height: 12),
@@ -228,10 +238,10 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
             ),
           ],
         );
-        
+
       case BluetoothLowEnergyState.unknown:
       case BluetoothLowEnergyState.unsupported:
-      return Column(
+        return Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -255,14 +265,14 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
   // 🆕 NEW: Proper BLE permission handling
   Future<void> _requestBLEPermissions() async {
     setState(() => _isRequestingPermissions = true);
-    
+
     try {
       if (Platform.isAndroid) {
         final deviceInfo = DeviceInfoPlugin();
         final androidInfo = await deviceInfo.androidInfo;
-        
+
         List<Permission> permissionsToRequest = [];
-        
+
         if (androidInfo.version.sdkInt >= 31) {
           // Android 12+ - use granular BLE permissions
           permissionsToRequest = [
@@ -272,15 +282,13 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
           ];
         } else {
           // Android < 12 - use location permission for BLE
-          permissionsToRequest = [
-            Permission.locationWhenInUse,
-          ];
+          permissionsToRequest = [Permission.locationWhenInUse];
         }
-        
+
         final statuses = await permissionsToRequest.request();
-        
+
         final allGranted = statuses.values.every((status) => status.isGranted);
-        
+
         if (allGranted) {
           _showSuccess('Permissions granted! 🎉');
           // Give a moment for user to see success, then navigate
@@ -309,7 +317,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
         .where((entry) => !entry.value.isGranted)
         .map((entry) => _getPermissionName(entry.key))
         .join(', ');
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -368,23 +376,11 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
   }
 
   void _showSuccess(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
-      ),
-    );
+    _logger.info('✅ $message');
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: Duration(seconds: 3),
-      ),
-    );
+    _logger.warning('❌ $message');
   }
 
   void _showPermissionExplanation(BuildContext context) {
@@ -405,7 +401,9 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer.withValues(),
+                color: Theme.of(
+                  context,
+                ).colorScheme.primaryContainer.withValues(),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -433,11 +431,22 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     );
   }
 
+  void _showImportDialog(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => const ImportDialog(),
+    );
 
-void _navigateToChatsScreen(BuildContext context) {
-  Navigator.pushReplacement(
-    context,
-    MaterialPageRoute(builder: (context) => ChatsScreen()),
-  );
-}
+    // If import was successful, navigate to chats screen
+    if (result == true && mounted) {
+      _navigateToChatsScreen(this.context);
+    }
+  }
+
+  void _navigateToChatsScreen(BuildContext context) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => ChatsScreen()),
+    );
+  }
 }

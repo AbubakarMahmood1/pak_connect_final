@@ -287,7 +287,7 @@ class MeshNetworkingService {
       
       // Generate fallback node ID
       final fallbackId = _generateFallbackNodeId();
-      _logger.info('🔄 Using fallback node ID: ${fallbackId.substring(0, 16)}...');
+      _logger.info('🔄 Using fallback node ID: ${fallbackId.length > 16 ? '${fallbackId.substring(0, 16)}...' : fallbackId}');
       
       return fallbackId;
     }
@@ -390,8 +390,8 @@ class MeshNetworkingService {
       final truncatedRecipient = recipientPublicKey.length > 8 ? recipientPublicKey.substring(0, 8) : recipientPublicKey;
       _logger.info('Sending mesh message to $truncatedRecipient... (demo: $isDemo)');
       
-      // Generate chat ID
-      final chatId = ChatUtils.generateChatId(_currentNodeId!, recipientPublicKey);
+      // Generate chat ID (using recipient's ID)
+      final chatId = ChatUtils.generateChatId(recipientPublicKey);
       
       // Check if direct delivery is possible (connected to recipient)
       final canDeliverDirectly = await _canDeliverDirectly(recipientPublicKey);
@@ -846,18 +846,30 @@ class MeshNetworkingService {
         return;
       }
 
-      // Send via real BLE service - preserve original intended recipient for relay
-      final success = await _bleService.sendMessage(
-        message.content,
-        messageId: messageId,
-        originalIntendedRecipient: message.recipientPublicKey, // Preserve original recipient
-      );
+      // Route to correct send method based on mode (central vs peripheral)
+      final bool success;
+      if (_bleService.isPeripheralMode) {
+        // Peripheral mode: use peripheral-specific send method
+        _logger.fine('Sending via PERIPHERAL mode for $truncatedId...');
+        success = await _bleService.sendPeripheralMessage(
+          message.content,
+          messageId: messageId,
+        );
+      } else {
+        // Central mode: use regular send method with relay support
+        _logger.fine('Sending via CENTRAL mode for $truncatedId...');
+        success = await _bleService.sendMessage(
+          message.content,
+          messageId: messageId,
+          originalIntendedRecipient: message.recipientPublicKey, // Preserve original recipient for relay
+        );
+      }
 
       if (success) {
-        _logger.info('Message successfully sent via BLE: $truncatedId...');
+        _logger.info('Message successfully sent via BLE (${_bleService.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"} mode): $truncatedId...');
         _messageQueue?.markMessageDelivered(messageId);
       } else {
-        _logger.warning('Failed to send message via BLE: $truncatedId...');
+        _logger.warning('Failed to send message via BLE (${_bleService.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"} mode): $truncatedId...');
         _messageQueue?.markMessageFailed(messageId, 'BLE transmission failed');
       }
 
@@ -932,17 +944,16 @@ class MeshNetworkingService {
   }
 
   void _handleConnectivityCheck() {
-    // PROPER FIX: Use the exact same connectivity check as sendMessage()
+    // PROPER FIX: Check connectivity for both central AND peripheral modes
     // This ensures queue connectivity matches actual sending capability
-    final hasPhysicalConnection = _bleService.connectionManager.hasBleConnection &&
-                                 _bleService.connectionManager.messageCharacteristic != null;
+    final hasPhysicalConnection = _bleService.canSendMessages;
 
     if (hasPhysicalConnection) {
       _messageQueue?.setOnline();
-      _logger.fine('Queue connectivity: ONLINE - BLE connection ready for sending');
+      _logger.fine('Queue connectivity: ONLINE - BLE connection ready for sending (${_bleService.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"} mode)');
     } else {
       _messageQueue?.setOffline();
-      _logger.fine('Queue connectivity: OFFLINE - No BLE connection or characteristic');
+      _logger.fine('Queue connectivity: OFFLINE - No BLE connection or characteristic (${_bleService.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"} mode)');
     }
   }
 
@@ -982,7 +993,7 @@ class MeshNetworkingService {
       _logger.fine('🎯 TO CURRENT USER: $truncatedCurrentNode...');
 
       // 🔍 CRITICAL FIX: Generate chat ID using original sender (not relay node)
-      final chatId = ChatUtils.generateChatId(_currentNodeId!, originalSender);
+      final chatId = ChatUtils.generateChatId(originalSender);
       _logger.fine('🎯 CHAT ID GENERATED: ${chatId.length > 16 ? chatId.substring(0, 16) : chatId}...');
       
       // Create message with proper attribution to original sender

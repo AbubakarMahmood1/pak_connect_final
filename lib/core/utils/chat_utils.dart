@@ -3,12 +3,15 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
 class ChatUtils {
-  /// Generate consistent chat ID for two devices regardless of who's central/peripheral
-  static String generateChatId(String deviceId1, String deviceId2) {
-  // Always put the lexicographically smaller ID first for consistency
-  final ids = [deviceId1, deviceId2]..sort();
-  return 'persistent_chat_${ids[0]}_${ids[1]}';
-}
+  /// Generate chat ID from other device's ID
+  ///
+  /// Uses their persistent public key if known (after pairing),
+  /// otherwise uses their ephemeral ID (before pairing)
+  ///
+  /// Simple and elegant: chatId = theirId
+  static String generateChatId(String theirId) {
+    return theirId;
+  }
 
 /// Generate 8-character hash from public key for BLE advertising
   static String generatePublicKeyHash(String publicKey) {

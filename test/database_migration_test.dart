@@ -4,16 +4,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart' hide equals;
-import 'package:logging/logging.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  final testLogger = Logger('DatabaseMigrationTest');
-
-  // Initialize sqflite_ffi for testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-    Logger.root.level = Level.WARNING;
+  // Initialize test environment
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   /// Helper: Create v1 schema (original)
@@ -86,8 +82,6 @@ void main() {
               updated_at INTEGER NOT NULL
             )
           ''');
-
-          testLogger.info('v1 schema created');
         },
       ),
     );
@@ -194,14 +188,11 @@ void main() {
         DELETE FROM archived_messages_fts WHERE rowid = old.rowid;
       END
     ''');
-
-    testLogger.info('v1→v2 migration complete');
   }
 
   /// Helper: Apply v2→v3 migration
   Future<void> migrateV2toV3(Database db) async {
     await db.execute('DROP TABLE IF EXISTS user_preferences');
-    testLogger.info('v2→v3 migration complete');
   }
 
   group('Database Migration Tests', () {

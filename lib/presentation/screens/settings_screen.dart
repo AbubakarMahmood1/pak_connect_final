@@ -1,12 +1,26 @@
 // Settings screen for app preferences and configuration
 // Manages theme, notifications, privacy, and data settings
 
+import 'package:flutter/foundation.dart'; // For kDebugMode
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For rootBundle
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../providers/theme_provider.dart';
 import '../../data/repositories/preferences_repository.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../data/repositories/chats_repository.dart';
+import '../../data/database/database_helper.dart';
 import '../widgets/export_dialog.dart';
 import '../widgets/import_dialog.dart';
+import 'permission_screen.dart';
+import '../../domain/services/auto_archive_scheduler.dart';
+import '../../domain/services/notification_service.dart';
+import '../../core/services/simple_crypto.dart';
+import '../../core/security/message_security.dart';
+import '../../core/security/hint_cache_manager.dart';
+import '../../core/security/ephemeral_key_manager.dart';
+import '../../core/app_core.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -17,6 +31,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final PreferencesRepository _preferencesRepository = PreferencesRepository();
+  final ContactRepository _contactRepository = ContactRepository();
 
   // Notification settings
   bool _notificationsEnabled = PreferenceDefaults.notificationsEnabled;
@@ -31,6 +46,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // Data settings
   bool _autoArchiveOldChats = PreferenceDefaults.autoArchiveOldChats;
   int _archiveAfterDays = PreferenceDefaults.archiveAfterDays;
+
+  // Developer tools statistics (debug only)
+  int _contactCount = 0;
+  int _chatCount = 0;
+  int _messageCount = 0;
 
   bool _isLoading = true;
 
@@ -84,9 +104,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final themeMode = ref.watch(themeModeProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Settings'),
-      ),
+      appBar: AppBar(title: Text('Settings')),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : ListView(
@@ -118,6 +136,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 // About section
                 _buildSectionHeader(theme, 'About'),
                 _buildAboutSettings(theme),
+
+                // Developer Tools (Debug builds only)
+                if (kDebugMode) ...[
+                  Divider(height: 32),
+                  _buildSectionHeader(theme, '🛠️ Developer Tools'),
+                  _buildDeveloperTools(theme),
+                ],
 
                 SizedBox(height: 32),
               ],
@@ -162,19 +187,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             Row(
               children: [
                 Expanded(
-                  child: _buildThemeOption(
-                    theme,
-                    ThemeMode.light,
-                    currentMode,
-                  ),
+                  child: _buildThemeOption(theme, ThemeMode.light, currentMode),
                 ),
                 SizedBox(width: 8),
                 Expanded(
-                  child: _buildThemeOption(
-                    theme,
-                    ThemeMode.dark,
-                    currentMode,
-                  ),
+                  child: _buildThemeOption(theme, ThemeMode.dark, currentMode),
                 ),
                 SizedBox(width: 8),
                 Expanded(
@@ -210,9 +227,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary
-                : Colors.transparent,
+            color: isSelected ? theme.colorScheme.primary : Colors.transparent,
             width: 2,
           ),
         ),
@@ -288,10 +303,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 );
               },
             ),
+            Divider(height: 1),
+            ListTile(
+              leading: Icon(Icons.notifications_active),
+              title: Text('Test Notification'),
+              subtitle: Text('Test current notification settings'),
+              trailing: Icon(Icons.chevron_right),
+              onTap: () => _testNotification(),
+            ),
           ],
         ],
       ),
     );
+  }
+
+  Future<void> _testNotification() async {
+    try {
+      await NotificationService.showTestNotification(
+        playSound: _soundEnabled,
+        vibrate: _vibrationEnabled,
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Test notification triggered'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to test notification: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildPrivacySettings(ThemeData theme) {
@@ -361,6 +411,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 PreferenceKeys.autoArchiveOldChats,
                 value,
               );
+              // Restart scheduler to apply changes
+              await AutoArchiveScheduler.restart();
             },
           ),
           if (_autoArchiveOldChats) ...[
@@ -371,6 +423,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               subtitle: Text('$_archiveAfterDays days of inactivity'),
               trailing: Icon(Icons.chevron_right),
               onTap: () => _showArchiveDaysDialog(),
+            ),
+            Divider(height: 1),
+            ListTile(
+              leading: Icon(Icons.sync),
+              title: Text('Check Inactive Chats Now'),
+              subtitle: Text('Manually trigger auto-archive check'),
+              trailing: Icon(Icons.chevron_right),
+              onTap: () => _manualAutoArchiveCheck(),
             ),
           ],
           Divider(height: 1),
@@ -462,13 +522,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               SizedBox(height: 16),
               // Use SegmentedButton for modern, future-proof UI
               SegmentedButton<int>(
-                segments: [ 30, 60, 90, 180, 365].map((days) =>
-                  ButtonSegment<int>(
-                    value: days,
-                    label: Text('$days'),
-                  )
-                ).toList(),
-                selected: selectedValue != null ? <int>{selectedValue!} : <int>{},
+                segments: [30, 60, 90, 180, 365]
+                    .map(
+                      (days) =>
+                          ButtonSegment<int>(value: days, label: Text('$days')),
+                    )
+                    .toList(),
+                selected: selectedValue != null
+                    ? <int>{selectedValue!}
+                    : <int>{},
                 onSelectionChanged: (Set<int> selection) {
                   if (selection.isNotEmpty) {
                     setState(() => selectedValue = selection.first);
@@ -505,38 +567,147 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         PreferenceKeys.archiveAfterDays,
         result,
       );
+      // Restart scheduler to apply new threshold
+      await AutoArchiveScheduler.restart();
     }
   }
 
-  void _showStorageInfo() {
+  Future<void> _manualAutoArchiveCheck() async {
+    // Show loading dialog
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text('Storage Usage'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Database: ~2.5 MB'),
-            SizedBox(height: 8),
-            Text('Cached Data: ~1.2 MB'),
-            SizedBox(height: 8),
-            Text('Total: ~3.7 MB'),
+            CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text(
-              'Note: Storage calculation is approximate',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text('Checking for inactive chats...'),
           ],
         ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('OK'),
-          ),
-        ],
       ),
     );
+
+    try {
+      // Trigger manual check
+      final archivedCount = await AutoArchiveScheduler.checkNow();
+
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show result
+      if (mounted) {
+        final message = archivedCount > 0
+            ? 'Auto-archived $archivedCount inactive chat${archivedCount == 1 ? '' : 's'}'
+            : 'No inactive chats found';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: archivedCount > 0 ? Colors.green : null,
+            action: archivedCount > 0
+                ? SnackBarAction(
+                    label: 'View',
+                    textColor: Colors.white,
+                    onPressed: () {
+                      // Navigate to archive screen
+                      // (Will be implemented with archive screen integration)
+                    },
+                  )
+                : null,
+          ),
+        );
+
+        // Reload chats if any were archived
+        if (archivedCount > 0) {
+          // Trigger UI refresh (if chats screen is visible)
+          setState(() {});
+        }
+      }
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to check inactive chats: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showStorageInfo() async {
+    // Show loading dialog first
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Get actual database size
+      final sizeInfo = await DatabaseHelper.getDatabaseSize();
+      final sizeMB = sizeInfo['size_mb'] ?? '0.00';
+      final sizeKB = sizeInfo['size_kb'] ?? '0.00';
+      final exists = sizeInfo['exists'] ?? false;
+
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show storage info dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Storage Usage'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (exists) ...[
+                  Text('Database: $sizeMB MB'),
+                  SizedBox(height: 8),
+                  Text('($sizeKB KB)'),
+                  SizedBox(height: 16),
+                  Text(
+                    'Includes: messages, chats, contacts, archives',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ] else ...[
+                  Text('No database found'),
+                  SizedBox(height: 8),
+                  Text('Storage: 0 MB'),
+                ],
+              ],
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      // Close loading dialog
+      if (mounted) Navigator.pop(context);
+
+      // Show error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to calculate storage: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
   }
 
   void _confirmClearData() async {
@@ -599,13 +770,95 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     if (confirmed == true && mounted) {
-      // TODO: Implement actual data clearing
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Data clearing not yet implemented'),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
+      try {
+        // Show loading indicator
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(width: 16),
+                  Text('Clearing all data...'),
+                ],
+              ),
+              duration: Duration(seconds: 30),
+            ),
+          );
+        }
+
+        // Get database instance
+        final db = await DatabaseHelper.database;
+
+        // Clear all tables in the correct order (respecting foreign key constraints)
+        await db.transaction((txn) async {
+          // Delete data in reverse dependency order
+          await txn.delete('archived_messages');
+          await txn.delete('archived_chats');
+          await txn.delete('deleted_message_ids');
+          await txn.delete('queue_sync_state');
+          await txn.delete('offline_message_queue');
+          await txn.delete('messages');
+          await txn.delete('chats');
+          await txn.delete('contact_last_seen');
+          await txn.delete('device_mappings');
+          await txn.delete('contacts');
+          await txn.delete('migration_metadata');
+          await txn.delete('app_preferences');
+        });
+
+        // Clear secure storage (shared secrets, keys)
+        final contactRepo = ContactRepository();
+        final allContacts = await contactRepo.getAllContacts();
+        for (final contact in allContacts.values) {
+          await contactRepo.deleteContact(contact.publicKey);
+        }
+
+        // Clear preferences
+        await _preferencesRepository.clearAll();
+
+        // Show success message and navigate back to permission screen
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('All data cleared successfully'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+
+          // Wait a moment for user to see the success message
+          await Future.delayed(Duration(seconds: 2));
+
+          // Navigate back to permission screen
+          if (mounted) {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (context) => const PermissionScreen()),
+              (route) => false,
+            );
+          }
+        }
+      } catch (e) {
+        // Show error message
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to clear data: $e'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -629,12 +882,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
       children: [
         SizedBox(height: 16),
-        Text('Secure peer-to-peer messaging with mesh networking and end-to-end encryption.'),
-        SizedBox(height: 12),
         Text(
-          'Features:',
-          style: TextStyle(fontWeight: FontWeight.w600),
+          'Secure peer-to-peer messaging with mesh networking and end-to-end encryption.',
         ),
+        SizedBox(height: 12),
+        Text('Features:', style: TextStyle(fontWeight: FontWeight.w600)),
         Text('• Offline messaging via Bluetooth'),
         Text('• End-to-end encryption'),
         Text('• Mesh network relay'),
@@ -689,47 +941,107 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showPrivacyPolicy() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Privacy Policy'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+  void _showPrivacyPolicy() async {
+    try {
+      // Load markdown from assets
+      final markdownContent = await rootBundle.loadString('assets/privacy_policy.md');
+      
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Row(
             children: [
-              Text(
-                'Your Privacy Matters',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              SizedBox(height: 12),
-              Text('PakConnect is designed with privacy at its core:'),
-              SizedBox(height: 8),
-              Text('• All messages are end-to-end encrypted'),
-              Text('• No data is sent to external servers'),
-              Text('• No tracking or analytics'),
-              Text('• All data stays on your device'),
-              Text('• Open-source encryption protocols'),
-              SizedBox(height: 12),
-              Text(
-                'We never have access to your messages or contacts.',
-                style: TextStyle(
-                  fontStyle: FontStyle.italic,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
+              Icon(Icons.privacy_tip, color: Theme.of(context).colorScheme.primary),
+              SizedBox(width: 8),
+              Text('Privacy Policy'),
             ],
           ),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Markdown(
+              data: markdownContent,
+              selectable: true,
+              shrinkWrap: true,
+              styleSheet: MarkdownStyleSheet(
+                h1: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                h2: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                h3: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+                p: TextStyle(fontSize: 14, height: 1.5),
+                listBullet: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
-    );
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      // Fallback to basic dialog if markdown fails
+      if (!mounted) return;
+      
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Privacy Policy'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your Privacy Matters',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                SizedBox(height: 12),
+                Text('PakConnect is designed with privacy at its core:'),
+                SizedBox(height: 8),
+                Text('• All messages are end-to-end encrypted'),
+                Text('• No data is sent to external servers'),
+                Text('• No tracking or analytics'),
+                Text('• All data stays on your device'),
+                Text('• Open-source encryption protocols'),
+                SizedBox(height: 12),
+                Text(
+                  'We never have access to your messages or contacts.',
+                  style: TextStyle(
+                    fontStyle: FontStyle.italic,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text('Error loading full policy: $e'),
+              ],
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Close'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void _showExportDialog() {
@@ -746,18 +1058,526 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       barrierDismissible: false,
       builder: (context) => const ImportDialog(),
     );
-    
+
     // If import was successful, reload preferences
     if (result == true && mounted) {
       await _loadPreferences();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Data imported successfully! Please restart the app.'),
+            content: Text(
+              'Data imported successfully! Please restart the app.',
+            ),
             duration: Duration(seconds: 5),
           ),
         );
       }
+    }
+  }
+
+  // ==================== DEVELOPER TOOLS (DEBUG ONLY) ====================
+
+  Widget _buildDeveloperTools(ThemeData theme) {
+    return Card(
+      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      color: theme.colorScheme.errorContainer.withValues(alpha: 0.3),
+      child: Column(
+        children: [
+          // Warning banner
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.errorContainer.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: theme.colorScheme.error,
+                  size: 20,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Debug Build Only - These tools will not appear in release',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Test Notification
+          ListTile(
+            leading: Icon(Icons.notifications_active, color: Colors.orange),
+            title: Text('Test Notification'),
+            subtitle: Text('Test sound & vibration settings'),
+            trailing: FilledButton.icon(
+              onPressed: () async {
+                await NotificationService.showTestNotification();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Test notification triggered')),
+                  );
+                }
+              },
+              icon: Icon(Icons.play_arrow, size: 16),
+              label: Text('Test'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+            ),
+          ),
+          
+          Divider(height: 1),
+
+          // Test Auto-Archive
+          ListTile(
+            leading: Icon(Icons.archive, color: Colors.brown),
+            title: Text('Check Inactive Chats'),
+            subtitle: Text('Manually trigger auto-archive check'),
+            trailing: FilledButton.icon(
+              onPressed: () async {
+                final count = await AutoArchiveScheduler.checkNow();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        count > 0 
+                          ? '✅ Archived $count inactive chat${count == 1 ? '' : 's'}'
+                          : 'No inactive chats found',
+                      ),
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
+                }
+              },
+              icon: Icon(Icons.play_arrow, size: 16),
+              label: Text('Check'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.brown,
+              ),
+            ),
+          ),
+
+          Divider(height: 1),
+
+          // Battery Status
+          ListTile(
+            leading: Icon(Icons.battery_charging_full, color: Colors.lightGreen),
+            title: Text('Battery Optimizer'),
+            subtitle: Text('View battery level and power mode'),
+            trailing: FilledButton.icon(
+              onPressed: _showBatteryInfo,
+              icon: Icon(Icons.info, size: 16),
+              label: Text('View'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.lightGreen,
+              ),
+            ),
+          ),
+
+          Divider(height: 1),
+
+          // Database Info
+          ListTile(
+            leading: Icon(Icons.storage, color: Colors.teal),
+            title: Text('Database Info'),
+            subtitle: Text('View detailed database statistics'),
+            trailing: FilledButton.icon(
+              onPressed: _showDatabaseInfo,
+              icon: Icon(Icons.info, size: 16),
+              label: Text('View'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.teal,
+              ),
+            ),
+          ),
+
+          Divider(height: 1),
+
+          // Clear Cache
+          ListTile(
+            leading: Icon(Icons.delete_sweep, color: Colors.deepOrange),
+            title: Text('Clear Cache'),
+            subtitle: Text('Clear temporary cached data'),
+            trailing: FilledButton.icon(
+              onPressed: _clearCache,
+              icon: Icon(Icons.delete, size: 16),
+              label: Text('Clear'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.deepOrange,
+              ),
+            ),
+          ),
+
+          Divider(height: 1),
+
+          // Check Integrity
+          ListTile(
+            leading: Icon(Icons.verified, color: Colors.blue),
+            title: Text('Database Integrity'),
+            subtitle: Text('Verify database health'),
+            trailing: FilledButton.icon(
+              onPressed: _checkDatabaseIntegrity,
+              icon: Icon(Icons.play_arrow, size: 16),
+              label: Text('Check'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.blue,
+              ),
+            ),
+          ),
+
+          SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  void _showBatteryInfo() async {
+    try {
+      final batteryInfo = AppCore.instance.batteryOptimizer.getCurrentInfo();
+      
+      if (!mounted) return;
+
+      // Battery icon based on level
+      IconData batteryIcon;
+      Color batteryColor;
+      
+      if (batteryInfo.isCharging) {
+        batteryIcon = Icons.battery_charging_full;
+        batteryColor = Colors.green;
+      } else if (batteryInfo.level >= 80) {
+        batteryIcon = Icons.battery_full;
+        batteryColor = Colors.green;
+      } else if (batteryInfo.level >= 50) {
+        batteryIcon = Icons.battery_std;
+        batteryColor = Colors.lightGreen;
+      } else if (batteryInfo.level >= 30) {
+        batteryIcon = Icons.battery_5_bar;
+        batteryColor = Colors.orange;
+      } else if (batteryInfo.level >= 15) {
+        batteryIcon = Icons.battery_3_bar;
+        batteryColor = Colors.deepOrange;
+      } else {
+        batteryIcon = Icons.battery_alert;
+        batteryColor = Colors.red;
+      }
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(batteryIcon, color: batteryColor),
+              SizedBox(width: 8),
+              Text('Battery Optimizer'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Battery Level
+              _buildInfoRow('Battery Level', '${batteryInfo.level}%'),
+              Divider(),
+              
+              // Battery State
+              _buildInfoRow(
+                'State', 
+                batteryInfo.isCharging ? '⚡ Charging' : '🔋 On Battery',
+              ),
+              Divider(),
+              
+              // Power Mode
+              _buildInfoRow('Power Mode', batteryInfo.powerMode.name.toUpperCase()),
+              SizedBox(height: 8),
+              Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        batteryInfo.modeDescription,
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 12),
+              
+              // Last Update
+              Text(
+                'Last updated: ${_formatTime(batteryInfo.lastUpdate)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load battery info: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final diff = now.difference(time);
+    
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  void _showDatabaseInfo() async {
+    try {
+      // Load statistics
+      _contactCount = await _contactRepository.getContactCount();
+      final chatsRepo = ChatsRepository();
+      _chatCount = await chatsRepo.getChatCount();
+      _messageCount = await chatsRepo.getTotalMessageCount();
+
+      final sizeInfo = await DatabaseHelper.getDatabaseSize();
+      final sizeMB = sizeInfo['size_mb'] ?? '0.00';
+      final sizeKB = sizeInfo['size_kb'] ?? '0.00';
+      final sizeBytes = sizeInfo['size_bytes'] ?? 0;
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.storage, color: Theme.of(context).colorScheme.primary),
+              SizedBox(width: 8),
+              Text('Database Info'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildInfoRow('Size (MB)', '$sizeMB MB'),
+              SizedBox(height: 8),
+              _buildInfoRow('Size (KB)', '$sizeKB KB'),
+              SizedBox(height: 8),
+              _buildInfoRow('Size (Bytes)', sizeBytes.toString()),
+              SizedBox(height: 16),
+              Text(
+                'Statistics:',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              SizedBox(height: 8),
+              _buildInfoRow('Contacts', '$_contactCount'),
+              _buildInfoRow('Chats', '$_chatCount'),
+              _buildInfoRow('Messages', '$_messageCount'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label),
+        Text(
+          value,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontFamily: 'monospace',
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _clearCache() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Clear Cache?'),
+        content: Text(
+          'This will clear temporary cached data. '
+          'Your messages and contacts will not be affected.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: Text('Clear'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      // 1. Clear SimpleCrypto conversation keys (pairing keys)
+      SimpleCrypto.clearAllConversationKeys();
+      
+      // 2. Clear ECDH shared secret cache from memory
+      // (Note: Secure storage keeps them, but memory cache is cleared)
+      
+      // 3. Clear processed message cache (replay protection)
+      await MessageSecurity.clearProcessedMessages();
+      
+      // 4. Clear hint cache
+      HintCacheManager.clearCache();
+      
+      // 5. Clear ephemeral session (rotate to new keys)
+      await EphemeralKeyManager.rotateSession();
+      
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text('Cache cleared:\n• Conversation keys\n• Message cache\n• Hint cache\n• Ephemeral session'),
+              ),
+            ],
+          ),
+          backgroundColor: Color(0xFF1976D2),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to clear cache: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _checkDatabaseIntegrity() async {
+    try {
+      final db = await DatabaseHelper.database;
+      final result = await db.rawQuery('PRAGMA integrity_check');
+      
+      if (!mounted) return;
+
+      final isOk = result.isNotEmpty && 
+                   result.first.containsValue('ok');
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                isOk ? Icons.check_circle : Icons.error,
+                color: isOk 
+                  ? Theme.of(context).colorScheme.primary 
+                  : Theme.of(context).colorScheme.error,
+              ),
+              SizedBox(width: 8),
+              Text('Database Integrity'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isOk 
+                  ? '✅ Database is healthy'
+                  : '⚠️ Database has issues',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: isOk 
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.error,
+                ),
+              ),
+              SizedBox(height: 12),
+              Text('Result:'),
+              SizedBox(height: 4),
+              Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  result.toString(),
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error checking integrity: $e')),
+      );
     }
   }
 }

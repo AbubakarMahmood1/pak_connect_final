@@ -1,34 +1,22 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
-import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:logging/logging.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Initialize FFI for testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-
-    // Enable logging for debugging
-    Logger.root.level = Level.ALL;
-    Logger.root.onRecord.listen((record) {
-      // Suppress logs during testing unless debugging
-      // print('${record.level.name}: ${record.time}: ${record.message}');
-    });
+  // Initialize test environment
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   setUp(() async {
-    // Close and delete database before each test
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    // Clean database before each test
+    await TestSetup.fullDatabaseReset();
   });
 
   tearDown(() async {
     // Clean up after each test
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
   });
 
   group('OfflineMessageQueue SQLite Tests', () {

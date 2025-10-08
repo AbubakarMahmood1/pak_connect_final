@@ -596,12 +596,6 @@ class UnifiedMessagingService {
       error: result.error,
     );
   }
-
-  /// Check if recipient is directly connected
-  bool isDirectlyConnected(String recipientPublicKey) {
-    // This would check if the recipient is the currently connected BLE peer
-    return false; // Placeholder implementation
-  }
 }
 
 // Supporting enums and classes

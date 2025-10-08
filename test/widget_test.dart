@@ -10,8 +10,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:pak_connect/main.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   testWidgets('PakConnect app initialization smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const ProviderScope(child: PakConnectApp()));
@@ -33,13 +38,15 @@ void main() {
   testWidgets('App wrapper handles initialization states', (WidgetTester tester) async {
     // Test that the app wrapper can handle different states without crashing
     await tester.pumpWidget(const ProviderScope(child: PakConnectApp()));
-    
+
     // Verify MaterialApp is created
     expect(find.byType(MaterialApp), findsOneWidget);
-    
-    // Let the app settle
-    await tester.pumpAndSettle(const Duration(seconds: 2));
-    
+
+    // Let the app initialize without waiting for all animations to settle
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+
     // Should not throw any exceptions during initialization
   });
 }

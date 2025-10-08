@@ -1,0 +1,204 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 85.0.0 (89.0.0 available)
+  analyzer 7.6.0 (8.2.0 available)
+  analyzer_buffer 0.1.10 (0.1.11 available)
+  analyzer_plugin 0.13.4 (0.13.8 available)
+  build 3.1.0 (4.0.1 available)
+  build_resolvers 3.0.3 (3.0.4 available)
+  build_runner 2.7.1 (2.9.0 available)
+  build_runner_core 9.3.1 (9.3.2 available)
+  characters 1.4.0 (1.4.1 available)
+  custom_lint_core 0.8.0 (0.8.1 available)
+  custom_lint_visitor 1.0.0+7.7.0 (1.0.0+8.1.1 available)
+  dart_style 3.1.1 (3.1.2 available)
+  flutter_secure_storage_linux 1.2.3 (2.0.1 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.0.1 available)
+  flutter_secure_storage_web 1.2.1 (2.0.0 available)
+  flutter_secure_storage_windows 3.1.2 (4.0.0 available)
+  js 0.6.7 (0.7.2 available)
+  material_color_utilities 0.11.1 (0.13.0 available)
+  meta 1.16.0 (1.17.0 available)
+  mockito 5.5.0 (5.5.1 available)
+  pointycastle 3.9.1 (4.0.0 available)
+  source_gen 3.1.0 (4.0.1 available)
+  test 1.26.2 (1.26.3 available)
+  test_api 0.7.6 (0.7.7 available)
+  test_core 0.6.11 (0.6.12 available)
+Got dependencies!
+26 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading C:/Users/theab/OneDrive/Desktop/pak_connect/test/archive_repository_sqlite_test.dart
+00:00 +0: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+✅ Database reset complete. Tables: 17
+00:00 +0: ArchiveRepository SQLite Tests Archive chat successfully
+00:00 +0: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:00 +0: ArchiveRepository SQLite Tests Archive chat successfully
+✅ Database reset complete. Tables: 17
+00:00 +1: ArchiveRepository SQLite Tests Archive chat with compression for large archives
+  Skip: Requires FlutterSecureStorage mock - functionality tested via direct insertion
+00:00 +1 ~1: ArchiveRepository SQLite Tests Archive non-existent chat fails gracefully
+  Skip: Requires FlutterSecureStorage mock - functionality tested via direct insertion
+00:00 +1 ~2: ArchiveRepository SQLite Tests Restore archived chat successfully
+00:00 +1 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:00 +1 ~2: ArchiveRepository SQLite Tests Restore archived chat successfully
+✅ Database reset complete. Tables: 17
+00:00 +2 ~2: ArchiveRepository SQLite Tests Restore non-existent archive fails gracefully
+00:00 +2 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:00 +2 ~2: ArchiveRepository SQLite Tests Restore non-existent archive fails gracefully
+✅ Database reset complete. Tables: 17
+00:00 +3 ~2: ArchiveRepository SQLite Tests Get all archived chats
+00:00 +3 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:00 +3 ~2: ArchiveRepository SQLite Tests Get all archived chats
+✅ Database reset complete. Tables: 17
+00:00 +4 ~2: ArchiveRepository SQLite Tests Filter archived chats by contact name
+00:00 +4 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:00 +4 ~2: ArchiveRepository SQLite Tests Filter archived chats by contact name
+✅ Database reset complete. Tables: 17
+00:00 +5 ~2: ArchiveRepository SQLite Tests Filter archived chats by date range
+00:00 +5 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +5 ~2: ArchiveRepository SQLite Tests Filter archived chats by date range
+✅ Database reset complete. Tables: 17
+00:01 +6 ~2: ArchiveRepository SQLite Tests Sort archived chats by message count
+00:01 +6 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +6 ~2: ArchiveRepository SQLite Tests Sort archived chats by message count
+✅ Database reset complete. Tables: 17
+00:01 +7 ~2: ArchiveRepository SQLite Tests FTS5 search finds messages by content
+00:01 +7 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +7 ~2: ArchiveRepository SQLite Tests FTS5 search finds messages by content
+✅ Database reset complete. Tables: 17
+00:01 +8 ~2: ArchiveRepository SQLite Tests FTS5 search with specific keyword
+00:01 +8 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +8 ~2: ArchiveRepository SQLite Tests FTS5 search with specific keyword
+✅ Database reset complete. Tables: 17
+00:01 +9 ~2: ArchiveRepository SQLite Tests FTS5 search with no results
+00:01 +9 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +9 ~2: ArchiveRepository SQLite Tests FTS5 search with no results
+✅ Database reset complete. Tables: 17
+00:01 +10 ~2: ArchiveRepository SQLite Tests FTS5 search handles empty query
+00:01 +10 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +10 ~2: ArchiveRepository SQLite Tests FTS5 search handles empty query
+✅ Database reset complete. Tables: 17
+00:01 +11 ~2: ArchiveRepository SQLite Tests Permanently delete archive
+00:01 +11 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +11 ~2: ArchiveRepository SQLite Tests Permanently delete archive
+✅ Database reset complete. Tables: 17
+00:01 +12 ~2: ArchiveRepository SQLite Tests Delete cascade removes messages and FTS5 entries
+00:01 +12 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +12 ~2: ArchiveRepository SQLite Tests Delete cascade removes messages and FTS5 entries
+✅ Database reset complete. Tables: 17
+00:01 +13 ~2: ArchiveRepository SQLite Tests Delete non-existent archive fails gracefully
+00:01 +13 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +13 ~2: ArchiveRepository SQLite Tests Delete non-existent archive fails gracefully
+✅ Database reset complete. Tables: 17
+00:01 +14 ~2: ArchiveRepository SQLite Tests Get archive statistics
+00:01 +14 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +14 ~2: ArchiveRepository SQLite Tests Get archive statistics
+✅ Database reset complete. Tables: 17
+00:01 +15 ~2: ArchiveRepository SQLite Tests Archive statistics for empty database
+00:01 +15 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +15 ~2: ArchiveRepository SQLite Tests Archive statistics for empty database
+✅ Database reset complete. Tables: 17
+00:01 +16 ~2: ArchiveRepository SQLite Tests Get specific archived chat by ID
+00:01 +16 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:01 +16 ~2: ArchiveRepository SQLite Tests Get specific archived chat by ID
+✅ Database reset complete. Tables: 17
+00:01 +17 ~2: ArchiveRepository SQLite Tests Archive preserves message order
+00:01 +17 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:02 +17 ~2: ArchiveRepository SQLite Tests Archive preserves message order
+✅ Database reset complete. Tables: 17
+00:02 +18 ~2: ArchiveRepository SQLite Tests Pagination with limit
+00:02 +18 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:02 +18 ~2: ArchiveRepository SQLite Tests Pagination with limit
+✅ Database reset complete. Tables: 17
+00:02 +19 ~2: ArchiveRepository SQLite Tests Multiple archives searchable independently
+00:02 +19 ~2: (setUpAll)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+SEVERE: ❌ Failed to get/create encryption key: MissingPluginException(No implementation found for method read on channel plugins.it_nomads.com/flutter_secure_storage)
+WARNING: ⚠️ Using fallback encryption key (secure storage unavailable)
+00:02 +19 ~2: ArchiveRepository SQLite Tests Multiple archives searchable independently
+✅ Database reset complete. Tables: 17
+00:02 +20 ~2: (tearDownAll)
+00:02 +20 ~2: All tests passed!

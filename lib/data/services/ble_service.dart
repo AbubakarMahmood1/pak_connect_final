@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'dart:io' show Platform;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/discovery/batch_processor.dart';
 import '../../core/security/hint_cache_manager.dart';
 import '../../data/repositories/chats_repository.dart';
@@ -21,11 +22,14 @@ import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/security/background_cache_service.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
+import '../../core/bluetooth/handshake_coordinator.dart';
+import '../../core/bluetooth/peripheral_initializer.dart';
 import '../../core/services/hint_advertisement_service.dart';
 import '../../core/services/hint_scanner_service.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/entities/sensitive_contact_hint.dart';
+import '../../domain/services/notification_service.dart';
 
 /// Enum to track the source of scanning requests for better coordination
 enum ScanningSource {
@@ -67,6 +71,13 @@ class BLEService {
   late final BLEMessageHandler _messageHandler;
   final BLEStateManager _stateManager = BLEStateManager();
 
+  // Handshake protocol coordinator
+  HandshakeCoordinator? _handshakeCoordinator;
+  StreamSubscription<ConnectionPhase>? _handshakePhaseSubscription;
+
+  // Peripheral initialization helper
+  late final PeripheralInitializer _peripheralInitializer;
+
   // Hint system
   late final HintScannerService _hintScanner;
   final _introHintRepo = IntroHintRepository();
@@ -89,6 +100,7 @@ class BLEService {
 // Peripheral mode connection tracking
 Central? _connectedCentral;
 GATTCharacteristic? _connectedCharacteristic;
+bool _peripheralHandshakeStarted = false;  // Track if handshake initiated for this connection
 
 int? _peripheralNegotiatedMTU;
 
@@ -147,7 +159,7 @@ final List<_BufferedMessage> _messageBuffer = [];
   _logger.info('  - Mode: ${_stateManager.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"}');
   _logger.info('  - BLE Connected: $bleConnected');
   _logger.info('  - Session Identity: $hasSessionIdentity (name: "${_stateManager.otherUserName}")');
-  _logger.info('  - Persistent Identity: $hasPersistentIdentity (id: "${_stateManager.otherDevicePersistentId?.substring(0, 16)}...")');
+  _logger.info('  - Persistent Identity: $hasPersistentIdentity (id: "${_stateManager.otherDevicePersistentId != null && _stateManager.otherDevicePersistentId!.length > 16 ? '${_stateManager.otherDevicePersistentId!.substring(0, 16)}...' : _stateManager.otherDevicePersistentId ?? 'null'}")');
   _logger.info('  - Combined Identity: $hasIdentity');
   _logger.info('  - Final Result: $result');
   
@@ -160,8 +172,19 @@ final List<_BufferedMessage> _messageBuffer = [];
   String? get otherUserName => _stateManager.otherUserName;
   String? get otherDevicePersistentId => _stateManager.otherDevicePersistentId;
   String? get myPersistentId => _stateManager.myPersistentId;
-  bool get isActivelyReconnecting => 
+  bool get isActivelyReconnecting =>
     !_stateManager.isPeripheralMode && _connectionManager.isActivelyReconnecting;
+
+  /// Check if we can send messages (works for both central and peripheral modes)
+  bool get canSendMessages {
+    if (_stateManager.isPeripheralMode) {
+      // Peripheral mode: check if central is connected and characteristic is available
+      return _connectedCentral != null && _connectedCharacteristic != null;
+    } else {
+      // Central mode: check connection manager
+      return _connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null;
+    }
+  }
   BLEStateManager get stateManager => _stateManager;
   BLEConnectionManager get connectionManager => _connectionManager;
 
@@ -203,6 +226,9 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     _messageHandler = BLEMessageHandler();
     BackgroundCacheService.initialize();
 
+    // Initialize peripheral initializer
+    _peripheralInitializer = PeripheralInitializer(peripheralManager);
+
     // Initialize hint scanner service
     _hintScanner = HintScannerService(contactRepository: _contactRepo);
     await _hintScanner.initialize();
@@ -222,11 +248,17 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     _messageHandler.onContactAcceptReceived = _stateManager.handleContactAccept;
     _messageHandler.onContactRejectReceived = _stateManager.handleContactReject;
 
+    // Wire relay message forwarding callback
+    _messageHandler.onSendRelayMessage = (protocolMessage, nextHopId) async {
+      _logger.info('🔀 RELAY FORWARD: Sending relay message to ${nextHopId.length > 8 ? '${nextHopId.substring(0, 8)}...' : nextHopId}');
+      await _sendProtocolMessage(protocolMessage);
+    };
+
     await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
     
     // CRITICAL FIX: Initialize message handler with current node ID
     final myNodeId = await _stateManager.getMyPersistentId();
-    print('🔧 BLE SERVICE: Initializing message handler with node ID: ${myNodeId.substring(0, 16)}...');
+    print('🔧 BLE SERVICE: Initializing message handler with node ID: ${myNodeId.length > 16 ? '${myNodeId.substring(0, 16)}...' : myNodeId}');
     
     // Initialize the message handler with the current node ID for proper routing
     _messageHandler.setCurrentNodeId(myNodeId);
@@ -254,8 +286,8 @@ _connectionManager.onConnectionInfoChanged = (info) {
 };
 
 _connectionManager.onConnectionComplete = () async {
-  _logger.info('Connection complete - performing name exchange');
-  
+  _logger.info('Connection complete - starting handshake protocol');
+
   // CRITICAL: Stop discovery after successful connection
   try {
     await centralManager.stopDiscovery();
@@ -263,8 +295,9 @@ _connectionManager.onConnectionComplete = () async {
   } catch (e) {
     // Ignore
   }
-  
-  await _performNameExchangeWithRetry();
+
+  // ✅ NEW: Use handshake protocol instead of simple name exchange
+  await _performHandshake();
 };
     
     await _stateManager.initialize();
@@ -333,6 +366,27 @@ _stateManager.onSendPairingVerification = (hash) async {
     );
     _logger.info('Sent pairing verification via peripheral');
   }
+};
+
+// STEP 3: Wire pairing request/accept/cancel callbacks
+_stateManager.onSendPairingRequest = (message) async {
+  await _sendProtocolMessage(message);
+  _logger.info('📤 STEP 3: Sent pairing request');
+};
+
+_stateManager.onSendPairingAccept = (message) async {
+  await _sendProtocolMessage(message);
+  _logger.info('📤 STEP 3: Sent pairing accept');
+};
+
+_stateManager.onSendPairingCancel = (message) async {
+  await _sendProtocolMessage(message);
+  _logger.info('📤 STEP 3: Sent pairing cancel');
+};
+
+_stateManager.onSendPersistentKeyExchange = (message) async {
+  await _sendProtocolMessage(message);
+  _logger.info('📤 STEP 4: Sent persistent key exchange');
 };
 
 _stateManager.onSendContactRequest = (publicKey, displayName) async {
@@ -464,6 +518,7 @@ void _updateConnectionInfo({
   
 if (event.state == BluetoothLowEnergyState.poweredOff) {
   _updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Bluetooth off');
+  _disposeHandshakeCoordinator();
   _stateManager.clearSessionState();
 } else if (event.state == BluetoothLowEnergyState.poweredOn) {
   if (_stateManager.isPeripheralMode) {
@@ -493,9 +548,11 @@ if (event.state == BluetoothLowEnergyState.poweredOff) {
 
 if (event.state == BluetoothLowEnergyState.poweredOff) {
   _updateConnectionInfo(isConnected: false, isReady: false, isAdvertising: false, statusMessage: 'Bluetooth off');
+  _disposeHandshakeCoordinator();
   _stateManager.clearSessionState();
   _connectedCentral = null;
   _connectedCharacteristic = null;
+  _peripheralHandshakeStarted = false;
 }
   
   if (event.state == BluetoothLowEnergyState.unauthorized) {
@@ -530,9 +587,11 @@ if (event.state == BluetoothLowEnergyState.poweredOff) {
   
   if (event.state == BluetoothLowEnergyState.poweredOff) {
 _updateConnectionInfo(isConnected: false, isReady: false, isAdvertising: false, statusMessage: 'Stopped');
+_disposeHandshakeCoordinator();
 _stateManager.clearSessionState();
 _connectedCentral = null;
 _connectedCharacteristic = null;
+_peripheralHandshakeStarted = false;
   }
 });
 
@@ -597,8 +656,9 @@ centralManager.connectionStateChanged.listen((event) {
         otherUserName: null,  // Clear the name
         statusMessage: 'Disconnected'
       );
-      
+
       _connectionManager.clearConnectionState(keepMonitoring: _connectionManager.isMonitoring);
+      _disposeHandshakeCoordinator();
       _stateManager.clearSessionState();
     }
   }
@@ -616,19 +676,24 @@ if (Platform.isAndroid) {
     if (event.state == ConnectionState.connected) {
       _logger.info('Central connected to our peripheral: ${event.central.uuid}');
       _connectedCentral = event.central;
-      
+
       _updateConnectionInfo(
         isConnected: false,  // Not ready yet
         isReady: false,
         statusMessage: 'Connected - exchanging names...',
         isAdvertising: false
       );
-      
+
+      // Note: Handshake will be initiated after first characteristic write
+      // when _connectedCharacteristic becomes available
+
     } else if (event.state == ConnectionState.disconnected) {
       if (_connectedCentral?.uuid == event.central.uuid) {
         _logger.info('Connected central disconnected from our peripheral');
         _connectedCentral = null;
         _connectedCharacteristic = null;
+        _peripheralHandshakeStarted = false;
+        _disposeHandshakeCoordinator();
         _stateManager.clearSessionState();
         _updateConnectionInfo(
           isConnected: false, 
@@ -657,10 +722,18 @@ if (Platform.isAndroid) {
       _connectedCentral = event.central;
       _logger.info('Setting connected central from write request: ${event.central.uuid}');
     }
-    
+
     // Always update the characteristic reference
     _connectedCharacteristic = event.characteristic;
-    
+
+    // ✅ FIX: Start handshake AFTER characteristic is available (only once per connection)
+    if (!_peripheralHandshakeStarted && _connectedCentral != null && _connectedCharacteristic != null) {
+      _peripheralHandshakeStarted = true;
+      _logger.info('🤝 Characteristic available - initiating handshake on peripheral side');
+      // Don't await - let it run async so we can process the incoming message
+      _performHandshake();
+    }
+
     await _handleReceivedData(event.request.value, isFromPeripheral: true, central: event.central, characteristic: event.characteristic);
     await peripheralManager.respondWriteRequest(event.request);
   } catch (e) {
@@ -709,19 +782,16 @@ Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral
   try {
     final protocolMessage = ProtocolMessage.fromBytes(data);
 
-if (protocolMessage.type == ProtocolMessageType.contactStatus) {
-  final payload = protocolMessage.payload;
-  print('🔒 PROTOCOL DEBUG: Received contactStatus - payload: ${protocolMessage.payload}');
-  if (payload.containsKey('securityLevel')) {
-    await _stateManager.handleSecurityLevelSync(payload);
-  } else {
-    // Legacy contact status handling
-    final hasAsContact = payload['hasAsContact'] as bool;
-    final theirPublicKey = payload['publicKey'] as String;
-    _stateManager.handleContactStatus(hasAsContact, theirPublicKey);
-  }
-  return;
-}
+    // ✅ FIX: Route handshake protocol messages to coordinator FIRST
+    // This prevents legacy handlers from intercepting handshake messages
+    if (_handshakeCoordinator != null && _isHandshakeMessage(protocolMessage.type)) {
+      await _handshakeCoordinator!.handleReceivedMessage(protocolMessage);
+      return;
+    }
+
+// ✅ FIX: Removed legacy contactStatus handler - now handled by handshake coordinator
+// The contactStatus message is part of the handshake protocol and should not be
+// intercepted here. Security level sync can be added to handshake completion callback if needed.
     
     // Handle contact request/accept/reject/status messages first
     if (protocolMessage.type == ProtocolMessageType.contactRequest) {
@@ -760,8 +830,7 @@ if (protocolMessage.type == ProtocolMessageType.contactStatus) {
       _stateManager.setOtherDeviceIdentity(publicKey, displayName);
       
       // Check if we already have a chat history with this person
-      final myPublicKey = await _stateManager.getMyPersistentId();
-      final chatId = ChatUtils.generateChatId(myPublicKey, publicKey);
+      final chatId = ChatUtils.generateChatId(publicKey);
       final messageRepo = MessageRepository();
       final existingMessages = await messageRepo.getMessages(chatId);
       
@@ -826,6 +895,38 @@ if (protocolMessage.type == ProtocolMessageType.contactStatus) {
       return;
     }
     
+    // STEP 3: Handle new pairing request/accept/cancel messages
+    if (protocolMessage.type == ProtocolMessageType.pairingRequest) {
+      _logger.info('📥 STEP 3: Received pairing request');
+      _stateManager.handlePairingRequest(protocolMessage);
+      return;
+    }
+    
+    if (protocolMessage.type == ProtocolMessageType.pairingAccept) {
+      _logger.info('📥 STEP 3: Received pairing accept');
+      _stateManager.handlePairingAccept(protocolMessage);
+      return;
+    }
+    
+    if (protocolMessage.type == ProtocolMessageType.pairingCancel) {
+      _logger.info('📥 STEP 3: Received pairing cancel');
+      _stateManager.handlePairingCancel(protocolMessage);
+      return;
+    }
+    
+    // STEP 4: Handle persistent key exchange (for future implementation)
+    if (protocolMessage.type == ProtocolMessageType.persistentKeyExchange) {
+      _logger.info('📥 STEP 4: Received persistent key exchange');
+      final persistentKey = protocolMessage.payload['persistentPublicKey'] as String?;
+      
+      if (persistentKey != null) {
+        await _stateManager.handlePersistentKeyExchange(persistentKey);
+      } else {
+        _logger.warning('❌ Persistent key exchange missing public key');
+      }
+      return;
+    }
+    
     // Handle crypto verification messages
     if (protocolMessage.type == ProtocolMessageType.cryptoVerification) {
   final challenge = protocolMessage.cryptoVerificationChallenge;
@@ -876,7 +977,7 @@ Future<void> _processMessage(
   String? senderPublicKey;
   if (_stateManager.otherDevicePersistentId != null) {
     senderPublicKey = _stateManager.otherDevicePersistentId;
-    _logger.info('🔐 Using sender public key for decryption: ${senderPublicKey?.substring(0, 16)}...');
+    _logger.info('🔐 Using sender public key for decryption: ${senderPublicKey != null && senderPublicKey.length > 16 ? '${senderPublicKey.substring(0, 16)}...' : senderPublicKey ?? 'null'}');
   } else {
     _logger.warning('🔐 No sender public key available - decryption may fail');
   }
@@ -904,11 +1005,36 @@ Future<void> _processMessage(
       }
     }
     
+    // Trigger notification for new message
+    if (_stateManager.otherDevicePersistentId != null && _stateManager.otherUserName != null) {
+      try {
+        // Parse the message to create Message entity
+        final messageRepo = MessageRepository();
+        final chatId = ChatUtils.generateChatId(_stateManager.otherDevicePersistentId!);
+        final messages = await messageRepo.getMessages(chatId);
+        
+        // Find the most recent message (just received)
+        if (messages.isNotEmpty) {
+          final latestMessage = messages.first;
+          
+          // Show notification for received messages only
+          if (!latestMessage.isFromMe) {
+            await NotificationService.showMessageNotification(
+              message: latestMessage,
+              contactName: _stateManager.otherUserName!,
+            );
+          }
+        }
+      } catch (e) {
+        _logger.warning('Failed to show message notification: $e');
+        // Don't let notification errors break message reception
+      }
+    }
+    
     // Increment unread count
     final chatsRepo = ChatsRepository();
     if (_stateManager.otherDevicePersistentId != null) {
-      final myPublicKey = await _stateManager.getMyPersistentId();
-      final chatId = ChatUtils.generateChatId(myPublicKey, _stateManager.otherDevicePersistentId!);
+      final chatId = ChatUtils.generateChatId(_stateManager.otherDevicePersistentId!);
       await chatsRepo.incrementUnreadCount(chatId);
       _logger.info('Incremented unread count for chat: $chatId');
     }
@@ -955,6 +1081,7 @@ Future<void> _processMessage(
 
   _connectedCentral = null;
   _connectedCharacteristic = null;
+  _peripheralHandshakeStarted = false;
   _peripheralNegotiatedMTU = null;
 
     try {
@@ -964,10 +1091,10 @@ Future<void> _processMessage(
     }
 
   _updateConnectionInfo(
-    isConnected: false, 
-    isReady: false, 
+    isConnected: false,
+    isReady: false,
     otherUserName: null,
-    statusMessage: 'Switching to peripheral mode...'
+    statusMessage: 'Initializing peripheral mode...'
   );
     
   _stateManager.preserveContactRelationship(
@@ -979,10 +1106,11 @@ Future<void> _processMessage(
   
   _discoveredDevices.clear();
   _devicesController?.add([]);
-    
+
     try {
-      await peripheralManager.removeAllServices();
-      
+      // ✅ FIX: Use safe peripheral initialization
+      _logger.info('🔧 Preparing peripheral manager...');
+
       final messageCharacteristic = GATTCharacteristic.mutable(
         uuid: BLEConstants.messageCharacteristicUUID,
         properties: [
@@ -997,36 +1125,48 @@ Future<void> _processMessage(
         ],
         descriptors: [],
       );
-      
+
       final service = GATTService(
         uuid: BLEConstants.serviceUUID,
         isPrimary: true,
         includedServices: [],
         characteristics: [messageCharacteristic],
       );
-      
-      await peripheralManager.addService(service);
+
+      // ✅ FIX: Safely add service with proper initialization wait
+      final serviceAdded = await _peripheralInitializer.safelyAddService(
+        service,
+        timeout: Duration(seconds: 5),
+      );
+
+      if (!serviceAdded) {
+        throw Exception('Failed to add GATT service - peripheral not ready');
+      }
       
       // Get intro hint (if any active QR)
       final introHint = await _introHintRepo.getMostRecentActiveHint();
 
-      // Compute my ephemeral hint for contacts
+      // Compute my persistent hint from my public key
       final myPublicKey = await _stateManager.getMyPersistentId();
-      final mySharedSeed = await _getOrGenerateMySharedSeed(myPublicKey);
-      final mySensitiveHint = mySharedSeed != null
-          ? SensitiveContactHint.compute(
-              contactPublicKey: myPublicKey,
-              sharedSeed: mySharedSeed,
-            )
-          : null;
+      
+      // Check if user wants to broadcast online status
+      final prefs = await SharedPreferences.getInstance();
+      final showOnlineStatus = prefs.getBool('show_online_status') ?? true;
+      
+      // If online status is disabled, don't broadcast identity hint
+      final myPersistentHint = showOnlineStatus 
+        ? SensitiveContactHint.compute(contactPublicKey: myPublicKey)
+        : null;
+      
+      _logger.info('📡 Online Status: ${showOnlineStatus ? "visible" : "hidden"}');
 
-      // Pack hints into 10-byte advertisement (optimized for BLE size limits)
+      // Pack hints into 6-byte advertisement (optimized for BLE size limits)
       final advData = HintAdvertisementService.packAdvertisement(
         introHint: introHint,
-        ephemeralHint: mySensitiveHint,
+        ephemeralHint: myPersistentHint, // null if hidden
       );
 
-      _logger.info('📡 Advertising: intro=${introHint?.hintHex ?? "none"}, sensitive=${mySensitiveHint?.hintHex ?? "none"}');
+      _logger.info('📡 Advertising: intro=${introHint?.hintHex ?? "none"}, persistent=${myPersistentHint?.hintHex ?? "hidden"}');
 
       // Advertisement breakdown (fits in 31-byte Android limit):
       // - Service UUID: 16 bytes (128-bit)
@@ -1045,13 +1185,26 @@ Future<void> _processMessage(
         ],
       );
       
-      await peripheralManager.startAdvertising(advertisement);
+      // ✅ FIX: Safely start advertising with proper initialization wait
+      final advertisingStarted = await _peripheralInitializer.safelyStartAdvertising(
+        advertisement,
+        timeout: Duration(seconds: 5),
+      );
+
+      if (!advertisingStarted) {
+        throw Exception('Failed to start advertising - peripheral not ready');
+      }
+
       _stateManager.setPeripheralMode(true);
-      _connectionManager.setPeripheralMode(true); 
+      _connectionManager.setPeripheralMode(true);
       _updateConnectionInfo(isAdvertising: true, statusMessage: 'Advertising - discoverable');
-      _logger.info('Now advertising as discoverable device!');
-    } catch (e) {
-      _logger.severe('Failed to start as peripheral: $e');
+      _logger.info('✅ Now advertising as discoverable device!');
+    } catch (e, stack) {
+      _logger.severe('Failed to start as peripheral: $e', e, stack);
+      _updateConnectionInfo(
+        isAdvertising: false,
+        statusMessage: 'Peripheral mode failed'
+      );
       rethrow;
     }
   }
@@ -1071,13 +1224,19 @@ Future<void> _processMessage(
   // Clear peripheral-specific state (but NOT encryption keys!)
   _connectedCentral = null;
   _connectedCharacteristic = null;
+  _peripheralHandshakeStarted = false;
   _peripheralNegotiatedMTU = null;
-  
+
   try {
     await peripheralManager.stopAdvertising();
+  } catch (e) {
+    _logger.fine('Could not stop advertising: $e');
+  }
+
+  try {
     await peripheralManager.removeAllServices();
   } catch (e) {
-    // Ignore
+    _logger.fine('Could not remove services: $e');
   }
   
   _updateConnectionInfo(
@@ -1250,7 +1409,7 @@ Future<void> _sendPeripheralIdentityExchange() async {
     final displayName = _stateManager.myUserName ?? 'User';
     
     _logger.info('Sending peripheral identity re-exchange:');
-    _logger.info('  Public key: ${myPublicKey.substring(0, 16)}...');
+    _logger.info('  Public key: ${myPublicKey.length > 16 ? '${myPublicKey.substring(0, 16)}...' : myPublicKey}');
     _logger.info('  Display name: $displayName');
     
     final protocolMessage = ProtocolMessage.identity(
@@ -1271,38 +1430,173 @@ Future<void> _sendPeripheralIdentityExchange() async {
   }
 }
 
-Future<void> _performNameExchangeWithRetry() async {
-  _updateConnectionInfo(statusMessage: 'Exchanging identities...');
-  for (int attempt = 1; attempt <= 5; attempt++) {
-    _logger.info('Name exchange attempt $attempt/5');
+/// Perform handshake protocol for connection initialization
+Future<void> _performHandshake() async {
+  _logger.info('🤝 Starting handshake protocol...');
+
+  try {
+    // Clean up old handshake coordinator if it exists
+    _disposeHandshakeCoordinator();
+
+    // Get BOTH ephemeral and persistent identities
+    final myEphemeralId = EphemeralKeyManager.generateMyEphemeralKey();
+    final myPublicKey = await _stateManager.getMyPersistentId();
+    final myDisplayName = _stateManager.myUserName ?? 'User';
+
+    _logger.info('📱 My ephemeral ID: ${myEphemeralId.length > 16 ? '${myEphemeralId.substring(0, 16)}...' : myEphemeralId}');
+    _logger.info('🔒 My persistent key (not sent during handshake): ${myPublicKey.length > 16 ? '${myPublicKey.substring(0, 16)}...' : myPublicKey}');
     
-    try {
-      await _sendIdentityExchange();
-      
-      // Wait for name exchange to complete
-      for (int wait = 0; wait < 30; wait++) { // 3 seconds total
-        await Future.delayed(Duration(milliseconds: 100));
-        
-        if (_stateManager.otherUserName != null && _stateManager.otherUserName!.isNotEmpty) {
-          _logger.info('✅ Name exchange successful: ${_stateManager.otherUserName}');
-          return; // Success!
+    // Create handshake coordinator
+    _handshakeCoordinator = HandshakeCoordinator(
+      myEphemeralId: myEphemeralId,
+      myPublicKey: myPublicKey,
+      myDisplayName: myDisplayName,
+      sendMessage: _sendHandshakeMessage,
+      onHandshakeComplete: _onHandshakeComplete,
+      phaseTimeout: Duration(seconds: 10),
+    );
+
+    // Listen to phase changes for UI feedback
+    _handshakePhaseSubscription = _handshakeCoordinator!.phaseStream.listen((phase) {
+      _logger.info('🤝 Handshake phase: $phase');
+      _updateConnectionInfo(statusMessage: _getPhaseMessage(phase));
+    });
+
+    // ✅ FIX: Process any buffered protocol messages that arrived before coordinator was created
+    final bufferedProtocolMessages = <_BufferedMessage>[];
+    for (final buffered in _messageBuffer) {
+      try {
+        final protocolMessage = ProtocolMessage.fromBytes(buffered.data);
+        if (_isHandshakeMessage(protocolMessage.type)) {
+          bufferedProtocolMessages.add(buffered);
+          _logger.info('📦 Processing buffered ${protocolMessage.type} from before coordinator creation');
+          await _handshakeCoordinator!.handleReceivedMessage(protocolMessage);
         }
+      } catch (e) {
+        // Not a protocol message, leave it in buffer for later processing
       }
-      
-      _logger.warning('❌ Name exchange attempt $attempt timed out');
-      
-    } catch (e) {
-      _logger.warning('❌ Name exchange attempt $attempt failed: $e');
     }
-    
-    if (attempt < 5) {
-      _logger.info('Retrying name exchange in 1.5 second...');
-      await Future.delayed(Duration(milliseconds: 1500));
+    // Remove processed protocol messages from buffer
+    for (final processed in bufferedProtocolMessages) {
+      _messageBuffer.remove(processed);
     }
+    if (bufferedProtocolMessages.isNotEmpty) {
+      _logger.info('✅ Processed ${bufferedProtocolMessages.length} buffered protocol message(s)');
+    }
+
+    // Start the handshake
+    await _handshakeCoordinator!.startHandshake();
+
+  } catch (e, stack) {
+    _logger.severe('🚨 Handshake failed: $e', e, stack);
+    _updateConnectionInfo(
+      isConnected: false,
+      isReady: false,
+      statusMessage: 'Connection failed'
+    );
   }
+}
+
+/// Send handshake protocol messages using the write queue
+Future<void> _sendHandshakeMessage(ProtocolMessage message) async {
+  try {
+    // Use the existing queued write system to prevent concurrent writes
+    await _sendProtocolMessage(message);
+    _logger.fine('✅ Sent handshake message: ${message.type}');
+  } catch (e) {
+    _logger.severe('❌ Failed to send handshake message ${message.type}: $e');
+    // Rethrow so handshake coordinator knows it failed
+    rethrow;
+  }
+}
+
+/// Called when handshake completes successfully
+Future<void> _onHandshakeComplete(String ephemeralId, String displayName) async {
+  _logger.info('🎉 Handshake complete! Connected to: $displayName');
+  _logger.info('   Their ephemeral ID: ${ephemeralId.length > 16 ? '${ephemeralId.substring(0, 16)}...' : ephemeralId}');
+
+  // STEP 3: Store their ephemeral ID (separate from persistent key)
+  _stateManager.setTheirEphemeralId(ephemeralId, displayName);
   
-  _logger.severe('🚨 Name exchange failed after 5 attempts - connection incomplete');
-_updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Connection failed');
+  // Store identity in state manager (this sets display name)
+  // Note: For now we use ephemeralId as publicKey until pairing completes
+  _stateManager.setOtherDeviceIdentity(ephemeralId, displayName);
+
+  // Check if we already have chat history with this ephemeral ID
+  final chatId = ChatUtils.generateChatId(ephemeralId);
+  final messageRepo = MessageRepository();
+  final existingMessages = await messageRepo.getMessages(chatId);
+
+  // Always save contact to ensure database integrity (foreign key constraints)
+  // Note: Using ephemeral ID until pairing completes and we exchange persistent keys
+  await _stateManager.saveContact(ephemeralId, displayName);
+  if (existingMessages.isNotEmpty) {
+    _logger.info('Contact restored from existing chat history: $displayName');
+  } else {
+    _logger.info('New contact saved during handshake: $displayName');
+  }
+
+  await _stateManager.initializeContactFlags();
+
+  // Update last seen
+  final chatsRepo = ChatsRepository();
+  await chatsRepo.updateContactLastSeen(ephemeralId);
+  await chatsRepo.storeDeviceMapping(_connectionManager.connectedDevice?.uuid.toString(), ephemeralId);
+
+  // Process any buffered messages
+  _processPendingMessages();
+
+  // Update UI
+  _updateConnectionInfo(
+    isConnected: true,
+    isReady: true,
+    otherUserName: displayName,
+    statusMessage: 'Ready to chat',
+  );
+}
+
+/// Dispose of handshake coordinator to prevent stale state
+void _disposeHandshakeCoordinator() {
+  if (_handshakeCoordinator != null) {
+    _logger.info('🧹 Disposing old handshake coordinator (phase: ${_handshakeCoordinator!.currentPhase})');
+    _handshakePhaseSubscription?.cancel();
+    _handshakePhaseSubscription = null;
+    _handshakeCoordinator!.dispose();
+    _handshakeCoordinator = null;
+  }
+}
+
+/// Convert connection phase to user-friendly message
+String _getPhaseMessage(ConnectionPhase phase) {
+  switch (phase) {
+    case ConnectionPhase.bleConnected:
+      return 'Connected...';
+    case ConnectionPhase.readySent:
+      return 'Synchronizing...';
+    case ConnectionPhase.readyComplete:
+      return 'Ready check complete...';
+    case ConnectionPhase.identitySent:
+      return 'Exchanging identities...';
+    case ConnectionPhase.identityComplete:
+      return 'Identity verified...';
+    case ConnectionPhase.contactStatusSent:
+      return 'Syncing contact status...';
+    case ConnectionPhase.contactStatusComplete:
+      return 'Contact status synced...';
+    case ConnectionPhase.complete:
+      return 'Ready to chat';
+    case ConnectionPhase.timeout:
+      return 'Connection timeout';
+    case ConnectionPhase.failed:
+      return 'Connection failed';
+  }
+}
+
+/// Check if message type is part of handshake protocol (sequential, no ACKs)
+bool _isHandshakeMessage(ProtocolMessageType type) {
+  return type == ProtocolMessageType.connectionReady ||
+         type == ProtocolMessageType.identity ||
+         type == ProtocolMessageType.contactStatus;
 }
   
   Future<bool> sendMessage(String message, {String? messageId, String? originalIntendedRecipient}) async {
@@ -1313,6 +1607,16 @@ _updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Connec
   
   int mtuSize = _connectionManager.mtuSize ?? 20;
   
+  // STEP 7: Get appropriate recipient ID (ephemeral or persistent)
+  final recipientId = _stateManager.getRecipientId();
+  final isPaired = _stateManager.isPaired;
+  final idType = _stateManager.getIdType();
+  
+  if (recipientId != null) {
+    final truncatedId = recipientId.length > 16 ? recipientId.substring(0, 16) : recipientId;
+    _logger.info('📤 STEP 7: Sending message using $idType ID: $truncatedId...');
+  }
+  
 return await _messageHandler.sendMessage(
   centralManager: centralManager,
   connectedDevice: _connectionManager.connectedDevice!,
@@ -1320,7 +1624,9 @@ return await _messageHandler.sendMessage(
   message: message,
   mtuSize: mtuSize,
   messageId: messageId,
-  contactPublicKey: _stateManager.otherDevicePersistentId,
+  contactPublicKey: isPaired ? recipientId : null,  // STEP 7: Only for paired contacts
+  recipientId: recipientId,  // STEP 7: Pass recipient ID
+  useEphemeralAddressing: !isPaired,  // STEP 7: Flag for routing
   originalIntendedRecipient: originalIntendedRecipient, // Pass through for relay messages
   contactRepository: _stateManager.contactRepository,
   stateManager: _stateManager,
@@ -1344,6 +1650,16 @@ Future<bool> sendPeripheralMessage(String message, {String? messageId}) async {
   // Use the negotiated MTU from central connection
   int mtuSize = _peripheralNegotiatedMTU ?? 20;
   
+  // STEP 7: Get appropriate recipient ID (ephemeral or persistent)
+  final recipientId = _stateManager.getRecipientId();
+  final isPaired = _stateManager.isPaired;
+  final idType = _stateManager.getIdType();
+  
+  if (recipientId != null) {
+    final truncatedId = recipientId.length > 16 ? recipientId.substring(0, 16) : recipientId;
+    _logger.info('📤 STEP 7 (Peripheral): Sending message using $idType ID: $truncatedId...');
+  }
+  
   return await _messageHandler.sendPeripheralMessage(
     peripheralManager: peripheralManager,
     connectedCentral: connectedCentral,
@@ -1351,7 +1667,9 @@ Future<bool> sendPeripheralMessage(String message, {String? messageId}) async {
     message: message,
     mtuSize: mtuSize,
     messageId: messageId,
-    contactPublicKey: _stateManager.otherDevicePersistentId,
+    contactPublicKey: isPaired ? recipientId : null,  // STEP 7: Only for paired contacts
+    recipientId: recipientId,  // STEP 7: Pass recipient ID
+    useEphemeralAddressing: !isPaired,  // STEP 7: Flag for routing
     contactRepository: _stateManager.contactRepository,
     stateManager: _stateManager,
   );
@@ -1365,21 +1683,79 @@ GATTCharacteristic? _getPeripheralMessageCharacteristic() {
   return _connectedCharacteristic;
 }
 
+// BLE write queue to prevent concurrent writes that cause IllegalStateException
+final List<Future<void> Function()> _writeQueue = [];
+bool _isProcessingWriteQueue = false;
+
 Future<void> _sendProtocolMessage(ProtocolMessage message) async {
-  if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
-    await centralManager.writeCharacteristic(
-      _connectionManager.connectedDevice!,
-      _connectionManager.messageCharacteristic!,
-      value: message.toBytes(),
-      type: GATTCharacteristicWriteType.withResponse,
-    );
-  } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
-    await peripheralManager.notifyCharacteristic(
-      _connectedCentral!,
-      _connectedCharacteristic!,
-      value: message.toBytes(),
-    );
+  // Add write to queue to serialize operations
+  final completer = Completer<void>();
+
+  _writeQueue.add(() async {
+    try {
+      if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
+        await centralManager.writeCharacteristic(
+          _connectionManager.connectedDevice!,
+          _connectionManager.messageCharacteristic!,
+          value: message.toBytes(),
+          type: GATTCharacteristicWriteType.withResponse,
+        );
+      } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
+        await peripheralManager.notifyCharacteristic(
+          _connectedCentral!,
+          _connectedCharacteristic!,
+          value: message.toBytes(),
+        );
+      }
+      completer.complete();
+    } catch (e) {
+      _logger.warning('⚠️ Write failed: $e - will retry');
+      // Add small delay before retry to let GATT stabilize
+      await Future.delayed(Duration(milliseconds: 100));
+
+      // Retry once
+      try {
+        if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
+          await centralManager.writeCharacteristic(
+            _connectionManager.connectedDevice!,
+            _connectionManager.messageCharacteristic!,
+            value: message.toBytes(),
+            type: GATTCharacteristicWriteType.withResponse,
+          );
+        } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
+          await peripheralManager.notifyCharacteristic(
+            _connectedCentral!,
+            _connectedCharacteristic!,
+            value: message.toBytes(),
+          );
+        }
+        completer.complete();
+      } catch (retryError) {
+        _logger.severe('❌ Write failed after retry: $retryError');
+        completer.completeError(retryError);
+      }
+    }
+  });
+
+  // Process queue
+  _processWriteQueue();
+
+  return completer.future;
+}
+
+Future<void> _processWriteQueue() async {
+  if (_isProcessingWriteQueue || _writeQueue.isEmpty) return;
+
+  _isProcessingWriteQueue = true;
+
+  while (_writeQueue.isNotEmpty) {
+    final write = _writeQueue.removeAt(0);
+    await write();
+    // Small delay between writes to prevent GATT overload
+    await Future.delayed(Duration(milliseconds: 50));
   }
+
+  _isProcessingWriteQueue = false;
 }
   
   Future<void> _sendIdentityExchange() async {
@@ -1406,7 +1782,7 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
     print('🐛 DEBUG NAME: About to send identity with name: "$displayName"');
     
     _logger.info('Sending identity exchange:');
-    _logger.info('  Public key: ${myPublicKey.substring(0, 16)}...');
+    _logger.info('  Public key: ${myPublicKey.length > 16 ? '${myPublicKey.substring(0, 16)}...' : myPublicKey}');
     _logger.info('  Display name: $displayName');
     
     final protocolMessage = ProtocolMessage.identity(
@@ -1452,7 +1828,7 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
       
       _logger.info('🔄 CONNECTION INFO: Retrieved with fallback');
       _logger.info('  - Display name: $displayName');
-      _logger.info('  - Public key: ${publicKey.isNotEmpty ? "${publicKey.substring(0, 16)}..." : "none"}');
+      _logger.info('  - Public key: ${publicKey.isNotEmpty ? publicKey.length > 16 ? '${publicKey.substring(0, 16)}...' : publicKey : "none"}');
       _logger.info('  - Source: $source');
       
       return ConnectionInfo(
@@ -1491,7 +1867,7 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
       if (recovered) {
         _logger.info('✅ RECOVERY: Identity successfully recovered');
         _logger.info('  - Name: ${_stateManager.otherUserName}');
-        _logger.info('  - ID: ${_stateManager.otherDevicePersistentId?.substring(0, 16)}...');
+        _logger.info('  - ID: ${_stateManager.otherDevicePersistentId != null && _stateManager.otherDevicePersistentId!.length > 16 ? '${_stateManager.otherDevicePersistentId!.substring(0, 16)}...' : _stateManager.otherDevicePersistentId ?? 'null'}');
         
         // Update connection info to reflect recovered state
         _updateConnectionInfo(
@@ -1543,9 +1919,11 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
     _logger.warning('🔵 Bluetooth state monitor: Bluetooth became unavailable');
 
     // Clear all connections and reset state
+    _disposeHandshakeCoordinator();
     _stateManager.clearSessionState();
     _connectedCentral = null;
     _connectedCharacteristic = null;
+    _peripheralHandshakeStarted = false;
 
     // Update connection info with appropriate message
     _updateConnectionInfo(
@@ -1636,22 +2014,26 @@ Future<void> _sendProtocolMessage(ProtocolMessage message) async {
     await startAsPeripheral();
   }
 
-  /// Get or generate my personal shared seed for hint generation
-  Future<Uint8List?> _getOrGenerateMySharedSeed(String myPublicKey) async {
-    // Try to get existing seed
-    var seed = await _contactRepo.getCachedSharedSeedBytes(myPublicKey);
-
-    if (seed == null) {
-      // Generate new personal seed
-      seed = SensitiveContactHint.generateSharedSeed();
-      await _contactRepo.cacheSharedSeedBytes(myPublicKey, seed);
-      _logger.info('Generated new personal shared seed');
-    }
-
-    return seed;
-  }
+  // OBSOLETE: No longer needed - hints are now deterministic from public key
+  // /// Get or generate my personal shared seed for hint generation
+  // Future<Uint8List?> _getOrGenerateMySharedSeed(String myPublicKey) async {
+  //   // Try to get existing seed
+  //   var seed = await _contactRepo.getCachedSharedSeedBytes(myPublicKey);
+  //
+  //   if (seed == null) {
+  //     // Generate new personal seed
+  //     seed = SensitiveContactHint.generateSharedSeed();
+  //     await _contactRepo.cacheSharedSeedBytes(myPublicKey, seed);
+  //     _logger.info('Generated new personal shared seed');
+  //   }
+  //
+  //   return seed;
+  // }
 
   void dispose() {
+  // Dispose handshake coordinator
+  _handshakeCoordinator?.dispose();
+
   // Dispose hint scanner
   _hintScanner.dispose();
 

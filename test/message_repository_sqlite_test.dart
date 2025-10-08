@@ -1,21 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Initialize FFI for desktop testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  // Initialize test environment
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   // Reset database before each test
   setUp(() async {
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
   });
 
   // Helper method to create a chat (required due to foreign key constraint)

@@ -53,7 +53,11 @@ print(validation.warnings); // List<String>
 - **Algorithm**: AES-256-GCM
 - **Key Derivation**: PBKDF2-HMAC-SHA256 (100k iterations)
 - **Integrity**: SHA-256 checksums
-- **Passphrase**: Minimum 12 chars, letters + numbers required
+- **Passphrase Requirements**: 
+  - Minimum 12 characters (NO MAXIMUM - variable length for security)
+  - Must contain at least 3 of: lowercase, uppercase, numbers, symbols
+  - Comprehensive symbol support: `!@#$%^&*()_+-=[]{}` and more
+  - Recommended: 20+ characters with all character types
 
 ### Protection
 ✅ Export useless without passphrase
@@ -61,6 +65,7 @@ print(validation.warnings); // List<String>
 ✅ Corruption detection
 ✅ Brute-force resistance (PBKDF2)
 ✅ No key reuse (unique salt per export)
+✅ Variable passphrase length (prevents length-guessing attacks)
 
 ## Next Steps (Phase 2 - UI)
 
@@ -133,18 +138,25 @@ flutter test --reporter expanded
 ## Common Issues & Solutions
 
 ### Issue: "Weak passphrase" error
-**Solution**: Use minimum 12 characters with letters AND numbers
-```dart
-// ❌ Bad
-'password123'  // Too short (11 chars)
-'mypassword'   // No numbers
-'123456789012' // No letters
+**Solution**: Use minimum 12 characters with at least 3 of these character types:
+- Lowercase letters (a-z)
+- Uppercase letters (A-Z)  
+- Numbers (0-9)
+- Symbols (!@#$%^&*()_+-=[]{}; etc.)
 
-// ✅ Good  
-'MyPassword123'
-'SecurePass2024'
-'ImportantData99'
+```dart
+// ❌ Bad (insufficient variety)
+'password1234'  // Only lowercase + numbers (2 types)
+'ALLUPPERCASE1' // Only uppercase + numbers (2 types)
+'onlylowercase' // Only lowercase (1 type)
+
+// ✅ Good (3+ character types)
+'MyPassword123'    // Upper + lower + numbers
+'secure_pass_2024!' // Lower + numbers + symbols  
+'STRONG#Pass99'    // Upper + lower + numbers + symbols (best!)
 ```
+
+**Security Note**: No maximum length limit - longer is better! Variable length prevents attackers from knowing password constraints.
 
 ### Issue: "Invalid passphrase" on import
 **Solution**: Ensure exact same passphrase used for export
@@ -168,18 +180,20 @@ flutter test --reporter expanded
 
 Before releasing to users:
 
-- [ ] Add UI for export (Settings screen)
-- [ ] Add UI for import (Welcome screen)
-- [ ] Show passphrase strength meter
-- [ ] Add export file sharing options
-- [ ] Implement import file picker
-- [ ] Add progress indicators
-- [ ] Show clear warnings about data loss
-- [ ] Test on real devices
-- [ ] Test with large databases (10k+ messages)
-- [ ] Document for users (help screen)
-- [ ] Add error handling UI
-- [ ] Consider auto-backup scheduling
+- [x] Add UI for export (Settings screen) ✅
+- [x] Add UI for import (Settings screen) ✅
+- [x] Add UI for import (Permission screen for new users) ✅
+- [x] Show passphrase strength meter ✅
+- [x] Add export file sharing options ✅
+- [x] Implement import file picker ✅
+- [x] Add progress indicators ✅
+- [x] Show clear warnings about data loss ✅
+- [x] Enhanced passphrase security (variable length, 3/4 character types) ✅
+- [ ] Test on real devices (USER TODO)
+- [ ] Test with large databases (10k+ messages) - Optional, can test manually over time
+- [x] Document for users (help screen) ✅
+- [x] Add error handling UI ✅
+- [ ] Consider auto-backup scheduling (Future enhancement)
 
 ## Example User Flow
 

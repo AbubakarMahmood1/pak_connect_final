@@ -12,8 +12,7 @@ import '../../data/repositories/user_preferences.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/services/security_manager.dart';
-import 'ble_service.dart';
-import '../../domain/entities/sensitive_contact_hint.dart';
+import 'chat_migration_service.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -32,6 +31,13 @@ class BLEStateManager {
   String? _theirReceivedCode;
   bool _weEnteredCode = false;
   String? _lastSyncedTheirStatus;
+  
+  // STEP 3: Ephemeral ID tracking (separate from persistent IDs)
+  String? _myEphemeralId;
+  String? _theirEphemeralId;
+  
+  // STEP 3: Mapping ephemeral → persistent (populated after key exchange)
+  final Map<String, String> _ephemeralToPersistent = {};
   
   // Peripheral mode tracking
   bool _isPeripheralMode = false;
@@ -56,6 +62,10 @@ class BLEStateManager {
   bool get hasContactRequest => _contactRequestPending;
   String? get pendingContactName => _pendingContactName;
   bool get theyHaveUsAsContact => _lastSyncedTheirStatus == 'yes';
+  
+  // STEP 3: Ephemeral ID getters
+  String? get myEphemeralId => _myEphemeralId;
+  String? get theirEphemeralId => _theirEphemeralId;
 
   bool _contactRequestPending = false;
   String? _pendingContactPublicKey;
@@ -94,6 +104,14 @@ class BLEStateManager {
   
   // USERNAME PROPAGATION FIX: Username change callback
   Function(String)? onMyUsernameChanged;
+  
+  // STEP 3: Pairing request/accept flow callbacks
+  Function(ProtocolMessage)? onSendPairingRequest;
+  Function(ProtocolMessage)? onSendPairingAccept;
+  Function(ProtocolMessage)? onSendPairingCancel;
+  Function(String ephemeralId, String displayName)? onPairingRequestReceived;
+  Function()? onPairingCancelled;
+  Function(ProtocolMessage)? onSendPersistentKeyExchange;
 
    BLEStateManager() {
     // Any synchronous initialization here
@@ -117,6 +135,11 @@ class BLEStateManager {
    final pubKeyStart = DateTime.now();
    _myPersistentId = await _userPreferences.getPublicKey();
    _logger.info('✅ Public key retrieved in ${DateTime.now().difference(pubKeyStart).inMilliseconds}ms: "${_myPersistentId?.substring(0, 16)}..."');
+
+   // STEP 3: Generate ephemeral ID for this session
+   _logger.info('🎲 Generating ephemeral ID...');
+   _myEphemeralId = _generateEphemeralId();
+   _logger.info('✅ Ephemeral ID generated: "${_myEphemeralId?.substring(0, 16)}..."');
 
    _logger.info('🔐 Initializing crypto...');
    final cryptoStart = DateTime.now();
@@ -428,6 +451,9 @@ Future<bool> _performVerification() async {
     // Initialize crypto with conversation key
     SimpleCrypto.initializeConversation(theirPublicKey, sharedSecret);
     
+    // STEP 4: Trigger persistent key exchange after verification succeeds
+    await _exchangePersistentKeys();
+    
     return true;
     
   } catch (e) {
@@ -453,6 +479,359 @@ void handlePairingVerification(String theirSecretHash) {
     }
   }
 }
+
+// ============================================================================
+// STEP 3: THREE-PHASE PAIRING REQUEST/ACCEPT FLOW
+// ============================================================================
+
+/// Generate a unique ephemeral ID for this session
+/// This is separate from the persistent public key and changes each session
+String _generateEphemeralId() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  return base64Url.encode(bytes).substring(0, 22); // 22 chars, URL-safe
+}
+
+/// Store the ephemeral ID received during handshake
+void setTheirEphemeralId(String ephemeralId, String displayName) {
+  _logger.info('Storing their ephemeral ID: ${ephemeralId.substring(0, 16)}... ($displayName)');
+  _theirEphemeralId = ephemeralId;
+  // Note: Display name is already set via setOtherUserName
+}
+
+/// STEP 3.1: User clicks "Pair" button - initiate pairing request
+Future<void> sendPairingRequest() async {
+  if (_theirEphemeralId == null) {
+    _logger.warning('❌ Cannot send pairing request - no ephemeral ID (handshake incomplete)');
+    return;
+  }
+  
+  if (_myEphemeralId == null) {
+    _logger.warning('❌ Cannot send pairing request - my ephemeral ID not set');
+    return;
+  }
+  
+  _logger.info('📤 STEP 3: Sending pairing request to ${_otherUserName ?? "Unknown"}');
+  
+  final message = ProtocolMessage.pairingRequest(
+    ephemeralId: _myEphemeralId!,
+    displayName: _myUserName ?? 'User',
+  );
+  
+  // Update state to "waiting for accept"
+  _currentPairing = PairingInfo(
+    myCode: '', // Will be generated after they accept
+    state: PairingState.pairingRequested,
+    theirEphemeralId: _theirEphemeralId,
+    theirDisplayName: _otherUserName,
+  );
+  
+  // Send the request
+  onSendPairingRequest?.call(message);
+  
+  // Start timeout (30 seconds for them to accept/reject)
+  _pairingTimeout?.cancel();
+  _pairingTimeout = Timer(Duration(seconds: 30), () {
+    if (_currentPairing?.state == PairingState.pairingRequested) {
+      _logger.warning('⏰ Pairing request timeout - no response');
+      _currentPairing = _currentPairing!.copyWith(state: PairingState.failed);
+      onPairingCancelled?.call();
+    }
+  });
+  
+  _logger.info('✅ Pairing request sent, waiting for accept...');
+}
+
+/// STEP 3.2: Receive pairing request from other device - show accept/reject popup
+void handlePairingRequest(ProtocolMessage message) {
+  final theirEphemeralId = message.payload['ephemeralId'] as String;
+  final displayName = message.payload['displayName'] as String;
+  
+  _logger.info('📥 STEP 3: Received pairing request from $displayName');
+  _logger.info('   Their ephemeral ID: ${theirEphemeralId.substring(0, 16)}...');
+  
+  // Store their ephemeral ID if we don't have it yet
+  _theirEphemeralId ??= theirEphemeralId;
+  
+  // Verify it matches what we have from handshake
+  if (_theirEphemeralId != theirEphemeralId) {
+    _logger.warning('⚠️ Ephemeral ID mismatch! Handshake: $_theirEphemeralId, Request: $theirEphemeralId');
+    // Use the one from the request as it's more recent
+    _theirEphemeralId = theirEphemeralId;
+  }
+  
+  // Update state to "request received"
+  _currentPairing = PairingInfo(
+    myCode: '', // Not generated yet
+    state: PairingState.requestReceived,
+    theirEphemeralId: theirEphemeralId,
+    theirDisplayName: displayName,
+  );
+  
+  // Trigger UI popup (show accept/reject dialog)
+  _logger.info('🔔 Triggering pairing request popup for user');
+  onPairingRequestReceived?.call(theirEphemeralId, displayName);
+}
+
+/// STEP 3.3: User clicks "Accept" on pairing request popup
+Future<void> acceptPairingRequest() async {
+  if (_currentPairing?.state != PairingState.requestReceived) {
+    _logger.warning('❌ No pending pairing request to accept');
+    return;
+  }
+  
+  if (_myEphemeralId == null) {
+    _logger.warning('❌ Cannot accept - my ephemeral ID not set');
+    return;
+  }
+  
+  _logger.info('✅ STEP 3: User accepted pairing request');
+  
+  // Send accept message
+  final message = ProtocolMessage.pairingAccept(
+    ephemeralId: _myEphemeralId!,
+    displayName: _myUserName ?? 'User',
+  );
+  
+  onSendPairingAccept?.call(message);
+  
+  // Both devices now proceed to PIN exchange
+  // Generate PIN code
+  final code = generatePairingCode();
+  _logger.info('📱 Generated PIN code after accept: $code');
+  
+  // Update state to displaying
+  _currentPairing = _currentPairing!.copyWith(
+    state: PairingState.displaying,
+  );
+}
+
+/// STEP 3.4: User clicks "Reject" on pairing request popup
+Future<void> rejectPairingRequest() async {
+  _logger.info('❌ STEP 3: User rejected pairing request');
+  
+  // Send cancel message
+  final message = ProtocolMessage.pairingCancel(reason: 'User rejected pairing');
+  onSendPairingCancel?.call(message);
+  
+  // Reset state
+  _currentPairing = null;
+  _pairingTimeout?.cancel();
+}
+
+/// STEP 3.5: Handle pairing accept from other device
+void handlePairingAccept(ProtocolMessage message) {
+  final theirEphemeralId = message.payload['ephemeralId'] as String;
+  final displayName = message.payload['displayName'] as String;
+  
+  _logger.info('📥 STEP 3: Received pairing accept from $displayName');
+  
+  // Verify we sent a request
+  if (_currentPairing?.state != PairingState.pairingRequested) {
+    _logger.warning('⚠️ Received accept but we didn\'t send a request');
+    return;
+  }
+  
+  // Cancel timeout
+  _pairingTimeout?.cancel();
+  
+  // Both devices now proceed to PIN exchange
+  // Generate PIN code
+  final code = generatePairingCode();
+  _logger.info('📱 Generated PIN code after receiving accept: $code');
+  
+  // Update state to displaying
+  _currentPairing = _currentPairing!.copyWith(
+    state: PairingState.displaying,
+    theirEphemeralId: theirEphemeralId,
+    theirDisplayName: displayName,
+  );
+  
+  _logger.info('✅ Pairing accepted, showing PIN dialog');
+}
+
+/// STEP 3.6: Handle pairing cancel from either device (atomic cancel)
+void handlePairingCancel(ProtocolMessage message) {
+  final reason = message.payload['reason'] as String?;
+  _logger.info('❌ STEP 3: Pairing cancelled by other device${reason != null ? ": $reason" : ""}');
+  
+  // Close any open dialogs/states
+  _currentPairing = _currentPairing?.copyWith(state: PairingState.cancelled);
+  _pairingTimeout?.cancel();
+  
+  // Notify UI to close popups/dialogs
+  onPairingCancelled?.call();
+  
+  // Reset after a short delay
+  Future.delayed(Duration(seconds: 1), () {
+    _currentPairing = null;
+  });
+}
+
+/// STEP 3.7: User/system cancels pairing at any stage
+Future<void> cancelPairing({String? reason}) async {
+  if (_currentPairing == null) {
+    _logger.info('No active pairing to cancel');
+    return;
+  }
+  
+  _logger.info('🚫 STEP 3: Cancelling pairing${reason != null ? ": $reason" : ""}');
+  
+  // Send cancel message to other device
+  final message = ProtocolMessage.pairingCancel(
+    reason: reason ?? 'User cancelled',
+  );
+  onSendPairingCancel?.call(message);
+  
+  // Reset local state
+  _currentPairing = _currentPairing!.copyWith(state: PairingState.cancelled);
+  _pairingTimeout?.cancel();
+  
+  // Reset after short delay
+  Future.delayed(Duration(seconds: 1), () {
+    _currentPairing = null;
+  });
+}
+
+// ============================================================================
+// END STEP 3
+// ============================================================================
+
+// ============================================================================
+// STEP 4: PERSISTENT KEY EXCHANGE
+// ============================================================================
+
+/// STEP 4.1: Exchange persistent public keys after PIN verification succeeds
+/// This happens automatically after _performVerification() completes successfully
+Future<void> _exchangePersistentKeys() async {
+  final myPersistentKey = await getMyPersistentId();
+  
+  if (_theirEphemeralId == null) {
+    _logger.warning('❌ Cannot exchange persistent keys - no ephemeral ID');
+    return;
+  }
+  
+  _logger.info('🔑 STEP 4: Exchanging persistent keys (my ephemeral: ${_myEphemeralId?.substring(0, 16)}...)');
+  
+  // Create and send persistent key exchange message
+  final message = ProtocolMessage.persistentKeyExchange(
+    persistentPublicKey: myPersistentKey,
+  );
+  
+  onSendPersistentKeyExchange?.call(message);
+  _logger.info('📤 STEP 4: Sent my persistent public key');
+}
+
+/// STEP 4.2: Handle received persistent key from other device
+Future<void> handlePersistentKeyExchange(String theirPersistentKey) async {
+  if (_theirEphemeralId == null) {
+    _logger.warning('❌ Cannot process persistent key - no ephemeral ID');
+    return;
+  }
+  
+  _logger.info('📥 STEP 4: Received persistent public key from ${_otherUserName ?? "Unknown"}');
+  _logger.info('   Ephemeral ID: ${_theirEphemeralId!.substring(0, 16)}...');
+  _logger.info('   Persistent key: ${theirPersistentKey.substring(0, 16)}...');
+  
+  // Store mapping: ephemeralId → persistentKey
+  _ephemeralToPersistent[_theirEphemeralId!] = theirPersistentKey;
+  _logger.info('✅ STEP 4: Stored ephemeral → persistent mapping');
+  
+  // Update the state manager's persistent ID reference
+  _otherDevicePersistentId = theirPersistentKey;
+  
+  // Ensure contact exists with persistent key
+  await _ensureContactExistsAfterPairing(
+    theirPersistentKey, 
+    _otherUserName ?? 'User'
+  );
+  
+  _logger.info('✅ STEP 4: Persistent key exchange complete!');
+  
+  // STEP 6: Trigger chat migration from ephemeral to persistent ID
+  await _triggerChatMigration(
+    ephemeralId: _theirEphemeralId!,
+    persistentKey: theirPersistentKey,
+    contactName: _otherUserName,
+  );
+}
+
+/// Helper: Look up persistent key from ephemeral ID
+String? getPersistentKeyFromEphemeral(String ephemeralId) {
+  return _ephemeralToPersistent[ephemeralId];
+}
+
+// ============================================================================
+// STEP 7: MESSAGE ADDRESSING
+// ============================================================================
+
+/// STEP 7.1: Get the appropriate ID to use when addressing this contact
+/// - Returns persistent public key if paired (after key exchange)
+/// - Returns ephemeral ID if not paired (privacy preserved)
+String? getRecipientId() {
+  // If we have persistent ID, we're paired - use it
+  if (_otherDevicePersistentId != null) {
+    return _otherDevicePersistentId;
+  }
+  
+  // Otherwise use ephemeral ID (privacy preserved)
+  return _theirEphemeralId;
+}
+
+/// STEP 7.2: Check if we're paired with the current contact
+/// Paired = we've completed persistent key exchange
+bool get isPaired => _otherDevicePersistentId != null;
+
+/// STEP 7.3: Get ID type for logging
+String getIdType() {
+  return isPaired ? 'persistent' : 'ephemeral';
+}
+
+// ============================================================================
+// END STEP 7
+// ============================================================================
+
+// ============================================================================
+// STEP 6: CHAT ID MIGRATION
+// ============================================================================
+
+/// STEP 6: Trigger chat migration from ephemeral to persistent ID
+/// This is called automatically after persistent key exchange completes
+Future<void> _triggerChatMigration({
+  required String ephemeralId,
+  required String persistentKey,
+  String? contactName,
+}) async {
+  _logger.info('🔄 STEP 6: Triggering chat migration');
+  _logger.info('   From: $ephemeralId');
+  _logger.info('   To: $persistentKey');
+  
+  try {
+    final migrationService = ChatMigrationService();
+    
+    final success = await migrationService.migrateChatToPersistentId(
+      ephemeralId: ephemeralId,
+      persistentPublicKey: persistentKey,
+      contactName: contactName,
+    );
+    
+    if (success) {
+      _logger.info('✅ STEP 6: Chat migration completed successfully');
+    } else {
+      _logger.info('ℹ️ STEP 6: No chat migration needed (no messages)');
+    }
+  } catch (e, stackTrace) {
+    _logger.severe('❌ STEP 6: Chat migration failed', e, stackTrace);
+  }
+}
+
+// ============================================================================
+// END STEP 6
+// ============================================================================
+
+// ============================================================================
+// END STEP 4
+// ============================================================================
 
 
 void handleContactStatus(bool theyHaveUsAsContact, String theirPublicKey) {
@@ -850,10 +1229,11 @@ Future<void> _finalizeContactAddition(String publicKey, String displayName, bool
       _logger.info('📱 FINALIZE: ECDH secret computed and cached');
     }
 
-    // Generate and store shared seed for hint system
-    final sharedSeed = SensitiveContactHint.generateSharedSeed();
-    await _contactRepository.cacheSharedSeedBytes(publicKey, sharedSeed);
-    _logger.info('📱 FINALIZE: Shared seed generated for hint system');
+    // OBSOLETE: Hints are now deterministic from public key, no seed needed
+    // // Generate and store shared seed for hint system
+    // final sharedSeed = SensitiveContactHint.generateSharedSeed();
+    // await _contactRepository.cacheSharedSeedBytes(publicKey, sharedSeed);
+    // _logger.info('📱 FINALIZE: Shared seed generated for hint system');
 
     // Mark bilateral sync as complete since we have mutual consent
     _markBilateralSyncComplete(publicKey);
@@ -938,14 +1318,29 @@ Future<bool> checkExistingPairing(String publicKey) async {
   }
 }
 
-void handleContactRequest(String publicKey, String displayName) {
-  _logger.info('Received contact request from $displayName');
+Future<void> handleContactRequest(String publicKey, String displayName) async {
+  _logger.info('📱 CONTACT REQUEST: Received from $displayName');
   
+  // Check if user allows new contacts
+  final prefs = await SharedPreferences.getInstance();
+  final allowNewContacts = prefs.getBool('allow_new_contacts') ?? true;
+  
+  if (!allowNewContacts) {
+    _logger.info('📱 CONTACT REQUEST: Auto-rejected (new contacts disabled)');
+    
+    // Auto-reject the request
+    onSendContactReject?.call();
+    
+    // Don't show UI dialog
+    return;
+  }
+  
+  // User allows new contacts - show the request dialog
   _contactRequestPending = true;
   _pendingContactPublicKey = publicKey;
   _pendingContactName = displayName;
   
-  // Notify UI
+  // Notify UI to show dialog
   onContactRequestReceived?.call(publicKey, displayName);
 }
 
@@ -1390,69 +1785,5 @@ void clearOtherUserName() {
 
   void dispose() {
     _contactSyncRetryTimer?.cancel();
-  }
-  
-  // Methods required by integration service
-  
-  /// Start BLE scanning - delegates to BLE service with burst source
-  Future<void> startScanning() async {
-    _logger.info('🔧 BURST: Power manager requesting burst scanning');
-    // Delegate to actual BLE service with burst scanning source
-    try {
-      final bleService = _getBleService();
-      if (bleService != null) {
-        await bleService.startScanning(source: ScanningSource.burst);
-      } else {
-        _logger.warning('BLE service not available for burst scanning');
-      }
-    } catch (e) {
-      _logger.warning('Burst scanning failed: $e');
-    }
-  }
-  
-  /// Stop BLE scanning - delegates to BLE service  
-  Future<void> stopScanning() async {
-    _logger.info('🔧 BURST: Power manager requesting scan stop');
-    // Delegate to actual BLE service
-    try {
-      final bleService = _getBleService();
-      if (bleService != null) {
-        await bleService.stopScanning();
-      } else {
-        _logger.warning('BLE service not available for stopping scan');
-      }
-    } catch (e) {
-      _logger.warning('Stop scanning failed: $e');
-    }
-  }
-  
-  /// Get BLE service instance - helper method
-  BLEService? _getBleService() {
-    // In a real implementation, this would get the BLE service instance
-    // For now, we'll log that this needs to be connected
-    _logger.fine('BLE service connection needed for power manager integration');
-    return null; // Placeholder - needs proper service injection
-  }
-  
-  /// Send message via BLE - placeholder for integration
-  Future<void> sendMessage(String content, {String? messageId}) async {
-    _logger.info('BLE message send requested: ${messageId?.substring(0, 16) ?? 'unknown'}...');
-    
-    try {
-      // This would typically delegate to the actual BLE service
-      // For now, simulate the callback behavior
-      await Future.delayed(Duration(milliseconds: 100));
-      
-      if (messageId != null) {
-        // Simulate successful message sending
-        onMessageSent?.call(messageId, true);
-      }
-      
-    } catch (e) {
-      _logger.severe('Failed to send BLE message: $e');
-      if (messageId != null) {
-        onMessageSent?.call(messageId, false);
-      }
-    }
   }
 }

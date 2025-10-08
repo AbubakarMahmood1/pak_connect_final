@@ -45,7 +45,7 @@ class SecurityStateComputer {
       ? otherPublicKey.substring(5) 
       : otherPublicKey;
   
-  print('🔧 REPO DEBUG: Processing key: ${actualKey.substring(0, 16)}...');
+  print('🔧 REPO DEBUG: Processing key: ${actualKey.length > 16 ? '${actualKey.substring(0, 16)}...' : actualKey}');
   
   final contactRepo = bleService.stateManager.contactRepository;
   final contact = await contactRepo.getContact(actualKey);

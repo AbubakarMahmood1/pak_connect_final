@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../data/services/export_import/export_service.dart';
+import '../../data/services/export_import/export_bundle.dart';
 import 'passphrase_strength_indicator.dart';
 
 class ExportDialog extends StatefulWidget {
@@ -25,6 +26,8 @@ class _ExportDialogState extends State<ExportDialog> {
   bool _isExporting = false;
   String? _exportPath;
   String? _errorMessage;
+  ExportType _selectedExportType = ExportType.full; // NEW: Export type selection
+  int? _recordCount; // NEW: Record count
   
   @override
   void dispose() {
@@ -48,11 +51,13 @@ class _ExportDialogState extends State<ExportDialog> {
       // Create export
       final result = await ExportService.createExport(
         userPassphrase: _passphraseController.text,
+        exportType: _selectedExportType, // NEW: Use selected export type
       );
       
       if (result.success && result.bundlePath != null) {
         setState(() {
           _exportPath = result.bundlePath;
+          _recordCount = result.recordCount; // NEW: Store record count
         });
       } else {
         setState(() {
@@ -160,6 +165,91 @@ class _ExportDialogState extends State<ExportDialog> {
                 ),
               ],
             ),
+          ),
+          
+          const SizedBox(height: 20),
+          
+          // Export type selector - NEW
+          DropdownButtonFormField<ExportType>(
+            initialValue: _selectedExportType,
+            decoration: const InputDecoration(
+              labelText: 'Export Type',
+              prefixIcon: Icon(Icons.category_outlined),
+              border: OutlineInputBorder(),
+              helperText: 'Choose what data to export',
+            ),
+            items: [
+              DropdownMenuItem(
+                value: ExportType.full,
+                child: Row(
+                  children: [
+                    Icon(Icons.backup, size: 20, color: theme.primaryColor),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Full Backup', style: TextStyle(fontWeight: FontWeight.w500)),
+                          Text('Everything (contacts, messages, settings)', 
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              DropdownMenuItem(
+                value: ExportType.contactsOnly,
+                child: Row(
+                  children: [
+                    Icon(Icons.contacts, size: 20, color: theme.primaryColor),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Contacts Only', style: TextStyle(fontWeight: FontWeight.w500)),
+                          Text('Just your contact list (~10-50 KB)', 
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              DropdownMenuItem(
+                value: ExportType.messagesOnly,
+                child: Row(
+                  children: [
+                    Icon(Icons.message, size: 20, color: theme.primaryColor),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Messages Only', style: TextStyle(fontWeight: FontWeight.w500)),
+                          Text('Conversations + chats (~100KB-10MB)', 
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            onChanged: (ExportType? newValue) {
+              if (newValue != null) {
+                setState(() {
+                  _selectedExportType = newValue;
+                });
+              }
+            },
           ),
           
           const SizedBox(height: 20),
@@ -284,6 +374,30 @@ class _ExportDialogState extends State<ExportDialog> {
     final file = File(_exportPath!);
     final filename = file.uri.pathSegments.last;
     
+    // Helper function to get export type display name
+    String getExportTypeName(ExportType type) {
+      switch (type) {
+        case ExportType.full:
+          return 'Full Backup';
+        case ExportType.contactsOnly:
+          return 'Contacts Only';
+        case ExportType.messagesOnly:
+          return 'Messages Only';
+      }
+    }
+    
+    // Helper function to get export type icon
+    IconData getExportTypeIcon(ExportType type) {
+      switch (type) {
+        case ExportType.full:
+          return Icons.backup;
+        case ExportType.contactsOnly:
+          return Icons.contacts;
+        case ExportType.messagesOnly:
+          return Icons.message;
+      }
+    }
+    
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -306,7 +420,7 @@ class _ExportDialogState extends State<ExportDialog> {
         
         // Success message
         Text(
-          'Backup Created Successfully!',
+          '${getExportTypeName(_selectedExportType)} Created!',
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.bold,
           ),
@@ -316,7 +430,9 @@ class _ExportDialogState extends State<ExportDialog> {
         const SizedBox(height: 8),
         
         Text(
-          'Your data has been encrypted and saved.',
+          _recordCount != null 
+            ? 'Successfully exported $_recordCount records'
+            : 'Your data has been encrypted and saved.',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: Colors.grey[600],
           ),
@@ -335,16 +451,32 @@ class _ExportDialogState extends State<ExportDialog> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Export type badge
               Row(
                 children: [
-                  Icon(Icons.file_present_rounded, color: Colors.grey[700]),
+                  Icon(getExportTypeIcon(_selectedExportType), color: theme.primaryColor, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    getExportTypeName(_selectedExportType),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: theme.primaryColor,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.file_present_rounded, color: Colors.grey[700], size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       filename,
                       style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:logging/logging.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../database/database_helper.dart';
@@ -31,6 +32,9 @@ class MessageRepository {
     try {
       final db = await DatabaseHelper.database;
       final now = DateTime.now().millisecondsSinceEpoch;
+
+      // ✅ Ensure chat exists before saving message (lazy creation)
+      await _ensureChatExists(db, message.chatId, now);
 
       await db.insert(
         'messages',
@@ -159,6 +163,57 @@ class MessageRepository {
   // ========================================
   // PRIVATE HELPER METHODS
   // ========================================
+
+  /// Ensure chat entry exists before saving message (lazy creation)
+  /// This prevents foreign key constraint violations while keeping ChatsScreen clean
+  Future<void> _ensureChatExists(Database db, String chatId, int timestamp) async {
+    // Check if chat already exists
+    final existing = await db.query(
+      'chats',
+      columns: ['chat_id'],
+      where: 'chat_id = ?',
+      whereArgs: [chatId],
+      limit: 1,
+    );
+
+    if (existing.isEmpty) {
+      // Create chat entry on first message
+      // ChatsScreen filters by messages, so empty chats won't appear
+      String? contactPublicKey;
+      String contactName = 'Unknown';
+
+      // Extract contact info from chat_id
+      if (chatId.startsWith('persistent_chat_')) {
+        final parts = chatId.substring('persistent_chat_'.length).split('_');
+        if (parts.length >= 2) {
+          // We have both public keys, need to determine which is the other person
+          // This will be updated later when contact is properly identified
+          contactPublicKey = parts[1]; // Tentative
+          contactName = 'Chat ${chatId.substring(0, 20)}...';
+        }
+      } else if (chatId.startsWith('temp_')) {
+        contactName = 'Device ${chatId.substring(5, 20)}...';
+      }
+
+      await db.insert(
+        'chats',
+        {
+          'chat_id': chatId,
+          'contact_public_key': contactPublicKey,
+          'contact_name': contactName,
+          'unread_count': 0,
+          'is_archived': 0,
+          'is_muted': 0,
+          'is_pinned': 0,
+          'created_at': timestamp,
+          'updated_at': timestamp,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore, // Prevent duplicates if concurrent
+      );
+
+      _logger.info('✅ Created chat entry for: $chatId');
+    }
+  }
 
   /// Convert database row to Message/EnhancedMessage
   Message _fromDatabase(Map<String, dynamic> row) {

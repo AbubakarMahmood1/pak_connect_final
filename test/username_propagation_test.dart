@@ -1,16 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/data/repositories/user_preferences.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('Username Propagation Tests', () {
     late UserPreferences userPreferences;
     late BLEStateManager stateManager;
-
-    setUpAll(() {
-      // Initialize Flutter bindings
-      TestWidgetsFlutterBinding.ensureInitialized();
-    });
 
     setUp(() {
       userPreferences = UserPreferences();

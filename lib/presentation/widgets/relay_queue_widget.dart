@@ -540,31 +540,29 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          ElevatedButton.icon(
-            onPressed: () => _retryAllMessages(),
-            icon: Icon(Icons.send_outlined, size: 18),
-            label: Text('Retry All'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green[600],
-              foregroundColor: Colors.white,
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () => _retryAllMessages(),
+              icon: Icon(Icons.refresh, size: 18),
+              label: Text('Retry All'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[600],
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(vertical: 12),
+              ),
             ),
           ),
-          OutlinedButton.icon(
-            onPressed: () => _clearFailedMessages(),
-            icon: Icon(Icons.clear_all, size: 18),
-            label: Text('Clear Failed'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.orange[700],
-            ),
-          ),
-          OutlinedButton.icon(
-            onPressed: () => _showQueueDetails(),
-            icon: Icon(Icons.info_outline, size: 18),
-            label: Text('Details'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.blue[700],
+          SizedBox(width: 8),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () => _clearFailedMessages(),
+              icon: Icon(Icons.clear_all, size: 18),
+              label: Text('Clear'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.orange[700],
+                padding: EdgeInsets.symmetric(vertical: 12),
+              ),
             ),
           ),
         ],
@@ -719,23 +717,6 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       ),
     );
     MeshDebugLogger.info('UI Action', 'Clear failed messages requested');
-  }
-  
-  void _showQueueDetails() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('📊 Queue Details'),
-        content: Text('Detailed queue statistics and performance metrics would be shown here.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close'),
-          ),
-        ],
-      ),
-    );
-    MeshDebugLogger.info('UI Action', 'Queue details dialog requested');
   }
   
   /// Handle close request with proper coordination

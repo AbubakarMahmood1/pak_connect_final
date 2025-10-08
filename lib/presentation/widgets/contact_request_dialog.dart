@@ -80,7 +80,7 @@ class ContactRequestDialog extends StatelessWidget {
             ),
             SizedBox(height: 8),
             Text(
-              'Device ID: ${senderPublicKey.substring(0, 16)}...',
+              'Device ID: ${senderPublicKey.length > 16 ? '${senderPublicKey.substring(0, 16)}...' : senderPublicKey}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 fontFamily: 'monospace',
                 color: Theme.of(context).colorScheme.onSurfaceVariant,

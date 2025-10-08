@@ -100,20 +100,14 @@ class HintScannerService {
     final contacts = await _contactRepository.getAllContacts();
 
     for (final contact in contacts.values) {
-      // Get shared seed for this contact
-      final sharedSeed = await _contactRepository.getCachedSharedSecret(contact.publicKey);
+      // Compute persistent hint directly from public key
+      final sensitiveHint = SensitiveContactHint.compute(
+        contactPublicKey: contact.publicKey,
+        displayName: contact.displayName,
+      );
 
-      if (sharedSeed != null) {
-        // Compute sensitive hint
-        final sensitiveHint = SensitiveContactHint.compute(
-          contactPublicKey: contact.publicKey,
-          sharedSeed: Uint8List.fromList(sharedSeed.codeUnits),
-          displayName: contact.displayName,
-        );
-
-        // Cache by hint hex string for fast lookup
-        _contactHintCache[sensitiveHint.hintHex] = sensitiveHint;
-      }
+      // Cache by hint hex string for fast lookup
+      _contactHintCache[sensitiveHint.hintHex] = sensitiveHint;
     }
 
     _logger.info('🔄 Contact hint cache rebuilt: ${_contactHintCache.length} entries');

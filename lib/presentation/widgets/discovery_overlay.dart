@@ -11,7 +11,15 @@ import '../../core/models/connection_info.dart';
 import '../providers/ble_providers.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/security/hint_cache_manager.dart';
+import '../../core/services/security_manager.dart';
 import '../screens/chat_screen.dart';
+
+enum ConnectionAttemptState {
+  none,       // Never attempted
+  connecting, // Currently connecting
+  failed,     // Failed - can retry
+  connected,  // Successfully connected
+}
 
 class DiscoveryOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -41,6 +49,9 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   static const int _maxDevices = 50;
   Timer? _deviceCleanupTimer;
   final Map<String, DateTime> _deviceLastSeen = {};
+  
+  // Connection attempt tracking
+  final Map<String, ConnectionAttemptState> _connectionAttempts = {};
   
   @override
   void initState() {
@@ -122,6 +133,8 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       final isStale = now.difference(lastSeen) > staleThreshold;
       if (isStale) {
         _logger.fine('Removing stale device: $deviceId');
+        // Also cleanup connection attempt states for stale devices
+        _connectionAttempts.remove(deviceId);
       }
       return isStale;
     });
@@ -188,6 +201,13 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   
   if (!mounted) return;
 
+  final deviceId = device.uuid.toString();
+  
+  // Mark as connecting
+  setState(() {
+    _connectionAttempts[deviceId] = ConnectionAttemptState.connecting;
+  });
+
   // Show connecting dialog
   showDialog(
     context: context,
@@ -210,12 +230,29 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     // Wait for identity exchange
     await Future.delayed(Duration(seconds: 2));
     
+    // Mark as connected and verify connection state
+    if (bleService.connectedDevice?.uuid == device.uuid) {
+      setState(() {
+        _connectionAttempts[deviceId] = ConnectionAttemptState.connected;
+      });
+    } else {
+      // Connection didn't actually succeed, mark as failed
+      setState(() {
+        _connectionAttempts[deviceId] = ConnectionAttemptState.failed;
+      });
+    }
+    
     if (mounted) {
       Navigator.pop(context);
       setState(() {});
     }
     
   } catch (e) {
+    // Mark as failed
+    setState(() {
+      _connectionAttempts[deviceId] = ConnectionAttemptState.failed;
+    });
+    
     if (mounted) {
       Navigator.pop(context);
       _showError('Connection failed: ${e.toString()}');
@@ -231,21 +268,188 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       ),
     );
   }
+
+  void _showRetryDialog(Peripheral device) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Connection Failed'),
+          content: Text(
+            'The connection to this device failed. Would you like to retry?'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _connectToDevice(device);
+              },
+              child: Text('Retry'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildConnectionStatusBadge(Peripheral device) {
+    final bleService = ref.read(bleServiceProvider);
+    final deviceId = device.uuid.toString();
+    final attemptState = _connectionAttempts[deviceId] ?? ConnectionAttemptState.none;
+    final isActuallyConnected = bleService.connectedDevice?.uuid == device.uuid;
+    
+    String label;
+    Color color;
+    IconData icon;
+    
+    if (isActuallyConnected) {
+      label = 'CONNECTED';
+      color = Colors.green;
+      icon = Icons.link;
+    } else if (attemptState == ConnectionAttemptState.connecting) {
+      label = 'CONNECTING';
+      color = Colors.orange;
+      icon = Icons.sync;
+    } else if (attemptState == ConnectionAttemptState.failed) {
+      label = 'RETRY';
+      color = Colors.red;
+      icon = Icons.refresh;
+    } else {
+      label = 'TAP TO CONNECT';
+      color = Colors.blue;
+      icon = Icons.bluetooth;
+    }
+    
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 10,
+            color: color,
+          ),
+          SizedBox(width: 2),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrailingIcon(Peripheral device, int rssi) {
+    final bleService = ref.read(bleServiceProvider);
+    final deviceId = device.uuid.toString();
+    final attemptState = _connectionAttempts[deviceId] ?? ConnectionAttemptState.none;
+    final isActuallyConnected = bleService.connectedDevice?.uuid == device.uuid;
+    
+    if (attemptState == ConnectionAttemptState.connecting) {
+      return SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation(Colors.orange),
+        ),
+      );
+    } else if (isActuallyConnected) {
+      return Icon(Icons.chat, color: Colors.green);
+    } else if (attemptState == ConnectionAttemptState.failed) {
+      return Icon(Icons.refresh, color: Colors.red);
+    } else {
+      // Show signal strength indicator for discovered devices
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildSignalStrengthBars(rssi),
+          SizedBox(width: 8),
+          Icon(Icons.chevron_right, color: Colors.grey),
+        ],
+      );
+    }
+  }
+  
+  /// Build signal strength bars (like cellular signal)
+  Widget _buildSignalStrengthBars(int rssi) {
+    final strength = _getSignalStrengthLevel(rssi);
+    final color = _getSignalStrengthColor(rssi);
+    
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(4, (index) {
+        final isActive = index < strength;
+        final barHeight = 4.0 + (index * 3.0); // Increasing height
+        
+        return Container(
+          width: 3,
+          height: barHeight,
+          margin: EdgeInsets.only(left: index > 0 ? 2 : 0),
+          decoration: BoxDecoration(
+            color: isActive ? color : Colors.grey.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(1),
+          ),
+        );
+      }),
+    );
+  }
+  
+  /// Get signal strength level (0-4 bars)
+  int _getSignalStrengthLevel(int rssi) {
+    if (rssi >= -50) return 4; // Excellent
+    if (rssi >= -60) return 3; // Good
+    if (rssi >= -70) return 2; // Fair
+    if (rssi >= -80) return 1; // Poor
+    return 0; // Very Poor
+  }
+  
+  /// Get color for signal strength
+  Color _getSignalStrengthColor(int rssi) {
+    if (rssi >= -50) return Colors.green;      // Excellent
+    if (rssi >= -60) return Colors.lightGreen; // Good
+    if (rssi >= -70) return Colors.orange;     // Fair
+    if (rssi >= -80) return Colors.deepOrange; // Poor
+    return Colors.red;                         // Very Poor
+  }
   
   Future<void> _switchMode(bool toPeripheral) async {
     final bleService = ref.read(bleServiceProvider);
-    
+    final burstOperations = ref.read(burstScanningOperationsProvider);
+
     try {
       if (toPeripheral) {
-        // Burst scanning handles stopping automatically when switching to peripheral
+        // Stop burst scanner when switching to peripheral mode
+        if (burstOperations != null) {
+          _logger.info('🔧 MODE SWITCH: Stopping burst scanner for peripheral mode');
+          await burstOperations.stopBurstScanning();
+        }
         await bleService.startAsPeripheral();
         _setupPeripheralListener();
       } else {
         _connectionSubscription?.cancel();
         await bleService.startAsCentral();
         await Future.delayed(Duration(milliseconds: 500));
-        // Trigger immediate burst scan when switching to central mode
-        _startScanning();
+        // Restart burst scanner fresh when switching to central mode
+        if (burstOperations != null) {
+          _logger.info('🔧 MODE SWITCH: Restarting burst scanner for central mode');
+          await burstOperations.startBurstScanning();
+        }
       }
     } catch (e) {
       _showError('Failed to switch mode: $e');
@@ -684,21 +888,29 @@ Widget _buildScannerMode(
     // Get device name using enhanced name resolution
     String deviceName = 'Unknown Device';
     bool isContactResolved = false;
+    Contact? matchedContact;
     
     // Try to resolve name from ephemeral hints in advertisement data
     if (advertisement != null && advertisement.advertisement.manufacturerSpecificData.isNotEmpty) {
       deviceName = _resolveDeviceNameFromHints(advertisement);
       isContactResolved = deviceName != 'Unknown Device';
+      
+      // Try to find matching contact for pairing status
+      if (isContactResolved) {
+        matchedContact = _contacts.values.where((contact) =>
+          contact.displayName == deviceName
+        ).firstOrNull;
+      }
     }
     
     // Fallback to contact system if hints didn't work
     if (!isContactResolved && isKnown) {
-      final matchingContact = _contacts.values.where((contact) =>
+      matchedContact = _contacts.values.where((contact) =>
         contact.publicKey.contains(device.uuid.toString())
       ).firstOrNull;
       
-      if (matchingContact != null) {
-        deviceName = matchingContact.displayName;
+      if (matchedContact != null) {
+        deviceName = matchedContact.displayName;
         isContactResolved = true;
       }
     }
@@ -711,6 +923,11 @@ Widget _buildScannerMode(
     final rssi = advertisement?.rssi ?? -100;
     final signalStrength = _getSignalStrength(rssi);
     
+    // Determine pairing/contact status
+    final isPaired = matchedContact != null;
+    final isVerified = matchedContact?.trustStatus == TrustStatus.verified;
+    final securityLevel = matchedContact?.securityLevel ?? SecurityLevel.low;
+    
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Card(
@@ -720,12 +937,16 @@ Widget _buildScannerMode(
             children: [
               CircleAvatar(
                 backgroundColor: isContactResolved
-                  ? Theme.of(context).colorScheme.primary.withValues()
+                  ? (isVerified 
+                      ? Colors.green.withValues(alpha: 0.2)
+                      : Theme.of(context).colorScheme.primary.withValues(alpha: 0.2))
                   : Theme.of(context).colorScheme.surfaceContainerHighest,
                 child: Icon(
-                  isContactResolved ? Icons.person : Icons.bluetooth,
+                  isContactResolved 
+                    ? (isVerified ? Icons.verified_user : Icons.person) 
+                    : Icons.bluetooth,
                   color: isContactResolved
-                    ? Theme.of(context).colorScheme.primary
+                    ? (isVerified ? Colors.green : Theme.of(context).colorScheme.primary)
                     : Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -737,7 +958,7 @@ Widget _buildScannerMode(
                     width: 12,
                     height: 12,
                     decoration: BoxDecoration(
-                      color: Colors.green,
+                      color: isVerified ? Colors.green : Colors.blue,
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 2),
                     ),
@@ -751,43 +972,123 @@ Widget _buildScannerMode(
               fontWeight: isContactResolved ? FontWeight.bold : FontWeight.normal,
             ),
           ),
-          subtitle: Row(
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                _getSignalIcon(signalStrength),
-                size: 16,
-                color: _getSignalColor(signalStrength),
-              ),
-              SizedBox(width: 4),
-              Text(
-                'Signal: $signalStrength',
-                style: TextStyle(fontSize: 12),
-              ),
-              if (isContactResolved) ...[
-                SizedBox(width: 8),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withValues(),
-                    borderRadius: BorderRadius.circular(4),
+              // Signal strength row
+              Row(
+                children: [
+                  Icon(
+                    _getSignalIcon(signalStrength),
+                    size: 16,
+                    color: _getSignalColor(signalStrength),
                   ),
-                  child: Text(
-                    'CONTACT',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                  SizedBox(width: 4),
+                  Text(
+                    'Signal: $signalStrength',
+                    style: TextStyle(fontSize: 12),
                   ),
+                ],
+              ),
+              // Status badges row
+              if (isContactResolved || isPaired) ...[
+                SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    if (isContactResolved)
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'CONTACT',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    if (isPaired)
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _getSecurityColor(securityLevel).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _getSecurityIcon(securityLevel),
+                              size: 10,
+                              color: _getSecurityColor(securityLevel),
+                            ),
+                            SizedBox(width: 2),
+                            Text(
+                              _getSecurityLabel(securityLevel),
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: _getSecurityColor(securityLevel),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (isVerified)
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.verified,
+                              size: 10,
+                              color: Colors.green,
+                            ),
+                            SizedBox(width: 2),
+                            Text(
+                              'VERIFIED',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    // Connection status badge
+                    _buildConnectionStatusBadge(device),
+                  ],
                 ),
+              ],
+              // Always show connection status for clarity
+              if (!isContactResolved && !isPaired) ...[
+                SizedBox(height: 4),
+                _buildConnectionStatusBadge(device),
               ],
             ],
           ),
-          trailing: Icon(Icons.chevron_right),
+          trailing: _buildTrailingIcon(device, rssi),
 onTap: () {
-  // Check if already connected to this device
   final bleService = ref.read(bleServiceProvider);
-  if (bleService.connectedDevice?.uuid == device.uuid) {
+  final deviceId = device.uuid.toString();
+  final attemptState = _connectionAttempts[deviceId] ?? ConnectionAttemptState.none;
+  
+  // Check actual BLE connection status first
+  final isActuallyConnected = bleService.connectedDevice?.uuid == device.uuid;
+  
+  if (isActuallyConnected) {
     // Already connected - open chat
     widget.onClose();
     Navigator.push(
@@ -796,8 +1097,14 @@ onTap: () {
         builder: (context) => ChatScreen(device: device),
       ),
     );
+  } else if (attemptState == ConnectionAttemptState.connecting) {
+    // Currently connecting - show message and ignore tap
+    _showError('Connection in progress, please wait...');
+  } else if (attemptState == ConnectionAttemptState.failed) {
+    // Failed previously - offer retry
+    _showRetryDialog(device);
   } else {
-    // Not connected - connect first
+    // First attempt or no previous state - connect
     _connectToDevice(device);
   }
 },
@@ -866,6 +1173,42 @@ onTap: () {
       case 'Good': return Colors.lightGreen;
       case 'Fair': return Colors.orange;
       default: return Colors.red;
+    }
+  }
+  
+  /// Get security level icon
+  IconData _getSecurityIcon(SecurityLevel level) {
+    switch (level) {
+      case SecurityLevel.high:
+        return Icons.verified_user;
+      case SecurityLevel.medium:
+        return Icons.lock;
+      case SecurityLevel.low:
+        return Icons.lock_open;
+    }
+  }
+  
+  /// Get security level color
+  Color _getSecurityColor(SecurityLevel level) {
+    switch (level) {
+      case SecurityLevel.high:
+        return Colors.green;
+      case SecurityLevel.medium:
+        return Colors.blue;
+      case SecurityLevel.low:
+        return Colors.orange;
+    }
+  }
+  
+  /// Get security level label
+  String _getSecurityLabel(SecurityLevel level) {
+    switch (level) {
+      case SecurityLevel.high:
+        return 'ECDH';
+      case SecurityLevel.medium:
+        return 'PAIRED';
+      case SecurityLevel.low:
+        return 'BASIC';
     }
   }
   

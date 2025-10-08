@@ -16,7 +16,20 @@
       "Bash(git commit -m \"$(cat <<''EOF''\nfeat: Migrate ContactRepository to SQLite\n\n- Replaced SharedPreferences with SQLite for contact storage\n- Implemented comprehensive test suite (13 tests, 12 passing, 1 skipped)\n- Kept same interface - zero breaking changes for dependent code\n- Improved performance from O(n) to O(log n) for lookups\n- Backup of old implementation saved as contact_repository_OLD_SHAREDPREFS.dart\n\nKey improvements:\n- Efficient indexed queries via SQLite\n- Proper foreign key relationships\n- Security level validation unchanged\n- FlutterSecureStorage still used for shared secrets (correct approach)\n\nTest coverage:\n✅ Save and retrieve contacts\n✅ Update contact preserving security\n✅ Get all contacts\n✅ Mark as verified\n✅ Security upgrade path validation  \n✅ Security reset functionality\n✅ Get contact name\n✅ Security level management\n✅ Timestamps and metadata\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
       "Bash(git commit:*)",
       "Bash(flutter clean:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd //c:*)",
+      "Bash(timeout 180 flutter test --reporter=compact)",
+      "Bash(timeout 60 flutter test test/mesh_relay_flow_test.dart --reporter=compact)",
+      "Bash(timeout 240 flutter test --reporter=compact)",
+      "Bash(tee:*)",
+      "Bash(timeout 60 flutter test:*)",
+      "Bash(timeout 30 flutter test test/mesh_relay_flow_test.dart --reporter=compact)",
+      "Bash(timeout 30 flutter test test/mesh_relay_flow_test.dart)",
+      "Bash(timeout 180 flutter test --reporter=compact --exclude-tags=mesh_relay)",
+      "Bash(timeout 120 flutter test --reporter=compact)",
+      "Bash(timeout:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

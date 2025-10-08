@@ -2,22 +2,18 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Initialize sqflite_ffi for testing
-  setUpAll(() {
-    // Initialize ffi implementation for testing
-    sqfliteFfiInit();
-    // Set the database factory for testing
-    databaseFactory = databaseFactoryFfi;
+  // Initialize test environment
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   setUp(() async {
     // Clean database before each test to avoid constraint violations
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
   });
 
   tearDownAll(() async {
@@ -158,7 +154,7 @@ void main() {
       final stats = await DatabaseHelper.getStatistics();
 
       expect(stats, isNotNull);
-      expect(stats['database_version'], equals(3)); // v3: encryption + removed user_preferences
+      expect(stats['database_version'], equals(4)); // v4: Added app_preferences table for settings
       expect(stats['table_counts'], isNotNull);
       // Note: may have records from previous tests due to singleton pattern
     });

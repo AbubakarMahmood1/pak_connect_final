@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' hide ConnectionState;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import '../providers/ble_providers.dart';
@@ -16,7 +16,6 @@ import '../../data/services/ble_service.dart';
 import '../widgets/discovery_overlay.dart';
 import '../widgets/relay_queue_widget.dart';
 import 'chat_screen.dart';
-import 'qr_contact_screen.dart';
 import 'contacts_screen.dart';
 import 'archive_screen.dart';
 import 'profile_screen.dart';
@@ -41,6 +40,7 @@ class ChatsScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatsScreenState extends ConsumerState<ChatsScreen> with SingleTickerProviderStateMixin {
+   final _logger = Logger('ChatsScreen');
    final ChatsRepository _chatsRepository = ChatsRepository();
    final ChatManagementService _chatManagementService = ChatManagementService();
    final TextEditingController _searchController = TextEditingController();
@@ -151,38 +151,6 @@ Widget build(BuildContext context) {
                 error: (_, _) => Text('PakConnect'),
               );
             },
-          ),
-          leading: GestureDetector(
-            onTap: () => _openProfile(),
-            child: Padding(
-              padding: EdgeInsets.all(8.0),
-              child: Consumer(
-                builder: (context, ref, child) {
-                  final usernameAsync = ref.watch(usernameProvider);
-                  return usernameAsync.when(
-                    data: (username) => CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: Text(
-                        username.isNotEmpty ? username[0].toUpperCase() : 'P',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
-                    ),
-                    loading: () => CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: Icon(Icons.person, color: Colors.white),
-                    ),
-                    error: (_, _) => CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: Icon(Icons.person, color: Colors.white),
-                    ),
-                  );
-                },
-              ),
-            ),
           ),
           actions: [
             // 🔧 HIDE: Queue status indicator for better UX (users don't need to see technical mesh status)
@@ -322,7 +290,13 @@ Widget build(BuildContext context) {
             ),
           ],
         ),
-        floatingActionButton: _buildSpeedDial(),
+        floatingActionButton: _tabController.index == 0 // Only show FAB on Chats tab
+            ? FloatingActionButton(
+                onPressed: () => setState(() => _showDiscoveryOverlay = true),
+                tooltip: 'Discover nearby devices',
+                child: Icon(Icons.bluetooth_searching),
+              )
+            : null,
       ),
       
       if (_showDiscoveryOverlay)
@@ -388,14 +362,6 @@ void _handleRelayQueueClose() {
   }
 }
 
-Widget _buildSpeedDial() {
-  return FloatingActionButton(
-    onPressed: _showAddOptions,
-    tooltip: 'Add contact or discover',
-    child: Icon(Icons.add),
-  );
-}
-
 Widget _buildChatTile(ChatListItem chat) {
   // Get live connection status
   final connectionInfo = ref.watch(connectionInfoProvider).value;
@@ -428,90 +394,102 @@ Widget _buildChatTile(ChatListItem chat) {
     connectionStatus = ConnectionStatus.offline;
   }
   
-  // Now use connectionStatus in the UI
+  // Modern UI: Use subtle visual cues instead of colored dots
   return Card(
     margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
     child: ListTile(
-      leading: Stack(
-        children: [
-          CircleAvatar(
-            backgroundColor: connectionStatus.color.withValues(),
-            child: Icon(
-              Icons.person,
-              color: connectionStatus.color,
-            ),
+      leading: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          // Subtle border for connected status - like WhatsApp/Signal
+          border: connectionStatus == ConnectionStatus.connected
+              ? Border.all(color: connectionStatus.color, width: 2.5)
+              : null,
+        ),
+        child: CircleAvatar(
+          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Icon(
+            Icons.person,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: connectionStatus.color,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Expanded(
-            child: Text(
-              chat.contactName,
-              style: TextStyle(
-                fontWeight: chat.unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          SizedBox(width: 4), // Small spacing to prevent overflow
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: connectionStatus.color.withValues(),
-              shape: BoxShape.circle,
-            ),
-            child: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: connectionStatus.color,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-        ],
+      title: Text(
+        chat.contactName,
+        style: TextStyle(
+          fontWeight: chat.unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
+        ),
+        overflow: TextOverflow.ellipsis,
       ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (chat.lastMessage != null)
-            Text(
-              chat.lastMessage!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: chat.unreadCount > 0 ? FontWeight.w500 : FontWeight.normal,
+          // Modern approach: Show status as text like popular messaging apps
+          if (connectionStatus == ConnectionStatus.connected)
+            Padding(
+              padding: EdgeInsets.only(top: 2, bottom: 2),
+              child: Text(
+                'Active now',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: connectionStatus.color,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            )
+          else if (connectionStatus == ConnectionStatus.nearby)
+            Padding(
+              padding: EdgeInsets.only(top: 2, bottom: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.bluetooth_searching,
+                    size: 12,
+                    color: connectionStatus.color,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'Nearby',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: connectionStatus.color,
+                    ),
+                  ),
+                ],
               ),
             ),
-          if (chat.hasUnsentMessages)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.error_outline, size: 12, color: Colors.red),
-                SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    'Message failed to send',
-                    style: TextStyle(fontSize: 11, color: Colors.red),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+          // Show last message if available
+          if (chat.lastMessage != null)
+            Padding(
+              padding: EdgeInsets.only(top: connectionStatus == ConnectionStatus.connected || connectionStatus == ConnectionStatus.nearby ? 2 : 0),
+              child: Text(
+                chat.lastMessage!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: chat.unreadCount > 0 ? FontWeight.w500 : FontWeight.normal,
                 ),
-              ],
+              ),
+            ),
+          // Show unsent message warning
+          if (chat.hasUnsentMessages)
+            Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.error_outline, size: 12, color: Colors.red),
+                  SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      'Message failed to send',
+                      style: TextStyle(fontSize: 11, color: Colors.red),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
         ],
       ),
@@ -522,7 +500,10 @@ Widget _buildChatTile(ChatListItem chat) {
           if (chat.lastMessageTime != null)
             Text(
               _formatTime(chat.lastMessageTime!),
-              style: TextStyle(fontSize: 12),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           if (chat.unreadCount > 0)
             Container(
@@ -641,28 +622,33 @@ Widget _buildEmptyState() {
   );
   
   return Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(
-          Icons.chat_bubble_outline,
-          size: 64,
-          color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
-        ),
-        SizedBox(height: 16),
-        Text(
-          hasNearbyDevices 
-            ? 'Connect to a nearby device to start chatting'
-            : 'No conversations yet',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        SizedBox(height: 24),
-        FilledButton.icon(
-          onPressed: () => setState(() => _showDiscoveryOverlay = true),
-          icon: Icon(Icons.bluetooth_searching),
-          label: Text('Discover Devices'),
-        ),
-      ],
+    child: Padding(
+      padding: EdgeInsets.only(bottom: 80), // Account for FAB visual weight
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.chat_bubble_outline,
+            size: 64,
+            color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
+          ),
+          SizedBox(height: 16),
+          Text(
+            hasNearbyDevices 
+              ? 'Connect to a nearby device to start chatting'
+              : 'No conversations yet',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Tap the + button below to discover devices',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -819,67 +805,10 @@ void _setupPeripheralConnectionListener() {
     _loadChats();
   }
 
-void _showAddOptions() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Icon(Icons.bluetooth_searching),
-              title: Text('Discover Nearby Devices'),
-              subtitle: Text('Connect via Bluetooth'),
-              onTap: () {
-                Navigator.pop(context);
-                setState(() => _showDiscoveryOverlay = true);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.qr_code_scanner),
-              title: Text('Add Contact via QR'),
-              subtitle: Text('Exchange QR codes for secure contact'),
-              onTap: () {
-                Navigator.pop(context);
-                _navigateToQRExchange();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
 void _onDeviceSelected(Peripheral device) async {
   setState(() => _showDiscoveryOverlay = false);
   
-  // Show a snackbar for connection progress
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation(Colors.white),
-            ),
-          ),
-          SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              'Connecting to ${device.uuid.toString().substring(0, 8)}...',
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-      duration: Duration(seconds: 3),
-    ),
-  );
+  _logger.info('Connecting to device: ${device.uuid.toString().substring(0, 8)}');
   
   // The connection will be handled by the BLE service
   // The chat list will automatically update to show connection status
@@ -891,17 +820,6 @@ void _onDeviceSelected(Peripheral device) async {
       _loadChats();
     }
   });
-}
-
-void _navigateToQRExchange() async {
-  final result = await Navigator.push(
-    context,
-    MaterialPageRoute(builder: (context) => QRContactScreen()),
-  );
-  
-  if (result == true) {
-    _loadChats(); // Refresh to show new contact
-  }
 }
 
 void _openChat(ChatListItem chat) async {
@@ -964,57 +882,89 @@ void _editDisplayName() async {
   
   final controller = TextEditingController(text: currentName);
   
-  // Now it's safe to use context
-  showDialog(
+  // Use bottom sheet for modern inline editing experience
+  final newName = await showModalBottomSheet<String>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text('Edit Display Name'),
-      content: TextField(
-        controller: controller,
-        decoration: InputDecoration(
-          labelText: 'Your name',
-          border: OutlineInputBorder(),
-        ),
-        autofocus: true,
+    isScrollControlled: true,
+    backgroundColor: Theme.of(context).colorScheme.surface,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetContext) => Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+        left: 16,
+        right: 16,
+        top: 16,
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext), // Use dialogContext
-          child: Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            final navigator = Navigator.of(dialogContext);
-            final messenger = ScaffoldMessenger.of(context);
-            final name = controller.text.trim();
-            
-            if (name.isEmpty) {
-              messenger.showSnackBar(
-                SnackBar(content: Text('Name cannot be empty')),
-              );
-              return;
-            }
-            
-            navigator.pop(); // Pop first
-            
-            try {
-              // Use modern AsyncNotifier provider for real-time updates
-              await ref.read(usernameProvider.notifier).updateUsername(name);
-
-              messenger.showSnackBar(
-                SnackBar(content: Text('Name updated and synced across devices')),
-              );
-            } catch (e) {
-              if(kDebugMode){
-              print('Error updating name: $e');
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Edit Display Name',
+                  style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.close),
+                onPressed: () => Navigator.pop(sheetContext),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Enter your display name',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              filled: true,
+            ),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) {
+              if (value.trim().isNotEmpty) {
+                Navigator.pop(sheetContext, value.trim());
               }
-            }
-          },
-          child: Text('Save'),
-        ),
-      ],
+            },
+          ),
+          SizedBox(height: 16),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isNotEmpty) {
+                Navigator.pop(sheetContext, value);
+              }
+            },
+            style: FilledButton.styleFrom(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text('Save'),
+          ),
+          SizedBox(height: 16),
+        ],
+      ),
     ),
   );
+
+  if (newName != null && newName.isNotEmpty && newName != currentName) {
+    try {
+      await ref.read(usernameProvider.notifier).updateUsername(newName);
+      _logger.info('Display name updated to: $newName');
+    } catch (e) {
+      _logger.warning('Failed to update display name: $e');
+    }
+  }
 }
 
   String _formatTime(DateTime time) {
@@ -1159,57 +1109,14 @@ void _editDisplayName() async {
 
       if (mounted) {
         if (result.success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.archive,
-                    color: Theme.of(context).colorScheme.onInverseSurface,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Archived chat with ${chat.contactName}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              action: SnackBarAction(
-                label: 'View Archives',
-                onPressed: _openArchives,
-              ),
-              duration: Duration(seconds: 4),
-            ),
-          );
-
-          // Refresh the chat list
+          _logger.info('Chat archived: ${chat.contactName}');
           _loadChats();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to archive chat: ${result.message}'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-              action: SnackBarAction(
-                label: 'Retry',
-                onPressed: () => _archiveChat(chat),
-                textColor: Theme.of(context).colorScheme.onError,
-              ),
-            ),
-          );
+          _logger.warning('Failed to archive chat: ${result.message}');
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error archiving chat: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+      _logger.severe('Error archiving chat: $e');
     }
   }
 
@@ -1290,53 +1197,14 @@ void _editDisplayName() async {
 
       if (mounted) {
         if (result.success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.delete,
-                    color: Theme.of(context).colorScheme.onInverseSurface,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Deleted chat with ${chat.contactName}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              duration: Duration(seconds: 3),
-            ),
-          );
-
-          // Refresh the chat list
+          _logger.info('Chat deleted: ${chat.contactName}');
           _loadChats();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to delete chat: ${result.message}'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-              action: SnackBarAction(
-                label: 'Retry',
-                onPressed: () => _deleteChat(chat),
-                textColor: Theme.of(context).colorScheme.onError,
-              ),
-            ),
-          );
+          _logger.warning('Failed to delete chat: ${result.message}');
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error deleting chat: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+      _logger.severe('Error deleting chat: $e');
     }
   }
 
@@ -1426,33 +1294,14 @@ void _editDisplayName() async {
 
       if (mounted) {
         if (result.success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(result.message),
-              duration: Duration(seconds: 2),
-            ),
-          );
-
-          // Refresh the chat list to update sorting
+          _logger.info('Chat pin toggled: ${result.message}');
           _loadChats();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to ${chat.chatId.contains('pin') ? 'unpin' : 'pin'} chat: ${result.message}'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
+          _logger.warning('Failed to toggle pin: ${result.message}');
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error toggling pin: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+      _logger.severe('Error toggling pin: $e');
     }
   }
 

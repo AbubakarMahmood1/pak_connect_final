@@ -3,6 +3,13 @@
 
 import 'dart:typed_data';
 
+/// Type of data to export
+enum ExportType {
+  full,        // Everything: contacts, messages, chats, preferences
+  contactsOnly, // Only contacts table
+  messagesOnly, // Messages + chats (messages need chat context)
+}
+
 /// Represents an encrypted export bundle
 class ExportBundle {
   // Bundle metadata
@@ -10,6 +17,7 @@ class ExportBundle {
   final DateTime timestamp;
   final String deviceId;
   final String username;
+  final ExportType exportType; // Type of export
   
   // Encrypted payloads (base64 encoded)
   final String encryptedMetadata;
@@ -26,6 +34,7 @@ class ExportBundle {
     required this.timestamp,
     required this.deviceId,
     required this.username,
+    this.exportType = ExportType.full,
     required this.encryptedMetadata,
     required this.encryptedKeys,
     required this.encryptedPreferences,
@@ -40,6 +49,7 @@ class ExportBundle {
     'timestamp': timestamp.toIso8601String(),
     'device_id': deviceId,
     'username': username,
+    'export_type': exportType.name,
     'encrypted_metadata': encryptedMetadata,
     'encrypted_keys': encryptedKeys,
     'encrypted_preferences': encryptedPreferences,
@@ -55,6 +65,10 @@ class ExportBundle {
       timestamp: DateTime.parse(json['timestamp'] as String),
       deviceId: json['device_id'] as String,
       username: json['username'] as String,
+      exportType: ExportType.values.firstWhere(
+        (e) => e.name == (json['export_type'] ?? 'full'),
+        orElse: () => ExportType.full,
+      ),
       encryptedMetadata: json['encrypted_metadata'] as String,
       encryptedKeys: json['encrypted_keys'] as String,
       encryptedPreferences: json['encrypted_preferences'] as String,
@@ -71,21 +85,27 @@ class ExportResult {
   final String? bundlePath;
   final String? errorMessage;
   final int? bundleSize;
+  final ExportType? exportType;
+  final int? recordCount; // Number of records exported
   
   ExportResult.success({
     required this.bundlePath,
     required this.bundleSize,
+    this.exportType,
+    this.recordCount,
   })  : success = true,
         errorMessage = null;
   
   ExportResult.failure(this.errorMessage)
       : success = false,
         bundlePath = null,
-        bundleSize = null;
+        bundleSize = null,
+        exportType = null,
+        recordCount = null;
   
   @override
   String toString() => success
-      ? 'ExportResult(success, path: $bundlePath, size: ${bundleSize! / 1024}KB)'
+      ? 'ExportResult(success, type: ${exportType?.name ?? "full"}, records: $recordCount, path: $bundlePath, size: ${bundleSize! / 1024}KB)'
       : 'ExportResult(failure: $errorMessage)';
 }
 

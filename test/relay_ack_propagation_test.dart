@@ -1,6 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
@@ -8,34 +6,23 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'test_helpers/test_setup.dart';
 
 /// Test ACK propagation through relay chain
 /// Validates: Ali → Arshad → Abubakar → ACK back → Arshad → ACK back → Ali
 void main() {
-  final testLogger = Logger('RelayAckPropagationTest');
-
-  // Initialize sqflite_ffi for testing
-  setUpAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized();
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  // Initialize test environment
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   setUp(() async {
     // Clean database before each test
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
   });
 
   tearDownAll(() async {
     await DatabaseHelper.deleteDatabase();
-  });
-
-  // Setup logging
-  Logger.root.level = Level.INFO;
-  Logger.root.onRecord.listen((record) {
-    // ignore: avoid_print
-    print('${record.level.name}: ${record.message}');
   });
 
   group('ACK Propagation Tests', () {
@@ -54,7 +41,7 @@ void main() {
         await messageQueue.initialize();
         await spamPrevention.initialize();
       } catch (e) {
-        testLogger.warning('Initialization error (expected in test): $e');
+        // Initialization error expected in test
       }
 
       final relayEngine = MeshRelayEngine(
@@ -87,7 +74,7 @@ void main() {
       // Previous hop from Abubakar's perspective should be Arshad
       expect(metadata.previousHop, equals(arshad));
 
-      testLogger.info('✅ ACK routing path correctly reversed');
+      // ACK routing path correctly reversed
     });
 
     test('Message stays in queue with awaiting_ack status', () async {
@@ -96,7 +83,7 @@ void main() {
       try {
         await messageQueue.initialize();
       } catch (e) {
-        testLogger.warning('Initialization error (expected in test): $e');
+        // Initialization error expected in test
       }
 
       // Queue a message
@@ -120,11 +107,11 @@ void main() {
         reason: 'Message should not be marked delivered without ACK',
       );
 
-      testLogger.info('✅ Message correctly stays in queue awaiting ACK');
+      // Message correctly stays in queue awaiting ACK
     });
 
     test('Ali → Arshad → Abubakar with full ACK propagation back', () async {
-      testLogger.info('🧪 Starting full ACK propagation test');
+      // Starting full ACK propagation test
 
       // Step 1: Ali creates and sends message
       final aliEngine = await createRelayEngineForNode(ali);
@@ -138,7 +125,6 @@ void main() {
 
       expect(aliMessage, isNotNull);
       expect(aliMessage!.relayMetadata.routingPath, contains(ali));
-      testLogger.info('✅ Step 1: Ali created message');
 
       // Step 2: Arshad receives and relays
       final arshadEngine = await createRelayEngineForNode(arshad);
@@ -151,7 +137,6 @@ void main() {
 
       expect(arshadResult.isRelayed, isTrue);
       expect(arshadResult.nextHopNodeId, equals(abubakar));
-      testLogger.info('✅ Step 2: Arshad relayed message to Abubakar');
 
       // Step 3: Abubakar receives message (final recipient)
       final abubakarEngine = await createRelayEngineForNode(abubakar);
@@ -160,7 +145,6 @@ void main() {
       // We manually build the forwarded message as it would be after Arshad processes it
       final forwardedMessage = aliMessage.nextHop(arshad);
       expect(forwardedMessage.relayMetadata.routingPath, equals([ali, arshad]));
-      testLogger.info('Routing path at Abubakar: ${forwardedMessage.relayMetadata.routingPath}');
 
       // Abubakar processes the message (he's the final recipient)
       final abubakarResult = await abubakarEngine.processIncomingRelay(
@@ -171,7 +155,6 @@ void main() {
 
       expect(abubakarResult.isDelivered, isTrue);
       expect(abubakarResult.content, equals('Test ACK propagation'));
-      testLogger.info('✅ Step 3: Abubakar received message');
 
       // Step 4: Verify ACK routing path
       final finalMetadata = forwardedMessage.relayMetadata;
@@ -180,14 +163,9 @@ void main() {
       // ACK path should be reversed: [arshad, ali] (backward from [ali, arshad])
       expect(ackPath, equals([arshad, ali]));
       expect(finalMetadata.previousHop, equals(ali));
-      testLogger.info('✅ Step 4: ACK routing path verified: $ackPath');
-
-      testLogger.info('🎉 Full ACK propagation test passed!');
     });
 
     test('Relay node does not mark message as delivered', () async {
-      testLogger.info('🧪 Testing relay node behavior');
-
       // Ali creates message
       final aliEngine = await createRelayEngineForNode(ali);
 
@@ -213,7 +191,6 @@ void main() {
       expect(arshadResult.isDelivered, isFalse);
       expect(arshadResult.nextHopNodeId, equals(abubakar));
 
-      testLogger.info('✅ Relay node correctly forwards without marking delivered');
     });
 
     test('ACK includes correct routing path for backward propagation', () async {
@@ -251,11 +228,9 @@ void main() {
       expect(arshadMetadata.previousHop, equals(ali));
       expect(arshadMetadata.isOriginator, isFalse);
 
-      testLogger.info('✅ ACK routing path calculations verified');
     });
 
     test('Multiple messages maintain separate ACK states', () async {
-      testLogger.info('🧪 Testing multiple message ACK tracking');
 
       final aliEngine = await createRelayEngineForNode(ali);
 
@@ -280,7 +255,6 @@ void main() {
       expect(message1.relayMetadata.routingPath.length, equals(1));
       expect(message2.relayMetadata.routingPath.length, equals(1));
 
-      testLogger.info('✅ Multiple messages maintain independent state');
     });
 
     test('Loop prevention works with ACK routing path', () {
@@ -307,7 +281,6 @@ void main() {
       expect(metadata.hasNodeInPath(arshad), isTrue);
       expect(metadata.hasNodeInPath(abubakar), isFalse);
 
-      testLogger.info('✅ Loop prevention verified with routing path');
     });
   });
 }

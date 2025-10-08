@@ -26,10 +26,7 @@ void main() {
     await TestSetup.initializeTestEnvironment();
   });
 
-  group('Mesh Relay Flow Tests', () {}, skip: 'TEMPORARILY SKIP: Multi-node tests need BLE mocking - will fix after simpler tests pass');}
-
-void _skippedTests() {
-  group('SKIPPED - Mesh Relay Flow Tests', () {
+  group('Mesh Relay Flow Tests', () {
     late ContactRepository contactRepository;
     late OfflineMessageQueue messageQueue;
     late SpamPreventionManager spamPrevention;
@@ -476,5 +473,5 @@ void _skippedTests() {
       final stats = messageHandler.getRelayStatistics();
       expect(stats, isNotNull);
     }, skip: true); // Hangs indefinitely - needs async operation fix
-  });
+  }, skip: 'TEMPORARILY SKIP: Multi-node tests need BLE mocking - will fix after simpler tests pass');
 }

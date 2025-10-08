@@ -4,8 +4,8 @@
 
 import 'dart:io';
 
-import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
+import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:path/path.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,21 +13,37 @@ import 'database_encryption.dart';
 
 class DatabaseHelper {
   static final _logger = Logger('DatabaseHelper');
-  static Database? _database;
+  static sqlcipher.Database? _database;
   static const String _databaseName = 'pak_connect.db';
   static const int _databaseVersion = 4; // v4: Added app_preferences table for settings
 
+  /// Override database name for testing (allows using fresh database files)
+  static String? _testDatabaseName;
+
+  /// Set custom database name for testing
+  static void setTestDatabaseName(String? name) {
+    _testDatabaseName = name;
+  }
+
   /// Get database instance (singleton pattern)
-  static Future<Database> get database async {
+  static Future<sqlcipher.Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
   /// Initialize the database with SQLCipher encryption
-  static Future<Database> _initDatabase() async {
-    final databasesPath = await sqlcipher.getDatabasesPath();
-    final path = join(databasesPath, _databaseName);
+  static Future<sqlcipher.Database> _initDatabase() async {
+    // Platform-specific database factory:
+    // - Android/iOS: Use sqlcipher.databaseFactory (already initialized)
+    // - Desktop/Tests: Use sqflite_common.databaseFactory (initialized by test setup)
+    final factory = Platform.isAndroid || Platform.isIOS
+        ? sqlcipher.databaseFactory
+        : sqflite_common.databaseFactory;
+
+    final databasesPath = await factory.getDatabasesPath();
+    final dbName = _testDatabaseName ?? _databaseName;
+    final path = join(databasesPath, dbName);
 
     // Get encryption key from secure storage (skip in test environment)
     try {
@@ -37,19 +53,21 @@ class DatabaseHelper {
       // In test environment without secure storage, proceed without encryption
     }
 
-    _logger.info('Initializing database at: $path');
+    _logger.info('Initializing database at: $path (factory: ${factory.runtimeType})');
 
-    return await sqlcipher.openDatabase(
+    return await factory.openDatabase(
       path,
-      version: _databaseVersion,
-      onCreate: _onCreate,
-      onUpgrade: _onUpgrade,
-      onConfigure: _onConfigure,
+      options: sqlcipher.OpenDatabaseOptions(
+        version: _databaseVersion,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+        onConfigure: _onConfigure,
+      ),
     );
   }
 
   /// Configure database before opening
-  static Future<void> _onConfigure(Database db) async {
+  static Future<void> _onConfigure(sqlcipher.Database db) async {
     // Enable foreign key constraints
     await db.execute('PRAGMA foreign_keys = ON');
 
@@ -77,7 +95,7 @@ class DatabaseHelper {
   }
 
   /// Create database schema
-  static Future<void> _onCreate(Database db, int version) async {
+  static Future<void> _onCreate(sqlcipher.Database db, int version) async {
     _logger.info('Creating database schema v$version...');
 
     // =========================
@@ -502,7 +520,7 @@ class DatabaseHelper {
   }
 
   /// Handle database upgrades
-  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  static Future<void> _onUpgrade(sqlcipher.Database db, int oldVersion, int newVersion) async {
     _logger.info('Upgrading database from v$oldVersion to v$newVersion');
 
     // Migration from version 1 to 2: Add chat_id to archived_messages
@@ -650,9 +668,13 @@ class DatabaseHelper {
   /// Delete the database (for testing)
   static Future<void> deleteDatabase() async {
     try {
-      final databasesPath = await sqlcipher.getDatabasesPath();
-      final path = join(databasesPath, _databaseName);
-      await sqlcipher.deleteDatabase(path);
+      final factory = Platform.isAndroid || Platform.isIOS
+          ? sqlcipher.databaseFactory
+          : sqflite_common.databaseFactory;
+      final databasesPath = await factory.getDatabasesPath();
+      final dbName = _testDatabaseName ?? _databaseName;
+      final path = join(databasesPath, dbName);
+      await factory.deleteDatabase(path);
       _database = null;
       _logger.warning('Database deleted');
     } catch (e) {
@@ -665,19 +687,64 @@ class DatabaseHelper {
   /// Check if database exists
   static Future<bool> exists() async {
     try {
-      final databasesPath = await sqlcipher.getDatabasesPath();
-      final path = join(databasesPath, _databaseName);
-      return await sqlcipher.databaseExists(path);
+      final factory = Platform.isAndroid || Platform.isIOS
+          ? sqlcipher.databaseFactory
+          : sqflite_common.databaseFactory;
+      final databasesPath = await factory.getDatabasesPath();
+      final dbName = _testDatabaseName ?? _databaseName;
+      final path = join(databasesPath, dbName);
+      return await factory.databaseExists(path);
     } catch (e) {
       _logger.fine('Database exists check failed: $e');
       return false;
     }
   }
 
+  /// Clear all user data from the database (keeps schema intact)
+  /// This deletes all messages, chats, contacts, archives, and preferences
+  static Future<void> clearAllData() async {
+    try {
+      final db = await database;
+      
+      _logger.warning('🗑️ Clearing all user data from database...');
+      
+      // Delete in correct order to respect foreign key constraints
+      // 1. Delete messages and related data first
+      await db.delete('messages');
+      await db.delete('messages_fts'); // Clear FTS index
+      
+      // 2. Delete archived data
+      await db.delete('archived_messages');
+      await db.delete('archived_messages_fts'); // Clear FTS index
+      await db.delete('archived_chats');
+      
+      // 3. Delete chats
+      await db.delete('chats');
+      
+      // 4. Delete offline queue
+      await db.delete('offline_message_queue');
+      
+      // 5. Delete contacts
+      await db.delete('contacts');
+      
+      // 6. Delete preferences
+      await db.delete('app_preferences');
+      
+      _logger.warning('🗑️ All user data cleared from database');
+    } catch (e) {
+      _logger.severe('❌ Failed to clear all data: $e');
+      rethrow;
+    }
+  }
+
   /// Get database path (for debugging)
   static Future<String> getDatabasePath() async {
-    final databasesPath = await sqlcipher.getDatabasesPath();
-    return join(databasesPath, _databaseName);
+    final factory = Platform.isAndroid || Platform.isIOS
+        ? sqlcipher.databaseFactory
+        : sqflite_common.databaseFactory;
+    final databasesPath = await factory.getDatabasesPath();
+    final dbName = _testDatabaseName ?? _databaseName;
+    return join(databasesPath, dbName);
   }
 
   /// Verify database integrity

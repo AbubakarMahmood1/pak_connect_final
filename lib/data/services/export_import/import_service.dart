@@ -12,6 +12,7 @@ import '../../database/database_backup_service.dart';
 import '../../repositories/preferences_repository.dart';
 import 'export_bundle.dart';
 import 'encryption_utils.dart';
+import 'selective_restore_service.dart';
 
 class ImportService {
   static final _logger = Logger('ImportService');
@@ -149,20 +150,43 @@ class ImportService {
         );
       }
       
-      // 10. Restore database
-      _logger.info('Restoring database...');
-      final restoreResult = await DatabaseBackupService.restoreBackup(
-        backupPath: bundle.databasePath,
-        validateChecksum: true,
-      );
+      // 10. Restore database (selective or full)
+      _logger.info('Restoring database (${bundle.exportType.name})...');
       
-      if (!restoreResult.success) {
-        return ImportResult.failure(
-          'Database restore failed: ${restoreResult.errorMessage}',
+      int recordsRestored = 0;
+      
+      if (bundle.exportType == ExportType.full) {
+        // Full database restore
+        final restoreResult = await DatabaseBackupService.restoreBackup(
+          backupPath: bundle.databasePath,
+          validateChecksum: true,
         );
+        
+        if (!restoreResult.success) {
+          return ImportResult.failure(
+            'Database restore failed: ${restoreResult.errorMessage}',
+          );
+        }
+        
+        recordsRestored = restoreResult.recordsRestored ?? 0;
+      } else {
+        // Selective restore
+        final selectiveRestore = await SelectiveRestoreService.restoreSelectiveBackup(
+          backupPath: bundle.databasePath,
+          exportType: bundle.exportType,
+          clearExistingData: clearExistingData,
+        );
+        
+        if (!selectiveRestore.success) {
+          return ImportResult.failure(
+            'Selective restore failed: ${selectiveRestore.errorMessage}',
+          );
+        }
+        
+        recordsRestored = selectiveRestore.recordsRestored;
       }
       
-      _logger.info('Database restored: ${restoreResult.recordsRestored} records');
+      _logger.info('Database restored: $recordsRestored records');
       
       // 11. Restore preferences
       _logger.info('Restoring preferences...');
@@ -170,10 +194,10 @@ class ImportService {
       _logger.info('Preferences restored');
       
       // 12. Success!
-      _logger.info('✅ Import complete!');
+      _logger.info('✅ Import complete (${bundle.exportType.name})!');
       
       return ImportResult.success(
-        recordsRestored: restoreResult.recordsRestored ?? 0,
+        recordsRestored: recordsRestored,
         originalDeviceId: bundle.deviceId,
         originalUsername: bundle.username,
         backupTimestamp: bundle.timestamp,
@@ -262,6 +286,7 @@ class ImportService {
       return {
         'valid': true,
         'version': bundle.version,
+        'export_type': bundle.exportType.name,
         'timestamp': bundle.timestamp.toIso8601String(),
         'username': bundle.username,
         'device_id': bundle.deviceId,

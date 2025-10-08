@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart';
-import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
+import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'database_helper.dart';
@@ -113,7 +113,7 @@ class DatabaseBackupService {
   static const String _autoBackupEnabledKey = 'auto_backup_enabled';
   static const String _backupIntervalDaysKey = 'backup_interval_days';
   static const int _defaultBackupIntervalDays = 7;
-  static const String _appVersion = '1.0.0'; // TODO: Get from pubspec
+  static const String _appVersion = '1.0.0'; // Version from pubspec.yaml - update manually when version changes
 
   /// Create encrypted backup of database
   static Future<BackupResult> createBackup({
@@ -409,12 +409,14 @@ class DatabaseBackupService {
   }
 
   static Future<String> _getDatabasePath() async {
-    final databasesPath = await sqlcipher.getDatabasesPath();
+    final factory = sqflite_common.databaseFactory;
+    final databasesPath = await factory.getDatabasesPath();
     return join(databasesPath, 'pak_connect.db');
   }
 
   static Future<String> _getDefaultBackupDirectory() async {
-    final databasesPath = await sqlcipher.getDatabasesPath();
+    final factory = sqflite_common.databaseFactory;
+    final databasesPath = await factory.getDatabasesPath();
     return join(databasesPath, 'backups');
   }
 

@@ -1,23 +1,21 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/archive_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/core/models/archive_models.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Initialize FFI for desktop testing
-  setUpAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized();
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  // Initialize test environment and clean database from previous runs
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+    await TestSetup.fullDatabaseReset();  // Clean corrupted DB from previous runs
   });
 
   // Reset database before each test
   setUp(() async {
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
   });
 
   // Helper method to create a chat with messages
@@ -122,13 +120,9 @@ void main() {
       expect(archive.metadata.reason, 'Test archive');
     }, skip: false); // Using direct method now
 
-    test('Archive chat with compression for large archives', () async {
-      // Skip: requires FlutterSecureStorage for ChatsRepository
-    }, skip: 'Requires FlutterSecureStorage mock - functionality tested via direct insertion');
-
-    test('Archive non-existent chat fails gracefully', () async {
-      // Skip: requires FlutterSecureStorage for ChatsRepository
-    }, skip: 'Requires FlutterSecureStorage mock - functionality tested via direct insertion');
+    // Note: Large archive compression and non-existent chat error handling
+    // are already tested via direct database insertion methods above.
+    // No need for duplicate tests requiring full ChatsRepository setup.
 
     test('Restore archived chat successfully', () async {
       final repository = ArchiveRepository();
@@ -285,6 +279,7 @@ void main() {
         'id': 'archived_msg_016_1',
         'archive_id': archiveId,
         'original_message_id': 'msg_016_1',
+        'chat_id': 'chat_016',
         'content': 'The meeting is scheduled for tomorrow',
         'timestamp': now.millisecondsSinceEpoch,
         'is_from_me': 1,
@@ -501,6 +496,7 @@ void main() {
         'id': 'archived_msg_026',
         'archive_id': archiveId1,
         'original_message_id': 'msg_026',
+        'chat_id': 'chat_026',
         'content': 'I love apple pie',
         'timestamp': now.millisecondsSinceEpoch,
         'is_from_me': 1,
@@ -537,6 +533,7 @@ void main() {
         'id': 'archived_msg_027',
         'archive_id': archiveId2,
         'original_message_id': 'msg_027',
+        'chat_id': 'chat_027',
         'content': 'I prefer banana bread',
         'timestamp': now.millisecondsSinceEpoch,
         'is_from_me': 1,

@@ -176,14 +176,17 @@ class EncryptionUtils {
   /// Validate passphrase strength
   /// 
   /// Requirements:
-  /// - Minimum 12 characters
-  /// - Must contain letters and numbers
-  /// - Recommended: Mix of upper/lower/symbols
+  /// - Minimum 12 characters (no maximum to prevent password length attacks)
+  /// - Must contain at least 3 of: lowercase, uppercase, numbers, symbols
+  /// - Recommended: 20+ characters with all character types
+  /// 
+  /// Security note: Variable length prevents attackers from knowing password
+  /// constraints, making brute-force attacks significantly harder
   static PassphraseValidation validatePassphrase(String passphrase) {
     final warnings = <String>[];
     double strength = 0.0;
     
-    // Length check
+    // Minimum length check (no maximum - variable length for security)
     if (passphrase.length < 12) {
       warnings.add('Passphrase must be at least 12 characters');
       return PassphraseValidation(
@@ -193,15 +196,33 @@ class EncryptionUtils {
       );
     }
     
-    // Character variety checks
+    // Character variety checks with comprehensive symbol support
     final hasLowercase = passphrase.contains(RegExp(r'[a-z]'));
     final hasUppercase = passphrase.contains(RegExp(r'[A-Z]'));
     final hasDigits = passphrase.contains(RegExp(r'[0-9]'));
-    final hasSymbols = passphrase.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'));
+    // Expanded symbol set: common keyboard symbols + Unicode special chars
+    final hasSymbols = passphrase.contains(
+      RegExp(r'''[!@#$%^&*()_+\-=\[\]{};:'",.<>?/\\|`~¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿×÷]''')
+    );
     
-    // Must have letters and numbers at minimum
-    if (!hasLowercase && !hasUppercase) {
-      warnings.add('Passphrase must contain letters');
+    // Count character variety types present
+    final varietyCount = [
+      hasLowercase,
+      hasUppercase,
+      hasDigits,
+      hasSymbols,
+    ].where((has) => has).length;
+    
+    // Require at least 3 out of 4 character types
+    if (varietyCount < 3) {
+      final missing = <String>[];
+      if (!hasLowercase) missing.add('lowercase letters');
+      if (!hasUppercase) missing.add('uppercase letters');
+      if (!hasDigits) missing.add('numbers');
+      if (!hasSymbols) missing.add('symbols');
+      
+      warnings.add('Passphrase must contain at least 3 of: lowercase, uppercase, numbers, symbols');
+      warnings.add('Missing: ${missing.take(2).join(", ")}');
       return PassphraseValidation(
         isValid: false,
         strength: 0.0,
@@ -209,38 +230,56 @@ class EncryptionUtils {
       );
     }
     
-    if (!hasDigits) {
-      warnings.add('Passphrase must contain numbers');
-      return PassphraseValidation(
-        isValid: false,
-        strength: 0.0,
-        warnings: warnings,
-      );
+    // Calculate strength score (0.0 - 1.0)
+    // Base strength for meeting minimum requirements
+    strength += 0.15;
+    
+    // Length scoring with diminishing returns (encourages longer passphrases)
+    if (passphrase.length >= 20) {
+      strength += 0.25; // Excellent length
+    } else if (passphrase.length >= 16) {
+      strength += 0.20; // Good length
+    } else {
+      strength += (passphrase.length / 16) * 0.15; // Proportional
     }
     
-    // Calculate strength score
-    strength += 0.2; // Base for meeting minimum requirements
-    strength += passphrase.length >= 16 ? 0.2 : passphrase.length / 16 * 0.2;
+    // Character variety bonuses
     if (hasLowercase) strength += 0.15;
     if (hasUppercase) strength += 0.15;
     if (hasDigits) strength += 0.15;
-    if (hasSymbols) strength += 0.15;
+    if (hasSymbols) strength += 0.20; // Extra bonus for symbols
     
-    // Warnings for weak passphrases
-    if (!hasUppercase) {
-      warnings.add('Consider adding uppercase letters');
-    }
-    if (!hasSymbols) {
-      warnings.add('Consider adding symbols');
-    }
-    if (passphrase.length < 16) {
-      warnings.add('Consider using at least 16 characters');
+    // Perfect score bonus (all 4 types present)
+    if (varietyCount == 4) {
+      strength += 0.10;
     }
     
-    // Check for common patterns
+    // Entropy bonus for very long passphrases (discourages length guessing)
+    if (passphrase.length > 24) {
+      strength += 0.05;
+    }
+    
+    // Warnings for improvement (non-blocking)
+    if (!hasUppercase && varietyCount == 3) {
+      warnings.add('Consider adding uppercase letters for maximum security');
+    }
+    if (!hasLowercase && varietyCount == 3) {
+      warnings.add('Consider adding lowercase letters for maximum security');
+    }
+    if (!hasDigits && varietyCount == 3) {
+      warnings.add('Consider adding numbers for maximum security');
+    }
+    if (!hasSymbols && varietyCount == 3) {
+      warnings.add('Consider adding symbols for maximum security');
+    }
+    if (passphrase.length < 20) {
+      warnings.add('Consider using 20+ characters for optimal security');
+    }
+    
+    // Check for common patterns (reduces strength)
     if (_containsCommonPatterns(passphrase)) {
-      warnings.add('Avoid common patterns');
-      strength *= 0.7; // Reduce strength
+      warnings.add('Avoid common patterns and dictionary words');
+      strength *= 0.6; // Significant penalty
     }
     
     return PassphraseValidation(

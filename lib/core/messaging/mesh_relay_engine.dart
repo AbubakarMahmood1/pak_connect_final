@@ -45,6 +45,11 @@ MeshRelayEngine({
        _spamPrevention = spamPrevention;
 
   /// Initialize the relay engine
+  ///
+  /// MULTI-DEVICE NOTE: This can be called multiple times to change node identity.
+  /// Bug #1 fix (2025-10-05): Changed _currentNodeId from 'late final' to 'late'
+  /// to allow re-initialization for testing multi-node scenarios and production
+  /// node identity changes.
   Future<void> initialize({
     required String currentNodeId,
     SmartMeshRouter? smartRouter,
@@ -59,9 +64,11 @@ MeshRelayEngine({
     this.onDeliverToSelf = onDeliverToSelf;
     this.onRelayDecision = onRelayDecision;
     this.onStatsUpdated = onStatsUpdated;
-    
+
     final truncatedNodeId = _currentNodeId.length > 16 ? _currentNodeId.substring(0, 16) : _currentNodeId;
-    _logger.info('MeshRelayEngine initialized for node: $truncatedNodeId... (smart routing: ${_smartRouter != null})');
+    _logger.info('🔧 MeshRelayEngine (RE)INITIALIZED for node: $truncatedNodeId... (smart routing: ${_smartRouter != null})');
+    // ignore: avoid_print
+    print('📡 RELAY ENGINE: Node ID set to $truncatedNodeId... | Smart Routing: ${_smartRouter != null}');
   }
 
   /// Process incoming relay message and decide what to do

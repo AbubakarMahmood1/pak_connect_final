@@ -594,7 +594,6 @@ Future<bool?> showRestoreConfirmationDialog({
   }
 }
 
-// Placeholder for custom colors - would be defined in theme
 class CustomColors {
   final Color? success;
   const CustomColors({this.success});

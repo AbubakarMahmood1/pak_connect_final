@@ -971,7 +971,6 @@ class ArchivePolicy {
   );
 }
 
-// Placeholder classes for comprehensive API
 class EnhancedArchiveSummary {
   final ArchivedChatSummary summary;
   final ArchiveBusinessMetadata businessData;
@@ -1133,7 +1132,6 @@ class ArchiveAnalytics {
   );
 }
 
-// Placeholder metric classes
 class ArchiveBusinessMetrics {
   static ArchiveBusinessMetrics empty() => const ArchiveBusinessMetrics();
   const ArchiveBusinessMetrics();

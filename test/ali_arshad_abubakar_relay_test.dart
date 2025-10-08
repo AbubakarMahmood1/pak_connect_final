@@ -1,6 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
@@ -8,32 +6,21 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  final testLogger = Logger('AliArshadAbubakarRelayTest');
-
-  // Initialize sqflite_ffi for testing
-  setUpAll(() {
-    TestWidgetsFlutterBinding.ensureInitialized();
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  // Initialize test environment
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   setUp(() async {
     // Clean database before each test
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
   });
 
   tearDownAll(() async {
     await DatabaseHelper.deleteDatabase();
-  });
-
-  // Setup logging
-  Logger.root.level = Level.WARNING; // Reduce logging to avoid noise
-  Logger.root.onRecord.listen((record) {
-    // ignore: avoid_print
-    print('${record.level.name}: ${record.message}');
   });
 
   group('Ali → Arshad → Abubakar Relay Test', () {
@@ -53,7 +40,8 @@ void main() {
         await spamPrevention.initialize();
       } catch (e) {
         // Ignore SharedPreferences errors in test environment
-        testLogger.warning('Initialization error (expected in test): $e');
+        // ignore: avoid_print
+        print('Warning: Initialization error (expected in test): $e');
       }
       
       final relayEngine = MeshRelayEngine(
@@ -108,8 +96,6 @@ void main() {
       expect(deliveryResult.isDelivered, isTrue, reason: 'Abubakar should receive the message');
       expect(deliveryResult.content, equals('Hello Abubakar from Ali!'),
         reason: 'Content should be preserved through relay');
-      
-      testLogger.info('✅ Ali → Arshad → Abubakar relay test passed!');
     });
 
     test('Relay node does not process messages not intended for them', () async {
@@ -139,8 +125,6 @@ void main() {
       expect(processResult.isRelayed, isTrue, reason: 'Message should be relayed, not delivered to Arshad');
       expect(processResult.isDelivered, isFalse, reason: 'Arshad should not process message intended for Abubakar');
       expect(processResult.nextHopNodeId, equals(abubakar), reason: 'Should be forwarded to correct recipient');
-      
-      testLogger.info('✅ Relay routing validation test passed!');
     });
 
     test('Final recipient receives relayed message correctly', () async {
@@ -172,8 +156,6 @@ void main() {
       expect(deliveryResult.content, equals('Final delivery test message'),
         reason: 'Original content should be preserved');
       expect(deliveryResult.isRelayed, isFalse, reason: 'Final recipient should not relay further');
-      
-      testLogger.info('✅ Final recipient delivery test passed!');
     });
 
     test('Relay statistics are updated correctly', () async {
@@ -205,8 +187,6 @@ void main() {
       final stats = arshadEngine.getStatistics();
       expect(stats.totalRelayed, equals(3), reason: 'Should count relayed messages');
       expect(stats.relayEfficiency, greaterThan(0.0), reason: 'Should have positive efficiency');
-      
-      testLogger.info('✅ Relay statistics test passed!');
     });
   });
 }

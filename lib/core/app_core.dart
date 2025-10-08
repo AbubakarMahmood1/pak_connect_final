@@ -5,12 +5,15 @@ import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 
 import 'power/adaptive_power_manager.dart';
+import 'power/battery_optimizer.dart';
 import 'scanning/burst_scanning_controller.dart';
 import 'messaging/offline_message_queue.dart';
 import 'performance/performance_monitor.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
+import '../domain/services/auto_archive_scheduler.dart';
+import '../domain/services/notification_service.dart';
 import '../data/services/ble_state_manager.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
@@ -29,6 +32,7 @@ class AppCore {
   late final ChatManagementService chatService;
   late final PerformanceMonitor performanceMonitor;
   late final BLEStateManager bleStateManager;
+  late final BatteryOptimizer batteryOptimizer;
   
   // Repositories
   late final ContactRepository contactRepository;
@@ -178,6 +182,13 @@ class AppCore {
   
   /// Initialize core services
   Future<void> _initializeCoreServices() async {
+    // Initialize notification service with dependency injection
+    // Use foreground handler by default (for all platforms)
+    // Future: Can inject BackgroundNotificationHandler for Android
+    final notificationHandler = ForegroundNotificationHandler();
+    await NotificationService.initialize(handler: notificationHandler);
+    _logger.info('Notification service initialized with ${notificationHandler.runtimeType}');
+    
     // Initialize contact management
     contactService = ContactManagementService();
     await contactService.initialize();
@@ -201,6 +212,19 @@ class AppCore {
   
   /// Initialize enhanced features
   Future<void> _initializeEnhancedFeatures() async {
+    // Initialize battery optimizer for power management
+    _logger.info('🔋 Initializing battery optimizer...');
+    batteryOptimizer = BatteryOptimizer();
+    await batteryOptimizer.initialize(
+      onBatteryUpdate: (info) {
+        _logger.info('🔋 Battery: ${info.level}% (${info.powerMode.name})');
+      },
+      onPowerModeChanged: (mode) {
+        _logger.info('🔋 Power mode changed to: ${mode.name}');
+      },
+    );
+    _logger.info('✅ Battery optimizer initialized');
+    
     // Initialize burst scanning controller (replaces direct power manager)
     burstScanningController = BurstScanningController();
 
@@ -240,6 +264,16 @@ class AppCore {
       _logger.info('✅ Burst scanning will initialize on provider access');
     } catch (e) {
       _logger.warning('⚠️ Burst scanning pre-initialization note: $e');
+    }
+
+    // Start auto-archive scheduler
+    _logger.info('🗄️ Starting auto-archive scheduler...');
+    try {
+      await AutoArchiveScheduler.start();
+      _logger.info('✅ Auto-archive scheduler started');
+    } catch (e) {
+      _logger.warning('⚠️ Auto-archive scheduler failed to start: $e');
+      // Non-critical, continue initialization
     }
 
     _logger.info('Integrated systems started');
@@ -369,6 +403,20 @@ class AppCore {
         performanceMonitor.dispose();
       } catch (e) {
         _logger.warning('Error disposing performance monitor: $e');
+      }
+
+      try {
+        AutoArchiveScheduler.stop();
+        _logger.info('Auto-archive scheduler stopped');
+      } catch (e) {
+        _logger.warning('Error stopping auto-archive scheduler: $e');
+      }
+
+      try {
+        NotificationService.dispose();
+        _logger.info('Notification service disposed');
+      } catch (e) {
+        _logger.warning('Error disposing notification service: $e');
       }
 
       _statusController?.close();

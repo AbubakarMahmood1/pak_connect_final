@@ -1,21 +1,17 @@
 // Test database monitoring service
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/database/database_monitor_service.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   setUp(() async {
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
     await DatabaseMonitorService.clearHistory();
   });
 

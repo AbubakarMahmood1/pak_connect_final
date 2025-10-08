@@ -87,7 +87,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String _searchQuery = '';
   
   // Smart routing demo state
-  bool _showMeshStats = false;
   bool _demoModeEnabled = true; // Auto-enable demo mode
   StreamSubscription? _meshEventSubscription;
   bool _meshInitializing = false; // 🔧 FIX: Start false, check actual state
@@ -131,7 +130,7 @@ String? get securityStateKey {
     print('🐛 NAV DEBUG: - widget.central: ${widget.central?.uuid}');
     print('🐛 NAV DEBUG: - widget.chatId: ${widget.chatId}');
     print('🐛 NAV DEBUG: - widget.contactName: ${widget.contactName}');
-    print('🐛 NAV DEBUG: - widget.contactPublicKey: ${widget.contactPublicKey?.substring(0, 16)}...');
+    print('🐛 NAV DEBUG: - widget.contactPublicKey: ${widget.contactPublicKey != null && widget.contactPublicKey!.length > 16 ? '${widget.contactPublicKey!.substring(0, 16)}...' : widget.contactPublicKey ?? 'null'}');
     
     _currentChatId = _calculateInitialChatId();
     print('🐛 NAV DEBUG: - calculated chatId: $_currentChatId');
@@ -473,15 +472,15 @@ Future<void> _initializePersistentValues() async {
     
     if (_isRepositoryMode) {
       _persistentContactPublicKey = widget.contactPublicKey;
-      print('🐛 NAV DEBUG: - set persistent key from widget: ${_persistentContactPublicKey?.substring(0, 16)}...');
+      print('🐛 NAV DEBUG: - set persistent key from widget: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
     } else {
       // For live connections, get and cache the values
       final bleService = ref.read(bleServiceProvider);
       
-      print('🐛 NAV DEBUG: - bleService.otherDevicePersistentId: ${bleService.otherDevicePersistentId?.substring(0, 16)}...');
+      print('🐛 NAV DEBUG: - bleService.otherDevicePersistentId: ${bleService.otherDevicePersistentId != null && bleService.otherDevicePersistentId!.length > 16 ? '${bleService.otherDevicePersistentId!.substring(0, 16)}...' : bleService.otherDevicePersistentId ?? 'null'}');
       
       _persistentContactPublicKey = bleService.otherDevicePersistentId;
-      print('🐛 NAV DEBUG: - set persistent key immediately: ${_persistentContactPublicKey?.substring(0, 16)}...');
+      print('🐛 NAV DEBUG: - set persistent key immediately: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
       
       // If still null, setup listener for when they become available (no race condition)
       if (_persistentContactPublicKey == null) {
@@ -493,7 +492,7 @@ Future<void> _initializePersistentValues() async {
           }
           final bleService = ref.read(bleServiceProvider);
           if (bleService.otherDevicePersistentId != null) {
-            print('🐛 NAV DEBUG: - listener found key: ${bleService.otherDevicePersistentId!.substring(0, 16)}...');
+            print('🐛 NAV DEBUG: - listener found key: ${bleService.otherDevicePersistentId!.length > 16 ? '${bleService.otherDevicePersistentId!.substring(0, 16)}...' : bleService.otherDevicePersistentId!}');
             setState(() {
               _persistentContactPublicKey = bleService.otherDevicePersistentId;
             });
@@ -502,7 +501,7 @@ Future<void> _initializePersistentValues() async {
         });
       }
     }
-    print('🐛 NAV DEBUG: _initializePersistentValues() completed with key: ${_persistentContactPublicKey?.substring(0, 16)}...');
+    print('🐛 NAV DEBUG: _initializePersistentValues() completed with key: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
   }
 
   /// Check if there are messages queued for relay that should prevent disconnection
@@ -1041,19 +1040,11 @@ final actuallyConnected = connectionInfo?.isConnected ?? false;
       onPressed: _toggleSearchMode,
       tooltip: _isSearchMode ? 'Exit search' : 'Search messages',
     ),
-    // 🔧 REMOVED: FYP Demo indicator for better UX
-    // Stats button
-    if (_demoModeEnabled)
-      IconButton(
-        icon: Icon(_showMeshStats ? Icons.analytics : Icons.analytics_outlined),
-        onPressed: _toggleMeshStats,
-        tooltip: 'Smart Routing Statistics',
-      ),
     // Only show relevant action button
     securityStateAsync.when(
       data: (securityState) => _buildSingleActionButton(securityState),
-      loading: () => SizedBox(width: 48),
-      error: (error, stack) => SizedBox(width: 48),
+      loading: () => SizedBox.shrink(),
+      error: (error, stack) => SizedBox.shrink(),
     ),
   ],
 ),
@@ -1065,11 +1056,9 @@ final actuallyConnected = connectionInfo?.isConnected ?? false;
       if (!actuallyConnected || bleService.isActivelyReconnecting)
         _buildReconnectionBanner(),
 
-      // Initialization status and smart routing demo panel
+      // Initialization status
       if (_meshInitializing)
         _buildInitializationStatusPanel(),
-      if (_demoModeEnabled && _showMeshStats && !_meshInitializing)
-        _buildSmartRoutingStatsPanel(),
 
       // Search bar (when in search mode)
       if (_isSearchMode)
@@ -1247,7 +1236,8 @@ Widget _buildSingleActionButton(SecurityState securityState) {
       tooltip: 'Sync Contact',
     );
   }
-  return SizedBox(width: 48);
+  // Return empty widget instead of sized box to avoid empty space
+  return SizedBox.shrink();
 }
 
 Widget _buildReconnectionBanner() {
@@ -1600,7 +1590,7 @@ void _setupContactRequestListener() {
       recipientPublicKey: _persistentContactPublicKey!,
     );
 
-    print('🔧 SEND DEBUG: Message queued with AppCore, messageId: ${messageId.substring(0, 16)}...');
+    print('🔧 SEND DEBUG: Message queued with AppCore, messageId: ${messageId.length > 16 ? '${messageId.substring(0, 16)}...' : messageId}');
 
     // Update message status to sent (queue system will handle delivery)
     final queuedMessage = message.copyWith(
@@ -1615,7 +1605,7 @@ void _setupContactRequestListener() {
       }
     });
 
-    print('🔧 SEND DEBUG: Message ${message.id} -> Queue ID ${messageId.substring(0, 16)}...');
+    print('🔧 SEND DEBUG: Message ${message.id} -> Queue ID ${messageId.length > 16 ? '${messageId.substring(0, 16)}...' : messageId}');
 
     _showSuccess('✅ Message queued for secure delivery');
     print('🔧 SEND DEBUG: Message successfully queued through AppCore');
@@ -1773,10 +1763,9 @@ String _calculateInitialChatId() {
   // Live connection mode: generate from BLE service
   final bleService = ref.read(bleServiceProvider);
   final otherPersistentId = bleService.otherDevicePersistentId;
-  final myPersistentId = bleService.myPersistentId;
-  
-  if (otherPersistentId != null && myPersistentId != null) {
-    return ChatUtils.generateChatId(myPersistentId, otherPersistentId);
+
+  if (otherPersistentId != null) {
+    return ChatUtils.generateChatId(otherPersistentId);
   }
   
   // Fallback for live connections
@@ -1790,8 +1779,7 @@ String _calculateInitialChatId() {
 Future<void> _handleIdentityReceived() async {
     final bleService = ref.read(bleServiceProvider);
     final otherPersistentId = bleService.otherDevicePersistentId;
-    final myPersistentId = bleService.myPersistentId;
-    
+
     // UPDATE persistent values when identity is received
     if (otherPersistentId != null) {
       setState(() {
@@ -1799,8 +1787,8 @@ Future<void> _handleIdentityReceived() async {
       });
     }
     
-    if (otherPersistentId != null && myPersistentId != null) {
-      final newChatId = ChatUtils.generateChatId(myPersistentId, otherPersistentId);
+    if (otherPersistentId != null) {
+      final newChatId = ChatUtils.generateChatId(otherPersistentId);
       
       if (newChatId != _currentChatId) {
         final messagesToMigrate = await _messageRepository.getMessages(_currentChatId!);
@@ -1892,15 +1880,6 @@ void _handleMeshDemoEvent(DemoEvent event) {
   }
 }
 
-/// Toggle smart routing statistics display
-void _toggleMeshStats() {
-  setState(() {
-    _showMeshStats = !_showMeshStats;
-  });
-
-  _logger.info('Smart routing stats display toggled: $_showMeshStats');
-}
-
 /// Toggle search mode
 void _toggleSearchMode() {
   setState(() {
@@ -1935,183 +1914,6 @@ void _navigateToSearchResult(int messageIndex) {
       curve: Curves.easeOut,
     );
   }
-}
-
-/// Build smart routing statistics panel
-Widget _buildSmartRoutingStatsPanel() {
-  return Consumer(
-    builder: (context, ref, child) {
-      final meshStatus = ref.watch(meshNetworkStatusProvider);
-      
-      return Container(
-        padding: EdgeInsets.all(12),
-        margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: Theme.of(context).colorScheme.outline.withValues(),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.school, size: 16, color: Colors.blue),
-                SizedBox(width: 8),
-                Text(
-                  'Smart Routing',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-                Spacer(),
-                // Health indicator
-                meshStatus.when(
-                  data: (status) => Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: status.isInitialized ? Colors.green : Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  loading: () => SizedBox(
-                    width: 8,
-                    height: 8,
-                    child: CircularProgressIndicator(strokeWidth: 1),
-                  ),
-                  error: (_, _) => Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 8),
-            // Demo mode indicator
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.blue.withValues(),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.blue.withValues()),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.info_outline, size: 12, color: Colors.blue),
-                  SizedBox(width: 4),
-                  Text(
-                    'Demo Mode: Routing decisions are visualized for FYP evaluation',
-                    style: TextStyle(fontSize: 10, color: Colors.blue),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 8),
-            // Stats display
-            meshStatus.when(
-              data: (status) => _buildSmartRoutingStatsContent(status),
-              loading: () => Text('Loading smart routing stats...', style: Theme.of(context).textTheme.bodySmall),
-              error: (error, _) => Text('Error: $error', style: Theme.of(context).textTheme.bodySmall),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
-
-/// Build smart routing statistics content
-Widget _buildSmartRoutingStatsContent(MeshNetworkStatus status) {
-  final stats = status.statistics;
-  
-  return Column(
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: _buildStatItem(
-              'Node ID',
-              status.currentNodeId?.substring(0, 8) ?? 'Unknown',
-            ),
-          ),
-          Expanded(
-            child: _buildStatItem(
-              'Smart Router',
-              status.isInitialized ? '🧠 Active' : '❌ Inactive',
-            ),
-          ),
-        ],
-      ),
-      SizedBox(height: 4),
-      if (stats.relayStatistics != null) ...[
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatItem(
-                'Smart Routes',
-                '${stats.relayStatistics!.totalRelayed}',
-              ),
-            ),
-            Expanded(
-              child: _buildStatItem(
-                'Blocked',
-                '${stats.relayStatistics!.totalBlocked}',
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatItem(
-                'Route Efficiency',
-                '${(stats.relayStatistics!.relayEfficiency * 100).toStringAsFixed(1)}%',
-              ),
-            ),
-            Expanded(
-              child: _buildStatItem(
-                'Topology Nodes',
-                '${stats.queueStatistics?.pendingMessages ?? 0}',
-              ),
-            ),
-          ],
-        ),
-      ],
-    ],
-  );
-}
-
-/// Build individual stat item
-Widget _buildStatItem(String label, String value) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          color: Colors.grey[600],
-        ),
-      ),
-      Text(
-        value,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    ],
-  );
 }
 
 /// Build initialization status panel
@@ -2166,7 +1968,7 @@ Widget _buildInitializationStatusPanel() {
 @override
 void dispose() {
   print('🐛 NAV DEBUG: ChatScreen dispose() called');
-  print('🐛 NAV DEBUG: - Final persistent key: ${_persistentContactPublicKey?.substring(0, 16)}...');
+  print('🐛 NAV DEBUG: - Final persistent key: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
   print('🐛 NAV DEBUG: - Final chatId: $_currentChatId');
   print('🐛 NAV DEBUG: - Message listener active: $_messageListenerActive');
   print('🐛 NAV DEBUG: - Buffered messages: ${_messageBuffer.length}');

@@ -37,7 +37,7 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((ref
   final bleService = ref.watch(bleServiceProvider);
   final connectionInfo = ref.watch(connectionInfoProvider);
 
-  print('🐛 NAV DEBUG: - bleService.otherDevicePersistentId: ${bleService.otherDevicePersistentId?.substring(0, 16)}...');
+  print('🐛 NAV DEBUG: - bleService.otherDevicePersistentId: ${bleService.otherDevicePersistentId != null && bleService.otherDevicePersistentId!.length > 16 ? '${bleService.otherDevicePersistentId!.substring(0, 16)}...' : bleService.otherDevicePersistentId ?? 'null'}');
   print('🐛 NAV DEBUG: - connectionInfo: ${connectionInfo.value?.isConnected}/${connectionInfo.value?.isReady}');
 
   final isRepositoryMode = otherPublicKey?.startsWith('repo_') ?? false;

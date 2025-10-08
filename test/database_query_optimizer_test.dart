@@ -1,19 +1,17 @@
 // Test database query optimizer
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/database/database_query_optimizer.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   setUp(() async {
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
     DatabaseQueryOptimizer.instance.clearStatistics();
   });
 

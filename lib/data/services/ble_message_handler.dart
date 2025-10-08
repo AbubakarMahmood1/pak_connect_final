@@ -61,6 +61,7 @@ class BLEMessageHandler {
   Function(RelayDecision decision)? onRelayDecisionMade;
   Function(RelayStatistics stats)? onRelayStatsUpdated;
   Function(ProtocolMessage message)? onSendAckMessage;  // Callback for sending ACK protocol messages
+  Function(ProtocolMessage relayMessage, String nextHopId)? onSendRelayMessage;  // Callback for forwarding relay messages
 
   // Relay system components
   MeshRelayEngine? _relayEngine;
@@ -145,6 +146,8 @@ class BLEMessageHandler {
   required int mtuSize,
   String? messageId,
   String? contactPublicKey,
+  String? recipientId,  // STEP 7: Recipient ID (ephemeral or persistent)
+  bool useEphemeralAddressing = false,  // STEP 7: Addressing flag
   String? originalIntendedRecipient, // For relay messages: preserve original recipient
   required ContactRepository contactRepository,
   required BLEStateManager stateManager,
@@ -199,16 +202,26 @@ class BLEMessageHandler {
     final signingInfo = SigningManager.getSigningInfo(trustLevel);
     final signature = SigningManager.signMessage(message, trustLevel);
 
-  final protocolMessage = ProtocolMessage(
-    type: ProtocolMessageType.textMessage,
-    payload: {
-      'messageId': msgId,
-      'content': payload,
-      'encrypted': encryptionMethod != 'none',
-      'encryptionMethod': encryptionMethod,
-      'intendedRecipient': originalIntendedRecipient ?? contactPublicKey, // Use original recipient for relay, connected device for direct
-    },
-    timestamp: DateTime.now(),
+  // STEP 7: Create protocol message with recipient addressing
+  final protocolMessage = ProtocolMessage.textMessage(
+    messageId: msgId,
+    content: payload,
+    encrypted: encryptionMethod != 'none',
+    recipientId: recipientId,  // STEP 7: Include recipient ID
+    useEphemeralAddressing: useEphemeralAddressing,  // STEP 7: Include addressing flag
+  );
+  
+  // Also add legacy fields for backward compatibility
+  final legacyPayload = {
+    ...protocolMessage.payload,
+    'encryptionMethod': encryptionMethod,
+    'intendedRecipient': originalIntendedRecipient ?? contactPublicKey,
+  };
+  
+  final finalMessage = ProtocolMessage(
+    type: protocolMessage.type,
+    payload: legacyPayload,
+    timestamp: protocolMessage.timestamp,
     signature: signature,
     useEphemeralSigning: signingInfo.useEphemeralSigning,
     ephemeralSigningKey: signingInfo.signingKey,
@@ -221,13 +234,15 @@ class BLEMessageHandler {
   print('🔧 SEND DIAGNOSTIC: Current node length: ${_currentNodeId?.length ?? 0}');
   
   print('🔧 SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...');
+  print('🔧 SEND DEBUG: Recipient ID: ${_safeTruncate(recipientId, 16, fallback: "NOT SPECIFIED")}...');
+  print('🔧 SEND DEBUG: Addressing: ${useEphemeralAddressing ? "EPHEMERAL" : "PERSISTENT"}');
   print('🔧 SEND DEBUG: Intended recipient: ${_safeTruncate(contactPublicKey, 16, fallback: "NOT SPECIFIED")}...');
   print('🔧 SEND DEBUG: Current node ID: ${_safeTruncate(_currentNodeId, 16, fallback: "NOT SET")}...');
   print('🔧 SEND DEBUG: Encryption method: $encryptionMethod');
   print('🔧 SEND DEBUG: Message content: "${_safeTruncate(message, 50)}..."');
   print('🔧 SEND DEBUG: ===== END SENDING ANALYSIS =====');
 
-    final jsonBytes = protocolMessage.toBytes();
+    final jsonBytes = finalMessage.toBytes();
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
     _logger.info('Created ${chunks.length} chunks for message: $msgId');
     
@@ -299,6 +314,8 @@ Future<bool> sendPeripheralMessage({
   required int mtuSize,
   String? messageId,
   String? contactPublicKey,
+  String? recipientId,  // STEP 7: Recipient ID (ephemeral or persistent)
+  bool useEphemeralAddressing = false,  // STEP 7: Addressing flag
   String? originalIntendedRecipient, // For relay messages: preserve original recipient
   required ContactRepository contactRepository,
   required BLEStateManager stateManager,
@@ -328,16 +345,26 @@ Future<bool> sendPeripheralMessage({
     final signingInfo = SigningManager.getSigningInfo(trustLevel);
     final signature = SigningManager.signMessage(message, trustLevel);
 
-  final protocolMessage = ProtocolMessage(
-    type: ProtocolMessageType.textMessage,
-    payload: {
-      'messageId': msgId,
-      'content': payload,
-      'encrypted': encryptionMethod != 'none',
-      'encryptionMethod': encryptionMethod,
-      'intendedRecipient': originalIntendedRecipient ?? contactPublicKey, // Use original recipient for relay, connected device for direct
-    },
-    timestamp: DateTime.now(),
+  // STEP 7: Create protocol message with recipient addressing
+  final protocolMessage = ProtocolMessage.textMessage(
+    messageId: msgId,
+    content: payload,
+    encrypted: encryptionMethod != 'none',
+    recipientId: recipientId,  // STEP 7: Include recipient ID
+    useEphemeralAddressing: useEphemeralAddressing,  // STEP 7: Include addressing flag
+  );
+  
+  // Also add legacy fields for backward compatibility
+  final legacyPayload = {
+    ...protocolMessage.payload,
+    'encryptionMethod': encryptionMethod,
+    'intendedRecipient': originalIntendedRecipient ?? contactPublicKey,
+  };
+  
+  final finalMessage = ProtocolMessage(
+    type: protocolMessage.type,
+    payload: legacyPayload,
+    timestamp: protocolMessage.timestamp,
     signature: signature,
     useEphemeralSigning: signingInfo.useEphemeralSigning,
     ephemeralSigningKey: signingInfo.signingKey,
@@ -346,12 +373,14 @@ Future<bool> sendPeripheralMessage({
   // DIAGNOSTIC: Log peripheral message sending details
   print('🔧 PERIPHERAL SEND DEBUG: ===== MESSAGE SENDING ANALYSIS =====');
   print('🔧 PERIPHERAL SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...');
+  print('🔧 PERIPHERAL SEND DEBUG: Recipient ID: ${_safeTruncate(recipientId, 16, fallback: "NOT SPECIFIED")}...');
+  print('🔧 PERIPHERAL SEND DEBUG: Addressing: ${useEphemeralAddressing ? "EPHEMERAL" : "PERSISTENT"}');
   print('🔧 PERIPHERAL SEND DEBUG: Intended recipient: ${_safeTruncate(contactPublicKey, 16, fallback: "NOT SPECIFIED")}...');
   print('🔧 PERIPHERAL SEND DEBUG: Current node ID: ${_safeTruncate(_currentNodeId, 16, fallback: "NOT SET")}...');
   print('🔧 PERIPHERAL SEND DEBUG: Encryption method: $encryptionMethod');
   print('🔧 PERIPHERAL SEND DEBUG: ===== END SENDING ANALYSIS =====');
 
-    final jsonBytes = protocolMessage.toBytes();
+    final jsonBytes = finalMessage.toBytes();
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
     _logger.info('Created ${chunks.length} chunks for peripheral message: $msgId');
     
@@ -463,6 +492,25 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
         );
         return null;
 
+      case ProtocolMessageType.queueSync:
+        // Handle queue sync messages
+        final queueHash = protocolMessage.payload['queueHash'] as String?;
+        final messageIds = (protocolMessage.payload['messageIds'] as List<dynamic>?)?.cast<String>();
+
+        if (queueHash != null && messageIds != null && senderPublicKey != null) {
+          final syncMessage = QueueSyncMessage.createRequest(
+            messageIds: messageIds,
+            nodeId: senderPublicKey,
+          );
+
+          // Forward to sync manager via callback
+          onQueueSyncReceived?.call(syncMessage, senderPublicKey);
+          _logger.info('Received queue sync message from ${senderPublicKey.substring(0, 16)}...');
+        } else {
+          _logger.warning('Received invalid queue sync message');
+        }
+        return null;
+
       default:
         _logger.warning('Unexpected direct protocol message type: ${protocolMessage.type}');
         return null;
@@ -495,59 +543,42 @@ Future<String?> _processCompleteProtocolMessage(
         final intendedRecipient = protocolMessage.payload['intendedRecipient'] as String?;
         
         print('🔧 ROUTING DEBUG: ===== MESSAGE ROUTING ANALYSIS =====');
-        
+
         // 🚨 DIAGNOSTIC: Check all string lengths before substring
         print('🔧 ROUTING DIAGNOSTIC: Message ID length: ${messageId.length}');
         print('🔧 ROUTING DIAGNOSTIC: Sender key length: ${senderPublicKey?.length ?? 0}');
         print('🔧 ROUTING DIAGNOSTIC: Intended recipient length: ${intendedRecipient?.length ?? 0}');
         print('🔧 ROUTING DIAGNOSTIC: Current node length: ${_currentNodeId?.length ?? 0}');
-        
+
         print('🔧 ROUTING DEBUG: Message ID: ${_safeTruncate(messageId, 16)}...');
         print('🔧 ROUTING DEBUG: Sender public key: ${_safeTruncate(senderPublicKey, 16, fallback: "NULL")}...');
         print('🔧 ROUTING DEBUG: Intended recipient: ${_safeTruncate(intendedRecipient, 16, fallback: "NOT SPECIFIED")}...');
         print('🔧 ROUTING DEBUG: Current node ID: ${_safeTruncate(_currentNodeId, 16, fallback: "NOT SET")}...');
         print('🔧 ROUTING DEBUG: Encryption method: $encryptionMethod');
         print('🔧 ROUTING DEBUG: Message encrypted flag: ${protocolMessage.isEncrypted}');
-        
-        // FIXED: Smart message routing validation for P2P vs Mesh messages
-        if (intendedRecipient != null && _currentNodeId != null) {
-          // Check if this is our own message coming back to us
-          if (senderPublicKey != null && senderPublicKey == _currentNodeId) {
-            print('🔧 ROUTING DEBUG: 🚫 BLOCKING OWN MESSAGE - Sender matches current user');
-            print('🔧 ROUTING DEBUG: - This is our own message being incorrectly received');
-            return null; // Block our own messages from appearing as incoming
-          }
-          
-          // For direct P2P messages: intendedRecipient contains the recipient's public key
-          // If we received the message directly, it's intended for us (we are the recipient)
-          if (intendedRecipient == _currentNodeId) {
-            // This is a mesh message explicitly addressed to our node ID
-            print('🔧 ROUTING DEBUG: ✅ MESH MESSAGE - Explicitly addressed to our node ID');
-          } else {
-            // This is likely a direct P2P message where intendedRecipient is our public key
-            // and _currentNodeId is our node ID (they can be different values)
-            print('🔧 ROUTING DEBUG: ✅ P2P MESSAGE - Received directly, accepting as intended for us');
-            print('🔧 ROUTING DEBUG: - Intended recipient: ${_safeTruncate(intendedRecipient, 16)}...');
-            print('🔧 ROUTING DEBUG: - Our node ID: ${_safeTruncate(_currentNodeId, 16)}...');
-            print('🔧 ROUTING DEBUG: - Direct P2P communication - processing normally');
-          }
-        } else if (intendedRecipient == null) {
-          // For messages without explicit recipient routing info
-          if (senderPublicKey != null && _currentNodeId != null && senderPublicKey == _currentNodeId) {
-            print('🔧 ROUTING DEBUG: 🚫 BLOCKING OWN MESSAGE - Sender matches current user');
-            print('🔧 ROUTING DEBUG: - This is our own message being incorrectly received');
-            return null; // Block our own messages from appearing as incoming
-          }
-          
-          print('🔧 ROUTING DEBUG: ✅ DIRECT MESSAGE - No routing info, processing as P2P message');
-          print('🔧 ROUTING DEBUG: - senderPublicKey: ${_safeTruncate(senderPublicKey, 16, fallback: "null")}');
-          print('🔧 ROUTING DEBUG: - _currentNodeId: ${_safeTruncate(_currentNodeId, 16, fallback: "null")}');
-        } else {
-          print('🔧 ROUTING DEBUG: ⚠️ PARTIAL ROUTING INFO - Processing with available data');
-          print('🔧 ROUTING DEBUG: - intendedRecipient: ${_safeTruncate(intendedRecipient, 16, fallback: "null")}');
-          print('🔧 ROUTING DEBUG: - _currentNodeId: ${_safeTruncate(_currentNodeId, 16, fallback: "null")}');
+
+        // FIXED: Direct BLE messages should be accepted regardless of intendedRecipient
+        // Only block our own messages (echo prevention)
+        // Note: ProtocolMessageType.textMessage = direct BLE, meshRelay = mesh forwarding
+        if (senderPublicKey != null && _currentNodeId != null && senderPublicKey == _currentNodeId) {
+          print('🔧 ROUTING DEBUG: 🚫 BLOCKING OWN MESSAGE - Sender matches current user');
+          print('🔧 ROUTING DEBUG: - This is our own message being incorrectly received');
+          return null; // Block our own messages from appearing as incoming
         }
-        
+
+        // Accept direct BLE messages - physical connection implies intent
+        if (intendedRecipient != null) {
+          if (intendedRecipient == _currentNodeId) {
+            print('🔧 ROUTING DEBUG: ✅ DIRECT MESSAGE - Explicitly addressed to our node ID');
+          } else {
+            print('🔧 ROUTING DEBUG: ✅ DIRECT MESSAGE - Received via BLE connection (intendedRecipient is metadata)');
+            print('🔧 ROUTING DEBUG: - Intended recipient: ${_safeTruncate(intendedRecipient, 16)}...');
+            print('🔧 ROUTING DEBUG: - Direct BLE messages are accepted regardless of routing metadata');
+          }
+        } else {
+          print('🔧 ROUTING DEBUG: ✅ DIRECT MESSAGE - No routing info, processing as P2P message');
+        }
+
         print('🔧 ROUTING DEBUG: ===== END ROUTING ANALYSIS =====');
 
         onMessageIdFound?.call(messageId);
@@ -902,24 +933,31 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
     }
   }
   
-  /// Set queue sync manager reference (deprecated - not currently used)
-  /// This method is kept for API compatibility but doesn't store the manager
-  /// as queue sync integration is not yet implemented.
-  @Deprecated('Queue sync manager integration is not yet implemented')
-  void setQueueSyncManager(QueueSyncManager syncManager) {
-    // TODO: Integrate queue sync manager when implementation is ready
-    _logger.info('Queue sync manager setter called but not yet integrated');
-  }
-
   /// Handle relay message forwarding to next hop
   Future<void> _handleRelayToNextHop(MeshRelayMessage message, String nextHopNodeId) async {
     try {
       _logger.info('🔀 RELAY FORWARD: Preparing to send relay message to ${_safeTruncate(nextHopNodeId, 8)}...');
       
-      // TODO: Create and send protocol message for relay when BLE service layer integration is ready
-      // The actual sending would be handled by the BLE service layer
-      // This is where we'd integrate with the connection manager
-      // For now, this is a stub that logs the relay attempt
+      // Create protocol message for relay forwarding
+      final protocolMessage = ProtocolMessage.meshRelay(
+        originalMessageId: message.originalMessageId,
+        originalSender: message.relayMetadata.originalSender,
+        finalRecipient: message.relayMetadata.finalRecipient,
+        relayMetadata: message.relayMetadata.toJson(),
+        originalPayload: {
+          'content': message.originalContent,
+          if (message.encryptedPayload != null) 'encrypted': message.encryptedPayload,
+        },
+        useEphemeralAddressing: false,  // Relay messages use persistent keys
+      );
+      
+      // Forward via callback to BLE service layer
+      if (onSendRelayMessage != null) {
+        onSendRelayMessage!(protocolMessage, nextHopNodeId);
+        _logger.info('✅ Relay message forwarded to ${_safeTruncate(nextHopNodeId, 8)}');
+      } else {
+        _logger.warning('⚠️ Cannot forward relay: onSendRelayMessage callback not set');
+      }
       
     } catch (e) {
       _logger.severe('Failed to handle relay to next hop: $e');

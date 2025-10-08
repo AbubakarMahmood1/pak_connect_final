@@ -16,13 +16,37 @@ class ChatsRepository {
   final ContactRepository _contactRepository = ContactRepository();
   final UserPreferences _userPreferences = UserPreferences();
 
+  // Cache for public key to avoid repeated secure storage reads
+  static String? _cachedPublicKey;
+  static DateTime? _cacheTimestamp;
+  static const Duration _cacheValidDuration = Duration(minutes: 5);
+
+  Future<String> _getMyPublicKey() async {
+    final now = DateTime.now();
+    if (_cachedPublicKey != null &&
+        _cacheTimestamp != null &&
+        now.difference(_cacheTimestamp!) < _cacheValidDuration) {
+      return _cachedPublicKey!;
+    }
+
+    _cachedPublicKey = await _userPreferences.getPublicKey();
+    _cacheTimestamp = now;
+    return _cachedPublicKey!;
+  }
+
+  /// Invalidate cached public key (call after key regeneration)
+  static void invalidatePublicKeyCache() {
+    _cachedPublicKey = null;
+    _cacheTimestamp = null;
+  }
+
   Future<List<ChatListItem>> getAllChats({
     List<Peripheral>? nearbyDevices,
     Map<String, DiscoveredEventArgs>? discoveryData,
     String? searchQuery,
   }) async {
     final db = await DatabaseHelper.database;
-    final myPublicKey = await _userPreferences.getPublicKey();
+    final myPublicKey = await _getMyPublicKey();
 
     final chatItems = <ChatListItem>[];
     final processedChatIds = <String>{};
@@ -32,7 +56,7 @@ class ChatsRepository {
     final allChatIds = <String>{};
 
     for (final contact in contacts.values) {
-      final chatId = _generateChatId(myPublicKey, contact.publicKey);
+      final chatId = _generateChatId(contact.publicKey);
 
       // Check if this chat has any messages
       final messages = await _messageRepository.getMessages(chatId);
@@ -150,12 +174,11 @@ class ChatsRepository {
   /// Get list of contacts without active chats (for discovery integration)
   Future<List<Contact>> getContactsWithoutChats() async {
     final allContacts = await _contactRepository.getAllContacts();
-    final myPublicKey = await _userPreferences.getPublicKey();
 
     final contactsWithoutChats = <Contact>[];
 
     for (final contact in allContacts.values) {
-      final chatId = _generateChatId(myPublicKey, contact.publicKey);
+      final chatId = _generateChatId(contact.publicKey);
       final messages = await _messageRepository.getMessages(chatId);
 
       if (messages.isEmpty) {
@@ -295,10 +318,10 @@ class ChatsRepository {
 
   // PRIVATE HELPERS
 
-  String _generateChatId(String myPublicKey, String otherPublicKey) {
+  String _generateChatId(String otherPublicKey) {
     // Use the exact same logic as ChatUtils.generateChatId
-    final ids = [myPublicKey, otherPublicKey]..sort();
-    return 'persistent_chat_${ids[0]}_${ids[1]}';
+    // chatId = theirId (simple and elegant)
+    return otherPublicKey;
   }
 
 

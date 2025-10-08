@@ -131,7 +131,13 @@ class QueueSyncManager {
       // Determine what needs to be synchronized
       final missingIds = _messageQueue.getMissingMessageIds(syncMessage.messageIds);
       final excessMessages = _messageQueue.getExcessMessages(syncMessage.messageIds);
-      
+
+      // If there are no missing or excess messages, queues are already synchronized
+      if (missingIds.isEmpty && excessMessages.isEmpty) {
+        _logger.info('No messages to sync - queues already synchronized with $fromNodeId');
+        return QueueSyncResponse.alreadySynced();
+      }
+
       // Create response with our queue state
       final responseMessage = QueueSyncMessage.createResponse(
         messageIds: _messageQueue.getMessagesByStatus(QueuedMessageStatus.pending)

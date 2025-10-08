@@ -4,12 +4,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import '../providers/ble_providers.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/chats_repository.dart';
-import 'dart:convert';
+import '../../data/repositories/archive_repository.dart';
+import '../../data/database/database_helper.dart';
+import 'qr_contact_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -22,15 +23,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   final UserPreferences _userPreferences = UserPreferences();
   final ContactRepository _contactRepository = ContactRepository();
   final ChatsRepository _chatsRepository = ChatsRepository();
+  final ArchiveRepository _archiveRepository = ArchiveRepository();
 
   String _deviceId = '';
-  String _publicKey = '';
 
   // Statistics
   int _contactCount = 0;
   int _chatCount = 0;
   int _messageCount = 0;
   int _verifiedContactCount = 0;
+  int _archivedChatsCount = 0;
+  String _storageSize = '0.00';
 
   bool _isLoadingStats = true;
 
@@ -43,12 +46,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<void> _loadProfileData() async {
     final deviceId = await _userPreferences.getOrCreateDeviceId();
-    final publicKey = await _userPreferences.getPublicKey();
 
     if (mounted) {
       setState(() {
         _deviceId = deviceId;
-        _publicKey = publicKey;
       });
     }
   }
@@ -60,6 +61,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final chatCount = await _chatsRepository.getChatCount();
     final messageCount = await _chatsRepository.getTotalMessageCount();
     final verifiedContactCount = await _contactRepository.getVerifiedContactCount();
+    final archivedCount = await _archiveRepository.getArchivedChatsCount();
+    
+    // Get storage size
+    final sizeInfo = await DatabaseHelper.getDatabaseSize();
+    final storageMB = sizeInfo['size_mb'] ?? '0.00';
 
     if (mounted) {
       setState(() {
@@ -67,6 +73,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         _chatCount = chatCount;
         _messageCount = messageCount;
         _verifiedContactCount = verifiedContactCount;
+        _archivedChatsCount = archivedCount;
+        _storageSize = storageMB;
         _isLoadingStats = false;
       });
     }
@@ -106,11 +114,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
               // Device ID card
               _buildDeviceIdCard(theme),
-
-              SizedBox(height: 16),
-
-              // QR Code card
-              _buildQRCodeCard(usernameAsync, theme),
 
               SizedBox(height: 16),
 
@@ -209,72 +212,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  Widget _buildQRCodeCard(AsyncValue<String> usernameAsync, ThemeData theme) {
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Your QR Code',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Icon(Icons.qr_code_2, color: theme.colorScheme.primary),
-              ],
-            ),
-
-            SizedBox(height: 8),
-
-            Text(
-              'Others can scan this to add you as a contact',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-
-            SizedBox(height: 16),
-
-            // QR Code
-            if (_publicKey.isNotEmpty)
-              Center(
-                child: usernameAsync.when(
-                  data: (username) => Container(
-                    padding: EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: QrImageView(
-                      data: _generateQRData(username),
-                      version: QrVersions.auto,
-                      size: 200,
-                      backgroundColor: Colors.white,
-                    ),
-                  ),
-                  loading: () => SizedBox(
-                    width: 200,
-                    height: 200,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                  error: (error, stack) => SizedBox(
-                    width: 200,
-                    height: 200,
-                    child: Center(child: Icon(Icons.error)),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildStatisticsSection(ThemeData theme) {
     if (_isLoadingStats) {
       return Card(
@@ -335,6 +272,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               value: _verifiedContactCount.toString(),
               color: Colors.purple,
             ),
+            _buildStatCard(
+              theme,
+              icon: Icons.archive,
+              label: 'Archived',
+              value: _archivedChatsCount.toString(),
+              color: Colors.brown,
+            ),
+            _buildStatCard(
+              theme,
+              icon: Icons.storage,
+              label: 'Storage',
+              value: '$_storageSize MB',
+              color: Colors.teal,
+            ),
           ],
         ),
       ],
@@ -392,16 +343,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  String _generateQRData(String username) {
-    final qrData = {
-      'displayName': username,
-      'publicKey': _publicKey,
-      'deviceId': _deviceId,
-      'version': 1,
-    };
-    return jsonEncode(qrData);
-  }
-
   void _editDisplayName(String currentName) async {
     final controller = TextEditingController(text: currentName);
 
@@ -456,8 +397,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   void _shareProfile() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Show QR code to share your profile')),
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const QRContactScreen()),
     );
   }
 

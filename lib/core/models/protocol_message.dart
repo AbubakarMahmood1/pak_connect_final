@@ -2,17 +2,32 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 enum ProtocolMessageType {
-  identity,
+  // ===== HANDSHAKE PROTOCOL (Sequential, No ACKs) =====
+  // Phase 0: Connection establishment
+  connectionReady,      // "I'm ready to start handshake" - sent by both devices (response IS ack)
+
+  // Phase 1: Identity exchange (EPHEMERAL IDs only)
+  identity,             // Send ephemeral identity information (response IS ack)
+
+  // Phase 2: Contact status sync
+  contactStatus,        // Send contact relationship status (response IS ack)
+
+  // ===== PAIRING PROTOCOL (Interactive, Atomic) =====
+  pairingRequest,       // "I want to pair with you" - triggers popup on other device
+  pairingAccept,        // "I accept pairing" - both devices show PIN dialogs
+  pairingCancel,        // "I'm canceling pairing" - both devices close dialogs
+  pairingCode,          // Exchange 4-digit PINs (existing)
+  pairingVerify,        // Verify shared secret hash (existing)
+  persistentKeyExchange, // Exchange persistent public keys AFTER PIN success
+
+  // ===== NORMAL OPERATIONS =====
   textMessage,
   ack,
   ping,
   keyExchange,
-  pairingCode,
-  pairingVerify,
   contactRequest,
   contactAccept,
   contactReject,
-  contactStatus,
   cryptoVerification,
   cryptoVerificationResponse,
   meshRelay,
@@ -84,12 +99,16 @@ static ProtocolMessage identity({
     required String messageId,
     required String content,
     bool encrypted = false,
+    String? recipientId,  // STEP 7: Recipient's ID (ephemeral or persistent)
+    bool useEphemeralAddressing = false,  // STEP 7: Flag for routing
   }) => ProtocolMessage(
     type: ProtocolMessageType.textMessage,
     payload: {
       'messageId': messageId,
       'content': content,
       'encrypted': encrypted,
+      if (recipientId != null) 'recipientId': recipientId,
+      'useEphemeralAddressing': useEphemeralAddressing,
     },
     timestamp: DateTime.now(),
   );
@@ -181,7 +200,53 @@ static ProtocolMessage contactStatus({
   timestamp: DateTime.now(),
 );
 
-// Helper to extract identity info  
+// ===== PAIRING PROTOCOL MESSAGES =====
+
+static ProtocolMessage pairingRequest({
+  required String ephemeralId,
+  required String displayName,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.pairingRequest,
+  payload: {
+    'ephemeralId': ephemeralId,
+    'displayName': displayName,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage pairingAccept({
+  required String ephemeralId,
+  required String displayName,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.pairingAccept,
+  payload: {
+    'ephemeralId': ephemeralId,
+    'displayName': displayName,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage pairingCancel({
+  String? reason,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.pairingCancel,
+  payload: {
+    if (reason != null) 'reason': reason,
+  },
+  timestamp: DateTime.now(),
+);
+
+static ProtocolMessage persistentKeyExchange({
+  required String persistentPublicKey,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.persistentKeyExchange,
+  payload: {
+    'persistentPublicKey': persistentPublicKey,
+  },
+  timestamp: DateTime.now(),
+);
+
+// Helper to extract identity info
 String? get identityDeviceId => type == ProtocolMessageType.identity ? payload['deviceId'] as String? : null;
 String? get identityDisplayName => type == ProtocolMessageType.identity ? payload['displayName'] as String? : null;
 
@@ -196,6 +261,10 @@ String? get identityDeviceIdCompat => type == ProtocolMessageType.identity ?
 String? get textMessageId => type == ProtocolMessageType.textMessage ? payload['messageId'] as String? : null;
 String? get textContent => type == ProtocolMessageType.textMessage ? payload['content'] as String? : null;
 bool get isEncrypted => type == ProtocolMessageType.textMessage ? (payload['encrypted'] as bool? ?? false) : false;
+
+// STEP 7: Message addressing helpers
+String? get recipientId => type == ProtocolMessageType.textMessage ? payload['recipientId'] as String? : null;
+bool get useEphemeralAddressing => type == ProtocolMessageType.textMessage ? (payload['useEphemeralAddressing'] as bool? ?? false) : false;
 
 // Helper for ACK
 String? get ackOriginalId => type == ProtocolMessageType.ack ? payload['originalMessageId'] as String? : null;
@@ -255,6 +324,7 @@ String? get meshRelayOriginalSender => type == ProtocolMessageType.meshRelay ? p
 String? get meshRelayFinalRecipient => type == ProtocolMessageType.meshRelay ? payload['finalRecipient'] as String? : null;
 Map<String, dynamic>? get meshRelayMetadata => type == ProtocolMessageType.meshRelay ? payload['relayMetadata'] as Map<String, dynamic>? : null;
 Map<String, dynamic>? get meshRelayOriginalPayload => type == ProtocolMessageType.meshRelay ? payload['originalPayload'] as Map<String, dynamic>? : null;
+bool get meshRelayUseEphemeralAddressing => type == ProtocolMessageType.meshRelay ? (payload['useEphemeralAddressing'] as bool? ?? false) : false;  // STEP 7
 
 // Queue sync helpers
 String? get queueSyncHash => type == ProtocolMessageType.queueSync ? payload['queueHash'] as String? : null;
@@ -274,6 +344,7 @@ static ProtocolMessage meshRelay({
   required String finalRecipient,
   required Map<String, dynamic> relayMetadata,
   required Map<String, dynamic> originalPayload,
+  bool useEphemeralAddressing = false,  // STEP 7: Preserve addressing type
 }) => ProtocolMessage(
   type: ProtocolMessageType.meshRelay,
   payload: {
@@ -282,6 +353,7 @@ static ProtocolMessage meshRelay({
     'finalRecipient': finalRecipient,
     'relayMetadata': relayMetadata,
     'originalPayload': originalPayload,
+    'useEphemeralAddressing': useEphemeralAddressing,  // STEP 7
   },
   timestamp: DateTime.now(),
 );
@@ -313,5 +385,32 @@ static ProtocolMessage relayAck({
   },
   timestamp: DateTime.now(),
 );
+
+// ===== HANDSHAKE PROTOCOL CONSTRUCTORS =====
+
+/// Phase 0: Connection ready signal
+/// Sent by both devices to indicate BLE stack is initialized and ready
+/// Response IS the acknowledgment (no separate ACK message)
+static ProtocolMessage connectionReady({
+  required String deviceId,
+  String? deviceName,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.connectionReady,
+  payload: {
+    'deviceId': deviceId,
+    if (deviceName != null) 'deviceName': deviceName,
+    'timestamp': DateTime.now().millisecondsSinceEpoch,
+  },
+  timestamp: DateTime.now(),
+);
+
+
+// ===== HANDSHAKE PROTOCOL HELPERS =====
+
+String? get connectionReadyDeviceId =>
+  type == ProtocolMessageType.connectionReady ? payload['deviceId'] as String? : null;
+
+String? get connectionReadyDeviceName =>
+  type == ProtocolMessageType.connectionReady ? payload['deviceName'] as String? : null;
 
 }

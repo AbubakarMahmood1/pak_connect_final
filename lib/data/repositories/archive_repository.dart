@@ -280,6 +280,20 @@ class ArchiveRepository {
   }
 
   /// Get all archived chats (summaries for performance)
+  /// Get count of archived chats
+  Future<int> getArchivedChatsCount() async {
+    try {
+      final db = await DatabaseHelper.database;
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM archived_chats',
+      );
+      return result.isNotEmpty ? (result.first['count'] as int?) ?? 0 : 0;
+    } catch (e) {
+      _logger.warning('Failed to get archived chats count: $e');
+      return 0;
+    }
+  }
+
   Future<List<ArchivedChatSummary>> getArchivedChats({
     ArchiveSearchFilter? filter,
     int? limit,

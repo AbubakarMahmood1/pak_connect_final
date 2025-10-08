@@ -85,14 +85,12 @@ void main() {
     });
   });
 
-  group('SensitiveContactHint Tests', () {
+  group('SensitiveContactHint Tests (Deterministic from Public Key)', () {
     test('Compute hint creates valid 4-byte hint', () {
       final publicKey = 'AAAA' * 32; // 128 char public key
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
 
       final hint = SensitiveContactHint.compute(
         contactPublicKey: publicKey,
-        sharedSeed: sharedSeed,
         displayName: 'Alice',
       );
 
@@ -103,29 +101,24 @@ void main() {
 
     test('Hint hex string is 8 characters (4 bytes)', () {
       final publicKey = 'BBBB' * 32;
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
 
       final hint = SensitiveContactHint.compute(
         contactPublicKey: publicKey,
-        sharedSeed: sharedSeed,
       );
 
       expect(hint.hintHex.length, equals(8));
       expect(RegExp(r'^[0-9A-F]+$').hasMatch(hint.hintHex), isTrue);
     });
 
-    test('Same inputs produce same hint (deterministic)', () {
+    test('Same public key produces same hint (deterministic)', () {
       final publicKey = 'CCCC' * 32;
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
 
       final hint1 = SensitiveContactHint.compute(
         contactPublicKey: publicKey,
-        sharedSeed: sharedSeed,
       );
 
       final hint2 = SensitiveContactHint.compute(
         contactPublicKey: publicKey,
-        sharedSeed: sharedSeed,
       );
 
       expect(hint1.hintHex, equals(hint2.hintHex));
@@ -137,32 +130,12 @@ void main() {
     });
 
     test('Different public keys produce different hints', () {
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
-
       final hint1 = SensitiveContactHint.compute(
         contactPublicKey: 'AAAA' * 32,
-        sharedSeed: sharedSeed,
       );
 
       final hint2 = SensitiveContactHint.compute(
         contactPublicKey: 'BBBB' * 32,
-        sharedSeed: sharedSeed,
-      );
-
-      expect(hint1.hintHex, isNot(equals(hint2.hintHex)));
-    });
-
-    test('Different seeds produce different hints', () {
-      final publicKey = 'DDDD' * 32;
-
-      final hint1 = SensitiveContactHint.compute(
-        contactPublicKey: publicKey,
-        sharedSeed: SensitiveContactHint.generateSharedSeed(),
-      );
-
-      final hint2 = SensitiveContactHint.compute(
-        contactPublicKey: publicKey,
-        sharedSeed: SensitiveContactHint.generateSharedSeed(),
       );
 
       expect(hint1.hintHex, isNot(equals(hint2.hintHex)));
@@ -170,11 +143,9 @@ void main() {
 
     test('Hint matching works correctly', () {
       final publicKey = 'EEEE' * 32;
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
 
       final hint = SensitiveContactHint.compute(
         contactPublicKey: publicKey,
-        sharedSeed: sharedSeed,
       );
 
       // Should match itself
@@ -189,27 +160,27 @@ void main() {
       expect(hint.matches(wrongLength), isFalse);
     });
 
-    test('Generate 1000 shared seeds - all unique', () {
-      final seeds = <String>{};
+    test('Deterministic hint collision rate is low', () {
+      // Generate hints from 1000 different public keys
+      final hints = <String>{};
 
       for (int i = 0; i < 1000; i++) {
-        final seed = SensitiveContactHint.generateSharedSeed();
-        final seedHex = seed.map((b) => b.toRadixString(16)).join();
-        seeds.add(seedHex);
+        final publicKey = 'KEY_$i'.padRight(128, '_');
+        final hint = SensitiveContactHint.compute(contactPublicKey: publicKey);
+        hints.add(hint.hintHex);
       }
 
-      // All seeds should be unique
-      expect(seeds.length, equals(1000));
+      // With 4 bytes (32 bits = ~4 billion combinations), 1000 hints should have minimal collisions
+      // Expect at least 99% uniqueness (allowing 1% collision rate)
+      expect(hints.length, greaterThan(990));
     });
   });
 
   group('HintAdvertisementService Tests', () {
     test('Pack advertisement with both hints (ultra-compressed 6-byte format)', () {
       final introHint = EphemeralDiscoveryHint.generate(displayName: 'Alice');
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
       final ephemeralHint = SensitiveContactHint.compute(
         contactPublicKey: 'AAAA' * 32,
-        sharedSeed: sharedSeed,
       );
 
       final packed = HintAdvertisementService.packAdvertisement(
@@ -239,10 +210,8 @@ void main() {
     });
 
     test('Pack advertisement with only ephemeral hint (2-byte truncated)', () {
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
       final ephemeralHint = SensitiveContactHint.compute(
         contactPublicKey: 'BBBB' * 32,
-        sharedSeed: sharedSeed,
       );
 
       final packed = HintAdvertisementService.packAdvertisement(
@@ -272,10 +241,8 @@ void main() {
 
     test('Parse packed advertisement correctly (ultra-compressed format)', () {
       final introHint = EphemeralDiscoveryHint.generate();
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
       final ephemeralHint = SensitiveContactHint.compute(
         contactPublicKey: 'CCCC' * 32,
-        sharedSeed: sharedSeed,
       );
 
       final packed = HintAdvertisementService.packAdvertisement(
@@ -320,10 +287,8 @@ void main() {
 
     test('Round-trip packing and parsing preserves truncated data', () {
       final introHint = EphemeralDiscoveryHint.generate(displayName: 'Charlie');
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
       final ephemeralHint = SensitiveContactHint.compute(
         contactPublicKey: 'DDDD' * 32,
-        sharedSeed: sharedSeed,
         displayName: 'Diana',
       );
 
@@ -344,10 +309,8 @@ void main() {
 
     test('Format is ultra-compressed at 6 bytes (EXACTLY fits 31-byte BLE limit)', () {
       final introHint = EphemeralDiscoveryHint.generate();
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
       final ephemeralHint = SensitiveContactHint.compute(
         contactPublicKey: 'EEEE' * 32,
-        sharedSeed: sharedSeed,
       );
 
       final packed = HintAdvertisementService.packAdvertisement(
@@ -388,14 +351,12 @@ void main() {
 
     test('Compute 10,000 sensitive hints in reasonable time', () {
       final publicKey = 'EEEE' * 32;
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
 
       final stopwatch = Stopwatch()..start();
 
       for (int i = 0; i < 10000; i++) {
         SensitiveContactHint.compute(
           contactPublicKey: publicKey,
-          sharedSeed: sharedSeed,
         );
       }
 
@@ -407,10 +368,8 @@ void main() {
 
     test('Pack/parse 10,000 advertisements in reasonable time', () {
       final introHint = EphemeralDiscoveryHint.generate();
-      final sharedSeed = SensitiveContactHint.generateSharedSeed();
       final ephemeralHint = SensitiveContactHint.compute(
         contactPublicKey: 'FFFF' * 32,
-        sharedSeed: sharedSeed,
       );
 
       final stopwatch = Stopwatch()..start();

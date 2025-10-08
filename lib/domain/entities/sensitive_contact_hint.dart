@@ -1,23 +1,22 @@
 // File: lib/domain/entities/sensitive_contact_hint.dart
 
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
-/// Level 2 Hint: Sensitive hint for paired contact recognition
+/// Level 2 Hint: Persistent hint for paired contact recognition
 ///
 /// Use case: "We're already paired, I recognize you nearby"
-/// Lifetime: Permanent (until contact deleted)
-/// Security: Private (only paired contacts can compute)
+/// Lifetime: Permanent (deterministic from public key, never changes)
+/// Security: Privacy-preserving (hint reveals nothing without knowing the public key)
+///
+/// Design: Each device computes a persistent hint from their own public key and broadcasts it.
+/// During pairing, devices exchange public keys and compute each other's hints for recognition.
 class SensitiveContactHint {
   /// The contact's public key
   final String contactPublicKey;
 
-  /// Shared seed exchanged during pairing
-  final Uint8List sharedSeed;
-
-  /// Computed 4-byte hint
+  /// Computed 4-byte hint (deterministic from public key)
   final Uint8List hintBytes;
 
   /// Contact display name (for debugging/UI)
@@ -28,46 +27,34 @@ class SensitiveContactHint {
 
   SensitiveContactHint({
     required this.contactPublicKey,
-    required this.sharedSeed,
     required this.hintBytes,
     this.displayName,
     required this.establishedAt,
   });
 
-  /// Compute sensitive hint from public key and shared seed
+  /// Compute persistent hint from public key only
   ///
-  /// Formula: SHA256(publicKey + sharedSeed)[0:4]
-  /// This is deterministic - both parties compute the same value
+  /// Formula: SHA256(publicKey)[0:4]
+  /// This is deterministic - same public key always produces same hint
   factory SensitiveContactHint.compute({
     required String contactPublicKey,
-    required Uint8List sharedSeed,
     String? displayName,
     DateTime? establishedAt,
   }) {
-    final hintBytes = _computeHint(contactPublicKey, sharedSeed);
+    final hintBytes = _computeHint(contactPublicKey);
 
     return SensitiveContactHint(
       contactPublicKey: contactPublicKey,
-      sharedSeed: sharedSeed,
       hintBytes: hintBytes,
       displayName: displayName,
       establishedAt: establishedAt ?? DateTime.now(),
     );
   }
 
-  /// Generate new shared seed (during pairing) using cryptographic RNG
-  static Uint8List generateSharedSeed() {
-    final random = Random.secure();
-    return Uint8List.fromList(List<int>.generate(32, (_) => random.nextInt(256)));
-  }
-
-  /// Compute hint bytes from public key and seed
-  static Uint8List _computeHint(String publicKey, Uint8List sharedSeed) {
-    // Combine public key and shared seed
-    final combined = utf8.encode(publicKey) + sharedSeed;
-
-    // Hash and take first 4 bytes
-    final hash = sha256.convert(combined);
+  /// Compute hint bytes from public key only (deterministic)
+  static Uint8List _computeHint(String publicKey) {
+    // Hash public key and take first 4 bytes
+    final hash = sha256.convert(utf8.encode(publicKey));
     return Uint8List.fromList(hash.bytes.sublist(0, 4));
   }
 
@@ -88,7 +75,6 @@ class SensitiveContactHint {
   Map<String, dynamic> toMap() {
     return {
       'contact_public_key': contactPublicKey,
-      'shared_seed': sharedSeed,
       'hint_bytes': hintBytes,
       'display_name': displayName,
       'established_at': establishedAt.millisecondsSinceEpoch,
@@ -99,7 +85,6 @@ class SensitiveContactHint {
   factory SensitiveContactHint.fromMap(Map<String, dynamic> map) {
     return SensitiveContactHint(
       contactPublicKey: map['contact_public_key'] as String,
-      sharedSeed: map['shared_seed'] as Uint8List,
       hintBytes: map['hint_bytes'] as Uint8List,
       displayName: map['display_name'] as String?,
       establishedAt: DateTime.fromMillisecondsSinceEpoch(map['established_at'] as int),

@@ -1,22 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Initialize sqflite_ffi for testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  // Initialize test environment
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   // Reset database before each test
   setUp(() async {
-    await DatabaseHelper.close();
-    await DatabaseHelper.deleteDatabase();
+    await TestSetup.fullDatabaseReset();
   });
 
   group('ChatsRepository SQLite Tests', () {
@@ -303,7 +301,7 @@ void main() {
 
       final chats = await repo.getAllChats();
       expect(chats, isEmpty);
-    }, skip: 'Requires UserPreferences/FlutterSecureStorage setup');
+    }, skip: 'Requires UserPreferences/FlutterSecureStorage - getPublicKey() has no fallback');
 
     test('Multiple chats with different unread counts', () async {
       final repo = ChatsRepository();

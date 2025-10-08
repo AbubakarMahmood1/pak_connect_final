@@ -14,8 +14,13 @@ import 'package:pak_connect/core/demo/mesh_demo_utils.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('Mesh Networking Integration Tests', () {
     late MeshNetworkingService meshService;
     late BLEService mockBleService;
@@ -23,18 +28,9 @@ void main() {
     late ContactRepository contactRepository;
     late ChatManagementService chatManagementService;
     late MessageRepository messageRepository;
-    
+
     // Test node IDs
     late String nodeA, nodeB, nodeC;
-    
-    setUpAll(() {
-      // Configure logging for tests
-      Logger.root.level = Level.INFO;
-      Logger.root.onRecord.listen((record) {
-        // ignore: avoid_print
-        print('${record.time}: ${record.loggerName}: ${record.level.name}: ${record.message}');
-      });
-    });
 
     setUp(() async {
       // Initialize test dependencies

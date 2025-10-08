@@ -105,7 +105,7 @@ void main() {
       final encrypted = EncryptionUtils.encrypt(plaintext, key);
       
       // Corrupt the encrypted data
-      final corrupted = encrypted.substring(0, encrypted.length - 5) + 'XXXXX';
+      final corrupted = '${encrypted.substring(0, encrypted.length - 5)}XXXXX';
       
       final decrypted = EncryptionUtils.decrypt(corrupted, key);
       expect(decrypted, isNull);
@@ -163,24 +163,24 @@ void main() {
       expect(validation.warnings, contains(contains('12 characters')));
     });
     
-    test('rejects passphrase without letters', () {
-      final validation = EncryptionUtils.validatePassphrase('123456789012');
+    test('rejects passphrase without sufficient character variety', () {
+      // Only lowercase - missing 3 types
+      final validation1 = EncryptionUtils.validatePassphrase('lowercaseonly');
+      expect(validation1.isValid, isFalse);
       
-      expect(validation.isValid, isFalse);
-      expect(validation.warnings, contains(contains('letters')));
+      // Only numbers - missing 3 types
+      final validation2 = EncryptionUtils.validatePassphrase('123456789012');
+      expect(validation2.isValid, isFalse);
     });
     
-    test('rejects passphrase without numbers', () {
-      final validation = EncryptionUtils.validatePassphrase('NoNumbersHere');
-      
-      expect(validation.isValid, isFalse);
-      expect(validation.warnings, contains(contains('numbers')));
-    });
-    
-    test('accepts passphrase meeting minimum requirements', () {
+    test('accepts passphrase with 3 character types', () {
+      // Has lowercase, uppercase, numbers (missing symbols is OK)
       final validation = EncryptionUtils.validatePassphrase('ValidPass123');
-      
       expect(validation.isValid, isTrue);
+      
+      // Has lowercase, numbers, symbols (missing uppercase is OK)
+      final validation2 = EncryptionUtils.validatePassphrase('valid_pass_123!');
+      expect(validation2.isValid, isTrue);
     });
     
     test('strong passphrase has high strength score', () {
@@ -193,32 +193,35 @@ void main() {
       expect(validation.strength, greaterThan(0.7));
     });
     
-    test('weak passphrase has warnings', () {
-      final validation = EncryptionUtils.validatePassphrase(
-        'weakpassword123', // 15 chars, meets minimum but weak
-      );
+    test('accepts very long passphrases without maximum limit', () {
+      // 50+ character passphrase should work fine
+      final longPassphrase = 'ThisIsAVeryLongPassphraseThatExceeds50Characters123!@#';
+      final validation = EncryptionUtils.validatePassphrase(longPassphrase);
       
-      expect(validation.isValid, isTrue); // Still valid
-      expect(validation.warnings, isNotEmpty); // Should have suggestions
+      expect(validation.isValid, isTrue);
+      expect(validation.strength, greaterThan(0.7)); // Should have high strength
     });
     
     test('detects common patterns', () {
       final validation = EncryptionUtils.validatePassphrase(
-        'password123456', // 14 chars, has "password" pattern
+        'Password123!', // Has "password" pattern but meets requirements
       );
       
       expect(validation.isValid, isTrue);
       expect(validation.warnings, contains(contains('common patterns')));
+      expect(validation.strength, lessThan(0.7)); // Reduced by pattern penalty
     });
     
-    test('medium passphrase has suggestions', () {
-      final validation = EncryptionUtils.validatePassphrase(
-        'goodpassword123', // 15 chars, no uppercase or symbols
-      );
+    test('recognizes all symbol types', () {
+      // Test various symbols are recognized
+      final validation1 = EncryptionUtils.validatePassphrase('testPass123!');
+      expect(validation1.isValid, isTrue);
       
-      expect(validation.isValid, isTrue);
-      // Just check that validation works, don't be strict about warnings
-      expect(validation.strength, greaterThan(0.0));
+      final validation2 = EncryptionUtils.validatePassphrase('testPass123@');
+      expect(validation2.isValid, isTrue);
+      
+      final validation3 = EncryptionUtils.validatePassphrase('testPass123#');
+      expect(validation3.isValid, isTrue);
     });
   });
   

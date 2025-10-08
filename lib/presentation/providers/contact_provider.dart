@@ -170,7 +170,7 @@ final verifyContactProvider = FutureProvider.family<bool, String>((ref, publicKe
     ref.invalidate(filteredContactsProvider);
     ref.invalidate(contactDetailProvider(publicKey));
 
-    _logger.info('✓ Contact verified: ${publicKey.substring(0, 16)}...');
+    _logger.info('✓ Contact verified: ${publicKey.length > 16 ? '${publicKey.substring(0, 16)}...' : publicKey}');
     return true;
   } catch (e) {
     _logger.severe('Failed to verify contact: $e');
