@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/theme_provider.dart';
 import '../../data/repositories/preferences_repository.dart';
+import '../widgets/export_dialog.dart';
+import '../widgets/import_dialog.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -373,6 +375,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ],
           Divider(height: 1),
           ListTile(
+            leading: Icon(Icons.download_rounded),
+            title: Text('Export All Data'),
+            subtitle: Text('Create encrypted backup of all data'),
+            trailing: Icon(Icons.chevron_right),
+            onTap: () => _showExportDialog(),
+          ),
+          Divider(height: 1),
+          ListTile(
+            leading: Icon(Icons.upload_file_rounded),
+            title: Text('Import Backup'),
+            subtitle: Text('Restore data from backup file'),
+            trailing: Icon(Icons.chevron_right),
+            onTap: () => _showImportDialog(),
+          ),
+          Divider(height: 1),
+          ListTile(
             leading: Icon(Icons.storage),
             title: Text('Storage Usage'),
             subtitle: Text('View app storage usage'),
@@ -712,5 +730,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  void _showExportDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const ExportDialog(),
+    );
+  }
+
+  void _showImportDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const ImportDialog(),
+    );
+    
+    // If import was successful, reload preferences
+    if (result == true && mounted) {
+      await _loadPreferences();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Data imported successfully! Please restart the app.'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 }
