@@ -3,11 +3,13 @@
 // Uses flutter_local_notifications for cross-platform support
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart' as app_entities;
 import '../../domain/interfaces/i_notification_handler.dart';
+import '../../core/services/navigation_service.dart';
 
 /// Background notification handler implementation
 /// 
@@ -149,6 +151,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
     required app_entities.Message message,
     required String contactName,
     String? contactAvatar,
+    String? contactPublicKey,
   }) async {
     if (!_isInitialized) return;
     
@@ -196,7 +199,12 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         contactName,
         message.content,
         platformDetails,
-        payload: message.chatId,
+        payload: jsonEncode({
+          'type': 'message',
+          'chatId': message.chatId,
+          'contactName': contactName,
+          'contactPublicKey': contactPublicKey ?? '',
+        }),
       );
       
       _logger.fine('Message notification shown from $contactName');
@@ -219,7 +227,11 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         body: '$contactName wants to connect',
         channel: NotificationChannel.contacts,
         priority: NotificationPriority.high,
-        payload: publicKey,
+        payload: jsonEncode({
+          'type': 'contact_request',
+          'publicKey': publicKey,
+          'contactName': contactName,
+        }),
         playSound: true,
         vibrate: true,
       );
@@ -435,11 +447,58 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
   void _onNotificationTapped(NotificationResponse response) {
     _logger.info('Notification tapped: ${response.payload}');
     
-    // TODO: Implement navigation
-    // Use payload to navigate to:
-    // - Chat screen (for message notifications)
-    // - Contact request screen (for contact notifications)
-    // - Relevant screen (for system notifications)
+    if (response.payload == null || response.payload!.isEmpty) {
+      _logger.warning('No payload in notification, cannot navigate');
+      return;
+    }
+    
+    try {
+      // Parse the JSON payload
+      final payloadData = jsonDecode(response.payload!) as Map<String, dynamic>;
+      final type = payloadData['type'] as String?;
+      
+      switch (type) {
+        case 'message':
+          // Navigate to chat screen
+          final chatId = payloadData['chatId'] as String?;
+          final contactName = payloadData['contactName'] as String?;
+          final contactPublicKey = payloadData['contactPublicKey'] as String?;
+          
+          if (chatId != null && contactName != null) {
+            _logger.info('Navigating to chat: $chatId ($contactName)');
+            NavigationService.instance.navigateToChatById(
+              chatId: chatId,
+              contactName: contactName,
+              contactPublicKey: contactPublicKey,
+            );
+          }
+          break;
+          
+        case 'contact_request':
+          // Navigate to contacts screen
+          final publicKey = payloadData['publicKey'] as String?;
+          final contactName = payloadData['contactName'] as String?;
+          
+          if (publicKey != null && contactName != null) {
+            _logger.info('Navigating to contact request: $contactName');
+            NavigationService.instance.navigateToContactRequest(
+              publicKey: publicKey,
+              contactName: contactName,
+            );
+          }
+          break;
+          
+        default:
+          // System notification or unknown type - navigate to home
+          _logger.info('Navigating to home screen');
+          NavigationService.instance.navigateToHome();
+          break;
+      }
+    } catch (e, stackTrace) {
+      _logger.severe('Failed to handle notification tap', e, stackTrace);
+      // Fallback: navigate to home on error
+      NavigationService.instance.navigateToHome();
+    }
   }
   
   String _getChannelId(NotificationChannel channel) {

@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 
 import 'core/app_core.dart';
 import 'core/utils/app_logger.dart';
+import 'core/services/navigation_service.dart';
 import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
 import 'presentation/screens/chats_screen.dart';
@@ -33,6 +34,9 @@ class PakConnectApp extends ConsumerWidget {
 
     return MaterialApp(
       title: 'PakConnect - Enhanced Secure Messaging',
+
+      // Global navigator key for background navigation (e.g., from notifications)
+      navigatorKey: NavigationService.navigatorKey,
 
       // Enhanced Material Design 3.0 theme with dark/light support
       theme: AppTheme.lightTheme,

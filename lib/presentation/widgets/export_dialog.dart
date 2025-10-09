@@ -81,10 +81,12 @@ class _ExportDialogState extends State<ExportDialog> {
     try {
       final file = File(_exportPath!);
       if (await file.exists()) {
-        await Share.shareXFiles(
-          [XFile(_exportPath!)],
-          subject: 'PakConnect Backup',
-          text: 'My encrypted PakConnect backup file',
+        await SharePlus.instance.share(
+          ShareParams(
+            text: 'My encrypted PakConnect backup file',
+            files: [XFile(_exportPath!)],
+            subject: 'PakConnect Backup',
+          ),
         );
       }
     } catch (e) {
@@ -181,7 +183,7 @@ class _ExportDialogState extends State<ExportDialog> {
             items: const [
               DropdownMenuItem(
                 value: ExportType.full,
-                child: Text('Full Backup'),
+                child: Text('Full Backup (Everything)'),
               ),
               DropdownMenuItem(
                 value: ExportType.contactsOnly,

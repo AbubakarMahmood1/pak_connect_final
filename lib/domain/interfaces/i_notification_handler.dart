@@ -44,6 +44,7 @@ abstract class INotificationHandler {
     required Message message,
     required String contactName,
     String? contactAvatar,
+    String? contactPublicKey,
   });
   
   /// Show notification for contact request

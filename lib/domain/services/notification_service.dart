@@ -58,6 +58,7 @@ class ForegroundNotificationHandler implements INotificationHandler {
     required Message message,
     required String contactName,
     String? contactAvatar,
+    String? contactPublicKey,
   }) async {
     await showNotification(
       id: 'msg_${message.id}',
