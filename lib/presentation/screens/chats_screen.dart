@@ -642,7 +642,7 @@ Widget _buildEmptyState() {
           ),
           SizedBox(height: 8),
           Text(
-            'Tap the + button below to discover devices',
+            'Tap Bluetooth button below to scan/broadcast.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),

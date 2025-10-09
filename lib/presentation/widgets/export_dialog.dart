@@ -178,69 +178,18 @@ class _ExportDialogState extends State<ExportDialog> {
               border: OutlineInputBorder(),
               helperText: 'Choose what data to export',
             ),
-            items: [
+            items: const [
               DropdownMenuItem(
                 value: ExportType.full,
-                child: Row(
-                  children: [
-                    Icon(Icons.backup, size: 20, color: theme.primaryColor),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('Full Backup', style: TextStyle(fontWeight: FontWeight.w500)),
-                          Text('Everything (contacts, messages, settings)', 
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                child: Text('Full Backup'),
               ),
               DropdownMenuItem(
                 value: ExportType.contactsOnly,
-                child: Row(
-                  children: [
-                    Icon(Icons.contacts, size: 20, color: theme.primaryColor),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('Contacts Only', style: TextStyle(fontWeight: FontWeight.w500)),
-                          Text('Just your contact list (~10-50 KB)', 
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                child: Text('Contacts Only'),
               ),
               DropdownMenuItem(
                 value: ExportType.messagesOnly,
-                child: Row(
-                  children: [
-                    Icon(Icons.message, size: 20, color: theme.primaryColor),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('Messages Only', style: TextStyle(fontWeight: FontWeight.w500)),
-                          Text('Conversations + chats (~100KB-10MB)', 
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                child: Text('Messages Only'),
               ),
             ],
             onChanged: (ExportType? newValue) {

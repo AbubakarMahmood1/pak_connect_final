@@ -7,6 +7,7 @@ import 'package:flutter/services.dart'; // For rootBundle
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../providers/theme_provider.dart';
+import '../providers/ble_providers.dart';
 import '../../data/repositories/preferences_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/chats_repository.dart';
@@ -113,25 +114,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 _buildSectionHeader(theme, 'Appearance'),
                 _buildThemeSelector(theme, themeMode),
 
-                Divider(height: 32),
+                Divider(height: 24),
 
                 // Notifications section
                 _buildSectionHeader(theme, 'Notifications'),
                 _buildNotificationSettings(theme),
 
-                Divider(height: 32),
+                Divider(height: 24),
 
                 // Privacy section
                 _buildSectionHeader(theme, 'Privacy'),
                 _buildPrivacySettings(theme),
 
-                Divider(height: 32),
+                Divider(height: 24),
 
                 // Data & Storage section
                 _buildSectionHeader(theme, 'Data & Storage'),
                 _buildDataSettings(theme),
 
-                Divider(height: 32),
+                Divider(height: 24),
 
                 // About section
                 _buildSectionHeader(theme, 'About'),
@@ -139,7 +140,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                 // Developer Tools (Debug builds only)
                 if (kDebugMode) ...[
-                  Divider(height: 32),
+                  Divider(height: 24),
                   _buildSectionHeader(theme, '🛠️ Developer Tools'),
                   _buildDeveloperTools(theme),
                 ],
@@ -152,7 +153,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildSectionHeader(ThemeData theme, String title) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: Text(
         title,
         style: theme.textTheme.titleSmall?.copyWith(
@@ -374,6 +375,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 PreferenceKeys.showOnlineStatus,
                 value,
               );
+              
+              // Only refresh advertising if in peripheral mode
+              // Pass the value directly to avoid stale cache issues
+              final bleService = ref.read(bleServiceProvider);
+              if (bleService.isPeripheralMode) {
+                await bleService.refreshAdvertising(showOnlineStatus: value);
+              }
             },
           ),
           Divider(height: 1),

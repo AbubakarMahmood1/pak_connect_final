@@ -90,12 +90,14 @@ class BatteryOptimizer {
   final Battery _battery = Battery();
   Timer? _batteryMonitor;
   StreamSubscription<BatteryState>? _stateSubscription;
+  Timer? _debounceTimer;
   
   // Current state
   int _currentLevel = 100;
   BatteryState _currentState = BatteryState.full;
   BatteryPowerMode _currentPowerMode = BatteryPowerMode.normal;
   DateTime _lastUpdate = DateTime.now();
+  DateTime _lastStateEventTime = DateTime.now();
   bool _isEnabled = true;
   
   // Callbacks for external coordination
@@ -146,10 +148,23 @@ class BatteryOptimizer {
       );
       
       // Listen to battery state changes (charging/discharging)
+      // NOTE: This stream can fire VERY frequently (multiple times per second)
+      // even when the state hasn't truly changed. We debounce to avoid spam.
       _stateSubscription = _battery.onBatteryStateChanged.listen((state) {
-        _logger.info('🔋 Battery state changed: $state');
-        _currentState = state;
-        _checkBattery();
+        final now = DateTime.now();
+        final timeSinceLastEvent = now.difference(_lastStateEventTime);
+        
+        // Debounce: Ignore events less than 2 seconds apart
+        if (timeSinceLastEvent.inSeconds < 2) {
+          return; // Too soon, ignore this event
+        }
+        
+        // Only process if state actually changed
+        if (_currentState != state) {
+          _logger.info('🔋 Battery state changed: $_currentState → $state');
+          _lastStateEventTime = now;
+          _checkBattery();
+        }
       });
       
       // Initial check
@@ -344,6 +359,7 @@ class BatteryOptimizer {
   void dispose() {
     _batteryMonitor?.cancel();
     _stateSubscription?.cancel();
+    _debounceTimer?.cancel();
     _logger.info('🔋 Battery Optimizer disposed');
   }
   

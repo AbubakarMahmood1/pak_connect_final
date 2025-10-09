@@ -155,13 +155,14 @@ final List<_BufferedMessage> _messageBuffer = [];
   final hasIdentity = hasSessionIdentity || hasPersistentIdentity;
   final result = bleConnected && hasIdentity;
   
-  _logger.info('🔍 CONNECTION STATE CHECK (FIXED):');
-  _logger.info('  - Mode: ${_stateManager.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"}');
-  _logger.info('  - BLE Connected: $bleConnected');
-  _logger.info('  - Session Identity: $hasSessionIdentity (name: "${_stateManager.otherUserName}")');
-  _logger.info('  - Persistent Identity: $hasPersistentIdentity (id: "${_stateManager.otherDevicePersistentId != null && _stateManager.otherDevicePersistentId!.length > 16 ? '${_stateManager.otherDevicePersistentId!.substring(0, 16)}...' : _stateManager.otherDevicePersistentId ?? 'null'}")');
-  _logger.info('  - Combined Identity: $hasIdentity');
-  _logger.info('  - Final Result: $result');
+  // Reduce logging verbosity - only log on debug builds or when state changes
+  _logger.fine('🔍 CONNECTION STATE CHECK (FIXED):');
+  _logger.fine('  - Mode: ${_stateManager.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"}');
+  _logger.fine('  - BLE Connected: $bleConnected');
+  _logger.fine('  - Session Identity: $hasSessionIdentity (name: "${_stateManager.otherUserName}")');
+  _logger.fine('  - Persistent Identity: $hasPersistentIdentity (id: "${_stateManager.otherDevicePersistentId != null && _stateManager.otherDevicePersistentId!.length > 16 ? '${_stateManager.otherDevicePersistentId!.substring(0, 16)}...' : _stateManager.otherDevicePersistentId ?? 'null'}")');
+  _logger.fine('  - Combined Identity: $hasIdentity');
+  _logger.fine('  - Final Result: $result');
   
   return result;
 }
@@ -465,10 +466,10 @@ void _updateConnectionInfo({
     bool? isAdvertising,
     bool? isReconnecting,
   }) {
-    _logger.info('🔍 CONNECTION INFO UPDATE REQUEST:');
-    _logger.info('  - Input: isConnected=$isConnected, isReady=$isReady, otherUserName="$otherUserName"');
-    _logger.info('  - Input: statusMessage="$statusMessage", isScanning=$isScanning, isAdvertising=$isAdvertising, isReconnecting=$isReconnecting');
-    _logger.info('  - Current: isConnected=${_currentConnectionInfo.isConnected}, isReady=${_currentConnectionInfo.isReady}, otherUserName="${_currentConnectionInfo.otherUserName}"');
+    _logger.fine('🔍 CONNECTION INFO UPDATE REQUEST:');
+    _logger.fine('  - Input: isConnected=$isConnected, isReady=$isReady, otherUserName="$otherUserName"');
+    _logger.fine('  - Input: statusMessage="$statusMessage", isScanning=$isScanning, isAdvertising=$isAdvertising, isReconnecting=$isReconnecting');
+    _logger.fine('  - Current: isConnected=${_currentConnectionInfo.isConnected}, isReady=${_currentConnectionInfo.isReady}, otherUserName="${_currentConnectionInfo.otherUserName}"');
     
     // FIX: Only emit if there's an actual change
     final newInfo = _currentConnectionInfo.copyWith(
@@ -481,17 +482,17 @@ void _updateConnectionInfo({
       isReconnecting: isReconnecting,
     );
     
-    _logger.info('  - New Info: isConnected=${newInfo.isConnected}, isReady=${newInfo.isReady}, otherUserName="${newInfo.otherUserName}"');
+    _logger.fine('  - New Info: isConnected=${newInfo.isConnected}, isReady=${newInfo.isReady}, otherUserName="${newInfo.otherUserName}"');
     
     // Check if this is a meaningful change
     if (_shouldEmitConnectionInfo(newInfo)) {
       _currentConnectionInfo = newInfo;
       _lastEmittedConnectionInfo = newInfo;
       _connectionInfoController?.add(_currentConnectionInfo);
-      _logger.info('  - ✅ EMITTED: Connection info broadcast to UI');
-      _logger.info('  - Final State: ${_currentConnectionInfo.isConnected}/${_currentConnectionInfo.isReady} - "${_currentConnectionInfo.statusMessage}"');
+      _logger.fine('  - ✅ EMITTED: Connection info broadcast to UI');
+      _logger.fine('  - Final State: ${_currentConnectionInfo.isConnected}/${_currentConnectionInfo.isReady} - "${_currentConnectionInfo.statusMessage}"');
     } else {
-      _logger.info('  - ❌ NOT EMITTED: No meaningful change detected');
+      _logger.fine('  - ❌ NOT EMITTED: No meaningful change detected');
       _logger.info('  - Emission blocked - UI will not be updated');
     }
   }
@@ -1206,6 +1207,84 @@ Future<void> _processMessage(
         statusMessage: 'Peripheral mode failed'
       );
       rethrow;
+    }
+  }
+  
+  /// Refresh advertising data (useful when preferences like online status change)
+  /// Only works if already in peripheral mode and advertising
+  /// [showOnlineStatus] - if provided, uses this value instead of reading from prefs
+  Future<void> refreshAdvertising({bool? showOnlineStatus}) async {
+    if (!_stateManager.isPeripheralMode) {
+      _logger.warning('⚠️ Cannot refresh advertising - not in peripheral mode');
+      return;
+    }
+    
+    _logger.info('🔄 Refreshing advertising data...');
+    
+    try {
+      // Stop current advertising
+      await peripheralManager.stopAdvertising();
+      
+      // Small delay to ensure clean stop
+      await Future.delayed(Duration(milliseconds: 100));
+      
+      // Get intro hint (if any active QR)
+      final introHint = await _introHintRepo.getMostRecentActiveHint();
+
+      // Compute my persistent hint from my public key
+      final myPublicKey = await _stateManager.getMyPersistentId();
+      
+      // Use provided value or read from preferences
+      bool shouldShowOnlineStatus;
+      if (showOnlineStatus != null) {
+        shouldShowOnlineStatus = showOnlineStatus;
+        _logger.info('📡 Using provided online status value: $shouldShowOnlineStatus');
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        shouldShowOnlineStatus = prefs.getBool('show_online_status') ?? true;
+        _logger.info('📡 Read online status from prefs: $shouldShowOnlineStatus');
+      }
+      
+      // If online status is disabled, don't broadcast identity hint
+      final myPersistentHint = shouldShowOnlineStatus 
+        ? SensitiveContactHint.compute(contactPublicKey: myPublicKey)
+        : null;
+      
+      _logger.info('📡 Refreshed Online Status: ${shouldShowOnlineStatus ? "visible" : "hidden"}');
+      _logger.info('📡 Refreshed Advertising: intro=${introHint?.hintHex ?? "none"}, persistent=${myPersistentHint?.hintHex ?? "hidden"}');
+
+      // Pack hints into 6-byte advertisement
+      final advData = HintAdvertisementService.packAdvertisement(
+        introHint: introHint,
+        ephemeralHint: myPersistentHint, // null if hidden
+      );
+
+      final advertisement = Advertisement(
+        name: null,
+        serviceUUIDs: [BLEConstants.serviceUUID],
+        manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
+          ManufacturerSpecificData(
+            id: 0x2E19,
+            data: advData,
+          ),
+        ],
+      );
+
+      // Restart advertising with new data
+      final advertisingStarted = await _peripheralInitializer.safelyStartAdvertising(
+        advertisement,
+        timeout: Duration(seconds: 5),
+      );
+
+      if (advertisingStarted) {
+        _updateConnectionInfo(isAdvertising: true, statusMessage: 'Advertising - discoverable');
+        _logger.info('✅ Advertising refreshed successfully!');
+      } else {
+        throw Exception('Failed to restart advertising');
+      }
+    } catch (e, stack) {
+      _logger.severe('❌ Failed to refresh advertising: $e', e, stack);
+      _updateConnectionInfo(isAdvertising: false, statusMessage: 'Advertising refresh failed');
     }
   }
   

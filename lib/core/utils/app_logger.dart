@@ -21,7 +21,8 @@ class AppLogger {
   static void initialize() {
     if (_initialized) return;
 
-    Logger.root.level = kReleaseMode ? Level.WARNING : Level.ALL;
+    // Set to INFO level in debug mode to reduce log spam, WARNING in release
+    Logger.root.level = kReleaseMode ? Level.WARNING : Level.INFO;
     hierarchicalLoggingEnabled = true;
 
     Logger.root.onRecord.listen((record) {
