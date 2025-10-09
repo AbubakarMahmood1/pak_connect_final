@@ -295,7 +295,6 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
               data: (result) {
                 if (result.contacts.isEmpty) {
                   return EmptyContactsView(
-                    onAddContact: _navigateToAddContact,
                     searchQuery: searchState.query,
                   );
                 }

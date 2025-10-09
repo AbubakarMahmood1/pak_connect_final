@@ -17,6 +17,7 @@ import '../widgets/import_dialog.dart';
 import 'permission_screen.dart';
 import '../../domain/services/auto_archive_scheduler.dart';
 import '../../domain/services/notification_service.dart';
+import '../../domain/services/notification_handler_factory.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/security/message_security.dart';
 import '../../core/security/hint_cache_manager.dart';
@@ -36,6 +37,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   // Notification settings
   bool _notificationsEnabled = PreferenceDefaults.notificationsEnabled;
+  bool _backgroundNotifications = PreferenceDefaults.backgroundNotifications;
   bool _soundEnabled = PreferenceDefaults.soundEnabled;
   bool _vibrationEnabled = PreferenceDefaults.vibrationEnabled;
 
@@ -68,6 +70,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _notificationsEnabled = await _preferencesRepository.getBool(
       PreferenceKeys.notificationsEnabled,
     );
+    _backgroundNotifications = await _preferencesRepository.getBool(
+      PreferenceKeys.backgroundNotifications,
+    );
     _soundEnabled = await _preferencesRepository.getBool(
       PreferenceKeys.soundEnabled,
     );
@@ -96,6 +101,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     if (mounted) {
       setState(() => _isLoading = false);
+    }
+  }
+
+  /// Swap notification handler between foreground and background
+  /// Android only - swaps to BackgroundNotificationHandlerImpl when enabled
+  Future<void> _swapNotificationHandler(bool enableBackground) async {
+    try {
+      final handler = enableBackground
+          ? NotificationHandlerFactory.createBackgroundHandler()
+          : NotificationHandlerFactory.createDefault();
+      
+      await NotificationService.swapHandler(handler);
+      
+      // No snackbar - toggle switch provides visual feedback
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update notification handler: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -258,6 +286,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildNotificationSettings(ThemeData theme) {
+    // Check if background notifications are supported on this platform
+    final supportsBackgroundNotifications = 
+        NotificationHandlerFactory.isBackgroundNotificationSupported();
+    
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Column(
@@ -276,6 +308,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             },
           ),
           if (_notificationsEnabled) ...[
+            // Background notifications toggle (Android only)
+            if (supportsBackgroundNotifications) ...[
+              Divider(height: 1),
+              SwitchListTile(
+                secondary: Icon(Icons.phonelink),
+                title: Text('System Notifications'),
+                subtitle: Text(
+                  'Show notifications even when app is closed (Android)',
+                ),
+                value: _backgroundNotifications,
+                onChanged: (value) async {
+                  setState(() => _backgroundNotifications = value);
+                  await _preferencesRepository.setBool(
+                    PreferenceKeys.backgroundNotifications,
+                    value,
+                  );
+                  
+                  // Swap notification handler based on setting
+                  await _swapNotificationHandler(value);
+                },
+              ),
+            ],
             Divider(height: 1),
             SwitchListTile(
               secondary: Icon(Icons.volume_up),
@@ -325,14 +379,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         vibrate: _vibrationEnabled,
       );
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Test notification triggered'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      // No snackbar - the notification itself is the feedback
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

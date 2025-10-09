@@ -9,6 +9,7 @@ import '../database/database_helper.dart';
 class PreferenceKeys {
   static const String themeMode = 'theme_mode'; // 'system', 'light', 'dark'
   static const String notificationsEnabled = 'notifications_enabled';
+  static const String backgroundNotifications = 'background_notifications'; // Android only
   static const String soundEnabled = 'sound_enabled';
   static const String vibrationEnabled = 'vibration_enabled';
   static const String showReadReceipts = 'show_read_receipts';
@@ -25,6 +26,7 @@ class PreferenceKeys {
 class PreferenceDefaults {
   static const String themeMode = 'system';
   static const bool notificationsEnabled = true;
+  static const bool backgroundNotifications = true; // Android only - enable system notifications
   static const bool soundEnabled = true;
   static const bool vibrationEnabled = true;
   static const bool showReadReceipts = true;
@@ -90,7 +92,17 @@ class PreferencesRepository {
         return defaultValue ?? _getDefaultValue(key) as bool;
       }
 
-      return (result.first['value'] as String) == 'true';
+      final value = result.first['value'];
+      
+      // Handle type mismatch gracefully
+      if (value is bool) {
+        return value;
+      } else if (value is String) {
+        return value.toLowerCase() == 'true';
+      } else {
+        _logger.warning('Unexpected value type for $key: ${value.runtimeType}, using default');
+        return defaultValue ?? _getDefaultValue(key) as bool;
+      }
     } catch (e) {
       _logger.warning('Failed to get bool preference $key: $e');
       return defaultValue ?? _getDefaultValue(key) as bool;
@@ -188,6 +200,8 @@ class PreferencesRepository {
         return PreferenceDefaults.themeMode;
       case PreferenceKeys.notificationsEnabled:
         return PreferenceDefaults.notificationsEnabled;
+      case PreferenceKeys.backgroundNotifications:
+        return PreferenceDefaults.backgroundNotifications;
       case PreferenceKeys.soundEnabled:
         return PreferenceDefaults.soundEnabled;
       case PreferenceKeys.vibrationEnabled:

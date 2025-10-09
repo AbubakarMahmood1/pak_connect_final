@@ -14,10 +14,12 @@ import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
 import '../domain/services/auto_archive_scheduler.dart';
 import '../domain/services/notification_service.dart';
+import '../domain/services/notification_handler_factory.dart';
 import '../data/services/ble_state_manager.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
 import '../data/repositories/archive_repository.dart';
+import '../data/repositories/preferences_repository.dart';
 import '../data/database/database_helper.dart';
 
 /// Main application core that coordinates all enhanced messaging features
@@ -183,9 +185,29 @@ class AppCore {
   /// Initialize core services
   Future<void> _initializeCoreServices() async {
     // Initialize notification service with dependency injection
-    // Use foreground handler by default (for all platforms)
-    // Future: Can inject BackgroundNotificationHandler for Android
-    final notificationHandler = ForegroundNotificationHandler();
+    // Platform-specific handler selection based on user preference:
+    // - Android: BackgroundNotificationHandlerImpl if enabled in settings
+    // - iOS/Windows/Linux/macOS: ForegroundNotificationHandler (safe default)
+    
+    // Check user preference for background notifications (Android only)
+    final prefs = PreferencesRepository();
+    bool backgroundEnabled = PreferenceDefaults.backgroundNotifications;
+    
+    try {
+      backgroundEnabled = await prefs.getBool(
+        PreferenceKeys.backgroundNotifications,
+        defaultValue: PreferenceDefaults.backgroundNotifications,
+      );
+    } catch (e) {
+      _logger.warning('Failed to read background_notifications preference, using default: $e');
+      // Use default value on error
+    }
+    
+    final notificationHandler = (backgroundEnabled && 
+                                   NotificationHandlerFactory.isBackgroundNotificationSupported())
+        ? NotificationHandlerFactory.createBackgroundHandler()
+        : NotificationHandlerFactory.createDefault();
+    
     await NotificationService.initialize(handler: notificationHandler);
     _logger.info('Notification service initialized with ${notificationHandler.runtimeType}');
     

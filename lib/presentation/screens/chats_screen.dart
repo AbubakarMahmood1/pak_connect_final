@@ -65,12 +65,20 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> with SingleTickerProv
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_onTabChanged); // Listen for tab changes to update FAB
     _initializeServices();
     _loadChats();
     _setupPeriodicRefresh();
     _setupPeripheralConnectionListener();
     _setupDiscoveryListener();
     _setupUnreadCountStream();
+  }
+
+  void _onTabChanged() {
+    // Rebuild to update FAB visibility immediately when tab changes
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _initializeServices() async {
@@ -1307,6 +1315,7 @@ void _editDisplayName() async {
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _refreshTimer?.cancel();
     _searchDebounceTimer?.cancel();
