@@ -324,36 +324,38 @@ class AppCore {
   
   /// 🔧 FIX: Update MessageRepository when queue marks message as delivered
   /// This ensures the single source of truth is maintained between queue and repository
+  /// 🎯 OPTION B: Queue → Repository callback
+  /// When message is delivered, move it from queue to permanent repository storage
+  /// This is the ONLY place where sent messages get saved to repository
   Future<void> _updateMessageRepositoryOnDelivery(QueuedMessage queuedMessage) async {
     try {
       final messageRepo = MessageRepository();
       
       // Create repository message with delivered status
       final repoMessage = Message(
-        id: queuedMessage.id,  // Same ID as queue (now using secure ID)
+        id: queuedMessage.id,  // Same ID as queue (secure ID)
         chatId: queuedMessage.chatId,
         content: queuedMessage.content,
         timestamp: queuedMessage.queuedAt,
         isFromMe: true,
-        status: MessageStatus.delivered,
+        status: MessageStatus.delivered, // Delivered successfully!
       );
       
-      // Check if message already exists (it should, from ChatScreen)
-      final existing = await messageRepo.getMessages(queuedMessage.chatId);
-      final alreadyExists = existing.any((m) => m.id == queuedMessage.id);
+      // 🎯 OPTION B: Message should NOT exist in repository yet
+      // Queue owns it until delivery, then moves it to repository
+      await messageRepo.saveMessage(repoMessage);
+      _logger.info('✅ OPTION B: Moved message ${queuedMessage.id.substring(0, 16)}... from queue → repository (delivered)');
       
-      if (alreadyExists) {
-        // Update existing message to delivered status
-        await messageRepo.updateMessage(repoMessage);
-        _logger.fine('✅ Updated message ${queuedMessage.id.substring(0, 16)}... to delivered in repository');
-      } else {
-        // Message doesn't exist yet (shouldn't happen with new flow, but handle gracefully)
-        await messageRepo.saveMessage(repoMessage);
-        _logger.warning('⚠️ Message ${queuedMessage.id.substring(0, 16)}... not found in repository, saved as delivered');
-      }
     } catch (e) {
-      _logger.severe('❌ Failed to update MessageRepository on delivery: $e');
-      // Don't rethrow - queue has already marked as delivered successfully
+      // Check if duplicate key error (message already exists)
+      if (e.toString().contains('UNIQUE constraint failed') || 
+          e.toString().contains('already exists')) {
+        _logger.warning('⚠️ Message ${queuedMessage.id.substring(0, 16)}... already in repository (duplicate delivery callback?)');
+        // Not fatal - message is already saved
+      } else {
+        _logger.severe('❌ Failed to save message to repository on delivery: $e');
+        // Don't rethrow - queue has already marked as delivered successfully
+      }
     }
   }
   

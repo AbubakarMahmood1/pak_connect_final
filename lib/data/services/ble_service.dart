@@ -656,6 +656,9 @@ centralManager.connectionStateChanged.listen((event) {
     if (_connectionManager.connectedDevice?.uuid == event.peripheral.uuid) {
       _logger.info('Our device disconnected - clearing state');
       
+      // Get contact ID before clearing state (for cleanup)
+      final contactId = _stateManager.currentSessionId;
+      
       _updateConnectionInfo(
         isConnected: false, 
         isReady: false, 
@@ -663,7 +666,10 @@ centralManager.connectionStateChanged.listen((event) {
         statusMessage: 'Disconnected'
       );
 
-      _connectionManager.clearConnectionState(keepMonitoring: _connectionManager.isMonitoring);
+      _connectionManager.clearConnectionState(
+        keepMonitoring: _connectionManager.isMonitoring,
+        contactId: contactId, // Pass contact ID for immediate cleanup
+      );
       _disposeHandshakeCoordinator();
       _stateManager.clearSessionState();
     }
@@ -1004,6 +1010,10 @@ Future<void> _processMessage(
   );
   
   if (content != null) {
+    print('🟢🟢🟢 BLE_SERVICE EMITTING MESSAGE TO STREAM 🟢🟢🟢');
+    print('🟢 Content length: ${content.length}');
+    print('🟢 Content preview: ${content.substring(0, content.length > 100 ? 100 : content.length)}');
+    print('🟢 Number of stream listeners: ${_messagesController?.hasListener ?? false}');
     _messagesController?.add(content);
     
     // IMPORTANT: Save contact on first message if not already saved

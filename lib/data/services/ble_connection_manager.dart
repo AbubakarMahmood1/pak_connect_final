@@ -5,6 +5,9 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/constants/ble_constants.dart';
 import '../../core/models/connection_state.dart';
+import '../repositories/contact_repository.dart';
+import '../repositories/message_repository.dart';
+import '../../core/utils/chat_utils.dart';
 
 // Enum must be declared at top level
 enum ConnectionMonitorState {
@@ -26,6 +29,11 @@ bool _isPeripheralMode = false;
   GATTCharacteristic? _messageCharacteristic;
   int? _mtuSize;
   
+  // Connection tracking for burst scan optimization
+  // Tracks all active peripheral connections to enable intelligent burst scanning
+  // When at max capacity, burst scanning is automatically suppressed to save battery
+  final List<Peripheral> _activeConnections = [];
+  
   // Simplified monitoring system
   Timer? _monitoringTimer;
   bool _isMonitoring = false;
@@ -43,6 +51,10 @@ bool _isPeripheralMode = false;
   static const int minInterval = 3000;
   static const int maxInterval = 30000;
   static const int healthCheckInterval = 5000;
+  
+  // Max connection limits (burst scan optimization)
+  // Set to 1 for now (iOS limit) - will expand to 7 for Android in future multi-connection implementation
+  static const int maxCentralConnections = 1;
   
   // Callbacks for parent service
   Function(Peripheral?)? onConnectionChanged;
@@ -74,6 +86,11 @@ bool _isPeripheralMode = false;
 
   bool get hasConnection => hasBleConnection;
   bool get _isReady => _connectionState == ChatConnectionState.ready;
+  
+  // Connection tracking getters (for burst scan optimization)
+  int get activeConnectionCount => _activeConnections.length;
+  bool get canAcceptMoreConnections => _activeConnections.length < maxCentralConnections;
+  List<Peripheral> get activeConnections => List.unmodifiable(_activeConnections);
 
 
   void _updateConnectionState(ChatConnectionState newState, {String? error}) {
@@ -290,6 +307,13 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       
       _connectedDevice = device;
       _lastConnectedDevice = device;
+      
+      // Track active connection for burst scan optimization
+      if (!_activeConnections.contains(device)) {
+        _activeConnections.add(device);
+        _logger.info('📊 Active connections: ${_activeConnections.length}/$maxCentralConnections');
+      }
+      
       onConnectionChanged?.call(_connectedDevice);
       
       // Discover GATT services with retry logic
@@ -451,6 +475,7 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
   Future<void> disconnect() async {
     stopConnectionMonitoring();
     if (_connectedDevice != null) {
+      _logger.info('Disconnecting from ${_connectedDevice!.uuid}');
       await centralManager.disconnect(_connectedDevice!);
     }
     clearConnectionState();
@@ -467,7 +492,19 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     _logger.info('Triggering immediate reconnection...');
   }
   
-  void clearConnectionState({bool keepMonitoring = false}) {
+  void clearConnectionState({bool keepMonitoring = false, String? contactId}) {
+    // Clear from active connections list for burst scan optimization
+    if (_connectedDevice != null) {
+      _activeConnections.remove(_connectedDevice);
+      _logger.info('📊 Active connections: ${_activeConnections.length}/$maxCentralConnections');
+    }
+    
+    // 🧹 CLEANUP: Remove orphaned ephemeral contacts immediately on disconnect
+    // No need to wait for app restart - clean as we go!
+    if (contactId != null) {
+      _cleanupEphemeralContactIfOrphaned(contactId);
+    }
+    
     _connectedDevice = null;
     _messageCharacteristic = null;
     _mtuSize = null;
@@ -483,6 +520,48 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     onConnectionChanged?.call(null);
     onCharacteristicFound?.call(null);
     onMtuDetected?.call(null);
+  }
+  
+  /// 🧹 Clean up ephemeral contact immediately if they have no chat history
+  /// Called on disconnect to keep database clean without waiting for app restart
+  void _cleanupEphemeralContactIfOrphaned(String contactId) async {
+    try {
+      _logger.info('🧹 Checking if contact needs cleanup: ${contactId.length > 8 ? '${contactId.substring(0, 8)}...' : contactId}');
+      
+      // Import repositories (will need to add imports at top of file)
+      final contactRepo = ContactRepository();
+      final messageRepo = MessageRepository();
+      
+      // Get contact info
+      final contact = await contactRepo.getContact(contactId);
+      if (contact == null) {
+        _logger.fine('Contact not found - nothing to cleanup');
+        return;
+      }
+      
+      // Skip if contact is verified (paired/trusted)
+      if (contact.trustStatus == TrustStatus.verified) {
+        _logger.fine('Contact is verified - keeping');
+        return;
+      }
+      
+      // Check for chat history
+      final chatId = ChatUtils.generateChatId(contactId);
+      final messages = await messageRepo.getMessages(chatId);
+      
+      if (messages.isEmpty) {
+        // No chat history - delete the ephemeral contact
+        final deleted = await contactRepo.deleteContact(contactId);
+        if (deleted) {
+          _logger.info('✅ Deleted orphaned ephemeral contact: ${contact.displayName}');
+        }
+      } else {
+        _logger.fine('Contact has ${messages.length} message(s) - keeping');
+      }
+    } catch (e) {
+      _logger.warning('Failed to cleanup ephemeral contact: $e');
+      // Non-critical failure - don't throw
+    }
   }
 
   /// 🎯 NEW: Check if current connection can serve as relay for pending messages

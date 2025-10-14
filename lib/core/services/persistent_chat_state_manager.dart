@@ -3,8 +3,6 @@
 import 'dart:async';
 import 'dart:collection';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../domain/entities/message.dart';
-import '../../data/repositories/message_repository.dart';
 
 /// Manages persistent chat state across navigation cycles
 /// Prevents message loss during ChatScreen dispose/recreate cycles
@@ -24,8 +22,6 @@ class PersistentChatStateManager {
   
   // Navigation state tracking
   final Set<String> _activeChatIds = {};
-  
-  final MessageRepository _messageRepository = MessageRepository();
 
   /// Register a chat screen as active
   void registerChatScreen(String chatId, Function(String) messageHandler) {
@@ -58,19 +54,23 @@ class PersistentChatStateManager {
 
     _persistentMessageListeners[chatId] = messageStream.listen(
       (content) async {
-        print('🔄 PERSISTENT: Received message for $chatId (${content.length} chars)');
+        print('�🟡🟡 PERSISTENT MANAGER RECEIVED MESSAGE 🟡🟡🟡');
+        print('🟡 Chat ID: $chatId');
+        print('🟡 Content length: ${content.length}');
+        print('🟡 Is chat active: ${_activeChatIds.contains(chatId)}');
+        print('🟡 Has handler: ${_activeMessageHandlers.containsKey(chatId)}');
         
         if (_activeChatIds.contains(chatId) && _activeMessageHandlers.containsKey(chatId)) {
           // Chat screen is active - deliver directly
-          print('🔄 PERSISTENT: Delivering to active chat screen');
+          print('� ➡️ DELIVERING TO ACTIVE CHAT SCREEN');
           _activeMessageHandlers[chatId]!(content);
         } else {
           // Chat screen not active - buffer the message
-          print('🔄 PERSISTENT: Buffering message during navigation');
+          print('🟡 � BUFFERING MESSAGE (chat not active)');
           _messageBuffers[chatId]!.add(content);
           
-          // Also persist to repository immediately
-          await _persistMessageToRepository(chatId, content);
+          // 🔧 FIX: Don't persist here - it will be persisted when chat screen processes the buffer
+          // This prevents duplicate messages (was saving once here, once in _addReceivedMessage)
         }
       },
       onError: (error) {
@@ -95,24 +95,10 @@ class PersistentChatStateManager {
     }
   }
 
-  /// Persist message directly to repository during navigation
-  Future<void> _persistMessageToRepository(String chatId, String content) async {
-    try {
-      final message = Message(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        chatId: chatId,
-        content: content,
-        timestamp: DateTime.now(),
-        isFromMe: false,
-        status: MessageStatus.delivered,
-      );
-      
-      await _messageRepository.saveMessage(message);
-      print('🔄 PERSISTENT: Message persisted to repository for $chatId');
-    } catch (e) {
-      print('🔄 PERSISTENT: Failed to persist message: $e');
-    }
-  }
+  // 🔧 REMOVED: _persistMessageToRepository() 
+  // This method was causing duplicate messages by saving once during buffering
+  // and again when ChatScreen processed the buffer through _addReceivedMessage.
+  // Messages are now only persisted through _addReceivedMessage for consistency.
 
   /// Get number of buffered messages for a chat
   int getBufferedMessageCount(String chatId) {

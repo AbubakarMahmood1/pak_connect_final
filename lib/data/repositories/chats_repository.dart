@@ -89,13 +89,24 @@ class ChatsRepository {
           final contact = await _contactRepository.getContact(contactPublicKey);
           contactName = contact?.displayName;
         }
+      } else {
+        // 🔥 FIX: Try to look up contact by chatId (which is theirId - ephemeral or persistent)
+        // This handles ephemeral-only contacts that were saved during handshake
+        contactPublicKey = chatId;
+        final contact = await _contactRepository.getContact(chatId);
+        if (contact != null) {
+          contactName = contact.displayName;
+          _logger.fine('Found contact name for $chatId: $contactName');
+        }
       }
 
       if (contactName == null) {
         if (chatId.startsWith('temp_')) {
           contactName = 'Device ${chatId.substring(5)}';
         } else {
+          // Last resort fallback
           contactName = 'Unknown Contact';
+          _logger.warning('No contact found for chatId: $chatId');
         }
       }
 
@@ -399,6 +410,49 @@ class ChatsRepository {
       return Sqflite.firstIntValue(result) ?? 0;
     } catch (e) {
       _logger.warning('Failed to get total message count: $e');
+      return 0;
+    }
+  }
+
+  /// 🔥 Clean up orphaned ephemeral contacts (no chat history, not verified/paired)
+  /// This removes temporary contacts that were never upgraded to persistent relationships
+  /// Called during app maintenance or when storage needs cleaning
+  Future<int> cleanupOrphanedEphemeralContacts() async {
+    try {
+      _logger.info('🧹 Starting cleanup of orphaned ephemeral contacts...');
+      
+      final allContacts = await _contactRepository.getAllContacts();
+      int deletedCount = 0;
+      
+      for (final contact in allContacts.values) {
+        // Skip verified contacts and those with persistent relationships
+        if (contact.trustStatus == TrustStatus.verified) {
+          continue;
+        }
+        
+        // Check if contact has any chat history
+        final chatId = _generateChatId(contact.publicKey);
+        final messages = await _messageRepository.getMessages(chatId);
+        
+        if (messages.isEmpty) {
+          // No chat history - safe to delete ephemeral contact
+          final deleted = await _contactRepository.deleteContact(contact.publicKey);
+          if (deleted) {
+            deletedCount++;
+            _logger.fine('Deleted orphaned ephemeral contact: ${contact.displayName} (${contact.publicKey.substring(0, 8)}...)');
+          }
+        }
+      }
+      
+      if (deletedCount > 0) {
+        _logger.info('✅ Cleaned up $deletedCount orphaned ephemeral contact(s)');
+      } else {
+        _logger.info('✅ No orphaned ephemeral contacts found');
+      }
+      
+      return deletedCount;
+    } catch (e) {
+      _logger.warning('Failed to cleanup orphaned ephemeral contacts: $e');
       return 0;
     }
   }

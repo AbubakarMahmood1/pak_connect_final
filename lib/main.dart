@@ -11,7 +11,7 @@ import 'core/utils/app_logger.dart';
 import 'core/services/navigation_service.dart';
 import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
-import 'presentation/screens/chats_screen.dart';
+import 'presentation/screens/home_screen.dart';
 import 'presentation/providers/ble_providers.dart';
 import 'presentation/providers/theme_provider.dart';
 
@@ -329,7 +329,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
           data: (state) {
             // If Bluetooth is already ready, skip permission screen
             if (state == BluetoothLowEnergyState.poweredOn) {
-              return const ChatsScreen();
+              return const HomeScreen();
             }
             // Otherwise show permission screen
             return const PermissionScreen();

@@ -1,4 +1,5 @@
 # Noise Protocol Integration Plan - REALITY-CHECKED & VALIDATED
+
 ## pak_connect - BLE Mesh Messaging with Multi-Layer Noise Security
 
 **Status:** ✅✅✅ TRIPLE-VALIDATED - bitchat-android COMPLETE IMPLEMENTATION DISCOVERED! (2025-10-14)
@@ -12,7 +13,7 @@
 
 ## 🎊 BREAKTHROUGH DISCOVERY: bitchat-android Has COMPLETE Noise Implementation! (UPDATED 2025-10-14)
 
-### 🚀 YOU'RE IN THE RIGHT PLACE - bitchat-android IS YOUR REFERENCE!
+### 🚀 YOU'RE IN THE RIGHT PLACE - bitchat-android IS YOUR REFERENCE
 
 You are currently in the **bitchat-android-main** repository, which has a **COMPLETE, PRODUCTION-READY Noise Protocol implementation** using noise-java! This is a GOLDMINE for your Flutter project!
 
@@ -20,9 +21,10 @@ You are currently in the **bitchat-android-main** repository, which has a **COMP
 
 ## 📊 WHAT'S AVAILABLE IN bitchat-android (Your Reference Implementation)
 
-### ✅ COMPLETE Noise Protocol Stack - PRODUCTION-READY!
+### ✅ COMPLETE Noise Protocol Stack - PRODUCTION-READY
 
-**Library:** noise-java (Southern Storm Software) - https://github.com/rweather/noise-java
+**Library:** noise-java (Southern Storm Software) - <https://github.com/rweather/noise-java>
+
 - ✅ **ALL Noise patterns implemented:** NN, NK, NX, XN, XK, XX, KN, KK, KX, IN, IK, IX, and more!
 - ✅ **Multiple crypto primitives:** X25519, Curve448, ChaCha20-Poly1305, AES-GCM, SHA-256, SHA-512, BLAKE2s, BLAKE2b
 - ✅ **Battle-tested:** Used in production by bitchat (iOS and Android)
@@ -44,6 +46,7 @@ You are currently in the **bitchat-android-main** repository, which has a **COMP
 **Protocol String:** `Noise_XX_25519_ChaChaPoly_SHA256`
 
 **Crypto Stack:**
+
 - ✅ **X25519** for Diffie-Hellman (same as dart_libp2p!)
 - ✅ **ChaCha20-Poly1305** for AEAD encryption (same as dart_libp2p!)
 - ✅ **SHA-256** for hashing (same as dart_libp2p!)
@@ -82,7 +85,7 @@ You are currently in the **bitchat-android-main** repository, which has a **COMP
    - Same message format and handshake flow
    - Identical fingerprint calculation (SHA-256 of static public key)
 
-### 🎁 Bonus: MORE Patterns Available in noise-java!
+### 🎁 Bonus: MORE Patterns Available in noise-java
 
 While bitchat currently uses **XX**, the underlying noise-java library has **ALL patterns** ready to use:
 
@@ -96,6 +99,7 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 | IK, IN, IX | 2-3 | Immediate authentication | ✅ **YES** |
 
 **All patterns use the same:**
+
 - CipherState abstraction (ChaCha20-Poly1305 or AES-GCM)
 - DHState abstraction (X25519 or Curve448)
 - SymmetricState for key derivation
@@ -112,6 +116,7 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 **Approach:** Port NoiseSession.kt and related files from Kotlin to Dart
 
 **Pros:**
+
 - ✅ ✅ ✅ **COMPLETE working reference** - bitchat is in production!
 - ✅ Identical crypto stack (X25519 + ChaCha20-Poly1305 + SHA-256)
 - ✅ Well-documented code with extensive logging
@@ -122,11 +127,13 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 - ✅ Identity rotation support already built-in
 
 **Cons:**
+
 - ⚠️ Need to port from Kotlin/Java to Dart (~1500 lines total)
 - ⚠️ No native Dart library equivalent for noise-java (but crypto primitives available)
 - ⚠️ Need to find or implement equivalent crypto primitives in Dart
 
 **Timeline:** 3-5 weeks
+
 - Week 1: Port core NoiseSession logic (handshake, encrypt, decrypt)
 - Week 2: Port NoiseSessionManager and NoiseEncryptionService
 - Week 3: Implement crypto primitives wrapper in Dart
@@ -134,6 +141,7 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 - Week 5: Cross-platform testing with actual bitchat
 
 **Confidence:** HIGH ✅
+
 - Working reference code to follow line-by-line
 - All patterns and edge cases already solved
 - Can verify against iOS/Android bitchat
@@ -144,7 +152,7 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 
 | Feature | noise_protocol_framework 1.1.0 | dart_libp2p (Dart) | **bitchat-android (noise-java)** ✅ |
 |---------|--------------------------------|---------------------|--------------------------------------|
-| **Source** | https://pub.dev/packages/noise_protocol_framework | Local plugin | ✅ **https://github.com/rweather/noise-java** |
+| **Source** | <https://pub.dev/packages/noise_protocol_framework> | Local plugin | ✅ **<https://github.com/rweather/noise-java>** |
 | **Language** | Dart | Dart | Java/Kotlin (portable to Dart) |
 | **Patterns Available** | KNpsk0, NKpsk0 (both with PSK) | XX only | ✅ **ALL: NN, NK, NX, XN, XK, XX, KN, KK, KX, IN, IK, IX** |
 | **Missing Patterns** | ❌ NN, XX, KK | ❌ NN, KK | ✅ **NONE - ALL patterns available!** |
@@ -164,6 +172,7 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 | **Lines of Code** | ~500 | ~700 | ✅ **~3000 (complete implementation)** |
 
 **VERDICT:** bitchat-android (noise-java) is the BEST reference! It has:
+
 - ✅ ALL patterns you need (NN, KK, XX)
 - ✅ Same crypto stack as dart_libp2p
 - ✅ Already proven on BLE mesh networks
@@ -182,6 +191,7 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 **What:** Translate NoiseSession.kt and related files from Kotlin to Dart
 
 **Why Choose This:**
+
 - ✅ **BEST for FYP/thesis** - demonstrates deep understanding
 - ✅ Complete working reference (no guesswork)
 - ✅ All edge cases already solved
@@ -189,6 +199,7 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 - ✅ Same BLE mesh architecture as your target
 
 **What You'd Port:**
+
 1. `NoiseSession.kt` (720 lines) → `noise_session.dart`
    - Handshake state machine
    - Encrypt/decrypt with replay protection
@@ -220,12 +231,14 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 **What:** Keep dart_libp2p's XX implementation, add NN and KK patterns using bitchat as reference
 
 **Why Choose This:**
+
 - ✅ Faster timeline (XX already done)
 - ✅ Stay in Dart (no porting)
 - ✅ Learn from bitchat for NN/KK patterns
 - ✅ Can reference Pattern.java for pattern definitions
 
 **What You'd Do:**
+
 1. Study dart_libp2p XX implementation
 2. Use bitchat's Pattern.java (lines 90-98, 187-202) as spec
 3. Implement `nn_pattern.dart` and `kk_pattern.dart` following XX structure
@@ -242,11 +255,13 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 **What:** Use FFI to call noise-java directly from Dart, or use existing Dart Noise library
 
 **Why Choose This:**
+
 - ✅ Fastest implementation
 - ✅ All patterns immediately available
 - ✅ Battle-tested library
 
 **Cons:**
+
 - ❌ Less learning value for FYP
 - ❌ FFI complexity
 - ❌ May have performance overhead
@@ -293,6 +308,7 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 **Location:** `lib/p2p/security/noise/`
 
 **Files Found:**
+
 - ✅ `noise_protocol.dart` - Main security protocol implementation
 - ✅ `xx_pattern.dart` - **COMPLETE XX PATTERN IMPLEMENTATION** (22KB, comprehensive)
 - ✅ `handshake_state.dart` - State machine for XX handshake
@@ -301,12 +317,14 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
 - ✅ `message_framing.dart` - Length-prefixed framing
 
 **Test Coverage:**
+
 - ✅ `test/security/noise/xx_pattern_test.dart` - Pattern-specific tests
 - ✅ `test/security/noise/handshake_state_test.dart` - State machine tests
 - ✅ `test/security/noise/noise_protocol_test.dart` - Full protocol tests
 - ✅ Multiple integration tests with TCP/UDX transports
 
 **Currently Implemented Patterns:**
+
 - ✅ **XX** (Mutual identity exchange) - **FULLY IMPLEMENTED & TESTED**
   - 3-message handshake: `→ e` / `← e, ee, s, es` / `→ s, se`
   - X25519 for Diffie-Hellman
@@ -316,12 +334,13 @@ While bitchat currently uses **XX**, the underlying noise-java library has **ALL
   - libp2p identity exchange built-in
 
 **Missing Patterns:**
+
 - ❌ **NN** (No static keys, ephemeral only) - **NOT IMPLEMENTED**
 - ❌ **KK** (Both static keys known) - **NOT IMPLEMENTED**
 
 ---
 
-### ✅ GOOD NEWS: XX Pattern is Production-Ready!
+### ✅ GOOD NEWS: XX Pattern is Production-Ready
 
 The dart_libp2p XX implementation is **superior** to noise_protocol_framework for your use case:
 
@@ -334,7 +353,7 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 
 ---
 
-### 🎯 RECOMMENDATION: Use dart_libp2p as Your Foundation!
+### 🎯 RECOMMENDATION: Use dart_libp2p as Your Foundation
 
 **Why dart_libp2p is the Better Choice:**
 
@@ -348,18 +367,21 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 **What You Need to Do:**
 
 **Option A: Extend dart_libp2p Directly (RECOMMENDED)** ✅
+
 - Create `nn_pattern.dart` and `kk_pattern.dart` based on `xx_pattern.dart` template
 - Both patterns are SIMPLER than XX (NN: 2 messages, KK: 2 messages vs XX: 3 messages)
 - Reuse all the crypto primitives (X25519, ChaCha20-Poly1305, SHA-256)
 - Write tests following `xx_pattern_test.dart` as template
 
-**Option B: Extract and Adapt for BLE**
+"Option B: Extract and Adapt for BLE"
+
 - Copy the noise/ folder into pak_connect
 - Adapt `SecuredConnection` wrapper for BLE instead of TCP/UDX
 - Implement missing NN and KK patterns
 - Keep XX for pairing layer
 
 **Impact on Timeline:**
+
 - **Original assumption (noise_protocol_framework):** Need to implement 3 patterns (NN, XX, KK) = 9-12 days
 - **NEW REALITY (dart_libp2p):** Only need to implement 2 patterns (NN, KK) = **6-8 days**
 - **Saved time:** 3-4 days (XX already done!)
@@ -387,6 +409,7 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 **Approach:** Add NN and KK patterns to dart_libp2p based on existing XX pattern template
 
 **Pros:**
+
 - ✅ ✅ ✅ **XX pattern already implemented** - Use as perfect template!
 - ✅ Reuse all crypto primitives (X25519, ChaCha20-Poly1305, SHA-256)
 - ✅ **Simpler patterns** - NN and KK are easier than XX (2 messages vs 3)
@@ -397,16 +420,19 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 - ✅ Can use directly in pak_connect or contribute back to dart_libp2p
 
 **Cons:**
+
 - ⚠️ Adds ~1.5 weeks to timeline (but saves 3-4 days vs noise_protocol_framework!)
 - ⚠️ Need to understand Noise spec to implement NN and KK correctly
 - ⚠️ Requires tests for each new pattern
 
 **Implementation Plan:**
+
 1. Create new pattern files following XX template:
    - `lib/p2p/security/noise/nn_pattern.dart` (based on xx_pattern.dart)
    - `lib/p2p/security/noise/kk_pattern.dart` (based on xx_pattern.dart)
 
 2. Implement each pattern class (simpler than XX!):
+
    ```dart
    /// NN Pattern (SIMPLEST - only ephemeral keys)
    class NoiseNNPattern {
@@ -436,6 +462,7 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
    ```
 
 3. Update `noise_protocol.dart` to support multiple patterns:
+
    ```dart
    class NoiseSecurity implements SecurityProtocol {
      final NoisePattern _pattern; // NN, XX, or KK
@@ -453,8 +480,9 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 5. Test each pattern independently before integration
 
 **Reference Implementations:**
+
 - **YOUR OWN XX PATTERN** - `lib/p2p/security/noise/xx_pattern.dart` (BEST reference!)
-- Noise spec: http://noiseprotocol.org/noise.html (Section 7.2-7.4)
+- Noise spec: <http://noiseprotocol.org/noise.html> (Section 7.2-7.4)
 - XX test suite: `test/security/noise/xx_pattern_test.dart`
 
 ---
@@ -464,10 +492,12 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 **Approach:** Fork or extend `noise_protocol_framework` to add NN, XX, KK patterns
 
 **Pros:**
+
 - ✅ Reuse all core infrastructure (CipherState, SymmetricState, KeyPair, etc.)
 - ✅ Already have 2 working examples to reference (KNpsk0, NKpsk0)
 
 **Cons:**
+
 - ❌ Need to implement ALL 3 patterns (NN, XX, KK) = 9-12 days
 - ❌ Uses P-256 + AES-GCM (older crypto, not libp2p standard)
 - ❌ Not libp2p-native (need to adapt identity exchange)
@@ -478,6 +508,7 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 ### Option B: Use Different Library ❌
 
 **Alternative Libraries Checked:**
+
 - No other mature Dart/Flutter Noise Protocol libraries found on pub.dev
 - Would require starting from scratch (10+ weeks additional work)
 
@@ -486,11 +517,13 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 ### Option C: Use Existing Patterns Creatively ⚠️
 
 **Idea:** Map existing patterns to requirements:
+
 - Use NKpsk0 for "contacts" layer (has known responder static key)
 - Use KNpsk0 for "pairing" layer (has known initiator static key)
 - No solution for global/relay layer (needs NN)
 
 **Issues:**
+
 - ❌ Still missing NN pattern (critical for relay)
 - ❌ Neither NKpsk0 nor KNpsk0 matches XX semantics (mutual identity exchange)
 - ❌ Both require pre-shared keys (PSK) - not suitable for dynamic pairing
@@ -507,6 +540,7 @@ The dart_libp2p XX implementation is **superior** to noise_protocol_framework fo
 **Reality Check Results:**
 
 **1. MTU Negotiation:** ✅ ALREADY IMPLEMENTED
+
 ```dart
 // lib/data/services/ble_service.dart:600-603
 peripheralManager.mtuChanged.listen((event) {
@@ -516,6 +550,7 @@ peripheralManager.mtuChanged.listen((event) {
 ```
 
 **2. Message Fragmentation:** ✅ ALREADY IMPLEMENTED
+
 ```dart
 // lib/core/utils/message_fragmenter.dart:119-160
 static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String messageId) {
@@ -527,12 +562,14 @@ static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String mess
 ```
 
 **3. Safe Minimum MTU:** ✅ VALIDATED
+
 ```dart
 // lib/core/constants/ble_constants.dart:16
 static const int maxMessageLength = 244; // Safe BLE packet size
 ```
 
 **4. Automatic Reassembly:** ✅ IMPLEMENTED
+
 ```dart
 // lib/core/utils/message_fragmenter.dart:164-201
 class MessageReassembler {
@@ -546,6 +583,7 @@ class MessageReassembler {
 ```
 
 **CONCLUSION:** ✅ Noise handshake messages will work fine! Your BLE stack ALREADY handles:
+
 - MTU negotiation (Android/Windows/iOS)
 - Automatic fragmentation for large messages
 - Chunk reassembly
@@ -562,6 +600,7 @@ class MessageReassembler {
 **Reality Check Results:**
 
 **1. Relay Passes Content Opaquely:** ✅ CONFIRMED
+
 ```dart
 // lib/core/messaging/mesh_relay_engine.dart:312-323
 Future<void> _deliverToCurrentNode(MeshRelayMessage relayMessage) async {
@@ -575,6 +614,7 @@ Future<void> _deliverToCurrentNode(MeshRelayMessage relayMessage) async {
 ```
 
 **2. Relay Forwards Encrypted Blob:** ✅ CONFIRMED
+
 ```dart
 // lib/core/messaging/mesh_relay_engine.dart:414-420
 await _messageQueue.queueMessage(
@@ -586,12 +626,15 @@ await _messageQueue.queueMessage(
 );
 ```
 
-**ARCHITECTURAL DECISION: Keep Relays Simple (No Per-Hop Encryption)**
+"ARCHITECTURAL DECISION: Keep Relays Simple (No Per-Hop Encryption)"
 
 **Option A: Simple Relay (RECOMMENDED)** ✅
-```
+
+``
 Alice → [encrypted for Bob] → Relay1 → [same encryption] → Relay2 → Bob
+
 ```
+
 - ✅ End-to-end encryption preserved
 - ✅ Relay cannot read content (privacy)
 - ✅ No additional crypto overhead
@@ -599,9 +642,11 @@ Alice → [encrypted for Bob] → Relay1 → [same encryption] → Relay2 → Bo
 - ✅ Your current architecture ALREADY does this!
 
 **Option B: Noise NN Per-Hop (OVERKILL)** ❌
-```
+
+``
 Alice → [NN1] → Relay1 → decrypt → re-encrypt → [NN2] → Relay2 → decrypt → re-encrypt → Bob
 ```
+
 - ❌ Complex implementation
 - ❌ Relay can read content (privacy loss)
 - ❌ Additional crypto overhead at each hop
@@ -610,6 +655,7 @@ Alice → [NN1] → Relay1 → decrypt → re-encrypt → [NN2] → Relay2 → d
 **DECISION FOR PLAN:** Keep relay simple (Option A). Relays just forward the end-to-end encrypted blob without modification.
 
 **Impact on Plan:**
+
 - ~~Phase 3.4 (Update MeshRelayEngine with per-hop NN)~~ REMOVED
 - Relay engine needs ZERO changes for Noise integration
 - End-to-end Noise KK/XX encryption passes through relays untouched
@@ -621,6 +667,7 @@ Alice → [NN1] → Relay1 → decrypt → re-encrypt → [NN2] → Relay2 → d
 **Your Existing Code is WELL-ARCHITECTED for Noise Integration!**
 
 **1. Already Using Ephemeral IDs During Handshake:**
+
 ```dart
 // lib/core/bluetooth/handshake_coordinator.dart:194
 final message = ProtocolMessage.identity(
@@ -628,12 +675,15 @@ final message = ProtocolMessage.identity(
   displayName: _myDisplayName,
 );
 ```
+
 **Impact:** You're halfway to Noise XX! Just need to:
+
 - Add ephemeral DH exchange
 - Encrypt static keys after ephemeral exchange
 - This is EASIER than the plan assumed!
 
 **2. Hint System is Deterministic (Perfect for Noise KK):**
+
 ```dart
 // test/hint_system_test.dart:113-130
 test('Same public key produces same hint (deterministic)', () {
@@ -642,9 +692,11 @@ test('Same public key produces same hint (deterministic)', () {
   expect(hint1.hintHex, equals(hint2.hintHex)); // ✅ DETERMINISTIC!
 });
 ```
+
 **Impact:** Noise KK will preserve your hint system PERFECTLY!
 
 **3. Security Levels Map Cleanly to Noise Patterns:**
+
 ```dart
 // lib/core/services/security_manager.dart:7-11
 enum SecurityLevel {
@@ -653,7 +705,9 @@ enum SecurityLevel {
   high,    // ECDH + Pairing + Global (verified contacts)
 }
 ```
+
 **New Mapping:**
+
 ```dart
 SecurityLevel.low    → Noise NN (broadcast/relay)
 SecurityLevel.medium → Noise XX (pairing handshake)
@@ -661,12 +715,14 @@ SecurityLevel.high   → Noise KK (verified contacts)
 ```
 
 **4. Current ECDH Weakness (Confirmed):**
+
 ```dart
 // lib/core/services/simple_crypto.dart:249
 final sharedPoint = theirPublicKey.Q! * _privateKey!.d!;
 final sharedSecret = sharedPoint!.x!.toBigInteger()!.toRadixString(16);
 // ❌ Computed ONCE, used FOREVER - no forward secrecy
 ```
+
 **Impact:** Noise KK will be a HUGE security upgrade!
 
 ---
@@ -691,6 +747,7 @@ final sharedSecret = sharedPoint!.x!.toBigInteger()!.toRadixString(16);
 **Realistic Estimate:** 7-9 weeks part-time (was 5-7 weeks, originally 3-4 weeks)
 
 **Key Changes (2025-10-14 Update):**
+
 - ⚠️ **CRITICAL:** Library exists but only has KNpsk0 and NKpsk0 patterns
 - ⚠️ **NEW WORK:** Must implement NN, XX, KK patterns (~2 weeks)
 - ✅ No MTU fragmentation work needed (already implemented)
@@ -760,6 +817,7 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
 ## 📋 UPDATED SUCCESS CRITERIA
 
 ### Must-Have (FYP Core Requirements)
+
 - ✅ ~~Learn to implement Noise from scratch~~ Use `noise_protocol_framework` library
 - ✅ ~~Implement MTU fragmentation~~ Already implemented!
 - ✅ ~~Rewrite relay engine~~ No changes needed!
@@ -772,6 +830,7 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
 - ✅ Comprehensive documentation for FYP
 
 ### Bonus Points (Nice-to-Have)
+
 - ✅ Performance benchmarks (Noise vs old ECDH)
 - ✅ Security comparison table (vs Signal, WhatsApp, WireGuard)
 - ✅ Formal forward secrecy proof (mathematical)
@@ -785,7 +844,8 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
 ### Step 1: ~~Verify Library API~~ ✅ COMPLETED (2025-10-14)
 
 **Findings:**
-- ✅ Library repo: https://github.com/levisjct/noise
+
+- ✅ Library repo: <https://github.com/levisjct/noise>
 - ✅ Supports P-256 curve via `elliptic` package
 - ✅ Supports AES-GCM cipher via `pointycastle` package
 - ✅ Supports SHA-256 hash via `crypto` package
@@ -798,7 +858,8 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
 ### Step 1b: Study Noise Spec & Pattern Implementation (3-4 days)
 
 **Read & Understand:**
-1. **Noise Protocol Spec:** http://noiseprotocol.org/noise.html
+
+1. **Noise Protocol Spec:** <http://noiseprotocol.org/noise.html>
    - Section 5: Processing rules (handshake patterns)
    - Section 7.2: NN pattern specification
    - Section 7.3: KK pattern specification
@@ -806,6 +867,7 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
    - Section 8: Security considerations
 
 2. **Study Existing Implementations:**
+
    ```bash
    # Examine existing pattern implementations
    lib/protocols/knpsk0/handshake_state.dart  # Example 1
@@ -820,6 +882,7 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
    ```
 
 3. **Map Pattern Differences:**
+
    ```
    KNpsk0: → e, es, ss, psk  ← e, ee, se
    NKpsk0: → e, es, psk      ← e, ee, se
@@ -835,6 +898,7 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
 ### Step 1c: Implement NN Pattern (3-4 days)
 
 **NN Pattern Spec (simplest - no static keys):**
+
 ```
 NN:
   → e
@@ -846,6 +910,7 @@ NN:
 ```
 
 **Implementation Steps:**
+
 1. Create `lib/protocols/nn/handshake_state.dart`
 2. Implement `NNHandshakeState extends IHandshakeState`
    - No static keys (`_s = null`, `_rs = null`)
@@ -857,6 +922,7 @@ NN:
    - `writeMessageResponder()`: Generate ephemeral, perform DH(ee), split to ciphers
    - `readMessageInitiator()`: Receive responder ephemeral, perform DH(ee), split to ciphers
 4. Add to `noise_protocol_framework.dart`:
+
    ```dart
    part './protocols/nn/handshake_state.dart';
 
@@ -865,6 +931,7 @@ NN:
        : _messageCounter = 0,
          _handshakeState = NNHandshakeState(hash, curve, prologue: prologue);
    ```
+
 5. Write tests in `test/nn_test.dart`
 6. Verify against Noise spec test vectors
 
@@ -873,6 +940,7 @@ NN:
 ### Step 1d: Implement KK Pattern (3-4 days)
 
 **KK Pattern Spec (known static keys):**
+
 ```
 KK:
   → e, es, ss
@@ -885,14 +953,17 @@ KK:
 ```
 
 **Implementation Steps:**
+
 1. Create `lib/protocols/kk/handshake_state.dart`
 2. Implement `KKHandshakeState extends IHandshakeState`
    - Both static keys required (`_s` and `_rs` both non-null)
    - Constructors:
+
      ```dart
      KKHandshakeState.initiator(KeyPair s, Uint8List rs, ...)
      KKHandshakeState.responder(KeyPair s, Uint8List rs, ...)
      ```
+
 3. Implement methods (similar to KNpsk0 but without PSK):
    - `init()`: Mix both static keys into handshake hash
    - `writeMessageInitiator()`: Send e, DH(e,rs), DH(s,rs)
@@ -900,10 +971,12 @@ KK:
    - `writeMessageResponder()`: Send e, DH(e,re), DH(s,re), split
    - `readMessageInitiator()`: Receive e, DH(e,re), DH(s,re), split
 4. Add factory to `NoiseProtocol`:
+
    ```dart
    NoiseProtocol.getKKInitiator(KeyPair s, Uint8List rs, ...)
    NoiseProtocol.getKKResponder(KeyPair s, Uint8List rs, ...)
    ```
+
 5. Write tests in `test/kk_test.dart`
 
 **Deliverable:** Working KK pattern with tests
@@ -911,6 +984,7 @@ KK:
 ### Step 1e: Implement XX Pattern (3-4 days)
 
 **XX Pattern Spec (mutual identity exchange):**
+
 ```
 XX:
   → e
@@ -923,6 +997,7 @@ XX:
 ```
 
 **Implementation Steps:**
+
 1. Create `lib/protocols/xx/handshake_state.dart`
 2. Implement `XXHandshakeState extends IHandshakeState`
    - Initiator: has `_s`, no `_rs` initially
@@ -936,15 +1011,18 @@ XX:
    - Modify message counter logic
    - Add intermediate state tracking
 5. Add factory to `NoiseProtocol`:
+
    ```dart
    NoiseProtocol.getXXInitiator(KeyPair s, ...)
    NoiseProtocol.getXXResponder(KeyPair s, ...)
    ```
+
 6. Write tests in `test/xx_test.dart`
 
 **Deliverable:** Working XX pattern with tests
 
 ### Step 2: Create Skeleton Integration (1-2 days)
+
 ```
 lib/core/security/noise/
 ├── noise_nn_cipher.dart          # Global/relay layer (NN pattern)
@@ -955,6 +1033,7 @@ lib/core/security/noise/
 ```
 
 ### Step 3: Test MTU with Actual Noise Messages (1 day)
+
 ```dart
 // test/ble_noise_integration_test.dart
 test('Noise XX handshake fits within BLE MTU', () async {
@@ -966,6 +1045,7 @@ test('Noise XX handshake fits within BLE MTU', () async {
 ```
 
 ### Step 4: Implement Global (NN) → Pairing (XX) → Contact (KK) in Order
+
 Follow original plan phases, but with updated strategy (enhance, not replace)
 
 ---
@@ -979,6 +1059,7 @@ Follow original plan phases, but with updated strategy (enhance, not replace)
 ## Executive Summary: Complete Noise Architecture
 
 ### Current Implementation (Good Foundation)
+
 ```
 Layer 1: Global    → Weak encryption (AES with static key)
 Layer 2: Paired    → Pairing keys (medium security)
@@ -986,6 +1067,7 @@ Layer 3: Contacts  → ECDH + AES-GCM (strong but NO forward secrecy)
 ```
 
 ### NEW: Complete Noise Architecture (Industry Standard)
+
 ```
 Layer 1: Global    → Noise NN (ephemeral-only, for relay/broadcast)
 Layer 2: Paired    → Noise XX (identity exchange, for initial pairing)
@@ -999,6 +1081,7 @@ Layer 3: Contacts  → Noise KK (persistent + forward secrecy, for verified cont
 ## Why This Architecture Is Perfect
 
 ### Your Original Concern
+>
 > "If I use Noise for everything, won't I lose persistent contacts and the hint system?"
 
 **Answer:** NO! Noise KK pattern is DESIGNED for persistent contacts.
@@ -1006,6 +1089,7 @@ Layer 3: Contacts  → Noise KK (persistent + forward secrecy, for verified cont
 ### How Noise KK Preserves Your Hint System
 
 **Noise KK gives you:**
+
 ```dart
 class NoiseKKContact {
   // Persistent identity (saved in contacts)
@@ -1027,6 +1111,7 @@ class NoiseKKContact {
 ```
 
 **Result:**
+
 - ✅ Persistent contact relationships (via static keys)
 - ✅ Forward secrecy (via ephemeral transport cipher)
 - ✅ Hint-based discovery (via static key derivation)
@@ -1048,6 +1133,7 @@ class NoiseKKContact {
 ### Pattern Details
 
 #### Noise NN (Global Layer)
+
 ```
 Purpose: Relay/broadcast to unknown devices
 Security: Forward secrecy, no authentication
@@ -1060,6 +1146,7 @@ Result: Ephemeral transport cipher (destroyed after use)
 ```
 
 #### Noise XX (Pairing Layer)
+
 ```
 Purpose: Initial pairing with new contact
 Security: Forward secrecy + mutual auth + identity hiding
@@ -1073,6 +1160,7 @@ Result: Both parties have each other's static keys → save to contacts → use 
 ```
 
 #### Noise KK (Contact Layer) - THE KEY INNOVATION
+
 ```
 Purpose: Messaging verified contacts (your main use case!)
 Security: Forward secrecy + mutual auth + performance
@@ -1090,9 +1178,10 @@ Result: NEW ephemeral transport cipher per session, authenticated via static key
 
 ### 1.1 Understand All Three Patterns
 
-**Read:** http://noiseprotocol.org/noise.html
+**Read:** <http://noiseprotocol.org/noise.html>
 
 **Focus on:**
+
 - Section 7.4: Interactive handshake patterns (NN, XX, KK)
 - Section 5: Key derivation (how ephemeral + static keys combine)
 - Section 8.1: Security properties of each pattern
@@ -1108,6 +1197,7 @@ Result: NEW ephemeral transport cipher per session, authenticated via static key
 ### 1.3 Critical Insight: KK vs Your ECDH
 
 **Your current ECDH:**
+
 ```dart
 // One-time: compute shared secret
 final sharedSecret = ECDH(myStaticPrivate, contactStaticPublic);
@@ -1118,6 +1208,7 @@ AES-GCM(message, sharedSecret) // ❌ No forward secrecy
 ```
 
 **Noise KK:**
+
 ```dart
 // Each session: NEW handshake with static keys for AUTH
 final kk = NoiseProtocol.kk(myStatic, contactStatic);
@@ -1134,6 +1225,7 @@ kk.destroy() // ✅ Past messages secure
 ```
 
 **Comparison:**
+
 - Both use static keys for long-term identity ✅
 - Your ECDH: static keys → static secret → used forever ❌
 - Noise KK: static keys → prove identity → generate ephemeral secret → destroy ✅
@@ -1141,6 +1233,7 @@ kk.destroy() // ✅ Past messages secure
 ### 1.4 Deliverable
 
 Write a 1-page document explaining:
+
 1. Why NN for global (relay doesn't need persistent identity)
 2. Why XX for pairing (initial identity exchange with encryption)
 3. Why KK for contacts (persistent identity + forward secrecy)
@@ -1162,6 +1255,7 @@ flutter pub add noise_protocol_framework
 ### 2.2 Study Library API
 
 **Before writing any code, verify:**
+
 1. How to create Noise handshake with NN/XX/KK patterns
 2. How to pass custom curve (P-256), cipher (AES-GCM), hash (SHA-256)
 3. How to extract transport cipher after handshake
@@ -1220,6 +1314,7 @@ void main() {
 [... content from original plan, with note that relay engine does NOT need updates ...]
 
 **IMPORTANT NOTE:**
+
 - ~~Phase 3.4 (Update MeshRelayEngine)~~ **REMOVED**
 - Relays forward encrypted blobs WITHOUT decryption
 - End-to-end Noise encryption passes through relays untouched
@@ -1234,6 +1329,7 @@ void main() {
 **File to study:** `lib/core/bluetooth/handshake_coordinator.dart`
 
 **Your existing handshake:**
+
 ```dart
 // Phase 0: Ready check (keep this)
 await _sendConnectionReady();
@@ -1246,6 +1342,7 @@ await _sendContactStatus();
 ```
 
 **Noise-enhanced handshake:**
+
 ```dart
 // Phase 0: Ready check (unchanged)
 await _sendConnectionReady();
@@ -1271,6 +1368,7 @@ await _sendContactStatus();
 ```
 
 **Key Changes:**
+
 - ✅ Phase 0 stays the same (ready check)
 - ✅ Phase 1 becomes Noise XX (3 sub-messages)
 - ✅ Phase 2 stays the same (contact status)
@@ -1299,6 +1397,7 @@ await _sendContactStatus();
 [... content from original plan ...]
 
 **Additional test:**
+
 ```dart
 test('BLE MTU fragmentation works with Noise messages', () async {
   // Create 500-byte Noise message (exceeds single packet)
@@ -1360,6 +1459,7 @@ test('BLE MTU fragmentation works with Noise messages', () async {
 - ✅ Implementing patterns will demonstrate deep understanding of Noise Protocol
 
 **What you need to do (UPDATED):**
+
 1. Study Noise spec deeply (3-4 days)
 2. Implement NN pattern (3-4 days)
 3. Implement KK pattern (3-4 days)
@@ -1371,6 +1471,7 @@ test('BLE MTU fragmentation works with Noise messages', () async {
 **Total realistic timeline:** 7-9 weeks part-time (was 5-7 weeks, originally 3-4 weeks)
 
 **Silver Lining:**
+
 - Implementing Noise patterns yourself demonstrates EXCEPTIONAL technical depth
 - Shows you can read cryptographic specs and implement them correctly
 - Potential to contribute back to open source (publish patterns for others)
@@ -1378,6 +1479,7 @@ test('BLE MTU fragmentation works with Noise messages', () async {
 - Deeper understanding = better defense during FYP presentation
 
 **You're not just implementing Noise - you're creating a novel architecture that combines:**
+
 - Industry-standard forward secrecy (Noise Protocol)
 - Persistent contact relationships (your hint system)
 - Mesh relay capability (your relay engine)
@@ -1387,6 +1489,7 @@ test('BLE MTU fragmentation works with Noise messages', () async {
 **This WILL make an excellent FYP!** 🔐
 
 **Risk Assessment:**
+
 - **Low Risk:** Library foundation is solid, patterns are well-documented
 - **Medium Effort:** ~2 extra weeks of work, but structured and achievable
 - **High Reward:** Demonstrates deep technical competency, publishable contribution
@@ -1396,6 +1499,7 @@ test('BLE MTU fragmentation works with Noise messages', () async {
 ## NEXT IMMEDIATE STEPS (Updated 2025-10-14)
 
 ### Phase 0: Pattern Implementation (NEW - PRIORITY 1)
+
 1. **THIS WEEK:**
    - Study Noise Protocol spec (Sections 5, 7.2-7.4, 8)
    - Analyze existing KNpsk0/NKpsk0 implementations
@@ -1418,11 +1522,13 @@ test('BLE MTU fragmentation works with Noise messages', () async {
    - Verify identity hiding and mutual authentication
 
 ### Phase 1: Integration (AFTER patterns complete)
+
 5. **WEEK 8:** Add patterns to pak_connect `pubspec.yaml` (via git dependency or local path)
 6. **WEEK 8-9:** Study pak_connect's existing architecture
 7. **WEEK 10+:** Begin integration (follow original phases 3-9)
 
-### Confidence Assessment:
+### Confidence Assessment
+
 - **Pattern Implementation:** Medium-High confidence
   - ✅ Clear spec to follow
   - ✅ Working examples to reference
@@ -1443,16 +1549,18 @@ test('BLE MTU fragmentation works with Noise messages', () async {
 
 ---
 
-## 🎊 FINAL VERDICT: MASSIVE WIN FOR YOUR PROJECT!
+## 🎊 FINAL VERDICT: MASSIVE WIN FOR YOUR PROJECT
 
 ### Summary of Discovery (UPDATED 2025-10-14)
 
 **What the original plan thought:**
+
 - Need to implement 3 patterns from scratch (NN, XX, KK)
 - Timeline: 7-9 weeks
 - Use noise_protocol_framework (older crypto, missing patterns)
 
 **What you ACTUALLY have in bitchat-android:**
+
 - ✅ **COMPLETE Noise Protocol implementation** with ALL patterns!
 - ✅ **XX pattern PRODUCTION-READY** and battle-tested (iOS & Android bitchat)
 - ✅ **NN, KK, and 9+ other patterns** available in noise-java library
@@ -1505,7 +1613,7 @@ test('BLE MTU fragmentation works with Noise messages', () async {
 
 ### Setup: Copy Reference Files to Your Flutter Project
 
-**Step 1: Copy bitchat-android to your Flutter project's reference folder**
+"Step 1: Copy bitchat-android to your Flutter project's reference folder"
 
 ```bash
 # In your Flutter project root directory:
@@ -1522,6 +1630,7 @@ cp -r <path-to-bitchat-android>/app/src/main/java/com/bitchat/android reference/
 ```
 
 **Why copy everything?**
+
 - ✅ You have complete context when porting
 - ✅ Can reference related files easily
 - ✅ No risk of missing dependencies
@@ -1547,6 +1656,7 @@ dependencies:
 ```
 
 **Run:**
+
 ```bash
 flutter pub get
 ```
@@ -1565,6 +1675,7 @@ mkdir -p test/core/security/noise
 ```
 
 **Final structure:**
+
 ```
 your-flutter-project/
 ├── reference/
@@ -1605,7 +1716,7 @@ your-flutter-project/
 
 ### Phase 3: The Porting Strategy (Week 1-5)
 
-**KEY CONCEPT: Port Logic, Replace Crypto**
+"KEY CONCEPT: Port Logic, Replace Crypto"
 
 You are **NOT** porting noise-java's crypto implementations (3000+ lines).
 You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
@@ -1622,6 +1733,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
 | `Pattern.java` | Pattern definitions | Port pattern arrays to Dart constants |
 
 **The Strategy:**
+
 1. Create Dart wrappers that match noise-java's **interface** (not implementation)
 2. Port bitchat's Kotlin business logic (calls remain similar, just Dart syntax)
 3. Test each component individually
@@ -1635,6 +1747,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
 **Goal:** Create Dart wrappers matching noise-java interfaces
 
 **Files to create:**
+
 1. `lib/core/security/noise/primitives/dh_state.dart`
    - Wrap `pinenacl` to match `DHState.java` interface
    - Methods: `generateKeyPair()`, `setPrivateKey()`, `calculate()` (DH operation)
@@ -1648,6 +1761,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
    - Methods: `mixKey()`, `mixHash()`, `split()`
 
 **Reference files:**
+
 - `reference/bitchat-android/noise/southernstorm/protocol/DHState.java`
 - `reference/bitchat-android/noise/southernstorm/protocol/CipherState.java`
 - `reference/bitchat-android/noise/southernstorm/protocol/SymmetricState.java`
@@ -1662,16 +1776,19 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
 **Goal:** Port handshake state machine using your Dart crypto wrappers
 
 **File to create:**
+
 - `lib/core/security/noise/primitives/handshake_state.dart`
   - Port from `reference/bitchat-android/noise/southernstorm/protocol/HandshakeState.java`
   - Replace noise-java crypto calls with your Dart wrappers
   - Implement XX pattern message flow
 
 **Reference files:**
+
 - `reference/bitchat-android/noise/southernstorm/protocol/HandshakeState.java` (~500 lines)
 - `reference/bitchat-android/noise/southernstorm/protocol/Pattern.java` (pattern definitions)
 
 **Key sections to port:**
+
 - Constructor and initialization
 - `writeMessage()` method (send handshake messages)
 - `readMessage()` method (receive handshake messages)
@@ -1684,6 +1801,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
 **Goal:** Port complete session with handshake + encrypt/decrypt
 
 **File to create:**
+
 - `lib/core/security/noise/noise_session.dart`
   - Port from `reference/bitchat-android/noise/NoiseSession.kt` (720 lines)
   - Use your `handshake_state.dart` wrapper
@@ -1691,6 +1809,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
   - Implement encrypt/decrypt (lines 477-615 in reference)
 
 **Key sections:**
+
 1. **Handshake methods** (lines 300-470):
    - `startHandshake()` - initiator sends first message
    - `processHandshakeMessage()` - handle incoming handshake messages
@@ -1736,6 +1855,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
 **Goal:** Verify correctness and integrate with your BLE stack
 
 **Tasks:**
+
 1. Unit tests for each component
 2. Integration tests (full handshake + encrypt/decrypt cycle)
 3. Test message compatibility with bitchat (if possible)
@@ -1743,6 +1863,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
 5. Integration with your existing BLE code
 
 **Test against bitchat (optional but valuable):**
+
 - Run bitchat-android on one device
 - Run your Flutter app on another device
 - Attempt BLE handshake and message exchange
@@ -1757,6 +1878,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
 > "I'm in my Flutter project directory at `<path>`. I have reference files in `reference/bitchat-android/`. I want to port [specific file/function] from `reference/bitchat-android/noise/[file].kt` to `lib/core/security/noise/[file].dart`. Let's start with [specific section]."
 
 **Claude can then:**
+
 1. ✅ Read the reference Kotlin/Java file
 2. ✅ Read your work-in-progress Dart file
 3. ✅ Port section by section
@@ -1780,6 +1902,7 @@ Claude: [Reads reference/bitchat-android/noise/NoiseSession.kt:477-543]
 ### Key Porting Principles
 
 **DO:**
+
 - ✅ Copy entire bitchat `lib` folder to `reference/` (you did this - good!)
 - ✅ Port **logic** from bitchat Kotlin files
 - ✅ Replace **crypto calls** with Dart package equivalents
@@ -1788,6 +1911,7 @@ Claude: [Reads reference/bitchat-android/noise/NoiseSession.kt:477-543]
 - ✅ Test each component independently
 
 **DON'T:**
+
 - ❌ Try to port noise-java crypto implementations (use Dart packages instead)
 - ❌ Change the protocol logic (keep it identical to bitchat)
 - ❌ Skip edge cases (they're there for a reason!)
@@ -1874,6 +1998,7 @@ Claude: [Reads reference/bitchat-android/noise/NoiseSession.kt:477-543]
 **NEW Reality:** Port battle-tested, production-ready code that ALREADY works on BLE mesh with all edge cases handled
 
 **FYP Value:** EXCELLENT
+
 - Shows cross-platform porting skills (Kotlin → Dart)
 - Demonstrates understanding of complex cryptographic protocol
 - Proves ability to work with real-world production code
@@ -1887,12 +2012,13 @@ Claude: [Reads reference/bitchat-android/noise/NoiseSession.kt:477-543]
 *Library verification: 2025-10-14 (noise_protocol_framework & dart_libp2p analysis)*
 *BREAKTHROUGH DISCOVERY: 2025-10-14 (bitchat-android COMPLETE implementation found!)*
 *Files analyzed:
-  - pak_connect: 15+ core files, 2000+ lines (original Flutter project)
-  - noise_protocol_framework: 12+ files (Dart, limited patterns)
-  - dart_libp2p: 6 noise files, XX pattern fully implemented (700+ lines)
-  - **bitchat-android: 5 Noise files (1500+ lines Kotlin) + 3000+ lines noise-java library**
-  - **bitchat-android: COMPLETE XX implementation, ALL patterns available in noise-java**
-  - **bitchat-android: Production-tested on BLE mesh (iOS & Android)**
+
+- pak_connect: 15+ core files, 2000+ lines (original Flutter project)
+- noise_protocol_framework: 12+ files (Dart, limited patterns)
+- dart_libp2p: 6 noise files, XX pattern fully implemented (700+ lines)
+- **bitchat-android: 5 Noise files (1500+ lines Kotlin) + 3000+ lines noise-java library**
+- **bitchat-android: COMPLETE XX implementation, ALL patterns available in noise-java**
+- **bitchat-android: Production-tested on BLE mesh (iOS & Android)**
 *Validation method: Direct code inspection, pattern verification, cross-platform compatibility analysis*
 *Status: ✅✅✅ **BREAKTHROUGH** - COMPLETE production-ready reference implementation found!*
 *Next steps: Port bitchat-android Noise implementation to Dart (3-5 weeks estimated)*
