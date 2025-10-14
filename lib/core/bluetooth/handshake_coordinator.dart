@@ -340,6 +340,12 @@ class HandshakeCoordinator {
   void _startPhaseTimeout(String waitingFor) {
     _timeoutTimer?.cancel();
     _timeoutTimer = Timer(_phaseTimeout, () {
+      // Defensive check: Don't fail if handshake already complete
+      // (Prevents race condition where timer fires during async completion callback)
+      if (_phase == ConnectionPhase.complete) {
+        _logger.info('⏱️ Timer fired but handshake already complete - ignoring');
+        return;
+      }
       _logger.warning('⏱️ Phase timeout waiting for: $waitingFor');
       _failHandshake('Timeout waiting for $waitingFor');
     });

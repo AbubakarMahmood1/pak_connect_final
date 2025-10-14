@@ -1564,6 +1564,13 @@ Future<void> _performHandshake() async {
       // 🔧 FIX: Disconnect on handshake failure
       if (phase == ConnectionPhase.failed || phase == ConnectionPhase.timeout) {
         _logger.warning('⚠️ Handshake failed/timeout - disconnecting BLE connection');
+        
+        // 🚨 CRITICAL: Set isReady=false IMMEDIATELY to prevent reconnection loop
+        _updateConnectionInfo(
+          isReady: false,
+          statusMessage: 'Connection failed - handshake timeout',
+        );
+        
         // Small delay to let UI show failure message
         await Future.delayed(Duration(milliseconds: 500));
         await disconnect();

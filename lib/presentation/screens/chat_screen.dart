@@ -1549,23 +1549,6 @@ void _setupContactRequestListener() {
   
   print('🔧 SEND DEBUG: Attempting to send message: "$text"');
   
-  // Create message with sending status
-  final message = Message(
-    id: DateTime.now().millisecondsSinceEpoch.toString(),
-    chatId: _chatId,
-    content: text,
-    timestamp: DateTime.now(),
-    isFromMe: true,
-    status: MessageStatus.sending,
-  );
-
-  // Save and show immediately
-  await _messageRepository.saveMessage(message);
-  setState(() {
-    _messages.add(message);
-  });
-  _scrollToBottom();
-
   try {
     // Get the current contact key (ephemeral or persistent)
     final recipientKey = _contactPublicKey;
@@ -1577,58 +1560,44 @@ void _setupContactRequestListener() {
     if (recipientKey == null || recipientKey.isEmpty) {
       print('🔧 SEND DEBUG: No recipient key available (handshake may not be complete)');
       _showError('Connection not ready - please wait for handshake to complete');
-
-      // Mark message as failed
-      final failedMessage = message.copyWith(status: MessageStatus.failed);
-      await _messageRepository.updateMessage(failedMessage);
-      setState(() {
-        final index = _messages.indexWhere((m) => m.id == message.id);
-        if (index != -1) {
-          _messages[index] = failedMessage;
-        }
-      });
       return;
     }
 
-    // Use AppCore's unified secure messaging system
-    // Works with both ephemeral IDs (pre-pairing) and persistent keys (post-pairing)
-    final messageId = await AppCore.instance.sendSecureMessage(
+    // 🔧 FIX: Get secure messageId FIRST from queue system
+    // This ensures MessageRepository and OfflineMessageQueue use the SAME ID
+    final secureMessageId = await AppCore.instance.sendSecureMessage(
       chatId: _chatId,
       content: text,
       recipientPublicKey: recipientKey,
     );
 
-    print('🔧 SEND DEBUG: Message queued with AppCore, messageId: ${messageId.length > 16 ? '${messageId.substring(0, 16)}...' : messageId}');
+    print('🔧 SEND DEBUG: Message queued with secure ID: ${secureMessageId.length > 16 ? '${secureMessageId.substring(0, 16)}...' : secureMessageId}');
 
-    // Update message status to sent (queue system will handle delivery)
-    final queuedMessage = message.copyWith(
+    // 🔧 FIX: Create message with the SAME ID that queue is using
+    final message = Message(
+      id: secureMessageId,  // ← Use queue's secure ID, not timestamp!
+      chatId: _chatId,
+      content: text,
+      timestamp: DateTime.now(),
+      isFromMe: true,
       status: MessageStatus.sent, // Queue will handle delivery status
     );
 
-    await _messageRepository.updateMessage(queuedMessage);
+    // Save to repository with matching ID
+    await _messageRepository.saveMessage(message);
     setState(() {
-      final index = _messages.indexWhere((m) => m.id == message.id);
-      if (index != -1) {
-        _messages[index] = queuedMessage;
-      }
+      _messages.add(message);
     });
 
-    print('🔧 SEND DEBUG: Message ${message.id} -> Queue ID ${messageId.length > 16 ? '${messageId.substring(0, 16)}...' : messageId}');
-
     _showSuccess('✅ Message queued for secure delivery');
-    print('🔧 SEND DEBUG: Message successfully queued through AppCore');
+    print('🔧 SEND DEBUG: Message saved to repository with ID: ${secureMessageId.length > 16 ? '${secureMessageId.substring(0, 16)}...' : secureMessageId}');
     _scrollToBottom();
       
   } catch (e) {
     print('🔧 SEND DEBUG: Exception caught: $e');
-    final failedMessage = message.copyWith(status: MessageStatus.failed);
-    await _messageRepository.updateMessage(failedMessage);
-    setState(() {
-      final index = _messages.indexWhere((m) => m.id == message.id);
-      if (index != -1) {
-        _messages[index] = failedMessage;
-      }
-    });
+    // 🔧 FIX: If queueing fails, show error to user
+    // Don't create a failed message in repository since queue failed
+    _showError('Failed to send message: $e');
   }
 }
 
