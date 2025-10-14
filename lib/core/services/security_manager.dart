@@ -15,9 +15,17 @@ class SecurityManager {
   
   /// Get current security level for a contact
   static Future<SecurityLevel> getCurrentLevel(String publicKey, ContactRepository repo) async {
+    // 🔧 FIX: Handle empty or invalid public keys safely
+    if (publicKey.isEmpty) {
+      _logger.info('🔒 LEVEL: Empty public key → LOW (unencrypted)');
+      return SecurityLevel.low;
+    }
+    
     final contact = await repo.getContact(publicKey);
     
-    _logger.fine('🔧 SECURITY DEBUG: getCurrentLevel for ${publicKey.substring(0, 16)}...');
+    // 🔧 FIX: Safe truncation to prevent RangeError
+    final truncatedKey = publicKey.length > 16 ? publicKey.substring(0, 16) : publicKey;
+    _logger.fine('🔧 SECURITY DEBUG: getCurrentLevel for $truncatedKey...');
     _logger.fine('🔧 SECURITY DEBUG: Contact exists: ${contact != null}');
     _logger.fine('🔧 SECURITY DEBUG: Contact security level: ${contact?.securityLevel.name}');
   

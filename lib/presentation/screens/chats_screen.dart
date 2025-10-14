@@ -730,7 +730,7 @@ ConnectionStatus _determineConnectionStatus(
   if (connectionInfo != null && 
       connectionInfo.isConnected && 
       !connectionInfo.isReady &&
-      bleService.otherDevicePersistentId == chat.contactPublicKey) {
+      bleService.theirPersistentKey == chat.contactPublicKey) {
     return ConnectionStatus.connecting;
   }
   

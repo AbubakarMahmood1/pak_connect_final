@@ -27,17 +27,39 @@ class BLEStateManager {
   String? _myUserName;
   String? _otherUserName;
   String? _myPersistentId;
-  String? _otherDevicePersistentId;
-  String? _theirReceivedCode;
-  bool _weEnteredCode = false;
-  String? _lastSyncedTheirStatus;
   
-  // STEP 3: Ephemeral ID tracking (separate from persistent IDs)
+  // ============================================================================
+  // REFACTORED IDENTITY TRACKING (clearer naming for ephemeral vs persistent)
+  // ============================================================================
+  
+  // SESSION STATE: The currently active ID for addressing this contact
+  // Pre-pairing: points to _theirEphemeralId
+  // Post-pairing: points to _theirPersistentKey
+  String? _currentSessionId;
+  
+  // EPHEMERAL IDENTITY: Session-specific 8-char ID from handshake
+  // - Generated per session, changes on reconnect
+  // - Used for privacy-preserving initial communication
+  // - NOT suitable for long-term storage or contact relationships
   String? _myEphemeralId;
   String? _theirEphemeralId;
   
-  // STEP 3: Mapping ephemeral → persistent (populated after key exchange)
+  // PERSISTENT IDENTITY: Long-term 64-char Ed25519 public key
+  // - Exchanged during pairing process (AFTER handshake)
+  // - Used for contact relationships and encrypted communication
+  // - Suitable for database storage and long-term identification
+  String? _theirPersistentKey;
+  
+  // MAPPING: Ephemeral → Persistent (populated after key exchange)
   final Map<String, String> _ephemeralToPersistent = {};
+  
+  // ============================================================================
+  // END REFACTORED IDENTITY TRACKING
+  // ============================================================================
+  
+  String? _theirReceivedCode;
+  bool _weEnteredCode = false;
+  String? _lastSyncedTheirStatus;
   
   // Peripheral mode tracking
   bool _isPeripheralMode = false;
@@ -55,7 +77,6 @@ class BLEStateManager {
   // Getters
   String? get myUserName => _myUserName;
   String? get otherUserName => _otherUserName;
-  String? get otherDevicePersistentId => _otherDevicePersistentId;
   bool get isPeripheralMode => _isPeripheralMode;
   String? get myPersistentId => _myPersistentId;
   PairingInfo? get currentPairing => _currentPairing;
@@ -63,9 +84,15 @@ class BLEStateManager {
   String? get pendingContactName => _pendingContactName;
   bool get theyHaveUsAsContact => _lastSyncedTheirStatus == 'yes';
   
-  // STEP 3: Ephemeral ID getters
+  // REFACTORED: Identity getters with clear naming
   String? get myEphemeralId => _myEphemeralId;
   String? get theirEphemeralId => _theirEphemeralId;
+  String? get theirPersistentKey => _theirPersistentKey;
+
+  /// The currently active ID for this session
+  /// Pre-pairing: ephemeral ID (8 chars)
+  /// Post-pairing: persistent key (64 chars)
+  String? get currentSessionId => _currentSessionId;
 
   bool _contactRequestPending = false;
   String? _pendingContactPublicKey;
@@ -131,15 +158,15 @@ class BLEStateManager {
    await _userPreferences.getOrCreateKeyPair();
    _logger.info('✅ Key pair ready in ${DateTime.now().difference(keyStart).inMilliseconds}ms');
 
-   _logger.info('🆔 Getting public key...');
+   _logger.info('[BLEStateManager] 🆔 Getting public key...');
    final pubKeyStart = DateTime.now();
    _myPersistentId = await _userPreferences.getPublicKey();
-   _logger.info('✅ Public key retrieved in ${DateTime.now().difference(pubKeyStart).inMilliseconds}ms: "${_myPersistentId?.substring(0, 16)}..."');
+   _logger.info('[BLEStateManager] ✅ Public key retrieved in ${DateTime.now().difference(pubKeyStart).inMilliseconds}ms: "${_truncateId(_myPersistentId)}"');
 
    // STEP 3: Generate ephemeral ID for this session
-   _logger.info('🎲 Generating ephemeral ID...');
+   _logger.info('[BLEStateManager] 🎲 Generating ephemeral ID...');
    _myEphemeralId = _generateEphemeralId();
-   _logger.info('✅ Ephemeral ID generated: "${_myEphemeralId?.substring(0, 16)}..."');
+   _logger.info('[BLEStateManager] ✅ Ephemeral ID generated: "${_truncateId(_myEphemeralId)}"');
 
    _logger.info('🔐 Initializing crypto...');
    final cryptoStart = DateTime.now();
@@ -224,20 +251,24 @@ void setOtherUserName(String? name) {
 
 void setOtherDeviceIdentity(String deviceId, String displayName) {
   print('🐛 NAV DEBUG: setOtherDeviceIdentity called');
-  print('🐛 NAV DEBUG: - deviceId: ${deviceId.substring(0, 16)}...');
+  print('🐛 NAV DEBUG: - deviceId: $deviceId');
   print('🐛 NAV DEBUG: - displayName: "$displayName"');
-  print('🐛 NAV DEBUG: - previous _otherDevicePersistentId: ${_otherDevicePersistentId?.substring(0, 16)}...');
+  print('🐛 NAV DEBUG: - previous _currentSessionId: $_currentSessionId');
   
   _logger.info('Setting other device identity: "$displayName" (ID: $deviceId)');
   
   // INFINITE LOOP FIX: Reset sync state for new connection
-  if (_otherDevicePersistentId != deviceId) {
+  if (_currentSessionId != deviceId) {
     // This is a new contact, reset sync state
     _resetBilateralSyncStatus(deviceId);
   }
   
   _otherUserName = displayName;
-  _otherDevicePersistentId = deviceId;
+  
+  // REFACTORED: Set the current session ID
+  // This will be the ephemeral ID initially, and updated to persistent key after pairing
+  _currentSessionId = deviceId;
+  
   onNameChanged?.call(_otherUserName);
   
   if (displayName.isNotEmpty) {
@@ -249,7 +280,7 @@ void setOtherDeviceIdentity(String deviceId, String displayName) {
   
   Future<void> saveContact(String publicKey, String userName) async {
   await _contactRepository.saveContact(publicKey, userName);
-  _logger.info('Contact saved: $userName (${publicKey.substring(0, 16)}...)');
+  _logger.info('[BLEStateManager] Contact saved: $userName (${_truncateId(publicKey)})');
 }
 
 Future<Contact?> getContact(String publicKey) async {
@@ -415,7 +446,8 @@ Future<bool> _performVerification() async {
   
   try {
     final myPublicKey = await getMyPersistentId();
-    final theirPublicKey = _otherDevicePersistentId;
+    // REFACTORED: Use currentSessionId which may be ephemeral or persistent
+    final theirPublicKey = _currentSessionId;
     
     if (theirPublicKey == null) {
       _logger.warning('No other device public key');
@@ -486,15 +518,17 @@ void handlePairingVerification(String theirSecretHash) {
 
 /// Generate a unique ephemeral ID for this session
 /// This is separate from the persistent public key and changes each session
+/// FIXED: Generate 64-char ephemeral ID (same length as persistent keys) to avoid length-dependent bugs
 String _generateEphemeralId() {
   final random = Random.secure();
-  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
-  return base64Url.encode(bytes).substring(0, 22); // 22 chars, URL-safe
+  // Generate 32 bytes (256 bits) for a 64-character hex string
+  final bytes = List<int>.generate(32, (_) => random.nextInt(256));
+  return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }
 
 /// Store the ephemeral ID received during handshake
 void setTheirEphemeralId(String ephemeralId, String displayName) {
-  _logger.info('Storing their ephemeral ID: ${ephemeralId.substring(0, 16)}... ($displayName)');
+  _logger.info('Storing their ephemeral ID: $ephemeralId ($displayName)');
   _theirEphemeralId = ephemeralId;
   // Note: Display name is already set via setOtherUserName
 }
@@ -548,7 +582,7 @@ void handlePairingRequest(ProtocolMessage message) {
   final displayName = message.payload['displayName'] as String;
   
   _logger.info('📥 STEP 3: Received pairing request from $displayName');
-  _logger.info('   Their ephemeral ID: ${theirEphemeralId.substring(0, 16)}...');
+  _logger.info('   Their ephemeral ID: $theirEphemeralId');
   
   // Store their ephemeral ID if we don't have it yet
   _theirEphemeralId ??= theirEphemeralId;
@@ -711,7 +745,7 @@ Future<void> _exchangePersistentKeys() async {
     return;
   }
   
-  _logger.info('🔑 STEP 4: Exchanging persistent keys (my ephemeral: ${_myEphemeralId?.substring(0, 16)}...)');
+  _logger.info('🔑 STEP 4: Exchanging persistent keys (my ephemeral: $_myEphemeralId)');
   
   // Create and send persistent key exchange message
   final message = ProtocolMessage.persistentKeyExchange(
@@ -729,16 +763,20 @@ Future<void> handlePersistentKeyExchange(String theirPersistentKey) async {
     return;
   }
   
-  _logger.info('📥 STEP 4: Received persistent public key from ${_otherUserName ?? "Unknown"}');
-  _logger.info('   Ephemeral ID: ${_theirEphemeralId!.substring(0, 16)}...');
-  _logger.info('   Persistent key: ${theirPersistentKey.substring(0, 16)}...');
+  _logger.info('[BLEStateManager] 📥 STEP 4: Received persistent public key from ${_otherUserName ?? "Unknown"}');
+  _logger.info('   Ephemeral ID: $_theirEphemeralId');
+  _logger.info('   Persistent key: ${_truncateId(theirPersistentKey)}');
   
   // Store mapping: ephemeralId → persistentKey
   _ephemeralToPersistent[_theirEphemeralId!] = theirPersistentKey;
   _logger.info('✅ STEP 4: Stored ephemeral → persistent mapping');
   
-  // Update the state manager's persistent ID reference
-  _otherDevicePersistentId = theirPersistentKey;
+  // REFACTORED: Store persistent key in dedicated field
+  _theirPersistentKey = theirPersistentKey;
+  
+  // REFACTORED: Update current session ID to use persistent key (we're now paired!)
+  _currentSessionId = theirPersistentKey;
+  _logger.info('🔄 Session transitioned from ephemeral to persistent identity');
   
   // Ensure contact exists with persistent key
   await _ensureContactExistsAfterPairing(
@@ -769,18 +807,15 @@ String? getPersistentKeyFromEphemeral(String ephemeralId) {
 /// - Returns persistent public key if paired (after key exchange)
 /// - Returns ephemeral ID if not paired (privacy preserved)
 String? getRecipientId() {
-  // If we have persistent ID, we're paired - use it
-  if (_otherDevicePersistentId != null) {
-    return _otherDevicePersistentId;
-  }
-  
-  // Otherwise use ephemeral ID (privacy preserved)
-  return _theirEphemeralId;
+  // REFACTORED: Return currentSessionId which automatically points to the right ID
+  // Pre-pairing: _currentSessionId points to ephemeral ID
+  // Post-pairing: _currentSessionId points to persistent key
+  return _currentSessionId;
 }
 
 /// STEP 7.2: Check if we're paired with the current contact
 /// Paired = we've completed persistent key exchange
-bool get isPaired => _otherDevicePersistentId != null;
+bool get isPaired => _theirPersistentKey != null;
 
 /// STEP 7.3: Get ID type for logging
 String getIdType() {
@@ -868,7 +903,7 @@ bool _isBilateralSyncComplete(String theirPublicKey) {
 /// INFINITE LOOP FIX: Mark bilateral sync as complete
 void _markBilateralSyncComplete(String theirPublicKey) {
   _bilateralSyncComplete[theirPublicKey] = true;
-  print('📱 SYNC COMPLETE: Marked bilateral sync complete for ${theirPublicKey.substring(0, 16)}...');
+  print('[BLEStateManager] 📱 SYNC COMPLETE: Marked bilateral sync complete for ${_truncateId(theirPublicKey)}');
 }
 
 /// INFINITE LOOP FIX: Reset sync completion (for new connections)
@@ -877,7 +912,7 @@ void _resetBilateralSyncStatus(String theirPublicKey) {
   _lastSentContactStatus.remove(theirPublicKey);
   _lastStatusSentTime.remove(theirPublicKey);
   _lastReceivedContactStatus.remove(theirPublicKey);
-  print('📱 SYNC RESET: Reset bilateral sync status for ${theirPublicKey.substring(0, 16)}...');
+  print('[BLEStateManager] 📱 SYNC RESET: Reset bilateral sync status for ${_truncateId(theirPublicKey)}');
 }
 
 /// INFINITE LOOP FIX: Send contact status only if changed or cooldown expired
@@ -950,7 +985,7 @@ Future<void> _performBilateralContactSync(String theirPublicKey, bool theyHaveUs
       // Check our repository state (source of truth)
       final weHaveThem = await weHaveThemAsContact;
       
-      _logger.info('📱 BILATERAL SYNC (${theirPublicKey.substring(0, 16)}...):');
+      _logger.info('[BLEStateManager] 📱 BILATERAL SYNC (${_truncateId(theirPublicKey)}):');
       _logger.info('  - They have us: $theyHaveUs');
       _logger.info('  - We have them: $weHaveThem');
       
@@ -1042,7 +1077,7 @@ Future<void> _checkForAsymmetricRelationship(String theirPublicKey, bool theyHav
 }
 
 Future<void> initializeContactFlags() async {
-    if (_otherDevicePersistentId == null) return;
+    if (_currentSessionId == null) return;
     
     _logger.info('🔄 Initializing contact flags from repository...');
     
@@ -1078,7 +1113,7 @@ Future<void> initializeContactFlags() async {
 
   /// Check if contact state is asymmetric and needs resolution
   Future<bool> _isContactStateAsymmetric() async {
-    if (_otherDevicePersistentId == null || _lastSyncedTheirStatus == null) {
+    if (_currentSessionId == null || _lastSyncedTheirStatus == null) {
       return true; // Unknown state needs resolution
     }
     
@@ -1103,11 +1138,11 @@ void preserveContactRelationship({
   bool? weHaveThem,
 }) {
   if (otherPublicKey != null && otherName != null) {
-    _logger.info('🔄 Preserving contact relationship across mode switch:');
-    _logger.info('  Other: $otherName (${otherPublicKey.substring(0, 16)}...)');
+    _logger.info('[BLEStateManager] 🔄 Preserving contact relationship across mode switch:');
+    _logger.info('  Other: $otherName (${_truncateId(otherPublicKey)})');
     
     // Preserve identity
-    _otherDevicePersistentId = otherPublicKey;
+    _currentSessionId = otherPublicKey;
     _otherUserName = otherName;
     
     // Preserve their claim status if provided
@@ -1115,7 +1150,7 @@ void preserveContactRelationship({
       _lastSyncedTheirStatus = theyHaveUs ? 'yes' : 'no';
     }
   } else {
-    _logger.info('🔄 No previous relationship to preserve during mode switch');
+    _logger.info('[BLEStateManager] 🔄 No previous relationship to preserve during mode switch');
     
     // Clear session state for fresh start - don't preserve persistent ID for fresh connections
     clearSessionState(preservePersistentId: false);
@@ -1132,7 +1167,7 @@ void _triggerMutualConsentPrompt(String theirPublicKey) {
 
 /// User-initiated contact request (replaces automatic addition)
 Future<bool> initiateContactRequest() async {
-  if (_otherDevicePersistentId == null || _otherUserName == null) {
+  if (_currentSessionId == null || _otherUserName == null) {
     _logger.warning('Cannot initiate contact request - missing device info');
     return false;
   }
@@ -1145,7 +1180,7 @@ Future<bool> initiateContactRequest() async {
     
     // Set up timeout for response
     final completer = Completer<bool>();
-    _outgoingRequestCompleters[_otherDevicePersistentId!] = completer;
+    _outgoingRequestCompleters[_currentSessionId!] = completer;
     
     final timer = Timer(_contactRequestTimeout, () {
       if (!completer.isCompleted) {
@@ -1153,7 +1188,7 @@ Future<bool> initiateContactRequest() async {
         completer.complete(false);
       }
     });
-    _pendingOutgoingRequests[_otherDevicePersistentId!] = timer;
+    _pendingOutgoingRequests[_currentSessionId!] = timer;
     
     // Send the request
     onSendContactRequest?.call(myPublicKey, myName);
@@ -1162,7 +1197,7 @@ Future<bool> initiateContactRequest() async {
     final accepted = await completer.future;
     
     // Cleanup
-    _cleanupOutgoingRequest(_otherDevicePersistentId!);
+    _cleanupOutgoingRequest(_currentSessionId!);
     
     return accepted;
     
@@ -1195,16 +1230,16 @@ void handleContactRequestAcceptResponse(String publicKey, String displayName) {
 
 /// Handle contact request rejection response
 void handleContactRequestRejectResponse() {
-  if (_otherDevicePersistentId != null) {
+  if (_currentSessionId != null) {
     _logger.info('📱 CONTACT REQUEST: Rejected by $_otherUserName');
     
     // Complete any pending request
-    final completer = _outgoingRequestCompleters[_otherDevicePersistentId!];
+    final completer = _outgoingRequestCompleters[_currentSessionId!];
     if (completer != null && !completer.isCompleted) {
       completer.complete(false);
     }
     
-    _cleanupOutgoingRequest(_otherDevicePersistentId!);
+    _cleanupOutgoingRequest(_currentSessionId!);
   }
 }
 
@@ -1276,8 +1311,8 @@ Future<bool> sendContactRequest() async {
 }
 
 Future<bool> get weHaveThemAsContact async {
-    if (_otherDevicePersistentId == null) return false;
-    final contact = await _contactRepository.getContact(_otherDevicePersistentId!);
+    if (_currentSessionId == null) return false;
+    final contact = await _contactRepository.getContact(_currentSessionId!);
     return contact != null && contact.trustStatus == TrustStatus.verified;
   }
 
@@ -1441,11 +1476,11 @@ Future<void> checkForQRIntroduction(String otherPublicKey, String otherName) asy
 }
 
 Future<void> requestSecurityLevelSync() async {
-  if (_otherDevicePersistentId == null) return;
+  if (_currentSessionId == null) return;
   
   try {
     final myPublicKey = await getMyPersistentId();
-    final mySecurityLevel = await _contactRepository.getContactSecurityLevel(_otherDevicePersistentId!);
+    final mySecurityLevel = await _contactRepository.getContactSecurityLevel(_currentSessionId!);
     
     final syncMessage = ProtocolMessage(
       type: ProtocolMessageType.contactStatus,
@@ -1470,8 +1505,8 @@ Future<void> handleSecurityLevelSync(Map<String, dynamic> payload) async {
   
   print('🔒 SECURITY SYNC: They have us at ${theirSecurityLevel.name} level');
   
-  if (_otherDevicePersistentId != null) {
-    final ourSecurityLevel = await _contactRepository.getContactSecurityLevel(_otherDevicePersistentId!);
+  if (_currentSessionId != null) {
+    final ourSecurityLevel = await _contactRepository.getContactSecurityLevel(_currentSessionId!);
     
     print('🔒 SECURITY SYNC: We have them at ${ourSecurityLevel.name} level');
     
@@ -1484,7 +1519,7 @@ Future<void> handleSecurityLevelSync(Map<String, dynamic> payload) async {
     
     // Update our stored level to match reality
     if (ourSecurityLevel != mutualLevel) {
-      await _contactRepository.updateContactSecurityLevel(_otherDevicePersistentId!, mutualLevel);
+      await _contactRepository.updateContactSecurityLevel(_currentSessionId!, mutualLevel);
       print('🔒 SECURITY SYNC: Updated our level to match mutual: ${mutualLevel.name}');
       
       // Trigger UI refresh
@@ -1514,13 +1549,13 @@ Future<void> _ensureContactExistsAfterPairing(String publicKey, String displayNa
 }
 
 Future<bool> confirmSecurityUpgrade(String publicKey, SecurityLevel newLevel) async {
-  print('🔧 DEBUG: confirmSecurityUpgrade called for ${publicKey.substring(0, 16)}... to ${newLevel.name}');
+  print('[BLEStateManager] 🔧 DEBUG: confirmSecurityUpgrade called for ${_truncateId(publicKey)} to ${newLevel.name}');
   
   try {
     final existingContact = await _contactRepository.getContact(publicKey);
     
     if (existingContact == null) {
-      print('🔧 DEBUG: No existing contact - creating new with ${newLevel.name} level');
+      print('[BLEStateManager] 🔧 DEBUG: No existing contact - creating new with ${newLevel.name} level');
       await _contactRepository.saveContactWithSecurity(publicKey, 'Unknown', newLevel);
       onContactRequestCompleted?.call(true);
       return true;
@@ -1648,28 +1683,43 @@ String? getConversationKey(String publicKey) {
 
   
   void setPeripheralMode(bool isPeripheral) {
+    final modeChanged = _isPeripheralMode != isPeripheral;
     _isPeripheralMode = isPeripheral;
+    
+    // 🔧 FIX: Regenerate ephemeral ID on mode switch for privacy
+    if (modeChanged) {
+      final oldId = _truncateId(_myEphemeralId);
+      _myEphemeralId = _generateEphemeralId();
+      _logger.info('🔄 Mode switched - regenerated ephemeral ID: $oldId → ${_truncateId(_myEphemeralId)}');
+    }
   }
 
 Future<void> requestContactStatusExchange() async {
-    if (_otherDevicePersistentId == null) return;
+    if (_currentSessionId == null) return;
     
     try {
       // Get OUR status from repository (persistent truth)
       final weHaveThem = await weHaveThemAsContact;
       
       // INFINITE LOOP FIX: Use the new debounced sending method
-      await _sendContactStatusIfChanged(weHaveThem, _otherDevicePersistentId!);
+      await _sendContactStatusIfChanged(weHaveThem, _currentSessionId!);
       
     } catch (e) {
       _logger.warning('Failed to send contact status: $e');
     }
   }
 
+/// HELPER: Safe substring for logging IDs of any length
+String _truncateId(String? id, {int maxLength = 16}) {
+  if (id == null) return 'null';
+  if (id.length <= maxLength) return id;
+  return '${id.substring(0, maxLength)}...';
+}
+
 void clearSessionState({bool preservePersistentId = false}) {
-    _logger.warning('🔍 SESSION STATE CLEARING - CRITICAL NAVIGATION EVENT');
+    _logger.warning('🔍 [BLEStateManager] SESSION STATE CLEARING - CRITICAL NAVIGATION EVENT');
     _logger.warning('  - BEFORE: otherUserName = "$_otherUserName"');
-    _logger.warning('  - BEFORE: otherDevicePersistentId = "${_otherDevicePersistentId?.substring(0, 16)}..."');
+    _logger.warning('  - BEFORE: otherDevicePersistentId = "${_truncateId(_currentSessionId)}"');
     _logger.warning('  - preservePersistentId = $preservePersistentId');
     _logger.warning('  - Called from: ${StackTrace.current.toString().split('\n').take(5).join(' -> ')}');
     
@@ -1680,13 +1730,13 @@ void clearSessionState({bool preservePersistentId = false}) {
         _otherUserName = null;
         _logger.warning('  - ⚠️  CLEARED otherUserName: "$previousName" -> null (disconnection)');
         
-        final previousId = _otherDevicePersistentId;
-        _otherDevicePersistentId = null;
-        _logger.warning('  - ⚠️  CLEARED persistent ID: "${previousId?.substring(0, 16)}..." -> null (connection loss)');
+        final previousId = _currentSessionId;
+        _currentSessionId = null;
+        _logger.warning('  - ⚠️  CLEARED persistent ID: "${_truncateId(previousId)}" -> null (connection loss)');
     } else {
         // Navigation only - preserve identity to maintain connection state
         _logger.warning('  - ✅ PRESERVED otherUserName: "$_otherUserName" (navigation)');
-        _logger.warning('  - ✅ PRESERVED persistent ID: "${_otherDevicePersistentId?.substring(0, 16)}..." (navigation)');
+        _logger.warning('  - ✅ PRESERVED persistent ID: "${_truncateId(_currentSessionId)}" (navigation)');
     }
     
     _lastSyncedTheirStatus = null;
@@ -1697,10 +1747,10 @@ void clearSessionState({bool preservePersistentId = false}) {
     if (!preservePersistentId) {
         _logger.warning('  - 🚨 BROADCASTING NULL NAME TO UI (triggers disconnected state)');
         onNameChanged?.call(null);
-        _logger.warning('🔍 SESSION CLEAR COMPLETE - UI will now show DISCONNECTED');
+        _logger.warning('🔍 [BLEStateManager] SESSION CLEAR COMPLETE - UI will now show DISCONNECTED');
     } else {
         _logger.warning('  - ✅ PRESERVING NAME BROADCAST (UI stays connected during navigation)');
-        _logger.warning('🔍 SESSION CLEAR COMPLETE - UI connection state preserved');
+        _logger.warning('🔍 [BLEStateManager] SESSION CLEAR COMPLETE - UI connection state preserved');
     }
   }
   
@@ -1721,30 +1771,30 @@ void clearOtherUserName() {
   
   /// Recover identity information from persistent storage when session state is cleared during navigation
   Future<void> recoverIdentityFromStorage() async {
-    if (_otherDevicePersistentId == null) {
-      _logger.info('🔄 RECOVERY: No persistent ID available for identity recovery');
+    if (_currentSessionId == null) {
+      _logger.info('[BLEStateManager] 🔄 RECOVERY: No persistent ID available for identity recovery');
       return;
     }
     
     try {
       // Try to recover display name from contact repository
-      final contact = await _contactRepository.getContact(_otherDevicePersistentId!);
+      final contact = await _contactRepository.getContact(_currentSessionId!);
       
       if (contact != null && contact.displayName.isNotEmpty) {
-        _logger.info('🔄 RECOVERY: Restored identity from contacts');
-        _logger.info('  - Public key: ${_otherDevicePersistentId!.substring(0, 16)}...');
+        _logger.info('[BLEStateManager] 🔄 RECOVERY: Restored identity from contacts');
+        _logger.info('  - Public key: ${_truncateId(_currentSessionId)}');
         _logger.info('  - Display name: ${contact.displayName}');
         
         // Restore session identity without triggering full connection flow
         _otherUserName = contact.displayName;
         onNameChanged?.call(_otherUserName);
         
-        _logger.info('✅ RECOVERY: Identity successfully recovered from storage');
+        _logger.info('[BLEStateManager] ✅ RECOVERY: Identity successfully recovered from storage');
       } else {
-        _logger.warning('🔄 RECOVERY: No contact found in repository for persistent ID');
+        _logger.warning('[BLEStateManager] 🔄 RECOVERY: No contact found in repository for persistent ID');
       }
     } catch (e) {
-      _logger.warning('🔄 RECOVERY: Failed to recover identity from storage: $e');
+      _logger.warning('[BLEStateManager] 🔄 RECOVERY: Failed to recover identity from storage: $e');
     }
   }
   
@@ -1754,19 +1804,19 @@ void clearOtherUserName() {
     if (_otherUserName != null && _otherUserName!.isNotEmpty) {
       return {
         'displayName': _otherUserName,
-        'publicKey': _otherDevicePersistentId ?? '',
+        'publicKey': _currentSessionId ?? '',
         'source': 'session'
       };
     }
     
     // Fallback: Try to get from persistent storage
-    if (_otherDevicePersistentId != null) {
+    if (_currentSessionId != null) {
       try {
-        final contact = await _contactRepository.getContact(_otherDevicePersistentId!);
+        final contact = await _contactRepository.getContact(_currentSessionId!);
         if (contact != null) {
           return {
             'displayName': contact.displayName,
-            'publicKey': _otherDevicePersistentId!,
+            'publicKey': _currentSessionId!,
             'source': 'repository'
           };
         }
@@ -1778,7 +1828,7 @@ void clearOtherUserName() {
     // Last resort: Return what we have
     return {
       'displayName': _otherUserName ?? 'Connected Device',
-      'publicKey': _otherDevicePersistentId ?? '',
+      'publicKey': _currentSessionId ?? '',
       'source': 'fallback'
     };
   }

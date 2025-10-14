@@ -80,7 +80,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   int _lastReadMessageIndex = -1;
   bool _showUnreadSeparator = false;
   Timer? _unreadSeparatorTimer;
-  String? _persistentContactPublicKey;
 
   // Search state
   bool _isSearchMode = false;
@@ -92,6 +91,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _meshInitializing = false; // 🔧 FIX: Start false, check actual state
   String _initializationStatus = 'Checking...';
   Timer? _initializationTimeoutTimer;
+  
+  // 🔧 FIX: Cache contact public key to avoid accessing ref during dispose
+  String? _cachedContactPublicKey;
+  
+  /// 🔧 FIX: Safe setState that checks mounted before calling
+  void _safeSetState(VoidCallback fn) {
+    if (mounted) {
+      setState(fn);
+    }
+  }
  
   String get _chatId => _currentChatId!;
   bool get _isPeripheralMode => widget.central != null;
@@ -109,8 +118,32 @@ String get _displayContactName {
   return 'Unknown';
 }
 
+/// Get the current contact public key - single source of truth
+/// This reactively reads from BLE service, so it automatically updates
+/// when pairing completes and persistent keys are exchanged
+String? get _contactPublicKey {
+  if (_isRepositoryMode) {
+    return widget.contactPublicKey;
+  }
+  
+  // 🔧 FIX: Return cached value if widget is unmounting (prevents dispose crash)
+  if (!mounted) {
+    return _cachedContactPublicKey;
+  }
+  
+  // Live connection: Use BLE service's currentSessionId
+  // This is ephemeral ID initially, then becomes persistent key after pairing
+  final bleService = ref.read(bleServiceProvider);
+  final currentKey = bleService.currentSessionId;
+  
+  // Cache the value for safe access during dispose
+  _cachedContactPublicKey = currentKey;
+  
+  return currentKey;
+}
+
 String? get securityStateKey {
-  final publicKey = widget.contactPublicKey ?? _persistentContactPublicKey;
+  final publicKey = widget.contactPublicKey ?? _contactPublicKey;
   
   if (publicKey != null && publicKey.isNotEmpty) {
     // Force repository lookup for all known contacts
@@ -119,7 +152,7 @@ String? get securityStateKey {
   
   // Only use live mode for truly unknown connections
   final bleService = ref.read(bleServiceProvider);
-  return bleService.otherDevicePersistentId;
+  return bleService.currentSessionId;
 }
 
 @override
@@ -134,8 +167,6 @@ String? get securityStateKey {
     
     _currentChatId = _calculateInitialChatId();
     print('🐛 NAV DEBUG: - calculated chatId: $_currentChatId');
-    
-    _initializePersistentValues();
     
     _loadMessages();
     _loadUnreadCount();
@@ -351,7 +382,7 @@ void _showPairingDialog() async {
   if (result == true) {
     print('🛠 DEBUG: Pairing completed successfully in chat screen');
     
-    final otherKey = bleService.otherDevicePersistentId;
+    final otherKey = bleService.theirPersistentKey;
     if (otherKey != null) {
       print('🛠 DEBUG: Attempting security upgrade for: $otherKey');
       final upgradeResult = await bleService.stateManager.confirmSecurityUpgrade(otherKey, SecurityLevel.medium);
@@ -466,43 +497,9 @@ Future<void> _manualReconnection() async {
   }
 }
 
-Future<void> _initializePersistentValues() async {
-    print('🐛 NAV DEBUG: _initializePersistentValues() called');
-    print('🐛 NAV DEBUG: - _isRepositoryMode: $_isRepositoryMode');
-    
-    if (_isRepositoryMode) {
-      _persistentContactPublicKey = widget.contactPublicKey;
-      print('🐛 NAV DEBUG: - set persistent key from widget: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
-    } else {
-      // For live connections, get and cache the values
-      final bleService = ref.read(bleServiceProvider);
-      
-      print('🐛 NAV DEBUG: - bleService.otherDevicePersistentId: ${bleService.otherDevicePersistentId != null && bleService.otherDevicePersistentId!.length > 16 ? '${bleService.otherDevicePersistentId!.substring(0, 16)}...' : bleService.otherDevicePersistentId ?? 'null'}');
-      
-      _persistentContactPublicKey = bleService.otherDevicePersistentId;
-      print('🐛 NAV DEBUG: - set persistent key immediately: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
-      
-      // If still null, setup listener for when they become available (no race condition)
-      if (_persistentContactPublicKey == null) {
-        print('🐛 NAV DEBUG: - persistent key null, setting up one-time listener');
-        Timer.periodic(Duration(milliseconds: 500), (timer) {
-          if (!mounted) {
-            timer.cancel();
-            return;
-          }
-          final bleService = ref.read(bleServiceProvider);
-          if (bleService.otherDevicePersistentId != null) {
-            print('🐛 NAV DEBUG: - listener found key: ${bleService.otherDevicePersistentId!.length > 16 ? '${bleService.otherDevicePersistentId!.substring(0, 16)}...' : bleService.otherDevicePersistentId!}');
-            setState(() {
-              _persistentContactPublicKey = bleService.otherDevicePersistentId;
-            });
-            timer.cancel();
-          }
-        });
-      }
-    }
-    print('🐛 NAV DEBUG: _initializePersistentValues() completed with key: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
-  }
+// REMOVED: _initializePersistentValues() - no longer needed
+// The _contactPublicKey getter reactively reads from BLE service
+// This automatically gives us the correct key (ephemeral or persistent) at any moment
 
   /// Check if there are messages queued for relay that should prevent disconnection
   bool _hasMessagesQueuedForRelay() {
@@ -512,7 +509,7 @@ Future<void> _initializePersistentValues() async {
 
       // Check if any queued messages are for this chat and intended for relay
       final chatMessages = queuedMessages.where((msg) =>
-        msg.recipientPublicKey == _persistentContactPublicKey
+        msg.recipientPublicKey == _contactPublicKey
       );
 
       if (chatMessages.isNotEmpty) {
@@ -650,7 +647,7 @@ Future<void> _initializePersistentValues() async {
       // Update to sending status with optimistic UI update
       final retryMessage = message.copyWith(status: MessageStatus.sending);
       await _messageRepository.updateMessage(retryMessage);
-      setState(() {
+      _safeSetState(() {
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index != -1) {
           _messages[index] = retryMessage;
@@ -677,12 +674,12 @@ Future<void> _initializePersistentValues() async {
       }
       
       // If direct delivery failed or not connected, try smart routing (if demo enabled)
-      if (!success && _demoModeEnabled && _persistentContactPublicKey != null) {
+      if (!success && _demoModeEnabled && _contactPublicKey != null) {
         try {
           final meshController = ref.read(meshNetworkingControllerProvider);
           final meshResult = await meshController.sendMeshMessage(
             content: message.content,
-            recipientPublicKey: _persistentContactPublicKey!,
+            recipientPublicKey: _contactPublicKey!,
             isDemo: _demoModeEnabled,
           );
           
@@ -699,7 +696,7 @@ Future<void> _initializePersistentValues() async {
       final newStatus = success ? MessageStatus.delivered : MessageStatus.failed;
       final updatedMessage = retryMessage.copyWith(status: newStatus);
       await _messageRepository.updateMessage(updatedMessage);
-      setState(() {
+      _safeSetState(() {
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index != -1) {
           _messages[index] = updatedMessage;
@@ -711,7 +708,7 @@ Future<void> _initializePersistentValues() async {
       _logger.severe('❌ Repository message retry failed for ${message.id.substring(0, 8)}: $e');
       final failedAgain = message.copyWith(status: MessageStatus.failed);
       await _messageRepository.updateMessage(failedAgain);
-      setState(() {
+      _safeSetState(() {
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index != -1) {
           _messages[index] = failedAgain;
@@ -811,15 +808,21 @@ Future<void> _initializePersistentValues() async {
     await _messageRepository.saveMessage(message);
     
     if (mounted) {
-      setState(() {
-        _messages.add(message);
-        if (_showUnreadSeparator) {
-          _showUnreadSeparator = false;
-          _unreadSeparatorTimer?.cancel();
-          _markAsRead();
-        }
-      });
-      _scrollToBottom();
+      // 🔧 FIX: Check for duplicate before adding to prevent double display
+      final isDuplicate = _messages.any((m) => m.id == message.id);
+      if (!isDuplicate) {
+        setState(() {
+          _messages.add(message);
+          if (_showUnreadSeparator) {
+            _showUnreadSeparator = false;
+            _unreadSeparatorTimer?.cancel();
+            _markAsRead();
+          }
+        });
+        _scrollToBottom();
+      } else {
+        print('🐛 NAV DEBUG: Skipping duplicate message: ${message.id}');
+      }
     }
   }
   
@@ -854,7 +857,7 @@ Future<void> _loadUnreadCount() async {
       ),
     );
     
-    setState(() {
+    _safeSetState(() {
       _unreadMessageCount = currentChat.unreadCount;
       if (_unreadMessageCount > 0 && _messages.isNotEmpty) {
         _lastReadMessageIndex = _messages.length - _unreadMessageCount - 1;
@@ -885,7 +888,7 @@ Future<void> _loadUnreadCount() async {
   if (_unreadMessageCount > 0) {
     final chatsRepo = ChatsRepository();
     await chatsRepo.markChatAsRead(_chatId);
-    setState(() {
+    _safeSetState(() {
       _unreadMessageCount = 0;
       _lastReadMessageIndex = -1;
     });
@@ -1423,7 +1426,7 @@ void _sendContactRequest() async {
   setState(() => _contactRequestInProgress = true);
   
   final bleService = ref.read(bleServiceProvider);
-  final otherPublicKey = bleService.otherDevicePersistentId;
+  final otherPublicKey = bleService.theirPersistentKey;
   final otherName = bleService.otherUserName;
   
   if (otherPublicKey == null || otherName == null) {
@@ -1564,12 +1567,16 @@ void _setupContactRequestListener() {
   _scrollToBottom();
 
   try {
+    // Get the current contact key (ephemeral or persistent)
+    final recipientKey = _contactPublicKey;
+    
     print('🔧 SEND DEBUG: Using AppCore.sendSecureMessage() for unified routing');
+    print('🔧 SEND DEBUG: Recipient key: ${recipientKey != null && recipientKey.length > 16 ? "${recipientKey.substring(0, 16)}..." : recipientKey ?? "NULL"}');
 
-    // Check if we have recipient public key
-    if (_persistentContactPublicKey == null) {
-      print('🔧 SEND DEBUG: No recipient public key available');
-      _showError('Recipient not available for secure messaging');
+    // Check if we have recipient key (ephemeral or persistent)
+    if (recipientKey == null || recipientKey.isEmpty) {
+      print('🔧 SEND DEBUG: No recipient key available (handshake may not be complete)');
+      _showError('Connection not ready - please wait for handshake to complete');
 
       // Mark message as failed
       final failedMessage = message.copyWith(status: MessageStatus.failed);
@@ -1584,10 +1591,11 @@ void _setupContactRequestListener() {
     }
 
     // Use AppCore's unified secure messaging system
+    // Works with both ephemeral IDs (pre-pairing) and persistent keys (post-pairing)
     final messageId = await AppCore.instance.sendSecureMessage(
       chatId: _chatId,
       content: text,
-      recipientPublicKey: _persistentContactPublicKey!,
+      recipientPublicKey: recipientKey,
     );
 
     print('🔧 SEND DEBUG: Message queued with AppCore, messageId: ${messageId.length > 16 ? '${messageId.substring(0, 16)}...' : messageId}');
@@ -1762,7 +1770,7 @@ String _calculateInitialChatId() {
   
   // Live connection mode: generate from BLE service
   final bleService = ref.read(bleServiceProvider);
-  final otherPersistentId = bleService.otherDevicePersistentId;
+  final otherPersistentId = bleService.currentSessionId;
 
   if (otherPersistentId != null) {
     return ChatUtils.generateChatId(otherPersistentId);
@@ -1778,14 +1786,10 @@ String _calculateInitialChatId() {
 
 Future<void> _handleIdentityReceived() async {
     final bleService = ref.read(bleServiceProvider);
-    final otherPersistentId = bleService.otherDevicePersistentId;
+    final otherPersistentId = bleService.theirPersistentKey;
 
-    // UPDATE persistent values when identity is received
-    if (otherPersistentId != null) {
-      setState(() {
-        _persistentContactPublicKey = otherPersistentId;
-      });
-    }
+    // Note: No need to cache the persistent key anymore - we reactively read it
+    // via _contactPublicKey getter which gets it from bleService.currentSessionId
     
     if (otherPersistentId != null) {
       final newChatId = ChatUtils.generateChatId(otherPersistentId);
@@ -1968,7 +1972,9 @@ Widget _buildInitializationStatusPanel() {
 @override
 void dispose() {
   print('🐛 NAV DEBUG: ChatScreen dispose() called');
-  print('🐛 NAV DEBUG: - Final persistent key: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
+  // 🔧 FIX: Use cached value instead of getter to avoid ref.read() during dispose
+  final cachedKey = _cachedContactPublicKey;
+  print('🐛 NAV DEBUG: - Final contact key: ${cachedKey != null && cachedKey.length > 16 ? '${cachedKey.substring(0, 16)}...' : cachedKey ?? 'null'}');
   print('🐛 NAV DEBUG: - Final chatId: $_currentChatId');
   print('🐛 NAV DEBUG: - Message listener active: $_messageListenerActive');
   print('🐛 NAV DEBUG: - Buffered messages: ${_messageBuffer.length}');

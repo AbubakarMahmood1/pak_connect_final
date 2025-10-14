@@ -197,8 +197,18 @@ class BLEMessageHandler {
     }
 
     // Sign the original message content (before encryption)
-    final trustLevel = await SecurityManager.getCurrentLevel(
-    contactPublicKey ?? '', contactRepository);
+    // 🔧 FIX: Get trust level safely with fallback
+    SecurityLevel trustLevel;
+    try {
+      trustLevel = await SecurityManager.getCurrentLevel(
+        contactPublicKey ?? '', 
+        contactRepository
+      );
+    } catch (e) {
+      _logger.warning('🔒 CENTRAL: Failed to get security level: $e, defaulting to LOW');
+      trustLevel = SecurityLevel.low;
+    }
+    
     final signingInfo = SigningManager.getSigningInfo(trustLevel);
     final signature = SigningManager.signMessage(message, trustLevel);
 
@@ -290,8 +300,9 @@ class BLEMessageHandler {
     
     return success;
     
-  } catch (e) {
+  } catch (e, stackTrace) {
     _logger.severe('Failed to send message: $e');
+    _logger.severe('Stack trace: $stackTrace');
     
     // Cleanup on error
     _messageTimeouts[msgId]?.cancel();
@@ -340,8 +351,18 @@ Future<bool> sendPeripheralMessage({
     }
 
     // Sign the original message content (before encryption)
-    final trustLevel = await SecurityManager.getCurrentLevel(
-    contactPublicKey ?? '', contactRepository);
+    // 🔧 FIX: Get trust level safely with fallback
+    SecurityLevel trustLevel;
+    try {
+      trustLevel = await SecurityManager.getCurrentLevel(
+        contactPublicKey ?? '', 
+        contactRepository
+      );
+    } catch (e) {
+      _logger.warning('🔒 PERIPHERAL: Failed to get security level: $e, defaulting to LOW');
+      trustLevel = SecurityLevel.low;
+    }
+    
     final signingInfo = SigningManager.getSigningInfo(trustLevel);
     final signature = SigningManager.signMessage(message, trustLevel);
 
@@ -405,8 +426,9 @@ Future<bool> sendPeripheralMessage({
     _logger.info('All peripheral chunks sent for message: $msgId');
     return true;
     
-  } catch (e) {
+  } catch (e, stackTrace) {
     _logger.severe('Failed to send peripheral message: $e');
+    _logger.severe('Stack trace: $stackTrace');
     rethrow;
   }
 }
@@ -505,7 +527,11 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
 
           // Forward to sync manager via callback
           onQueueSyncReceived?.call(syncMessage, senderPublicKey);
-          _logger.info('Received queue sync message from ${senderPublicKey.substring(0, 16)}...');
+          // 🔧 FIX: Safe truncation to prevent RangeError
+          final truncated = senderPublicKey.length > 16 
+              ? senderPublicKey.substring(0, 16) 
+              : senderPublicKey;
+          _logger.info('Received queue sync message from $truncated...');
         } else {
           _logger.warning('Received invalid queue sync message');
         }

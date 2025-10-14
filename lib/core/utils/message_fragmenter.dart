@@ -126,9 +126,10 @@ static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String mess
   // Convert bytes back to string to ensure UTF-8 boundary safety
   final originalString = utf8.decode(data);
   
-  // Fixed header size calculation
+  // Fixed header size calculation + BLE notification overhead
   const headerSize = 15; // "123456|0|999|0|"
-  final contentSpace = maxSize - headerSize;
+  const bleOverhead = 5; // BLE notification protocol overhead (ATT headers, etc.)
+  final contentSpace = maxSize - headerSize - bleOverhead;
   
   if (contentSpace <= 10) {
     throw Exception('MTU too small for headers');

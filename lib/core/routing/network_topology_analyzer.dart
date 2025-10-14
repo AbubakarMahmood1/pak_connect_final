@@ -140,7 +140,7 @@ class NetworkTopologyAnalyzer {
       // Check current connection without blocking operations
       final connectionInfo = bleService.currentConnectionInfo;
       if (connectionInfo.isConnected && connectionInfo.isReady) {
-        final connectedNodeId = bleService.otherDevicePersistentId;
+        final connectedNodeId = bleService.currentSessionId;
         if (connectedNodeId != null && connectedNodeId.isNotEmpty) {
           
           // Estimate connection quality based on BLE connection strength

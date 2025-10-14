@@ -556,7 +556,7 @@ class MeshNetworkingService {
       return false;
     }
     
-    final connectedNodeId = _bleService.otherDevicePersistentId;
+    final connectedNodeId = _bleService.currentSessionId;
     return connectedNodeId == recipientPublicKey;
   }
 
@@ -567,7 +567,7 @@ class MeshNetworkingService {
     // Check BLE connection
     final connectionInfo = _bleService.currentConnectionInfo;
     if (connectionInfo.isConnected && connectionInfo.isReady) {
-      final connectedNodeId = _bleService.otherDevicePersistentId;
+      final connectedNodeId = _bleService.currentSessionId;
       if (connectedNodeId != null && connectedNodeId.isNotEmpty) {
         nextHops.add(connectedNodeId);
       }
@@ -893,7 +893,7 @@ class MeshNetworkingService {
       }
 
       // If we can deliver directly to final recipient, don't relay through intermediate
-      if (_bleService.otherDevicePersistentId == finalRecipient) {
+      if (_bleService.currentSessionId == finalRecipient) {
         return false; // Direct connection to recipient exists
       }
 
@@ -932,8 +932,8 @@ class MeshNetworkingService {
 
       // Fallback heuristic: If device is connected and we can't reach recipient directly
       // and the device is not the final recipient, try relaying through it
-      final isDeviceConnected = _bleService.otherDevicePersistentId == deviceId;
-      final cannotReachRecipientDirectly = _bleService.otherDevicePersistentId != finalRecipient;
+      final isDeviceConnected = _bleService.currentSessionId == deviceId;
+      final cannotReachRecipientDirectly = _bleService.currentSessionId != finalRecipient;
 
       return isDeviceConnected && cannotReachRecipientDirectly;
 
@@ -1088,7 +1088,7 @@ class MeshNetworkingService {
 
   void _handleConnectionChange(dynamic connectionInfo) async {
     final isOnline = connectionInfo?.isConnected ?? false;
-    final connectedDeviceId = _bleService.otherDevicePersistentId;
+    final connectedDeviceId = _bleService.currentSessionId;
     
     if (isOnline && connectedDeviceId != null && connectedDeviceId.isNotEmpty) {
       // 🌐 DEVICE CAME ONLINE
@@ -1352,9 +1352,12 @@ class MeshNetworkingService {
   }
 
   void _broadcastMeshStatus() {
-    // Get current queue messages for UI display (including failed for migration period)
+    // 🔧 FIX: Include all active queue statuses for UI display
     final List<QueuedMessage> queueMessages = [
       ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.pending) ?? <QueuedMessage>[],
+      ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.sending) ?? <QueuedMessage>[],
+      ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.retrying) ?? <QueuedMessage>[],
+      ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.awaitingAck) ?? <QueuedMessage>[],
       ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.failed) ?? <QueuedMessage>[],
     ];
 
