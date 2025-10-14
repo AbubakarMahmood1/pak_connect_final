@@ -97,7 +97,7 @@ class SecurityStateComputer {
     }
     
     // Have identity - now check security level
-    final otherPublicKey = bleService.stateManager.otherDevicePersistentId;
+    final otherPublicKey = bleService.stateManager.currentSessionId;
     if (otherPublicKey == null) {
       return SecurityState.exchangingIdentity();
     }

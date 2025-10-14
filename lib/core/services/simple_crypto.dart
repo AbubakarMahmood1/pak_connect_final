@@ -8,6 +8,13 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:pointycastle/export.dart';
 import '../../data/repositories/contact_repository.dart';
 
+/// 🔧 UTILITY: Safe string truncation to prevent RangeError
+String _safeTruncate(String? input, int maxLength, {String fallback = "NULL"}) {
+  if (input == null || input.isEmpty) return fallback;
+  if (input.length <= maxLength) return input;
+  return input.substring(0, maxLength);
+}
+
 class SimpleCrypto {
   static Encrypter? _encrypter;
   static IV? _iv;
@@ -74,7 +81,7 @@ static void initializeConversation(String publicKey, String sharedSecret) {
   _conversationIVs[publicKey] = iv;
   
   if (kDebugMode) {
-    print('Initialized conversation crypto for ${publicKey.substring(0, 8)}...');
+    print('Initialized conversation crypto for ${_safeTruncate(publicKey, 8)}...');
   }
 }
 
@@ -267,12 +274,16 @@ static Future<String?> encryptForContact(String plaintext, String contactPublicK
   
   try {
     // DEBUG: Log the key derivation process
-    print('🔧 ECDH ENCRYPT DEBUG: Starting encryption for ${contactPublicKey.substring(0, 16)}...');
-    print('🔧 ECDH ENCRYPT DEBUG: SharedSecret: ${sharedSecret.substring(0, 16)}...');
+    // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
+    final truncatedPublicKey = contactPublicKey.length > 16 ? contactPublicKey.substring(0, 16) : contactPublicKey;
+    final truncatedSecret = sharedSecret.length > 16 ? sharedSecret.substring(0, 16) : sharedSecret;
+    print('🔧 ECDH ENCRYPT DEBUG: Starting encryption for $truncatedPublicKey...');
+    print('🔧 ECDH ENCRYPT DEBUG: SharedSecret: $truncatedSecret...');
     
     // Enhanced key derivation with optional pairing key
     final enhancedSecret = _deriveEnhancedContactKey(sharedSecret, contactPublicKey);
-    print('🔧 ECDH ENCRYPT DEBUG: EnhancedSecret: ${enhancedSecret.substring(0, 16)}...');
+    final truncatedEnhanced = enhancedSecret.length > 16 ? enhancedSecret.substring(0, 16) : enhancedSecret;
+    print('🔧 ECDH ENCRYPT DEBUG: EnhancedSecret: $truncatedEnhanced...');
     
     final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
     final key = Key(Uint8List.fromList(keyBytes));
@@ -312,12 +323,16 @@ static Future<String?> decryptFromContact(String encryptedBase64, String contact
   
   try {
     // DEBUG: Log the key derivation process
-    print('🔧 ECDH DECRYPT DEBUG: Starting decryption for ${contactPublicKey.substring(0, 16)}...');
-    print('🔧 ECDH DECRYPT DEBUG: SharedSecret: ${sharedSecret.substring(0, 16)}...');
+    // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
+    final truncatedPublicKey = contactPublicKey.length > 16 ? contactPublicKey.substring(0, 16) : contactPublicKey;
+    final truncatedSecret = sharedSecret.length > 16 ? sharedSecret.substring(0, 16) : sharedSecret;
+    print('🔧 ECDH DECRYPT DEBUG: Starting decryption for $truncatedPublicKey...');
+    print('🔧 ECDH DECRYPT DEBUG: SharedSecret: $truncatedSecret...');
     
     // Enhanced key derivation with optional pairing key  
     final enhancedSecret = _deriveEnhancedContactKey(sharedSecret, contactPublicKey);
-    print('🔧 ECDH DECRYPT DEBUG: EnhancedSecret: ${enhancedSecret.substring(0, 16)}...');
+    final truncatedEnhanced = enhancedSecret.length > 16 ? enhancedSecret.substring(0, 16) : enhancedSecret;
+    print('🔧 ECDH DECRYPT DEBUG: EnhancedSecret: $truncatedEnhanced...');
     
     final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
     final key = Key(Uint8List.fromList(keyBytes));
@@ -363,7 +378,7 @@ static String? _getPairingKeyForContact(String contactPublicKey) {
 static void clearConversationKey(String publicKey) {
   _conversationEncrypters.remove(publicKey);
   _conversationIVs.remove(publicKey);
-  print('Cleared conversation key for ${publicKey.substring(0, 8)}...');
+  print('Cleared conversation key for ${_safeTruncate(publicKey, 8)}...');
 }
 
 /// Clear all conversation keys (for complete reset)
@@ -424,7 +439,7 @@ static Future<void> ensureConversationKeySync(String publicKey, ContactRepositor
     final cachedSecret = await repo.getCachedSharedSecret(publicKey);
     if (cachedSecret != null) {
       await restoreConversationKey(publicKey, cachedSecret);
-      print('🔄 SYNC: Restored conversation key for ${publicKey.substring(0, 8)}...');
+      print('🔄 SYNC: Restored conversation key for ${_safeTruncate(publicKey, 8)}...');
     }
   }
 }
@@ -441,7 +456,7 @@ static Future<void> restoreConversationKey(String publicKey, String cachedSecret
     _conversationEncrypters[publicKey] = Encrypter(AES(key));
     _conversationIVs[publicKey] = iv;
     
-    print('Restored conversation key for ${publicKey.substring(0, 8)}...');
+    print('Restored conversation key for ${_safeTruncate(publicKey, 8)}...');
   } catch (e) {
     print('Failed to restore conversation key: $e');
   }

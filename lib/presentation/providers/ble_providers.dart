@@ -434,7 +434,7 @@ class MeshEnabledBLEOperations {
     try {
       // Check if direct connection is available to recipient
       final bleConnected = connectivityStatus.bleConnectionInfo.asData?.value.isConnected ?? false;
-      final connectedNodeId = bleService.otherDevicePersistentId;
+      final connectedNodeId = bleService.currentSessionId;
       
       if (preferDirect && bleConnected && connectedNodeId == recipientPublicKey) {
         // Use direct BLE messaging

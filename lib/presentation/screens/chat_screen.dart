@@ -27,6 +27,8 @@ import '../../core/services/persistent_chat_state_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/services/message_retry_coordinator.dart';
 import '../../core/app_core.dart';
+import '../../core/security/message_security.dart';
+import '../../domain/services/notification_service.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode (live connection)
@@ -72,6 +74,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _pairingDialogShown = false;
   bool _contactRequestInProgress = false;
   StreamSubscription<String>? _messageSubscription;
+  StreamSubscription<String>? _deliverySubscription; // 🎯 Real-time delivery updates
   bool _messageListenerActive = false;
   final List<String> _messageBuffer = [];
   PersistentChatStateManager? _persistentChatManager;
@@ -80,7 +83,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   int _lastReadMessageIndex = -1;
   bool _showUnreadSeparator = false;
   Timer? _unreadSeparatorTimer;
-  String? _persistentContactPublicKey;
+  
+  // 🔥 WhatsApp-style smart unread handling
+  bool _isUserAtBottom = true; // Track if user is scrolled to bottom
+  int _newMessagesWhileScrolledUp = 0; // Count of new messages received while scrolled up
+  Timer? _markAsReadDebounceTimer; // Debounce timer for marking messages as read
+  bool _hasScrolledAwayFromBottom = false; // Track if user intentionally scrolled up
 
   // Search state
   bool _isSearchMode = false;
@@ -92,6 +100,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _meshInitializing = false; // 🔧 FIX: Start false, check actual state
   String _initializationStatus = 'Checking...';
   Timer? _initializationTimeoutTimer;
+  
+  // 🔧 FIX: Cache contact public key to avoid accessing ref during dispose
+  String? _cachedContactPublicKey;
+  
+  /// 🔧 FIX: Safe setState that checks mounted before calling
+  void _safeSetState(VoidCallback fn) {
+    if (mounted) {
+      setState(fn);
+    }
+  }
  
   String get _chatId => _currentChatId!;
   bool get _isPeripheralMode => widget.central != null;
@@ -109,8 +127,32 @@ String get _displayContactName {
   return 'Unknown';
 }
 
+/// Get the current contact public key - single source of truth
+/// This reactively reads from BLE service, so it automatically updates
+/// when pairing completes and persistent keys are exchanged
+String? get _contactPublicKey {
+  if (_isRepositoryMode) {
+    return widget.contactPublicKey;
+  }
+  
+  // 🔧 FIX: Return cached value if widget is unmounting (prevents dispose crash)
+  if (!mounted) {
+    return _cachedContactPublicKey;
+  }
+  
+  // Live connection: Use BLE service's currentSessionId
+  // This is ephemeral ID initially, then becomes persistent key after pairing
+  final bleService = ref.read(bleServiceProvider);
+  final currentKey = bleService.currentSessionId;
+  
+  // Cache the value for safe access during dispose
+  _cachedContactPublicKey = currentKey;
+  
+  return currentKey;
+}
+
 String? get securityStateKey {
-  final publicKey = widget.contactPublicKey ?? _persistentContactPublicKey;
+  final publicKey = widget.contactPublicKey ?? _contactPublicKey;
   
   if (publicKey != null && publicKey.isNotEmpty) {
     // Force repository lookup for all known contacts
@@ -119,7 +161,7 @@ String? get securityStateKey {
   
   // Only use live mode for truly unknown connections
   final bleService = ref.read(bleServiceProvider);
-  return bleService.otherDevicePersistentId;
+  return bleService.currentSessionId;
 }
 
 @override
@@ -135,17 +177,17 @@ String? get securityStateKey {
     _currentChatId = _calculateInitialChatId();
     print('🐛 NAV DEBUG: - calculated chatId: $_currentChatId');
     
-    _initializePersistentValues();
-    
     _loadMessages();
     _loadUnreadCount();
     
     _setupPersistentChatManager();
     _checkAndSetupLiveMessaging();
     _setupMeshNetworking();
+    _setupDeliveryListener(); // 🎯 Real-time status updates
     _initializeRetryCoordinator();
     
     _setupSecurityStateListener();
+    _setupScrollListener(); // 🔥 WhatsApp-style scroll position tracking
     print('🐛 NAV DEBUG: ChatScreen initState() completed');
   }
 
@@ -225,6 +267,123 @@ void _setupMeshNetworking() {
       _initializationStatus = 'Failed to initialize';
     });
   }
+}
+
+/// 🎯 Setup real-time delivery listener for instant status updates (no flicker)
+void _setupDeliveryListener() {
+  try {
+    final meshService = ref.read(meshNetworkingServiceProvider);
+    
+    _deliverySubscription = meshService.messageDeliveryStream.listen((messageId) {
+      if (!mounted) return;
+      
+      // Surgical update: find the message and update only its status
+      _updateMessageStatus(messageId, MessageStatus.delivered);
+    });
+    
+    _logger.info('✅ Real-time delivery listener set up');
+  } catch (e) {
+    _logger.warning('⚠️ Failed to set up delivery listener: $e');
+    // Not critical - messages will still update on chat reopen
+  }
+}
+
+/// Surgically update a specific message status (prevents UI flicker)
+void _updateMessageStatus(String messageId, MessageStatus newStatus) {
+  final index = _messages.indexWhere((m) => m.id == messageId);
+  
+  if (index != -1) {
+    setState(() {
+      _messages[index] = _messages[index].copyWith(status: newStatus);
+    });
+    
+    _logger.fine('🎯 Updated message ${messageId.substring(0, 16)}... status to ${newStatus.name}');
+  } else {
+    _logger.fine('⚠️ Message ${messageId.substring(0, 16)}... not found in current UI (may have been from different chat)');
+  }
+}
+
+/// 🔥 Setup WhatsApp-style scroll position tracking
+void _setupScrollListener() {
+  _scrollController.addListener(_onScroll);
+  _logger.info('✅ Scroll position listener set up for smart unread handling');
+}
+
+/// Handle scroll position changes for smart unread count management
+void _onScroll() {
+  if (!_scrollController.hasClients || !mounted) return;
+  
+  final scrollPosition = _scrollController.position;
+  final maxScroll = scrollPosition.maxScrollExtent;
+  final currentScroll = scrollPosition.pixels;
+  
+  // Consider "at bottom" if within 100 pixels of bottom
+  const bottomThreshold = 100.0;
+  final atBottom = (maxScroll - currentScroll) < bottomThreshold;
+  
+  // Detect if user scrolled away from bottom
+  if (_isUserAtBottom && !atBottom) {
+    setState(() {
+      _hasScrolledAwayFromBottom = true;
+    });
+    _logger.fine('📜 User scrolled away from bottom');
+  }
+  
+  // Update bottom status
+  if (_isUserAtBottom != atBottom) {
+    setState(() {
+      _isUserAtBottom = atBottom;
+    });
+    
+    // If user returned to bottom, mark messages as read after short delay
+    if (atBottom) {
+      _logger.fine('📜 User returned to bottom - scheduling mark as read');
+      _scheduleMarkAsRead();
+    }
+  }
+}
+
+/// Schedule marking messages as read (debounced for 1.5 seconds at bottom)
+void _scheduleMarkAsRead() {
+  // Cancel existing timer
+  _markAsReadDebounceTimer?.cancel();
+  
+  // Only schedule if there are new messages to mark as read
+  if (_newMessagesWhileScrolledUp > 0 || _unreadMessageCount > 0) {
+    _markAsReadDebounceTimer = Timer(Duration(milliseconds: 1500), () {
+      if (mounted && _isUserAtBottom) {
+        _logger.info('✅ User stayed at bottom - marking messages as read');
+        _decrementUnreadCount();
+      }
+    });
+  }
+}
+
+/// Decrement unread count (WhatsApp-style)
+Future<void> _decrementUnreadCount() async {
+  if (_newMessagesWhileScrolledUp > 0 || _unreadMessageCount > 0) {
+    final chatsRepo = ChatsRepository();
+    await chatsRepo.markChatAsRead(_chatId);
+    
+    _safeSetState(() {
+      _newMessagesWhileScrolledUp = 0;
+      _unreadMessageCount = 0;
+      _hasScrolledAwayFromBottom = false;
+    });
+    
+    _logger.info('📊 Unread count reset to 0');
+  }
+}
+
+/// Determine if scroll-down button should be shown
+bool _shouldShowScrollDownButton() {
+  // Show button if:
+  // 1. User has scrolled away from bottom AND
+  // 2. There are messages (prevents showing on empty chat) AND
+  // 3. Either there are new unread messages OR user has scrolled significantly up
+  return !_isUserAtBottom && 
+         _messages.isNotEmpty && 
+         (_newMessagesWhileScrolledUp > 0 || _hasScrolledAwayFromBottom);
 }
 
 /// Start timeout timer to prevent persistent initialization banner
@@ -351,7 +510,7 @@ void _showPairingDialog() async {
   if (result == true) {
     print('🛠 DEBUG: Pairing completed successfully in chat screen');
     
-    final otherKey = bleService.otherDevicePersistentId;
+    final otherKey = bleService.theirPersistentKey;
     if (otherKey != null) {
       print('🛠 DEBUG: Attempting security upgrade for: $otherKey');
       final upgradeResult = await bleService.stateManager.confirmSecurityUpgrade(otherKey, SecurityLevel.medium);
@@ -466,43 +625,9 @@ Future<void> _manualReconnection() async {
   }
 }
 
-Future<void> _initializePersistentValues() async {
-    print('🐛 NAV DEBUG: _initializePersistentValues() called');
-    print('🐛 NAV DEBUG: - _isRepositoryMode: $_isRepositoryMode');
-    
-    if (_isRepositoryMode) {
-      _persistentContactPublicKey = widget.contactPublicKey;
-      print('🐛 NAV DEBUG: - set persistent key from widget: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
-    } else {
-      // For live connections, get and cache the values
-      final bleService = ref.read(bleServiceProvider);
-      
-      print('🐛 NAV DEBUG: - bleService.otherDevicePersistentId: ${bleService.otherDevicePersistentId != null && bleService.otherDevicePersistentId!.length > 16 ? '${bleService.otherDevicePersistentId!.substring(0, 16)}...' : bleService.otherDevicePersistentId ?? 'null'}');
-      
-      _persistentContactPublicKey = bleService.otherDevicePersistentId;
-      print('🐛 NAV DEBUG: - set persistent key immediately: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
-      
-      // If still null, setup listener for when they become available (no race condition)
-      if (_persistentContactPublicKey == null) {
-        print('🐛 NAV DEBUG: - persistent key null, setting up one-time listener');
-        Timer.periodic(Duration(milliseconds: 500), (timer) {
-          if (!mounted) {
-            timer.cancel();
-            return;
-          }
-          final bleService = ref.read(bleServiceProvider);
-          if (bleService.otherDevicePersistentId != null) {
-            print('🐛 NAV DEBUG: - listener found key: ${bleService.otherDevicePersistentId!.length > 16 ? '${bleService.otherDevicePersistentId!.substring(0, 16)}...' : bleService.otherDevicePersistentId!}');
-            setState(() {
-              _persistentContactPublicKey = bleService.otherDevicePersistentId;
-            });
-            timer.cancel();
-          }
-        });
-      }
-    }
-    print('🐛 NAV DEBUG: _initializePersistentValues() completed with key: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
-  }
+// REMOVED: _initializePersistentValues() - no longer needed
+// The _contactPublicKey getter reactively reads from BLE service
+// This automatically gives us the correct key (ephemeral or persistent) at any moment
 
   /// Check if there are messages queued for relay that should prevent disconnection
   bool _hasMessagesQueuedForRelay() {
@@ -512,7 +637,7 @@ Future<void> _initializePersistentValues() async {
 
       // Check if any queued messages are for this chat and intended for relay
       final chatMessages = queuedMessages.where((msg) =>
-        msg.recipientPublicKey == _persistentContactPublicKey
+        msg.recipientPublicKey == _contactPublicKey
       );
 
       if (chatMessages.isNotEmpty) {
@@ -528,12 +653,41 @@ Future<void> _initializePersistentValues() async {
   }
 
   Future<void> _loadMessages() async {
-    final messages = await _messageRepository.getMessages(_chatId);
+    // 🔧 OPTION B: Load from BOTH queue (in-flight) and repository (delivered)
+    
+    // 1. Load delivered messages from repository (permanent history)
+    final deliveredMessages = await _messageRepository.getMessages(_chatId);
+    
+    // 2. Load in-flight messages from queue (pending delivery)
+    final meshService = ref.read(meshNetworkingServiceProvider);
+    final queuedMessages = meshService.getQueuedMessagesForChat(_chatId);
+    
+    // 3. Convert queued messages to Message objects for UI display
+    final pendingMessages = queuedMessages.map((qm) => Message(
+      id: qm.id,
+      chatId: qm.chatId,
+      content: qm.content,
+      timestamp: qm.queuedAt,
+      isFromMe: true, // Queued messages are always outgoing
+      status: _mapQueuedStatus(qm.status),
+    )).toList();
+    
+    // 4. 🔧 FIX: Deduplicate by message ID (delivered messages take precedence)
+    // When a message is delivered, it's in BOTH repository and queue temporarily
+    final deliveredIds = deliveredMessages.map((m) => m.id).toSet();
+    final uniquePending = pendingMessages.where((m) => !deliveredIds.contains(m.id)).toList();
+    
+    // 5. Merge both lists and sort by timestamp
+    final allMessages = [...deliveredMessages, ...uniquePending];
+    allMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    
     setState(() {
-      _messages = messages;
+      _messages = allMessages;
       _isLoading = false;
     });
     _scrollToBottom();
+    
+    _logger.info('📋 Loaded ${deliveredMessages.length} delivered + ${uniquePending.length} pending = ${allMessages.length} total messages (${pendingMessages.length - uniquePending.length} duplicates removed)');
     
     // Process any buffered messages from previous lifecycle
     await _processBufferedMessages();
@@ -544,6 +698,24 @@ Future<void> _initializePersistentValues() async {
         _autoRetryFailedMessages();
       }
     });
+  }
+
+  /// Map queue status to UI status
+  MessageStatus _mapQueuedStatus(QueuedMessageStatus queueStatus) {
+    switch (queueStatus) {
+      case QueuedMessageStatus.pending:
+        return MessageStatus.sending;
+      case QueuedMessageStatus.sending:
+        return MessageStatus.sending;
+      case QueuedMessageStatus.retrying:
+        return MessageStatus.sending; // Show as sending (or could add MessageStatus.retrying)
+      case QueuedMessageStatus.failed:
+        return MessageStatus.failed;
+      case QueuedMessageStatus.delivered:
+        return MessageStatus.delivered;
+      default:
+        return MessageStatus.sent;
+    }
   }
 
   /// Initialize the retry coordinator for coordinated message retry across both systems
@@ -650,7 +822,7 @@ Future<void> _initializePersistentValues() async {
       // Update to sending status with optimistic UI update
       final retryMessage = message.copyWith(status: MessageStatus.sending);
       await _messageRepository.updateMessage(retryMessage);
-      setState(() {
+      _safeSetState(() {
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index != -1) {
           _messages[index] = retryMessage;
@@ -677,12 +849,12 @@ Future<void> _initializePersistentValues() async {
       }
       
       // If direct delivery failed or not connected, try smart routing (if demo enabled)
-      if (!success && _demoModeEnabled && _persistentContactPublicKey != null) {
+      if (!success && _demoModeEnabled && _contactPublicKey != null) {
         try {
           final meshController = ref.read(meshNetworkingControllerProvider);
           final meshResult = await meshController.sendMeshMessage(
             content: message.content,
-            recipientPublicKey: _persistentContactPublicKey!,
+            recipientPublicKey: _contactPublicKey!,
             isDemo: _demoModeEnabled,
           );
           
@@ -699,7 +871,7 @@ Future<void> _initializePersistentValues() async {
       final newStatus = success ? MessageStatus.delivered : MessageStatus.failed;
       final updatedMessage = retryMessage.copyWith(status: newStatus);
       await _messageRepository.updateMessage(updatedMessage);
-      setState(() {
+      _safeSetState(() {
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index != -1) {
           _messages[index] = updatedMessage;
@@ -711,7 +883,7 @@ Future<void> _initializePersistentValues() async {
       _logger.severe('❌ Repository message retry failed for ${message.id.substring(0, 8)}: $e');
       final failedAgain = message.copyWith(status: MessageStatus.failed);
       await _messageRepository.updateMessage(failedAgain);
-      setState(() {
+      _safeSetState(() {
         final index = _messages.indexWhere((m) => m.id == message.id);
         if (index != -1) {
           _messages[index] = failedAgain;
@@ -754,12 +926,20 @@ Future<void> _initializePersistentValues() async {
   }
 
   void _setupPersistentChatManager() {
+    print('🟣🟣🟣 _setupPersistentChatManager CALLED 🟣🟣🟣');
+    print('🟣 Chat ID: $_chatId');
+    
     _persistentChatManager = ref.read(persistentChatStateManagerProvider);
+    
+    print('🟣 Debug info before registration:');
+    print('🟣 ${_persistentChatManager!.getDebugInfo()}');
     
     // Register this chat screen with the persistent manager
     _persistentChatManager!.registerChatScreen(_chatId, _handlePersistentMessage);
     
-    print('🐛 NAV DEBUG: Registered with PersistentChatStateManager for $_chatId');
+    print('� Debug info after registration:');
+    print('🟣 ${_persistentChatManager!.getDebugInfo()}');
+    print('🟣 ✅ Registered with PersistentChatStateManager for $_chatId');
   }
   
   void _handlePersistentMessage(String content) async {
@@ -768,20 +948,30 @@ Future<void> _initializePersistentValues() async {
   }
   
   void _activateMessageListener() {
-    if (_messageListenerActive) return;
+    if (_messageListenerActive) {
+      print('🔵🔵🔵 _activateMessageListener: ALREADY ACTIVE - SKIPPING 🔵🔵🔵');
+      return;
+    }
     
-    print('🐛 NAV DEBUG: Activating persistent message listener');
+    print('�🔵🔵 _activateMessageListener: SETTING UP LISTENER 🔵🔵🔵');
+    print('🔵 Chat ID: $_chatId');
+    print('🔵 Has persistent manager: ${_persistentChatManager != null}');
+    print('🔵 Persistent manager has listener: ${_persistentChatManager?.hasActiveListener(_chatId) ?? false}');
+    
     _messageListenerActive = true;
     
     final bleService = ref.read(bleServiceProvider);
     
     // Use persistent manager if available, otherwise fall back to direct subscription
     if (_persistentChatManager != null && !_persistentChatManager!.hasActiveListener(_chatId)) {
-      print('🐛 NAV DEBUG: Setting up persistent listener through manager');
+      print('� ✅ Setting up persistent listener through manager');
       _persistentChatManager!.setupPersistentListener(_chatId, bleService.receivedMessages);
+    } else if (_persistentChatManager != null && _persistentChatManager!.hasActiveListener(_chatId)) {
+      print('� ℹ️ Persistent listener already exists - using existing');
     } else {
-      print('🐛 NAV DEBUG: Using direct message subscription (fallback)');
+      print('🔵 ⚠️ Using direct message subscription (FALLBACK - POTENTIAL DOUBLE SUBSCRIPTION!)');
       _messageSubscription = bleService.receivedMessages.listen((content) {
+        print('🔵 📨 Direct subscription received message');
         if (mounted && _messageListenerActive) {
           _addReceivedMessage(content);
         } else if (!mounted) {
@@ -799,27 +989,112 @@ Future<void> _initializePersistentValues() async {
   }
 
   Future<void> _addReceivedMessage(String content) async {
+    print('🔴🔴🔴 _addReceivedMessage CALLED 🔴🔴🔴');
+    print('🔴 Stack trace: ${StackTrace.current}');
+    print('🔴 Content length: ${content.length}');
+    print('🔴 Content preview: ${content.substring(0, content.length > 100 ? 100 : content.length)}');
+    
+    // Generate secure message ID for received message (consistent with send flow)
+    // Note: For received messages, we use the sender's key (their public key)
+    final senderPublicKey = _contactPublicKey ?? _chatId; // Use contact key or chatId as fallback
+    final secureMessageId = await MessageSecurity.generateSecureMessageId(
+      senderPublicKey: senderPublicKey,
+      content: content,
+    );
+    
+    print('🔴 Generated message ID: ${secureMessageId.substring(0, 16)}...');
+    
+    // 🔧 FIX: Check repository for duplicate BEFORE saving
+    final existingMessage = await _messageRepository.getMessageById(secureMessageId);
+    if (existingMessage != null) {
+      print('🔴 ❌ DUPLICATE FOUND IN DB - SKIPPING');
+      _logger.info('📬 Duplicate message detected in repository - skipping save: ${secureMessageId.substring(0, 16)}...');
+      
+      if (mounted) {
+        // Check if it's in UI list - if not, add it (for chat reopen scenario)
+        final inUiList = _messages.any((m) => m.id == secureMessageId);
+        if (!inUiList) {
+          print('🔴 Not in UI list - adding to display');
+          setState(() {
+            _messages.add(existingMessage);
+          });
+          _scrollToBottom();
+        } else {
+          print('🔴 Already in UI list - no action needed');
+        }
+      }
+      return; // Skip duplicate save
+    }
+    
+    print('🔴 ✅ NEW MESSAGE - PROCEEDING TO SAVE');
+    
     final message = Message(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: secureMessageId, // Use secure ID, not timestamp
       chatId: _chatId,
       content: content,
       timestamp: DateTime.now(),
       isFromMe: false,
-      status: MessageStatus.delivered,
+      status: MessageStatus.delivered, // Received messages are already delivered
     );
     
+    // 🎯 OPTION B: Received messages go DIRECTLY to repository
+    // They bypass the queue (queue is only for OUR outgoing messages)
     await _messageRepository.saveMessage(message);
     
+    // 🔔 Show notification for all received messages (NotificationService handles filtering)
+    try {
+      _logger.info('🔔 Attempting to show notification for message from $_displayContactName');
+      _logger.info('🔔 NotificationService initialized: ${NotificationService.isInitialized}');
+      _logger.info('🔔 Message content: ${message.content.substring(0, message.content.length > 50 ? 50 : message.content.length)}...');
+      
+      await NotificationService.showMessageNotification(
+        message: message,
+        contactName: _displayContactName,
+        contactAvatar: null,
+      );
+      
+      _logger.info('✅ Notification call completed successfully');
+    } catch (e, stackTrace) {
+      _logger.severe('❌ Failed to show notification: $e', e, stackTrace);
+    }
+    
     if (mounted) {
-      setState(() {
-        _messages.add(message);
-        if (_showUnreadSeparator) {
-          _showUnreadSeparator = false;
-          _unreadSeparatorTimer?.cancel();
-          _markAsRead();
+      // 🔧 FIX: Check for duplicate before adding to prevent double display
+      final isDuplicate = _messages.any((m) => m.id == message.id);
+      if (!isDuplicate) {
+        // 🔥 WhatsApp-style smart unread counting
+        final shouldIncrementUnread = !_isUserAtBottom || _hasScrolledAwayFromBottom;
+        
+        if (shouldIncrementUnread) {
+          // User is scrolled up - increment unread count
+          final chatsRepo = ChatsRepository();
+          await chatsRepo.incrementUnreadCount(_chatId);
+          
+          setState(() {
+            _newMessagesWhileScrolledUp++;
+            _unreadMessageCount++;
+          });
+          
+          _logger.info('📬 New message while scrolled up - unread: $_newMessagesWhileScrolledUp');
         }
-      });
-      _scrollToBottom();
+        
+        setState(() {
+          _messages.add(message);
+          if (_showUnreadSeparator) {
+            _showUnreadSeparator = false;
+            _unreadSeparatorTimer?.cancel();
+          }
+        });
+        
+        // Only auto-scroll if user is at bottom
+        if (_isUserAtBottom && !_hasScrolledAwayFromBottom) {
+          _scrollToBottom();
+          // Mark as read after short delay since user is watching
+          _scheduleMarkAsRead();
+        }
+      } else {
+        print('🐛 NAV DEBUG: Skipping duplicate message: ${message.id}');
+      }
     }
   }
   
@@ -854,7 +1129,7 @@ Future<void> _loadUnreadCount() async {
       ),
     );
     
-    setState(() {
+    _safeSetState(() {
       _unreadMessageCount = currentChat.unreadCount;
       if (_unreadMessageCount > 0 && _messages.isNotEmpty) {
         _lastReadMessageIndex = _messages.length - _unreadMessageCount - 1;
@@ -882,12 +1157,14 @@ Future<void> _loadUnreadCount() async {
   }
 
   Future<void> _markAsRead() async {
-  if (_unreadMessageCount > 0) {
+  if (_unreadMessageCount > 0 || _newMessagesWhileScrolledUp > 0) {
     final chatsRepo = ChatsRepository();
     await chatsRepo.markChatAsRead(_chatId);
-    setState(() {
+    _safeSetState(() {
       _unreadMessageCount = 0;
       _lastReadMessageIndex = -1;
+      _newMessagesWhileScrolledUp = 0; // 🔥 Reset new messages counter
+      _hasScrolledAwayFromBottom = false; // 🔥 Reset scroll state
     });
   }
 }
@@ -1139,6 +1416,53 @@ final actuallyConnected = connectionInfo?.isConnected ?? false;
     ],
   ),
 ),
+      // 🔥 Floating Action Button for scroll-to-bottom with unread count
+      floatingActionButton: _shouldShowScrollDownButton()
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: 80.0), // 🔧 FIX: Add padding to lift FAB above input bar
+              child: FloatingActionButton(
+                mini: true,
+                onPressed: () {
+                  _scrollToBottom();
+                  // Mark as read when user explicitly scrolls to bottom
+                  _scheduleMarkAsRead();
+                },
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(Icons.arrow_downward),
+                    if (_newMessagesWhileScrolledUp > 0)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          padding: EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          child: Text(
+                            _newMessagesWhileScrolledUp > 99 
+                                ? '99+' 
+                                : '$_newMessagesWhileScrolledUp',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            )
+          : null,
     );
   } catch (e) {
     return Scaffold(
@@ -1423,7 +1747,7 @@ void _sendContactRequest() async {
   setState(() => _contactRequestInProgress = true);
   
   final bleService = ref.read(bleServiceProvider);
-  final otherPublicKey = bleService.otherDevicePersistentId;
+  final otherPublicKey = bleService.theirPersistentKey;
   final otherName = bleService.otherUserName;
   
   if (otherPublicKey == null || otherName == null) {
@@ -1546,81 +1870,56 @@ void _setupContactRequestListener() {
   
   print('🔧 SEND DEBUG: Attempting to send message: "$text"');
   
-  // Create message with sending status
-  final message = Message(
-    id: DateTime.now().millisecondsSinceEpoch.toString(),
-    chatId: _chatId,
-    content: text,
-    timestamp: DateTime.now(),
-    isFromMe: true,
-    status: MessageStatus.sending,
-  );
-
-  // Save and show immediately
-  await _messageRepository.saveMessage(message);
-  setState(() {
-    _messages.add(message);
-  });
-  _scrollToBottom();
-
   try {
+    // Get the current contact key (ephemeral or persistent)
+    final recipientKey = _contactPublicKey;
+    
     print('🔧 SEND DEBUG: Using AppCore.sendSecureMessage() for unified routing');
+    print('🔧 SEND DEBUG: Recipient key: ${recipientKey != null && recipientKey.length > 16 ? "${recipientKey.substring(0, 16)}..." : recipientKey ?? "NULL"}');
 
-    // Check if we have recipient public key
-    if (_persistentContactPublicKey == null) {
-      print('🔧 SEND DEBUG: No recipient public key available');
-      _showError('Recipient not available for secure messaging');
-
-      // Mark message as failed
-      final failedMessage = message.copyWith(status: MessageStatus.failed);
-      await _messageRepository.updateMessage(failedMessage);
-      setState(() {
-        final index = _messages.indexWhere((m) => m.id == message.id);
-        if (index != -1) {
-          _messages[index] = failedMessage;
-        }
-      });
+    // Check if we have recipient key (ephemeral or persistent)
+    if (recipientKey == null || recipientKey.isEmpty) {
+      print('🔧 SEND DEBUG: No recipient key available (handshake may not be complete)');
+      _showError('Connection not ready - please wait for handshake to complete');
       return;
     }
 
-    // Use AppCore's unified secure messaging system
-    final messageId = await AppCore.instance.sendSecureMessage(
+    // 🔧 FIX: Get secure messageId FIRST from queue system
+    // This ensures MessageRepository and OfflineMessageQueue use the SAME ID
+    final secureMessageId = await AppCore.instance.sendSecureMessage(
       chatId: _chatId,
       content: text,
-      recipientPublicKey: _persistentContactPublicKey!,
+      recipientPublicKey: recipientKey,
     );
 
-    print('🔧 SEND DEBUG: Message queued with AppCore, messageId: ${messageId.length > 16 ? '${messageId.substring(0, 16)}...' : messageId}');
+    print('🔧 SEND DEBUG: Message queued with secure ID: ${secureMessageId.length > 16 ? '${secureMessageId.substring(0, 16)}...' : secureMessageId}');
 
-    // Update message status to sent (queue system will handle delivery)
-    final queuedMessage = message.copyWith(
-      status: MessageStatus.sent, // Queue will handle delivery status
+    // 🎯 OPTION B: Queue owns the message until delivery
+    // Create temporary UI message to show immediately (will be replaced by queue data on reload)
+    final tempMessage = Message(
+      id: secureMessageId,
+      chatId: _chatId,
+      content: text,
+      timestamp: DateTime.now(),
+      isFromMe: true,
+      status: MessageStatus.sending, // Show as sending immediately
     );
 
-    await _messageRepository.updateMessage(queuedMessage);
+    // ✅ NO REPOSITORY SAVE! Queue will save to repository on delivery
+    // Just update UI to show message immediately
     setState(() {
-      final index = _messages.indexWhere((m) => m.id == message.id);
-      if (index != -1) {
-        _messages[index] = queuedMessage;
-      }
+      _messages.add(tempMessage);
     });
 
-    print('🔧 SEND DEBUG: Message ${message.id} -> Queue ID ${messageId.length > 16 ? '${messageId.substring(0, 16)}...' : messageId}');
-
-    _showSuccess('✅ Message queued for secure delivery');
-    print('🔧 SEND DEBUG: Message successfully queued through AppCore');
+    _showSuccess('✅ Message queued for delivery');
+    print('🔧 OPTION B: Message in queue (not saved to repository yet) - will save on delivery');
     _scrollToBottom();
       
   } catch (e) {
     print('🔧 SEND DEBUG: Exception caught: $e');
-    final failedMessage = message.copyWith(status: MessageStatus.failed);
-    await _messageRepository.updateMessage(failedMessage);
-    setState(() {
-      final index = _messages.indexWhere((m) => m.id == message.id);
-      if (index != -1) {
-        _messages[index] = failedMessage;
-      }
-    });
+    // 🔧 FIX: If queueing fails, show error to user
+    // Don't create a failed message in repository since queue failed
+    _showError('Failed to send message: $e');
   }
 }
 
@@ -1762,7 +2061,7 @@ String _calculateInitialChatId() {
   
   // Live connection mode: generate from BLE service
   final bleService = ref.read(bleServiceProvider);
-  final otherPersistentId = bleService.otherDevicePersistentId;
+  final otherPersistentId = bleService.currentSessionId;
 
   if (otherPersistentId != null) {
     return ChatUtils.generateChatId(otherPersistentId);
@@ -1778,14 +2077,10 @@ String _calculateInitialChatId() {
 
 Future<void> _handleIdentityReceived() async {
     final bleService = ref.read(bleServiceProvider);
-    final otherPersistentId = bleService.otherDevicePersistentId;
+    final otherPersistentId = bleService.theirPersistentKey;
 
-    // UPDATE persistent values when identity is received
-    if (otherPersistentId != null) {
-      setState(() {
-        _persistentContactPublicKey = otherPersistentId;
-      });
-    }
+    // Note: No need to cache the persistent key anymore - we reactively read it
+    // via _contactPublicKey getter which gets it from bleService.currentSessionId
     
     if (otherPersistentId != null) {
       final newChatId = ChatUtils.generateChatId(otherPersistentId);
@@ -1968,7 +2263,9 @@ Widget _buildInitializationStatusPanel() {
 @override
 void dispose() {
   print('🐛 NAV DEBUG: ChatScreen dispose() called');
-  print('🐛 NAV DEBUG: - Final persistent key: ${_persistentContactPublicKey != null && _persistentContactPublicKey!.length > 16 ? '${_persistentContactPublicKey!.substring(0, 16)}...' : _persistentContactPublicKey ?? 'null'}');
+  // 🔧 FIX: Use cached value instead of getter to avoid ref.read() during dispose
+  final cachedKey = _cachedContactPublicKey;
+  print('🐛 NAV DEBUG: - Final contact key: ${cachedKey != null && cachedKey.length > 16 ? '${cachedKey.substring(0, 16)}...' : cachedKey ?? 'null'}');
   print('🐛 NAV DEBUG: - Final chatId: $_currentChatId');
   print('🐛 NAV DEBUG: - Message listener active: $_messageListenerActive');
   print('🐛 NAV DEBUG: - Buffered messages: ${_messageBuffer.length}');
@@ -1990,7 +2287,12 @@ void dispose() {
   }
   
   _meshEventSubscription?.cancel();
+  _deliverySubscription?.cancel();
   _initializationTimeoutTimer?.cancel();
+  
+  // 🔥 Clean up smart unread timers
+  _markAsReadDebounceTimer?.cancel();
+  _scrollController.removeListener(_onScroll); // Remove scroll listener before disposing
   
   _messageController.dispose();
   _scrollController.dispose();

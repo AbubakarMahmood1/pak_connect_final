@@ -27,7 +27,30 @@ class MessageRepository {
     }
   }
 
-  /// Save a new message
+  /// Get a single message by ID (for duplicate checking)
+  Future<Message?> getMessageById(String messageId) async {
+    try {
+      final db = await DatabaseHelper.database;
+
+      final results = await db.query(
+        'messages',
+        where: 'id = ?',
+        whereArgs: [messageId],
+        limit: 1,
+      );
+
+      if (results.isEmpty) {
+        return null;
+      }
+
+      return _fromDatabase(results.first);
+    } catch (e) {
+      _logger.severe('❌ Failed to get message by ID $messageId: $e');
+      return null;
+    }
+  }
+
+  /// Save a new message (with duplicate prevention)
   Future<void> saveMessage(Message message) async {
     try {
       final db = await DatabaseHelper.database;
@@ -36,9 +59,12 @@ class MessageRepository {
       // ✅ Ensure chat exists before saving message (lazy creation)
       await _ensureChatExists(db, message.chatId, now);
 
+      // 🔧 FIX: Use INSERT OR IGNORE to prevent duplicate messages
+      // If a message with the same ID already exists, this will silently skip the insert
       await db.insert(
         'messages',
         _toDatabase(message, now, now),
+        conflictAlgorithm: ConflictAlgorithm.ignore, // Prevent duplicates
       );
 
       _logger.fine('✅ Saved message ${message.id}');

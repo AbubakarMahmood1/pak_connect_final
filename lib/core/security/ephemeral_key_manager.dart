@@ -11,7 +11,8 @@ import '../utils/app_logger.dart';
 
 class EphemeralKeyManager {
   static final _logger = AppLogger.getLogger(LoggerNames.keyManagement);
-  static const int hintlength = 8;
+  // FIXED: Make ephemeral keys same length as persistent keys (64 chars) to avoid length-dependent bugs
+  static const int hintlength = 64;
   
   static String? _userSalt;
   static String? _myPrivateKey;

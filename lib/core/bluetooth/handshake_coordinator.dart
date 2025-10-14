@@ -31,7 +31,7 @@ enum ConnectionPhase {
 /// Manages the handshake protocol between two BLE devices
 /// Ensures no message proceeds without explicit confirmation
 class HandshakeCoordinator {
-  final Logger _logger = Logger('HandshakeCoordinator');
+  final Logger _logger = Logger('[HandshakeCoordinator]');
 
   // State management
   ConnectionPhase _phase = ConnectionPhase.bleConnected;
@@ -212,7 +212,8 @@ class HandshakeCoordinator {
     _theirEphemeralId = message.identityPublicKey;  // This is their ephemeral ID
     _theirDisplayName = message.identityDisplayName;
 
-    _logger.info('  Their ephemeral ID: ${_theirEphemeralId?.substring(0, 16)}...');
+    // Log ephemeral ID (it's already short, typically 8 chars)
+    _logger.info('  Their ephemeral ID: $_theirEphemeralId');
     _logger.info('  Their display name: $_theirDisplayName');
 
     // PERIPHERAL FLOW: We haven't sent yet, so send now (response IS ack)
@@ -321,7 +322,7 @@ class HandshakeCoordinator {
 
   Future<void> _advanceToComplete() async {
     _logger.info('🎉 HANDSHAKE COMPLETE! Session ready for normal communication');
-    _logger.info('   Their ephemeral ID: ${_theirEphemeralId?.substring(0, 16)}...');
+    _logger.info('   Their ephemeral ID: $_theirEphemeralId');
     _logger.info('   (Persistent keys will be exchanged after pairing)');
     _timeoutTimer?.cancel();
 
@@ -339,6 +340,12 @@ class HandshakeCoordinator {
   void _startPhaseTimeout(String waitingFor) {
     _timeoutTimer?.cancel();
     _timeoutTimer = Timer(_phaseTimeout, () {
+      // Defensive check: Don't fail if handshake already complete
+      // (Prevents race condition where timer fires during async completion callback)
+      if (_phase == ConnectionPhase.complete) {
+        _logger.info('⏱️ Timer fired but handshake already complete - ignoring');
+        return;
+      }
       _logger.warning('⏱️ Phase timeout waiting for: $waitingFor');
       _failHandshake('Timeout waiting for $waitingFor');
     });

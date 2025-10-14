@@ -24,23 +24,23 @@ import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../domain/services/chat_management_service.dart';
 
-/// Menu actions for chats screen
-enum ChatsMenuAction {
+/// Menu actions for home screen
+enum HomeMenuAction {
   openProfile,
   openContacts,
   openArchives,
   settings,
 }
 
-class ChatsScreen extends ConsumerStatefulWidget {
-  const ChatsScreen({super.key});
+class HomeScreen extends ConsumerStatefulWidget {
+  const HomeScreen({super.key});
 
   @override
-  ConsumerState<ChatsScreen> createState() => _ChatsScreenState();
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _ChatsScreenState extends ConsumerState<ChatsScreen> with SingleTickerProviderStateMixin {
-   final _logger = Logger('ChatsScreen');
+class _HomeScreenState extends ConsumerState<HomeScreen> with SingleTickerProviderStateMixin {
+   final _logger = Logger('HomeScreen');
    final ChatsRepository _chatsRepository = ChatsRepository();
    final ChatManagementService _chatManagementService = ChatManagementService();
    final TextEditingController _searchController = TextEditingController();
@@ -60,6 +60,9 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> with SingleTickerProv
    // Unread count stream
    Stream<int>? _unreadCountStream;
    StreamSubscription? _unreadCountSubscription;
+   
+   // 🔥 NEW: Global message listener for instant UI updates
+   StreamSubscription<String>? _globalMessageSubscription;
 
   @override
   void initState() {
@@ -72,6 +75,7 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> with SingleTickerProv
     _setupPeripheralConnectionListener();
     _setupDiscoveryListener();
     _setupUnreadCountStream();
+    _setupGlobalMessageListener(); // 🔥 NEW: Real-time chat list updates
   }
 
   void _onTabChanged() {
@@ -86,9 +90,16 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> with SingleTickerProv
   }
 
 
+/// Load all chats (full refresh - used on initial load and manual refresh)
+/// 🎯 For message updates, use _updateSingleChatItem() instead to prevent flicker
 void _loadChats() async {
   if (!mounted) return;
-  setState(() => _isLoading = true);
+  
+  // Only show loading spinner on initial load or when list is empty
+  final showSpinner = _chats.isEmpty;
+  if (showSpinner) {
+    setState(() => _isLoading = true);
+  }
   
   final nearbyDevices = await _getNearbyDevices();
   
@@ -129,6 +140,90 @@ void _setupPeriodicRefresh() {
       _loadChats();
     }
   });
+}
+
+/// 🔥 NEW: Setup global message listener for instant chat list updates
+/// This listens to ALL incoming messages and triggers an immediate refresh
+/// 🎯 OPTIMIZED: Updates only the affected chat item to prevent UI flicker
+void _setupGlobalMessageListener() {
+  try {
+    final bleService = ref.read(bleServiceProvider);
+    
+    _globalMessageSubscription = bleService.receivedMessages.listen((content) async {
+      if (!mounted) return;
+      
+      _logger.info('🔔 Global listener: New message received - surgical update to prevent flicker');
+      
+      // 🎯 SURGICAL UPDATE: Only refresh the affected chat, not the entire list
+      await _updateSingleChatItem();
+      
+      // Also refresh unread count
+      _refreshUnreadCount();
+    });
+    
+    _logger.info('✅ Global message listener set up for instant surgical updates (no flicker)');
+  } catch (e) {
+    _logger.warning('⚠️ Failed to set up global message listener: $e');
+    // Not critical - periodic refresh will still work
+  }
+}
+
+/// 🎯 OPTIMIZED: Surgical update of single chat item (prevents full list rebuild/flicker)
+/// Only fetches the most recently updated chat instead of ALL chats
+Future<void> _updateSingleChatItem() async {
+  if (!mounted) return;
+  
+  try {
+    final nearbyDevices = await _getNearbyDevices();
+    final discoveryDataAsync = ref.read(discoveryDataProvider);
+    final discoveryData = discoveryDataAsync.maybeWhen(
+      data: (data) => data,
+      orElse: () => <String, DiscoveredEventArgs>{},
+    );
+    
+    // Get fresh list to find the updated chat
+    final updatedChats = await _chatsRepository.getAllChats(
+      nearbyDevices: nearbyDevices,
+      discoveryData: discoveryData,
+      searchQuery: _searchQuery.isEmpty ? null : _searchQuery,
+    );
+    
+    if (!mounted || updatedChats.isEmpty) return;
+    
+    // Find the chat that was just updated (most recent message)
+    final mostRecentChat = updatedChats.first; // Already sorted by last message time
+    
+    // 🎯 SURGICAL UPDATE: Only update this one chat in the list
+    setState(() {
+      final existingIndex = _chats.indexWhere((c) => c.chatId == mostRecentChat.chatId);
+      
+      if (existingIndex != -1) {
+        // Chat exists - update it in place
+        _chats[existingIndex] = mostRecentChat;
+        
+        // Re-sort to move updated chat to top (if needed)
+        _chats.sort((a, b) {
+          // Online chats first
+          if (a.isOnline && !b.isOnline) return -1;
+          if (!a.isOnline && b.isOnline) return 1;
+          
+          // Then by last message time
+          final aTime = a.lastMessageTime ?? DateTime(1970);
+          final bTime = b.lastMessageTime ?? DateTime(1970);
+          return bTime.compareTo(aTime);
+        });
+      } else {
+        // New chat - add to top
+        _chats.insert(0, mostRecentChat);
+      }
+    });
+    
+    _logger.fine('🎯 Surgical update completed - only affected chat item rebuilt');
+  } catch (e) {
+    _logger.warning('⚠️ Surgical update failed, falling back to full refresh: $e');
+    // Fallback to full refresh only if surgical update fails
+    _loadChats();
+  }
 }
 
   @override
@@ -217,11 +312,11 @@ Widget build(BuildContext context) {
                 ),
               ],
             ),
-            PopupMenuButton<ChatsMenuAction>(
+            PopupMenuButton<HomeMenuAction>(
               onSelected: _handleMenuAction,
               itemBuilder: (context) => [
-                PopupMenuItem<ChatsMenuAction>(
-                  value: ChatsMenuAction.openProfile,
+                PopupMenuItem<HomeMenuAction>(
+                  value: HomeMenuAction.openProfile,
                   child: Row(
                     children: [
                       Icon(Icons.person, size: 18),
@@ -230,8 +325,8 @@ Widget build(BuildContext context) {
                     ],
                   ),
                 ),
-                PopupMenuItem<ChatsMenuAction>(
-                  value: ChatsMenuAction.openContacts,
+                PopupMenuItem<HomeMenuAction>(
+                  value: HomeMenuAction.openContacts,
                   child: Row(
                     children: [
                       Icon(Icons.contacts, size: 18),
@@ -240,8 +335,8 @@ Widget build(BuildContext context) {
                     ],
                   ),
                 ),
-                PopupMenuItem<ChatsMenuAction>(
-                  value: ChatsMenuAction.openArchives,
+                PopupMenuItem<HomeMenuAction>(
+                  value: HomeMenuAction.openArchives,
                   child: Row(
                     children: [
                       Icon(Icons.archive, size: 18),
@@ -251,8 +346,8 @@ Widget build(BuildContext context) {
                   ),
                 ),
                 PopupMenuDivider(),
-                PopupMenuItem<ChatsMenuAction>(
-                  value: ChatsMenuAction.settings,
+                PopupMenuItem<HomeMenuAction>(
+                  value: HomeMenuAction.settings,
                   child: Row(
                     children: [
                       Icon(Icons.settings, size: 18),
@@ -341,7 +436,11 @@ Widget _buildChatsTab() {
                 onRefresh: () async => _loadChats(),
                 child: ListView.builder(
                   itemCount: _chats.length,
-                  itemBuilder: (context, index) => _buildSwipeableChatTile(_chats[index]),
+                  itemBuilder: (context, index) {
+                    final chat = _chats[index];
+                    // 🎯 Use ValueKey for efficient widget reuse (prevents unnecessary rebuilds)
+                    return _buildSwipeableChatTile(chat, key: ValueKey(chat.chatId));
+                  },
                 ),
               ),
       ),
@@ -539,9 +638,10 @@ Widget _buildChatTile(ChatListItem chat) {
 }
 
 /// Build swipeable chat tile with archive and delete functionality
-Widget _buildSwipeableChatTile(ChatListItem chat) {
+/// 🎯 Accepts optional key for efficient widget reuse during surgical updates
+Widget _buildSwipeableChatTile(ChatListItem chat, {Key? key}) {
   return Dismissible(
-    key: Key('chat_${chat.chatId}'),
+    key: key ?? Key('chat_${chat.chatId}'), // Use provided key or generate one
     direction: DismissDirection.horizontal,
     dismissThresholds: const {
       DismissDirection.startToEnd: 0.4, // 40% for archive
@@ -730,7 +830,7 @@ ConnectionStatus _determineConnectionStatus(
   if (connectionInfo != null && 
       connectionInfo.isConnected && 
       !connectionInfo.isReady &&
-      bleService.otherDevicePersistentId == chat.contactPublicKey) {
+      bleService.theirPersistentKey == chat.contactPublicKey) {
     return ConnectionStatus.connecting;
   }
   
@@ -1006,18 +1106,18 @@ void _editDisplayName() async {
     });
   }
 
-  void _handleMenuAction(ChatsMenuAction action) {
+  void _handleMenuAction(HomeMenuAction action) {
     switch (action) {
-      case ChatsMenuAction.openProfile:
+      case HomeMenuAction.openProfile:
         _openProfile();
         break;
-      case ChatsMenuAction.openContacts:
+      case HomeMenuAction.openContacts:
         _openContacts();
         break;
-      case ChatsMenuAction.openArchives:
+      case HomeMenuAction.openArchives:
         _openArchives();
         break;
-      case ChatsMenuAction.settings:
+      case HomeMenuAction.settings:
         _showSettings();
         break;
     }
@@ -1321,6 +1421,7 @@ void _editDisplayName() async {
     _searchDebounceTimer?.cancel();
     _unreadCountSubscription?.cancel();
     _discoveryDataSubscription?.cancel();
+    _globalMessageSubscription?.cancel(); // 🔥 Clean up global message listener
     _searchController.dispose();
     _peripheralConnectionSubscription?.cancel();
     _chatManagementService.dispose();

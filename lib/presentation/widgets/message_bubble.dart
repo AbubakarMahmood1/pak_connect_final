@@ -181,7 +181,9 @@ class MessageBubble extends StatelessWidget {
       builder: (context) => MessageContextMenu(
         message: message,
         onCopy: () => _copyMessage(context, message.content),
-        onDelete: message.isFromMe ? () => _confirmDelete(context) : null,
+        // 🔧 FIX: Allow deletion of both sent AND received messages
+        // Users should be able to delete any message from their local device
+        onDelete: onDelete != null ? () => _confirmDelete(context) : null,
       ),
     );
   }

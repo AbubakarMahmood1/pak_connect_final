@@ -62,6 +62,7 @@ class MeshNetworkingService {
   final _relayStatsController = StreamController<RelayStatistics>.broadcast();
   final _queueStatsController = StreamController<QueueSyncManagerStats>.broadcast();
   final _demoEventController = StreamController<DemoEvent>.broadcast();
+  final _messageDeliveryController = StreamController<String>.broadcast(); // Message ID stream
   
   // Last known status for late subscribers
   MeshNetworkStatus? _lastMeshStatus;
@@ -89,6 +90,10 @@ class MeshNetworkingService {
   Stream<RelayStatistics> get relayStats => _relayStatsController.stream;
   Stream<QueueSyncManagerStats> get queueStats => _queueStatsController.stream;
   Stream<DemoEvent> get demoEvents => _demoEventController.stream;
+  
+  /// Stream that emits message IDs when they are successfully delivered
+  /// Use this for real-time UI updates without full message list refresh
+  Stream<String> get messageDeliveryStream => _messageDeliveryController.stream;
   
   // Demo tracking
   final List<DemoRelayStep> _demoSteps = [];
@@ -556,7 +561,7 @@ class MeshNetworkingService {
       return false;
     }
     
-    final connectedNodeId = _bleService.otherDevicePersistentId;
+    final connectedNodeId = _bleService.currentSessionId;
     return connectedNodeId == recipientPublicKey;
   }
 
@@ -567,7 +572,7 @@ class MeshNetworkingService {
     // Check BLE connection
     final connectionInfo = _bleService.currentConnectionInfo;
     if (connectionInfo.isConnected && connectionInfo.isReady) {
-      final connectedNodeId = _bleService.otherDevicePersistentId;
+      final connectedNodeId = _bleService.currentSessionId;
       if (connectedNodeId != null && connectedNodeId.isNotEmpty) {
         nextHops.add(connectedNodeId);
       }
@@ -798,6 +803,45 @@ class MeshNetworkingService {
     }
   }
 
+  /// Get queued messages for a specific chat (for UI display)
+  /// Returns only in-flight messages (pending, sending, retrying)
+  /// Excludes delivered messages (those have moved to MessageRepository)
+  List<QueuedMessage> getQueuedMessagesForChat(String chatId) {
+    if (_messageQueue == null) {
+      _logger.warning('Cannot get queued messages: queue not initialized');
+      return [];
+    }
+
+    try {
+      // Get pending, sending, and retrying messages for this chat
+      final statuses = [
+        QueuedMessageStatus.pending,
+        QueuedMessageStatus.sending,
+        QueuedMessageStatus.retrying,
+        QueuedMessageStatus.failed, // Include failed so user can see them
+      ];
+
+      final inFlightMessages = <QueuedMessage>[];
+      
+      for (final status in statuses) {
+        final messages = _messageQueue!.getMessagesByStatus(status)
+            .where((m) => m.chatId == chatId)
+            .toList();
+        inFlightMessages.addAll(messages);
+      }
+
+      // Sort by queued time (oldest first)
+      inFlightMessages.sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+
+      _logger.info('📋 Found ${inFlightMessages.length} in-flight messages for chat: $chatId');
+      return inFlightMessages;
+
+    } catch (e) {
+      _logger.severe('Failed to get queued messages for chat: $e');
+      return [];
+    }
+  }
+
   // Event handlers for core components
 
   void _handleMessageQueued(QueuedMessage message) {
@@ -806,9 +850,30 @@ class MeshNetworkingService {
     _broadcastMeshStatus();
   }
 
-  void _handleMessageDelivered(QueuedMessage message) {
+  void _handleMessageDelivered(QueuedMessage message) async {
     final truncatedId = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
     _logger.info('Message delivered: $truncatedId...');
+    
+    // 🎯 OPTION B FIX: Save delivered message to repository (permanent history)
+    // Now that the message is delivered, move it from queue to repository
+    try {
+      final deliveredMessage = Message(
+        id: message.id,
+        chatId: message.chatId,
+        content: message.content,
+        timestamp: message.queuedAt,
+        isFromMe: true, // Our sent message
+        status: MessageStatus.delivered,
+      );
+      
+      await _messageRepository.saveMessage(deliveredMessage);
+      _logger.fine('✅ Delivered message saved to repository: $truncatedId...');
+    } catch (e) {
+      _logger.severe('❌ Failed to save delivered message to repository: $e');
+    }
+    
+    // 🎯 Emit message ID for real-time UI updates
+    _messageDeliveryController.add(message.id);
     
     if (_isDemoMode && _demoMessageTracking.containsKey(message.id)) {
       _demoEventController.add(DemoEvent.messageDelivered(message.id));
@@ -893,7 +958,7 @@ class MeshNetworkingService {
       }
 
       // If we can deliver directly to final recipient, don't relay through intermediate
-      if (_bleService.otherDevicePersistentId == finalRecipient) {
+      if (_bleService.currentSessionId == finalRecipient) {
         return false; // Direct connection to recipient exists
       }
 
@@ -932,8 +997,8 @@ class MeshNetworkingService {
 
       // Fallback heuristic: If device is connected and we can't reach recipient directly
       // and the device is not the final recipient, try relaying through it
-      final isDeviceConnected = _bleService.otherDevicePersistentId == deviceId;
-      final cannotReachRecipientDirectly = _bleService.otherDevicePersistentId != finalRecipient;
+      final isDeviceConnected = _bleService.currentSessionId == deviceId;
+      final cannotReachRecipientDirectly = _bleService.currentSessionId != finalRecipient;
 
       return isDeviceConnected && cannotReachRecipientDirectly;
 
@@ -1088,7 +1153,7 @@ class MeshNetworkingService {
 
   void _handleConnectionChange(dynamic connectionInfo) async {
     final isOnline = connectionInfo?.isConnected ?? false;
-    final connectedDeviceId = _bleService.otherDevicePersistentId;
+    final connectedDeviceId = _bleService.currentSessionId;
     
     if (isOnline && connectedDeviceId != null && connectedDeviceId.isNotEmpty) {
       // 🌐 DEVICE CAME ONLINE
@@ -1352,9 +1417,12 @@ class MeshNetworkingService {
   }
 
   void _broadcastMeshStatus() {
-    // Get current queue messages for UI display (including failed for migration period)
+    // 🔧 FIX: Include all active queue statuses for UI display
     final List<QueuedMessage> queueMessages = [
       ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.pending) ?? <QueuedMessage>[],
+      ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.sending) ?? <QueuedMessage>[],
+      ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.retrying) ?? <QueuedMessage>[],
+      ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.awaitingAck) ?? <QueuedMessage>[],
       ..._messageQueue?.getMessagesByStatus(QueuedMessageStatus.failed) ?? <QueuedMessage>[],
     ];
 
@@ -1396,6 +1464,7 @@ class MeshNetworkingService {
     _relayStatsController.close();
     _queueStatsController.close();
     _demoEventController.close();
+    _messageDeliveryController.close();
     
     _logger.info('Mesh networking service disposed');
   }

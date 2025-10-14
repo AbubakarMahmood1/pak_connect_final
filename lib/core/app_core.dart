@@ -20,7 +20,9 @@ import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
 import '../data/repositories/archive_repository.dart';
 import '../data/repositories/preferences_repository.dart';
+import '../data/repositories/message_repository.dart';
 import '../data/database/database_helper.dart';
+import '../domain/entities/message.dart';
 
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
@@ -258,7 +260,11 @@ class AppCore {
     messageQueue = OfflineMessageQueue();
     await messageQueue.initialize(
       onMessageQueued: (message) => _logger.info('Message queued: ${message.id}'),
-      onMessageDelivered: (message) => _logger.info('Message delivered: ${message.id}'),
+      onMessageDelivered: (message) async {
+        _logger.info('Message delivered: ${message.id}');
+        // 🔧 FIX: Update MessageRepository when queue marks message as delivered
+        await _updateMessageRepositoryOnDelivery(message);
+      },
       onMessageFailed: (message, reason) => _logger.warning('Message failed: ${message.id} - $reason'),
       onStatsUpdated: (stats) => _logger.fine('Queue stats updated: $stats'),
       onSendMessage: _handleMessageSend,
@@ -314,6 +320,43 @@ class AppCore {
     // Note: The actual connectivity check will be delegated to MeshNetworkingService
     // which has access to the real BLE service and can use the same logic as sendMessage()
     _logger.fine('Queue connectivity check requested - will be handled by mesh service');
+  }
+  
+  /// 🔧 FIX: Update MessageRepository when queue marks message as delivered
+  /// This ensures the single source of truth is maintained between queue and repository
+  /// 🎯 OPTION B: Queue → Repository callback
+  /// When message is delivered, move it from queue to permanent repository storage
+  /// This is the ONLY place where sent messages get saved to repository
+  Future<void> _updateMessageRepositoryOnDelivery(QueuedMessage queuedMessage) async {
+    try {
+      final messageRepo = MessageRepository();
+      
+      // Create repository message with delivered status
+      final repoMessage = Message(
+        id: queuedMessage.id,  // Same ID as queue (secure ID)
+        chatId: queuedMessage.chatId,
+        content: queuedMessage.content,
+        timestamp: queuedMessage.queuedAt,
+        isFromMe: true,
+        status: MessageStatus.delivered, // Delivered successfully!
+      );
+      
+      // 🎯 OPTION B: Message should NOT exist in repository yet
+      // Queue owns it until delivery, then moves it to repository
+      await messageRepo.saveMessage(repoMessage);
+      _logger.info('✅ OPTION B: Moved message ${queuedMessage.id.substring(0, 16)}... from queue → repository (delivered)');
+      
+    } catch (e) {
+      // Check if duplicate key error (message already exists)
+      if (e.toString().contains('UNIQUE constraint failed') || 
+          e.toString().contains('already exists')) {
+        _logger.warning('⚠️ Message ${queuedMessage.id.substring(0, 16)}... already in repository (duplicate delivery callback?)');
+        // Not fatal - message is already saved
+      } else {
+        _logger.severe('❌ Failed to save message to repository on delivery: $e');
+        // Don't rethrow - queue has already marked as delivered successfully
+      }
+    }
   }
   
   /// Send message using integrated security and queue system

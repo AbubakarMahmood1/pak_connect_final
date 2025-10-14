@@ -2,9 +2,16 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import '../power/adaptive_power_manager.dart';
 import '../../data/services/ble_service.dart';
+import '../../data/services/ble_connection_manager.dart';
 
 /// Bridge controller that connects AdaptivePowerManager to actual BLE scanning operations
 /// This ensures burst scanning reaches the radio hardware with proper source tagging
+///
+/// OPTIMIZATION: Connection-aware burst scanning
+/// - Automatically skips burst scans when at max connection capacity
+/// - Current limit: 1 connection (iOS baseline, set via BLEConnectionManager.maxCentralConnections)
+/// - Future: Will support up to 7 concurrent connections on Android for 1-to-many mesh networking
+/// - Battery savings: Eliminates unnecessary scanning when connections are saturated
 class BurstScanningController {
   static final _logger = Logger('BurstScanningController');
 
@@ -68,7 +75,15 @@ class BurstScanningController {
       return;
     }
 
-    _logger.info('🔥 BURST: Starting burst scan cycle');
+    // 🔥 OPTIMIZATION: Check if at max connections before scanning
+    final connectionManager = _bleService?.connectionManager;
+    if (connectionManager != null && !connectionManager.canAcceptMoreConnections) {
+      _logger.info('🔥 BURST: Skipping scan - already at max connections (${connectionManager.activeConnectionCount}/${BLEConnectionManager.maxCentralConnections})');
+      _logger.fine('Connected devices: ${connectionManager.activeConnections.map((p) => p.uuid).join(", ")}');
+      return; // Don't scan if we can't accept more connections
+    }
+
+    _logger.info('🔥 BURST: Starting burst scan cycle (${connectionManager?.activeConnectionCount ?? 0}/${BLEConnectionManager.maxCentralConnections} connections)');
     _isBurstActive = true;
     _burstEndTime = DateTime.now().add(Duration(milliseconds: 20000)); // 20s burst duration
 

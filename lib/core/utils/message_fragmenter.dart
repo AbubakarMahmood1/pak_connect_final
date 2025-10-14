@@ -126,34 +126,72 @@ static List<MessageChunk> fragmentBytes(Uint8List data, int maxSize, String mess
   // Convert bytes back to string to ensure UTF-8 boundary safety
   final originalString = utf8.decode(data);
   
-  // Fixed header size calculation
+  // Fixed header size calculation + BLE notification overhead
   const headerSize = 15; // "123456|0|999|0|"
-  final contentSpace = maxSize - headerSize;
+  const bleOverhead = 5; // BLE notification protocol overhead (ATT headers, etc.)
+  final contentSpace = maxSize - headerSize - bleOverhead;
   
   if (contentSpace <= 10) {
     throw Exception('MTU too small for headers');
   }
   
-  // Fragment by characters (UTF-8 safe), not bytes
-  final totalChunks = (originalString.length / contentSpace).ceil();
+  // 🔧 FIX: Fragment by BYTE count (not character count) to handle emojis
+  // Emojis are multi-byte UTF-8 characters, so we must measure bytes not chars
   final chunks = <MessageChunk>[];
+  int chunkIndex = 0;
   
-  for (int i = 0; i < totalChunks; i++) {
-    final start = i * contentSpace;
-    final end = (start + contentSpace < originalString.length)
-        ? start + contentSpace
-        : originalString.length;
+  // First pass: count total chunks needed
+  int estimatedChunks = 1;
+  int tempOffset = 0;
+  while (tempOffset < originalString.length) {
+    int chunkCharCount = 0;
+    int chunkByteCount = 0;
     
-    final chunkContent = originalString.substring(start, end);
+    while (tempOffset + chunkCharCount < originalString.length) {
+      final char = originalString[tempOffset + chunkCharCount];
+      final charBytes = utf8.encode(char).length;
+      
+      if (chunkByteCount + charBytes > contentSpace) break;
+      
+      chunkByteCount += charBytes;
+      chunkCharCount++;
+    }
+    
+    tempOffset += chunkCharCount;
+    if (tempOffset < originalString.length) estimatedChunks++;
+  }
+  
+  // Second pass: create chunks with byte-aware splitting
+  int charOffset = 0;
+  while (charOffset < originalString.length) {
+    int chunkCharCount = 0;
+    int chunkByteCount = 0;
+    
+    // Add characters until we hit byte limit
+    while (charOffset + chunkCharCount < originalString.length) {
+      final char = originalString[charOffset + chunkCharCount];
+      final charBytes = utf8.encode(char).length;
+      
+      // Stop if adding this character would exceed byte limit
+      if (chunkByteCount + charBytes > contentSpace) break;
+      
+      chunkByteCount += charBytes;
+      chunkCharCount++;
+    }
+    
+    final chunkContent = originalString.substring(charOffset, charOffset + chunkCharCount);
     
     chunks.add(MessageChunk(
       messageId: shortId,
-      chunkIndex: i,
-      totalChunks: totalChunks,
-      content: chunkContent, // Keep as string, not base64
+      chunkIndex: chunkIndex,
+      totalChunks: estimatedChunks,
+      content: chunkContent,
       timestamp: timestamp,
-      isBinary: false, // Mark as text
+      isBinary: false,
     ));
+    
+    charOffset += chunkCharCount;
+    chunkIndex++;
   }
   
   return chunks;

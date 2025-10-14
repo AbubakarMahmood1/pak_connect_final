@@ -8,7 +8,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:logging/logging.dart';
 import '../providers/ble_providers.dart';
 import '../widgets/import_dialog.dart';
-import 'chats_screen.dart';
+import 'home_screen.dart';
 
 class PermissionScreen extends ConsumerStatefulWidget {
   const PermissionScreen({super.key});
@@ -446,7 +446,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
   void _navigateToChatsScreen(BuildContext context) {
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => ChatsScreen()),
+      MaterialPageRoute(builder: (context) => HomeScreen()),
     );
   }
 }
