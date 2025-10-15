@@ -132,7 +132,7 @@ class QueueStatusIndicator extends StatelessWidget {
           color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: _getStatusColor().withValues(),
+            color: _getStatusColor().withValues(alpha: 0.3),
             width: 1,
           ),
         ),
@@ -145,7 +145,7 @@ class QueueStatusIndicator extends StatelessWidget {
                 Container(
                   padding: EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: _getStatusColor().withValues(),
+                    color: _getStatusColor().withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(

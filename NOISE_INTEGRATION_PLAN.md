@@ -633,7 +633,7 @@ await _messageQueue.queueMessage(
 ``
 Alice → [encrypted for Bob] → Relay1 → [same encryption] → Relay2 → Bob
 
-```
+```dart
 
 - ✅ End-to-end encryption preserved
 - ✅ Relay cannot read content (privacy)
@@ -883,7 +883,7 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
 
 3. **Map Pattern Differences:**
 
-   ```
+   ```dart
    KNpsk0: → e, es, ss, psk  ← e, ee, se
    NKpsk0: → e, es, psk      ← e, ee, se
 
@@ -899,7 +899,7 @@ static Future<String> encryptMessage(String message, String publicKey, ContactRe
 
 **NN Pattern Spec (simplest - no static keys):**
 
-```
+```dart
 NN:
   → e
   ← e, ee
@@ -941,7 +941,7 @@ NN:
 
 **KK Pattern Spec (known static keys):**
 
-```
+```dart
 KK:
   → e, es, ss
   ← e, ee, se
@@ -985,7 +985,7 @@ KK:
 
 **XX Pattern Spec (mutual identity exchange):**
 
-```
+```dart
 XX:
   → e
   ← e, ee, s, es
@@ -1023,7 +1023,7 @@ XX:
 
 ### Step 2: Create Skeleton Integration (1-2 days)
 
-```
+```dart
 lib/core/security/noise/
 ├── noise_nn_cipher.dart          # Global/relay layer (NN pattern)
 ├── noise_xx_handshake.dart       # Pairing layer (XX pattern)
@@ -1060,7 +1060,7 @@ Follow original plan phases, but with updated strategy (enhance, not replace)
 
 ### Current Implementation (Good Foundation)
 
-```
+```dart
 Layer 1: Global    → Weak encryption (AES with static key)
 Layer 2: Paired    → Pairing keys (medium security)
 Layer 3: Contacts  → ECDH + AES-GCM (strong but NO forward secrecy)
@@ -1068,7 +1068,7 @@ Layer 3: Contacts  → ECDH + AES-GCM (strong but NO forward secrecy)
 
 ### NEW: Complete Noise Architecture (Industry Standard)
 
-```
+```dart
 Layer 1: Global    → Noise NN (ephemeral-only, for relay/broadcast)
 Layer 2: Paired    → Noise XX (identity exchange, for initial pairing)
 Layer 3: Contacts  → Noise KK (persistent + forward secrecy, for verified contacts)
@@ -1134,7 +1134,7 @@ class NoiseKKContact {
 
 #### Noise NN (Global Layer)
 
-```
+```dart
 Purpose: Relay/broadcast to unknown devices
 Security: Forward secrecy, no authentication
 Messages: 2 (minimal overhead)
@@ -1147,7 +1147,7 @@ Result: Ephemeral transport cipher (destroyed after use)
 
 #### Noise XX (Pairing Layer)
 
-```
+```dart
 Purpose: Initial pairing with new contact
 Security: Forward secrecy + mutual auth + identity hiding
 Messages: 3 (identities encrypted)
@@ -1161,7 +1161,7 @@ Result: Both parties have each other's static keys → save to contacts → use 
 
 #### Noise KK (Contact Layer) - THE KEY INNOVATION
 
-```
+```dart
 Purpose: Messaging verified contacts (your main use case!)
 Security: Forward secrecy + mutual auth + performance
 Messages: 2 (fast re-authentication)
@@ -1266,7 +1266,7 @@ flutter pub add noise_protocol_framework
 
 ### 2.3 Create Architecture Structure
 
-```
+```dart
 lib/core/security/noise/
 ├── noise_nn_cipher.dart          # Global/relay layer (NN pattern)
 ├── noise_xx_handshake.dart       # Pairing layer (XX pattern)
@@ -1676,7 +1676,7 @@ mkdir -p test/core/security/noise
 
 **Final structure:**
 
-```
+```dart
 your-flutter-project/
 ├── reference/
 │   └── bitchat-android/           # ← Reference implementation (read-only)
@@ -1887,7 +1887,7 @@ You **ARE** porting bitchat's integration logic (~1500 lines Kotlin).
 
 **Example workflow:**
 
-```
+```dart
 You: "Let's port the encrypt() function from NoiseSession.kt (lines 477-543)
      to noise_session.dart. I have pinenacl and cryptography packages ready."
 

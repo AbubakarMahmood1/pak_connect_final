@@ -33,7 +33,7 @@ class ArchivedChatTile extends ConsumerWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       elevation: isSelected ? 4 : 1,
-      color: isSelected ? colorScheme.primaryContainer.withValues() : null,
+      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.15) : null,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -192,7 +192,7 @@ class ArchivedChatTile extends ConsumerWidget {
       width: 48,
       height: 48,
       decoration: BoxDecoration(
-        color: theme.colorScheme.secondaryContainer.withValues(),
+        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.15),
         shape: BoxShape.circle,
       ),
       child: Stack(
@@ -254,7 +254,7 @@ class ArchivedChatTile extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: statusColor.withValues(),
+        color: statusColor.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -322,7 +322,7 @@ class CompactArchivedChatTile extends ConsumerWidget {
     final colorScheme = theme.colorScheme;
     
     return Material(
-      color: isSelected ? colorScheme.primaryContainer.withValues() : Colors.transparent,
+      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.15) : Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -334,7 +334,7 @@ class CompactArchivedChatTile extends ConsumerWidget {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.tertiaryContainer.withValues(),
+                  color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(

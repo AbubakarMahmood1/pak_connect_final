@@ -29,7 +29,8 @@
       "Bash(timeout 180 flutter test --reporter=compact --exclude-tags=mesh_relay)",
       "Bash(timeout 120 flutter test --reporter=compact)",
       "Bash(timeout:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(dart test:*)"
     ],
     "deny": [],
     "ask": []

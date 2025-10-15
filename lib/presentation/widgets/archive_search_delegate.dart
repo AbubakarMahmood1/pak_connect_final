@@ -120,7 +120,7 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
         // Search summary
         Container(
           padding: const EdgeInsets.all(16),
-          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
           child: Row(
             children: [
               Icon(

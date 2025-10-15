@@ -121,7 +121,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
                       ),
                       child: Card(
                         elevation: widget.message.isFromMe ? 1 : 2,
-                        shadowColor: theme.colorScheme.shadow.withValues(),
+                        shadowColor: theme.colorScheme.shadow.withValues(alpha: 0.1),
                         color: _getMessageBackgroundColor(theme),
                         surfaceTintColor: widget.message.isFromMe
                             ? theme.colorScheme.primary
@@ -188,7 +188,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(8),
         border: Border(
           left: BorderSide(
@@ -245,7 +245,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
               color: theme.colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: theme.colorScheme.outline.withValues(),
+                color: theme.colorScheme.outline.withValues(alpha: 0.3),
                 width: 0.5,
               ),
             ),

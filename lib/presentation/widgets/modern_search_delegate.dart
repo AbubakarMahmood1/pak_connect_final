@@ -195,7 +195,7 @@ class ModernSearchDelegate extends SearchDelegate<String> {
         // Search info header
         Container(
           padding: const EdgeInsets.all(16),
-          color: theme.colorScheme.surfaceContainerHighest.withValues(),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
           child: Row(
             children: [
               Icon(
@@ -613,7 +613,7 @@ class ModernSearchDelegate extends SearchDelegate<String> {
       spans.add(TextSpan(
         text: text.substring(index, index + query.length),
         style: TextStyle(
-          backgroundColor: theme.colorScheme.primary.withValues(),
+          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.3),
           fontWeight: FontWeight.bold,
         ),
       ));

@@ -210,11 +210,13 @@ class ArchiveContextMenu extends ConsumerWidget {
                         color: Theme.of(context).colorScheme.error,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        'This action cannot be undone!',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                          fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: Text(
+                          'This action cannot be undone!',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],

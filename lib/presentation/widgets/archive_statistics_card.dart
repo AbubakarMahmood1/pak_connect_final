@@ -164,7 +164,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withValues(),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -230,7 +230,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
         const SizedBox(height: 8),
         LinearProgressIndicator(
           value: percentage,
-          backgroundColor: color.withValues(),
+          backgroundColor: color.withValues(alpha: 0.2),
           valueColor: AlwaysStoppedAnimation<Color>(color),
         ),
       ],
@@ -291,7 +291,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        border: Border.all(color: color.withValues()),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -506,7 +506,7 @@ class CompactArchiveStatistics extends ConsumerWidget {
       data: (statistics) => Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(

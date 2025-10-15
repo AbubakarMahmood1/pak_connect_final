@@ -48,7 +48,7 @@ class MessageBubble extends StatelessWidget {
     ? LinearGradient(
         colors: [
           Theme.of(context).colorScheme.primary,
-          Theme.of(context).colorScheme.primary.withValues(),
+          Theme.of(context).colorScheme.primary.withValues(alpha: 0.85),
         ],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
@@ -63,12 +63,12 @@ class MessageBubble extends StatelessWidget {
   ),
   boxShadow: [
     BoxShadow(
-      color: Colors.black.withValues(),
+      color: Colors.black.withValues(alpha: 0.08),
       blurRadius: 6,
       offset: Offset(0, 2),
     ),
     BoxShadow(
-      color: Colors.black.withValues(),
+      color: Colors.black.withValues(alpha: 0.05),
       blurRadius: 1,
       offset: Offset(0, 1),
     ),
@@ -121,9 +121,9 @@ class MessageBubble extends StatelessWidget {
         child: Container(
           padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: Colors.red.withValues(),
+            color: Colors.red.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.red.withValues()),
+            border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -250,7 +250,7 @@ class MessageBubble extends StatelessWidget {
               : Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 16,
           height: 1.3,
-          backgroundColor: Colors.yellow.withValues(),
+          backgroundColor: Colors.yellow.withValues(alpha: 0.3),
           fontWeight: FontWeight.bold,
         ),
       ));

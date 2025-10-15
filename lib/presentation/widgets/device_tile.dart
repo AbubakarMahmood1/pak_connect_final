@@ -41,7 +41,7 @@ Widget build(BuildContext context, WidgetRef ref) {
     child: ListTile(
       leading: CircleAvatar(
         backgroundColor: isThisDeviceConnected 
-            ? (hasNameExchange ? Colors.green.withValues() : Colors.orange.withValues())
+            ? (hasNameExchange ? Colors.green.withValues(alpha: 0.2) : Colors.orange.withValues(alpha: 0.2))
             : Theme.of(context).colorScheme.primaryContainer,
         child: Icon(
           Icons.phone_android,

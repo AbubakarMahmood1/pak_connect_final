@@ -129,7 +129,7 @@ class AppTheme {
           foregroundColor: colorScheme.onPrimary,
           backgroundColor: colorScheme.primary,
           elevation: 1,
-          shadowColor: colorScheme.shadow.withValues(),
+          shadowColor: colorScheme.shadow.withValues(alpha: 0.08),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(40),
           ),
@@ -445,11 +445,11 @@ class AppTheme {
         CustomColors(
           success: _successColor,
           onSuccess: Colors.white,
-          successContainer: _successColor.withValues(),
+          successContainer: _successColor.withValues(alpha: 0.15),
           onSuccessContainer: _successColor,
           warning: _warningColor,
           onWarning: Colors.white,
-          warningContainer: _warningColor.withValues(),
+          warningContainer: _warningColor.withValues(alpha: 0.15),
           onWarningContainer: _warningColor,
         ),
       ],
