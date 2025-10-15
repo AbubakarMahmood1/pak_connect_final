@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
@@ -11,6 +12,8 @@ import '../../core/models/archive_models.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/database/database_helper.dart';
+import '../../core/compression/compression_util.dart';
+import '../../core/compression/compression_config.dart';
 
 /// Repository for managing archived chats with SQLite and FTS5 search
 /// Singleton pattern to prevent multiple instances and redundant initialization
@@ -123,6 +126,8 @@ class ArchiveRepository {
       ArchivedChat finalArchive = archivedChat;
       if (compressLargeArchives && archivedChat.estimatedSize > 10240) { // 10KB threshold
         finalArchive = await _compressArchive(archivedChat);
+      } else {
+        _logger.info('Archive ${archivedChat.id} size (${archivedChat.estimatedSize} bytes) below 10KB threshold - compression skipped');
       }
 
       // Store the archive in SQLite transaction
@@ -252,6 +257,17 @@ class ArchiveRepository {
       _recordOperationTime('restore', operationTime);
 
       _logger.info('Successfully restored $restoredCount messages from archive $archiveId');
+
+      // 🔧 CRITICAL FIX: Delete the archive after successful restoration
+      // This prevents UNIQUE constraint errors when re-archiving the same chat
+      // CASCADE delete will automatically remove archived_messages
+      final db = await DatabaseHelper.database;
+      await db.delete(
+        'archived_chats',
+        where: 'archive_id = ?',
+        whereArgs: [archiveId],
+      );
+      _logger.info('Archive $archiveId deleted after successful restoration');
 
       return ArchiveOperationResult.success(
         message: 'Chat restored successfully',
@@ -681,32 +697,106 @@ class ArchiveRepository {
 
   Future<ArchivedChat> _compressArchive(ArchivedChat archive) async {
     try {
-      // Simple compression simulation (in real implementation, use gzip)
-      final originalJson = jsonEncode(archive.toJson());
-      final originalSize = originalJson.length;
+      _logger.info('Compressing archive ${archive.id} (${archive.messageCount} messages)');
 
-      // Simulate compression by removing some whitespace and optimizing
-      final compressedSize = (originalSize * 0.7).round(); // 30% reduction simulation
+      // Serialize messages to JSON
+      final messagesJson = jsonEncode(archive.messages.map((m) => m.toJson()).toList());
+      final originalData = Uint8List.fromList(utf8.encode(messagesJson));
+      final originalSize = originalData.length;
 
-      final compressionInfo = ArchiveCompressionInfo(
-        algorithm: 'simulated_gzip',
-        originalSize: originalSize,
-        compressedSize: compressedSize,
-        compressionRatio: compressedSize / originalSize,
-        compressedAt: DateTime.now(),
+      // Compress using our compression module
+      final compressionResult = CompressionUtil.compress(
+        originalData,
+        config: CompressionConfig.aggressive, // Use aggressive for archives
       );
 
-      return archive.copyWith(compressionInfo: compressionInfo);
-    } catch (e) {
-      _logger.warning('Compression failed, storing uncompressed: $e');
+      if (compressionResult == null) {
+        // Compression not beneficial or failed - store uncompressed
+        _logger.info('Compression not beneficial for archive ${archive.id}, storing uncompressed');
+        return archive;
+      }
+
+      // Store compressed data as base64 in customData
+      final compressedBase64 = base64Encode(compressionResult.compressed);
+      final customData = Map<String, dynamic>.from(archive.customData ?? {});
+      customData['_compressed_messages_blob'] = compressedBase64;
+      customData['_compression_original_size'] = originalSize;
+
+      final compressionInfo = ArchiveCompressionInfo(
+        algorithm: compressionResult.stats.algorithm,
+        originalSize: originalSize,
+        compressedSize: compressionResult.stats.compressedSize,
+        compressionRatio: compressionResult.stats.compressionRatio,
+        compressedAt: DateTime.now(),
+        compressionMetadata: {
+          'savingsPercent': compressionResult.stats.savingsPercent,
+          'compressionTimeMs': compressionResult.stats.compressionTimeMs,
+        },
+      );
+
+      _logger.info('Archive ${archive.id} compressed: $originalSize → ${compressionResult.stats.compressedSize} bytes '
+          '(${compressionResult.stats.savingsPercent.toStringAsFixed(1)}% savings)');
+
+      return archive.copyWith(
+        compressionInfo: compressionInfo,
+        customData: customData,
+      );
+    } catch (e, stackTrace) {
+      _logger.warning('Compression failed for archive ${archive.id}, storing uncompressed: $e', e, stackTrace);
       return archive;
     }
   }
 
   Future<ArchivedChat> _decompressArchive(ArchivedChat archive) async {
-    // In real implementation, decompress the data
-    // For simulation, just return the archive
-    return archive;
+    try {
+      // Check if archive is actually compressed
+      if (!archive.isCompressed || archive.customData == null) {
+        _logger.fine('Archive ${archive.id} is not compressed, returning as-is');
+        return archive;
+      }
+
+      final customData = archive.customData!;
+      final compressedBase64 = customData['_compressed_messages_blob'] as String?;
+      final originalSize = customData['_compression_original_size'] as int?;
+
+      if (compressedBase64 == null) {
+        _logger.warning('Archive ${archive.id} marked as compressed but no compressed data found');
+        return archive;
+      }
+
+      _logger.info('Decompressing archive ${archive.id}');
+
+      // Decode base64 and decompress
+      final compressedData = base64Decode(compressedBase64);
+      final decompressed = CompressionUtil.decompress(
+        Uint8List.fromList(compressedData),
+        originalSize: originalSize,
+        config: CompressionConfig.aggressive,
+      );
+
+      if (decompressed == null) {
+        _logger.severe('Failed to decompress archive ${archive.id}, using stored messages');
+        return archive;
+      }
+
+      // Deserialize messages from decompressed JSON
+      final messagesJson = utf8.decode(decompressed);
+      final messagesList = jsonDecode(messagesJson) as List<dynamic>;
+      final messages = messagesList
+          .map((m) => ArchivedMessage.fromJson(m as Map<String, dynamic>))
+          .toList();
+
+      _logger.info('Archive ${archive.id} decompressed: ${messages.length} messages restored');
+
+      // Return archive with decompressed messages
+      // Remove compression info since we're working with uncompressed data now
+      return archive.copyWith(
+        messages: messages,
+      );
+    } catch (e, stackTrace) {
+      _logger.severe('Decompression failed for archive ${archive.id}, using stored messages: $e', e, stackTrace);
+      return archive; // Fall back to stored messages
+    }
   }
 
   void _recordOperationTime(String operation, Duration time) {

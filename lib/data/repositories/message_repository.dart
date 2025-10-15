@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../database/database_helper.dart';
+import '../../core/compression/compression_util.dart';
 
 class MessageRepository {
   static final _logger = Logger('MessageRepository');
@@ -375,36 +377,79 @@ class MessageRepository {
     return baseData;
   }
 
-  /// Encode object to JSON string
+  /// Encode object to JSON string with optional compression
   String? _encodeJson(dynamic obj) {
     if (obj == null) return null;
     try {
-      return jsonEncode(obj);
+      final jsonString = jsonEncode(obj);
+
+      // Try to compress if beneficial (using default config)
+      final jsonBytes = Uint8List.fromList(utf8.encode(jsonString));
+      final compressionResult = CompressionUtil.compress(jsonBytes);
+
+      if (compressionResult != null) {
+        // Compression was beneficial - store as base64 with marker
+        final compressedBase64 = base64Encode(compressionResult.compressed);
+        return 'COMPRESSED:$compressedBase64';
+      }
+
+      // Compression not beneficial - store uncompressed
+      return jsonString;
     } catch (e) {
       _logger.warning('⚠️ Failed to encode JSON: $e');
       return null;
     }
   }
 
-  /// Encode list to JSON string
+  /// Encode list to JSON string with optional compression
   String? _encodeJsonList(List<dynamic>? list) {
     if (list == null || list.isEmpty) return null;
     try {
-      return jsonEncode(list);
+      final jsonString = jsonEncode(list);
+
+      // Try to compress if beneficial
+      final jsonBytes = Uint8List.fromList(utf8.encode(jsonString));
+      final compressionResult = CompressionUtil.compress(jsonBytes);
+
+      if (compressionResult != null) {
+        // Compression was beneficial - store as base64 with marker
+        final compressedBase64 = base64Encode(compressionResult.compressed);
+        return 'COMPRESSED:$compressedBase64';
+      }
+
+      // Compression not beneficial - store uncompressed
+      return jsonString;
     } catch (e) {
       _logger.warning('⚠️ Failed to encode JSON list: $e');
       return null;
     }
   }
 
-  /// Decode JSON string to object
+  /// Decode JSON string to object (with automatic decompression)
   T? _decodeJson<T>(dynamic jsonString, [T Function(Map<String, dynamic>)? fromJson]) {
     if (jsonString == null) return null;
     if (jsonString is! String) return null;
     if (jsonString.isEmpty) return null;
 
     try {
-      final decoded = jsonDecode(jsonString);
+      String actualJsonString = jsonString;
+
+      // Check if data is compressed
+      if (jsonString.startsWith('COMPRESSED:')) {
+        // Extract and decompress
+        final compressedBase64 = jsonString.substring('COMPRESSED:'.length);
+        final compressedBytes = base64Decode(compressedBase64);
+        final decompressed = CompressionUtil.decompress(Uint8List.fromList(compressedBytes));
+
+        if (decompressed == null) {
+          _logger.warning('⚠️ Failed to decompress JSON data');
+          return null;
+        }
+
+        actualJsonString = utf8.decode(decompressed);
+      }
+
+      final decoded = jsonDecode(actualJsonString);
       if (decoded == null) return null;
 
       if (fromJson != null && decoded is Map<String, dynamic>) {
@@ -418,7 +463,7 @@ class MessageRepository {
     }
   }
 
-  /// Decode JSON string to list of objects
+  /// Decode JSON string to list of objects (with automatic decompression)
   List<T> _decodeJsonList<T>(
     dynamic jsonString,
     T Function(Map<String, dynamic>) fromJson,
@@ -428,7 +473,24 @@ class MessageRepository {
     if (jsonString.isEmpty) return [];
 
     try {
-      final decoded = jsonDecode(jsonString);
+      String actualJsonString = jsonString;
+
+      // Check if data is compressed
+      if (jsonString.startsWith('COMPRESSED:')) {
+        // Extract and decompress
+        final compressedBase64 = jsonString.substring('COMPRESSED:'.length);
+        final compressedBytes = base64Decode(compressedBase64);
+        final decompressed = CompressionUtil.decompress(Uint8List.fromList(compressedBytes));
+
+        if (decompressed == null) {
+          _logger.warning('⚠️ Failed to decompress JSON list data');
+          return [];
+        }
+
+        actualJsonString = utf8.decode(decompressed);
+      }
+
+      final decoded = jsonDecode(actualJsonString);
       if (decoded is! List) return [];
 
       return decoded

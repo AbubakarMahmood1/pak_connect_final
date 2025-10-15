@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:pak_connect/core/compression/compression_util.dart';
+import 'package:pak_connect/core/compression/compression_config.dart';
 
 enum ProtocolMessageType {
   // ===== HANDSHAKE PROTOCOL (Sequential, No ACKs) =====
@@ -54,7 +56,16 @@ class ProtocolMessage {
     this.ephemeralSigningKey,
   });
   
-  Uint8List toBytes() {
+  /// Serializes this protocol message to bytes with optional compression.
+  ///
+  /// Format (with compression):
+  /// - Flags: 1 byte (bit 0: IS_COMPRESSED = 0x01)
+  /// - Original size: 2 bytes (if compressed, big-endian)
+  /// - Data: Variable length (JSON or compressed JSON)
+  ///
+  /// Uses aggressive compression config for BLE transmission efficiency.
+  /// Falls back to uncompressed if compression doesn't help.
+  Uint8List toBytes({bool enableCompression = true}) {
     final json = {
       'type': type.index,
       'version': version,
@@ -64,20 +75,120 @@ class ProtocolMessage {
       'useEphemeralSigning': useEphemeralSigning,
       if (ephemeralSigningKey != null) 'ephemeralSigningKey': ephemeralSigningKey,
     };
-    return Uint8List.fromList(utf8.encode(jsonEncode(json)));
+    final jsonBytes = utf8.encode(jsonEncode(json));
+
+    // Try compression if enabled (using fast config for BLE - low latency priority)
+    if (enableCompression) {
+      final compressionResult = CompressionUtil.compress(
+        Uint8List.fromList(jsonBytes),
+        config: CompressionConfig.fast, // Fast compression for real-time BLE
+      );
+
+      if (compressionResult != null) {
+        // Compression was beneficial!
+        // Format: [flags:1][original_size:2][compressed_data]
+        final originalSize = jsonBytes.length;
+        final compressedData = compressionResult.compressed;
+        final result = ByteData(1 + 2 + compressedData.length);
+
+        // Flags byte (bit 0: IS_COMPRESSED)
+        result.setUint8(0, 0x01);
+
+        // Original size (2 bytes, big-endian)
+        result.setUint16(1, originalSize, Endian.big);
+
+        // Compressed data
+        result.buffer.asUint8List(3).setAll(0, compressedData);
+
+        return result.buffer.asUint8List();
+      }
+    }
+
+    // No compression (either disabled or not beneficial)
+    // Format: [flags:1][json_data]
+    final result = ByteData(1 + jsonBytes.length);
+    result.setUint8(0, 0x00); // Flags = 0 (uncompressed)
+    result.buffer.asUint8List(1).setAll(0, jsonBytes);
+
+    return result.buffer.asUint8List();
   }
   
+  /// Deserializes a protocol message from bytes with automatic decompression.
+  ///
+  /// Handles both compressed and uncompressed formats transparently.
+  /// Falls back gracefully if decompression fails (tries to parse as JSON directly).
   static ProtocolMessage fromBytes(Uint8List bytes) {
-    final json = jsonDecode(utf8.decode(bytes));
-    return ProtocolMessage(
-      type: ProtocolMessageType.values[json['type']],
-      version: json['version'] ?? 1,
-      payload: Map<String, dynamic>.from(json['payload']),
-      timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
-      signature: json['signature'],
-      useEphemeralSigning: json['useEphemeralSigning'] ?? false,
-      ephemeralSigningKey: json['ephemeralSigningKey'],
-    );
+    // Minimum size check (at least 1 byte for flags)
+    if (bytes.isEmpty) {
+      throw ArgumentError('Cannot decode empty bytes');
+    }
+
+    try {
+      // Read flags byte
+      final flags = bytes[0];
+      final isCompressed = (flags & 0x01) != 0;
+
+      Uint8List jsonBytes;
+
+      if (isCompressed) {
+        // Compressed format: [flags:1][original_size:2][compressed_data]
+        if (bytes.length < 4) {
+          throw ArgumentError('Compressed message too short (need at least 4 bytes)');
+        }
+
+        // Read original size (2 bytes, big-endian)
+        final byteData = ByteData.sublistView(bytes);
+        final originalSize = byteData.getUint16(1, Endian.big);
+
+        // Extract compressed data (skip flags:1 + size:2 = 3 bytes)
+        final compressedData = bytes.sublist(3);
+
+        // Decompress
+        final decompressed = CompressionUtil.decompress(
+          compressedData,
+          originalSize: originalSize,
+        );
+
+        if (decompressed == null) {
+          throw ArgumentError('Failed to decompress protocol message');
+        }
+
+        jsonBytes = decompressed;
+      } else {
+        // Uncompressed format: [flags:1][json_data]
+        jsonBytes = bytes.sublist(1);
+      }
+
+      // Parse JSON
+      final json = jsonDecode(utf8.decode(jsonBytes));
+      return ProtocolMessage(
+        type: ProtocolMessageType.values[json['type']],
+        version: json['version'] ?? 1,
+        payload: Map<String, dynamic>.from(json['payload']),
+        timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
+        signature: json['signature'],
+        useEphemeralSigning: json['useEphemeralSigning'] ?? false,
+        ephemeralSigningKey: json['ephemeralSigningKey'],
+      );
+    } catch (e) {
+      // Backward compatibility: Try parsing as raw JSON (old format without flags)
+      // This handles messages from old clients that don't have compression support
+      try {
+        final json = jsonDecode(utf8.decode(bytes));
+        return ProtocolMessage(
+          type: ProtocolMessageType.values[json['type']],
+          version: json['version'] ?? 1,
+          payload: Map<String, dynamic>.from(json['payload']),
+          timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
+          signature: json['signature'],
+          useEphemeralSigning: json['useEphemeralSigning'] ?? false,
+          ephemeralSigningKey: json['ephemeralSigningKey'],
+        );
+      } catch (_) {
+        // Both compressed and raw JSON parsing failed
+        rethrow;
+      }
+    }
   }
   
   // Quick constructors
