@@ -12,6 +12,9 @@ import 'core/services/navigation_service.dart';
 import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
 import 'presentation/screens/home_screen.dart';
+import 'presentation/screens/group_list_screen.dart';
+import 'presentation/screens/create_group_screen.dart';
+import 'presentation/screens/group_chat_screen.dart';
 import 'presentation/providers/ble_providers.dart';
 import 'presentation/providers/theme_provider.dart';
 
@@ -48,6 +51,22 @@ class PakConnectApp extends ConsumerWidget {
 
       // Enhanced navigation with theme support
       home: const AppWrapper(),
+
+      // Named routes for navigation
+      routes: {
+        '/groups': (context) => const GroupListScreen(),
+        '/create-group': (context) => const CreateGroupScreen(),
+      },
+      onGenerateRoute: (settings) {
+        // Handle routes with arguments
+        if (settings.name == '/group-chat') {
+          final groupId = settings.arguments as String;
+          return MaterialPageRoute(
+            builder: (context) => GroupChatScreen(groupId: groupId),
+          );
+        }
+        return null;
+      },
 
       // Theme transitions
       themeAnimationDuration: const Duration(milliseconds: 300),

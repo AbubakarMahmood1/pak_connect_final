@@ -9,13 +9,16 @@ import 'power/battery_optimizer.dart';
 import 'scanning/burst_scanning_controller.dart';
 import 'messaging/offline_message_queue.dart';
 import 'performance/performance_monitor.dart';
+import 'services/security_manager.dart';
+import 'networking/topology_manager.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
 import '../domain/services/auto_archive_scheduler.dart';
 import '../domain/services/notification_service.dart';
 import '../domain/services/notification_handler_factory.dart';
-import '../data/services/ble_state_manager.dart';
+// 🔧 REMOVED: BLEStateManager import - not used by AppCore
+// import '../data/services/ble_state_manager.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
 import '../data/repositories/archive_repository.dart';
@@ -35,7 +38,8 @@ class AppCore {
   late final ContactManagementService contactService;
   late final ChatManagementService chatService;
   late final PerformanceMonitor performanceMonitor;
-  late final BLEStateManager bleStateManager;
+  // 🔧 REMOVED: BLEStateManager - BLEService creates its own instance
+  // late final BLEStateManager bleStateManager;
   late final BatteryOptimizer batteryOptimizer;
   
   // Repositories
@@ -213,6 +217,22 @@ class AppCore {
     await NotificationService.initialize(handler: notificationHandler);
     _logger.info('Notification service initialized with ${notificationHandler.runtimeType}');
     
+    // Initialize SecurityManager with Noise Protocol
+    _logger.info('🔒 Initializing SecurityManager with Noise Protocol...');
+    await SecurityManager.initialize();
+    _logger.info('✅ SecurityManager initialized successfully');
+
+    // Initialize TopologyManager for network visualization
+    _logger.info('🌐 Initializing TopologyManager for network visualization...');
+    try {
+      final myPublicKey = await userPreferences.getPublicKey();
+      TopologyManager.instance.initialize(myPublicKey);
+      _logger.info('✅ TopologyManager initialized with node ID: ${myPublicKey.substring(0, 16)}...');
+    } catch (e) {
+      _logger.warning('⚠️ Failed to initialize TopologyManager: $e');
+      // Non-critical, continue initialization
+    }
+
     // Initialize contact management
     contactService = ContactManagementService();
     await contactService.initialize();
@@ -227,11 +247,13 @@ class AppCore {
   }
   
   /// Initialize BLE integration
+  /// 🔧 FIX: BLEService creates its own BLEStateManager instance
+  /// AppCore doesn't need a separate instance (was never used)
   Future<void> _initializeBLEIntegration() async {
-    _logger.info('🚀 Starting BLEStateManager initialization...');
-    bleStateManager = BLEStateManager();
-    await bleStateManager.initialize();
-    _logger.info('BLE integration initialized');
+    _logger.info('✅ BLE integration ready (BLEService manages its own BLEStateManager)');
+    // 🔧 REMOVED: Duplicate BLEStateManager initialization
+    // bleStateManager = BLEStateManager();
+    // await bleStateManager.initialize();
   }
   
   /// Initialize enhanced features
@@ -421,6 +443,12 @@ class AppCore {
         timeSinceLastSuccess: Duration.zero,
         qualityMeasurementsCount: 0,
         isBurstMode: false,
+        // Phase 1: Duty cycle stats (defaults)
+        powerMode: PowerMode.balanced,
+        isDutyCycleScanning: false,
+        batteryLevel: batteryOptimizer.currentLevel,
+        isCharging: batteryOptimizer.isCharging,
+        isAppInBackground: false,
       ), // Note: Power management now handled by burst scanning controller
       messageQueue: queueStats,
       performance: performanceMetrics,

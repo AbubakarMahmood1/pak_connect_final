@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:pak_connect/core/compression/compression_util.dart';
 import 'package:pak_connect/core/compression/compression_config.dart';
+import '../constants/special_recipients.dart';
 
 enum ProtocolMessageType {
   // ===== HANDSHAKE PROTOCOL (Sequential, No ACKs) =====
@@ -10,6 +11,12 @@ enum ProtocolMessageType {
 
   // Phase 1: Identity exchange (EPHEMERAL IDs only)
   identity,             // Send ephemeral identity information (response IS ack)
+  
+  // Phase 1.5: Noise Protocol Handshake (XX: 3 messages, KK: 2 messages)
+  noiseHandshake1,      // XX: -> e (32 bytes) | KK: -> e, es, ss (96 bytes) [SIZE INDICATES PATTERN]
+  noiseHandshake2,      // XX: <- e, ee, s, es (80 bytes) | KK: <- e, ee, se (48 bytes)
+  noiseHandshake3,      // XX: -> s, se (48 bytes) [XX ONLY - KK has no message 3]
+  noiseHandshakeRejected, // "I can't do KK" + reason + suggested pattern
 
   // Phase 2: Contact status sync
   contactStatus,        // Send contact relationship status (response IS ack)
@@ -205,6 +212,62 @@ static ProtocolMessage identity({
   },
   timestamp: DateTime.now(),
 );
+
+  // Noise Protocol XX Handshake messages
+  static ProtocolMessage noiseHandshake1({
+    required Uint8List handshakeData,
+    required String peerId,
+  }) => ProtocolMessage(
+    type: ProtocolMessageType.noiseHandshake1,
+    payload: {
+      'handshakeData': base64.encode(handshakeData),
+      'peerId': peerId,
+    },
+    timestamp: DateTime.now(),
+  );
+
+  static ProtocolMessage noiseHandshake2({
+    required Uint8List handshakeData,
+    required String peerId,
+  }) => ProtocolMessage(
+    type: ProtocolMessageType.noiseHandshake2,
+    payload: {
+      'handshakeData': base64.encode(handshakeData),
+      'peerId': peerId,
+    },
+    timestamp: DateTime.now(),
+  );
+
+  static ProtocolMessage noiseHandshake3({
+    required Uint8List handshakeData,
+    required String peerId,
+  }) => ProtocolMessage(
+    type: ProtocolMessageType.noiseHandshake3,
+    payload: {
+      'handshakeData': base64.encode(handshakeData),
+      'peerId': peerId,
+    },
+    timestamp: DateTime.now(),
+  );
+
+  // Noise handshake rejection (KK pattern coordination)
+  static ProtocolMessage noiseHandshakeRejected({
+    required String reason,           // 'missing_key', 'crypto_failure', 'pattern_unsupported'
+    required String attemptedPattern, // 'kk'
+    required String suggestedPattern, // 'xx'
+    String? peerEphemeralId,         // Who is rejecting
+    Map<String, dynamic>? contactStatus, // Optional: signal desync
+  }) => ProtocolMessage(
+    type: ProtocolMessageType.noiseHandshakeRejected,
+    payload: {
+      'reason': reason,
+      'attemptedPattern': attemptedPattern,
+      'suggestedPattern': suggestedPattern,
+      if (peerEphemeralId != null) 'peerId': peerEphemeralId,
+      if (contactStatus != null) 'contactStatus': contactStatus,
+    },
+    timestamp: DateTime.now(),
+  );
   
   static ProtocolMessage textMessage({
     required String messageId,
@@ -220,6 +283,28 @@ static ProtocolMessage identity({
       'encrypted': encrypted,
       if (recipientId != null) 'recipientId': recipientId,
       'useEphemeralAddressing': useEphemeralAddressing,
+    },
+    timestamp: DateTime.now(),
+  );
+
+  /// Priority 2: Broadcast message to all nodes in mesh network
+  ///
+  /// Creates a text message with broadcast recipient sentinel.
+  /// Will be delivered to ALL nodes and forwarded through the mesh.
+  ///
+  /// Inspired by BitChat's BROADCAST recipient pattern
+  static ProtocolMessage broadcastMessage({
+    required String messageId,
+    required String content,
+    bool encrypted = false,
+  }) => ProtocolMessage(
+    type: ProtocolMessageType.textMessage,
+    payload: {
+      'messageId': messageId,
+      'content': content,
+      'encrypted': encrypted,
+      'recipientId': SpecialRecipients.broadcast, // Broadcast sentinel
+      'useEphemeralAddressing': false,
     },
     timestamp: DateTime.now(),
   );
@@ -368,6 +453,38 @@ String? get identityPublicKey => type == ProtocolMessageType.identity ? payload[
 String? get identityDeviceIdCompat => type == ProtocolMessageType.identity ? 
   (payload['publicKey'] as String? ?? payload['deviceId'] as String?) : null;
 
+// Noise Protocol XX Handshake data helpers
+Uint8List? get noiseHandshakeData {
+  if (type == ProtocolMessageType.noiseHandshake1 ||
+      type == ProtocolMessageType.noiseHandshake2 ||
+      type == ProtocolMessageType.noiseHandshake3) {
+    final encoded = payload['handshakeData'] as String?;
+    return encoded != null ? base64.decode(encoded) : null;
+  }
+  return null;
+}
+
+String? get noiseHandshakePeerId {
+  if (type == ProtocolMessageType.noiseHandshake1 ||
+      type == ProtocolMessageType.noiseHandshake2 ||
+      type == ProtocolMessageType.noiseHandshake3) {
+    return payload['peerId'] as String?;
+  }
+  return null;
+}
+
+// Noise handshake rejection helpers
+String? get noiseHandshakeRejectReason => 
+  type == ProtocolMessageType.noiseHandshakeRejected ? payload['reason'] as String? : null;
+String? get noiseHandshakeRejectAttemptedPattern => 
+  type == ProtocolMessageType.noiseHandshakeRejected ? payload['attemptedPattern'] as String? : null;
+String? get noiseHandshakeRejectSuggestedPattern => 
+  type == ProtocolMessageType.noiseHandshakeRejected ? payload['suggestedPattern'] as String? : null;
+String? get noiseHandshakeRejectPeerId => 
+  type == ProtocolMessageType.noiseHandshakeRejected ? payload['peerId'] as String? : null;
+Map<String, dynamic>? get noiseHandshakeRejectContactStatus => 
+  type == ProtocolMessageType.noiseHandshakeRejected ? payload['contactStatus'] as Map<String, dynamic>? : null;
+
 // Helper to extract message info
 String? get textMessageId => type == ProtocolMessageType.textMessage ? payload['messageId'] as String? : null;
 String? get textContent => type == ProtocolMessageType.textMessage ? payload['content'] as String? : null;
@@ -376,6 +493,10 @@ bool get isEncrypted => type == ProtocolMessageType.textMessage ? (payload['encr
 // STEP 7: Message addressing helpers
 String? get recipientId => type == ProtocolMessageType.textMessage ? payload['recipientId'] as String? : null;
 bool get useEphemeralAddressing => type == ProtocolMessageType.textMessage ? (payload['useEphemeralAddressing'] as bool? ?? false) : false;
+
+// Priority 2: Broadcast message helper
+/// Check if this message is a broadcast message
+bool get isBroadcast => SpecialRecipients.isBroadcast(recipientId);
 
 // Helper for ACK
 String? get ackOriginalId => type == ProtocolMessageType.ack ? payload['originalMessageId'] as String? : null;
@@ -436,6 +557,13 @@ String? get meshRelayFinalRecipient => type == ProtocolMessageType.meshRelay ? p
 Map<String, dynamic>? get meshRelayMetadata => type == ProtocolMessageType.meshRelay ? payload['relayMetadata'] as Map<String, dynamic>? : null;
 Map<String, dynamic>? get meshRelayOriginalPayload => type == ProtocolMessageType.meshRelay ? payload['originalPayload'] as Map<String, dynamic>? : null;
 bool get meshRelayUseEphemeralAddressing => type == ProtocolMessageType.meshRelay ? (payload['useEphemeralAddressing'] as bool? ?? false) : false;  // STEP 7
+ProtocolMessageType? get meshRelayOriginalMessageType {
+  if (type == ProtocolMessageType.meshRelay) {
+    final typeIndex = payload['originalMessageType'] as int?;
+    return typeIndex != null ? ProtocolMessageType.values[typeIndex] : null;
+  }
+  return null;
+}
 
 // Queue sync helpers
 String? get queueSyncHash => type == ProtocolMessageType.queueSync ? payload['queueHash'] as String? : null;
@@ -456,6 +584,7 @@ static ProtocolMessage meshRelay({
   required Map<String, dynamic> relayMetadata,
   required Map<String, dynamic> originalPayload,
   bool useEphemeralAddressing = false,  // STEP 7: Preserve addressing type
+  ProtocolMessageType? originalMessageType,  // PHASE 2: Message type filtering
 }) => ProtocolMessage(
   type: ProtocolMessageType.meshRelay,
   payload: {
@@ -465,6 +594,7 @@ static ProtocolMessage meshRelay({
     'relayMetadata': relayMetadata,
     'originalPayload': originalPayload,
     'useEphemeralAddressing': useEphemeralAddressing,  // STEP 7
+    if (originalMessageType != null) 'originalMessageType': originalMessageType.index,  // PHASE 2
   },
   timestamp: DateTime.now(),
 );

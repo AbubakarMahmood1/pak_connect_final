@@ -30,7 +30,9 @@
       "Bash(timeout 120 flutter test --reporter=compact)",
       "Bash(timeout:*)",
       "Bash(grep:*)",
-      "Bash(dart test:*)"
+      "Bash(dart test:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

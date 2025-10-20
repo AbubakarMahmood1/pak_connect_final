@@ -17,36 +17,76 @@ enum TrustStatus {
 }
 
 class Contact {
-  final String publicKey;
+  final String publicKey;          // IMMUTABLE: First contact ID (never changes, primary key)
+  final String? persistentPublicKey; // Persistent identity (NULL at LOW, set at MEDIUM+)
+  final String? currentEphemeralId;  // Active Noise session ID (updates on reconnect)
+  
+  @Deprecated('Use currentEphemeralId instead')
+  final String? ephemeralId;       // DEPRECATED: Legacy field for backward compatibility
+  
   final String displayName;
   final TrustStatus trustStatus;
   final SecurityLevel securityLevel;
   final DateTime firstSeen;
   final DateTime lastSeen;
   final DateTime? lastSecuritySync;
+  
+  // Noise Protocol fields (Phase 2 integration)
+  final String? noisePublicKey;        // Base64-encoded peer Noise static public key (44 chars)
+  final String? noiseSessionState;     // Session lifecycle state (uninitialized/handshaking/established/expired)
+  final DateTime? lastHandshakeTime;   // When Noise session was last established
+
+  // Favorites support (Phase 2.5)
+  final bool isFavorite;               // True if user marked this contact as favorite
 
   Contact({
     required this.publicKey,
+    this.persistentPublicKey,
+    this.currentEphemeralId,
+    @Deprecated('Use currentEphemeralId instead') this.ephemeralId,
     required this.displayName,
     required this.trustStatus,
     required this.securityLevel,
     required this.firstSeen,
     required this.lastSeen,
     this.lastSecuritySync,
+    this.noisePublicKey,
+    this.noiseSessionState,
+    this.lastHandshakeTime,
+    this.isFavorite = false,
   });
+
+  /// 🔧 MODEL: Get the chat ID for this contact
+  /// - At LOW: Use publicKey (first ephemeral ID, temporary chat)
+  /// - At MEDIUM+: Use persistentPublicKey (permanent chat identity)
+  String get chatId => persistentPublicKey ?? publicKey;
+  
+  /// 🔧 MODEL: Get the session ID for Noise Protocol lookup
+  /// Noise sessions are ALWAYS indexed by currentEphemeralId
+  String? get sessionIdForNoise => currentEphemeralId ?? ephemeralId ?? publicKey;
 
   Map<String, dynamic> toJson() => {
     'publicKey': publicKey,
+    'persistentPublicKey': persistentPublicKey,
+    'currentEphemeralId': currentEphemeralId,
+    'ephemeralId': ephemeralId, // Keep for backward compat
     'displayName': displayName,
     'trustStatus': trustStatus.index,
     'securityLevel': securityLevel.index,
     'firstSeen': firstSeen.millisecondsSinceEpoch,
     'lastSeen': lastSeen.millisecondsSinceEpoch,
     'lastSecuritySync': lastSecuritySync?.millisecondsSinceEpoch,
+    'noisePublicKey': noisePublicKey,
+    'noiseSessionState': noiseSessionState,
+    'lastHandshakeTime': lastHandshakeTime?.millisecondsSinceEpoch,
+    'isFavorite': isFavorite,
   };
 
   factory Contact.fromJson(Map<String, dynamic> json) => Contact(
     publicKey: json['publicKey'] ?? json['public_key'],
+    persistentPublicKey: json['persistentPublicKey'] ?? json['persistent_public_key'],
+    currentEphemeralId: json['currentEphemeralId'] ?? json['current_ephemeral_id'],
+    ephemeralId: json['ephemeralId'] ?? json['ephemeral_id'], // Legacy support
     displayName: json['displayName'] ?? json['display_name'],
     trustStatus: TrustStatus.values[json['trustStatus'] ?? json['trust_status'] ?? 0],
     securityLevel: SecurityLevel.values[json['securityLevel'] ?? json['security_level'] ?? 0],
@@ -57,23 +97,41 @@ class Contact {
       : (json['last_security_sync'] != null
         ? DateTime.fromMillisecondsSinceEpoch(json['last_security_sync'])
         : null),
+    noisePublicKey: json['noisePublicKey'] ?? json['noise_public_key'],
+    noiseSessionState: json['noiseSessionState'] ?? json['noise_session_state'],
+    lastHandshakeTime: json['lastHandshakeTime'] != null
+      ? DateTime.fromMillisecondsSinceEpoch(json['lastHandshakeTime'])
+      : (json['last_handshake_time'] != null
+        ? DateTime.fromMillisecondsSinceEpoch(json['last_handshake_time'])
+        : null),
+    isFavorite: (json['isFavorite'] ?? json['is_favorite'] ?? 0) == 1,
   );
 
   /// Convert to database row format
   Map<String, dynamic> toDatabase() => {
     'public_key': publicKey,
+    'persistent_public_key': persistentPublicKey,
+    'current_ephemeral_id': currentEphemeralId,
+    'ephemeral_id': ephemeralId, // Legacy field
     'display_name': displayName,
     'trust_status': trustStatus.index,
     'security_level': securityLevel.index,
     'first_seen': firstSeen.millisecondsSinceEpoch,
     'last_seen': lastSeen.millisecondsSinceEpoch,
     'last_security_sync': lastSecuritySync?.millisecondsSinceEpoch,
+    'noise_public_key': noisePublicKey,
+    'noise_session_state': noiseSessionState,
+    'last_handshake_time': lastHandshakeTime?.millisecondsSinceEpoch,
+    'is_favorite': isFavorite ? 1 : 0,
     'updated_at': DateTime.now().millisecondsSinceEpoch,
   };
 
   /// Create from database row
   factory Contact.fromDatabase(Map<String, dynamic> row) => Contact(
     publicKey: row['public_key'] as String,
+    persistentPublicKey: row['persistent_public_key'] as String?,
+    currentEphemeralId: row['current_ephemeral_id'] as String?,
+    ephemeralId: row['ephemeral_id'] as String?, // Legacy field
     displayName: row['display_name'] as String,
     trustStatus: TrustStatus.values[row['trust_status'] as int],
     securityLevel: SecurityLevel.values[row['security_level'] as int],
@@ -82,16 +140,29 @@ class Contact {
     lastSecuritySync: row['last_security_sync'] != null
       ? DateTime.fromMillisecondsSinceEpoch(row['last_security_sync'] as int)
       : null,
+    noisePublicKey: row['noise_public_key'] as String?,
+    noiseSessionState: row['noise_session_state'] as String?,
+    lastHandshakeTime: row['last_handshake_time'] != null
+      ? DateTime.fromMillisecondsSinceEpoch(row['last_handshake_time'] as int)
+      : null,
+    isFavorite: (row['is_favorite'] as int? ?? 0) == 1,
   );
 
   Contact copyWithSecurityLevel(SecurityLevel newLevel) => Contact(
     publicKey: publicKey,
+    persistentPublicKey: persistentPublicKey,
+    currentEphemeralId: currentEphemeralId,
+    ephemeralId: ephemeralId,
     displayName: displayName,
     trustStatus: trustStatus,
     securityLevel: newLevel,
     firstSeen: firstSeen,
     lastSeen: DateTime.now(),
     lastSecuritySync: DateTime.now(),
+    noisePublicKey: noisePublicKey,
+    noiseSessionState: noiseSessionState,
+    lastHandshakeTime: lastHandshakeTime,
+    isFavorite: isFavorite,
   );
 
   bool get isSecurityStale => lastSecuritySync == null ||
@@ -130,6 +201,10 @@ class ContactRepository {
         firstSeen: existing.firstSeen,
         lastSeen: now,
         lastSecuritySync: existing.lastSecuritySync,
+        noisePublicKey: existing.noisePublicKey,
+        noiseSessionState: existing.noiseSessionState,
+        lastHandshakeTime: existing.lastHandshakeTime,
+        isFavorite: existing.isFavorite,
       );
       await _storeContact(updated);
     }
@@ -149,6 +224,34 @@ class ContactRepository {
     if (results.isEmpty) return null;
 
     return Contact.fromDatabase(results.first);
+  }
+
+  /// 🔧 NEW MODEL: Get contact by persistent public key (MEDIUM+ identity)
+  Future<Contact?> getContactByPersistentKey(String persistentPublicKey) async {
+    final db = await _db;
+
+    final results = await db.query(
+      'contacts',
+      where: 'persistent_public_key = ?',
+      whereArgs: [persistentPublicKey],
+      limit: 1,
+    );
+
+    if (results.isEmpty) return null;
+
+    return Contact.fromDatabase(results.first);
+  }
+
+  /// 🔧 NEW MODEL: Get contact by ANY identifier (publicKey OR persistentPublicKey)
+  /// Useful when you don't know which identifier type you have
+  Future<Contact?> getContactByAnyId(String identifier) async {
+    // Try by publicKey first (primary key - fastest)
+    var contact = await getContact(identifier);
+    if (contact != null) return contact;
+    
+    // Try by persistentPublicKey (indexed - still fast)
+    contact = await getContactByPersistentKey(identifier);
+    return contact;
   }
 
   /// Get all contacts as a map (public key → contact)
@@ -185,8 +288,42 @@ class ContactRepository {
         firstSeen: contact.firstSeen,
         lastSeen: contact.lastSeen,
         lastSecuritySync: contact.lastSecuritySync,
+        noisePublicKey: contact.noisePublicKey,
+        noiseSessionState: contact.noiseSessionState,
+        lastHandshakeTime: contact.lastHandshakeTime,
+        isFavorite: contact.isFavorite,
       );
       await _storeContact(verified);
+    }
+  }
+
+  /// Update Noise session data for a contact (Phase 2 integration)
+  Future<void> updateNoiseSession({
+    required String publicKey,
+    required String noisePublicKey,
+    required String sessionState,
+  }) async {
+    final contact = await getContact(publicKey);
+    if (contact != null) {
+      final updated = Contact(
+        publicKey: contact.publicKey,
+        displayName: contact.displayName,
+        trustStatus: contact.trustStatus,
+        securityLevel: contact.securityLevel,
+        firstSeen: contact.firstSeen,
+        lastSeen: contact.lastSeen,
+        lastSecuritySync: contact.lastSecuritySync,
+        noisePublicKey: noisePublicKey,
+        noiseSessionState: sessionState,
+        lastHandshakeTime: DateTime.now(),
+        isFavorite: contact.isFavorite,
+      );
+      await _storeContact(updated);
+      final keyPreview = publicKey.length > 8 ? publicKey.substring(0, 8) : publicKey;
+      _logger.info('🔐 Updated Noise session for $keyPreview... (state: $sessionState)');
+    } else {
+      final keyPreview = publicKey.length > 8 ? publicKey.substring(0, 8) : publicKey;
+      _logger.warning('Cannot update Noise session - contact not found: $keyPreview...');
     }
   }
 
@@ -251,6 +388,22 @@ class ContactRepository {
     } else {
       _logger.warning('🔧 REPO DEBUG: Cannot update security level - contact not found');
     }
+  }
+
+  /// Update contact ephemeral ID (for Noise session tracking)
+  /// Update contact's current ephemeral ID (session tracking)
+  Future<void> updateContactEphemeralId(String publicKey, String newEphemeralId) async {
+    final db = await _db;
+    await db.update(
+      'contacts',
+      {
+        'current_ephemeral_id': newEphemeralId,
+        'ephemeral_id': newEphemeralId,  // Keep legacy field in sync
+      },
+      where: 'public_key = ?',
+      whereArgs: [publicKey],
+    );
+    _logger.info('🔧 REPO: Updated current_ephemeral_id for ${publicKey.substring(0, 8)}... to ${newEphemeralId.substring(0, 8)}...');
   }
 
   /// Get contact's current security level
@@ -363,31 +516,66 @@ class ContactRepository {
   }
 
   /// Create new contact with explicit security level
-  Future<void> saveContactWithSecurity(String publicKey, String displayName, SecurityLevel initialLevel) async {
+  /// 🔧 NEW MODEL: Immutable publicKey, separate persistent identity
+  /// 
+  /// At LOW security:
+  ///   - publicKey = first ephemeral ID (never changes, primary key)
+  ///   - persistentPublicKey = NULL
+  ///   - currentEphemeralId = current session ID (same as publicKey initially)
+  /// 
+  /// At MEDIUM+ security:
+  ///   - publicKey = still first ephemeral ID (unchanged)
+  ///   - persistentPublicKey = real persistent key (set during upgrade)
+  ///   - currentEphemeralId = current session ID (updates on reconnect)
+  Future<void> saveContactWithSecurity(
+    String publicKey,  // Immutable: first ephemeral ID or existing publicKey
+    String displayName,
+    SecurityLevel securityLevel,
+    {
+      String? currentEphemeralId,   // Current session ID
+      String? persistentPublicKey,  // Persistent identity (NULL at LOW)
+      String? ephemeralId,          // DEPRECATED: for backward compat
+    }
+  ) async {
     final existing = await getContact(publicKey);
     final now = DateTime.now();
 
     if (existing == null) {
       final contact = Contact(
-        publicKey: publicKey,
+        publicKey: publicKey,  // Immutable primary key
+        persistentPublicKey: persistentPublicKey,  // NULL at LOW, set at MEDIUM+
+        currentEphemeralId: currentEphemeralId ?? ephemeralId ?? publicKey,
+        ephemeralId: ephemeralId ?? currentEphemeralId ?? publicKey, // Legacy
         displayName: displayName,
         trustStatus: TrustStatus.newContact,
-        securityLevel: initialLevel,
+        securityLevel: securityLevel,
         firstSeen: now,
         lastSeen: now,
         lastSecuritySync: now,
       );
       await _storeContact(contact);
-      _logger.info('🔒 SECURITY: New contact created with ${initialLevel.name} level');
+      
+      _logger.info('🔒 SECURITY: New contact (${securityLevel.name})');
+      _logger.info('   publicKey (immutable): ${publicKey.substring(0, 16)}...');
+      _logger.info('   persistentPublicKey: ${persistentPublicKey?.substring(0, 16) ?? "NULL"}');
+      _logger.info('   currentEphemeralId: ${(currentEphemeralId ?? ephemeralId ?? publicKey).substring(0, 16)}...');
     } else {
+      // Contact exists - update fields
       final updated = Contact(
-        publicKey: publicKey,
+        publicKey: publicKey,  // Never changes
+        persistentPublicKey: persistentPublicKey ?? existing.persistentPublicKey,
+        currentEphemeralId: currentEphemeralId ?? ephemeralId ?? existing.currentEphemeralId,
+        ephemeralId: ephemeralId ?? currentEphemeralId ?? existing.ephemeralId, // Legacy
         displayName: displayName,
         trustStatus: existing.trustStatus,
-        securityLevel: existing.securityLevel,
+        securityLevel: securityLevel,
         firstSeen: existing.firstSeen,
         lastSeen: now,
         lastSecuritySync: existing.lastSecuritySync,
+        noisePublicKey: existing.noisePublicKey,
+        noiseSessionState: existing.noiseSessionState,
+        lastHandshakeTime: existing.lastHandshakeTime,
+        isFavorite: existing.isFavorite,
       );
       await _storeContact(updated);
     }
@@ -505,5 +693,116 @@ class ContactRepository {
       _logger.warning('Failed to get recently active contact count: $e');
       return 0;
     }
+  }
+
+  // =========================
+  // FAVORITES MANAGEMENT
+  // =========================
+
+  /// Mark a contact as favorite
+  Future<void> markContactFavorite(String publicKey) async {
+    final contact = await getContact(publicKey);
+    if (contact == null) {
+      _logger.warning('Cannot mark non-existent contact as favorite: ${publicKey.substring(0, 8)}...');
+      return;
+    }
+
+    if (contact.isFavorite) {
+      _logger.fine('Contact already marked as favorite: ${publicKey.substring(0, 8)}...');
+      return;
+    }
+
+    final db = await _db;
+    await db.update(
+      'contacts',
+      {'is_favorite': 1, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'public_key = ?',
+      whereArgs: [publicKey],
+    );
+
+    _logger.info('⭐ Marked contact as favorite: ${publicKey.substring(0, 8)}...');
+  }
+
+  /// Remove favorite status from a contact
+  Future<void> unmarkContactFavorite(String publicKey) async {
+    final contact = await getContact(publicKey);
+    if (contact == null) {
+      _logger.warning('Cannot unmark non-existent contact: ${publicKey.substring(0, 8)}...');
+      return;
+    }
+
+    if (!contact.isFavorite) {
+      _logger.fine('Contact is not marked as favorite: ${publicKey.substring(0, 8)}...');
+      return;
+    }
+
+    final db = await _db;
+    await db.update(
+      'contacts',
+      {'is_favorite': 0, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'public_key = ?',
+      whereArgs: [publicKey],
+    );
+
+    _logger.info('Removed favorite status from contact: ${publicKey.substring(0, 8)}...');
+  }
+
+  /// Toggle favorite status for a contact
+  Future<bool> toggleContactFavorite(String publicKey) async {
+    final contact = await getContact(publicKey);
+    if (contact == null) {
+      _logger.warning('Cannot toggle favorite for non-existent contact: ${publicKey.substring(0, 8)}...');
+      return false;
+    }
+
+    if (contact.isFavorite) {
+      await unmarkContactFavorite(publicKey);
+      return false;
+    } else {
+      await markContactFavorite(publicKey);
+      return true;
+    }
+  }
+
+  /// Get all favorite contacts
+  Future<List<Contact>> getFavoriteContacts() async {
+    final db = await _db;
+
+    final results = await db.query(
+      'contacts',
+      where: 'is_favorite = 1',
+      orderBy: 'last_seen DESC',
+    );
+
+    final favorites = <Contact>[];
+    for (final row in results) {
+      try {
+        favorites.add(Contact.fromDatabase(row));
+      } catch (e) {
+        _logger.warning('Failed to parse favorite contact: $e');
+      }
+    }
+
+    return favorites;
+  }
+
+  /// Get count of favorite contacts
+  Future<int> getFavoriteContactCount() async {
+    try {
+      final db = await _db;
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM contacts WHERE is_favorite = 1',
+      );
+      return Sqflite.firstIntValue(result) ?? 0;
+    } catch (e) {
+      _logger.warning('Failed to get favorite contact count: $e');
+      return 0;
+    }
+  }
+
+  /// Check if a contact is marked as favorite
+  Future<bool> isContactFavorite(String publicKey) async {
+    final contact = await getContact(publicKey);
+    return contact?.isFavorite ?? false;
   }
 }

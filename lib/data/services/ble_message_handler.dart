@@ -252,9 +252,15 @@ class BLEMessageHandler {
   print('🔧 SEND DEBUG: Message content: "${_safeTruncate(message, 50)}..."');
   print('🔧 SEND DEBUG: ===== END SENDING ANALYSIS =====');
 
+    print('📨 SEND STEP 1: Converting protocol message to bytes');
     final jsonBytes = finalMessage.toBytes();
+    print('📨 SEND STEP 2: Protocol message → ${jsonBytes.length} bytes');
+    print('📨 SEND STEP 2a: First 20 bytes: ${jsonBytes.sublist(0, jsonBytes.length > 20 ? 20 : jsonBytes.length)}');
+    
+    print('📨 SEND STEP 3: Fragmenting into chunks (MTU: $mtuSize)');
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
     _logger.info('Created ${chunks.length} chunks for message: $msgId');
+    print('📨 SEND STEP 4: Created ${chunks.length} chunks');
     
     // Set up ACK waiting
     final ackCompleter = Completer<bool>();
@@ -272,16 +278,23 @@ class BLEMessageHandler {
     // Send each chunk via write characteristic (central mode)
     for (int i = 0; i < chunks.length; i++) {
       final chunk = chunks[i];
+      print('📨 SEND STEP 5.${i + 1}: Converting chunk ${i + 1}/${chunks.length} to bytes');
+      print('📨 SEND STEP 5.${i + 1}a: Chunk format: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}|[${chunk.content.length} chars]');
+      
       final chunkData = chunk.toBytes();
+      print('📨 SEND STEP 5.${i + 1}b: Chunk ${i + 1} → ${chunkData.length} bytes');
+      print('📨 SEND STEP 5.${i + 1}c: First 50 bytes: ${chunkData.sublist(0, chunkData.length > 50 ? 50 : chunkData.length)}');
       
       _logger.info('Sending central chunk ${i + 1}/${chunks.length} for message: $msgId');
       
+      print('📨 SEND STEP 6.${i + 1}: Writing chunk ${i + 1} to BLE characteristic');
       await centralManager.writeCharacteristic(
         connectedDevice,
         messageCharacteristic,
         value: chunkData,
         type: GATTCharacteristicWriteType.withResponse,
       );
+      print('📨 SEND STEP 6.${i + 1}✅: Chunk ${i + 1} written to BLE successfully');
       
       if (i < chunks.length - 1) {
         await Future.delayed(Duration(milliseconds: 100));
@@ -441,31 +454,61 @@ Future<bool> sendPeripheralMessage({
   
 Future<String?> processReceivedData(Uint8List data, {String? Function(String)? onMessageIdFound, String? senderPublicKey, required ContactRepository contactRepository,}) async {
   try {
+    print('📥 RECEIVE STEP 1: Received ${data.length} bytes from BLE');
+    print('📥 RECEIVE STEP 1a: First 50 bytes: ${data.sublist(0, data.length > 50 ? 50 : data.length)}');
+    print('📥 RECEIVE STEP 1b: First 50 chars as string: ${String.fromCharCodes(data.sublist(0, data.length > 50 ? 50 : data.length))}');
+    
     // Skip single-byte pings
     if (data.length == 1 && data[0] == 0x00) {
+      print('📥 RECEIVE: Skipping single-byte ping [0x00]');
       return null;
     }
     
     // Check for direct protocol messages (non-fragmented ACKs/pings)
     try {
+      print('📥 RECEIVE STEP 2: Attempting UTF-8 decode for direct protocol message check');
       final directMessage = utf8.decode(data);
       if (ProtocolMessage.isProtocolMessage(directMessage)) {
+        print('📥 RECEIVE STEP 2✅: Detected direct protocol message (non-chunked)');
         return await _handleDirectProtocolMessage(directMessage, onMessageIdFound, senderPublicKey);
       }
+      print('📥 RECEIVE STEP 2❌: Not a direct protocol message');
     } catch (e) {
+      print('📥 RECEIVE STEP 2❌: UTF-8 decode failed (expected for chunked messages): $e');
       // Not a direct message, try chunk processing
     }
     
     // Process as message chunk
     try {
+      print('📥 RECEIVE STEP 3: Attempting to parse as MessageChunk');
       final chunk = MessageChunk.fromBytes(data);
-      final completeMessage = _messageReassembler.addChunk(chunk);
-      
-      if (completeMessage != null) {
-        return await _processCompleteProtocolMessage(completeMessage, onMessageIdFound, senderPublicKey);
+      print('📥 RECEIVE STEP 3✅: Parsed chunk: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}');
+
+      print('📥 RECEIVE STEP 4: Adding chunk to reassembler');
+      // 🔧 FIX BUG #1: Use addChunkBytes() to get raw bytes, NOT addChunk() which returns String
+      // addChunk() converts bytes to UTF-8 string, which corrupts binary protocol messages
+      // addChunkBytes() returns raw Uint8List, preserving binary data integrity
+      final completeMessageBytes = _messageReassembler.addChunkBytes(chunk);
+      print('📥 RECEIVE STEP 4: Reassembler result: ${completeMessageBytes != null ? "MESSAGE COMPLETE ✅" : "waiting for more chunks ⏳"}');
+
+      if (completeMessageBytes != null) {
+        print('📥 RECEIVE STEP 5: Processing complete message (${completeMessageBytes.length} bytes)');
+        // 🔧 FIX BUG #1: Parse raw bytes directly as ProtocolMessage, not as chunk format
+        try {
+          final protocolMessage = ProtocolMessage.fromBytes(completeMessageBytes);
+          print('📥 RECEIVE STEP 5✅: Protocol message parsed successfully (type: ${protocolMessage.type})');
+
+          // Process the protocol message directly
+          return await _processProtocolMessageDirect(protocolMessage, onMessageIdFound, senderPublicKey);
+        } catch (e) {
+          print('📥 RECEIVE STEP 5❌: Failed to parse protocol message: $e');
+          _logger.warning('Protocol message parsing failed: $e');
+          return null;
+        }
       }
-      
+
     } catch (e) {
+      print('📥 RECEIVE STEP 3❌: Chunk parsing failed: $e');
       _logger.warning('Chunk processing failed: $e');
     }
     
@@ -552,19 +595,108 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
   }
 }
 
-Future<String?> _processCompleteProtocolMessage(
-  String completeMessage, 
+/// 🔧 FIX BUG #1: Process ProtocolMessage directly without JSON conversion
+/// This method handles protocol messages that have been reassembled from chunks.
+/// It avoids the double-parsing bug by working with the ProtocolMessage object directly.
+Future<String?> _processProtocolMessageDirect(
+  ProtocolMessage protocolMessage,
   String? Function(String)? onMessageIdFound,
   String? senderPublicKey,
 ) async {
-  if (!ProtocolMessage.isProtocolMessage(completeMessage)) {
-    _logger.warning('Received non-protocol message, ignoring');
+  try {
+    switch (protocolMessage.type) {
+      case ProtocolMessageType.ack:
+        final originalId = protocolMessage.payload['originalMessageId'] as String;
+        final ackCompleter = _messageAcks[originalId];
+        if (ackCompleter != null && !ackCompleter.isCompleted) {
+          ackCompleter.complete(true);
+        }
+        _logger.info('Received protocol ACK for: $originalId');
+        return null;
+
+      case ProtocolMessageType.ping:
+        _logger.info('Received protocol ping');
+        return null;
+
+      case ProtocolMessageType.textMessage:
+        // Text messages should go through the complete message processing pipeline
+        // where routing validation and decryption happens
+        return await _processCompleteProtocolMessageDirect(protocolMessage, onMessageIdFound, senderPublicKey);
+
+      case ProtocolMessageType.relayAck:
+        final originalMessageId = protocolMessage.relayAckOriginalMessageId;
+        final relayNode = protocolMessage.relayAckRelayNode;
+        final delivered = protocolMessage.relayAckDelivered;
+        final ackRoutingPath = protocolMessage.payload['ackRoutingPath'] as List<dynamic>?;
+
+        if (originalMessageId == null) {
+          _logger.warning('Received relayAck with no message ID');
+          return null;
+        }
+
+        await _handleRelayAck(
+          originalMessageId: originalMessageId,
+          relayNode: relayNode ?? 'unknown',
+          delivered: delivered,
+          ackRoutingPath: ackRoutingPath?.cast<String>(),
+        );
+        return null;
+
+      case ProtocolMessageType.queueSync:
+        // Handle queue sync messages
+        final queueHash = protocolMessage.payload['queueHash'] as String?;
+        final messageIds = (protocolMessage.payload['messageIds'] as List<dynamic>?)?.cast<String>();
+
+        if (queueHash != null && messageIds != null && senderPublicKey != null) {
+          final syncMessage = QueueSyncMessage.createRequest(
+            messageIds: messageIds,
+            nodeId: senderPublicKey,
+          );
+
+          // Forward to sync manager via callback
+          onQueueSyncReceived?.call(syncMessage, senderPublicKey);
+          final truncated = senderPublicKey.length > 16
+              ? senderPublicKey.substring(0, 16)
+              : senderPublicKey;
+          _logger.info('Received queue sync message from $truncated...');
+        } else {
+          _logger.warning('Received invalid queue sync message');
+        }
+        return null;
+
+      default:
+        _logger.warning('Unexpected direct protocol message type: ${protocolMessage.type}');
+        return null;
+    }
+  } catch (e) {
+    _logger.severe('Failed to process direct protocol message: $e');
     return null;
   }
-  
+}
+
+/// 🔧 FIX BUG #1: Process complete protocol message from ProtocolMessage object
+/// This avoids the double-parsing bug by working directly with the parsed object.
+Future<String?> _processCompleteProtocolMessageDirect(
+  ProtocolMessage protocolMessage,
+  String? Function(String)? onMessageIdFound,
+  String? senderPublicKey,
+) async {
   try {
-    final messageBytes = utf8.encode(completeMessage);
-    final protocolMessage = ProtocolMessage.fromBytes(messageBytes);
+    // Process the already-parsed protocol message
+    return await _processProtocolMessageContent(protocolMessage, onMessageIdFound, senderPublicKey);
+  } catch (e) {
+    _logger.severe('Failed to process complete protocol message: $e');
+    return null;
+  }
+}
+
+/// Helper method to process protocol message content (shared by both direct and string-based paths)
+Future<String?> _processProtocolMessageContent(
+  ProtocolMessage protocolMessage,
+  String? Function(String)? onMessageIdFound,
+  String? senderPublicKey,
+) async {
+  try {
     
     switch (protocolMessage.type) {
       case ProtocolMessageType.textMessage:
@@ -737,6 +869,27 @@ Future<String?> _processCompleteProtocolMessage(
   }
 }
 
+/// Original method for backward compatibility - parses JSON string to ProtocolMessage
+Future<String?> _processCompleteProtocolMessage(
+  String completeMessage,
+  String? Function(String)? onMessageIdFound,
+  String? senderPublicKey,
+) async {
+  if (!ProtocolMessage.isProtocolMessage(completeMessage)) {
+    _logger.warning('Received non-protocol message, ignoring');
+    return null;
+  }
+
+  try {
+    final messageBytes = utf8.encode(completeMessage);
+    final protocolMessage = ProtocolMessage.fromBytes(messageBytes);
+    return await _processProtocolMessageContent(protocolMessage, onMessageIdFound, senderPublicKey);
+  } catch (e) {
+    _logger.severe('Failed to process complete protocol message: $e');
+    return null;
+  }
+}
+
 Future<void> handleQRIntroductionClaim({
   required String otherPublicKey, 
   required String introId, 
@@ -851,33 +1004,39 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
       final finalRecipient = protocolMessage.meshRelayFinalRecipient;
       final relayMetadata = protocolMessage.meshRelayMetadata;
       final originalPayload = protocolMessage.meshRelayOriginalPayload;
-      
+      final originalMessageType = protocolMessage.meshRelayOriginalMessageType;  // PHASE 2: Extract message type
+
       if (originalMessageId == null || originalSender == null ||
           finalRecipient == null || relayMetadata == null ||
           originalPayload == null) {
         _logger.warning('🔀 MESH RELAY: Invalid relay message received');
         return null;
       }
-      
+
       _logger.info('🔀 MESH RELAY: Processing message ${_safeTruncate(originalMessageId, 16)}... from ${_safeTruncate(senderPublicKey, 8)}...');
-      
+      if (originalMessageType != null) {
+        _logger.info('🔀 MESH RELAY: Original message type: ${originalMessageType.name}');
+      }
+
       // Create relay metadata and message objects
       final metadata = RelayMetadata.fromJson(relayMetadata);
       final originalContent = originalPayload['content'] as String? ?? '';
-      
+
       final relayMessage = MeshRelayMessage(
         originalMessageId: originalMessageId,
         originalContent: originalContent,
         relayMetadata: metadata,
         relayNodeId: senderPublicKey,
         relayedAt: DateTime.now(),
+        originalMessageType: originalMessageType,  // PHASE 2: Include message type
       );
-      
-      // Process with relay engine
+
+      // PHASE 2: Process with relay engine, passing message type for filtering
       final result = await _relayEngine!.processIncomingRelay(
         relayMessage: relayMessage,
         fromNodeId: senderPublicKey,
         availableNextHops: getAvailableNextHops(),
+        messageType: originalMessageType,  // PHASE 2: Pass to relay engine for policy check
       );
       
       // Handle result based on type
@@ -971,8 +1130,8 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
   Future<void> _handleRelayToNextHop(MeshRelayMessage message, String nextHopNodeId) async {
     try {
       _logger.info('🔀 RELAY FORWARD: Preparing to send relay message to ${_safeTruncate(nextHopNodeId, 8)}...');
-      
-      // Create protocol message for relay forwarding
+
+      // PHASE 2: Create protocol message for relay forwarding, preserving message type
       final protocolMessage = ProtocolMessage.meshRelay(
         originalMessageId: message.originalMessageId,
         originalSender: message.relayMetadata.originalSender,
@@ -983,6 +1142,7 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
           if (message.encryptedPayload != null) 'encrypted': message.encryptedPayload,
         },
         useEphemeralAddressing: false,  // Relay messages use persistent keys
+        originalMessageType: message.originalMessageType,  // PHASE 2: Preserve message type
       );
       
       // Forward via callback to BLE service layer

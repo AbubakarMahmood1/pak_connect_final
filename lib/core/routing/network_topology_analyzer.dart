@@ -171,17 +171,25 @@ class NetworkTopologyAnalyzer {
   /// Get all known nodes in the network
   Set<String> getAllKnownNodes() {
     final nodes = <String>{};
-    
+
     // Add all nodes from connections
     for (final entry in _currentTopology.connections.entries) {
       nodes.add(entry.key);
       nodes.addAll(entry.value);
     }
-    
+
     // Add nodes from last seen
     nodes.addAll(_lastSeen.keys);
-    
+
     return nodes;
+  }
+
+  /// Get the current network size (number of known nodes)
+  ///
+  /// Phase 3: Network-size adaptive relay
+  /// Used for calculating probabilistic relay decisions
+  int getNetworkSize() {
+    return getAllKnownNodes().length;
   }
 
   /// Get nodes reachable from a given node

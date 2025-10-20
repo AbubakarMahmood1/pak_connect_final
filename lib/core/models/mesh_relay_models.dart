@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../utils/gcs_filter.dart';
+import 'protocol_message.dart';  // PHASE 2: For ProtocolMessageType
 
 /// Metadata for mesh relay operations
 class RelayMetadata {
@@ -177,21 +179,24 @@ class RelayMetadata {
 class MeshRelayMessage {
   /// Original message ID
   final String originalMessageId;
-  
+
   /// Original message content
   final String originalContent;
-  
+
   /// Relay metadata
   final RelayMetadata relayMetadata;
-  
+
   /// Current relay node's public key
   final String relayNodeId;
-  
+
   /// Timestamp when this relay was created
   final DateTime relayedAt;
 
   /// Optional: Encrypted payload if message requires encryption
   final String? encryptedPayload;
+
+  /// PHASE 2: Original message type (for relay policy filtering)
+  final ProtocolMessageType? originalMessageType;
 
   const MeshRelayMessage({
     required this.originalMessageId,
@@ -200,6 +205,7 @@ class MeshRelayMessage {
     required this.relayNodeId,
     required this.relayedAt,
     this.encryptedPayload,
+    this.originalMessageType,  // PHASE 2
   });
   
   /// Create relay message for forwarding
@@ -209,6 +215,7 @@ class MeshRelayMessage {
     required RelayMetadata metadata,
     required String relayNodeId,
     String? encryptedPayload,
+    ProtocolMessageType? originalMessageType,  // PHASE 2
   }) {
     return MeshRelayMessage(
       originalMessageId: originalMessageId,
@@ -217,13 +224,14 @@ class MeshRelayMessage {
       relayNodeId: relayNodeId,
       relayedAt: DateTime.now(),
       encryptedPayload: encryptedPayload,
+      originalMessageType: originalMessageType,  // PHASE 2
     );
   }
   
   /// Create next hop relay message
   MeshRelayMessage nextHop(String nextRelayNodeId) {
     final nextMetadata = relayMetadata.nextHop(nextRelayNodeId);
-    
+
     return MeshRelayMessage(
       originalMessageId: originalMessageId,
       originalContent: originalContent,
@@ -231,6 +239,7 @@ class MeshRelayMessage {
       relayNodeId: nextRelayNodeId,
       relayedAt: DateTime.now(),
       encryptedPayload: encryptedPayload,
+      originalMessageType: originalMessageType,  // PHASE 2: Preserve type through hops
     );
   }
   
@@ -248,42 +257,56 @@ class MeshRelayMessage {
     'relayNodeId': relayNodeId,
     'relayedAt': relayedAt.millisecondsSinceEpoch,
     if (encryptedPayload != null) 'encryptedPayload': encryptedPayload,
+    if (originalMessageType != null) 'originalMessageType': originalMessageType!.index,  // PHASE 2
   };
 
   /// Create from JSON
-  factory MeshRelayMessage.fromJson(Map<String, dynamic> json) => MeshRelayMessage(
-    originalMessageId: json['originalMessageId'],
-    originalContent: json['originalContent'],
-    relayMetadata: RelayMetadata.fromJson(json['relayMetadata']),
-    relayNodeId: json['relayNodeId'],
-    relayedAt: DateTime.fromMillisecondsSinceEpoch(json['relayedAt']),
-    encryptedPayload: json['encryptedPayload'],
-  );
+  factory MeshRelayMessage.fromJson(Map<String, dynamic> json) {
+    // PHASE 2: Deserialize message type with backward compatibility
+    ProtocolMessageType? messageType;
+    if (json.containsKey('originalMessageType')) {
+      messageType = ProtocolMessageType.values[json['originalMessageType']];
+    }
+
+    return MeshRelayMessage(
+      originalMessageId: json['originalMessageId'],
+      originalContent: json['originalContent'],
+      relayMetadata: RelayMetadata.fromJson(json['relayMetadata']),
+      relayNodeId: json['relayNodeId'],
+      relayedAt: DateTime.fromMillisecondsSinceEpoch(json['relayedAt']),
+      encryptedPayload: json['encryptedPayload'],
+      originalMessageType: messageType,  // PHASE 2
+    );
+  }
 }
 
 /// Queue synchronization message for mesh coordination
 class QueueSyncMessage {
   /// Hash of the current message queue state
   final String queueHash;
-  
-  /// List of message IDs in the queue
+
+  /// List of message IDs in the queue (legacy mode, or fallback)
   final List<String> messageIds;
-  
+
   /// Timestamp of synchronization
   final DateTime syncTimestamp;
-  
+
   /// Node ID requesting/responding to sync
   final String nodeId;
-  
+
   /// Type of sync operation
   final QueueSyncType syncType;
-  
+
   /// Optional: Specific message hashes for verification
   final Map<String, String>? messageHashes;
-  
+
   /// Queue statistics for optimization
   final QueueSyncStats? queueStats;
-  
+
+  /// Optional: GCS filter for efficient sync (replaces messageIds when present)
+  /// Provides 98% bandwidth reduction (32KB → 512 bytes)
+  final GCSFilterParams? gcsFilter;
+
   const QueueSyncMessage({
     required this.queueHash,
     required this.messageIds,
@@ -292,6 +315,7 @@ class QueueSyncMessage {
     required this.syncType,
     this.messageHashes,
     this.queueStats,
+    this.gcsFilter,
   });
   
   /// Create queue sync request
@@ -299,16 +323,19 @@ class QueueSyncMessage {
     required List<String> messageIds,
     required String nodeId,
     Map<String, String>? messageHashes,
+    String? queueHash, // Optional: pre-calculated queue hash for optimization
+    GCSFilterParams? gcsFilter, // Optional: GCS filter for efficient sync
   }) {
-    final queueHash = _generateQueueHash(messageIds);
-    
+    final hash = queueHash ?? _generateQueueHash(messageIds);
+
     return QueueSyncMessage(
-      queueHash: queueHash,
+      queueHash: hash,
       messageIds: messageIds,
       syncTimestamp: DateTime.now(),
       nodeId: nodeId,
       syncType: QueueSyncType.request,
       messageHashes: messageHashes,
+      gcsFilter: gcsFilter,
     );
   }
   
@@ -349,8 +376,9 @@ class QueueSyncMessage {
     'syncType': syncType.index,
     if (messageHashes != null) 'messageHashes': messageHashes,
     if (queueStats != null) 'queueStats': queueStats!.toJson(),
+    if (gcsFilter != null) 'gcsFilter': gcsFilter!.toJson(),
   };
-  
+
   /// Create from JSON
   factory QueueSyncMessage.fromJson(Map<String, dynamic> json) => QueueSyncMessage(
     queueHash: json['queueHash'],
@@ -358,11 +386,14 @@ class QueueSyncMessage {
     syncTimestamp: DateTime.fromMillisecondsSinceEpoch(json['syncTimestamp']),
     nodeId: json['nodeId'],
     syncType: QueueSyncType.values[json['syncType']],
-    messageHashes: json['messageHashes'] != null 
-      ? Map<String, String>.from(json['messageHashes']) 
+    messageHashes: json['messageHashes'] != null
+      ? Map<String, String>.from(json['messageHashes'])
       : null,
-    queueStats: json['queueStats'] != null 
-      ? QueueSyncStats.fromJson(json['queueStats']) 
+    queueStats: json['queueStats'] != null
+      ? QueueSyncStats.fromJson(json['queueStats'])
+      : null,
+    gcsFilter: json['gcsFilter'] != null
+      ? GCSFilterParams.fromJson(json['gcsFilter'])
       : null,
   );
   

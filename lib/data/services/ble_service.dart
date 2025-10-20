@@ -13,6 +13,7 @@ import '../../core/constants/ble_constants.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/utils/chat_utils.dart';
+import '../../core/utils/message_fragmenter.dart';
 import 'ble_connection_manager.dart';
 import 'ble_message_handler.dart';
 import 'ble_state_manager.dart';
@@ -27,9 +28,14 @@ import '../../core/bluetooth/peripheral_initializer.dart';
 import '../../core/services/hint_advertisement_service.dart';
 import '../../core/services/hint_scanner_service.dart';
 import '../../data/repositories/intro_hint_repository.dart';
+import '../../core/messaging/message_router.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/entities/sensitive_contact_hint.dart';
 import '../../domain/services/notification_service.dart';
+import '../../core/messaging/gossip_sync_manager.dart';
+import '../../core/messaging/offline_message_queue.dart';
+import '../../core/power/adaptive_power_manager.dart';
+import '../../core/app_core.dart';
 
 /// Enum to track the source of scanning requests for better coordination
 enum ScanningSource {
@@ -83,6 +89,12 @@ class BLEService {
   final _introHintRepo = IntroHintRepository();
   final _contactRepo = ContactRepository();
 
+  // Phase 1: Gossip sync manager for mesh message discovery
+  GossipSyncManager? _gossipSyncManager;
+
+  // Phase 1: Offline message queue for store-and-forward
+  OfflineMessageQueue? _offlineMessageQueue;
+
   // Streams for UI
   StreamController<ConnectionInfo>? _connectionInfoController;
   StreamController<List<Peripheral>>? _devicesController;
@@ -100,16 +112,26 @@ class BLEService {
 // Peripheral mode connection tracking
 Central? _connectedCentral;
 GATTCharacteristic? _connectedCharacteristic;
+
+// Phase 2a: Connection limit tracking
+int _activeCentralConnections = 0; // Centrals connected to us when we're peripheral
+static const int _maxCentralConnections = 1; // Single connection in peripheral mode (Phase 2a)
 bool _peripheralHandshakeStarted = false;  // Track if handshake initiated for this connection
 
 int? _peripheralNegotiatedMTU;
 bool _peripheralMtuReady = false;  // Track if MTU has been negotiated
+
+// Advertising state tracking
+bool _isAdvertising = false;  // Track if advertising is currently active
 
 // Message ID tracking for protocol ACK
 String? extractedMessageId;
 
 // Message buffering for race condition fix
 final List<_BufferedMessage> _messageBuffer = [];
+
+// Protocol message reassembler (reuse MessageFragmenter's reassembler)
+final MessageReassembler _protocolMessageReassembler = MessageReassembler();
 
   bool _isDiscoveryActive = false;
   ScanningSource? _currentScanningSource;
@@ -220,12 +242,21 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     // Initialize managers
     centralManager.logLevel = Level.INFO;
     peripheralManager.logLevel = Level.INFO;
-    
+
     // Initialize sub-components
+    // Phase 2b: Initialize connection manager with current power mode from burst scanning
+    // Power mode is managed by BurstScanningController → AdaptivePowerManager → BatteryOptimizer
+    // We start with balanced mode as safe default, BurstScanningController will update it
     _connectionManager = BLEConnectionManager(
       centralManager: centralManager,
       peripheralManager: peripheralManager,
+      initialPowerMode: PowerMode.balanced,  // Safe default, updated by power manager
     );
+
+    // Phase 2b: Power mode integration is handled by BurstScanningController
+    // BurstScanningController owns AdaptivePowerManager and will call
+    // _connectionManager.handlePowerModeChange(newMode) when power mode changes
+    // This keeps the power management centralized in the burst scanning system
 
     await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
 
@@ -239,6 +270,18 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     _hintScanner = HintScannerService(contactRepository: _contactRepo);
     await _hintScanner.initialize();
     _logger.info('✅ Hint scanner initialized');
+
+    // 🔥 NEW: Start peripheral advertising immediately for mesh networking
+    // BitChat-proven approach: advertising runs continuously, scanning uses duty cycling
+    _logger.info('🔥 Starting peripheral advertising for mesh mode...');
+    try {
+      await startAsPeripheral();
+      _logger.info('✅ Mesh advertising active - device is now discoverable');
+    } catch (e, stack) {
+      _logger.warning('⚠️ Could not start advertising: $e');
+      _logger.fine('Advertising error stack trace: $stack');
+      // Non-fatal - scanning can still work for discovering others
+    }
 
     // Initialize Bluetooth state monitoring
     _logger.info('🔵 Initializing Bluetooth state monitor...');
@@ -260,14 +303,107 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
       await _sendProtocolMessage(protocolMessage);
     };
 
+    // Wire queue sync callback (will be fully wired after GossipSyncManager is initialized)
+    // This is set again after GossipSyncManager initialization to ensure proper reference
+
     await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
     
     // CRITICAL FIX: Initialize message handler with current node ID
     final myNodeId = await _stateManager.getMyPersistentId();
     print('🔧 BLE SERVICE: Initializing message handler with node ID: ${myNodeId.length > 16 ? '${myNodeId.substring(0, 16)}...' : myNodeId}');
-    
+
     // Initialize the message handler with the current node ID for proper routing
     _messageHandler.setCurrentNodeId(myNodeId);
+
+    // ===== PHASE 1 INTEGRATION: Gossip Sync Manager =====
+    _logger.info('🔄 Initializing GossipSyncManager for mesh message discovery...');
+    _gossipSyncManager = GossipSyncManager(
+      myNodeId: myNodeId,
+      messageQueue: AppCore.instance.messageQueue,
+    );
+
+    // Wire gossip sync callbacks
+    _gossipSyncManager!.onSendSyncRequest = (syncRequest) async {
+      // Broadcast sync request to connected peer (BLE supports 1:1 connections)
+      _logger.info('📡 Gossip sync: Broadcasting sync request with ${syncRequest.messageIds.length} known messages');
+
+      if (_connectionManager.hasBleConnection) {
+        final protocolMessage = ProtocolMessage.queueSync(
+          queueHash: syncRequest.queueHash,
+          messageIds: syncRequest.messageIds,
+          syncTimestamp: syncRequest.syncTimestamp.millisecondsSinceEpoch,
+        );
+
+        await _sendProtocolMessage(protocolMessage);
+        _logger.fine('✅ Gossip sync request sent to connected peer');
+      } else {
+        _logger.fine('No active BLE connection - skipping sync broadcast');
+      }
+    };
+
+    _gossipSyncManager!.onSendSyncToPeer = (peerID, syncRequest) async {
+      // Send sync request to specific peer (verify peer matches connected device)
+      _logger.info('📡 Gossip sync: Sending sync request to ${peerID.substring(0, 8)}... with ${syncRequest.messageIds.length} known messages');
+
+      // Verify we're connected to the target peer
+      final connectedPeerId = _connectionManager.connectedDevice?.toString() ?? '';
+      if (!connectedPeerId.contains(peerID.substring(0, 8))) {
+        _logger.warning('Target peer ${peerID.substring(0, 8)}... not connected - skipping sync');
+        return;
+      }
+
+      final protocolMessage = ProtocolMessage.queueSync(
+        queueHash: syncRequest.queueHash,
+        messageIds: syncRequest.messageIds,
+        syncTimestamp: syncRequest.syncTimestamp.millisecondsSinceEpoch,
+      );
+
+      await _sendProtocolMessage(protocolMessage);
+      _logger.fine('✅ Gossip sync request sent to peer ${peerID.substring(0, 8)}...');
+    };
+
+    _gossipSyncManager!.onSendMessageToPeer = (peerID, message) async {
+      // Send missing message to specific peer (relay message)
+      _logger.info('📡 Gossip sync: Sending missing message ${message.originalMessageId.substring(0, 16)}... to ${peerID.substring(0, 8)}...');
+
+      // Verify we're connected to the target peer
+      final connectedPeerId = _connectionManager.connectedDevice?.toString() ?? '';
+      if (!connectedPeerId.contains(peerID.substring(0, 8))) {
+        _logger.warning('Target peer ${peerID.substring(0, 8)}... not connected - skipping message send');
+        return;
+      }
+
+      // Convert MeshRelayMessage to ProtocolMessage
+      final protocolMessage = ProtocolMessage.meshRelay(
+        originalMessageId: message.originalMessageId,
+        originalSender: message.relayMetadata.originalSender,
+        finalRecipient: message.relayMetadata.finalRecipient,
+        relayMetadata: message.relayMetadata.toJson(),
+        originalPayload: {'content': message.originalContent},
+      );
+
+      await _sendProtocolMessage(protocolMessage);
+      _logger.fine('✅ Missing message sent to peer ${peerID.substring(0, 8)}...');
+    };
+
+    // Start gossip sync manager
+    await _gossipSyncManager!.start();
+    _logger.info('✅ GossipSyncManager initialized and started');
+
+    // Wire incoming queue sync messages to gossip sync manager
+    _messageHandler.onQueueSyncReceived = (syncMessage, fromNodeId) async {
+      _logger.info('📥 Received queue sync from ${fromNodeId.substring(0, 8)}... - forwarding to GossipSyncManager');
+      await _gossipSyncManager!.handleSyncRequest(
+        fromPeerID: fromNodeId,
+        syncRequest: syncMessage,
+      );
+    };
+    _logger.info('✅ Queue sync callback wired to GossipSyncManager');
+
+    // ===== PHASE 1 INTEGRATION: Offline Message Queue =====
+    // Note: OfflineMessageQueue is already initialized elsewhere in the codebase
+    // We'll get a reference to it when needed for handshake queue flush
+    _logger.info('📤 Offline message queue integration ready for handshake flush');
     
     // Wire up callbacks
      _connectionManager.onConnectionChanged = (device) {
@@ -579,6 +715,7 @@ if (event.state == BluetoothLowEnergyState.poweredOff) {
   
   try {
     await peripheralManager.stopAdvertising();
+    _isAdvertising = false;  // Reset state
     await startAsPeripheral();
     _logger.info('✅ Auto-restart advertising successful!');
     
@@ -586,6 +723,7 @@ if (event.state == BluetoothLowEnergyState.poweredOff) {
     
   } catch (e) {
     _logger.severe('❌ Auto-restart advertising failed: $e');
+    _isAdvertising = false;  // Reset on error
     _updateConnectionInfo(isAdvertising: false, statusMessage: 'Advertising failed');
   }
 }
@@ -679,21 +817,20 @@ centralManager.connectionStateChanged.listen((event) {
 // Peripheral connection state changes (Android only)
 if (Platform.isAndroid) {
   peripheralManager.connectionStateChanged.listen((event) {
-    if (!_stateManager.isPeripheralMode) {
-      return;  // Ignore if not in peripheral mode
-    }
-    
     _logger.info('Peripheral connection state: ${event.central.uuid} → ${event.state}');
-    
+
     if (event.state == ConnectionState.connected) {
       _logger.info('Central connected to our peripheral: ${event.central.uuid}');
       _connectedCentral = event.central;
+
+      // Phase 2b: Notify connection manager of incoming connection
+      _connectionManager.handleCentralConnected(event.central);
 
       _updateConnectionInfo(
         isConnected: false,  // Not ready yet
         isReady: false,
         statusMessage: 'Connected - exchanging names...',
-        isAdvertising: false
+        isAdvertising: _connectionManager.isAdvertising  // Use connection manager's advertising state
       );
 
       // Note: Handshake will be initiated after first characteristic write
@@ -702,21 +839,33 @@ if (Platform.isAndroid) {
     } else if (event.state == ConnectionState.disconnected) {
       if (_connectedCentral?.uuid == event.central.uuid) {
         _logger.info('Connected central disconnected from our peripheral');
+
+        // Phase 2b: Notify connection manager of disconnection
+        _connectionManager.handleCentralDisconnected(event.central);
+
         _connectedCentral = null;
         _connectedCharacteristic = null;
         _peripheralHandshakeStarted = false;
         _disposeHandshakeCoordinator();
         _stateManager.clearSessionState();
+
+        // Phase 2b: Connection manager handles advertising resume automatically
+        // Just update UI state
         _updateConnectionInfo(
-          isConnected: false, 
+          isConnected: false,
           isReady: false,
+          isAdvertising: _connectionManager.isAdvertising,
           otherUserName: null,
-          statusMessage: 'Advertising',
-          isAdvertising: true
+          statusMessage: _connectionManager.isAdvertising ? 'Advertising - waiting for connection' : 'At connection limit'
         );
       }
     }
   });
+
+  // Phase 2b: Characteristic subscription tracking
+  // Note: bluetooth_low_energy plugin doesn't expose a dedicated subscription state event
+  // Subscription is implicitly tracked through characteristicWriteRequested events
+  // This is a platform limitation - no action needed unless plugin API changes
 }
     
     // Characteristic notifications (received messages)
@@ -803,6 +952,20 @@ Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral
         !_handshakeCoordinator!.isComplete &&
         !_handshakeCoordinator!.hasFailed) {
       await _handshakeCoordinator!.handleReceivedMessage(protocolMessage);
+      return;
+    }
+
+    // 🔧 FIX: If this is a handshake message but coordinator doesn't exist yet, buffer it
+    // The buffered messages will be processed when coordinator is created (see _startHandshakeProtocol)
+    if (_isHandshakeMessage(protocolMessage.type) && _handshakeCoordinator == null) {
+      _logger.info('🔄 BUFFER: Handshake message arrived before coordinator ready - buffering ${protocolMessage.type}');
+      _messageBuffer.add(_BufferedMessage(
+        data: data,
+        isFromPeripheral: isFromPeripheral,
+        central: central,
+        characteristic: characteristic,
+        timestamp: DateTime.now(),
+      ));
       return;
     }
 
@@ -967,6 +1130,68 @@ Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral
     // Not a protocol message, continue to regular message processing
   }
   
+  // 🔧 FIX: Check if this is a message chunk (fragmented message)
+  // Chunks need special handling for protocol messages
+  bool isChunk = false;
+  MessageChunk? chunk;
+  try {
+    chunk = MessageChunk.fromBytes(data);
+    isChunk = true;
+  } catch (e) {
+    // Not a chunk
+  }
+  
+  // If it's a chunk, reassemble and check if it's a handshake protocol message
+  if (isChunk && chunk != null) {
+    // Use MessageReassembler for proper chunk handling (get raw bytes)
+    final reassembledData = _protocolMessageReassembler.addChunkBytes(chunk);
+    
+    if (reassembledData != null) {
+      // Message fully reassembled - parse as protocol message
+      try {
+        final protocolMessage = ProtocolMessage.fromBytes(reassembledData);
+        
+        // Check if it's a handshake message
+        if (_isHandshakeMessage(protocolMessage.type)) {
+          _logger.info('📦 Reassembled handshake message: ${protocolMessage.type}');
+          
+          // Route to coordinator if it exists and is active
+          if (_handshakeCoordinator != null && 
+              !_handshakeCoordinator!.isComplete &&
+              !_handshakeCoordinator!.hasFailed) {
+            await _handshakeCoordinator!.handleReceivedMessage(protocolMessage);
+            return;
+          }
+          
+          // Buffer if coordinator doesn't exist yet
+          if (_handshakeCoordinator == null) {
+            _logger.info('🔄 BUFFER: Reassembled handshake message before coordinator ready - buffering ${protocolMessage.type}');
+            _messageBuffer.add(_BufferedMessage(
+              data: reassembledData,
+              isFromPeripheral: isFromPeripheral,
+              central: central,
+              characteristic: characteristic,
+              timestamp: DateTime.now(),
+            ));
+            return;
+          }
+        }
+        
+        // Not a handshake message, pass to regular protocol handler
+        await _handleReceivedData(reassembledData, isFromPeripheral: isFromPeripheral, central: central, characteristic: characteristic);
+        return;
+        
+      } catch (e) {
+        // Not a protocol message, this shouldn't happen for reassembled messages
+        _logger.warning('Reassembled message is not a valid protocol message: $e');
+        return;
+      }
+    } else {
+      // Still waiting for more chunks
+      return;
+    }
+  }
+  
   // Process regular chat messages - RACE CONDITION FIX
   if (_stateManager.currentSessionId == null) {
     // Buffer the message until identity exchange completes
@@ -992,12 +1217,32 @@ Future<void> _processMessage(
   GATTCharacteristic? characteristic
 }) async {
   String? senderPublicKey;
-  if (_stateManager.currentSessionId != null) {
-    senderPublicKey = _stateManager.currentSessionId!;
-    final truncatedKey = senderPublicKey.length > 16 
+  
+  // 🔧 FIX: Get persistent key for decryption
+  // After handshake, currentSessionId = persistent key, but we need ephemeral ID to look up mapping
+  if (_stateManager.theirEphemeralId != null) {
+    // Post-handshake: Use ephemeral ID to get persistent key from mapping
+    final persistentKey = _stateManager.getPersistentKeyFromEphemeral(_stateManager.theirEphemeralId!);
+    
+    if (persistentKey != null) {
+      senderPublicKey = persistentKey;
+      final truncatedKey = senderPublicKey.length > 16 
+          ? '${senderPublicKey.substring(0, 16)}...' 
+          : senderPublicKey;
+      _logger.info('🔐 Using persistent public key for decryption: $truncatedKey');
+    } else {
+      // Mapping doesn't exist yet - fall back to currentSessionId
+      senderPublicKey = _stateManager.currentSessionId;
+      final truncatedKey = senderPublicKey?.substring(0, 16) ?? 'null';
+      _logger.info('🔐 Using current session ID for decryption: $truncatedKey...');
+    }
+  } else if (_stateManager.currentSessionId != null) {
+    // Pre-handshake: Use current session ID directly
+    senderPublicKey = _stateManager.currentSessionId;
+    final truncatedKey = senderPublicKey!.length > 16 
         ? '${senderPublicKey.substring(0, 16)}...' 
         : senderPublicKey;
-    _logger.info('🔐 Using sender public key for decryption: $truncatedKey');
+    _logger.info('🔐 Pre-handshake: Using session ID: $truncatedKey');
   } else {
     _logger.warning('🔐 No sender public key available - decryption may fail');
   }
@@ -1098,7 +1343,7 @@ Future<void> _processMessage(
   final preservedWeHaveThem = await _stateManager.weHaveThemAsContact;
 
   _stateManager.setPeripheralMode(true);
-  _connectionManager.setPeripheralMode(true);
+  // Phase 2b: Connection manager no longer has peripheral mode flag
 
   if (_connectionManager.connectedDevice != null) {
     try {
@@ -1219,14 +1464,17 @@ Future<void> _processMessage(
       final advertisingStarted = await _peripheralInitializer.safelyStartAdvertising(
         advertisement,
         timeout: Duration(seconds: 5),
+        skipIfAlreadyAdvertising: true,  // Prevent "already advertising" error
       );
 
       if (!advertisingStarted) {
         throw Exception('Failed to start advertising - peripheral not ready');
       }
 
+      _isAdvertising = true;  // Track advertising state
       _stateManager.setPeripheralMode(true);
-      _connectionManager.setPeripheralMode(true);
+      // Phase 2b: Connection manager no longer has peripheral mode flag
+      // It automatically starts advertising when startMeshNetworking() is called
       _updateConnectionInfo(isAdvertising: true, statusMessage: 'Advertising - discoverable');
       _logger.info('✅ Now advertising as discoverable device!');
     } catch (e, stack) {
@@ -1253,6 +1501,7 @@ Future<void> _processMessage(
     try {
       // Stop current advertising
       await peripheralManager.stopAdvertising();
+      _isAdvertising = false;  // Reset state
       
       // Small delay to ensure clean stop
       await Future.delayed(Duration(milliseconds: 100));
@@ -1316,7 +1565,76 @@ Future<void> _processMessage(
       _updateConnectionInfo(isAdvertising: false, statusMessage: 'Advertising refresh failed');
     }
   }
-  
+
+  /// Resume peripheral advertising after disconnection (Phase 2a)
+  Future<void> _resumePeripheralAdvertising() async {
+    if (!_stateManager.isPeripheralMode) {
+      _logger.warning('Not in peripheral mode - cannot resume advertising');
+      return;
+    }
+
+    // ✅ FIX: Check if already advertising to prevent error code 3
+    if (_isAdvertising) {
+      _logger.info('Already advertising - skipping resume');
+      return;
+    }
+
+    try {
+      // Small delay to ensure clean state
+      await Future.delayed(Duration(milliseconds: 100));
+
+      // Get intro hint (if any active QR)
+      final introHint = await _introHintRepo.getMostRecentActiveHint();
+
+      // Compute my persistent hint from my public key
+      final myPublicKey = await _stateManager.getMyPersistentId();
+
+      // Check if user wants to broadcast online status
+      final prefs = await SharedPreferences.getInstance();
+      final showOnlineStatus = prefs.getBool('show_online_status') ?? true;
+
+      // If online status is disabled, don't broadcast identity hint
+      final myPersistentHint = showOnlineStatus
+        ? SensitiveContactHint.compute(contactPublicKey: myPublicKey)
+        : null;
+
+      // Pack hints into advertisement
+      final advData = HintAdvertisementService.packAdvertisement(
+        introHint: introHint,
+        ephemeralHint: myPersistentHint,
+      );
+
+      final advertisement = Advertisement(
+        name: null,
+        serviceUUIDs: [BLEConstants.serviceUUID],
+        manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
+          ManufacturerSpecificData(
+            id: 0x2E19,
+            data: advData,
+          ),
+        ],
+      );
+
+      final advertisingStarted = await _peripheralInitializer.safelyStartAdvertising(
+        advertisement,
+        timeout: Duration(seconds: 5),
+        skipIfAlreadyAdvertising: true,  // Always stop any existing advertising first
+      );
+
+      if (advertisingStarted) {
+        _isAdvertising = true;  // Track state
+        _logger.info('✅ Resumed peripheral advertising');
+      } else {
+        _isAdvertising = false;  // Failed to start
+        _logger.warning('Failed to resume advertising - peripheral not ready');
+      }
+
+    } catch (e, stack) {
+      _isAdvertising = false;  // Error occurred
+      _logger.severe('Failed to resume advertising: $e', e, stack);
+    }
+  }
+
   Future<void> startAsCentral() async {
   _logger.info('Starting as Central (scanner)...');
 
@@ -1328,8 +1646,8 @@ Future<void> _processMessage(
   
   // Set mode
   _stateManager.setPeripheralMode(false);
-  _connectionManager.setPeripheralMode(false);
-  
+  // Phase 2b: Connection manager no longer has peripheral mode flag
+
   // Clear peripheral-specific state (but NOT encryption keys!)
   _connectedCentral = null;
   _connectedCharacteristic = null;
@@ -1337,10 +1655,13 @@ Future<void> _processMessage(
   _peripheralNegotiatedMTU = null;
   _peripheralMtuReady = false;  // Reset MTU ready flag
 
+  // Phase 2b: Stop mesh networking (stops both advertising and scanning)
   try {
-    await peripheralManager.stopAdvertising();
+    await _connectionManager.stopMeshNetworking();
+    _isAdvertising = false;  // Reset state
   } catch (e) {
-    _logger.fine('Could not stop advertising: $e');
+    _isAdvertising = false;  // Reset even on error
+    _logger.fine('Could not stop mesh networking: $e');
   }
 
   try {
@@ -1368,10 +1689,8 @@ Future<void> _processMessage(
 }
   
  Future<void> startScanning({ScanningSource source = ScanningSource.system}) async {
-  if (_stateManager.isPeripheralMode) {
-    throw Exception('Cannot scan while in peripheral mode');
-  }
-  
+  // Phase 2b: Removed peripheral mode check - scanning and advertising can now run simultaneously
+
   // 🔧 ENHANCED: Check for scanning conflicts with better logging
   if (_isDiscoveryActive) {
     final currentSource = _currentScanningSource?.name ?? 'unknown';
@@ -1548,39 +1867,77 @@ Future<void> _performHandshake() async {
     // Clean up old handshake coordinator if it exists
     _disposeHandshakeCoordinator();
 
-    // Get BOTH ephemeral and persistent identities
+    // 🔧 CRITICAL: Get ephemeral ID from EphemeralKeyManager (NOT BLEStateManager)
+    // BLEStateManager._myEphemeralId is for pairing messages only
+    // HandshakeCoordinator uses EphemeralKeyManager for actual handshake
     final myEphemeralId = EphemeralKeyManager.generateMyEphemeralKey();
     final myPublicKey = await _stateManager.getMyPersistentId();
     final myDisplayName = _stateManager.myUserName ?? 'User';
 
-    _logger.info('📱 My ephemeral ID: ${myEphemeralId.length > 16 ? '${myEphemeralId.substring(0, 16)}...' : myEphemeralId}');
+    _logger.info('🔧 INVESTIGATION: Handshake using EphemeralKeyManager');
+    _logger.info('📱 My ephemeral ID (from EphemeralKeyManager): ${myEphemeralId.length > 16 ? '${myEphemeralId.substring(0, 16)}...' : myEphemeralId}');
     _logger.info('🔒 My persistent key (not sent during handshake): ${myPublicKey.length > 16 ? '${myPublicKey.substring(0, 16)}...' : myPublicKey}');
+    _logger.info('📝 My display name: $myDisplayName');
+    
+    // For comparison, log BLEStateManager ephemeral ID (NOT used here)
+    final stateManagerEphemeralId = _stateManager.myEphemeralId;
+    if (stateManagerEphemeralId != null) {
+      _logger.info('⚠️ BLEStateManager ephemeral ID (NOT used in handshake): ${stateManagerEphemeralId.substring(0, 16)}...');
+      if (myEphemeralId != stateManagerEphemeralId) {
+        _logger.warning('⚠️ DIFFERENT ephemeral IDs! HandshakeCoordinator uses EphemeralKeyManager, NOT BLEStateManager!');
+      }
+    }
     
     // Create handshake coordinator
     _handshakeCoordinator = HandshakeCoordinator(
       myEphemeralId: myEphemeralId,
       myPublicKey: myPublicKey,
       myDisplayName: myDisplayName,
+      contactRepo: _contactRepo,
       sendMessage: _sendHandshakeMessage,
       onHandshakeComplete: _onHandshakeComplete,
       phaseTimeout: Duration(seconds: 10),
+      // ===== PHASE 1 INTEGRATION: Queue flush on handshake success =====
+      onHandshakeSuccess: (peerEphemeralId) async {
+        _logger.info('📤 PHASE 1: Handshake success - flushing queue for peer ${peerEphemeralId.substring(0, 8)}...');
+
+        // Get OfflineMessageQueue from AppCore (shared singleton)
+        if (AppCore.instance.isInitialized) {
+          await AppCore.instance.messageQueue.flushQueueForPeer(peerEphemeralId);
+          _logger.info('✅ PHASE 1: Queue flush completed for peer');
+        } else {
+          _logger.warning('⚠️ PHASE 1: AppCore not initialized - skipping queue flush');
+        }
+      },
+      // Notify connection manager of handshake state (for health check coordination)
+      onHandshakeStateChanged: (inProgress) {
+        setHandshakeInProgress(inProgress);
+      },
     );
 
     // Listen to phase changes for UI feedback
     _handshakePhaseSubscription = _handshakeCoordinator!.phaseStream.listen((phase) async {
       _logger.info('🤝 Handshake phase: $phase');
       _updateConnectionInfo(statusMessage: _getPhaseMessage(phase));
-      
+
+      // 🔧 FIX: Update connection state when handshake completes
+      if (phase == ConnectionPhase.complete) {
+        _updateConnectionInfo(isConnected: true, statusMessage: 'Connected');
+      }
+
+      // Phase 2b: Connection manager handles advertising stop automatically
+      // when connection limit is reached (hybrid advertising strategy)
+
       // 🔧 FIX: Disconnect on handshake failure
       if (phase == ConnectionPhase.failed || phase == ConnectionPhase.timeout) {
         _logger.warning('⚠️ Handshake failed/timeout - disconnecting BLE connection');
-        
+
         // 🚨 CRITICAL: Set isReady=false IMMEDIATELY to prevent reconnection loop
         _updateConnectionInfo(
           isReady: false,
           statusMessage: 'Connection failed - handshake timeout',
         );
-        
+
         // Small delay to let UI show failure message
         await Future.delayed(Duration(milliseconds: 500));
         await disconnect();
@@ -1636,16 +1993,27 @@ Future<void> _sendHandshakeMessage(ProtocolMessage message) async {
 }
 
 /// Called when handshake completes successfully
-Future<void> _onHandshakeComplete(String ephemeralId, String displayName) async {
+Future<void> _onHandshakeComplete(String ephemeralId, String displayName, String? noisePublicKey) async {
   _logger.info('🎉 Handshake complete! Connected to: $displayName');
   _logger.info('   Their ephemeral ID: ${ephemeralId.length > 16 ? '${ephemeralId.substring(0, 16)}...' : ephemeralId}');
 
   // STEP 3: Store their ephemeral ID (separate from persistent key)
   _stateManager.setTheirEphemeralId(ephemeralId, displayName);
-  
+
   // Store identity in state manager (this sets display name)
   // Note: For now we use ephemeralId as publicKey until pairing completes
   _stateManager.setOtherDeviceIdentity(ephemeralId, displayName);
+
+  // 🔧 FIX: Store Noise session public key as persistent key
+  if (noisePublicKey != null) {
+    _logger.info('🔐 Storing peer Noise public key as persistent key');
+    await _stateManager.handlePersistentKeyExchange(noisePublicKey);
+  } else {
+    _logger.warning('⚠️ No Noise public key provided - messages will be unencrypted');
+  }
+
+  // NOTE: Queue flush is handled by OfflineMessageQueue in onHandshakeSuccess callback (line 1894)
+  // MessageRouter now delegates to OfflineMessageQueue, so no need for redundant flush here
 
   // Check if we already have chat history with this ephemeral ID
   final chatId = ChatUtils.generateChatId(ephemeralId);
@@ -1709,6 +2077,12 @@ String _getPhaseMessage(ConnectionPhase phase) {
       return 'Exchanging identities...';
     case ConnectionPhase.identityComplete:
       return 'Identity verified...';
+    case ConnectionPhase.noiseHandshake1Sent:
+      return 'Establishing secure session...';
+    case ConnectionPhase.noiseHandshake2Sent:
+      return 'Finalizing encryption...';
+    case ConnectionPhase.noiseHandshakeComplete:
+      return 'Secure session established...';
     case ConnectionPhase.contactStatusSent:
       return 'Syncing contact status...';
     case ConnectionPhase.contactStatusComplete:
@@ -1726,6 +2100,9 @@ String _getPhaseMessage(ConnectionPhase phase) {
 bool _isHandshakeMessage(ProtocolMessageType type) {
   return type == ProtocolMessageType.connectionReady ||
          type == ProtocolMessageType.identity ||
+         type == ProtocolMessageType.noiseHandshake1 ||
+         type == ProtocolMessageType.noiseHandshake2 ||
+         type == ProtocolMessageType.noiseHandshake3 ||
          type == ProtocolMessageType.contactStatus;
 }
   
@@ -1836,52 +2213,70 @@ final List<Future<void> Function()> _writeQueue = [];
 bool _isProcessingWriteQueue = false;
 
 Future<void> _sendProtocolMessage(ProtocolMessage message) async {
+  // 🔧 CRITICAL FIX: Protocol messages must be fragmented like user messages
+  // ProtocolMessage.toBytes() returns binary data (compressed or uncompressed)
+  // This CANNOT be sent directly to BLE - it must be:
+  // 1. Fragmented into MTU-sized chunks
+  // 2. Base64-encoded for text transmission
+  // 3. Sent with proper headers for reassembly
+  
   // Add write to queue to serialize operations
   final completer = Completer<void>();
 
   _writeQueue.add(() async {
     try {
+      // Convert protocol message to bytes (may be compressed binary)
+      final messageBytes = message.toBytes();
+      
+      // Generate unique message ID for fragmentation
+      final msgId = 'proto_${message.type.name}_${DateTime.now().millisecondsSinceEpoch}';
+      
+      // Get MTU size with fallback to safe default
+      final mtuSize = _connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
+      
+      // Fragment the binary data (handles base64 encoding + MTU sizing)
+      final chunks = MessageFragmenter.fragmentBytes(
+        messageBytes,
+        mtuSize,
+        msgId,
+      );
+      
+      _logger.fine('📦 Protocol message fragmented into ${chunks.length} chunk(s)');
+      
+      // Send each chunk with delay to prevent BLE congestion
       if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
-        await centralManager.writeCharacteristic(
-          _connectionManager.connectedDevice!,
-          _connectionManager.messageCharacteristic!,
-          value: message.toBytes(),
-          type: GATTCharacteristicWriteType.withResponse,
-        );
-      } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
-        await peripheralManager.notifyCharacteristic(
-          _connectedCentral!,
-          _connectedCharacteristic!,
-          value: message.toBytes(),
-        );
-      }
-      completer.complete();
-    } catch (e) {
-      _logger.warning('⚠️ Write failed: $e - will retry');
-      // Add small delay before retry to let GATT stabilize
-      await Future.delayed(Duration(milliseconds: 100));
-
-      // Retry once
-      try {
-        if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
+        for (int i = 0; i < chunks.length; i++) {
           await centralManager.writeCharacteristic(
             _connectionManager.connectedDevice!,
             _connectionManager.messageCharacteristic!,
-            value: message.toBytes(),
+            value: chunks[i].toBytes(),
             type: GATTCharacteristicWriteType.withResponse,
           );
-        } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
+          
+          // Small delay between chunks to prevent GATT congestion
+          if (i < chunks.length - 1) {
+            await Future.delayed(Duration(milliseconds: 20));
+          }
+        }
+      } else if (isPeripheralMode && _connectedCentral != null && _connectedCharacteristic != null) {
+        for (int i = 0; i < chunks.length; i++) {
           await peripheralManager.notifyCharacteristic(
             _connectedCentral!,
             _connectedCharacteristic!,
-            value: message.toBytes(),
+            value: chunks[i].toBytes(),
           );
+          
+          // Small delay between chunks to prevent GATT congestion
+          if (i < chunks.length - 1) {
+            await Future.delayed(Duration(milliseconds: 20));
+          }
         }
-        completer.complete();
-      } catch (retryError) {
-        _logger.severe('❌ Write failed after retry: $retryError');
-        completer.completeError(retryError);
       }
+      
+      completer.complete();
+    } catch (e) {
+      _logger.warning('⚠️ Protocol message send failed: $e');
+      completer.completeError(e);
     }
   });
 
@@ -1957,6 +2352,7 @@ Future<void> _processWriteQueue() async {
   // Delegated methods
   void startConnectionMonitoring() => _connectionManager.startConnectionMonitoring();
   void stopConnectionMonitoring() => _connectionManager.stopConnectionMonitoring();
+  void setHandshakeInProgress(bool inProgress) => _connectionManager.setHandshakeInProgress(inProgress);
   Future<void> disconnect() => _connectionManager.disconnect();
   Future<void> setMyUserName(String name) => _stateManager.setMyUserName(name);
   Future<Peripheral?> scanForSpecificDevice({Duration timeout = const Duration(seconds: 10)}) =>
@@ -2188,6 +2584,10 @@ Future<void> _processWriteQueue() async {
   void dispose() {
   // Dispose handshake coordinator
   _handshakeCoordinator?.dispose();
+
+  // Dispose Phase 1 components
+  _gossipSyncManager?.stop();
+  _offlineMessageQueue?.dispose();
 
   // Dispose hint scanner
   _hintScanner.dispose();

@@ -15,7 +15,7 @@ class DatabaseHelper {
   static final _logger = Logger('DatabaseHelper');
   static sqlcipher.Database? _database;
   static const String _databaseName = 'pak_connect.db';
-  static const int _databaseVersion = 4; // v4: Added app_preferences table for settings
+  static const int _databaseVersion = 9; // v9: Added contact groups tables for secure multi-unicast messaging
 
   /// Override database name for testing (allows using fresh database files)
   static String? _testDatabaseName;
@@ -104,12 +104,19 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE contacts (
         public_key TEXT PRIMARY KEY,
+        persistent_public_key TEXT UNIQUE,
+        current_ephemeral_id TEXT,
+        ephemeral_id TEXT,
         display_name TEXT NOT NULL,
         trust_status INTEGER NOT NULL,
         security_level INTEGER NOT NULL,
         first_seen INTEGER NOT NULL,
         last_seen INTEGER NOT NULL,
         last_security_sync INTEGER,
+        noise_public_key TEXT,
+        noise_session_state TEXT,
+        last_handshake_time INTEGER,
+        is_favorite INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -125,6 +132,10 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE INDEX idx_contacts_last_seen ON contacts(last_seen DESC)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_contacts_favorite ON contacts(is_favorite) WHERE is_favorite = 1
     ''');
 
     // =========================
@@ -516,7 +527,81 @@ class DatabaseHelper {
       CREATE INDEX idx_preferences_type ON app_preferences(value_type)
     ''');
 
-    _logger.info('✅ Database schema created successfully with 13 core tables + FTS5');
+    // =========================
+    // 14. CONTACT GROUPS (for secure multi-unicast messaging)
+    // =========================
+    await db.execute('''
+      CREATE TABLE contact_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at INTEGER NOT NULL,
+        last_modified_at INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_groups_modified ON contact_groups(last_modified_at DESC)
+    ''');
+
+    // =========================
+    // 15. GROUP MEMBERS (junction table)
+    // =========================
+    await db.execute('''
+      CREATE TABLE group_members (
+        group_id TEXT NOT NULL,
+        member_key TEXT NOT NULL,
+        added_at INTEGER NOT NULL,
+        PRIMARY KEY (group_id, member_key),
+        FOREIGN KEY (group_id) REFERENCES contact_groups(id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_group_members_key ON group_members(member_key)
+    ''');
+
+    // =========================
+    // 16. GROUP MESSAGES (with per-member delivery tracking)
+    // =========================
+    await db.execute('''
+      CREATE TABLE group_messages (
+        id TEXT PRIMARY KEY,
+        group_id TEXT NOT NULL,
+        sender_key TEXT NOT NULL,
+        content TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        FOREIGN KEY (group_id) REFERENCES contact_groups(id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_group_messages_group ON group_messages(group_id, timestamp DESC)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_group_messages_sender ON group_messages(sender_key)
+    ''');
+
+    // =========================
+    // 17. GROUP MESSAGE DELIVERY (per-member delivery status)
+    // =========================
+    await db.execute('''
+      CREATE TABLE group_message_delivery (
+        message_id TEXT NOT NULL,
+        member_key TEXT NOT NULL,
+        status INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        PRIMARY KEY (message_id, member_key),
+        FOREIGN KEY (message_id) REFERENCES group_messages(id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_delivery_status ON group_message_delivery(message_id, status)
+    ''');
+
+    _logger.info('✅ Database schema created successfully with 17 core tables + FTS5');
   }
 
   /// Handle database upgrades
@@ -653,6 +738,155 @@ class DatabaseHelper {
       ''');
 
       _logger.info('Migration to v4 complete: Added app_preferences table');
+    }
+
+    // Migration from version 4 to 5: Add Noise Protocol fields to contacts
+    if (oldVersion < 5) {
+      await db.execute('''
+        ALTER TABLE contacts ADD COLUMN noise_public_key TEXT
+      ''');
+
+      await db.execute('''
+        ALTER TABLE contacts ADD COLUMN noise_session_state TEXT
+      ''');
+
+      await db.execute('''
+        ALTER TABLE contacts ADD COLUMN last_handshake_time INTEGER
+      ''');
+
+      _logger.info('Migration to v5 complete: Added Noise Protocol fields to contacts');
+    }
+
+    // Migration from version 5 to 6: Add favorites support to contacts
+    if (oldVersion < 6) {
+      await db.execute('''
+        ALTER TABLE contacts ADD COLUMN is_favorite INTEGER DEFAULT 0
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_contacts_favorite ON contacts(is_favorite) WHERE is_favorite = 1
+      ''');
+
+      _logger.info('Migration to v6 complete: Added is_favorite field to contacts');
+    }
+
+    // Migration from version 6 to 7: Add ephemeral_id column for session tracking
+    if (oldVersion < 7) {
+      await db.execute('''
+        ALTER TABLE contacts ADD COLUMN ephemeral_id TEXT
+      ''');
+
+      _logger.info('Migration to v7 complete: Added ephemeral_id to contacts');
+      _logger.info('🔧 Model: LOW security = public_key==ephemeral_id (both ephemeral)');
+      _logger.info('🔧 Model: MEDIUM+ security = public_key!=ephemeral_id (persistent + current ephemeral)');
+    }
+
+    // Migration from version 7 to 8: Add persistent_public_key and current_ephemeral_id for proper key management
+    if (oldVersion < 8) {
+      _logger.info('🔧 SCHEMA FIX: Adding persistent_public_key and current_ephemeral_id columns');
+      
+      // Add persistent_public_key column (NULL at LOW security, set at MEDIUM+)
+      await db.execute('''
+        ALTER TABLE contacts ADD COLUMN persistent_public_key TEXT
+      ''');
+      
+      // Add current_ephemeral_id column (tracks active Noise session)
+      await db.execute('''
+        ALTER TABLE contacts ADD COLUMN current_ephemeral_id TEXT
+      ''');
+      
+      // Create index on persistent_public_key for fast lookups
+      await db.execute('''
+        CREATE UNIQUE INDEX idx_contacts_persistent_key ON contacts(persistent_public_key) WHERE persistent_public_key IS NOT NULL
+      ''');
+      
+      // Migrate existing data:
+      // For all existing contacts, copy ephemeral_id to current_ephemeral_id
+      // This preserves current session tracking
+      await db.execute('''
+        UPDATE contacts SET current_ephemeral_id = ephemeral_id WHERE ephemeral_id IS NOT NULL
+      ''');
+      
+      _logger.info('Migration to v8 complete: Added persistent_public_key and current_ephemeral_id');
+      _logger.info('🔧 NEW MODEL:');
+      _logger.info('   - public_key: Immutable first contact ID (never changes)');
+      _logger.info('   - persistent_public_key: NULL at LOW, set at MEDIUM+ (real identity)');
+      _logger.info('   - current_ephemeral_id: Active Noise session ID (updates on reconnect)');
+      _logger.info('   - ephemeral_id: DEPRECATED - use current_ephemeral_id instead');
+    }
+
+    // Migration from version 8 to 9: Add contact groups for secure multi-unicast messaging
+    if (oldVersion < 9) {
+      _logger.info('🔧 Adding contact groups tables for secure multi-unicast messaging...');
+
+      // Create contact_groups table
+      await db.execute('''
+        CREATE TABLE contact_groups (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          created_at INTEGER NOT NULL,
+          last_modified_at INTEGER NOT NULL
+        )
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_groups_modified ON contact_groups(last_modified_at DESC)
+      ''');
+
+      // Create group_members junction table
+      await db.execute('''
+        CREATE TABLE group_members (
+          group_id TEXT NOT NULL,
+          member_key TEXT NOT NULL,
+          added_at INTEGER NOT NULL,
+          PRIMARY KEY (group_id, member_key),
+          FOREIGN KEY (group_id) REFERENCES contact_groups(id) ON DELETE CASCADE
+        )
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_group_members_key ON group_members(member_key)
+      ''');
+
+      // Create group_messages table
+      await db.execute('''
+        CREATE TABLE group_messages (
+          id TEXT PRIMARY KEY,
+          group_id TEXT NOT NULL,
+          sender_key TEXT NOT NULL,
+          content TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          FOREIGN KEY (group_id) REFERENCES contact_groups(id) ON DELETE CASCADE
+        )
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_group_messages_group ON group_messages(group_id, timestamp DESC)
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_group_messages_sender ON group_messages(sender_key)
+      ''');
+
+      // Create group_message_delivery table for per-member tracking
+      await db.execute('''
+        CREATE TABLE group_message_delivery (
+          message_id TEXT NOT NULL,
+          member_key TEXT NOT NULL,
+          status INTEGER NOT NULL,
+          timestamp INTEGER NOT NULL,
+          PRIMARY KEY (message_id, member_key),
+          FOREIGN KEY (message_id) REFERENCES group_messages(id) ON DELETE CASCADE
+        )
+      ''');
+
+      await db.execute('''
+        CREATE INDEX idx_delivery_status ON group_message_delivery(message_id, status)
+      ''');
+
+      _logger.info('Migration to v9 complete: Added 4 tables for contact groups');
+      _logger.info('✅ contact_groups, group_members, group_messages, group_message_delivery');
     }
   }
 

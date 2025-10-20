@@ -11,6 +11,7 @@ import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'mesh_networking_provider.dart';
 import '../../data/repositories/user_preferences.dart';
+import '../../core/messaging/message_router.dart';
 
 // =============================================================================
 // REACTIVE USERNAME PROVIDERS (RIVERPOD 3.0 MODERN APPROACH)
@@ -112,7 +113,20 @@ final bleServiceProvider = Provider<BLEService>((ref) {
   final service = BLEService();
   service.initialize();
 
+  // Initialize MessageRouter with the BLE service (BitChat pattern - MessageRouter.kt line 21)
+  // Must happen AFTER BLEService.initialize() to ensure service is ready
+  MessageRouter.initialize(service).catchError((e) {
+    if (kDebugMode) {
+      print('⚠️ MessageRouter initialization failed: $e');
+    }
+  });
+
   ref.onDispose(() {
+    try {
+      MessageRouter.instance.dispose();
+    } catch (e) {
+      // MessageRouter might not be initialized if early error occurred
+    }
     service.dispose();
   });
 
@@ -204,6 +218,12 @@ final burstScanningStatusProvider = StreamProvider<BurstScanningStatus>((ref) {
         timeSinceLastSuccess: Duration.zero,
         qualityMeasurementsCount: 0,
         isBurstMode: false,
+        // Phase 1: Default duty cycle stats (loading state)
+        powerMode: PowerMode.balanced,
+        isDutyCycleScanning: false,
+        batteryLevel: 100,
+        isCharging: false,
+        isAppInBackground: false,
       ),
     )),
     error: (error, stack) => Stream.value(BurstScanningStatus(
@@ -219,6 +239,12 @@ final burstScanningStatusProvider = StreamProvider<BurstScanningStatus>((ref) {
         timeSinceLastSuccess: Duration.zero,
         qualityMeasurementsCount: 0,
         isBurstMode: false,
+        // Phase 1: Default duty cycle stats (error state)
+        powerMode: PowerMode.balanced,
+        isDutyCycleScanning: false,
+        batteryLevel: 100,
+        isCharging: false,
+        isAppInBackground: false,
       ),
     )),
   );

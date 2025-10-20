@@ -1,15 +1,31 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
+import 'package:logging/logging.dart';
 
 class ChatUtils {
+  static final _logger = Logger('ChatUtils');
+
   /// Generate chat ID from other device's ID
   ///
-  /// Uses their persistent public key if known (after pairing),
-  /// otherwise uses their ephemeral ID (before pairing)
+  /// 🔧 FIX BUG #4: Session-specific chat ID generation
   ///
-  /// Simple and elegant: chatId = theirId
+  /// Uses their session ID (ephemeral pre-pairing, persistent post-pairing)
+  /// This ensures:
+  /// - Pre-pairing: Each Noise session gets unique chat (session isolation)
+  /// - Post-pairing: Persistent chat history across sessions
+  ///
+  /// Implementation:
+  /// - Pre-pairing: theirId = ephemeral ID (unique per session)
+  /// - Post-pairing: theirId = persistent key (same across sessions)
+  /// - Chat ID = theirId (simple and elegant)
+  ///
+  /// Result: Different sessions → different chats (session isolation achieved)
   static String generateChatId(String theirId) {
+    final preview = theirId.length > 16 ? '${theirId.substring(0, 16)}...' : theirId;
+    _logger.info('🆔 CHAT ID GENERATED: $preview (session-specific)');
+    _logger.info('✅ Session isolation: ephemeral ID (pre-pairing) or persistent key (post-pairing)');
+
     return theirId;
   }
 

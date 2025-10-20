@@ -29,6 +29,7 @@ import '../../core/services/message_retry_coordinator.dart';
 import '../../core/app_core.dart';
 import '../../core/security/message_security.dart';
 import '../../domain/services/notification_service.dart';
+import '../../core/messaging/message_router.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device;      // For central mode (live connection)
@@ -177,6 +178,9 @@ String? get securityStateKey {
     _currentChatId = _calculateInitialChatId();
     print('🐛 NAV DEBUG: - calculated chatId: $_currentChatId');
     
+    // 💬🔑 COMPREHENSIVE CHAT OPEN LOGGING (search: 💬🔑)
+    _logChatOpenState();
+    
     _loadMessages();
     _loadUnreadCount();
     
@@ -190,6 +194,23 @@ String? get securityStateKey {
     _setupScrollListener(); // 🔥 WhatsApp-style scroll position tracking
     print('🐛 NAV DEBUG: ChatScreen initState() completed');
   }
+
+Future<void> _logChatOpenState() async {
+  final contactRepo = ContactRepository();
+  final publicKey = widget.contactPublicKey ?? _currentChatId;
+  
+  if (publicKey == null) {
+    _logger.warning('💬🔑 CHAT OPEN: No public key available');
+    return;
+  }
+  
+  final contact = await contactRepo.getContact(publicKey);
+  final securityLevel = await SecurityManager.getCurrentLevel(publicKey, contactRepo);
+  final encryptionMethod = await SecurityManager.getEncryptionMethod(publicKey, contactRepo);
+  
+  _logger.info('💬🔑 CHAT OPEN: ${widget.contactName ?? "Unknown"} | Security=${securityLevel.name} | Encryption=${encryptionMethod.type.name}');
+  _logger.info('💬🔑 Keys: PubKey=${publicKey.substring(0, 16)}... | EphemeralID=${contact?.ephemeralId?.substring(0, 16) ?? "NULL"}... | NoiseSession=${contact?.sessionIdForNoise?.substring(0, 16) ?? "NULL"}...');
+}
 
 void _checkAndSetupLiveMessaging() {
   final connectionInfo = ref.read(connectionInfoProvider).value;
@@ -632,7 +653,8 @@ Future<void> _manualReconnection() async {
   /// Check if there are messages queued for relay that should prevent disconnection
   bool _hasMessagesQueuedForRelay() {
     try {
-      final offlineQueue = OfflineMessageQueue();
+      // Use singleton from AppCore instead of creating new instance
+      final offlineQueue = AppCore.instance.messageQueue;
       final queuedMessages = offlineQueue.getPendingMessages();
 
       // Check if any queued messages are for this chat and intended for relay
@@ -723,10 +745,9 @@ Future<void> _manualReconnection() async {
     try {
       // Access the offline message queue through mesh networking service
       final meshService = ref.read(meshNetworkingServiceProvider);
-      
-      // For now, we'll create a simple offline queue instance
-      // In a full implementation, this would be injected properly
-      final offlineQueue = OfflineMessageQueue();
+
+      // Use singleton from AppCore instead of creating new instance
+      final offlineQueue = AppCore.instance.messageQueue;
       
       _retryCoordinator = MessageRetryCoordinator(
         messageRepository: _messageRepository,
@@ -834,18 +855,41 @@ Future<void> _manualReconnection() async {
       final isConnected = connectionInfo?.isConnected ?? false;
       final isReady = connectionInfo?.isReady ?? false;
       
-      // Enhanced delivery attempt with multiple strategies
-      if (isConnected && isReady) {
-        // Try direct BLE delivery first
-        final bleService = ref.read(bleServiceProvider);
-        
-        if (_isCentralMode) {
-          success = await bleService.sendMessage(message.content, messageId: message.id);
-        } else {
-          success = await bleService.sendPeripheralMessage(message.content, messageId: message.id);
+      // Enhanced delivery attempt using MessageRouter (BitChat pattern)
+      // MessageRouter handles offline queueing automatically
+      try {
+        final router = MessageRouter.instance;
+        final result = await router.sendMessage(
+          content: message.content,
+          recipientId: _contactPublicKey ?? _chatId,
+          messageId: message.id,
+          recipientName: _displayContactName,
+        );
+
+        success = result.isSentDirectly;
+
+        if (result.isQueued) {
+          _logger.info('📮 Message retry queued (peer offline) - will auto-send when online');
+          _showInfo('Message queued - will send when peer comes online');
+        } else if (success) {
+          _logger.info('📡 Message retry sent directly');
         }
-        
-        _logger.info('📡 Direct BLE retry result for message ${message.id.substring(0, 8)}: $success');
+
+      } catch (e) {
+        _logger.warning('MessageRouter retry failed: $e - falling back to direct BLE');
+
+        // Fallback to direct BLE if MessageRouter unavailable
+        if (isConnected && isReady) {
+          final bleService = ref.read(bleServiceProvider);
+
+          if (_isCentralMode) {
+            success = await bleService.sendMessage(message.content, messageId: message.id);
+          } else {
+            success = await bleService.sendPeripheralMessage(message.content, messageId: message.id);
+          }
+
+          _logger.info('📡 Direct BLE fallback result: $success');
+        }
       }
       
       // If direct delivery failed or not connected, try smart routing (if demo enabled)
@@ -1004,7 +1048,10 @@ Future<void> _manualReconnection() async {
     
     print('🔴 Generated message ID: ${secureMessageId.substring(0, 16)}...');
     
-    // 🔧 FIX: Check repository for duplicate BEFORE saving
+    // �🔑 COMPREHENSIVE RECEIVE LOGGING (search: 📥🔑)
+    await _logMessageReceiveState(senderPublicKey, content, secureMessageId);
+    
+    // �🔧 FIX: Check repository for duplicate BEFORE saving
     final existingMessage = await _messageRepository.getMessageById(secureMessageId);
     if (existingMessage != null) {
       print('🔴 ❌ DUPLICATE FOUND IN DB - SKIPPING');
@@ -1040,6 +1087,7 @@ Future<void> _manualReconnection() async {
     // 🎯 OPTION B: Received messages go DIRECTLY to repository
     // They bypass the queue (queue is only for OUR outgoing messages)
     await _messageRepository.saveMessage(message);
+    // Message saved successfully - already logged in _logMessageReceiveState above
     
     // 🔔 Show notification for all received messages (NotificationService handles filtering)
     try {
@@ -1874,6 +1922,9 @@ void _setupContactRequestListener() {
     // Get the current contact key (ephemeral or persistent)
     final recipientKey = _contactPublicKey;
     
+    // 📤🔑 COMPREHENSIVE SEND LOGGING (search: 📤🔑)
+    await _logMessageSendState(recipientKey, text);
+    
     print('🔧 SEND DEBUG: Using AppCore.sendSecureMessage() for unified routing');
     print('🔧 SEND DEBUG: Recipient key: ${recipientKey != null && recipientKey.length > 16 ? "${recipientKey.substring(0, 16)}..." : recipientKey ?? "NULL"}');
 
@@ -1892,6 +1943,7 @@ void _setupContactRequestListener() {
       recipientPublicKey: recipientKey,
     );
 
+    // Message queued successfully - already logged in _logMessageSendState above
     print('🔧 SEND DEBUG: Message queued with secure ID: ${secureMessageId.length > 16 ? '${secureMessageId.substring(0, 16)}...' : secureMessageId}');
 
     // 🎯 OPTION B: Queue owns the message until delivery
@@ -1917,10 +1969,33 @@ void _setupContactRequestListener() {
       
   } catch (e) {
     print('🔧 SEND DEBUG: Exception caught: $e');
+    _logger.severe('📤🔑 MESSAGE SEND FAILED: $e');
     // 🔧 FIX: If queueing fails, show error to user
     // Don't create a failed message in repository since queue failed
     _showError('Failed to send message: $e');
   }
+}
+
+Future<void> _logMessageSendState(String? recipientKey, String messageContent) async {
+  if (recipientKey == null) return;
+  
+  final contactRepo = ContactRepository();
+  final contact = await contactRepo.getContact(recipientKey);
+  final encryptionMethod = await SecurityManager.getEncryptionMethod(recipientKey, contactRepo);
+  
+  final preview = messageContent.length > 30 ? "${messageContent.substring(0, 30)}..." : messageContent;
+  _logger.info('📤🔑 SEND: "$preview" | To=${recipientKey.substring(0, 16)}... | Encryption=${encryptionMethod.type.name} | NoiseSession=${contact?.sessionIdForNoise?.substring(0, 16) ?? "NULL"}...');
+}
+
+Future<void> _logMessageReceiveState(String? senderKey, String messageContent, String messageId) async {
+  if (senderKey == null) return;
+  
+  final contactRepo = ContactRepository();
+  final contact = await contactRepo.getContact(senderKey);
+  final encryptionMethod = await SecurityManager.getEncryptionMethod(senderKey, contactRepo);
+  
+  final preview = messageContent.length > 30 ? "${messageContent.substring(0, 30)}..." : messageContent;
+  _logger.info('📥🔑 RECV: "$preview" | From=${senderKey.substring(0, 16)}... | MsgID=${messageId.substring(0, 16)}... | Encryption=${encryptionMethod.type.name} | NoiseSession=${contact?.sessionIdForNoise?.substring(0, 16) ?? "NULL"}...');
 }
 
   Future<void> _retryMessage(Message failedMessage) async {
@@ -1988,25 +2063,31 @@ if (!(connectionInfo?.isConnected ?? false)) {
          _messages.removeWhere((message) => message.id == messageId);
        });
        
-       // If deleteForEveryone is true and we have a connection, send deletion request
+       // If deleteForEveryone is true, send deletion request (using MessageRouter for offline reliability)
        if (deleteForEveryone) {
-         final connectionInfo = ref.read(connectionInfoProvider).value;
-         if (connectionInfo?.isConnected == true) {
-           final bleService = ref.read(bleServiceProvider);
-           
-           try {
-             // Send deletion request to the other device
-             // This is a simplified implementation - in a real app you'd need a proper protocol
-             final deletionMessage = 'DELETE_MESSAGE:$messageId';
-             await bleService.sendMessage(deletionMessage);
-             
+         try {
+           // Send deletion request using MessageRouter (BitChat pattern)
+           // MessageRouter will queue if peer offline and auto-send when online
+           final deletionMessage = 'DELETE_MESSAGE:$messageId';
+           final router = MessageRouter.instance;
+
+           final result = await router.sendMessage(
+             content: deletionMessage,
+             recipientId: _contactPublicKey ?? _chatId,
+             recipientName: _displayContactName,
+           );
+
+           if (result.isSentDirectly) {
              _showSuccess('Message deleted for everyone');
-           } catch (e) {
-             _logger.warning('Failed to send deletion request: $e');
-             _showSuccess('Message deleted locally (remote deletion failed)');
+           } else if (result.isQueued) {
+             _showSuccess('Message deleted - deletion request queued (will send when peer online)');
+           } else {
+             _showSuccess('Message deleted locally (remote deletion queued)');
            }
-         } else {
-           _showSuccess('Message deleted locally (not connected for remote deletion)');
+
+         } catch (e) {
+           _logger.warning('Failed to send deletion request: $e');
+           _showSuccess('Message deleted locally (remote deletion failed)');
          }
        } else {
          _showSuccess('Message deleted');

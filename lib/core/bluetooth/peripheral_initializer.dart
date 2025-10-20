@@ -111,6 +111,7 @@ class PeripheralInitializer {
   Future<bool> safelyStartAdvertising(
     Advertisement advertisement, {
     Duration timeout = const Duration(seconds: 5),
+    bool skipIfAlreadyAdvertising = true,
   }) async {
     _logger.info('📡 Attempting to start advertising...');
 
@@ -121,7 +122,19 @@ class PeripheralInitializer {
       return false;
     }
 
-    // Step 2: Start advertising
+    // Step 2: Check if already advertising (prevents error code 3)
+    if (skipIfAlreadyAdvertising) {
+      try {
+        // Try to stop advertising first - if it fails, we weren't advertising
+        await peripheralManager.stopAdvertising();
+        _logger.info('  Stopped previous advertising session');
+      } catch (e) {
+        // Not advertising, which is fine - we can start fresh
+        _logger.fine('  No active advertising to stop');
+      }
+    }
+
+    // Step 3: Start advertising
     try {
       await peripheralManager.startAdvertising(advertisement);
       _logger.info('✅ Advertising started successfully');

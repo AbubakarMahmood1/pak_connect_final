@@ -23,6 +23,7 @@ class BurstScanningController {
   DateTime? _nextScanTime;
   DateTime? _burstEndTime;
   Timer? _statusUpdateTimer;
+  Timer? _burstDurationTimer; // Timer to handle burst duration in continuous scan mode
 
   // Status stream
   final StreamController<BurstScanningStatus> _statusController =
@@ -62,6 +63,11 @@ class BurstScanningController {
   /// Stop burst scanning
   Future<void> stopBurstScanning() async {
     _logger.info('🔥 Stopping adaptive burst scanning');
+    
+    // Cancel burst duration timer
+    _burstDurationTimer?.cancel();
+    _burstDurationTimer = null;
+    
     await _powerManager.stopScanning();
     _isBurstActive = false;
     _burstEndTime = null;
@@ -78,22 +84,34 @@ class BurstScanningController {
     // 🔥 OPTIMIZATION: Check if at max connections before scanning
     final connectionManager = _bleService?.connectionManager;
     if (connectionManager != null && !connectionManager.canAcceptMoreConnections) {
-      _logger.info('🔥 BURST: Skipping scan - already at max connections (${connectionManager.activeConnectionCount}/${BLEConnectionManager.maxCentralConnections})');
+      _logger.info('🔥 BURST: Skipping scan - already at max connections (${connectionManager.activeConnectionCount}/${connectionManager.maxClientConnections})');
       _logger.fine('Connected devices: ${connectionManager.activeConnections.map((p) => p.uuid).join(", ")}');
       return; // Don't scan if we can't accept more connections
     }
 
-    _logger.info('🔥 BURST: Starting burst scan cycle (${connectionManager?.activeConnectionCount ?? 0}/${BLEConnectionManager.maxCentralConnections} connections)');
+    _logger.info('🔥 BURST: Starting burst scan cycle (${connectionManager?.activeConnectionCount ?? 0}/${connectionManager?.maxClientConnections ?? '?'} connections)');
     _isBurstActive = true;
     _burstEndTime = DateTime.now().add(Duration(milliseconds: 20000)); // 20s burst duration
 
     try {
       await _bleService?.startScanning(source: ScanningSource.burst);
       _logger.info('✅ BURST: Scan started successfully');
+      
+      // Start our own timer to handle burst duration
+      // This is needed because in performance mode (continuous scan), 
+      // the power manager won't call onStopScan
+      _burstDurationTimer?.cancel();
+      _burstDurationTimer = Timer(Duration(milliseconds: 20000), () {
+        if (_isBurstActive) {
+          _logger.info('🔥 BURST: Duration timer expired - treating as burst end');
+          _handleBurstScanStop();
+        }
+      });
     } catch (e) {
       _logger.severe('❌ BURST: Failed to start scanning: $e');
       _isBurstActive = false;
       _burstEndTime = null;
+      _burstDurationTimer?.cancel();
     }
 
     _updateStatus();
@@ -102,6 +120,11 @@ class BurstScanningController {
   /// Handle burst scan stop from power manager
   void _handleBurstScanStop() async {
     _logger.info('🔥 BURST: Stopping burst scan cycle');
+    
+    // Cancel burst duration timer
+    _burstDurationTimer?.cancel();
+    _burstDurationTimer = null;
+    
     _isBurstActive = false;
     _burstEndTime = null;
 
@@ -202,6 +225,13 @@ class BurstScanningController {
     if (_burstEndTime != null && _isBurstActive) {
       final remaining = _burstEndTime!.difference(DateTime.now()).inSeconds;
       burstTimeRemaining = remaining > 0 ? remaining : 0;
+      
+      // Safety check: If burst time expired but still marked as active, force end
+      if (remaining <= 0) {
+        _logger.warning('🔥 BURST: Timer expired but still active - forcing burst end');
+        // Don't await here as we're in a getter, just schedule the cleanup
+        Future.microtask(() => _handleBurstScanStop());
+      }
     }
 
     return BurstScanningStatus(
@@ -222,6 +252,7 @@ class BurstScanningController {
   /// Dispose of resources
   void dispose() {
     _statusUpdateTimer?.cancel();
+    _burstDurationTimer?.cancel();
     _powerManager.dispose();
     _statusController.close();
     _logger.info('🔥 Burst scanning controller disposed');

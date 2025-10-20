@@ -1,23 +1,69 @@
 // Battery-efficient scanning system with burst-mode and adaptive power management
+// Phase 1 Enhancement: BitChat-style duty cycle scanning + quality-based adaptation
 
 import 'dart:async';
 import 'dart:math';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'battery_optimizer.dart';
+
+/// Power modes for BLE scanning (based on BitChat battle-tested implementation)
+enum PowerMode {
+  /// Full power - continuous scanning (charging, good battery, foreground)
+  performance,
+
+  /// Balanced mode - 80% duty cycle: 8s ON / 2s OFF (normal battery, foreground)
+  balanced,
+
+  /// Power saver - 20% duty cycle: 2s ON / 8s OFF (low battery or background)
+  powerSaver,
+
+  /// Ultra low power - 9% duty cycle: 1s ON / 10s OFF (critical battery < 10%)
+  ultraLowPower,
+}
 
 /// Adaptive power management for BLE operations with battery optimization
+///
+/// Phase 1 Enhancement: Combines BitChat's duty cycle scanning with quality-based adaptation
+/// - Duty cycle scanning: Varies ON/OFF periods based on battery/background state
+/// - Quality adaptation: Fine-tunes intervals based on connection metrics
+/// - Hybrid approach: More sophisticated than BitChat's battery-only logic
 class AdaptivePowerManager {
   static final _logger = Logger('AdaptivePowerManager');
   static const String _settingsPrefix = 'power_mgmt_';
-  
-  // Configuration ranges
-  static const int _minScanInterval = 20000; // 2 seconds
+
+  // Configuration ranges (quality-based adaptation)
+  static const int _minScanInterval = 20000; // 20 seconds
   static const int _maxScanInterval = 120000; // 120 seconds
   static const int _burstDuration = 20000; // 20 seconds active scanning
   static const int _minHealthCheckInterval = 30000; // 30 seconds
   static const int _maxHealthCheckInterval = 60000; // 60 seconds
+
+  // BitChat-inspired constants (Phase 1: Duty Cycle Scanning)
+  static const int _criticalBatteryPercent = 10;
+  static const int _lowBatteryPercent = 20;
+  static const int _mediumBatteryPercent = 50;
+
+  // Duty cycle periods (BitChat pattern)
+  static const int _scanOnDurationNormal = 8000; // 8s ON
+  static const int _scanOffDurationNormal = 2000; // 2s OFF (80% duty cycle)
+  static const int _scanOnDurationPowerSave = 2000; // 2s ON
+  static const int _scanOffDurationPowerSave = 8000; // 8s OFF (20% duty cycle)
+  static const int _scanOnDurationUltraLow = 1000; // 1s ON
+  static const int _scanOffDurationUltraLow = 10000; // 10s OFF (9% duty cycle)
+
+  // RSSI thresholds per power mode (BitChat pattern)
+  static const int _rssiThresholdPerformance = -95; // dBm
+  static const int _rssiThresholdBalanced = -85; // dBm
+  static const int _rssiThresholdPowerSaver = -75; // dBm
+  static const int _rssiThresholdUltraLow = -65; // dBm
+
+  // Connection limits per power mode
+  static const int _maxConnectionsNormal = 8;
+  static const int _maxConnectionsPowerSave = 4;
+  static const int _maxConnectionsUltraLow = 2;
   
-  // Current state
+  // Current state (quality-based adaptation)
   int _currentScanInterval = 60000;
   int _currentHealthCheckInterval = 30000;
   bool _isBurstMode = false;
@@ -25,49 +71,84 @@ class AdaptivePowerManager {
   Timer? _healthCheckTimer;
   Timer? _burstTimer;
   DateTime? _nextScheduledScanTime; // Track actual scheduled time with randomization
-  
+
+  // Phase 1: Duty cycle state (BitChat pattern)
+  PowerMode _currentPowerMode = PowerMode.balanced;
+  bool _isAppInBackground = false;
+  int _batteryLevel = 100;
+  bool _isCharging = false;
+  Timer? _dutyCycleTimer;
+  bool _isDutyCycleScanning = false; // true during ON period
+
   // Connection quality tracking
   final List<ConnectionQualityMeasurement> _qualityHistory = [];
   int _consecutiveSuccessfulChecks = 0;
   int _consecutiveFailedChecks = 0;
   DateTime _lastSuccessfulConnection = DateTime.now();
-  
+
   // Callbacks
   Function()? onStartScan;
   Function()? onStopScan;
   Function()? onHealthCheck;
   Function(PowerManagementStats)? onStatsUpdate;
+  Function(PowerMode)? onPowerModeChanged; // Phase 1: Power mode notifications
   
   // Randomization for network desynchronization
   final Random _random = Random();
   
   /// Initialize power management with adaptive algorithms
+  ///
+  /// Phase 1: Now supports duty cycle scanning and battery awareness
   Future<void> initialize({
     Function()? onStartScan,
     Function()? onStopScan,
     Function()? onHealthCheck,
     Function(PowerManagementStats)? onStatsUpdate,
+    Function(PowerMode)? onPowerModeChanged,
   }) async {
     this.onStartScan = onStartScan;
     this.onStopScan = onStopScan;
     this.onHealthCheck = onHealthCheck;
     this.onStatsUpdate = onStatsUpdate;
-    
+    this.onPowerModeChanged = onPowerModeChanged;
+
     await _loadSettings();
-    _logger.info('Adaptive power management initialized - scan interval: ${_currentScanInterval}ms, health check: ${_currentHealthCheckInterval}ms');
+
+    // Phase 1: Initialize battery monitoring
+    final batteryOptimizer = BatteryOptimizer();
+    batteryOptimizer.onPowerModeChanged = (batteryMode) {
+      _onBatteryModeChanged(batteryMode);
+    };
+
+    // Get initial battery state
+    final batteryInfo = batteryOptimizer.getCurrentInfo();
+    _batteryLevel = batteryInfo.level;
+    _isCharging = batteryInfo.isCharging;
+    _updatePowerMode();
+
+    _logger.info(
+      'Adaptive power management initialized - '
+      'scan: ${_currentScanInterval}ms, health: ${_currentHealthCheckInterval}ms, '
+      'power mode: ${_currentPowerMode.name}, battery: $_batteryLevel%',
+    );
   }
   
   /// Start adaptive scanning with burst-mode optimization
+  ///
+  /// Phase 2a: ALL modes use burst scanning with variable wait times
   Future<void> startAdaptiveScanning() async {
     await _stopAllTimers();
 
-    _logger.info('Starting adaptive scanning with burst-mode optimization');
+    _logger.info(
+      '🔍 Starting burst scanning - power mode: ${_currentPowerMode.name}, '
+      'battery: $_batteryLevel%, background: $_isAppInBackground',
+    );
 
-    // Start with immediate first scan for better UX
-    _logger.info('🔥 IMMEDIATE: Starting initial burst scan for first-time experience');
+    // ALL modes use burst scanning, just with different wait times
     _startBurstScan();
-
     _scheduleNextScan();
+
+    // Keep quality-based health checks for connection monitoring
     _scheduleHealthCheck();
   }
   
@@ -76,6 +157,171 @@ class AdaptivePowerManager {
     await _stopAllTimers();
     _logger.info('Stopped adaptive scanning');
   }
+
+  // ============================================================================
+  // Phase 1: Duty Cycle Scanning (BitChat Pattern)
+  // ============================================================================
+
+  /// [DEPRECATED] Old duty cycle check
+  @Deprecated('Phase 2a: Use burst scanning for all modes')
+  bool _shouldUseDutyCycle() {
+    return false; // Always use burst scanning now
+  }
+
+  /// [DEPRECATED] Old duty cycle scanning - replaced by burst scanning with variable waits
+  @Deprecated('Phase 2a: Use burst scanning with _getBaseIntervalForPowerMode() instead')
+  void _startDutyCycleScanning() {
+    _stopDutyCycleScanning();
+
+    final (onDuration, offDuration) = switch (_currentPowerMode) {
+      PowerMode.balanced => (_scanOnDurationNormal, _scanOffDurationNormal),
+      PowerMode.powerSaver => (_scanOnDurationPowerSave, _scanOffDurationPowerSave),
+      PowerMode.ultraLowPower => (_scanOnDurationUltraLow, _scanOffDurationUltraLow),
+      PowerMode.performance => (0, 0), // No duty cycle
+    };
+
+    if (onDuration == 0) {
+      // Performance mode - no duty cycle
+      return;
+    }
+
+    _logger.info(
+      'Starting duty cycle: ${onDuration}ms ON / ${offDuration}ms OFF '
+      '(${((onDuration / (onDuration + offDuration)) * 100).toStringAsFixed(1)}% duty cycle)',
+    );
+
+    // Start with ON period immediately
+    _isDutyCycleScanning = true;
+    onStartScan?.call();
+
+    // Schedule duty cycle loop
+    _dutyCycleTimer = Timer.periodic(
+      Duration(milliseconds: onDuration + offDuration),
+      (_) {
+        if (_isDutyCycleScanning) {
+          // End ON period, start OFF period
+          _logger.fine('Duty cycle: Scan OFF for ${offDuration}ms');
+          _isDutyCycleScanning = false;
+          onStopScan?.call();
+
+          // Schedule next ON period
+          Timer(Duration(milliseconds: offDuration), () {
+            if (_shouldUseDutyCycle()) {
+              _logger.fine('Duty cycle: Scan ON for ${onDuration}ms');
+              _isDutyCycleScanning = true;
+              onStartScan?.call();
+            }
+          });
+        }
+      },
+    );
+  }
+
+  /// Stop duty cycle scanning
+  void _stopDutyCycleScanning() {
+    _dutyCycleTimer?.cancel();
+    _dutyCycleTimer = null;
+
+    if (_isDutyCycleScanning) {
+      _isDutyCycleScanning = false;
+      onStopScan?.call();
+    }
+  }
+
+  /// Update power mode based on battery and background state (BitChat logic)
+  void _updatePowerMode() {
+    final previousMode = _currentPowerMode;
+
+    final newMode = switch ((_isCharging, _isAppInBackground, _batteryLevel)) {
+      // Charging and foreground → Performance
+      (true, false, _) => PowerMode.performance,
+
+      // Critical battery → Ultra Low Power
+      (_, _, <= _criticalBatteryPercent) => PowerMode.ultraLowPower,
+
+      // Low battery → Power Saver
+      (_, _, <= _lowBatteryPercent) => PowerMode.powerSaver,
+
+      // Background with medium battery → Power Saver
+      (_, true, <= _mediumBatteryPercent) => PowerMode.powerSaver,
+
+      // Background with good battery → Balanced
+      (_, true, _) => PowerMode.balanced,
+
+      // Foreground with good battery → Balanced
+      _ => PowerMode.balanced,
+    };
+
+    if (newMode == previousMode) {
+      return; // No change
+    }
+
+    _currentPowerMode = newMode;
+    _logger.info(
+      '🔋 Power mode changed: ${previousMode.name} → ${newMode.name} '
+      '(battery: $_batteryLevel%, charging: $_isCharging, background: $_isAppInBackground)',
+    );
+
+    // Notify listeners
+    onPowerModeChanged?.call(newMode);
+
+    // Restart burst scanning with new power mode wait times (Phase 2a)
+    _scanTimer?.cancel();
+    _scheduleNextScan(); // Will use new power mode's wait time
+
+    _logger.info(
+      '⚡ Restarted scanning with new power mode: ${_currentPowerMode.name} '
+      '(wait time: ${_getBaseIntervalForPowerMode()}ms)'
+    );
+  }
+
+  /// Handle battery mode changes from BatteryOptimizer
+  void _onBatteryModeChanged(BatteryPowerMode batteryMode) {
+    // Update battery state from battery optimizer
+    final batteryOptimizer = BatteryOptimizer();
+    final info = batteryOptimizer.getCurrentInfo();
+    _batteryLevel = info.level;
+    _isCharging = info.isCharging;
+
+    _logger.fine('Battery mode changed: ${batteryMode.name} (level: $_batteryLevel%)');
+    _updatePowerMode();
+  }
+
+  /// Set app background state (call from AppLifecycleObserver)
+  void setAppBackgroundState(bool inBackground) {
+    if (_isAppInBackground == inBackground) return;
+
+    _isAppInBackground = inBackground;
+    _logger.info('App state changed: ${inBackground ? 'background' : 'foreground'}');
+    _updatePowerMode();
+  }
+
+  /// Get current power mode
+  PowerMode get currentPowerMode => _currentPowerMode;
+
+  /// Get RSSI threshold for current power mode (BitChat pattern)
+  int get rssiThreshold {
+    return switch (_currentPowerMode) {
+      PowerMode.performance => _rssiThresholdPerformance,
+      PowerMode.balanced => _rssiThresholdBalanced,
+      PowerMode.powerSaver => _rssiThresholdPowerSaver,
+      PowerMode.ultraLowPower => _rssiThresholdUltraLow,
+    };
+  }
+
+  /// Get max connections for current power mode (BitChat pattern)
+  int get maxConnections {
+    return switch (_currentPowerMode) {
+      PowerMode.performance => _maxConnectionsNormal,
+      PowerMode.balanced => _maxConnectionsNormal,
+      PowerMode.powerSaver => _maxConnectionsPowerSave,
+      PowerMode.ultraLowPower => _maxConnectionsUltraLow,
+    };
+  }
+
+  // ============================================================================
+  // End Phase 1: Duty Cycle Scanning
+  // ============================================================================
 
   /// Trigger an immediate burst scan (manual override)
   Future<void> triggerImmediateScan() async {
@@ -143,11 +389,26 @@ class AdaptivePowerManager {
     _logger.warning('Connection failure reported - consecutive: $_consecutiveFailedChecks, reason: $reason');
   }
   
+  /// Get base wait interval for current power mode (Phase 2a: burst wait times)
+  int _getBaseIntervalForPowerMode() {
+    return switch (_currentPowerMode) {
+      PowerMode.performance => _currentScanInterval, // Quality-adapted (20-120s)
+      PowerMode.balanced => 5000,       // 5s wait (80% duty with 20s burst)
+      PowerMode.powerSaver => 80000,    // 80s wait (20% duty with 20s burst)
+      PowerMode.ultraLowPower => 202000, // 202s wait (9% duty with 20s burst)
+    };
+  }
+
   /// Schedule next scan with randomized interval to prevent network synchronization
+  ///
+  /// Phase 2a: Uses power-mode-based wait times instead of duty cycling
   void _scheduleNextScan() {
+    // Get base interval from power mode
+    int baseInterval = _getBaseIntervalForPowerMode();
+
     // Add randomization (±20%) to prevent network-wide synchronization
-    final randomOffset = (_currentScanInterval * 0.4 * _random.nextDouble()) - (_currentScanInterval * 0.2);
-    final actualInterval = (_currentScanInterval + randomOffset).round().clamp(_minScanInterval, _maxScanInterval);
+    final randomOffset = (baseInterval * 0.4 * _random.nextDouble()) - (baseInterval * 0.2);
+    final actualInterval = (baseInterval + randomOffset).round().clamp(_minScanInterval, _maxScanInterval);
 
     // Track the actual scheduled time for accurate UI countdown
     _nextScheduledScanTime = DateTime.now().add(Duration(milliseconds: actualInterval));
@@ -159,7 +420,9 @@ class AdaptivePowerManager {
       _scheduleNextScan();
     });
 
-    _logger.fine('Next scan scheduled in ${actualInterval}ms (base: ${_currentScanInterval}ms) at $_nextScheduledScanTime');
+    _logger.fine(
+      'Next scan scheduled in ${actualInterval}ms (base: ${baseInterval}ms, mode: ${_currentPowerMode.name}) at $_nextScheduledScanTime'
+    );
   }
   
   /// Execute burst-mode scanning for battery efficiency
@@ -335,10 +598,17 @@ class AdaptivePowerManager {
     _scanTimer?.cancel();
     _healthCheckTimer?.cancel();
     _burstTimer?.cancel();
-    
+    _dutyCycleTimer?.cancel(); // Phase 1: Stop duty cycle timer
+
     if (_isBurstMode) {
       onStopScan?.call();
       _isBurstMode = false;
+    }
+
+    // Phase 1: Stop duty cycle scanning
+    if (_isDutyCycleScanning) {
+      onStopScan?.call();
+      _isDutyCycleScanning = false;
     }
   }
   
@@ -385,6 +655,12 @@ class AdaptivePowerManager {
       qualityMeasurementsCount: _qualityHistory.length,
       isBurstMode: _isBurstMode,
       nextScheduledScanTime: _nextScheduledScanTime,
+      // Phase 1: Duty cycle stats
+      powerMode: _currentPowerMode,
+      isDutyCycleScanning: _isDutyCycleScanning,
+      batteryLevel: _batteryLevel,
+      isCharging: _isCharging,
+      isAppInBackground: _isAppInBackground,
     );
   }
 
@@ -435,6 +711,8 @@ class ConnectionQualityMeasurement {
 }
 
 /// Power management statistics
+///
+/// Phase 1 Enhancement: Added duty cycle and battery awareness stats
 class PowerManagementStats {
   final int currentScanInterval;
   final int currentHealthCheckInterval;
@@ -447,6 +725,13 @@ class PowerManagementStats {
   final bool isBurstMode;
   final DateTime? nextScheduledScanTime;
 
+  // Phase 1: Duty cycle stats
+  final PowerMode powerMode;
+  final bool isDutyCycleScanning;
+  final int batteryLevel;
+  final bool isCharging;
+  final bool isAppInBackground;
+
   const PowerManagementStats({
     required this.currentScanInterval,
     required this.currentHealthCheckInterval,
@@ -458,22 +743,52 @@ class PowerManagementStats {
     required this.qualityMeasurementsCount,
     required this.isBurstMode,
     this.nextScheduledScanTime,
+    // Phase 1: Duty cycle stats
+    required this.powerMode,
+    required this.isDutyCycleScanning,
+    required this.batteryLevel,
+    required this.isCharging,
+    required this.isAppInBackground,
   });
-  
+
   /// Get battery efficiency rating (0.0 - 1.0)
+  ///
+  /// Phase 1: Now considers duty cycle mode for more accurate efficiency calculation
   double get batteryEfficiencyRating {
-    const maxScanInterval = 15000; // Match AdaptivePowerManager._maxScanInterval
-    const minScanInterval = 2000;  // Match AdaptivePowerManager._minScanInterval
-    
-    final intervalScore = 1.0 - ((maxScanInterval - currentScanInterval) / (maxScanInterval - minScanInterval));
+    // Duty cycle efficiency contribution
+    final dutyCycleScore = switch (powerMode) {
+      PowerMode.performance => 0.0, // Continuous scanning - lowest efficiency
+      PowerMode.balanced => 0.6, // 80% duty cycle
+      PowerMode.powerSaver => 0.85, // 20% duty cycle
+      PowerMode.ultraLowPower => 0.95, // 9% duty cycle - highest efficiency
+    };
+
+    // Quality score contribution (maintain connection quality)
     final qualityScore = connectionQualityScore;
-    
-    // Balance between battery savings and connection quality
-    return (intervalScore * 0.6 + qualityScore * 0.4).clamp(0.0, 1.0);
+
+    // Balance duty cycle efficiency (70%) with connection quality (30%)
+    return (dutyCycleScore * 0.7 + qualityScore * 0.3).clamp(0.0, 1.0);
   }
-  
+
+  /// Get estimated duty cycle percentage (Phase 2a: based on burst + wait times)
+  double get dutyCyclePercentage {
+    return switch (powerMode) {
+      PowerMode.performance => 100.0, // Quality-adapted, varies
+      PowerMode.balanced => 80.0,     // 20s burst / 25s total
+      PowerMode.powerSaver => 20.0,   // 20s burst / 100s total
+      PowerMode.ultraLowPower => 9.0, // 20s burst / 222s total
+    };
+  }
+
   @override
-  String toString() => 'PowerStats(scan: ${currentScanInterval}ms, quality: ${(connectionQualityScore * 100).toStringAsFixed(1)}%, efficiency: ${(batteryEfficiencyRating * 100).toStringAsFixed(1)}%)';
+  String toString() =>
+    'PowerStats('
+    'mode: ${powerMode.name}, '
+    'battery: $batteryLevel%, '
+    'duty: ${dutyCyclePercentage.toStringAsFixed(1)}%, '
+    'quality: ${(connectionQualityScore * 100).toStringAsFixed(1)}%, '
+    'efficiency: ${(batteryEfficiencyRating * 100).toStringAsFixed(1)}%'
+    ')';
 }
 
 extension _ListExtensions<T> on List<T> {

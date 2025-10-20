@@ -39,6 +39,11 @@ dependencies:
   bluetooth_low_energy: ^6.1.0
   logging: ^1.3.0
   crypto: ^3.0.6
+
+  # Noise Protocol crypto primitives
+  pinenacl: ^0.6.0          # X25519 Diffie-Hellman (replaces Curve25519DHState.java)
+  cryptography: ^2.7.0        # ChaCha20-Poly1305 AEAD (replaces ChaChaPolyCipherState.java)
+
   shared_preferences: ^2.5.3
   sqflite_sqlcipher: ^3.2.1
   sqflite_common: ^2.5.4
@@ -58,6 +63,7 @@ dependencies:
   battery_plus: ^7.0.0
   flutter_local_notifications: ^19.4.2
   workmanager: ^0.9.0+3
+  intl: ^0.19.0  # Date formatting for group chat
 
 dev_dependencies:
   flutter_test:

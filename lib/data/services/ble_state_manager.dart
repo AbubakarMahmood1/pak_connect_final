@@ -12,6 +12,7 @@ import '../../data/repositories/user_preferences.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/services/security_manager.dart';
+import '../../core/security/ephemeral_key_manager.dart';
 import 'chat_migration_service.dart';
 
 class BLEStateManager {
@@ -31,17 +32,17 @@ class BLEStateManager {
   // ============================================================================
   // REFACTORED IDENTITY TRACKING (clearer naming for ephemeral vs persistent)
   // ============================================================================
-  
+
   // SESSION STATE: The currently active ID for addressing this contact
   // Pre-pairing: points to _theirEphemeralId
   // Post-pairing: points to _theirPersistentKey
   String? _currentSessionId;
-  
+
   // EPHEMERAL IDENTITY: Session-specific 8-char ID from handshake
   // - Generated per session, changes on reconnect
   // - Used for privacy-preserving initial communication
   // - NOT suitable for long-term storage or contact relationships
-  String? _myEphemeralId;
+  // 🔧 FIX BUG #3: Removed _myEphemeralId - now use EphemeralKeyManager exclusively
   String? _theirEphemeralId;
   
   // PERSISTENT IDENTITY: Long-term 64-char Ed25519 public key
@@ -85,7 +86,8 @@ class BLEStateManager {
   bool get theyHaveUsAsContact => _lastSyncedTheirStatus == 'yes';
   
   // REFACTORED: Identity getters with clear naming
-  String? get myEphemeralId => _myEphemeralId;
+  // 🔧 FIX BUG #3: myEphemeralId now comes from EphemeralKeyManager (single source of truth)
+  String? get myEphemeralId => EphemeralKeyManager.generateMyEphemeralKey();
   String? get theirEphemeralId => _theirEphemeralId;
   String? get theirPersistentKey => _theirPersistentKey;
 
@@ -163,10 +165,10 @@ class BLEStateManager {
    _myPersistentId = await _userPreferences.getPublicKey();
    _logger.info('[BLEStateManager] ✅ Public key retrieved in ${DateTime.now().difference(pubKeyStart).inMilliseconds}ms: "${_truncateId(_myPersistentId)}"');
 
-   // STEP 3: Generate ephemeral ID for this session
-   _logger.info('[BLEStateManager] 🎲 Generating ephemeral ID...');
-   _myEphemeralId = _generateEphemeralId();
-   _logger.info('[BLEStateManager] ✅ Ephemeral ID generated: "${_truncateId(_myEphemeralId)}"');
+   // 🔧 FIX BUG #3: Removed duplicate ephemeral ID generation
+   // Now using EphemeralKeyManager exclusively (single source of truth)
+   // Ephemeral ID is obtained via myEphemeralId getter which calls EphemeralKeyManager.generateMyEphemeralKey()
+   _logger.info('[BLEStateManager] ✅ Using EphemeralKeyManager for ephemeral ID (single source of truth)');
 
    _logger.info('🔐 Initializing crypto...');
    final cryptoStart = DateTime.now();
@@ -462,7 +464,7 @@ Future<bool> _performVerification() async {
     final sharedSecret = sha256.convert(utf8.encode(combinedData)).toString();
     
     _logger.info('Computed shared secret from codes');
-    await _ensureContactExistsAfterPairing(theirPublicKey, _otherUserName ?? 'User');
+    await _ensureContactExistsAfterHandshake(theirPublicKey, _otherUserName ?? 'User');
     
     // Generate and send verification hash
     final secretHash = sha256.convert(utf8.encode(sharedSecret)).toString().substring(0, 8);
@@ -482,6 +484,38 @@ Future<bool> _performVerification() async {
     
     // Initialize crypto with conversation key
     SimpleCrypto.initializeConversation(theirPublicKey, sharedSecret);
+    
+    // 🔧 NEW MODEL: Upgrade contact from LOW to MEDIUM security (simple UPDATE)
+    if (_theirEphemeralId != null && _theirPersistentKey != null) {
+      _logger.info('🔐 Upgrading contact from LOW to MEDIUM security');
+      
+      // Get existing contact (indexed by first ephemeral ID)
+      final contact = await _contactRepository.getContact(_theirEphemeralId!);
+      
+      if (contact != null) {
+        // Simple UPDATE - set persistent_public_key and upgrade security level
+        await _contactRepository.saveContactWithSecurity(
+          contact.publicKey,            // Same immutable publicKey
+          contact.displayName,
+          SecurityLevel.medium,         // Upgraded!
+          currentEphemeralId: contact.currentEphemeralId,
+          persistentPublicKey: _theirPersistentKey!,  // NOW set
+        );
+        
+        _logger.info('✅ Contact upgraded to MEDIUM');
+        _logger.info('   publicKey (unchanged): ${contact.publicKey.substring(0, 16)}...');
+        _logger.info('   persistentPublicKey (now set): ${_theirPersistentKey!.substring(0, 16)}...');
+        
+        // Trigger chat migration from ephemeral to persistent ID
+        await _triggerChatMigration(
+          ephemeralId: contact.publicKey,
+          persistentKey: _theirPersistentKey!,
+          contactName: _otherUserName,
+        );
+      } else {
+        _logger.warning('⚠️ Cannot upgrade - contact not found');
+      }
+    }
     
     // STEP 4: Trigger persistent key exchange after verification succeeds
     await _exchangePersistentKeys();
@@ -516,16 +550,6 @@ void handlePairingVerification(String theirSecretHash) {
 // STEP 3: THREE-PHASE PAIRING REQUEST/ACCEPT FLOW
 // ============================================================================
 
-/// Generate a unique ephemeral ID for this session
-/// This is separate from the persistent public key and changes each session
-/// FIXED: Generate 64-char ephemeral ID (same length as persistent keys) to avoid length-dependent bugs
-String _generateEphemeralId() {
-  final random = Random.secure();
-  // Generate 32 bytes (256 bits) for a 64-character hex string
-  final bytes = List<int>.generate(32, (_) => random.nextInt(256));
-  return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-}
-
 /// Store the ephemeral ID received during handshake
 void setTheirEphemeralId(String ephemeralId, String displayName) {
   _logger.info('Storing their ephemeral ID: $ephemeralId ($displayName)');
@@ -539,16 +563,18 @@ Future<void> sendPairingRequest() async {
     _logger.warning('❌ Cannot send pairing request - no ephemeral ID (handshake incomplete)');
     return;
   }
-  
-  if (_myEphemeralId == null) {
+
+  // 🔧 FIX BUG #3: Get ephemeral ID from EphemeralKeyManager (single source of truth)
+  final myEphId = myEphemeralId;
+  if (myEphId == null) {
     _logger.warning('❌ Cannot send pairing request - my ephemeral ID not set');
     return;
   }
-  
+
   _logger.info('📤 STEP 3: Sending pairing request to ${_otherUserName ?? "Unknown"}');
-  
+
   final message = ProtocolMessage.pairingRequest(
-    ephemeralId: _myEphemeralId!,
+    ephemeralId: myEphId,
     displayName: _myUserName ?? 'User',
   );
   
@@ -613,17 +639,19 @@ Future<void> acceptPairingRequest() async {
     _logger.warning('❌ No pending pairing request to accept');
     return;
   }
-  
-  if (_myEphemeralId == null) {
+
+  // 🔧 FIX BUG #3: Get ephemeral ID from EphemeralKeyManager (single source of truth)
+  final myEphId = myEphemeralId;
+  if (myEphId == null) {
     _logger.warning('❌ Cannot accept - my ephemeral ID not set');
     return;
   }
-  
+
   _logger.info('✅ STEP 3: User accepted pairing request');
-  
+
   // Send accept message
   final message = ProtocolMessage.pairingAccept(
-    ephemeralId: _myEphemeralId!,
+    ephemeralId: myEphId,
     displayName: _myUserName ?? 'User',
   );
   
@@ -745,8 +773,10 @@ Future<void> _exchangePersistentKeys() async {
     return;
   }
   
-  _logger.info('🔑 STEP 4: Exchanging persistent keys (my ephemeral: $_myEphemeralId)');
-  
+  // 🔧 FIX BUG #3: Use getter to get ephemeral ID from EphemeralKeyManager
+  final myEphId = myEphemeralId;
+  _logger.info('🔑 STEP 4: Exchanging persistent keys (my ephemeral: $myEphId)');
+
   // Create and send persistent key exchange message
   final message = ProtocolMessage.persistentKeyExchange(
     persistentPublicKey: myPersistentKey,
@@ -763,35 +793,42 @@ Future<void> handlePersistentKeyExchange(String theirPersistentKey) async {
     return;
   }
   
-  _logger.info('[BLEStateManager] 📥 STEP 4: Received persistent public key from ${_otherUserName ?? "Unknown"}');
-  _logger.info('   Ephemeral ID: $_theirEphemeralId');
-  _logger.info('   Persistent key: ${_truncateId(theirPersistentKey)}');
-  
   // Store mapping: ephemeralId → persistentKey
   _ephemeralToPersistent[_theirEphemeralId!] = theirPersistentKey;
-  _logger.info('✅ STEP 4: Stored ephemeral → persistent mapping');
   
-  // REFACTORED: Store persistent key in dedicated field
+  // 🔧 NEW MODEL: Store persistent key for future pairing
   _theirPersistentKey = theirPersistentKey;
   
-  // REFACTORED: Update current session ID to use persistent key (we're now paired!)
-  _currentSessionId = theirPersistentKey;
-  _logger.info('🔄 Session transitioned from ephemeral to persistent identity');
+  // 🔧 NEW MODEL: Session ID is always the ephemeral ID
+  _currentSessionId = _theirEphemeralId!;
   
-  // Ensure contact exists with persistent key
-  await _ensureContactExistsAfterPairing(
-    theirPersistentKey, 
-    _otherUserName ?? 'User'
+  // 🔧 NEW MODEL: Create contact with immutable publicKey (first ephemeral ID)
+  // persistent_public_key will be NULL at LOW security
+  await _contactRepository.saveContactWithSecurity(
+    _theirEphemeralId!,           // publicKey = first ephemeral ID (immutable)
+    _otherUserName ?? 'User',
+    SecurityLevel.low,
+    currentEphemeralId: _theirEphemeralId,  // Track current session
+    persistentPublicKey: null,               // NULL at LOW security
   );
   
-  _logger.info('✅ STEP 4: Persistent key exchange complete!');
+  // 🔑📊 HANDSHAKE COMPLETE - Consolidated key state (search: 🔑📊)
+  final myPersistentKey = await getMyPersistentId();
+  // 🔧 FIX BUG #3: Use getter to get ephemeral ID from EphemeralKeyManager
+  final myEphId = myEphemeralId;
+  _logger.info('═══════════════════════════════════════════════════════════');
+  _logger.info('🔑📊 HANDSHAKE COMPLETE: ${_otherUserName ?? "Unknown"}');
+  _logger.info('🔑📊 My Keys:    Ephemeral=$myEphId | Persistent=${_truncateId(myPersistentKey)}');
+  _logger.info('🔑📊 Their Keys: Ephemeral=$_theirEphemeralId | Persistent=${_truncateId(theirPersistentKey)}');
+  _logger.info('🔑📊 Security:   LOW (Noise session only - not paired yet)');
+  _logger.info('🔑📊 Contact ID: $_theirEphemeralId (ephemeral - will upgrade on pairing)');
+  _logger.info('🔑📊 NoiseSession: $_theirEphemeralId');
+  _logger.info('═══════════════════════════════════════════════════════════');
   
-  // STEP 6: Trigger chat migration from ephemeral to persistent ID
-  await _triggerChatMigration(
-    ephemeralId: _theirEphemeralId!,
-    persistentKey: theirPersistentKey,
-    contactName: _otherUserName,
-  );
+  // 🔧 MODEL: Do NOT migrate chat yet - we're still at LOW security
+  // Chat migration happens when upgrading to MEDIUM (pairing complete)
+  _logger.info('💡 Persistent key stored for future pairing - contact remains at LOW security');
+  _logger.info('💡 When pairing completes, contact will upgrade to MEDIUM and migrate to persistent ID');
 }
 
 /// Helper: Look up persistent key from ephemeral ID
@@ -1528,22 +1565,28 @@ Future<void> handleSecurityLevelSync(Map<String, dynamic> payload) async {
   }
 }
 
-Future<void> _ensureContactExistsAfterPairing(String publicKey, String displayName) async {
+Future<void> _ensureContactExistsAfterHandshake(String publicKey, String displayName, {String? ephemeralId}) async {
   final existingContact = await _contactRepository.getContact(publicKey);
   
   if (existingContact == null) {
-    // Create contact with medium security (pairing level)
+    // Create contact with LOW security (just completed Noise handshake)
     await _contactRepository.saveContactWithSecurity(
       publicKey, 
       displayName, 
-      SecurityLevel.medium
+      SecurityLevel.low,
+      ephemeralId: ephemeralId
     );
-    _logger.info('🔒 PAIRING: Created contact with medium security: $displayName');
+    _logger.info('🔒 HANDSHAKE: Created contact with LOW security (Noise session): $displayName');
   } else {
-    // Upgrade existing contact to at least medium security
-    if (existingContact.securityLevel.index < SecurityLevel.medium.index) {
-      await _contactRepository.updateContactSecurityLevel(publicKey, SecurityLevel.medium);
-      _logger.info('🔒 PAIRING: Upgraded contact to medium security: $displayName');
+    // Update existing contact - ensure at least LOW security
+    if (existingContact.securityLevel.index < SecurityLevel.low.index) {
+      await _contactRepository.updateContactSecurityLevel(publicKey, SecurityLevel.low);
+      _logger.info('🔒 HANDSHAKE: Updated contact to LOW security (Noise session): $displayName');
+    }
+    // Update ephemeral ID if provided
+    if (ephemeralId != null) {
+      await _contactRepository.updateContactEphemeralId(publicKey, ephemeralId);
+      _logger.info('🔒 HANDSHAKE: Updated ephemeral ID for contact: $displayName');
     }
   }
 }
@@ -1685,12 +1728,11 @@ String? getConversationKey(String publicKey) {
   void setPeripheralMode(bool isPeripheral) {
     final modeChanged = _isPeripheralMode != isPeripheral;
     _isPeripheralMode = isPeripheral;
-    
-    // 🔧 FIX: Regenerate ephemeral ID on mode switch for privacy
+
+    // 🔧 FIX BUG #3: Ephemeral ID regeneration now handled by EphemeralKeyManager
+    // No need to manually regenerate here - EphemeralKeyManager handles session lifecycle
     if (modeChanged) {
-      final oldId = _truncateId(_myEphemeralId);
-      _myEphemeralId = _generateEphemeralId();
-      _logger.info('🔄 Mode switched - regenerated ephemeral ID: $oldId → ${_truncateId(_myEphemeralId)}');
+      _logger.info('🔄 Mode switched - ephemeral ID will be regenerated by EphemeralKeyManager on next session');
     }
   }
 
@@ -1733,6 +1775,8 @@ void clearSessionState({bool preservePersistentId = false}) {
         final previousId = _currentSessionId;
         _currentSessionId = null;
         _logger.warning('  - ⚠️  CLEARED persistent ID: "${_truncateId(previousId)}" -> null (connection loss)');
+        
+        // 🔧 FIX: Removed SecurityManager.unregisterSessionMapping() - now using database ephemeral_id column
     } else {
         // Navigation only - preserve identity to maintain connection state
         _logger.warning('  - ✅ PRESERVED otherUserName: "$_otherUserName" (navigation)');

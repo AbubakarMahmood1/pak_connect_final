@@ -507,4 +507,259 @@ void main() {
       await databaseFactory.deleteDatabase(dbPath);
     });
   });
+
+  group('Database Migration v4 → v5 Tests', () {
+    test('v4→v5 migration adds Noise Protocol fields to contacts', () async {
+      final dbPath = join(await databaseFactory.getDatabasesPath(), 'migration_v4_v5_test.db');
+
+      // Create v4 database (without Noise fields)
+      final db = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 4,
+          onCreate: (db, version) async {
+            // Create contacts table as it existed in v4
+            await db.execute('''
+              CREATE TABLE contacts (
+                public_key TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                trust_status INTEGER NOT NULL,
+                security_level INTEGER NOT NULL,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                last_security_sync INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+
+      // Insert test contact data
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await db.insert('contacts', {
+        'public_key': 'test_key_123',
+        'display_name': 'Test User',
+        'trust_status': 0,
+        'security_level': 1,
+        'first_seen': now,
+        'last_seen': now,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await db.insert('contacts', {
+        'public_key': 'test_key_456',
+        'display_name': 'Another User',
+        'trust_status': 1,
+        'security_level': 2,
+        'first_seen': now,
+        'last_seen': now,
+        'last_security_sync': now,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await db.close();
+
+      // Reopen with v5 migration
+      final dbV5 = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 5,
+          onUpgrade: (db, oldVersion, newVersion) async {
+            if (oldVersion < 5) {
+              // Apply v4→v5 migration (add Noise fields)
+              await db.execute('ALTER TABLE contacts ADD COLUMN noise_public_key TEXT');
+              await db.execute('ALTER TABLE contacts ADD COLUMN noise_session_state TEXT');
+              await db.execute('ALTER TABLE contacts ADD COLUMN last_handshake_time INTEGER');
+            }
+          },
+        ),
+      );
+
+      // Verify schema has new columns
+      final tableInfo = await dbV5.rawQuery('PRAGMA table_info(contacts)');
+      final columnNames = tableInfo.map((row) => row['name'] as String).toList();
+
+      expect(columnNames, contains('noise_public_key'));
+      expect(columnNames, contains('noise_session_state'));
+      expect(columnNames, contains('last_handshake_time'));
+
+      // Verify existing data is intact with NULL Noise fields
+      final contacts = await dbV5.query('contacts', orderBy: 'public_key');
+      expect(contacts.length, equals(2));
+
+      // First contact
+      expect(contacts[0]['public_key'], equals('test_key_123'));
+      expect(contacts[0]['display_name'], equals('Test User'));
+      expect(contacts[0]['noise_public_key'], isNull, reason: 'New columns should be NULL after migration');
+      expect(contacts[0]['noise_session_state'], isNull);
+      expect(contacts[0]['last_handshake_time'], isNull);
+
+      // Second contact
+      expect(contacts[1]['public_key'], equals('test_key_456'));
+      expect(contacts[1]['display_name'], equals('Another User'));
+      expect(contacts[1]['last_security_sync'], equals(now));
+      expect(contacts[1]['noise_public_key'], isNull);
+      expect(contacts[1]['noise_session_state'], isNull);
+      expect(contacts[1]['last_handshake_time'], isNull);
+
+      // Test inserting new contact with Noise fields
+      await dbV5.insert('contacts', {
+        'public_key': 'noise_test_key',
+        'display_name': 'Noise User',
+        'trust_status': 0,
+        'security_level': 1,
+        'first_seen': now,
+        'last_seen': now,
+        'noise_public_key': 'dGVzdF9ub2lzZV9wdWJsaWNfa2V5',
+        'noise_session_state': 'established',
+        'last_handshake_time': now,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      final noiseContact = await dbV5.query(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: ['noise_test_key'],
+      );
+
+      expect(noiseContact.first['noise_public_key'], equals('dGVzdF9ub2lzZV9wdWJsaWNfa2V5'));
+      expect(noiseContact.first['noise_session_state'], equals('established'));
+      expect(noiseContact.first['last_handshake_time'], equals(now));
+
+      // Test updating existing contact with Noise data
+      await dbV5.update(
+        'contacts',
+        {
+          'noise_public_key': 'dXBkYXRlZF9rZXk=',
+          'noise_session_state': 'handshaking',
+          'last_handshake_time': now + 1000,
+          'updated_at': now + 1000,
+        },
+        where: 'public_key = ?',
+        whereArgs: ['test_key_123'],
+      );
+
+      final updatedContact = await dbV5.query(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: ['test_key_123'],
+      );
+
+      expect(updatedContact.first['noise_public_key'], equals('dXBkYXRlZF9rZXk='));
+      expect(updatedContact.first['noise_session_state'], equals('handshaking'));
+      expect(updatedContact.first['last_handshake_time'], equals(now + 1000));
+
+      await dbV5.close();
+      await databaseFactory.deleteDatabase(dbPath);
+    });
+
+    test('v4→v5 migration preserves all existing contact data', () async {
+      final dbPath = join(await databaseFactory.getDatabasesPath(), 'migration_v4_v5_preserve_test.db');
+
+      // Create v4 database with comprehensive test data
+      final db = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 4,
+          onCreate: (db, version) async {
+            await db.execute('''
+              CREATE TABLE contacts (
+                public_key TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                trust_status INTEGER NOT NULL,
+                security_level INTEGER NOT NULL,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                last_security_sync INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final testContacts = [
+        {
+          'public_key': 'verified_contact',
+          'display_name': 'Verified User',
+          'trust_status': 1,
+          'security_level': 2,
+          'last_security_sync': now - 3600000,
+        },
+        {
+          'public_key': 'new_contact',
+          'display_name': 'New User',
+          'trust_status': 0,
+          'security_level': 0,
+          'last_security_sync': null,
+        },
+        {
+          'public_key': 'high_security_contact',
+          'display_name': 'High Security User',
+          'trust_status': 1,
+          'security_level': 3,
+          'last_security_sync': now - 1800000,
+        },
+      ];
+
+      for (final contact in testContacts) {
+        await db.insert('contacts', {
+          ...contact,
+          'first_seen': now - 86400000,
+          'last_seen': now - 3600,
+          'created_at': now - 86400000,
+          'updated_at': now - 3600,
+        });
+      }
+
+      await db.close();
+
+      // Reopen with v5 migration
+      final dbV5 = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 5,
+          onUpgrade: (db, oldVersion, newVersion) async {
+            if (oldVersion < 5) {
+              await db.execute('ALTER TABLE contacts ADD COLUMN noise_public_key TEXT');
+              await db.execute('ALTER TABLE contacts ADD COLUMN noise_session_state TEXT');
+              await db.execute('ALTER TABLE contacts ADD COLUMN last_handshake_time INTEGER');
+            }
+          },
+        ),
+      );
+
+      final migratedContacts = await dbV5.query('contacts', orderBy: 'public_key');
+      expect(migratedContacts.length, equals(3));
+
+      // Verify each contact preserved all original data
+      for (var i = 0; i < testContacts.length; i++) {
+        final expected = testContacts[i];
+        final actual = migratedContacts.firstWhere((c) => c['public_key'] == expected['public_key']);
+
+        expect(actual['display_name'], equals(expected['display_name']));
+        expect(actual['trust_status'], equals(expected['trust_status']));
+        expect(actual['security_level'], equals(expected['security_level']));
+        expect(actual['last_security_sync'], equals(expected['last_security_sync']));
+        expect(actual['first_seen'], equals(now - 86400000));
+        expect(actual['last_seen'], equals(now - 3600));
+
+        // New columns should be NULL
+        expect(actual['noise_public_key'], isNull);
+        expect(actual['noise_session_state'], isNull);
+        expect(actual['last_handshake_time'], isNull);
+      }
+
+      await dbV5.close();
+      await databaseFactory.deleteDatabase(dbPath);
+    });
+  });
 }
+

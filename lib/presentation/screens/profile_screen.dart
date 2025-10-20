@@ -11,6 +11,7 @@ import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/archive_repository.dart';
 import '../../data/database/database_helper.dart';
 import 'qr_contact_screen.dart';
+import 'network_topology_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -334,12 +335,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Mesh Network button (Priority 3: Showcase feature)
+        FilledButton.icon(
+          onPressed: () => _openNetworkTopology(),
+          icon: Icon(Icons.hub),
+          label: Text('View Mesh Network'),
+          style: FilledButton.styleFrom(
+            backgroundColor: theme.colorScheme.primary,
+          ),
+        ),
+        SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: () => _regenerateKeys(),
           icon: Icon(Icons.refresh),
           label: Text('Regenerate Encryption Keys'),
         ),
       ],
+    );
+  }
+
+  void _openNetworkTopology() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const NetworkTopologyScreen()),
     );
   }
 

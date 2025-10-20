@@ -11,18 +11,29 @@ class DatabaseEncryption {
   static final _logger = Logger('DatabaseEncryption');
   static const String _encryptionKeyStorageKey = 'db_encryption_key_v1';
   static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
+  
+  // 🔧 FIX: Cache encryption key to prevent duplicate secure storage reads
+  static String? _cachedEncryptionKey;
 
   /// Get or create database encryption key
   /// - Generates 256-bit random key on first launch
   /// - Stores in OS keychain (Android Keystore / iOS Keychain)
   /// - Returns same key on subsequent launches
+  /// - Caches key in memory to prevent duplicate secure storage reads
   static Future<String> getOrCreateEncryptionKey() async {
+    // 🔧 FIX: Return cached key if available
+    if (_cachedEncryptionKey != null) {
+      _logger.fine('✅ Using cached encryption key (skipped secure storage read)');
+      return _cachedEncryptionKey!;
+    }
+    
     try {
       // Check if key already exists
       String? existingKey = await _secureStorage.read(key: _encryptionKeyStorageKey);
 
       if (existingKey != null && existingKey.isNotEmpty) {
         _logger.info('✅ Retrieved existing database encryption key from secure storage');
+        _cachedEncryptionKey = existingKey; // Cache it
         return existingKey;
       }
 
@@ -33,12 +44,15 @@ class DatabaseEncryption {
       await _secureStorage.write(key: _encryptionKeyStorageKey, value: key);
 
       _logger.info('🔐 Generated and stored new database encryption key');
+      _cachedEncryptionKey = key; // Cache it
       return key;
 
     } catch (e) {
       _logger.severe('❌ Failed to get/create encryption key: $e');
       // Fallback to device-derived key (less secure but better than nothing)
-      return _generateFallbackKey();
+      final fallbackKey = _generateFallbackKey();
+      _cachedEncryptionKey = fallbackKey; // Cache it
+      return fallbackKey;
     }
   }
 
@@ -74,6 +88,7 @@ class DatabaseEncryption {
   static Future<void> deleteEncryptionKey() async {
     try {
       await _secureStorage.delete(key: _encryptionKeyStorageKey);
+      _cachedEncryptionKey = null; // 🔧 FIX: Clear cache
       _logger.warning('🗑️ Database encryption key deleted');
     } catch (e) {
       _logger.severe('Failed to delete encryption key: $e');

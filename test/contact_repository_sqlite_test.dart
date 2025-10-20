@@ -240,4 +240,196 @@ void main() {
       expect(after.lastSecuritySync!.isAfter(before.lastSeen), isTrue);
     });
   });
+
+  group('ContactRepository Noise Protocol Tests', () {
+    test('Update Noise session data for contact', () async {
+      final repo = ContactRepository();
+
+      // Create contact first
+      await repo.saveContact('noise_test_key', 'Noise User');
+
+      // Update Noise session
+      await repo.updateNoiseSession(
+        publicKey: 'noise_test_key',
+        noisePublicKey: 'dGVzdF9ub2lzZV9wdWJsaWNfa2V5X2Jhc2U2NF9lbmNvZGVk', // Base64 test key
+        sessionState: 'established',
+      );
+
+      final contact = await repo.getContact('noise_test_key');
+
+      expect(contact, isNotNull);
+      expect(contact!.noisePublicKey, equals('dGVzdF9ub2lzZV9wdWJsaWNfa2V5X2Jhc2U2NF9lbmNvZGVk'));
+      expect(contact.noiseSessionState, equals('established'));
+      expect(contact.lastHandshakeTime, isNotNull);
+      expect(contact.lastHandshakeTime!.isAfter(DateTime.now().subtract(Duration(seconds: 5))), isTrue);
+    });
+
+    test('Noise fields are null for new contacts', () async {
+      final repo = ContactRepository();
+
+      await repo.saveContact('new_contact', 'New User');
+
+      final contact = await repo.getContact('new_contact');
+
+      expect(contact!.noisePublicKey, isNull);
+      expect(contact.noiseSessionState, isNull);
+      expect(contact.lastHandshakeTime, isNull);
+    });
+
+    test('Noise session persists through contact updates', () async {
+      final repo = ContactRepository();
+
+      await repo.saveContact('persist_test', 'User');
+
+      // Set Noise session
+      await repo.updateNoiseSession(
+        publicKey: 'persist_test',
+        noisePublicKey: 'bm9pc2VfcHVibGljX2tleV90ZXN0X2RhdGE=',
+        sessionState: 'established',
+      );
+
+      // Update contact name (should preserve Noise data)
+      await repo.saveContact('persist_test', 'Updated Name');
+
+      final contact = await repo.getContact('persist_test');
+
+      expect(contact!.displayName, equals('Updated Name'));
+      expect(contact.noisePublicKey, equals('bm9pc2VfcHVibGljX2tleV90ZXN0X2RhdGE='));
+      expect(contact.noiseSessionState, equals('established'));
+      expect(contact.lastHandshakeTime, isNotNull);
+    });
+
+    test('Noise session persists through security level changes', () async {
+      final repo = ContactRepository();
+
+      await repo.saveContact('security_noise_test', 'User');
+
+      // Set Noise session
+      await repo.updateNoiseSession(
+        publicKey: 'security_noise_test',
+        noisePublicKey: 'c2VjdXJpdHlfbm9pc2VfdGVzdF9rZXk=',
+        sessionState: 'established',
+      );
+
+      // Upgrade security level
+      await repo.updateContactSecurityLevel('security_noise_test', SecurityLevel.medium);
+
+      final contact = await repo.getContact('security_noise_test');
+
+      expect(contact!.securityLevel, equals(SecurityLevel.medium));
+      expect(contact.noisePublicKey, equals('c2VjdXJpdHlfbm9pc2VfdGVzdF9rZXk='));
+      expect(contact.noiseSessionState, equals('established'));
+    });
+
+    test('Noise session can be updated multiple times', () async {
+      final repo = ContactRepository();
+
+      await repo.saveContact('multi_update_test', 'User');
+
+      // First handshake
+      await repo.updateNoiseSession(
+        publicKey: 'multi_update_test',
+        noisePublicKey: 'Zmlyc3Rfa2V5X2RhdGE=',
+        sessionState: 'established',
+      );
+
+      final first = await repo.getContact('multi_update_test');
+      final firstTime = first!.lastHandshakeTime!;
+
+      await Future.delayed(Duration(milliseconds: 10));
+
+      // Second handshake (rekey scenario)
+      await repo.updateNoiseSession(
+        publicKey: 'multi_update_test',
+        noisePublicKey: 'c2Vjb25kX2tleV9kYXRh',
+        sessionState: 'established',
+      );
+
+      final second = await repo.getContact('multi_update_test');
+
+      expect(second!.noisePublicKey, equals('c2Vjb25kX2tleV9kYXRh'));
+      expect(second.noiseSessionState, equals('established'));
+      expect(second.lastHandshakeTime!.isAfter(firstTime), isTrue,
+        reason: 'Second handshake time should be after first');
+    });
+
+    test('Contact JSON serialization includes Noise fields', () async {
+      final repo = ContactRepository();
+
+      await repo.saveContact('json_test', 'JSON User');
+      await repo.updateNoiseSession(
+        publicKey: 'json_test',
+        noisePublicKey: 'anNvbl90ZXN0X2tleQ==',
+        sessionState: 'established',
+      );
+
+      final contact = await repo.getContact('json_test');
+      final json = contact!.toJson();
+
+      expect(json['noisePublicKey'], equals('anNvbl90ZXN0X2tleQ=='));
+      expect(json['noiseSessionState'], equals('established'));
+      expect(json['lastHandshakeTime'], isNotNull);
+
+      // Verify round-trip serialization
+      final deserialized = Contact.fromJson(json);
+      expect(deserialized.noisePublicKey, equals('anNvbl90ZXN0X2tleQ=='));
+      expect(deserialized.noiseSessionState, equals('established'));
+      expect(deserialized.lastHandshakeTime, isNotNull);
+    });
+
+    test('Contact database serialization includes Noise fields', () async {
+      final repo = ContactRepository();
+
+      await repo.saveContact('db_test', 'DB User');
+      await repo.updateNoiseSession(
+        publicKey: 'db_test',
+        noisePublicKey: 'ZGJfdGVzdF9rZXk=',
+        sessionState: 'established',
+      );
+
+      final contact = await repo.getContact('db_test');
+      final dbMap = contact!.toDatabase();
+
+      expect(dbMap['noise_public_key'], equals('ZGJfdGVzdF9rZXk='));
+      expect(dbMap['noise_session_state'], equals('established'));
+      expect(dbMap['last_handshake_time'], isNotNull);
+    });
+
+    test('Noise session state transitions', () async {
+      final repo = ContactRepository();
+
+      await repo.saveContact('state_test', 'State User');
+
+      // Initial state: handshaking
+      await repo.updateNoiseSession(
+        publicKey: 'state_test',
+        noisePublicKey: 'aGFuZHNoYWtpbmdfa2V5',
+        sessionState: 'handshaking',
+      );
+
+      var contact = await repo.getContact('state_test');
+      expect(contact!.noiseSessionState, equals('handshaking'));
+
+      // Transition to established
+      await repo.updateNoiseSession(
+        publicKey: 'state_test',
+        noisePublicKey: 'ZXN0YWJsaXNoZWRfa2V5',
+        sessionState: 'established',
+      );
+
+      contact = await repo.getContact('state_test');
+      expect(contact!.noiseSessionState, equals('established'));
+
+      // Mark as expired (needs rekey)
+      await repo.updateNoiseSession(
+        publicKey: 'state_test',
+        noisePublicKey: 'ZXN0YWJsaXNoZWRfa2V5',
+        sessionState: 'expired',
+      );
+
+      contact = await repo.getContact('state_test');
+      expect(contact!.noiseSessionState, equals('expired'));
+    });
+  });
 }
+
