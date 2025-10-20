@@ -40,8 +40,23 @@ class MessageRouter {
   late final OfflineMessageQueue _offlineQueue;
 
   // Statistics (delegated to OfflineMessageQueue)
-  int get _totalQueued => _offlineQueue.getStatistics().totalQueued;
-  int get _totalFlushed => _offlineQueue.getStatistics().totalDelivered;
+  int get _totalQueued {
+    try {
+      return _offlineQueue.getStatistics().totalQueued;
+    } catch (e) {
+      _logger.warning('⚠️ OfflineMessageQueue not initialized for stats');
+      return 0;
+    }
+  }
+
+  int get _totalFlushed {
+    try {
+      return _offlineQueue.getStatistics().totalDelivered;
+    } catch (e) {
+      _logger.warning('⚠️ OfflineMessageQueue not initialized for stats');
+      return 0;
+    }
+  }
 
   MessageRouter._();
 
@@ -55,13 +70,9 @@ class MessageRouter {
     _instance = MessageRouter._();
     _instance!._bleService = bleService;
 
-    // Get OfflineMessageQueue singleton from AppCore
-    if (!AppCore.instance.isInitialized) {
-      _logger.warning('⚠️ AppCore not initialized - MessageRouter will initialize after AppCore');
-      // Wait for AppCore to initialize
-      await Future.delayed(Duration(milliseconds: 100));
-    }
-
+    // 🔧 FIX: Direct access to messageQueue (no polling needed)
+    // messageQueue is now initialized BEFORE core services in AppCore,
+    // so it's guaranteed to be available when BLEService initializes
     _instance!._offlineQueue = AppCore.instance.messageQueue;
 
     _logger.info('✅ MessageRouter initialized (delegating to OfflineMessageQueue)');

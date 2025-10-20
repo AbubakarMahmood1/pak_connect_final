@@ -47,14 +47,42 @@ class SecurityManager {
     _noiseService?.clearAllSessions();
     _logger.info('🔒 Cleared all Noise sessions');
   }
-  
+
   /// Shutdown the security manager
   static void shutdown() {
     _noiseService?.shutdown();
     _noiseService = null;
     _logger.info('🔒 SecurityManager shutdown');
   }
-  
+
+  // ========== IDENTITY RESOLUTION ==========
+
+  /// Register persistent → ephemeral mapping for Noise session lookup
+  ///
+  /// Call this after pairing completes (MEDIUM security upgrade).
+  /// Enables transparent encryption/decryption with persistent keys.
+  ///
+  /// [persistentPublicKey] Long-term identity from pairing
+  /// [ephemeralID] Session ID used during handshake
+  static void registerIdentityMapping({
+    required String persistentPublicKey,
+    required String ephemeralID,
+  }) {
+    if (_noiseService == null) {
+      _logger.warning('Cannot register identity mapping - Noise service not initialized');
+      return;
+    }
+    _noiseService!.registerIdentityMapping(persistentPublicKey, ephemeralID);
+  }
+
+  /// Unregister persistent → ephemeral mapping
+  static void unregisterIdentityMapping(String persistentPublicKey) {
+    if (_noiseService == null) {
+      return;
+    }
+    _noiseService!.unregisterIdentityMapping(persistentPublicKey);
+  }
+
   /// Get current security level for a contact
   static Future<SecurityLevel> getCurrentLevel(String publicKey, ContactRepository repo) async {
     // 🔧 FIX: Handle empty or invalid public keys safely
@@ -174,14 +202,13 @@ class SecurityManager {
         
       medium:
       case SecurityLevel.medium:
-        // 🔧 FIX: Check Noise session using contact's sessionIdForNoise
-        if (_noiseService != null && _noiseService!.hasEstablishedSession(sessionLookupKey)) {
-          // Return method with session ID for proper session lookup during encrypt/decrypt
-          return EncryptionMethod.noise(sessionLookupKey);
-        }
-        // If no Noise session, try pairing as fallback
+        // ✅ CORRECT ORDER: Pairing first (persistent trust)
         if (_verifyPairingKey(publicKey)) {
           return EncryptionMethod.pairing(publicKey);
+        }
+        // Noise is fallback (for spy mode or when pairing not available)
+        if (_noiseService != null && _noiseService!.hasEstablishedSession(sessionLookupKey)) {
+          return EncryptionMethod.noise(sessionLookupKey);
         }
       _logger.warning('🔒 FALLBACK: Noise/Pairing unavailable, falling back to global');
       await _downgrade(publicKey, SecurityLevel.low, repo);

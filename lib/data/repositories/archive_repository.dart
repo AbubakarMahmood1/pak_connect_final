@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -159,10 +160,13 @@ class ArchiveRepository {
         for (final message in finalArchive.messages) {
           await txn.insert('archived_messages', _archivedMessageToMap(message, finalArchive.id));
         }
+
+        // Delete the chat from chats table (it's now in archived_chats)
+        await txn.delete('chats', where: 'id = ?', whereArgs: [chatId]);
         // FTS5 index is automatically updated via triggers!
       });
 
-      // Clear original chat data
+      // Clear original chat messages
       await _messageRepository.clearMessages(chatId);
 
       final operationTime = DateTime.now().difference(startTime);
@@ -258,16 +262,37 @@ class ArchiveRepository {
 
       _logger.info('Successfully restored $restoredCount messages from archive $archiveId');
 
-      // 🔧 CRITICAL FIX: Delete the archive after successful restoration
+      // 🔧 CRITICAL FIX: Delete the archive and recreate chat entry after successful restoration
       // This prevents UNIQUE constraint errors when re-archiving the same chat
       // CASCADE delete will automatically remove archived_messages
       final db = await DatabaseHelper.database;
-      await db.delete(
-        'archived_chats',
-        where: 'archive_id = ?',
-        whereArgs: [archiveId],
-      );
-      _logger.info('Archive $archiveId deleted after successful restoration');
+      await db.transaction((txn) async {
+        // Delete the archive
+        await txn.delete(
+          'archived_chats',
+          where: 'archive_id = ?',
+          whereArgs: [archiveId],
+        );
+
+        // Recreate the chat entry (it was deleted during archiving)
+        await txn.insert(
+          'chats',
+          {
+            'id': archivedChat.originalChatId,
+            'contact_public_key': archivedChat.contactPublicKey,
+            'last_message': workingArchive.messages.isNotEmpty ? workingArchive.messages.last.content : '',
+            'last_message_time': workingArchive.lastMessageTime?.millisecondsSinceEpoch,
+            'unread_count': 0,
+            'is_archived': 0,
+            'is_muted': 0,
+            'is_pinned': 0,
+            'created_at': DateTime.now().millisecondsSinceEpoch,
+            'updated_at': DateTime.now().millisecondsSinceEpoch,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      });
+      _logger.info('Archive $archiveId deleted and chat restored to chats table');
 
       return ArchiveOperationResult.success(
         message: 'Chat restored successfully',

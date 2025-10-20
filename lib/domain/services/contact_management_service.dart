@@ -99,18 +99,21 @@ class ContactManagementService {
     try {
       final startTime = DateTime.now();
       final allContacts = await getAllEnhancedContacts();
-      
-      // Apply search query
-      List<EnhancedContact> filteredContacts = allContacts;
-      
+
+      // 🔧 FIX: By default, only show HIGH security level contacts (fully paired)
+      // User can explicitly remove this filter via UI if they want to see all contacts
+      List<EnhancedContact> filteredContacts = allContacts.where((contact) =>
+        contact.securityLevel == SecurityLevel.high
+      ).toList();
+
       if (query.isNotEmpty) {
-        filteredContacts = _performTextSearch(allContacts, query);
+        filteredContacts = _performTextSearch(filteredContacts, query);
         _addToSearchHistory(query);
       }
-      
-      // Apply additional filters
+
+      // Apply additional filters (will override default HIGH filter if specified)
       if (filter != null) {
-        filteredContacts = _applySearchFilter(filteredContacts, filter);
+        filteredContacts = _applySearchFilter(allContacts, filter); // Apply filter to ALL contacts, not pre-filtered
       }
       
       // Apply sorting

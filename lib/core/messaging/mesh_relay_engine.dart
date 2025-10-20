@@ -69,6 +69,11 @@ MeshRelayEngine({
   /// to allow re-initialization for testing multi-node scenarios and production
   /// node identity changes.
   ///
+  /// 🔧 CRITICAL FIX (2025-10-20): Identity validation
+  /// - currentNodeId MUST be EPHEMERAL session key (NOT persistent identity)
+  /// - Ephemeral keys rotate per app session - prevents long-term tracking
+  /// - Persistent keys ONLY for: Contact relationships, Noise KK pattern, database PKs
+  ///
   /// Phase 1 (Role Awareness): Added relay config initialization
   /// Phase 3 (Network-Size Adaptive): Added topology analyzer integration
   Future<void> initialize({
@@ -80,6 +85,16 @@ MeshRelayEngine({
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,
   }) async {
+    // 🔐 VALIDATION: Warn if nodeId looks like a persistent key
+    // Ephemeral keys from EphemeralKeyManager are 64-char hex (same as persistent)
+    // But we can detect common patterns in persistent key sources
+    if (currentNodeId.startsWith('persistent_') || currentNodeId.contains('Ed25519')) {
+      _logger.severe('❌ SECURITY VIOLATION: Received persistent identity as nodeId!');
+      _logger.severe('🚨 Mesh routing MUST use ephemeral session keys');
+      _logger.severe('🔧 Fix: Use EphemeralKeyManager.generateMyEphemeralKey()');
+      throw ArgumentError('currentNodeId must be ephemeral session key, not persistent identity');
+    }
+
     _currentNodeId = currentNodeId;
     _smartRouter = smartRouter;
     _topologyAnalyzer = topologyAnalyzer;  // Phase 3: Store topology analyzer
@@ -93,10 +108,10 @@ MeshRelayEngine({
 
     final truncatedNodeId = _currentNodeId.length > 16 ? _currentNodeId.substring(0, 16) : _currentNodeId;
     final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 0;
-    _logger.info('🔧 MeshRelayEngine (RE)INITIALIZED for node: $truncatedNodeId... (smart routing: ${_smartRouter != null}, network size: $networkSize)');
-    _logger.info('📡 Relay enabled: ${_relayConfig.isRelayEnabled()}');
+    _logger.info('🔧 MeshRelayEngine (RE)INITIALIZED for node: $truncatedNodeId... (EPHEMERAL)');
+    _logger.info('📡 Relay enabled: ${_relayConfig.isRelayEnabled()} | Network: $networkSize nodes');
     // ignore: avoid_print
-    print('📡 RELAY ENGINE: Node ID set to $truncatedNodeId... | Smart Routing: ${_smartRouter != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes');
+    print('📡 RELAY ENGINE: Node ID set to $truncatedNodeId... (EPHEMERAL) | Smart Routing: ${_smartRouter != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes');
   }
 
   /// Process incoming relay message and decide what to do

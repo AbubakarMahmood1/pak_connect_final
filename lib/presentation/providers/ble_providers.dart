@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
 import '../../data/services/ble_service.dart';
+import '../../data/services/ble_state_manager.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/scanning/burst_scanning_controller.dart';
 import '../../core/power/adaptive_power_manager.dart';
@@ -111,7 +112,15 @@ class UsernameOperations {
 // BLE Service provider
 final bleServiceProvider = Provider<BLEService>((ref) {
   final service = BLEService();
-  service.initialize();
+
+  // Initialize with error handling to prevent app crash
+  service.initialize().catchError((e, stackTrace) {
+    if (kDebugMode) {
+      print('❌ CRITICAL: BLEService initialization failed: $e');
+      print('Stack trace: $stackTrace');
+    }
+    // Don't rethrow - let the app continue in degraded mode
+  });
 
   // Initialize MessageRouter with the BLE service (BitChat pattern - MessageRouter.kt line 21)
   // Must happen AFTER BLEService.initialize() to ensure service is ready
@@ -154,6 +163,17 @@ final receivedMessagesProvider = StreamProvider<String>((ref) {
 final connectionInfoProvider = StreamProvider<ConnectionInfo>((ref) {
   final service = ref.watch(bleServiceProvider);
   return service.connectionInfo;
+});
+
+// Spy mode providers
+final spyModeDetectedProvider = StreamProvider<SpyModeInfo>((ref) {
+  final bleService = ref.watch(bleServiceProvider);
+  return bleService.spyModeDetected;
+});
+
+final identityRevealedProvider = StreamProvider<String>((ref) {
+  final bleService = ref.watch(bleServiceProvider);
+  return bleService.identityRevealed;
 });
 
 final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {

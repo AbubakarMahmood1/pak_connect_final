@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 import '../security/hint_cache_manager.dart';
 import '../../domain/entities/enhanced_contact.dart';
 
@@ -78,9 +79,21 @@ class DeviceDeduplicationManager {
     return null;
   }
   
+  /// 🗑️ Remove a specific device immediately (real-time cleanup)
+  ///
+  /// Called when a device disconnects to ensure no stale data.
+  /// This is event-driven cleanup, not periodic.
+  static void removeDevice(String deviceId) {
+    final removed = _uniqueDevices.remove(deviceId);
+    if (removed != null) {
+      _devicesController.add(Map.from(_uniqueDevices));
+      Logger('DeviceDeduplicationManager').fine('🗑️ Removed device: $deviceId');
+    }
+  }
+
   static void removeStaleDevices() {
     final cutoff = DateTime.now().subtract(Duration(minutes: 2));
-    _uniqueDevices.removeWhere((deviceId, device) => 
+    _uniqueDevices.removeWhere((deviceId, device) =>
         device.lastSeen.isBefore(cutoff));
     _devicesController.add(Map.from(_uniqueDevices));
   }

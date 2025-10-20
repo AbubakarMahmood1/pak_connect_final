@@ -42,6 +42,9 @@ enum ProtocolMessageType {
   meshRelay,
   queueSync,
   relayAck,
+
+  // ===== SPY MODE =====
+  friendReveal,         // Reveal persistent identity in spy mode
 }
 
 class ProtocolMessage {
@@ -625,6 +628,24 @@ static ProtocolMessage relayAck({
     'delivered': delivered,
   },
   timestamp: DateTime.now(),
+);
+
+// ===== SPY MODE CONSTRUCTORS =====
+
+/// Reveal persistent identity in spy mode
+/// Used when user chooses to reveal their identity to a friend during anonymous chat
+static ProtocolMessage friendReveal({
+  required String myPersistentKey,
+  required String proof,
+  required int timestamp,
+}) => ProtocolMessage(
+  type: ProtocolMessageType.friendReveal,
+  payload: {
+    'myPersistentKey': myPersistentKey,
+    'proof': proof,
+    'timestamp': timestamp,
+  },
+  timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
 );
 
 // ===== HANDSHAKE PROTOCOL CONSTRUCTORS =====

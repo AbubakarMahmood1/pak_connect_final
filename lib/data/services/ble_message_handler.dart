@@ -18,6 +18,8 @@ import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../data/repositories/user_preferences.dart';
+import '../../core/security/ephemeral_key_manager.dart';
 
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
@@ -62,6 +64,9 @@ class BLEMessageHandler {
   Function(RelayStatistics stats)? onRelayStatsUpdated;
   Function(ProtocolMessage message)? onSendAckMessage;  // Callback for sending ACK protocol messages
   Function(ProtocolMessage relayMessage, String nextHopId)? onSendRelayMessage;  // Callback for forwarding relay messages
+
+  // Spy mode callbacks
+  Function(String contactName)? onIdentityRevealed;
 
   // Relay system components
   MeshRelayEngine? _relayEngine;
@@ -154,10 +159,10 @@ class BLEMessageHandler {
   Function(bool)? onMessageOperationChanged,
 }) async {
   final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
-  
+
   try {
     onMessageOperationChanged?.call(true);
-    
+
     // Connection validation ping
     try {
       final pingData = Uint8List.fromList([0x00]);
@@ -178,7 +183,24 @@ class BLEMessageHandler {
       }
       throw Exception('Connection unhealthy - forced disconnect');
     }
-    
+
+    // 🕵️ SPY MODE: Resolve message identities based on hint broadcast status
+    final identities = await _resolveMessageIdentities(
+      contactPublicKey: contactPublicKey,
+      contactRepository: contactRepository,
+      stateManager: stateManager,
+    );
+
+    // Override recipient and sender IDs if in spy mode
+    final finalRecipientId = identities.intendedRecipient;
+    final finalSenderIf = identities.originalSender;
+
+    if (identities.isSpyMode) {
+      _logger.info('🕵️ SPY MODE: Sending anonymously');
+      _logger.info('🕵️   Sender: ${finalSenderIf.substring(0, 8)}... (ephemeral)');
+      _logger.info('🕵️   Recipient: ${finalRecipientId.substring(0, 8)}... (ephemeral)');
+    }
+
     // 🔧 NEW: Use simplified encryption
     String payload = message;
     String encryptionMethod = 'none';
@@ -220,12 +242,13 @@ class BLEMessageHandler {
     recipientId: recipientId,  // STEP 7: Include recipient ID
     useEphemeralAddressing: useEphemeralAddressing,  // STEP 7: Include addressing flag
   );
-  
-  // Also add legacy fields for backward compatibility
+
+  // ✅ SPY MODE: Use resolved identities in protocol message
   final legacyPayload = {
     ...protocolMessage.payload,
     'encryptionMethod': encryptionMethod,
-    'intendedRecipient': originalIntendedRecipient ?? contactPublicKey,
+    'intendedRecipient': finalRecipientId,     // From identity resolution
+    'originalSender': finalSenderIf,            // From identity resolution
   };
   
   final finalMessage = ProtocolMessage(
@@ -384,6 +407,16 @@ Future<bool> sendPeripheralMessage({
     _logger.warning('⚠️ PERIPHERAL: Ephemeral signing key not available - message will not be signed');
   }
 
+  // 🕵️ SPY MODE: Resolve message identities (same as central mode)
+  final identities = await _resolveMessageIdentities(
+    contactPublicKey: contactPublicKey,
+    contactRepository: contactRepository,
+    stateManager: stateManager,
+  );
+
+  final finalRecipientId = identities.intendedRecipient;
+  final finalSenderIf = identities.originalSender;
+
   // STEP 7: Create protocol message with recipient addressing
   final protocolMessage = ProtocolMessage.textMessage(
     messageId: msgId,
@@ -392,12 +425,13 @@ Future<bool> sendPeripheralMessage({
     recipientId: recipientId,  // STEP 7: Include recipient ID
     useEphemeralAddressing: useEphemeralAddressing,  // STEP 7: Include addressing flag
   );
-  
-  // Also add legacy fields for backward compatibility
+
+  // ✅ SPY MODE: Use resolved identities in protocol message
   final legacyPayload = {
     ...protocolMessage.payload,
     'encryptionMethod': encryptionMethod,
-    'intendedRecipient': originalIntendedRecipient ?? contactPublicKey,
+    'intendedRecipient': finalRecipientId,     // From identity resolution
+    'originalSender': finalSenderIf,            // From identity resolution
   };
   
   final finalMessage = ProtocolMessage(
@@ -720,26 +754,23 @@ Future<String?> _processProtocolMessageContent(
         print('🔧 ROUTING DEBUG: Encryption method: $encryptionMethod');
         print('🔧 ROUTING DEBUG: Message encrypted flag: ${protocolMessage.isEncrypted}');
 
-        // FIXED: Direct BLE messages should be accepted regardless of intendedRecipient
-        // Only block our own messages (echo prevention)
-        // Note: ProtocolMessageType.textMessage = direct BLE, meshRelay = mesh forwarding
+        // Block our own messages (echo prevention)
         if (senderPublicKey != null && _currentNodeId != null && senderPublicKey == _currentNodeId) {
           print('🔧 ROUTING DEBUG: 🚫 BLOCKING OWN MESSAGE - Sender matches current user');
-          print('🔧 ROUTING DEBUG: - This is our own message being incorrectly received');
-          return null; // Block our own messages from appearing as incoming
+          return null;
         }
 
-        // Accept direct BLE messages - physical connection implies intent
+        // ✅ SPY MODE: Check if message is addressed to us using multi-identity check
         if (intendedRecipient != null) {
-          if (intendedRecipient == _currentNodeId) {
-            print('🔧 ROUTING DEBUG: ✅ DIRECT MESSAGE - Explicitly addressed to our node ID');
-          } else {
-            print('🔧 ROUTING DEBUG: ✅ DIRECT MESSAGE - Received via BLE connection (intendedRecipient is metadata)');
+          final isForMe = await _isMessageForMe(intendedRecipient);
+          if (!isForMe) {
+            print('🔧 ROUTING DEBUG: 🚫 DISCARDING - Message not addressed to any of our identities');
             print('🔧 ROUTING DEBUG: - Intended recipient: ${_safeTruncate(intendedRecipient, 16)}...');
-            print('🔧 ROUTING DEBUG: - Direct BLE messages are accepted regardless of routing metadata');
+            return null; // Not for us, discard
           }
+          print('🔧 ROUTING DEBUG: ✅ MESSAGE FOR US - Matched one of our identities');
         } else {
-          print('🔧 ROUTING DEBUG: ✅ DIRECT MESSAGE - No routing info, processing as P2P message');
+          print('🔧 ROUTING DEBUG: ✅ DIRECT MESSAGE - No routing info, accepting');
         }
 
         print('🔧 ROUTING DEBUG: ===== END ROUTING ANALYSIS =====');
@@ -859,7 +890,11 @@ Future<String?> _processProtocolMessageContent(
       case ProtocolMessageType.meshRelay:
         // Handle mesh relay message
         return await _handleMeshRelay(protocolMessage, senderPublicKey);
-        
+
+      case ProtocolMessageType.friendReveal:
+        // Handle friend identity reveal in spy mode
+        return await _handleFriendReveal(protocolMessage, senderPublicKey);
+
       default:
         return null;
     }
@@ -991,6 +1026,68 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
     }
   }
   
+  /// Handle friend identity reveal in spy mode
+  Future<String?> _handleFriendReveal(ProtocolMessage protocolMessage, String? senderPublicKey) async {
+    try {
+      final theirPersistentKey = protocolMessage.payload['myPersistentKey'] as String?;
+      final proof = protocolMessage.payload['proof'] as String?;
+      final timestamp = protocolMessage.payload['timestamp'] as int?;
+
+      if (theirPersistentKey == null || proof == null || timestamp == null) {
+        _logger.warning('🕵️ FRIEND_REVEAL: Invalid message - missing required fields');
+        return null;
+      }
+
+      // Verify timestamp (reject if > 5 minutes old)
+      final messageAge = DateTime.now().millisecondsSinceEpoch - timestamp;
+      if (messageAge > 300000) {  // 5 minutes
+        _logger.warning('🕵️ FRIEND_REVEAL rejected: Timestamp too old ($messageAge ms)');
+        return null;
+      }
+
+      // Verify cryptographic proof of ownership
+      // For now, verify that the contact exists and proof is not empty
+      // Full cryptographic verification would involve signature checking
+      final isValid = await _contactRepository.getCachedSharedSecret(theirPersistentKey) != null &&
+          proof.isNotEmpty;
+
+      if (!isValid) {
+        _logger.severe('🕵️ FRIEND_REVEAL rejected: Invalid cryptographic proof');
+        return null;
+      }
+
+      _logger.info('✅ FRIEND_REVEAL: Cryptographic proof verified');
+
+      // Check if this persistent key is in our contacts
+      final contact = await _contactRepository.getContact(theirPersistentKey);
+
+      if (contact != null) {
+        _logger.info('🕵️ FRIEND_REVEAL: Anonymous user is actually ${contact.displayName}!');
+
+        // Register mapping for Noise session lookup
+        if (senderPublicKey != null) {
+          SecurityManager.registerIdentityMapping(
+            persistentPublicKey: theirPersistentKey,
+            ephemeralID: senderPublicKey,
+          );
+        }
+
+        // Notify UI via callback (if set by BLEService)
+        onIdentityRevealed?.call(contact.displayName);
+        _logger.info('✅ Identity revealed: ${contact.displayName}');
+
+        return null;  // Don't show as a text message
+      } else {
+        _logger.warning('🕵️ FRIEND_REVEAL: Unknown persistent key - not in contacts');
+        return null;
+      }
+
+    } catch (e) {
+      _logger.severe('🕵️ FRIEND_REVEAL: Failed to handle reveal: $e');
+      return null;
+    }
+  }
+
   /// Handle mesh relay message using the relay engine
   Future<String?> _handleMeshRelay(ProtocolMessage protocolMessage, String? senderPublicKey) async {
     try {
@@ -1341,6 +1438,103 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
     _messageAcks.clear();
     _spamPrevention?.dispose();
   }
+
+  // ========== SPY MODE IDENTITY RESOLUTION ==========
+
+  /// Check if message is addressed to this node (spy mode-aware)
+  ///
+  /// Checks all possible identities: persistent key, ephemeral ID, and hint ID
+  Future<bool> _isMessageForMe(String? intendedRecipient) async {
+    if (intendedRecipient == null || intendedRecipient.isEmpty) {
+      // No recipient specified - accept (broadcast or direct connection)
+      return true;
+    }
+
+    final userPrefs = UserPreferences();
+    final myPersistentKey = await userPrefs.getPublicKey();
+    final myEphemeralID = EphemeralKeyManager.generateMyEphemeralKey();
+
+    // TODO: Get hint ID from hint system when implemented
+    // final myHintID = HintSystem.getCurrentHintId();
+
+    // Check all possible identities
+    final isForMe = intendedRecipient == myPersistentKey ||   // Normal friend mode
+                     intendedRecipient == myEphemeralID;       // Spy mode
+                     // || intendedRecipient == myHintID;       // Relay routing (future)
+
+    if (isForMe) {
+      _logger.fine('✅ Message addressed to us (matched: ${intendedRecipient == myPersistentKey ? "persistent" : "ephemeral"})');
+    } else {
+      _logger.fine('❌ Message NOT for us (recipient: ${intendedRecipient.substring(0, 8)}...)');
+    }
+
+    return isForMe;
+  }
+
+  /// Resolve message identities based on hint broadcast status
+  ///
+  /// Returns appropriate sender/recipient IDs for spy mode or normal mode
+  Future<_MessageIdentities> _resolveMessageIdentities({
+    required String? contactPublicKey,
+    required ContactRepository contactRepository,
+    required BLEStateManager stateManager,
+  }) async {
+    final userPrefs = UserPreferences();
+    final hintsEnabled = await userPrefs.getHintBroadcastEnabled();
+
+    // Get my identities
+    final myPersistentKey = await userPrefs.getPublicKey();
+    final myEphemeralID = EphemeralKeyManager.generateMyEphemeralKey();
+
+    // Get recipient identities
+    final contact = contactPublicKey != null
+        ? await contactRepository.getContact(contactPublicKey)
+        : null;
+
+    // Check if Noise session exists
+    final noiseSessionExists = contact?.currentEphemeralId != null &&
+        SecurityManager.noiseService?.hasEstablishedSession(contact!.currentEphemeralId!) == true;
+
+    // RULE 1: Determine sender identity
+    String originalSender;
+    if (!hintsEnabled && noiseSessionExists) {
+      originalSender = myEphemeralID;  // Spy mode: anonymous
+    } else {
+      originalSender = myPersistentKey;  // Normal mode: identifiable
+    }
+
+    // RULE 2: Determine recipient identity
+    String intendedRecipient;
+    if (!hintsEnabled && noiseSessionExists && contact?.currentEphemeralId != null) {
+      // Spy mode: Use their ephemeral ID (assumes they're online)
+      intendedRecipient = contact!.currentEphemeralId!;
+    } else if (contact?.persistentPublicKey != null) {
+      // Normal mode: Use persistent key (works offline)
+      intendedRecipient = contact!.persistentPublicKey!;
+    } else {
+      // Fallback: Use whatever ID we have
+      intendedRecipient = contact?.publicKey ?? contactPublicKey ?? myEphemeralID;
+    }
+
+    return _MessageIdentities(
+      originalSender: originalSender,
+      intendedRecipient: intendedRecipient,
+      isSpyMode: !hintsEnabled && noiseSessionExists,
+    );
+  }
+}
+
+/// Message identities for spy mode
+class _MessageIdentities {
+  final String originalSender;
+  final String intendedRecipient;
+  final bool isSpyMode;
+
+  _MessageIdentities({
+    required this.originalSender,
+    required this.intendedRecipient,
+    required this.isSpyMode,
+  });
 }
 
 /// Encryption method result

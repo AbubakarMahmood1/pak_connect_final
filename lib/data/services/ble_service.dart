@@ -25,10 +25,11 @@ import '../../core/security/background_cache_service.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/bluetooth/handshake_coordinator.dart';
 import '../../core/bluetooth/peripheral_initializer.dart';
+import '../../core/bluetooth/advertising_manager.dart';
+import '../../core/bluetooth/connection_cleanup_handler.dart';
 import '../../core/services/hint_advertisement_service.dart';
 import '../../core/services/hint_scanner_service.dart';
 import '../../data/repositories/intro_hint_repository.dart';
-import '../../core/messaging/message_router.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/entities/sensitive_contact_hint.dart';
 import '../../domain/services/notification_service.dart';
@@ -84,6 +85,12 @@ class BLEService {
   // Peripheral initialization helper
   late final PeripheralInitializer _peripheralInitializer;
 
+  // 📡 SINGLE RESPONSIBILITY: Advertising manager (handles ALL advertising)
+  late final AdvertisingManager _advertisingManager;
+
+  // 🧹 REAL-TIME CLEANUP: Connection cleanup handler
+  late final ConnectionCleanupHandler _cleanupHandler;
+
   // Hint system
   late final HintScannerService _hintScanner;
   final _introHintRepo = IntroHintRepository();
@@ -101,6 +108,8 @@ class BLEService {
   StreamController<String>? _messagesController;
   StreamController<Map<String, DiscoveredEventArgs>>? _discoveryDataController;
   StreamController<String>? _hintMatchController;
+  StreamController<SpyModeInfo>? _spyModeDetectedController;
+  StreamController<String>? _identityRevealedController;
 
   // Bluetooth state monitoring
   final BluetoothStateMonitor _bluetoothStateMonitor = BluetoothStateMonitor.instance;
@@ -121,8 +130,9 @@ bool _peripheralHandshakeStarted = false;  // Track if handshake initiated for t
 int? _peripheralNegotiatedMTU;
 bool _peripheralMtuReady = false;  // Track if MTU has been negotiated
 
-// Advertising state tracking
-bool _isAdvertising = false;  // Track if advertising is currently active
+// ⚠️ REMOVED: Duplicate advertising state tracker - NOW using BLEConnectionManager as single source of truth
+// The _connectionManager.isAdvertising getter is the ONLY authoritative source for advertising state
+// This eliminates the dual-tracker bug that caused UI to show false advertising state
 
 // Message ID tracking for protocol ACK
 String? extractedMessageId;
@@ -143,6 +153,8 @@ final MessageReassembler _protocolMessageReassembler = MessageReassembler();
   Stream<String> get receivedMessages => _messagesController!.stream;
   Stream<Map<String, DiscoveredEventArgs>> get discoveryData => _discoveryDataController!.stream;
   Stream<String> get hintMatches => _hintMatchController!.stream;
+  Stream<SpyModeInfo> get spyModeDetected => _spyModeDetectedController!.stream;
+  Stream<String> get identityRevealed => _identityRevealedController!.stream;
   Central? get connectedCentral => _connectedCentral;
 
   // Bluetooth state monitoring getters
@@ -216,21 +228,26 @@ final MessageReassembler _protocolMessageReassembler = MessageReassembler();
   BLEStateManager get stateManager => _stateManager;
   BLEConnectionManager get connectionManager => _connectionManager;
 
-  
-  Future<void> initialize() async {
-    // Dispose existing controllers if they exist
-    _connectionInfoController?.close();
-    _devicesController?.close();
-    _messagesController?.close();
-    _discoveryDataController?.close();
-    _hintMatchController?.close();
 
-    // Initialize new stream controllers
-    _connectionInfoController = StreamController<ConnectionInfo>.broadcast();
-    _devicesController = StreamController<List<Peripheral>>.broadcast();
-    _messagesController = StreamController<String>.broadcast();
-    _discoveryDataController = StreamController<Map<String, DiscoveredEventArgs>>.broadcast();
-    _hintMatchController = StreamController<String>.broadcast();
+  Future<void> initialize() async {
+    try {
+      // Dispose existing controllers if they exist
+      _connectionInfoController?.close();
+      _devicesController?.close();
+      _messagesController?.close();
+      _discoveryDataController?.close();
+      _hintMatchController?.close();
+      _spyModeDetectedController?.close();
+      _identityRevealedController?.close();
+
+      // Initialize new stream controllers
+      _connectionInfoController = StreamController<ConnectionInfo>.broadcast();
+      _devicesController = StreamController<List<Peripheral>>.broadcast();
+      _messagesController = StreamController<String>.broadcast();
+      _discoveryDataController = StreamController<Map<String, DiscoveredEventArgs>>.broadcast();
+      _hintMatchController = StreamController<String>.broadcast();
+      _spyModeDetectedController = StreamController<SpyModeInfo>.broadcast();
+      _identityRevealedController = StreamController<String>.broadcast();
 
 
 if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManager.isPeripheralMode) {
@@ -258,7 +275,9 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     // _connectionManager.handlePowerModeChange(newMode) when power mode changes
     // This keeps the power management centralized in the burst scanning system
 
-    await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
+    // 🔧 FIX: EphemeralKeyManager already initialized in AppCore._initializeCoreServices()
+    // No need to reinitialize here - just use the existing session key
+    // await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
 
     _messageHandler = BLEMessageHandler();
     BackgroundCacheService.initialize();
@@ -266,20 +285,41 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     // Initialize peripheral initializer
     _peripheralInitializer = PeripheralInitializer(peripheralManager);
 
+    // 📡 Initialize advertising manager (SINGLE RESPONSIBILITY for all advertising)
+    _advertisingManager = AdvertisingManager(
+      peripheralInitializer: _peripheralInitializer,
+      peripheralManager: peripheralManager,
+      introHintRepo: _introHintRepo,
+    );
+    _advertisingManager.start();
+    _logger.info('✅ Advertising manager initialized');
+
+    // 🧹 Initialize connection cleanup handler (REAL-TIME cleanup)
+    _cleanupHandler = ConnectionCleanupHandler();
+    _cleanupHandler.start();
+    _logger.info('✅ Connection cleanup handler initialized');
+
     // Initialize hint scanner service
     _hintScanner = HintScannerService(contactRepository: _contactRepo);
     await _hintScanner.initialize();
     _logger.info('✅ Hint scanner initialized');
 
-    // 🔥 NEW: Start peripheral advertising immediately for mesh networking
-    // BitChat-proven approach: advertising runs continuously, scanning uses duty cycling
-    _logger.info('🔥 Starting peripheral advertising for mesh mode...');
+    // 🔥 FIXED: Delegate advertising to AdvertisingManager via startAsPeripheral()
+    // AdvertisingManager is the SINGLE RESPONSIBILITY for all advertising operations
+    _logger.info('🔥 Starting mesh networking (advertising + scanning ready)...');
     try {
-      await startAsPeripheral();
+      // ✅ NEW: Pass startAsPeripheral as callback to ensure AdvertisingManager is used
+      await _connectionManager.startMeshNetworking(
+        onStartAdvertising: () async {
+          _logger.info('📡 [MESH-INIT] Starting peripheral mode via AdvertisingManager...');
+          await startAsPeripheral();
+          _logger.info('✅ [MESH-INIT] Peripheral mode started successfully');
+        },
+      );
       _logger.info('✅ Mesh advertising active - device is now discoverable');
     } catch (e, stack) {
-      _logger.warning('⚠️ Could not start advertising: $e');
-      _logger.fine('Advertising error stack trace: $stack');
+      _logger.severe('❌❌❌ [MESH-INIT] FAILED TO START MESH NETWORKING! ❌❌❌');
+      _logger.severe('❌ [MESH-INIT] Error: $e', e, stack);
       // Non-fatal - scanning can still work for discovering others
     }
 
@@ -297,6 +337,12 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     _messageHandler.onContactAcceptReceived = _stateManager.handleContactAccept;
     _messageHandler.onContactRejectReceived = _stateManager.handleContactReject;
 
+    // ========== SPY MODE CALLBACKS ==========
+    // These callbacks are triggered in ble_state_manager when spy mode is detected
+    _stateManager.onSpyModeDetected = _handleSpyModeDetected;
+    _stateManager.onIdentityRevealed = _handleIdentityRevealed;
+    _messageHandler.onIdentityRevealed = _handleIdentityRevealed;
+
     // Wire relay message forwarding callback
     _messageHandler.onSendRelayMessage = (protocolMessage, nextHopId) async {
       _logger.info('🔀 RELAY FORWARD: Sending relay message to ${nextHopId.length > 8 ? '${nextHopId.substring(0, 8)}...' : nextHopId}');
@@ -306,19 +352,25 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     // Wire queue sync callback (will be fully wired after GossipSyncManager is initialized)
     // This is set again after GossipSyncManager initialization to ensure proper reference
 
-    await EphemeralKeyManager.initialize(await _stateManager.getMyPersistentId());
-    
-    // CRITICAL FIX: Initialize message handler with current node ID
-    final myNodeId = await _stateManager.getMyPersistentId();
-    print('🔧 BLE SERVICE: Initializing message handler with node ID: ${myNodeId.length > 16 ? '${myNodeId.substring(0, 16)}...' : myNodeId}');
+    // 🔧 FIX P1: EphemeralKeyManager must be initialized by AppCore first
+    // If it's not ready yet, skip ephemeral ID setup and continue without it
+    // It will be set up properly when EphemeralKeyManager is initialized
+    String? myEphemeralId;
+    try {
+      myEphemeralId = EphemeralKeyManager.generateMyEphemeralKey();
+      _logger.info('🔧 BLE SERVICE: Using session ephemeral ID: ${myEphemeralId.substring(0, 16)}...');
 
-    // Initialize the message handler with the current node ID for proper routing
-    _messageHandler.setCurrentNodeId(myNodeId);
+      // Initialize the message handler with the ephemeral node ID for privacy-preserving routing
+      _messageHandler.setCurrentNodeId(myEphemeralId);
+    } catch (e) {
+      _logger.warning('⚠️ EphemeralKeyManager not ready yet - will initialize later: $e');
+      // Will be set up when EphemeralKeyManager is initialized by AppCore
+    }
 
     // ===== PHASE 1 INTEGRATION: Gossip Sync Manager =====
     _logger.info('🔄 Initializing GossipSyncManager for mesh message discovery...');
     _gossipSyncManager = GossipSyncManager(
-      myNodeId: myNodeId,
+      myNodeId: myEphemeralId ?? 'temp_node_id',  // Temporary ID until EphemeralKeyManager is ready
       messageQueue: AppCore.instance.messageQueue,
     );
 
@@ -441,7 +493,18 @@ _connectionManager.onConnectionComplete = () async {
   // ✅ NEW: Use handshake protocol instead of simple name exchange
   await _performHandshake();
 };
-    
+
+// 🧹 REAL-TIME CLEANUP: Wire up central disconnect callback
+_connectionManager.onCentralDisconnected = (deviceAddress) {
+  _logger.info('🧹 Central disconnected callback: $deviceAddress');
+
+  // Trigger real-time cleanup via ConnectionCleanupHandler
+  _cleanupHandler.handleDisconnect(
+    deviceId: deviceAddress,
+    deviceAddress: deviceAddress,
+  );
+};
+
     await _stateManager.initialize();
 
 _stateManager.onNameChanged = (name) {
@@ -575,12 +638,32 @@ _stateManager.onAsymmetricContactDetected = (publicKey, displayName) {
   // Legacy fallback - Show UI prompt to add contact
   _handleAsymmetricContact(publicKey, displayName);
 };
-    
-    // Setup event listeners
-    _setupEventListeners();
 
-    // Complete initialization
-    _initializationCompleter.complete();
+      // Setup event listeners
+      _setupEventListeners();
+
+      // Complete initialization
+      _initializationCompleter.complete();
+      _logger.info('✅ BLEService initialization complete');
+
+    } catch (e, stackTrace) {
+      _logger.severe('❌ CRITICAL: BLEService initialization failed', e, stackTrace);
+
+      // Try to complete with error to unblock waiters
+      if (!_initializationCompleter.isCompleted) {
+        _initializationCompleter.completeError(e, stackTrace);
+      }
+
+      // Update connection info to show error state
+      _updateConnectionInfo(
+        statusMessage: 'Initialization failed: ${e.toString()}',
+        isScanning: false,
+        isAdvertising: false,
+      );
+
+      // Re-throw to propagate error to caller
+      rethrow;
+    }
   }
 
 void _handleMutualConsentRequired(String publicKey, String displayName) {
@@ -598,6 +681,24 @@ void _handleAsymmetricContact(String publicKey, String displayName) {
   // For now, just log it. The UI should handle this through the state manager
 }
 
+/// 🎯 SINGLE SOURCE OF TRUTH: Get authoritative advertising state
+/// This method ensures we ALWAYS use AdvertisingManager's state, never a stale local copy
+/// Future-proof: All advertising state queries go through this single method
+bool get _authoritativeAdvertisingState {
+  try {
+    // 📡 NEW: Use AdvertisingManager as single source of truth
+    return _advertisingManager.isAdvertising;
+  } catch (e) {
+    _logger.fine('⚠️ Advertising manager not ready yet for advertising state query: $e');
+    return false; // Safe default
+  }
+}
+
+/// 🎯 ENHANCED: Connection info update with automatic advertising state preservation
+/// This ensures advertising state is ALWAYS accurate and never accidentally cleared
+///
+/// CRITICAL: If isAdvertising is not explicitly passed, we read the authoritative state
+/// This prevents the "both false" bug where scanning stops but advertising state gets lost
 void _updateConnectionInfo({
     bool? isConnected,
     bool? isReady,
@@ -607,23 +708,29 @@ void _updateConnectionInfo({
     bool? isAdvertising,
     bool? isReconnecting,
   }) {
+    // 🎯 AUTOMATIC STATE PRESERVATION: If advertising state not provided, read authoritative value
+    // This prevents the "both false" bug where scanning updates accidentally clear advertising state
+    final effectiveAdvertising = isAdvertising ?? _authoritativeAdvertisingState;
+
     _logger.fine('🔍 CONNECTION INFO UPDATE REQUEST:');
     _logger.fine('  - Input: isConnected=$isConnected, isReady=$isReady, otherUserName="$otherUserName"');
-    _logger.fine('  - Input: statusMessage="$statusMessage", isScanning=$isScanning, isAdvertising=$isAdvertising, isReconnecting=$isReconnecting');
+    _logger.fine('  - Input: statusMessage="$statusMessage", isScanning=$isScanning, isAdvertising=$isAdvertising (effective: $effectiveAdvertising), isReconnecting=$isReconnecting');
     _logger.fine('  - Current: isConnected=${_currentConnectionInfo.isConnected}, isReady=${_currentConnectionInfo.isReady}, otherUserName="${_currentConnectionInfo.otherUserName}"');
-    
+    _logger.fine('  - Current: isScanning=${_currentConnectionInfo.isScanning}, isAdvertising=${_currentConnectionInfo.isAdvertising}');
+
     final newInfo = _currentConnectionInfo.copyWith(
       isConnected: isConnected,
       isReady: isReady,
       otherUserName: otherUserName,
       statusMessage: statusMessage,
       isScanning: isScanning,
-      isAdvertising: isAdvertising,
+      isAdvertising: effectiveAdvertising, // 🎯 ALWAYS use effective value
       isReconnecting: isReconnecting,
     );
-    
+
     _logger.fine('  - New Info: isConnected=${newInfo.isConnected}, isReady=${newInfo.isReady}, otherUserName="${newInfo.otherUserName}"');
-    
+    _logger.fine('  - New Info: isScanning=${newInfo.isScanning}, isAdvertising=${newInfo.isAdvertising}');
+
     // Check if this is a meaningful change
     if (_shouldEmitConnectionInfo(newInfo)) {
       _currentConnectionInfo = newInfo;
@@ -631,6 +738,7 @@ void _updateConnectionInfo({
       _connectionInfoController?.add(_currentConnectionInfo);
       _logger.fine('  - ✅ EMITTED: Connection info broadcast to UI');
       _logger.fine('  - Final State: ${_currentConnectionInfo.isConnected}/${_currentConnectionInfo.isReady} - "${_currentConnectionInfo.statusMessage}"');
+      _logger.fine('  - Final State: isScanning=${_currentConnectionInfo.isScanning}, isAdvertising=${_currentConnectionInfo.isAdvertising}');
     } else {
       _logger.fine('  - ❌ NOT EMITTED: No meaningful change detected');
       _logger.info('  - Emission blocked - UI will not be updated');
@@ -708,22 +816,28 @@ if (event.state == BluetoothLowEnergyState.poweredOff) {
   
   if (event.state == BluetoothLowEnergyState.poweredOn && _stateManager.isPeripheralMode) {
   _logger.info('🔄 Bluetooth restarted in peripheral mode - restarting advertising...');
-  
+
   _updateConnectionInfo(isAdvertising: false, statusMessage: 'Starting advertising...');
-  
+
   await Future.delayed(Duration(milliseconds: 2000));
-  
+
   try {
     await peripheralManager.stopAdvertising();
-    _isAdvertising = false;  // Reset state
-    await startAsPeripheral();
+
+    // ✅ FIX: Pass advertising callback to startMeshNetworking
+    await _connectionManager.startMeshNetworking(
+      onStartAdvertising: () async {
+        _logger.info('📡 [AUTO-RESTART] Starting peripheral mode via AdvertisingManager...');
+        await startAsPeripheral();
+        _logger.info('✅ [AUTO-RESTART] Peripheral mode started successfully');
+      },
+    );
     _logger.info('✅ Auto-restart advertising successful!');
-    
+
     _updateConnectionInfo(isAdvertising: true, isConnected: false, statusMessage: 'Advertising - waiting for connection');
-    
+
   } catch (e) {
     _logger.severe('❌ Auto-restart advertising failed: $e');
-    _isAdvertising = false;  // Reset on error
     _updateConnectionInfo(isAdvertising: false, statusMessage: 'Advertising failed');
   }
 }
@@ -746,7 +860,22 @@ peripheralManager.mtuChanged.listen((event) {
 });
 
 centralManager.discovered.listen((event) async {
-  print('🔍 DISCOVERY: Found ${event.peripheral.uuid} with RSSI: ${event.rssi}');
+  _logger.info('🔍 [DISCOVERY-DEBUG] ========================================');
+  _logger.info('🔍 [DISCOVERY-DEBUG] DEVICE DISCOVERED!');
+  _logger.info('🔍 [DISCOVERY-DEBUG] UUID: ${event.peripheral.uuid}');
+  _logger.info('🔍 [DISCOVERY-DEBUG] RSSI: ${event.rssi}');
+  _logger.info('🔍 [DISCOVERY-DEBUG] Advertisement data:');
+  _logger.info('   - Service UUIDs: ${event.advertisement.serviceUUIDs}');
+  _logger.info('   - Device name: ${event.advertisement.name ?? "none"}');
+  _logger.info('   - Manufacturer data: ${event.advertisement.manufacturerSpecificData.length} entries');
+
+  if (event.advertisement.manufacturerSpecificData.isNotEmpty) {
+    for (var i = 0; i < event.advertisement.manufacturerSpecificData.length; i++) {
+      final mfg = event.advertisement.manufacturerSpecificData[i];
+      _logger.info('     [$i] ID=0x${mfg.id.toRadixString(16)}, Data=${mfg.data.length} bytes');
+    }
+  }
+  _logger.info('🔍 [DISCOVERY-DEBUG] ========================================');
 
   // ✅ Use deduplication manager instead of direct list management
   DeviceDeduplicationManager.processDiscoveredDevice(event);
@@ -754,13 +883,15 @@ centralManager.discovered.listen((event) async {
   // Check hints if manufacturer data present
   final mfgData = event.advertisement.manufacturerSpecificData;
   if (mfgData.isNotEmpty) {
+    _logger.info('🔍 [DISCOVERY-DEBUG] Checking manufacturer data for hints...');
     for (final data in mfgData) {
       if (data.id == 0x2E19 && data.data.length == 15) {
+        _logger.info('🔍 [DISCOVERY-DEBUG] Found PakConnect hint data (0x2E19, 15 bytes)');
         // Our hint format - check for matches
         final match = await _hintScanner.checkDevice(data.data);
 
         if (match.isContact) {
-          _logger.info('✅ CONTACT NEARBY: ${match.contactName}');
+          _logger.info('✅✅✅ [DISCOVERY-DEBUG] CONTACT NEARBY: ${match.contactName} ✅✅✅');
           _hintMatchController?.add('✅ Contact nearby: ${match.contactName}');
         } else if (match.isIntro) {
           _logger.info('👋 INTRO MATCH: ${match.introHint?.displayName}');
@@ -787,19 +918,27 @@ centralManager.connectionStateChanged.listen((event) {
   _logger.info('Connection state: ${event.peripheral.uuid} → ${event.state}');
   
   if (event.state == ConnectionState.disconnected) {
+    final deviceAddress = event.peripheral.uuid.toString();
+
+    // 🧹 REAL-TIME CLEANUP: Trigger immediate cleanup for client disconnect
+    _cleanupHandler.handleDisconnect(
+      deviceId: deviceAddress,
+      deviceAddress: deviceAddress,
+    );
+
     // Remove disconnected device from discovery list
     _discoveredDevices.removeWhere((d) => d.uuid == event.peripheral.uuid);
     _devicesController?.add(List.from(_discoveredDevices));
-    
+
     if (_connectionManager.connectedDevice?.uuid == event.peripheral.uuid) {
       _logger.info('Our device disconnected - clearing state');
-      
+
       // Get contact ID before clearing state (for cleanup)
       final contactId = _stateManager.currentSessionId;
-      
+
       _updateConnectionInfo(
-        isConnected: false, 
-        isReady: false, 
+        isConnected: false,
+        isReady: false,
         otherUserName: null,  // Clear the name
         statusMessage: 'Disconnected'
       );
@@ -936,6 +1075,16 @@ void _processPendingMessages() {
 
 Future<String> getMyPublicKey() async {
   return await _stateManager.getMyPersistentId();
+}
+
+/// Get ephemeral session ID for mesh routing (NOT persistent identity)
+///
+/// 🔧 CRITICAL: Mesh routing uses ephemeral keys for privacy
+/// - Used in: MeshNetworkingService, TopologyManager, SmartMeshRouter, MeshRelayEngine
+/// - Rotates per app session - prevents long-term tracking
+/// - DO NOT use persistent key for mesh routing!
+Future<String> getMyEphemeralId() async {
+  return _stateManager.myEphemeralId ?? '';
 }
   
 Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral, Central? central, GATTCharacteristic? characteristic}) async {
@@ -1216,35 +1365,29 @@ Future<void> _processMessage(
   Central? central,
   GATTCharacteristic? characteristic
 }) async {
+  // 🔑 SIMPLIFIED: Use any available ID - Noise resolution handles the rest
+  // Priority: persistent key (if paired) → ephemeral ID → current session ID
   String? senderPublicKey;
-  
-  // 🔧 FIX: Get persistent key for decryption
-  // After handshake, currentSessionId = persistent key, but we need ephemeral ID to look up mapping
+
   if (_stateManager.theirEphemeralId != null) {
-    // Post-handshake: Use ephemeral ID to get persistent key from mapping
+    // Check if we have persistent key (paired)
     final persistentKey = _stateManager.getPersistentKeyFromEphemeral(_stateManager.theirEphemeralId!);
-    
+
     if (persistentKey != null) {
+      // Use persistent key - Noise will resolve to ephemeral internally
       senderPublicKey = persistentKey;
-      final truncatedKey = senderPublicKey.length > 16 
-          ? '${senderPublicKey.substring(0, 16)}...' 
-          : senderPublicKey;
-      _logger.info('🔐 Using persistent public key for decryption: $truncatedKey');
+      _logger.info('🔐 Decrypting with persistent key (auto-resolves to ephemeral): ${persistentKey.substring(0, 8)}...');
     } else {
-      // Mapping doesn't exist yet - fall back to currentSessionId
-      senderPublicKey = _stateManager.currentSessionId;
-      final truncatedKey = senderPublicKey?.substring(0, 16) ?? 'null';
-      _logger.info('🔐 Using current session ID for decryption: $truncatedKey...');
+      // Not paired yet, use ephemeral ID directly
+      senderPublicKey = _stateManager.theirEphemeralId;
+      _logger.info('🔐 Decrypting with ephemeral ID: ${_stateManager.theirEphemeralId!.substring(0, 8)}...');
     }
   } else if (_stateManager.currentSessionId != null) {
-    // Pre-handshake: Use current session ID directly
+    // Fallback to current session ID
     senderPublicKey = _stateManager.currentSessionId;
-    final truncatedKey = senderPublicKey!.length > 16 
-        ? '${senderPublicKey.substring(0, 16)}...' 
-        : senderPublicKey;
-    _logger.info('🔐 Pre-handshake: Using session ID: $truncatedKey');
+    _logger.info('🔐 Decrypting with session ID: ${_stateManager.currentSessionId!.substring(0, 8)}...');
   } else {
-    _logger.warning('🔐 No sender public key available - decryption may fail');
+    _logger.warning('🔐 No sender identity available - decryption will fail');
   }
 
   final content = await _messageHandler.processReceivedData(
@@ -1334,53 +1477,19 @@ Future<void> _processMessage(
 }
   
   Future<void> startAsPeripheral() async {
-    _logger.info('Starting as Peripheral (discoverable)...');
+    _logger.info('📡 Starting peripheral advertising (dual-role mode)...');
 
-    // Preserve session ID across mode switches
-    final preservedOtherPublicKey = _stateManager.currentSessionId;
-  final preservedOtherName = _stateManager.otherUserName;
-  final preservedTheyHaveUs = _stateManager.theyHaveUsAsContact;
-  final preservedWeHaveThem = await _stateManager.weHaveThemAsContact;
+    // 🔧 DUAL-ROLE FIX: NO mode switching - peripheral and central run simultaneously
+    // We NEVER stop central mode or disconnect - both roles coexist
+    // Only skip if already advertising to avoid redundant operations
 
-  _stateManager.setPeripheralMode(true);
-  // Phase 2b: Connection manager no longer has peripheral mode flag
-
-  if (_connectionManager.connectedDevice != null) {
-    try {
-      await _connectionManager.disconnect();
-    } catch (e) {
-      _logger.warning('Error disconnecting during mode switch: $e');
-    }
-  }
-
-  _connectedCentral = null;
-  _connectedCharacteristic = null;
-  _peripheralHandshakeStarted = false;
-  _peripheralNegotiatedMTU = null;
-  _peripheralMtuReady = false;  // Reset MTU ready flag
-
-    try {
-      await centralManager.stopDiscovery();
-    } catch (e) {
-      // Ignore
+    if (_advertisingManager.isAdvertising) {
+      _logger.fine('📡 Already advertising - skipping redundant peripheral start');
+      return;
     }
 
-  _updateConnectionInfo(
-    isConnected: false,
-    isReady: false,
-    otherUserName: null,
-    statusMessage: 'Initializing peripheral mode...'
-  );
-    
-  _stateManager.preserveContactRelationship(
-    otherPublicKey: preservedOtherPublicKey,
-    otherName: preservedOtherName,
-    theyHaveUs: preservedTheyHaveUs,
-    weHaveThem: preservedWeHaveThem,
-  );
-  
-  _discoveredDevices.clear();
-  _devicesController?.add([]);
+    // Mark as peripheral mode for state tracking (doesn't affect central)
+    _stateManager.setPeripheralMode(true);
 
     try {
       // ✅ FIX: Use safe peripheral initialization
@@ -1417,66 +1526,25 @@ Future<void> _processMessage(
       if (!serviceAdded) {
         throw Exception('Failed to add GATT service - peripheral not ready');
       }
-      
-      // Get intro hint (if any active QR)
-      final introHint = await _introHintRepo.getMostRecentActiveHint();
 
-      // Compute my persistent hint from my public key
+      // 📡 NEW: Use AdvertisingManager (SINGLE RESPONSIBILITY)
+      // Get my public key for identity hint
       final myPublicKey = await _stateManager.getMyPersistentId();
-      
-      // Check if user wants to broadcast online status
-      final prefs = await SharedPreferences.getInstance();
-      final showOnlineStatus = prefs.getBool('show_online_status') ?? true;
-      
-      // If online status is disabled, don't broadcast identity hint
-      final myPersistentHint = showOnlineStatus 
-        ? SensitiveContactHint.compute(contactPublicKey: myPublicKey)
-        : null;
-      
-      _logger.info('📡 Online Status: ${showOnlineStatus ? "visible" : "hidden"}');
 
-      // Pack hints into 6-byte advertisement (optimized for BLE size limits)
-      final advData = HintAdvertisementService.packAdvertisement(
-        introHint: introHint,
-        ephemeralHint: myPersistentHint, // null if hidden
-      );
-
-      _logger.info('📡 Advertising: intro=${introHint?.hintHex ?? "none"}, persistent=${myPersistentHint?.hintHex ?? "hidden"}');
-
-      // Advertisement breakdown (fits in 31-byte Android limit):
-      // - Service UUID: 16 bytes (128-bit)
-      // - Manufacturer ID: 2 bytes
-      // - Manufacturer data: 10 bytes (compressed hints)
-      // - BLE overhead: ~3 bytes
-      // Total: ~31 bytes (perfect fit!)
-      final advertisement = Advertisement(
-        name: null,  // Removed to save space - service UUID is sufficient for discovery
-        serviceUUIDs: [BLEConstants.serviceUUID],
-        manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
-          ManufacturerSpecificData(
-            id: 0x2E19, // Our custom manufacturer ID
-            data: advData,
-          ),
-        ],
-      );
-      
-      // ✅ FIX: Safely start advertising with proper initialization wait
-      final advertisingStarted = await _peripheralInitializer.safelyStartAdvertising(
-        advertisement,
+      // Start advertising with settings-aware hint inclusion
+      final advertisingStarted = await _advertisingManager.startAdvertising(
+        myPublicKey: myPublicKey,
         timeout: Duration(seconds: 5),
-        skipIfAlreadyAdvertising: true,  // Prevent "already advertising" error
+        skipIfAlreadyAdvertising: true,
       );
 
       if (!advertisingStarted) {
         throw Exception('Failed to start advertising - peripheral not ready');
       }
 
-      _isAdvertising = true;  // Track advertising state
-      _stateManager.setPeripheralMode(true);
-      // Phase 2b: Connection manager no longer has peripheral mode flag
-      // It automatically starts advertising when startMeshNetworking() is called
-      _updateConnectionInfo(isAdvertising: true, statusMessage: 'Advertising - discoverable');
-      _logger.info('✅ Now advertising as discoverable device!');
+      // ⚠️ REMOVED: _isAdvertising assignment - connection manager tracks state
+      _updateConnectionInfo(isAdvertising: true, statusMessage: 'Advertising - dual-role active');
+      _logger.info('✅ Peripheral advertising active (dual-role - central still running)!');
     } catch (e, stack) {
       _logger.severe('Failed to start as peripheral: $e', e, stack);
       _updateConnectionInfo(
@@ -1486,7 +1554,7 @@ Future<void> _processMessage(
       rethrow;
     }
   }
-  
+
   /// Refresh advertising data (useful when preferences like online status change)
   /// Only works if already in peripheral mode and advertising
   /// [showOnlineStatus] - if provided, uses this value instead of reading from prefs
@@ -1495,145 +1563,34 @@ Future<void> _processMessage(
       _logger.warning('⚠️ Cannot refresh advertising - not in peripheral mode');
       return;
     }
-    
+
     _logger.info('🔄 Refreshing advertising data...');
-    
+
     try {
-      // Stop current advertising
-      await peripheralManager.stopAdvertising();
-      _isAdvertising = false;  // Reset state
-      
-      // Small delay to ensure clean stop
-      await Future.delayed(Duration(milliseconds: 100));
-      
-      // Get intro hint (if any active QR)
-      final introHint = await _introHintRepo.getMostRecentActiveHint();
-
-      // Compute my persistent hint from my public key
+      // Get my public key for identity hint
       final myPublicKey = await _stateManager.getMyPersistentId();
-      
-      // Use provided value or read from preferences
-      bool shouldShowOnlineStatus;
-      if (showOnlineStatus != null) {
-        shouldShowOnlineStatus = showOnlineStatus;
-        _logger.info('📡 Using provided online status value: $shouldShowOnlineStatus');
-      } else {
-        final prefs = await SharedPreferences.getInstance();
-        shouldShowOnlineStatus = prefs.getBool('show_online_status') ?? true;
-        _logger.info('📡 Read online status from prefs: $shouldShowOnlineStatus');
-      }
-      
-      // If online status is disabled, don't broadcast identity hint
-      final myPersistentHint = shouldShowOnlineStatus 
-        ? SensitiveContactHint.compute(contactPublicKey: myPublicKey)
-        : null;
-      
-      _logger.info('📡 Refreshed Online Status: ${shouldShowOnlineStatus ? "visible" : "hidden"}');
-      _logger.info('📡 Refreshed Advertising: intro=${introHint?.hintHex ?? "none"}, persistent=${myPersistentHint?.hintHex ?? "hidden"}');
 
-      // Pack hints into 6-byte advertisement
-      final advData = HintAdvertisementService.packAdvertisement(
-        introHint: introHint,
-        ephemeralHint: myPersistentHint, // null if hidden
+      // 📡 NEW: Use AdvertisingManager.refreshAdvertising (SINGLE METHOD)
+      // This ensures consistent advertisement structure every time
+      await _advertisingManager.refreshAdvertising(
+        myPublicKey: myPublicKey,
+        showOnlineStatus: showOnlineStatus,
       );
 
-      final advertisement = Advertisement(
-        name: null,
-        serviceUUIDs: [BLEConstants.serviceUUID],
-        manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
-          ManufacturerSpecificData(
-            id: 0x2E19,
-            data: advData,
-          ),
-        ],
-      );
+      _updateConnectionInfo(isAdvertising: true, statusMessage: 'Advertising - discoverable');
+      _logger.info('✅ Advertising refreshed successfully!');
 
-      // Restart advertising with new data
-      final advertisingStarted = await _peripheralInitializer.safelyStartAdvertising(
-        advertisement,
-        timeout: Duration(seconds: 5),
-      );
-
-      if (advertisingStarted) {
-        _updateConnectionInfo(isAdvertising: true, statusMessage: 'Advertising - discoverable');
-        _logger.info('✅ Advertising refreshed successfully!');
-      } else {
-        throw Exception('Failed to restart advertising');
-      }
     } catch (e, stack) {
       _logger.severe('❌ Failed to refresh advertising: $e', e, stack);
       _updateConnectionInfo(isAdvertising: false, statusMessage: 'Advertising refresh failed');
     }
   }
 
-  /// Resume peripheral advertising after disconnection (Phase 2a)
-  Future<void> _resumePeripheralAdvertising() async {
-    if (!_stateManager.isPeripheralMode) {
-      _logger.warning('Not in peripheral mode - cannot resume advertising');
-      return;
-    }
-
-    // ✅ FIX: Check if already advertising to prevent error code 3
-    if (_isAdvertising) {
-      _logger.info('Already advertising - skipping resume');
-      return;
-    }
-
-    try {
-      // Small delay to ensure clean state
-      await Future.delayed(Duration(milliseconds: 100));
-
-      // Get intro hint (if any active QR)
-      final introHint = await _introHintRepo.getMostRecentActiveHint();
-
-      // Compute my persistent hint from my public key
-      final myPublicKey = await _stateManager.getMyPersistentId();
-
-      // Check if user wants to broadcast online status
-      final prefs = await SharedPreferences.getInstance();
-      final showOnlineStatus = prefs.getBool('show_online_status') ?? true;
-
-      // If online status is disabled, don't broadcast identity hint
-      final myPersistentHint = showOnlineStatus
-        ? SensitiveContactHint.compute(contactPublicKey: myPublicKey)
-        : null;
-
-      // Pack hints into advertisement
-      final advData = HintAdvertisementService.packAdvertisement(
-        introHint: introHint,
-        ephemeralHint: myPersistentHint,
-      );
-
-      final advertisement = Advertisement(
-        name: null,
-        serviceUUIDs: [BLEConstants.serviceUUID],
-        manufacturerSpecificData: Platform.isIOS || Platform.isMacOS ? [] : [
-          ManufacturerSpecificData(
-            id: 0x2E19,
-            data: advData,
-          ),
-        ],
-      );
-
-      final advertisingStarted = await _peripheralInitializer.safelyStartAdvertising(
-        advertisement,
-        timeout: Duration(seconds: 5),
-        skipIfAlreadyAdvertising: true,  // Always stop any existing advertising first
-      );
-
-      if (advertisingStarted) {
-        _isAdvertising = true;  // Track state
-        _logger.info('✅ Resumed peripheral advertising');
-      } else {
-        _isAdvertising = false;  // Failed to start
-        _logger.warning('Failed to resume advertising - peripheral not ready');
-      }
-
-    } catch (e, stack) {
-      _isAdvertising = false;  // Error occurred
-      _logger.severe('Failed to resume advertising: $e', e, stack);
-    }
-  }
+  // ❌ REMOVED: _resumePeripheralAdvertising() method
+  // This method is no longer needed because:
+  // 1. Advertising is managed by AdvertisingManager (single responsibility)
+  // 2. Advertising resume is handled by startAsPeripheral() when needed
+  // 3. Connection manager handles advertising state based on connection limits
 
   Future<void> startAsCentral() async {
   _logger.info('Starting as Central (scanner)...');
@@ -1658,9 +1615,9 @@ Future<void> _processMessage(
   // Phase 2b: Stop mesh networking (stops both advertising and scanning)
   try {
     await _connectionManager.stopMeshNetworking();
-    _isAdvertising = false;  // Reset state
+    // ⚠️ REMOVED: _isAdvertising assignment - connection manager tracks state
   } catch (e) {
-    _isAdvertising = false;  // Reset even on error
+    // ⚠️ REMOVED: _isAdvertising assignment - connection manager tracks state
     _logger.fine('Could not stop mesh networking: $e');
   }
 
@@ -1724,12 +1681,35 @@ Future<void> _processMessage(
     statusMessage: isConnected ? 'Ready to chat' : 'Scanning for devices...'
   );
   
-  print('🔍 DEBUG: startScanning called - source: ${source.name}, _isDiscoveryActive: $_isDiscoveryActive, isPeripheralMode: ${_stateManager.isPeripheralMode}');
+  _logger.info('🔍 [SCAN-DEBUG] ========================================');
+  _logger.info('🔍 [SCAN-DEBUG] About to start discovery');
+  _logger.info('🔍 [SCAN-DEBUG] Source: ${source.name}');
+  _logger.info('🔍 [SCAN-DEBUG] _isDiscoveryActive: $_isDiscoveryActive');
+  _logger.info('🔍 [SCAN-DEBUG] isPeripheralMode: ${_stateManager.isPeripheralMode}');
+  _logger.info('🔍 [SCAN-DEBUG] Service UUID filter: ${BLEConstants.serviceUUID}');
+  _logger.info('🔍 [SCAN-DEBUG] ========================================');
 
   try {
+    _logger.info('🔍 [SCAN-DEBUG] Setting _isDiscoveryActive = true');
     _isDiscoveryActive = true;
+
+    _logger.info('🔍 [SCAN-DEBUG] Calling centralManager.startDiscovery()...');
     await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
+
+    _logger.info('✅✅✅ [SCAN-DEBUG] DISCOVERY STARTED! ✅✅✅');
+    _logger.info('🔍 [SCAN-DEBUG] Now scanning for service UUID: ${BLEConstants.serviceUUID}');
     _logger.info('🔍 ${source.name.toUpperCase()} discovery started successfully');
+
+    // 🔧 FIX P2: Confirm dual-role operation (advertising + scanning simultaneously)
+    if (_authoritativeAdvertisingState && _stateManager.isPeripheralMode) {
+      _logger.info('🔧 DUAL-ROLE: ✅ Both advertising AND scanning active simultaneously');
+      _logger.info('🔧 DUAL-ROLE: Advertising state: $_authoritativeAdvertisingState, Scanning state: $_isDiscoveryActive');
+      _updateConnectionInfo(
+        isAdvertising: true,
+        isScanning: true,
+        statusMessage: 'Dual-role: Advertising + Scanning'
+      );
+    }
   } catch (e) {
     _isDiscoveryActive = false;
     _currentScanningSource = null;
@@ -2096,6 +2076,26 @@ String _getPhaseMessage(ConnectionPhase phase) {
   }
 }
 
+// ========== SPY MODE CALLBACK HANDLERS ==========
+
+/// Handle spy mode detection (chatting with friend anonymously)
+void _handleSpyModeDetected(SpyModeInfo info) {
+  _logger.info('🕵️ SPY MODE DETECTED: User is chatting with ${info.contactName} anonymously');
+
+  // Emit spy mode event to UI layer
+  _spyModeDetectedController?.add(info);
+  _logger.fine('🕵️ Emitted spy mode event to UI');
+}
+
+/// Handle identity revealed notification
+void _handleIdentityRevealed(String contactName) {
+  _logger.info('🕵️ IDENTITY REVEALED: Contact $contactName now knows your identity');
+
+  // Emit identity revealed event to UI layer
+  _identityRevealedController?.add(contactName);
+  _logger.fine('🕵️ Emitted identity revealed event to UI');
+}
+
 /// Check if message type is part of handshake protocol (sequential, no ACKs)
 bool _isHandshakeMessage(ProtocolMessageType type) {
   return type == ProtocolMessageType.connectionReady ||
@@ -2442,26 +2442,31 @@ Future<void> _processWriteQueue() async {
   void _onBluetoothBecameReady() {
     _logger.info('🔵 Bluetooth state monitor: Bluetooth became ready');
 
-    // Update connection info to reflect ready state
-    if (_stateManager.isPeripheralMode) {
-      _updateConnectionInfo(statusMessage: 'Bluetooth ready - can advertise');
-    } else {
-      _updateConnectionInfo(statusMessage: 'Bluetooth ready - can scan');
-    }
+    // 🔧 DUAL-ROLE FIX: Don't restart peripheral - it should already be running
+    // The initialize() method starts advertising once, and it stays active
+    // Only update status message to reflect Bluetooth is ready
 
-    // If we were in an error state due to Bluetooth, clear it
-    if (_currentConnectionInfo.statusMessage?.contains('Bluetooth') == true) {
-      // Restart any suspended operations
-      if (_stateManager.isPeripheralMode && !isConnected) {
-        _logger.info('🔵 Restarting peripheral advertising after Bluetooth became ready');
-        Future.delayed(Duration(milliseconds: 500), () async {
-          try {
-            await startAsPeripheral();
-          } catch (e) {
-            _logger.warning('Failed to restart peripheral mode: $e');
-          }
-        });
-      }
+    _updateConnectionInfo(statusMessage: 'Bluetooth ready for dual-role operation');
+
+    // Only restart if we actually lost advertising (not just a state monitor callback)
+    if (!_authoritativeAdvertisingState && _stateManager.isPeripheralMode) {
+      _logger.warning('🔵 Advertising was lost - restarting mesh networking');
+      Future.delayed(Duration(milliseconds: 500), () async {
+        try {
+          // ✅ FIX: Pass advertising callback to startMeshNetworking
+          await _connectionManager.startMeshNetworking(
+            onStartAdvertising: () async {
+              _logger.info('📡 [LOST-ADV-RESTART] Starting peripheral mode via AdvertisingManager...');
+              await startAsPeripheral();
+              _logger.info('✅ [LOST-ADV-RESTART] Peripheral mode started successfully');
+            },
+          );
+        } catch (e) {
+          _logger.warning('Failed to restart mesh networking: $e');
+        }
+      });
+    } else {
+      _logger.fine('🔵 Peripheral already advertising - no restart needed');
     }
   }
 
@@ -2612,5 +2617,7 @@ Future<void> _processWriteQueue() async {
   _connectionInfoController?.close();
   _discoveryDataController?.close();
   _hintMatchController?.close();
+  _spyModeDetectedController?.close();
+  _identityRevealedController?.close();
 }
 }

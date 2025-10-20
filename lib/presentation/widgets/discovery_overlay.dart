@@ -428,33 +428,11 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     return Colors.red;                         // Very Poor
   }
   
-  Future<void> _switchMode(bool toPeripheral) async {
-    final bleService = ref.read(bleServiceProvider);
-    final burstOperations = ref.read(burstScanningOperationsProvider);
-
-    try {
-      if (toPeripheral) {
-        // Stop burst scanner when switching to peripheral mode
-        if (burstOperations != null) {
-          _logger.info('🔧 MODE SWITCH: Stopping burst scanner for peripheral mode');
-          await burstOperations.stopBurstScanning();
-        }
-        await bleService.startAsPeripheral();
-        _setupPeripheralListener();
-      } else {
-        _connectionSubscription?.cancel();
-        await bleService.startAsCentral();
-        await Future.delayed(Duration(milliseconds: 500));
-        // Restart burst scanner fresh when switching to central mode
-        if (burstOperations != null) {
-          _logger.info('🔧 MODE SWITCH: Restarting burst scanner for central mode');
-          await burstOperations.startBurstScanning();
-        }
-      }
-    } catch (e) {
-      _showError('Failed to switch mode: $e');
-    }
-  }
+  // 🔧 MODE SWITCHING REMOVED: Dual mode now runs automatically
+  // Previously, manual mode switching was handled via UI tabs.
+  // Now BLEService runs both Central and Peripheral modes simultaneously.
+  // This overlay is purely a display surface for discovered devices and connection status.
+  // Mode transitions are triggered automatically by the underlying BLE architecture.
   
   @override
 Widget build(BuildContext context) {
@@ -613,26 +591,62 @@ Widget build(BuildContext context) {
     );
   }
   
+  /// Display read-only mode indicator (automatic dual mode - no manual switching)
   Widget _buildModeSelector(bool isPeripheralMode) {
     return Container(
-      margin: EdgeInsets.all(16),
-      child: SegmentedButton<bool>(
-        segments: [
-          ButtonSegment(
-            value: false,
-            label: Text('Scanner'),
-            icon: Icon(Icons.search),
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Mode indicator with icon
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isPeripheralMode
+                  ? Colors.amber.withValues(alpha: 0.15)
+                  : Colors.blue.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isPeripheralMode ? Icons.wifi_tethering : Icons.bluetooth_searching,
+                  size: 16,
+                  color: isPeripheralMode ? Colors.amber : Colors.blue,
+                ),
+                SizedBox(width: 6),
+                Text(
+                  isPeripheralMode ? 'Discoverable' : 'Scanner',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: isPeripheralMode ? Colors.amber : Colors.blue,
+                  ),
+                ),
+              ],
+            ),
           ),
-          ButtonSegment(
-            value: true,
-            label: Text('Discoverable'),
-            icon: Icon(Icons.wifi_tethering),
+          SizedBox(width: 12),
+          // Dual mode info
+          Expanded(
+            child: Text(
+              'Dual mode active',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontStyle: FontStyle.italic,
+                  ),
+            ),
           ),
         ],
-        selected: {isPeripheralMode},
-        onSelectionChanged: (Set<bool> selection) {
-          _switchMode(selection.first);
-        },
       ),
     );
   }

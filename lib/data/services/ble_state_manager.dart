@@ -75,6 +75,14 @@ class BLEStateManager {
   final Map<String, bool> _bilateralSyncComplete = {}; // Track sync completion per contact
   static const Duration _statusCooldownDuration = Duration(seconds: 2); // Minimum time between status sends
 
+  // ========== SPY MODE CALLBACKS ==========
+
+  /// Callback when spy mode is detected (chatting with friend anonymously)
+  void Function(SpyModeInfo info)? onSpyModeDetected;
+
+  /// Callback when identity is revealed in spy mode
+  void Function(String contactName)? onIdentityRevealed;
+
   // Getters
   String? get myUserName => _myUserName;
   String? get otherUserName => _otherUserName;
@@ -505,7 +513,16 @@ Future<bool> _performVerification() async {
         _logger.info('✅ Contact upgraded to MEDIUM');
         _logger.info('   publicKey (unchanged): ${contact.publicKey.substring(0, 16)}...');
         _logger.info('   persistentPublicKey (now set): ${_theirPersistentKey!.substring(0, 16)}...');
-        
+
+        // 🔑 CRITICAL: Register identity mapping for Noise session lookup
+        // This enables encryption/decryption with persistent keys while Noise session
+        // remains keyed by ephemeral ID
+        SecurityManager.registerIdentityMapping(
+          persistentPublicKey: _theirPersistentKey!,
+          ephemeralID: _theirEphemeralId!,
+        );
+        _logger.info('🔑 Registered Noise identity mapping: ${_theirPersistentKey!.substring(0, 8)}... → ${_theirEphemeralId!.substring(0, 8)}...');
+
         // Trigger chat migration from ephemeral to persistent ID
         await _triggerChatMigration(
           ephemeralId: contact.publicKey,
@@ -829,6 +846,84 @@ Future<void> handlePersistentKeyExchange(String theirPersistentKey) async {
   // Chat migration happens when upgrading to MEDIUM (pairing complete)
   _logger.info('💡 Persistent key stored for future pairing - contact remains at LOW security');
   _logger.info('💡 When pairing completes, contact will upgrade to MEDIUM and migrate to persistent ID');
+
+  // ✅ SPY MODE: Detect if we're chatting with a friend anonymously
+  await _detectSpyMode(theirPersistentKey);
+}
+
+/// Detect spy mode: check if peer is a friend and we have hints disabled
+Future<void> _detectSpyMode(String theirPersistentKey) async {
+  try {
+    // Check if this persistent key is in our contacts
+    final contact = await _contactRepository.getContact(theirPersistentKey);
+
+    if (contact != null) {
+      // Friend detected!
+      final userPrefs = UserPreferences();
+      final hintsEnabled = await userPrefs.getHintBroadcastEnabled();
+
+      if (!hintsEnabled) {
+        // Spy mode detected - we're chatting with friend anonymously
+        _logger.info('🕵️ SPY MODE: Connected to friend ${contact.displayName} anonymously');
+        _logger.info('🕵️   They don\'t know it\'s us!');
+
+        // Trigger UI callback to show reveal prompt
+        onSpyModeDetected?.call(SpyModeInfo(
+          contactName: contact.displayName,
+          ephemeralID: _theirEphemeralId!,
+          persistentKey: theirPersistentKey,
+        ));
+      } else {
+        // Normal mode - hints are on, friend knows it's us
+        _logger.info('👤 NORMAL MODE: Connected to friend ${contact.displayName}');
+        _logger.info('👤   They can see it\'s us via hints');
+      }
+    } else {
+      _logger.info('👥 NEW CONTACT: Not in our contact list yet');
+    }
+  } catch (e) {
+    _logger.severe('Failed to detect spy mode: $e');
+  }
+}
+
+/// Reveal identity to friend in spy mode
+/// Call this when user chooses to reveal their identity
+Future<ProtocolMessage?> revealIdentityToFriend() async {
+  try {
+    if (_theirEphemeralId == null) {
+      _logger.warning('🕵️ Cannot reveal identity - no active session');
+      return null;
+    }
+
+    final userPrefs = UserPreferences();
+    final myPersistentKey = await userPrefs.getPublicKey();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+    // Generate cryptographic proof of ownership
+    // Sign a challenge that includes peer's ephemeral ID + timestamp
+    // This proves we own the private key corresponding to myPersistentKey
+    final challenge = '${_theirEphemeralId}_$timestamp';
+    final proof = SimpleCrypto.signMessage(challenge) ?? '';
+
+    if (proof.isEmpty) {
+      _logger.severe('🕵️ Failed to generate cryptographic proof');
+      return null;
+    }
+
+    // Create reveal message
+    final revealMessage = ProtocolMessage.friendReveal(
+      myPersistentKey: myPersistentKey,
+      proof: proof,
+      timestamp: timestamp,
+    );
+
+    _logger.info('🕵️ Created FRIEND_REVEAL message');
+    return revealMessage;
+
+  } catch (e) {
+    _logger.severe('🕵️ Failed to create reveal message: $e');
+    return null;
+  }
 }
 
 /// Helper: Look up persistent key from ephemeral ID
@@ -844,9 +939,13 @@ String? getPersistentKeyFromEphemeral(String ephemeralId) {
 /// - Returns persistent public key if paired (after key exchange)
 /// - Returns ephemeral ID if not paired (privacy preserved)
 String? getRecipientId() {
-  // REFACTORED: Return currentSessionId which automatically points to the right ID
-  // Pre-pairing: _currentSessionId points to ephemeral ID
-  // Post-pairing: _currentSessionId points to persistent key
+  // 🔑 IDENTITY RESOLUTION: Return persistent key if paired, else ephemeral ID
+  // Noise session manager will automatically resolve persistent → ephemeral internally
+  if (_theirPersistentKey != null) {
+    // Paired: Use persistent key (Noise will resolve to ephemeral session)
+    return _theirPersistentKey;
+  }
+  // Not paired: Use ephemeral ID directly
   return _currentSessionId;
 }
 
@@ -1571,10 +1670,10 @@ Future<void> _ensureContactExistsAfterHandshake(String publicKey, String display
   if (existingContact == null) {
     // Create contact with LOW security (just completed Noise handshake)
     await _contactRepository.saveContactWithSecurity(
-      publicKey, 
-      displayName, 
+      publicKey,
+      displayName,
       SecurityLevel.low,
-      ephemeralId: ephemeralId
+      currentEphemeralId: ephemeralId
     );
     _logger.info('🔒 HANDSHAKE: Created contact with LOW security (Noise session): $displayName');
   } else {
@@ -1880,4 +1979,19 @@ void clearOtherUserName() {
   void dispose() {
     _contactSyncRetryTimer?.cancel();
   }
+}
+
+// ========== SPY MODE DATA CLASSES ==========
+
+/// Information about detected spy mode session
+class SpyModeInfo {
+  final String contactName;
+  final String ephemeralID;
+  final String? persistentKey;
+
+  SpyModeInfo({
+    required this.contactName,
+    required this.ephemeralID,
+    this.persistentKey,
+  });
 }

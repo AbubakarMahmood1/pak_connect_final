@@ -11,7 +11,8 @@ class UserPreferences {
   static const String _deviceIdKey = 'my_persistent_device_id';
   static const String _publicKeyKey = 'ecdh_public_key_v2';
   static const String _privateKeyKey = 'ecdh_private_key_v2';
-  
+  static const String _hintBroadcastKey = 'hint_broadcast_enabled';  // Spy mode control
+
   // USERNAME PROPAGATION FIX: Stream controller for reactive updates
   static StreamController<String>? _usernameStreamController;
   
@@ -156,6 +157,25 @@ Future<void> regenerateKeyPair() async {
   await storage.delete(key: _publicKeyKey);
   await storage.delete(key: _privateKeyKey);
   await _generateNewKeyPair();
+}
+
+// ========== SPY MODE (Hint Broadcast Control) ==========
+
+/// Get hint broadcast status (default: true/enabled)
+/// When false = SPY MODE (anonymous ephemeral-only chat)
+Future<bool> getHintBroadcastEnabled() async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool(_hintBroadcastKey) ?? true;  // Default: hints ON
+}
+
+/// Set hint broadcast status
+/// false = Enable SPY MODE (chat anonymously with friends)
+Future<void> setHintBroadcastEnabled(bool enabled) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool(_hintBroadcastKey, enabled);
+  _logger.info(enabled
+    ? '🕵️ Spy mode DISABLED - hints will be broadcast'
+    : '🕵️ Spy mode ENABLED - chatting anonymously');
 }
 
 }

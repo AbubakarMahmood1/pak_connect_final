@@ -77,6 +77,9 @@ class BLEConnectionManager {
   Function()? onConnectionComplete;
   Function(bool)? onMonitoringChanged;
   Function(ConnectionInfo)? onConnectionInfoChanged;
+
+  // 🧹 REAL-TIME CLEANUP: Callback for central disconnect events
+  Function(String deviceAddress)? onCentralDisconnected;
   
   BLEConnectionManager({
     required this.centralManager,
@@ -322,20 +325,32 @@ class BLEConnectionManager {
   /// - Central role: Ready to scan and connect to other peripherals
   ///
   /// Following BitChat model: Advertising runs continuously, scanning is duty-cycled
-  Future<void> startMeshNetworking() async {
+  ///
+  /// ✅ NEW: Advertising is now handled by AdvertisingManager via callback
+  Future<void> startMeshNetworking({
+    Future<void> Function()? onStartAdvertising,
+  }) async {
     _logger.info('🚀 Starting mesh networking (simultaneous central + peripheral)');
 
     try {
       // Start advertising FIRST (like BitChat)
-      await _startAdvertising();
-      _logger.info('✅ Peripheral role active (advertising)');
+      // ✅ NEW: Use callback to BLEService.startAsPeripheral() → AdvertisingManager
+      if (onStartAdvertising != null) {
+        _logger.info('📡 Calling advertising callback (BLEService.startAsPeripheral)...');
+        await onStartAdvertising();
+        _isAdvertising = true;  // Assume success if no exception
+        _logger.info('✅ Peripheral role active (advertising via AdvertisingManager)');
+      } else {
+        _logger.severe('❌ No advertising callback provided - advertising will NOT start!');
+        throw Exception('startMeshNetworking requires onStartAdvertising callback');
+      }
 
       // Central role is always ready (discovery initiated by BurstScanController)
       _logger.info('✅ Central role active (ready to scan)');
       _shouldBeAdvertising = true;
 
       _logger.info('🎉 Mesh networking started successfully');
-      _logger.info('📊 Connection limits: ${_limitConfig}');
+      _logger.info('📊 Connection limits: $_limitConfig');
 
     } catch (e) {
       _logger.severe('❌ Failed to start mesh networking: $e');
@@ -363,14 +378,20 @@ class BLEConnectionManager {
   /// - Advertise when: Below server connection limit
   /// - Stop when: At or above server connection limit
   /// - Resume when: Server connection drops below limit
+  ///
+  /// ⚠️ NOTE: This method only handles STOPPING advertising.
+  /// Starting advertising is handled by BLEService.startAsPeripheral() → AdvertisingManager.
+  /// This is because advertising requires business logic (settings, hints) that belongs in BLEService.
   Future<void> _updateAdvertisingState() async {
     try {
       final shouldAdvertise = _shouldBeAdvertising && canAcceptServerConnection;
 
       if (shouldAdvertise && !_isAdvertising) {
-        // Start advertising
-        _logger.info('📡 Starting advertising (server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})');
-        await _startAdvertising();
+        // ⚠️ CANNOT start advertising here - requires BLEService callback
+        // Advertising is managed by AdvertisingManager in BLEService
+        _logger.info('📡 Should start advertising (server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})');
+        _logger.info('⚠️ Advertising start requires BLEService.startAsPeripheral() - skipping');
+        // TODO: Consider adding a callback to BLEService for dynamic advertising control
 
       } else if (!shouldAdvertise && _isAdvertising) {
         // Stop advertising (at limit or user requested stop)
@@ -385,27 +406,14 @@ class BLEConnectionManager {
     }
   }
 
-  /// 📡 Start BLE advertising
-  Future<void> _startAdvertising() async {
-    if (_isAdvertising) {
-      _logger.fine('📡 Already advertising, skipping');
-      return;
-    }
-
-    try {
-      final advertisement = Advertisement(
-        name: 'PakConnect',
-        serviceUUIDs: [BLEConstants.serviceUUID],
-      );
-
-      await peripheralManager.startAdvertising(advertisement);
-      _isAdvertising = true;
-      _logger.info('✅ Advertising started');
-    } catch (e) {
-      _logger.severe('❌ Failed to start advertising: $e');
-      throw AdvertisingException('Failed to start advertising', e);
-    }
-  }
+  // ❌ REMOVED: _startAdvertising() method
+  // Advertising is now exclusively handled by:
+  // BLEService.startAsPeripheral() → AdvertisingManager.startAdvertising()
+  //
+  // This ensures:
+  // 1. Settings-aware hint inclusion (spy mode, online status)
+  // 2. Single responsibility (one class manages all advertising)
+  // 3. Consistent advertisement structure (no hint inconsistency bug)
 
   /// 🛑 Stop BLE advertising
   Future<void> _stopAdvertising() async {
@@ -462,6 +470,10 @@ class BLEConnectionManager {
     if (connection != null) {
       final duration = connection.connectedDuration;
       _logger.info('📤 Central disconnected: ${_formatAddress(address)} (connected for: ${duration.inSeconds}s, server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})');
+
+      // 🧹 REAL-TIME CLEANUP: Trigger immediate cleanup via BLEService
+      // This will remove from deduplication manager and notify UI
+      onCentralDisconnected?.call(address);
     } else {
       _logger.warning('⚠️ Unknown central disconnected: ${_formatAddress(address)}');
     }

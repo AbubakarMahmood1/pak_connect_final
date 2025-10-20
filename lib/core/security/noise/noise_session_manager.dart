@@ -18,20 +18,25 @@ typedef SessionEstablishedCallback = void Function(String peerID, Uint8List remo
 typedef SessionFailedCallback = void Function(String peerID, Exception error);
 
 /// Manager for multiple Noise sessions
-/// 
+///
 /// Tracks one session per peer, handles handshake initiation/response.
 class NoiseSessionManager {
   static final _logger = Logger('NoiseSessionManager');
-  
+
   /// Our static private key (32 bytes)
   final Uint8List _localStaticPrivateKey;
-  
+
   /// Our static public key (32 bytes)
   final Uint8List _localStaticPublicKey;
-  
-  /// Active sessions: peerID → NoiseSession
+
+  /// Active sessions: ephemeralID → NoiseSession
+  /// KEY DESIGN: Sessions are ALWAYS keyed by ephemeral IDs (from handshake)
   final Map<String, NoiseSession> _sessions = {};
-  
+
+  /// Identity resolution: persistentPublicKey → ephemeralID
+  /// This allows looking up sessions using persistent keys after pairing
+  final Map<String, String> _persistentToEphemeral = {};
+
   /// Callbacks
   SessionEstablishedCallback? onSessionEstablished;
   SessionFailedCallback? onSessionFailed;
@@ -78,6 +83,65 @@ class NoiseSessionManager {
   /// Check if session exists and is established
   bool hasEstablishedSession(String peerID) {
     final session = _sessions[peerID];
+    return session != null && session.isEstablished();
+  }
+
+  // ========== IDENTITY RESOLUTION ==========
+
+  /// Register persistent → ephemeral mapping
+  ///
+  /// Call this after pairing completes to enable session lookup by persistent key.
+  ///
+  /// [persistentPublicKey] The long-term identity key
+  /// [ephemeralID] The session-specific ID (key in _sessions map)
+  void registerIdentityMapping(String persistentPublicKey, String ephemeralID) {
+    _persistentToEphemeral[persistentPublicKey] = ephemeralID;
+    _logger.info('🔑 Registered identity mapping: ${persistentPublicKey.substring(0, 8)}... → ${ephemeralID.substring(0, 8)}...');
+  }
+
+  /// Unregister persistent → ephemeral mapping
+  void unregisterIdentityMapping(String persistentPublicKey) {
+    _persistentToEphemeral.remove(persistentPublicKey);
+    _logger.fine('Unregistered identity mapping for ${persistentPublicKey.substring(0, 8)}...');
+  }
+
+  /// Resolve any public key to the actual session ID (ephemeral ID)
+  ///
+  /// This enables transparent session lookup regardless of whether caller
+  /// provides ephemeral ID or persistent public key.
+  ///
+  /// [publicKey] Can be either ephemeral ID or persistent public key
+  /// Returns the ephemeral ID to use for session lookup, or the input if no mapping exists
+  String resolveSessionID(String publicKey) {
+    // Check if this is already an ephemeral ID (has a session directly)
+    if (_sessions.containsKey(publicKey)) {
+      return publicKey; // Direct hit, already ephemeral
+    }
+
+    // Check if this is a persistent key with a mapping
+    final ephemeralID = _persistentToEphemeral[publicKey];
+    if (ephemeralID != null) {
+      _logger.fine('🔍 Resolved persistent key ${publicKey.substring(0, 8)}... → ephemeral ${ephemeralID.substring(0, 8)}...');
+      return ephemeralID;
+    }
+
+    // No mapping found, assume input is the session ID
+    _logger.fine('🔍 No mapping for ${publicKey.substring(0, 8)}..., using as-is');
+    return publicKey;
+  }
+
+  /// Get session by any public key (ephemeral or persistent)
+  ///
+  /// Convenience method that combines resolution + lookup.
+  NoiseSession? getSessionByAnyKey(String publicKey) {
+    final sessionID = resolveSessionID(publicKey);
+    return _sessions[sessionID];
+  }
+
+  /// Check if session exists using any public key (ephemeral or persistent)
+  bool hasEstablishedSessionByAnyKey(String publicKey) {
+    final sessionID = resolveSessionID(publicKey);
+    final session = _sessions[sessionID];
     return session != null && session.isEstablished();
   }
 
@@ -194,35 +258,39 @@ class NoiseSessionManager {
   // ========== TRANSPORT ENCRYPTION ==========
 
   /// Encrypt data for peer
-  /// 
+  ///
   /// [data] Plaintext bytes
-  /// [peerID] Peer identifier
+  /// [peerID] Peer identifier (can be ephemeral ID or persistent public key)
   /// Returns encrypted bytes with nonce
   Future<Uint8List> encrypt(Uint8List data, String peerID) async {
-    final session = getSession(peerID);
-    
+    // 🔑 IDENTITY RESOLUTION: Allow encryption with persistent OR ephemeral ID
+    final sessionID = resolveSessionID(peerID);
+    final session = getSession(sessionID);
+
     if (session == null) {
-      throw StateError('No session found for $peerID');
+      throw StateError('No session found for $peerID (resolved to $sessionID)');
     }
-    
+
     if (!session.isEstablished()) {
-      throw StateError('Session not established with $peerID');
+      throw StateError('Session not established with $peerID (resolved to $sessionID)');
     }
-    
+
     return session.encrypt(data);
   }
 
   /// Decrypt data from peer
-  /// 
+  ///
   /// [encryptedData] Ciphertext bytes with nonce
-  /// [peerID] Peer identifier
+  /// [peerID] Peer identifier (can be ephemeral ID or persistent public key)
   /// Returns plaintext bytes
   Future<Uint8List> decrypt(Uint8List encryptedData, String peerID) async {
-    final session = getSession(peerID);
-    
+    // 🔑 IDENTITY RESOLUTION: Allow decryption with persistent OR ephemeral ID
+    final sessionID = resolveSessionID(peerID);
+    final session = getSession(sessionID);
+
     if (session == null) {
-      _logger.severe('No session found for $peerID when trying to decrypt');
-      throw StateError('No session found for $peerID');
+      _logger.severe('No session found for $peerID (resolved to $sessionID) when trying to decrypt');
+      throw StateError('No session found for $peerID (resolved to $sessionID)');
     }
     
     if (!session.isEstablished()) {

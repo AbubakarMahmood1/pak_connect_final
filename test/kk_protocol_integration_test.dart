@@ -145,7 +145,7 @@ void main() {
       for (var key in bobContacts.keys) {
         await bobContactRepo.deleteContact(key);
       }
-    };
+    }
 
     /// Helper function to establish initial XX handshake between two devices
     Future<void> establishInitialXXSession({

@@ -1219,6 +1219,10 @@ void _editDisplayName() async {
         if (result.success) {
           _logger.info('Chat archived: ${chat.contactName}');
           _loadChats();
+
+          // 🔧 FIX: Invalidate archive providers so Archive screen updates
+          ref.invalidate(archiveListProvider);
+          ref.invalidate(archiveStatisticsProvider);
         } else {
           _logger.warning('Failed to archive chat: ${result.message}');
         }

@@ -272,28 +272,40 @@ class MeshNetworkingService {
   }
 
   /// Get node ID with timeout and fallback mechanism
+  ///
+  /// 🔧 CRITICAL FIX (2025-10-20): Changed from persistent to EPHEMERAL key
+  ///
+  /// IDENTITY ARCHITECTURE:
+  /// - Mesh routing MUST use ephemeral session keys (privacy-preserving, rotates per session)
+  /// - Persistent keys ONLY for: Contact.persistentPublicKey, Noise KK pattern, database PKs
+  ///
+  /// WHY THIS MATTERS:
+  /// - RelayMetadata.routingPath[] broadcasts nodeId - MUST NOT expose long-term identity
+  /// - NetworkTopology.nodeId visible in gossip - MUST be session-specific
+  /// - Ephemeral keys rotate per app session, preventing long-term tracking
   Future<String> _getNodeIdWithFallback() async {
     try {
-      // Try to get persistent ID with timeout
-      final nodeIdFuture = _bleService.getMyPublicKey();
-      final timeoutFuture = Future.delayed(Duration(seconds: 5), () => throw TimeoutException('BLE service timeout', Duration(seconds: 5)));
-      
-      final result = await Future.any([nodeIdFuture, timeoutFuture]);
-      
-      if (result.isNotEmpty) {
-        _logger.info('✅ Successfully obtained persistent node ID from BLE service');
-        return result;
+      // Try to get EPHEMERAL ID with timeout (NOT persistent key!)
+      final ephemeralId = await Future.any([
+        _bleService.getMyEphemeralId(), // Changed from getMyPublicKey()
+        Future.delayed(Duration(seconds: 5), () => throw TimeoutException('BLE service timeout', Duration(seconds: 5))),
+      ]);
+
+      if (ephemeralId.isNotEmpty) {
+        _logger.info('✅ Successfully obtained EPHEMERAL node ID from BLE service (session-specific)');
+        _logger.info('🔐 Privacy: Using ephemeral key for mesh routing (NOT persistent identity)');
+        return ephemeralId;
       } else {
-        throw Exception('BLE service returned null/empty node ID');
+        throw Exception('BLE service returned null/empty ephemeral ID');
       }
-      
+
     } catch (e) {
-      _logger.warning('⚠️ BLE service unavailable for node ID (${e.toString()}), generating fallback');
-      
-      // Generate fallback node ID
+      _logger.warning('⚠️ BLE service unavailable for ephemeral ID (${e.toString()}), generating fallback');
+
+      // Generate fallback ephemeral node ID
       final fallbackId = _generateFallbackNodeId();
-      _logger.info('🔄 Using fallback node ID: ${fallbackId.length > 16 ? '${fallbackId.substring(0, 16)}...' : fallbackId}');
-      
+      _logger.info('🔄 Using fallback ephemeral node ID: ${fallbackId.length > 16 ? '${fallbackId.substring(0, 16)}...' : fallbackId}');
+
       return fallbackId;
     }
   }

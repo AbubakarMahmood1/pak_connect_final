@@ -1,5 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:logging/logging.dart';
+
+final _logger = Logger('MessageFragmenter');
 
 class MessageChunk {
   final String messageId;
@@ -29,9 +32,9 @@ class MessageChunk {
   final bytes = Uint8List.fromList(utf8.encode(compactString));
   
   // 🔧 DEBUG: Log what we're sending
-  print('🔧 CHUNK DEBUG: toBytes() called');
-  print('🔧 CHUNK DEBUG: Format: $shortId|$chunkIndex|$totalChunks|$binaryFlag|${content.length} chars');
-  print('🔧 CHUNK DEBUG: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}');
+  _logger.fine('🔧 CHUNK DEBUG: toBytes() called');
+  _logger.fine('🔧 CHUNK DEBUG: Format: $shortId|$chunkIndex|$totalChunks|$binaryFlag|${content.length} chars');
+  _logger.fine('🔧 CHUNK DEBUG: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}');
   
   return bytes;
 }
@@ -42,26 +45,26 @@ class MessageChunk {
   // Solution: Use String.fromCharCodes() which treats bytes as individual characters (no multi-byte validation)
   
   // 🔧 DEBUG: Log what we're receiving
-  print('🔧 CHUNK DEBUG: fromBytes() called');
-  print('🔧 CHUNK DEBUG: Received ${bytes.length} bytes');
-  print('🔧 CHUNK DEBUG: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}');
-  
+  _logger.fine('🔧 CHUNK DEBUG: fromBytes() called');
+  _logger.fine('🔧 CHUNK DEBUG: Received ${bytes.length} bytes');
+  _logger.fine('🔧 CHUNK DEBUG: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}');
+
   // Convert bytes to string using ASCII-only decoding (safe for base64)
   // This avoids UTF-8 multi-byte sequence validation that causes FormatException
   final chunkString = String.fromCharCodes(bytes);
-  
-  print('🔧 CHUNK DEBUG: Decoded string length: ${chunkString.length}');
-  print('🔧 CHUNK DEBUG: First 100 chars: ${chunkString.substring(0, chunkString.length > 100 ? 100 : chunkString.length)}');
-  
+
+  _logger.fine('🔧 CHUNK DEBUG: Decoded string length: ${chunkString.length}');
+  _logger.fine('🔧 CHUNK DEBUG: First 100 chars: ${chunkString.substring(0, chunkString.length > 100 ? 100 : chunkString.length)}');
+
   // Split by delimiter
   final parts = chunkString.split('|');
-  
-  print('🔧 CHUNK DEBUG: Split into ${parts.length} parts');
-  if (parts.length > 0) print('🔧 CHUNK DEBUG: Part 0 (msgId): ${parts[0]}');
-  if (parts.length > 1) print('🔧 CHUNK DEBUG: Part 1 (idx): ${parts[1]}');
-  if (parts.length > 2) print('🔧 CHUNK DEBUG: Part 2 (total): ${parts[2]}');
-  if (parts.length > 3) print('🔧 CHUNK DEBUG: Part 3 (binary): ${parts[3]}');
-  if (parts.length > 4) print('🔧 CHUNK DEBUG: Part 4 (content): ${parts[4].length} chars');
+
+  _logger.fine('🔧 CHUNK DEBUG: Split into ${parts.length} parts');
+  if (parts.isNotEmpty) _logger.fine('🔧 CHUNK DEBUG: Part 0 (msgId): ${parts[0]}');
+  if (parts.length > 1) _logger.fine('🔧 CHUNK DEBUG: Part 1 (idx): ${parts[1]}');
+  if (parts.length > 2) _logger.fine('🔧 CHUNK DEBUG: Part 2 (total): ${parts[2]}');
+  if (parts.length > 3) _logger.fine('🔧 CHUNK DEBUG: Part 3 (binary): ${parts[3]}');
+  if (parts.length > 4) _logger.fine('🔧 CHUNK DEBUG: Part 4 (content): ${parts[4].length} chars');
   
   if (parts.length != 5) {
     throw FormatException('Invalid chunk format: expected 5 parts, got ${parts.length}. Data: ${chunkString.substring(0, chunkString.length > 50 ? 50 : chunkString.length)}...');
@@ -225,20 +228,20 @@ class MessageReassembler {
   /// IMPORTANT: Only use this for messages where the final bytes are valid UTF-8!
   /// For binary protocol messages with compression, use [addChunkBytes] instead.
   String? addChunk(MessageChunk chunk) {
-    print('🔄 REASSEMBLE: addChunk() called for chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} of message ${chunk.messageId}');
+    _logger.fine('🔄 REASSEMBLE: addChunk() called for chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} of message ${chunk.messageId}');
     final bytes = addChunkBytes(chunk);
     if (bytes == null) {
-      print('🔄 REASSEMBLE: Still waiting for more chunks');
+      _logger.fine('🔄 REASSEMBLE: Still waiting for more chunks');
       return null;
     }
-    
-    print('🔄 REASSEMBLE: All chunks received! Reassembled ${bytes.length} bytes');
-    print('🔄 REASSEMBLE: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}');
-    
+
+    _logger.fine('🔄 REASSEMBLE: All chunks received! Reassembled ${bytes.length} bytes');
+    _logger.fine('🔄 REASSEMBLE: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}');
+
     // Convert bytes to string (assumes valid UTF-8)
-    print('🔄 REASSEMBLE: Converting bytes to UTF-8 string');
+    _logger.fine('🔄 REASSEMBLE: Converting bytes to UTF-8 string');
     final result = utf8.decode(bytes);
-    print('🔄 REASSEMBLE✅: Successfully decoded ${result.length} character string');
+    _logger.fine('🔄 REASSEMBLE✅: Successfully decoded ${result.length} character string');
     return result;
   }
   
@@ -250,26 +253,26 @@ class MessageReassembler {
   /// Use this for protocol messages that may contain compressed (non-UTF-8) data.
   Uint8List? addChunkBytes(MessageChunk chunk) {
     final messageId = chunk.messageId;
-    
-    print('🔄 REASSEMBLE BYTES: Received chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} for message $messageId');
-    print('🔄 REASSEMBLE BYTES: Chunk is ${chunk.isBinary ? "BINARY (base64)" : "TEXT"}');
-    print('🔄 REASSEMBLE BYTES: Content length: ${chunk.content.length} chars');
-    
+
+    _logger.fine('🔄 REASSEMBLE BYTES: Received chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} for message $messageId');
+    _logger.fine('🔄 REASSEMBLE BYTES: Chunk is ${chunk.isBinary ? "BINARY (base64)" : "TEXT"}');
+    _logger.fine('🔄 REASSEMBLE BYTES: Content length: ${chunk.content.length} chars');
+
     // Initialize message tracking
     if (!_pendingMessages.containsKey(messageId)) {
       _pendingMessages[messageId] = {};
       _messageTimestamps[messageId] = DateTime.now();
-      print('🔄 REASSEMBLE BYTES: Started tracking new message $messageId');
+      _logger.fine('🔄 REASSEMBLE BYTES: Started tracking new message $messageId');
     }
-    
+
     // Store this chunk
     _pendingMessages[messageId]![chunk.chunkIndex] = chunk;
-    print('🔄 REASSEMBLE BYTES: Stored chunk ${chunk.chunkIndex}. Have ${_pendingMessages[messageId]!.length}/${chunk.totalChunks} chunks');
+    _logger.fine('🔄 REASSEMBLE BYTES: Stored chunk ${chunk.chunkIndex}. Have ${_pendingMessages[messageId]!.length}/${chunk.totalChunks} chunks');
     
     // Check if we have all chunks
     final receivedChunks = _pendingMessages[messageId]!;
     if (receivedChunks.length == chunk.totalChunks) {
-      print('🔄 REASSEMBLE BYTES✅: All ${chunk.totalChunks} chunks received! Starting reassembly');
+      _logger.fine('🔄 REASSEMBLE BYTES✅: All ${chunk.totalChunks} chunks received! Starting reassembly');
       // Reassemble message
       final sortedChunks = <MessageChunk>[];
       for (int i = 0; i < chunk.totalChunks; i++) {
@@ -278,40 +281,40 @@ class MessageReassembler {
         }
         sortedChunks.add(receivedChunks[i]!);
       }
-      
+
       // Clean up
       _pendingMessages.remove(messageId);
       _messageTimestamps.remove(messageId);
-      
+
       // 🔧 FIX: Handle both binary (base64) and text chunks
       // Binary chunks: decode base64, concatenate bytes, return raw bytes
       // Text chunks: concatenate strings, encode as UTF-8
       final firstChunk = sortedChunks.first;
       if (firstChunk.isBinary) {
-        print('🔄 REASSEMBLE BYTES: Mode = BINARY (base64 decoding)');
+        _logger.fine('🔄 REASSEMBLE BYTES: Mode = BINARY (base64 decoding)');
         // Binary mode: decode base64 chunks, concatenate bytes
         final allBytes = <int>[];
         for (int i = 0; i < sortedChunks.length; i++) {
           final chunk = sortedChunks[i];
-          print('🔄 REASSEMBLE BYTES: Decoding base64 chunk ${i + 1}/${sortedChunks.length} (${chunk.content.length} chars)');
+          _logger.fine('🔄 REASSEMBLE BYTES: Decoding base64 chunk ${i + 1}/${sortedChunks.length} (${chunk.content.length} chars)');
           final chunkBytes = base64.decode(chunk.content);
-          print('🔄 REASSEMBLE BYTES: Chunk ${i + 1} decoded to ${chunkBytes.length} bytes');
+          _logger.fine('🔄 REASSEMBLE BYTES: Chunk ${i + 1} decoded to ${chunkBytes.length} bytes');
           allBytes.addAll(chunkBytes);
         }
-        print('🔄 REASSEMBLE BYTES✅: Total reassembled: ${allBytes.length} bytes');
-        print('🔄 REASSEMBLE BYTES: First 50 bytes: ${allBytes.sublist(0, allBytes.length > 50 ? 50 : allBytes.length)}');
+        _logger.fine('🔄 REASSEMBLE BYTES✅: Total reassembled: ${allBytes.length} bytes');
+        _logger.fine('🔄 REASSEMBLE BYTES: First 50 bytes: ${allBytes.sublist(0, allBytes.length > 50 ? 50 : allBytes.length)}');
         // Return raw bytes (may be compressed/non-UTF-8 data!)
         return Uint8List.fromList(allBytes);
       } else {
-        print('🔄 REASSEMBLE BYTES: Mode = TEXT (string concatenation)');
+        _logger.fine('🔄 REASSEMBLE BYTES: Mode = TEXT (string concatenation)');
         // Legacy text mode: concatenate strings, encode as UTF-8
         final text = sortedChunks.map((c) => c.content).join('');
-        print('🔄 REASSEMBLE BYTES✅: Concatenated ${text.length} characters');
+        _logger.fine('🔄 REASSEMBLE BYTES✅: Concatenated ${text.length} characters');
         return Uint8List.fromList(utf8.encode(text));
       }
     }
-    
-    print('🔄 REASSEMBLE BYTES: Still waiting for more chunks (${receivedChunks.length}/${chunk.totalChunks})');
+
+    _logger.fine('🔄 REASSEMBLE BYTES: Still waiting for more chunks (${receivedChunks.length}/${chunk.totalChunks})');
     return null; // Still waiting for more chunks
   }
   

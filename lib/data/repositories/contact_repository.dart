@@ -21,8 +21,6 @@ class Contact {
   final String? persistentPublicKey; // Persistent identity (NULL at LOW, set at MEDIUM+)
   final String? currentEphemeralId;  // Active Noise session ID (updates on reconnect)
   
-  @Deprecated('Use currentEphemeralId instead')
-  final String? ephemeralId;       // DEPRECATED: Legacy field for backward compatibility
   
   final String displayName;
   final TrustStatus trustStatus;
@@ -43,7 +41,6 @@ class Contact {
     required this.publicKey,
     this.persistentPublicKey,
     this.currentEphemeralId,
-    @Deprecated('Use currentEphemeralId instead') this.ephemeralId,
     required this.displayName,
     required this.trustStatus,
     required this.securityLevel,
@@ -63,13 +60,12 @@ class Contact {
   
   /// 🔧 MODEL: Get the session ID for Noise Protocol lookup
   /// Noise sessions are ALWAYS indexed by currentEphemeralId
-  String? get sessionIdForNoise => currentEphemeralId ?? ephemeralId ?? publicKey;
+  String? get sessionIdForNoise => currentEphemeralId ?? publicKey;
 
   Map<String, dynamic> toJson() => {
     'publicKey': publicKey,
     'persistentPublicKey': persistentPublicKey,
     'currentEphemeralId': currentEphemeralId,
-    'ephemeralId': ephemeralId, // Keep for backward compat
     'displayName': displayName,
     'trustStatus': trustStatus.index,
     'securityLevel': securityLevel.index,
@@ -86,7 +82,6 @@ class Contact {
     publicKey: json['publicKey'] ?? json['public_key'],
     persistentPublicKey: json['persistentPublicKey'] ?? json['persistent_public_key'],
     currentEphemeralId: json['currentEphemeralId'] ?? json['current_ephemeral_id'],
-    ephemeralId: json['ephemeralId'] ?? json['ephemeral_id'], // Legacy support
     displayName: json['displayName'] ?? json['display_name'],
     trustStatus: TrustStatus.values[json['trustStatus'] ?? json['trust_status'] ?? 0],
     securityLevel: SecurityLevel.values[json['securityLevel'] ?? json['security_level'] ?? 0],
@@ -112,7 +107,6 @@ class Contact {
     'public_key': publicKey,
     'persistent_public_key': persistentPublicKey,
     'current_ephemeral_id': currentEphemeralId,
-    'ephemeral_id': ephemeralId, // Legacy field
     'display_name': displayName,
     'trust_status': trustStatus.index,
     'security_level': securityLevel.index,
@@ -131,7 +125,6 @@ class Contact {
     publicKey: row['public_key'] as String,
     persistentPublicKey: row['persistent_public_key'] as String?,
     currentEphemeralId: row['current_ephemeral_id'] as String?,
-    ephemeralId: row['ephemeral_id'] as String?, // Legacy field
     displayName: row['display_name'] as String,
     trustStatus: TrustStatus.values[row['trust_status'] as int],
     securityLevel: SecurityLevel.values[row['security_level'] as int],
@@ -152,7 +145,6 @@ class Contact {
     publicKey: publicKey,
     persistentPublicKey: persistentPublicKey,
     currentEphemeralId: currentEphemeralId,
-    ephemeralId: ephemeralId,
     displayName: displayName,
     trustStatus: trustStatus,
     securityLevel: newLevel,
@@ -390,7 +382,6 @@ class ContactRepository {
     }
   }
 
-  /// Update contact ephemeral ID (for Noise session tracking)
   /// Update contact's current ephemeral ID (session tracking)
   Future<void> updateContactEphemeralId(String publicKey, String newEphemeralId) async {
     final db = await _db;
@@ -398,7 +389,6 @@ class ContactRepository {
       'contacts',
       {
         'current_ephemeral_id': newEphemeralId,
-        'ephemeral_id': newEphemeralId,  // Keep legacy field in sync
       },
       where: 'public_key = ?',
       whereArgs: [publicKey],
@@ -517,12 +507,12 @@ class ContactRepository {
 
   /// Create new contact with explicit security level
   /// 🔧 NEW MODEL: Immutable publicKey, separate persistent identity
-  /// 
+  ///
   /// At LOW security:
   ///   - publicKey = first ephemeral ID (never changes, primary key)
   ///   - persistentPublicKey = NULL
   ///   - currentEphemeralId = current session ID (same as publicKey initially)
-  /// 
+  ///
   /// At MEDIUM+ security:
   ///   - publicKey = still first ephemeral ID (unchanged)
   ///   - persistentPublicKey = real persistent key (set during upgrade)
@@ -534,7 +524,6 @@ class ContactRepository {
     {
       String? currentEphemeralId,   // Current session ID
       String? persistentPublicKey,  // Persistent identity (NULL at LOW)
-      String? ephemeralId,          // DEPRECATED: for backward compat
     }
   ) async {
     final existing = await getContact(publicKey);
@@ -544,8 +533,7 @@ class ContactRepository {
       final contact = Contact(
         publicKey: publicKey,  // Immutable primary key
         persistentPublicKey: persistentPublicKey,  // NULL at LOW, set at MEDIUM+
-        currentEphemeralId: currentEphemeralId ?? ephemeralId ?? publicKey,
-        ephemeralId: ephemeralId ?? currentEphemeralId ?? publicKey, // Legacy
+        currentEphemeralId: currentEphemeralId ?? publicKey,
         displayName: displayName,
         trustStatus: TrustStatus.newContact,
         securityLevel: securityLevel,
@@ -554,18 +542,17 @@ class ContactRepository {
         lastSecuritySync: now,
       );
       await _storeContact(contact);
-      
+
       _logger.info('🔒 SECURITY: New contact (${securityLevel.name})');
       _logger.info('   publicKey (immutable): ${publicKey.substring(0, 16)}...');
       _logger.info('   persistentPublicKey: ${persistentPublicKey?.substring(0, 16) ?? "NULL"}');
-      _logger.info('   currentEphemeralId: ${(currentEphemeralId ?? ephemeralId ?? publicKey).substring(0, 16)}...');
+      _logger.info('   currentEphemeralId: ${(currentEphemeralId ?? publicKey).substring(0, 16)}...');
     } else {
       // Contact exists - update fields
       final updated = Contact(
         publicKey: publicKey,  // Never changes
         persistentPublicKey: persistentPublicKey ?? existing.persistentPublicKey,
-        currentEphemeralId: currentEphemeralId ?? ephemeralId ?? existing.currentEphemeralId,
-        ephemeralId: ephemeralId ?? currentEphemeralId ?? existing.ephemeralId, // Legacy
+        currentEphemeralId: currentEphemeralId ?? existing.currentEphemeralId,
         displayName: displayName,
         trustStatus: existing.trustStatus,
         securityLevel: securityLevel,

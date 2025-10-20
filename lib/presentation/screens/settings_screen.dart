@@ -11,6 +11,7 @@ import '../providers/ble_providers.dart';
 import '../../data/repositories/preferences_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/chats_repository.dart';
+import '../../data/repositories/user_preferences.dart';
 import '../../data/database/database_helper.dart';
 import '../widgets/export_dialog.dart';
 import '../widgets/import_dialog.dart';
@@ -45,6 +46,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _showReadReceipts = PreferenceDefaults.showReadReceipts;
   bool _showOnlineStatus = PreferenceDefaults.showOnlineStatus;
   bool _allowNewContacts = PreferenceDefaults.allowNewContacts;
+  bool _hintBroadcastEnabled = true; // Spy mode toggle (default: hints enabled)
 
   // Data settings
   bool _autoArchiveOldChats = PreferenceDefaults.autoArchiveOldChats;
@@ -90,6 +92,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _allowNewContacts = await _preferencesRepository.getBool(
       PreferenceKeys.allowNewContacts,
     );
+
+    // Load spy mode setting
+    final userPrefs = UserPreferences();
+    _hintBroadcastEnabled = await userPrefs.getHintBroadcastEnabled();
 
     // Load data settings
     _autoArchiveOldChats = await _preferencesRepository.getBool(
@@ -397,6 +403,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Column(
         children: [
+          // ========== SPY MODE TOGGLE ==========
+          SwitchListTile(
+            secondary: Icon(_hintBroadcastEnabled ? Icons.wifi_tethering : Icons.visibility_off),
+            title: Text('Broadcast Hints'),
+            subtitle: Text(
+              _hintBroadcastEnabled
+                  ? 'Friends can see when you\'re online'
+                  : '🕵️ Spy mode: Chat anonymously with friends',
+              style: TextStyle(
+                color: _hintBroadcastEnabled
+                    ? theme.textTheme.bodySmall?.color
+                    : theme.colorScheme.primary,
+                fontWeight: _hintBroadcastEnabled ? FontWeight.normal : FontWeight.w600,
+              ),
+            ),
+            value: _hintBroadcastEnabled,
+            onChanged: (value) async {
+              setState(() => _hintBroadcastEnabled = value);
+              final userPrefs = UserPreferences();
+              await userPrefs.setHintBroadcastEnabled(value);
+
+              // Show feedback
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      value
+                          ? 'Spy mode disabled - friends will know it\'s you'
+                          : '🕵️ Spy mode enabled - chat anonymously',
+                    ),
+                    duration: Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+          ),
+          Divider(height: 1),
           SwitchListTile(
             secondary: Icon(Icons.check_circle),
             title: Text('Read Receipts'),
@@ -422,7 +465,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 PreferenceKeys.showOnlineStatus,
                 value,
               );
-              
+
               // Only refresh advertising if in peripheral mode
               // Pass the value directly to avoid stale cache issues
               final bleService = ref.read(bleServiceProvider);

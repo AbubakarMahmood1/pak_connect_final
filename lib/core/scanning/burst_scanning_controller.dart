@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import '../power/adaptive_power_manager.dart';
 import '../../data/services/ble_service.dart';
-import '../../data/services/ble_connection_manager.dart';
 
 /// Bridge controller that connects AdaptivePowerManager to actual BLE scanning operations
 /// This ensures burst scanning reaches the radio hardware with proper source tagging
@@ -76,10 +75,8 @@ class BurstScanningController {
 
   /// Handle burst scan start from power manager
   void _handleBurstScanStart() async {
-    if (_bleService?.isPeripheralMode == true) {
-      _logger.fine('Skipping burst scan - device in peripheral mode');
-      return;
-    }
+    // 🔧 DUAL-ROLE FIX: Removed peripheral mode check - scanning and advertising coexist
+    // Both central and peripheral roles run simultaneously without interference
 
     // 🔥 OPTIMIZATION: Check if at max connections before scanning
     final connectionManager = _bleService?.connectionManager;

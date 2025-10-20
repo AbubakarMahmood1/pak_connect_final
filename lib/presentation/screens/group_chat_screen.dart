@@ -90,7 +90,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                 )
               : const Text('Group Chat'),
           loading: () => const Text('Loading...'),
-          error: (_, __) => const Text('Error'),
+          error: (_, _) => const Text('Error'),
         ),
         actions: [
           IconButton(
@@ -320,7 +320,7 @@ class _MessageBubble extends ConsumerWidget {
                         height: 12,
                         child: CircularProgressIndicator(strokeWidth: 1.5),
                       ),
-                      error: (_, __) => const Icon(
+                      error: (_, _) => const Icon(
                         Icons.help_outline,
                         size: 16,
                         color: Colors.grey,

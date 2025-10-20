@@ -2,7 +2,14 @@
 // Tracks nodes, connections, and network graph structure
 
 /// Represents a node in the mesh network
+///
+/// 🔧 IDENTITY ARCHITECTURE (2025-10-20 FIX):
+/// - nodeId MUST be EPHEMERAL session key (NOT persistent identity)
+/// - Ephemeral keys rotate per app session - prevents long-term tracking
+/// - Topology gossip broadcasts nodeId - MUST NOT expose persistent identity
 class NetworkNode {
+  /// Node identifier (EPHEMERAL session key, rotates per app session)
+  /// 🔐 PRIVACY: This is NOT a persistent identity - it's session-specific
   final String nodeId;
   final String displayName;
   final DateTime lastSeen;

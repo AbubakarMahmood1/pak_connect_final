@@ -144,12 +144,31 @@ class NoiseEncryptionService {
   }
 
   /// Calculate fingerprint for public key
-  /// 
+  ///
   /// [publicKey] 32-byte public key
   /// Returns SHA-256 hash as hex string
   static String calculateFingerprint(Uint8List publicKey) {
     final digest = sha256.convert(publicKey);
     return digest.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
+  }
+
+  // ========== IDENTITY RESOLUTION ==========
+
+  /// Register persistent → ephemeral mapping
+  ///
+  /// Call this after pairing to enable transparent session lookup by persistent key.
+  ///
+  /// [persistentPublicKey] Long-term identity (from pairing)
+  /// [ephemeralID] Session ID used during handshake
+  void registerIdentityMapping(String persistentPublicKey, String ephemeralID) {
+    _checkInitialized();
+    _sessionManager.registerIdentityMapping(persistentPublicKey, ephemeralID);
+  }
+
+  /// Unregister persistent → ephemeral mapping
+  void unregisterIdentityMapping(String persistentPublicKey) {
+    _checkInitialized();
+    _sessionManager.unregisterIdentityMapping(persistentPublicKey);
   }
 
   // ========== HANDSHAKE MANAGEMENT ==========

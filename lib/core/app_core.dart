@@ -11,6 +11,7 @@ import 'messaging/offline_message_queue.dart';
 import 'performance/performance_monitor.dart';
 import 'services/security_manager.dart';
 import 'networking/topology_manager.dart';
+import 'security/ephemeral_key_manager.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
@@ -98,13 +99,19 @@ class AppCore {
       await _initializeRepositories();
       _logger.info('✅ Repositories initialized in ${DateTime.now().difference(repoStart).inMilliseconds}ms');
 
+      // 🔧 FIX P0: Initialize message queue FIRST before any BLE components can access it
+      _logger.info('📬 Initializing message queue (PRIORITY: before BLE/core services)...');
+      final queueStart = DateTime.now();
+      await _initializeMessageQueue();
+      _logger.info('✅ Message queue initialized in ${DateTime.now().difference(queueStart).inMilliseconds}ms');
+
       // Initialize monitoring
       _logger.info('📊 Initializing monitoring...');
       final monitorStart = DateTime.now();
       await _initializeMonitoring();
       _logger.info('✅ Monitoring initialized in ${DateTime.now().difference(monitorStart).inMilliseconds}ms');
 
-      // Initialize core services
+      // Initialize core services (may trigger BLEService initialization via providers)
       _logger.info('🔧 Initializing core services...');
       final servicesStart = DateTime.now();
       await _initializeCoreServices();
@@ -116,7 +123,7 @@ class AppCore {
       await _initializeBLEIntegration();
       _logger.info('✅ BLE integration initialized in ${DateTime.now().difference(bleStart).inMilliseconds}ms');
 
-      // Initialize enhanced features
+      // Initialize enhanced features (battery, burst scanning)
       _logger.info('⚡ Initializing enhanced features...');
       final featuresStart = DateTime.now();
       await _initializeEnhancedFeatures();
@@ -222,15 +229,23 @@ class AppCore {
     await SecurityManager.initialize();
     _logger.info('✅ SecurityManager initialized successfully');
 
-    // Initialize TopologyManager for network visualization
-    _logger.info('🌐 Initializing TopologyManager for network visualization...');
+    // 🔧 FIX P1: Initialize EphemeralKeyManager ONCE here before any component uses it
+    // This ensures single ephemeral key generation per session (single responsibility)
+    _logger.info('🔑 Initializing EphemeralKeyManager for session...');
     try {
-      final myPublicKey = await userPreferences.getPublicKey();
-      TopologyManager.instance.initialize(myPublicKey);
-      _logger.info('✅ TopologyManager initialized with node ID: ${myPublicKey.substring(0, 16)}...');
+      final myPrivateKey = await userPreferences.getPrivateKey();
+      await EphemeralKeyManager.initialize(myPrivateKey);
+      final myEphemeralId = EphemeralKeyManager.generateMyEphemeralKey();
+      _logger.info('✅ EphemeralKeyManager initialized - Session ID: ${myEphemeralId.substring(0, 16)}...');
+
+      // Initialize TopologyManager with the same ephemeral ID
+      _logger.info('🌐 Initializing TopologyManager with session ephemeral ID...');
+      TopologyManager.instance.initialize(myEphemeralId);
+      _logger.info('✅ TopologyManager initialized with ephemeral node ID: ${myEphemeralId.substring(0, 16)}...');
     } catch (e) {
-      _logger.warning('⚠️ Failed to initialize TopologyManager: $e');
-      // Non-critical, continue initialization
+      _logger.warning('⚠️ Failed to initialize EphemeralKeyManager/TopologyManager: $e');
+      // Non-critical for TopologyManager, but critical for ephemeral keys
+      rethrow;
     }
 
     // Initialize contact management
@@ -256,29 +271,8 @@ class AppCore {
     // await bleStateManager.initialize();
   }
   
-  /// Initialize enhanced features
-  Future<void> _initializeEnhancedFeatures() async {
-    // Initialize battery optimizer for power management
-    _logger.info('🔋 Initializing battery optimizer...');
-    batteryOptimizer = BatteryOptimizer();
-    await batteryOptimizer.initialize(
-      onBatteryUpdate: (info) {
-        _logger.info('🔋 Battery: ${info.level}% (${info.powerMode.name})');
-      },
-      onPowerModeChanged: (mode) {
-        _logger.info('🔋 Power mode changed to: ${mode.name}');
-      },
-    );
-    _logger.info('✅ Battery optimizer initialized');
-    
-    // Initialize burst scanning controller (replaces direct power manager)
-    burstScanningController = BurstScanningController();
-
-    // We need the BLE service first - will be done after BLE integration
-    // The controller will be fully initialized in _startIntegratedSystems()
-    _logger.info('Burst scanning controller created - will initialize with BLE service');
-    
-    // Initialize message queue
+  /// Initialize message queue (must be called early - before BLE services)
+  Future<void> _initializeMessageQueue() async {
     messageQueue = OfflineMessageQueue();
     await messageQueue.initialize(
       onMessageQueued: (message) => _logger.info('Message queued: ${message.id}'),
@@ -292,10 +286,32 @@ class AppCore {
       onSendMessage: _handleMessageSend,
       onConnectivityCheck: _checkConnectivity,
     );
-    
-    final queueStats = messageQueue.getStatistics(); // Fixed: use getStatistics()
-    _logger.info('Loaded ${queueStats.pendingMessages} messages from storage');
-    _logger.info('Offline message queue initialized with ${queueStats.pendingMessages} pending messages');
+
+    final queueStats = messageQueue.getStatistics();
+    final totalQueued = queueStats.pendingMessages + queueStats.sendingMessages + queueStats.retryingMessages;
+    _logger.info('✅ Message queue ready with $totalQueued messages (${queueStats.pendingMessages} pending, ${queueStats.sendingMessages} sending, ${queueStats.retryingMessages} retrying)');
+  }
+
+  /// Initialize enhanced features (battery, scanning)
+  Future<void> _initializeEnhancedFeatures() async {
+    // Initialize battery optimizer for power management
+    _logger.info('🔋 Initializing battery optimizer...');
+    batteryOptimizer = BatteryOptimizer();
+    await batteryOptimizer.initialize(
+      onBatteryUpdate: (info) {
+        _logger.info('🔋 Battery: ${info.level}% (${info.powerMode.name})');
+      },
+      onPowerModeChanged: (mode) {
+        _logger.info('🔋 Power mode changed to: ${mode.name}');
+      },
+    );
+    _logger.info('✅ Battery optimizer initialized');
+
+    // Initialize burst scanning controller (replaces direct power manager)
+    burstScanningController = BurstScanningController();
+
+    // The controller will be fully initialized in _startIntegratedSystems()
+    _logger.info('Burst scanning controller created - will initialize with BLE service');
 
     _logger.info('Enhanced features initialized');
   }

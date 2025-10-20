@@ -17,6 +17,7 @@ import 'presentation/screens/create_group_screen.dart';
 import 'presentation/screens/group_chat_screen.dart';
 import 'presentation/providers/ble_providers.dart';
 import 'presentation/providers/theme_provider.dart';
+import 'presentation/widgets/spy_mode_listener.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,42 +36,44 @@ class PakConnectApp extends ConsumerWidget {
     // Watch theme mode from persistent settings
     final themeMode = ref.watch(themeModeProvider);
 
-    return MaterialApp(
-      title: 'PakConnect - Enhanced Secure Messaging',
+    return SpyModeListener(
+      child: MaterialApp(
+        title: 'PakConnect - Enhanced Secure Messaging',
 
-      // Global navigator key for background navigation (e.g., from notifications)
-      navigatorKey: NavigationService.navigatorKey,
+        // Global navigator key for background navigation (e.g., from notifications)
+        navigatorKey: NavigationService.navigatorKey,
 
-      // Enhanced Material Design 3.0 theme with dark/light support
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: themeMode, // Uses persistent user preference
+        // Enhanced Material Design 3.0 theme with dark/light support
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: themeMode, // Uses persistent user preference
 
-      // Accessibility and internationalization
-      debugShowCheckedModeBanner: false,
+        // Accessibility and internationalization
+        debugShowCheckedModeBanner: false,
 
-      // Enhanced navigation with theme support
-      home: const AppWrapper(),
+        // Enhanced navigation with theme support
+        home: const AppWrapper(),
 
-      // Named routes for navigation
-      routes: {
-        '/groups': (context) => const GroupListScreen(),
-        '/create-group': (context) => const CreateGroupScreen(),
-      },
-      onGenerateRoute: (settings) {
-        // Handle routes with arguments
-        if (settings.name == '/group-chat') {
-          final groupId = settings.arguments as String;
-          return MaterialPageRoute(
-            builder: (context) => GroupChatScreen(groupId: groupId),
-          );
-        }
-        return null;
-      },
+        // Named routes for navigation
+        routes: {
+          '/groups': (context) => const GroupListScreen(),
+          '/create-group': (context) => const CreateGroupScreen(),
+        },
+        onGenerateRoute: (settings) {
+          // Handle routes with arguments
+          if (settings.name == '/group-chat') {
+            final groupId = settings.arguments as String;
+            return MaterialPageRoute(
+              builder: (context) => GroupChatScreen(groupId: groupId),
+            );
+          }
+          return null;
+        },
 
-      // Theme transitions
-      themeAnimationDuration: const Duration(milliseconds: 300),
-      themeAnimationCurve: Curves.easeInOut,
+        // Theme transitions
+        themeAnimationDuration: const Duration(milliseconds: 300),
+        themeAnimationCurve: Curves.easeInOut,
+      ),
     );
   }
 }

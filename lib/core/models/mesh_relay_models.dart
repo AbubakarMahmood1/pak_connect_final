@@ -5,14 +5,21 @@ import '../utils/gcs_filter.dart';
 import 'protocol_message.dart';  // PHASE 2: For ProtocolMessageType
 
 /// Metadata for mesh relay operations
+///
+/// 🔧 IDENTITY ARCHITECTURE (2025-10-20 FIX):
+/// - routingPath[] MUST contain EPHEMERAL session keys (NOT persistent identities)
+/// - originalSender/finalRecipient MAY be ephemeral OR persistent depending on context
+/// - Ephemeral keys rotate per app session - prevents long-term tracking
+/// - Persistent keys ONLY for: Contact relationships, Noise KK pattern, database PKs
 class RelayMetadata {
   /// Time-to-live (maximum hops) for the message
   final int ttl;
-  
+
   /// Current hop count (incremented at each relay)
   final int hopCount;
-  
+
   /// Path of nodes that have relayed this message (for anti-loop protection)
+  /// 🔐 PRIVACY: Contains EPHEMERAL session keys (rotates per session, not long-term identity)
   final List<String> routingPath;
   
   /// Cryptographic hash of the original message for deduplication
