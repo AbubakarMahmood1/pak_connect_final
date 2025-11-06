@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'dart:io' show Platform;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/discovery/batch_processor.dart';
 import '../../core/security/hint_cache_manager.dart';
 import '../../data/repositories/chats_repository.dart';
@@ -27,11 +26,10 @@ import '../../core/bluetooth/handshake_coordinator.dart';
 import '../../core/bluetooth/peripheral_initializer.dart';
 import '../../core/bluetooth/advertising_manager.dart';
 import '../../core/bluetooth/connection_cleanup_handler.dart';
-import '../../core/services/hint_advertisement_service.dart';
 import '../../core/services/hint_scanner_service.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../domain/entities/sensitive_contact_hint.dart';
+import '../../data/repositories/preferences_repository.dart'; // 🆕 For auto-connect preference
 import '../../domain/services/notification_service.dart';
 import '../../core/messaging/gossip_sync_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
@@ -123,9 +121,10 @@ Central? _connectedCentral;
 GATTCharacteristic? _connectedCharacteristic;
 
 // Phase 2a: Connection limit tracking
-int _activeCentralConnections = 0; // Centrals connected to us when we're peripheral
-static const int _maxCentralConnections = 1; // Single connection in peripheral mode (Phase 2a)
+int _activeCentralConnections = 0; // Centrals connected to us when we're peripheral // ignore: unused_field
+static const int _maxCentralConnections = 1; // Single connection in peripheral mode (Phase 2a) // ignore: unused_field
 bool _peripheralHandshakeStarted = false;  // Track if handshake initiated for this connection
+bool _meshNetworkingStarted = false;  // ✅ FIX: Track if mesh networking has been started at least once
 
 int? _peripheralNegotiatedMTU;
 bool _peripheralMtuReady = false;  // Track if MTU has been negotiated
@@ -304,26 +303,8 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
     await _hintScanner.initialize();
     _logger.info('✅ Hint scanner initialized');
 
-    // 🔥 FIXED: Delegate advertising to AdvertisingManager via startAsPeripheral()
-    // AdvertisingManager is the SINGLE RESPONSIBILITY for all advertising operations
-    _logger.info('🔥 Starting mesh networking (advertising + scanning ready)...');
-    try {
-      // ✅ NEW: Pass startAsPeripheral as callback to ensure AdvertisingManager is used
-      await _connectionManager.startMeshNetworking(
-        onStartAdvertising: () async {
-          _logger.info('📡 [MESH-INIT] Starting peripheral mode via AdvertisingManager...');
-          await startAsPeripheral();
-          _logger.info('✅ [MESH-INIT] Peripheral mode started successfully');
-        },
-      );
-      _logger.info('✅ Mesh advertising active - device is now discoverable');
-    } catch (e, stack) {
-      _logger.severe('❌❌❌ [MESH-INIT] FAILED TO START MESH NETWORKING! ❌❌❌');
-      _logger.severe('❌ [MESH-INIT] Error: $e', e, stack);
-      // Non-fatal - scanning can still work for discovering others
-    }
-
-    // Initialize Bluetooth state monitoring
+    // ✅ FIX: Initialize Bluetooth state monitoring BEFORE attempting mesh networking
+    // This ensures we know if Bluetooth is available before trying operations
     _logger.info('🔵 Initializing Bluetooth state monitor...');
     await _bluetoothStateMonitor.initialize(
       onBluetoothReady: _onBluetoothBecameReady,
@@ -331,6 +312,29 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
       onInitializationRetry: _onBluetoothInitializationRetry,
     );
     _logger.info('✅ Bluetooth state monitor initialized');
+
+    // ✅ FIX: Only attempt mesh networking if Bluetooth is actually ready
+    // If not ready, _onBluetoothBecameReady callback will start it later
+    if (_bluetoothStateMonitor.isBluetoothReady) {
+      _logger.info('🔥 Starting mesh networking (Bluetooth ready)...');
+      try {
+        await _connectionManager.startMeshNetworking(
+          onStartAdvertising: () async {
+            _logger.info('📡 [MESH-INIT] Starting peripheral mode via AdvertisingManager...');
+            await startAsPeripheral();
+            _logger.info('✅ [MESH-INIT] Peripheral mode started successfully');
+          },
+        );
+        _meshNetworkingStarted = true; // ✅ FIX: Mark as started
+        _logger.info('✅ Mesh advertising active - device is now discoverable');
+      } catch (e, stack) {
+        _logger.severe('❌ [MESH-INIT] Failed to start mesh networking: $e', e, stack);
+        // Non-fatal - scanning can still work for discovering others
+      }
+    } else {
+      _logger.info('⏸️ Mesh networking deferred (Bluetooth not ready)');
+      _logger.info('   Will start automatically when Bluetooth becomes available');
+    }
 
     // Connect message handler callbacks to state manager
     _messageHandler.onContactRequestReceived = _stateManager.handleContactRequest;
@@ -369,6 +373,18 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
 
     // ===== PHASE 1 INTEGRATION: Gossip Sync Manager =====
     _logger.info('🔄 Initializing GossipSyncManager for mesh message discovery...');
+
+    // ✅ FIX #4: Safety check for AppCore initialization
+    if (!AppCore.instance.isInitialized) {
+      _logger.severe('❌ AppCore not initialized yet - cannot access messageQueue');
+      _logger.severe('   BLEService.initialize() must be called AFTER AppCore.initialize() completes');
+      throw StateError(
+        'BLEService.initialize() called before AppCore.initialize() completed. '
+        'This is a critical initialization order violation. '
+        'Ensure AppCore is fully initialized before creating BLE service providers.'
+      );
+    }
+
     _gossipSyncManager = GossipSyncManager(
       myNodeId: myEphemeralId ?? 'temp_node_id',  // Temporary ID until EphemeralKeyManager is ready
       messageQueue: AppCore.instance.messageQueue,
@@ -438,9 +454,15 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
       _logger.fine('✅ Missing message sent to peer ${peerID.substring(0, 8)}...');
     };
 
-    // Start gossip sync manager
-    await _gossipSyncManager!.start();
-    _logger.info('✅ GossipSyncManager initialized and started');
+    // ✅ FIX: Only start gossip sync if Bluetooth is ready and connected
+    // This prevents wasteful timer firing when no connection exists
+    if (_bluetoothStateMonitor.isBluetoothReady && _connectionManager.hasBleConnection) {
+      await _gossipSyncManager!.start();
+      _logger.info('✅ GossipSyncManager initialized and started');
+    } else {
+      _logger.info('⏳ GossipSyncManager created but not started (waiting for Bluetooth/connection)');
+      _logger.info('   Will start automatically when connection established');
+    }
 
     // Wire incoming queue sync messages to gossip sync manager
     _messageHandler.onQueueSyncReceived = (syncMessage, fromNodeId) async {
@@ -511,24 +533,24 @@ _stateManager.onNameChanged = (name) {
   _logger.info('🎯 onNameChanged triggered: $name');
   _logger.info('  Current connection state: isConnected=${_currentConnectionInfo.isConnected}, isReady=${_currentConnectionInfo.isReady}');
   _logger.info('  Current mode: ${_stateManager.isPeripheralMode ? "PERIPHERAL" : "CENTRAL"}');
-  
-  if (name != null && name.isNotEmpty) {
-    _logger.info('  → Updating to ready state');
-    _updateConnectionInfo(
-      isConnected: true,
-      isReady: true,
-      otherUserName: name,
-      statusMessage: 'Ready to chat',
-    );
-  } else {
-    _logger.info('  → Clearing connection state');
-    _updateConnectionInfo(
-      isConnected: false,
-      isReady: false,
-      otherUserName: null,
-      statusMessage: 'Disconnected',
-    );
+
+  // Do NOT flip connection flags here. This callback reflects OUR name change, not the peer's identity.
+  if (name == null || name.isEmpty) {
+    _logger.info('  → Name cleared; no connection state change');
+    return;
   }
+
+  // If a link is active, re-send our identity with the updated name.
+  try {
+    if (_stateManager.isPeripheralMode) {
+      // Fire-and-forget; peripheral identity exchange uses notify
+      _sendPeripheralIdentityExchange();
+    } else if (_connectionManager.hasBleConnection && _connectionManager.messageCharacteristic != null) {
+      requestIdentityExchange();
+    } else {
+      _logger.fine('  → No active link; will advertise updated name');
+    }
+  } catch (_) {}
 };
 
 _stateManager.onSendPairingCode = (code) async {
@@ -642,6 +664,19 @@ _stateManager.onAsymmetricContactDetected = (publicKey, displayName) {
       // Setup event listeners
       _setupEventListeners();
 
+      // 🧹 CRITICAL: Clear stale device deduplication state from previous sessions
+      // The _uniqueDevices map is static and persists across app restarts
+      // This ensures auto-connect attempts are reset for all devices
+      // MUST be called BEFORE _setupDeduplicationListener() to prevent race condition
+      DeviceDeduplicationManager.clearAll();
+      _logger.info('🧹 Cleared stale device deduplication state');
+
+      // 🆕 ENHANCEMENT 3: Register auto-connect callback
+      _setupAutoConnectCallback();
+
+      // 🆕 Setup deduplicated device stream listener
+      _setupDeduplicationListener();
+
       // Complete initialization
       _initializationCompleter.complete();
       _logger.info('✅ BLEService initialization complete');
@@ -689,8 +724,9 @@ bool get _authoritativeAdvertisingState {
     // 📡 NEW: Use AdvertisingManager as single source of truth
     return _advertisingManager.isAdvertising;
   } catch (e) {
-    _logger.fine('⚠️ Advertising manager not ready yet for advertising state query: $e');
-    return false; // Safe default
+    // ✅ FIX: Silently return false during initialization (before advertising manager is set up)
+    // This is expected behavior, not an error condition
+    return false; // Safe default: not advertising until explicitly started
   }
 }
 
@@ -760,6 +796,84 @@ void _updateConnectionInfo({
            last.statusMessage != newInfo.statusMessage;
   }
 
+  /// 🆕 ENHANCEMENT 3: Setup auto-connect callback for known contacts
+  void _setupAutoConnectCallback() {
+    _logger.info('🔗 Setting up auto-connect callback for known contacts...');
+
+    DeviceDeduplicationManager.onKnownContactDiscovered = (device, contactName) async {
+      final deviceId = device.uuid.toString();
+      _logger.info('👤 KNOWN CONTACT DISCOVERED: $contactName (${deviceId.substring(0, 8)}...)');
+
+      try {
+        // Check user preference
+        final prefsRepo = PreferencesRepository();
+        final autoConnectEnabled = await prefsRepo.getBool(
+          PreferenceKeys.autoConnectKnownContacts,
+        );
+
+        if (!autoConnectEnabled) {
+          _logger.info('🔗 AUTO-CONNECT: Disabled in settings - skipping $contactName');
+          return;
+        }
+
+        _logger.info('🔗 AUTO-CONNECT: Enabled for $contactName - checking prerequisites...');
+
+        // Check connection slot availability
+        final currentSlots = _connectionManager.clientConnectionCount;
+        final maxSlots = _connectionManager.maxClientConnections;
+
+        if (!_connectionManager.canAcceptClientConnection) {
+          _logger.warning('⚠️ AUTO-CONNECT: Cannot connect to $contactName - slots full ($currentSlots/$maxSlots)');
+          return;
+        }
+
+        _logger.info('✅ AUTO-CONNECT: Slots available ($currentSlots/$maxSlots) for $contactName');
+
+        // Check if already connected
+        final alreadyConnected = _connectionManager.clientConnections
+            .any((conn) => conn.peripheral.uuid.toString() == deviceId);
+
+        if (alreadyConnected) {
+          _logger.info('🔗 AUTO-CONNECT: Already connected to $contactName - skipping');
+          return;
+        }
+
+        _logger.info('✅ AUTO-CONNECT: Not yet connected to $contactName - proceeding...');
+
+        // Initiate auto-connect
+        _logger.info('🚀 AUTO-CONNECT: Initiating connection to $contactName...');
+        await connectToDevice(device);
+        _logger.info('✅ AUTO-CONNECT: Successfully connected to $contactName!');
+
+      } catch (e, stackTrace) {
+        _logger.warning('❌ AUTO-CONNECT: Failed to connect to $contactName: $e');
+        _logger.fine('Stack trace: $stackTrace');
+      }
+    };
+
+    _logger.info('✅ Auto-connect callback registered successfully');
+  }
+
+  /// 🆕 Setup deduplicated device stream listener
+  void _setupDeduplicationListener() {
+    _logger.info('🔗 Setting up deduplicated device stream listener...');
+
+    // ✅ Listen to deduplicated device stream and update UI
+    DeviceDeduplicationManager.uniqueDevicesStream.listen((uniqueDevices) {
+      _discoveredDevices = uniqueDevices.values.map((d) => d.peripheral).toList();
+      _devicesController?.add(List.from(_discoveredDevices));
+
+      _logger.fine('📡 Deduplicated devices updated: ${uniqueDevices.length} unique devices');
+    });
+
+    // ✅ Cleanup stale devices periodically
+    Timer.periodic(Duration(minutes: 1), (timer) {
+      DeviceDeduplicationManager.removeStaleDevices();
+    });
+
+    _logger.info('✅ Deduplicated device stream listener registered');
+  }
+
   void _setupEventListeners() {
     // Central manager state changes
    centralManager.stateChanged.listen((event) async {
@@ -768,7 +882,19 @@ void _updateConnectionInfo({
 if (event.state == BluetoothLowEnergyState.poweredOff) {
   _updateConnectionInfo(isConnected: false, isReady: false, statusMessage: 'Bluetooth off');
   _disposeHandshakeCoordinator();
-  _stateManager.clearSessionState();
+
+  // ✅ FIX: Only clear session state if there's actually a connection to clear
+  // This prevents verbose "SESSION CLEARING" logs when nothing was connected
+  final hasActiveSession = _stateManager.otherUserName != null ||
+                           _connectedCentral != null ||
+                           _connectionManager.connectedDevice != null;
+
+  if (hasActiveSession) {
+    _logger.fine('🔌 Active session detected - clearing session state (Central listener)');
+    _stateManager.clearSessionState();
+  } else {
+    _logger.fine('🔵 No active session - skipping session clear (Central listener)');
+  }
 } else if (event.state == BluetoothLowEnergyState.poweredOn) {
   if (_stateManager.isPeripheralMode) {
     _updateConnectionInfo(isAdvertising: true, statusMessage: 'Discoverable');
@@ -798,7 +924,20 @@ if (event.state == BluetoothLowEnergyState.poweredOff) {
 if (event.state == BluetoothLowEnergyState.poweredOff) {
   _updateConnectionInfo(isConnected: false, isReady: false, isAdvertising: false, statusMessage: 'Bluetooth off');
   _disposeHandshakeCoordinator();
-  _stateManager.clearSessionState();
+
+  // ✅ FIX: Only clear session state if there's actually a connection to clear
+  // This prevents verbose "SESSION CLEARING" logs when nothing was connected
+  final hasActiveSession = _stateManager.otherUserName != null ||
+                           _connectedCentral != null ||
+                           _connectionManager.connectedDevice != null;
+
+  if (hasActiveSession) {
+    _logger.fine('🔌 Active session detected - clearing session state (Peripheral listener)');
+    _stateManager.clearSessionState();
+  } else {
+    _logger.fine('🔵 No active session - skipping session clear (Peripheral listener)');
+  }
+
   _connectedCentral = null;
   _connectedCharacteristic = null;
   _peripheralHandshakeStarted = false;
@@ -845,7 +984,20 @@ if (event.state == BluetoothLowEnergyState.poweredOff) {
   if (event.state == BluetoothLowEnergyState.poweredOff) {
 _updateConnectionInfo(isConnected: false, isReady: false, isAdvertising: false, statusMessage: 'Stopped');
 _disposeHandshakeCoordinator();
-_stateManager.clearSessionState();
+
+// ✅ FIX: Only clear session state if there's actually a connection to clear
+// This prevents verbose "SESSION CLEARING" logs when nothing was connected
+final hasActiveSession = _stateManager.otherUserName != null ||
+                         _connectedCentral != null ||
+                         _connectionManager.connectedDevice != null;
+
+if (hasActiveSession) {
+  _logger.fine('🔌 Active session detected - clearing session state (Peripheral listener #2)');
+  _stateManager.clearSessionState();
+} else {
+  _logger.fine('🔵 No active session - skipping session clear (Peripheral listener #2)');
+}
+
 _connectedCentral = null;
 _connectedCharacteristic = null;
 _peripheralHandshakeStarted = false;
@@ -902,17 +1054,6 @@ centralManager.discovered.listen((event) async {
   }
 });
 
-// ✅ Listen to deduplicated device stream
-DeviceDeduplicationManager.uniqueDevicesStream.listen((uniqueDevices) {
-  _discoveredDevices = uniqueDevices.values.map((d) => d.peripheral).toList();
-  _devicesController?.add(List.from(_discoveredDevices));
-});
-
-// ✅ Cleanup stale devices periodically
-Timer.periodic(Duration(minutes: 1), (timer) {
-  DeviceDeduplicationManager.removeStaleDevices();
-});
-    
     // Connection state changes
 centralManager.connectionStateChanged.listen((event) {
   _logger.info('Connection state: ${event.peripheral.uuid} → ${event.state}');
@@ -1278,18 +1419,35 @@ Future<void> _handleReceivedData(Uint8List data, {required bool isFromPeripheral
   } catch (e) {
     // Not a protocol message, continue to regular message processing
   }
-  
+
   // 🔧 FIX: Check if this is a message chunk (fragmented message)
-  // Chunks need special handling for protocol messages
+  // Only attempt to parse as chunk if the payload looks like our chunk-string format
   bool isChunk = false;
   MessageChunk? chunk;
-  try {
-    chunk = MessageChunk.fromBytes(data);
-    isChunk = true;
-  } catch (e) {
-    // Not a chunk
+
+  bool looksLikeChunkStringLocal(Uint8List bytes) {
+    final max = bytes.length < 128 ? bytes.length : 128;
+    int pipes = 0;
+    for (var i = 0; i < max; i++) {
+      final b = bytes[i];
+      if (b == 0x7C) pipes++; // '|'
+      // Reject most control chars except TAB(9), LF(10), CR(13)
+      if (b < 0x20 && b != 0x09 && b != 0x0A && b != 0x0D) return false;
+      // Reject extended binary (chunk strings are ASCII)
+      if (b > 0x7E) return false;
+    }
+    return pipes >= 4; // id|idx|total|isBinary|content
   }
-  
+
+  if (looksLikeChunkStringLocal(data)) {
+    try {
+      chunk = MessageChunk.fromBytes(data);
+      isChunk = true;
+    } catch (e) {
+      // Not a valid chunk despite looking like one
+    }
+  }
+
   // If it's a chunk, reassemble and check if it's a handshake protocol message
   if (isChunk && chunk != null) {
     // Use MessageReassembler for proper chunk handling (get raw bytes)
@@ -1488,7 +1646,7 @@ Future<void> _processMessage(
       return;
     }
 
-    // Mark as peripheral mode for state tracking (doesn't affect central)
+    // ✅ DUAL-ROLE: Track peripheral connection state (device is always both central+peripheral)
     _stateManager.setPeripheralMode(true);
 
     try {
@@ -1742,18 +1900,28 @@ Future<void> stopScanning() async {
   
 Future<void> connectToDevice(Peripheral device) async {
   try {
+    // Single-link policy: if we already have an inbound (server) link to this peer, adopt it
+    try {
+      final inboundId = _connectedCentral?.uuid.toString();
+      if (inboundId != null && inboundId == device.uuid.toString()) {
+        _logger.info('🔀 Single-link: inbound link exists to ${device.uuid} — adopting inbound, skipping outbound connect');
+        _updateConnectionInfo(statusMessage: 'Connected via inbound link');
+        return;
+      }
+    } catch (_) {}
+
     // Stop any active discovery first
     try {
       await centralManager.stopDiscovery();
     } catch (e) {
       // Ignore
     }
-    
+
     _updateConnectionInfo(isConnected: false, statusMessage: 'Connecting...');
     await _connectionManager.connectToDevice(device);
-    
+
     _connectionManager.startHealthChecks();
-    
+
     if (_connectionManager.isReconnection) {
       _logger.info('Reconnection completed - monitoring already active');
     } else {
@@ -1762,7 +1930,7 @@ Future<void> connectToDevice(Peripheral device) async {
     }
   } catch (e) {
     _updateConnectionInfo(
-      isConnected: false, 
+      isConnected: false,
       isReady: false,
       statusMessage: 'Connection failed'
     );
@@ -2015,6 +2183,12 @@ Future<void> _onHandshakeComplete(String ephemeralId, String displayName, String
   final chatsRepo = ChatsRepository();
   await chatsRepo.updateContactLastSeen(ephemeralId);
   await chatsRepo.storeDeviceMapping(_connectionManager.connectedDevice?.uuid.toString(), ephemeralId);
+
+  // ✅ FIX: Start GossipSyncManager now that connection is ready
+  if (_gossipSyncManager != null && !_gossipSyncManager!.isRunning) {
+    await _gossipSyncManager!.start();
+    _logger.info('✅ GossipSyncManager started (connection established)');
+  }
 
   // Process any buffered messages
   _processPendingMessages();
@@ -2442,18 +2616,35 @@ Future<void> _processWriteQueue() async {
   void _onBluetoothBecameReady() {
     _logger.info('🔵 Bluetooth state monitor: Bluetooth became ready');
 
-    // 🔧 DUAL-ROLE FIX: Don't restart peripheral - it should already be running
-    // The initialize() method starts advertising once, and it stays active
-    // Only update status message to reflect Bluetooth is ready
-
     _updateConnectionInfo(statusMessage: 'Bluetooth ready for dual-role operation');
+
+    // ✅ FIX: Start mesh networking if it was deferred during initialization
+    if (!_meshNetworkingStarted) {
+      _logger.info('🔥 Starting mesh networking (Bluetooth now available)...');
+      _meshNetworkingStarted = true; // ✅ FIX: Set immediately to prevent duplicate starts from other listeners
+      Future.delayed(Duration(milliseconds: 500), () async {
+        try {
+          await _connectionManager.startMeshNetworking(
+            onStartAdvertising: () async {
+              _logger.info('📡 [DEFERRED-START] Starting peripheral mode via AdvertisingManager...');
+              await startAsPeripheral();
+              _logger.info('✅ [DEFERRED-START] Peripheral mode started successfully');
+            },
+          );
+          _logger.info('✅ Mesh advertising active - device is now discoverable');
+        } catch (e) {
+          _logger.warning('Failed to start mesh networking: $e');
+          _meshNetworkingStarted = false; // Reset on failure so it can be retried
+        }
+      });
+      return;
+    }
 
     // Only restart if we actually lost advertising (not just a state monitor callback)
     if (!_authoritativeAdvertisingState && _stateManager.isPeripheralMode) {
       _logger.warning('🔵 Advertising was lost - restarting mesh networking');
       Future.delayed(Duration(milliseconds: 500), () async {
         try {
-          // ✅ FIX: Pass advertising callback to startMeshNetworking
           await _connectionManager.startMeshNetworking(
             onStartAdvertising: () async {
               _logger.info('📡 [LOST-ADV-RESTART] Starting peripheral mode via AdvertisingManager...');
@@ -2474,12 +2665,48 @@ Future<void> _processWriteQueue() async {
   void _onBluetoothBecameUnavailable() {
     _logger.warning('🔵 Bluetooth state monitor: Bluetooth became unavailable');
 
-    // Clear all connections and reset state
-    _disposeHandshakeCoordinator();
-    _stateManager.clearSessionState();
+    // ✅ FIX: Only clear session state if there's actually a connection to clear
+    // This prevents verbose "SESSION CLEARING" logs when nothing was connected
+    final hasActiveSession = _stateManager.otherUserName != null ||
+                             _connectedCentral != null ||
+                             _connectionManager.connectedDevice != null;
+
+    if (hasActiveSession) {
+      _logger.info('🔌 Active connection detected - clearing session state');
+      // Clear all connections and reset state
+      _disposeHandshakeCoordinator();
+      _stateManager.clearSessionState();
+    } else {
+      _logger.fine('🔵 No active session - skipping session clear (already disconnected)');
+      // Just dispose handshake coordinator if it exists
+      _disposeHandshakeCoordinator();
+    }
+
+    // Always reset peripheral state variables
     _connectedCentral = null;
     _connectedCharacteristic = null;
     _peripheralHandshakeStarted = false;
+
+    // ✅ FIX #3: Provide specific status message based on Bluetooth state
+    final bluetoothMonitor = BluetoothStateMonitor.instance;
+    String statusMessage;
+
+    switch (bluetoothMonitor.currentState) {
+      case BluetoothLowEnergyState.poweredOff:
+        statusMessage = '📴 Bluetooth is turned off - please enable it in settings';
+        break;
+      case BluetoothLowEnergyState.unauthorized:
+        statusMessage = '🔒 Bluetooth permission required - grant permission in app settings';
+        break;
+      case BluetoothLowEnergyState.unsupported:
+        statusMessage = '❌ Bluetooth Low Energy not supported on this device';
+        break;
+      case BluetoothLowEnergyState.unknown:
+        statusMessage = '⚠️ Bluetooth state unknown - checking...';
+        break;
+      default:
+        statusMessage = '⚠️ Bluetooth unavailable - mesh networking requires Bluetooth';
+    }
 
     // Update connection info with appropriate message
     _updateConnectionInfo(
@@ -2488,7 +2715,7 @@ Future<void> _processWriteQueue() async {
       isScanning: false,
       isAdvertising: false,
       otherUserName: null,
-      statusMessage: 'Bluetooth required for mesh networking',
+      statusMessage: statusMessage,
     );
   }
 

@@ -5,7 +5,8 @@ import 'package:flutter/foundation.dart'; // For kDebugMode
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // For rootBundle
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:logging/logging.dart';
 import '../providers/theme_provider.dart';
 import '../providers/ble_providers.dart';
 import '../../data/repositories/preferences_repository.dart';
@@ -33,6 +34,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  final _logger = Logger('SettingsScreen');
   final PreferencesRepository _preferencesRepository = PreferencesRepository();
   final ContactRepository _contactRepository = ContactRepository();
 
@@ -47,6 +49,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _showOnlineStatus = PreferenceDefaults.showOnlineStatus;
   bool _allowNewContacts = PreferenceDefaults.allowNewContacts;
   bool _hintBroadcastEnabled = true; // Spy mode toggle (default: hints enabled)
+
+  // 🆕 Connection settings
+  bool _autoConnectKnownContacts = PreferenceDefaults.autoConnectKnownContacts;
 
   // Data settings
   bool _autoArchiveOldChats = PreferenceDefaults.autoArchiveOldChats;
@@ -96,6 +101,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // Load spy mode setting
     final userPrefs = UserPreferences();
     _hintBroadcastEnabled = await userPrefs.getHintBroadcastEnabled();
+
+    // 🆕 Load connection settings
+    try {
+      _autoConnectKnownContacts = await _preferencesRepository.getBool(
+        PreferenceKeys.autoConnectKnownContacts,
+        defaultValue: PreferenceDefaults.autoConnectKnownContacts,
+      );
+    } catch (e) {
+      _logger.warning('⚠️ Failed to load auto-connect preference: $e - using default');
+      _autoConnectKnownContacts = PreferenceDefaults.autoConnectKnownContacts;
+      // Reset to correct type
+      await _preferencesRepository.setBool(
+        PreferenceKeys.autoConnectKnownContacts,
+        PreferenceDefaults.autoConnectKnownContacts,
+      );
+    }
 
     // Load data settings
     _autoArchiveOldChats = await _preferencesRepository.getBool(
@@ -486,6 +507,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 PreferenceKeys.allowNewContacts,
                 value,
               );
+            },
+          ),
+          Divider(height: 1),
+          // 🆕 ENHANCEMENT: Auto-connect to known contacts toggle
+          SwitchListTile(
+            secondary: Icon(
+              _autoConnectKnownContacts ? Icons.link : Icons.link_off,
+              color: _autoConnectKnownContacts ? Colors.green : null,
+            ),
+            title: Text('Auto-Connect to Known Contacts'),
+            subtitle: Text(
+              _autoConnectKnownContacts
+                  ? 'Automatically connect when known contacts are discovered'
+                  : 'Manually tap to connect to discovered contacts',
+            ),
+            value: _autoConnectKnownContacts,
+            onChanged: (value) async {
+              _logger.info('⚙️ AUTO-CONNECT SETTING: ${value ? "ENABLED" : "DISABLED"}');
+
+              setState(() => _autoConnectKnownContacts = value);
+              await _preferencesRepository.setBool(
+                PreferenceKeys.autoConnectKnownContacts,
+                value,
+              );
+
+              if (value) {
+                _logger.info('✅ Auto-connect enabled - known contacts will connect automatically');
+              } else {
+                _logger.info('🔗 Auto-connect disabled - manual connection required');
+              }
+
+              // Show feedback
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      value
+                          ? 'Auto-connect enabled - known contacts will connect automatically'
+                          : 'Auto-connect disabled - tap devices to connect manually',
+                    ),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
             },
           ),
         ],

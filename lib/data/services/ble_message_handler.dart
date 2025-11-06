@@ -24,40 +24,40 @@ import '../../core/security/ephemeral_key_manager.dart';
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
   final ContactRepository _contactRepository = ContactRepository();
-  
+
   /// 🔧 UTILITY: Safe string truncation to prevent RangeError
   static String _safeTruncate(String? input, int maxLength, {String fallback = "NULL"}) {
     if (input == null || input.isEmpty) return fallback;
     if (input.length <= maxLength) return input;
     return input.substring(0, maxLength);
   }
-  
+
   // Message fragmentation and reassembly
   final MessageReassembler _messageReassembler = MessageReassembler();
-  
+
   // ACK management
   final Map<String, Timer> _messageTimeouts = {};
   final Map<String, Completer<bool>> _messageAcks = {};
-  
+
   Timer? _cleanupTimer;
-  
+
   // Message operation tracking
   String encryptionMethod = 'none';
-  
+
   // Contact request callbacks
   Function(String, String)? onContactRequestReceived;
   Function(String, String)? onContactAcceptReceived;
   Function()? onContactRejectReceived;
-  
+
   // Crypto verification callbacks
   Function(String, String)? onCryptoVerificationReceived;
   Function(String, String, bool, Map<String, dynamic>?)? onCryptoVerificationResponseReceived;
-  
+
   // Queue sync callbacks
   Function(QueueSyncMessage syncMessage, String fromNodeId)? onQueueSyncReceived;
   Function(List<QueuedMessage> messages, String toNodeId)? onSendQueueMessages;
   Function(String nodeId, QueueSyncResult result)? onQueueSyncCompleted;
-  
+
   // Mesh relay callbacks
   Function(String originalMessageId, String content, String originalSender)? onRelayMessageReceived;
   Function(RelayDecision decision)? onRelayDecisionMade;
@@ -73,7 +73,7 @@ class BLEMessageHandler {
   SpamPreventionManager? _spamPrevention;
   OfflineMessageQueue? _messageQueue;  // Reference to message queue for ACK handling
   String? _currentNodeId;
-  
+
   BLEMessageHandler() {
     // Setup periodic cleanup of old partial messages
     _cleanupTimer = Timer.periodic(Duration(minutes: 2), (timer) {
@@ -84,7 +84,7 @@ class BLEMessageHandler {
   /// Set current node ID for routing validation
   void setCurrentNodeId(String nodeId) {
     _currentNodeId = nodeId;
-    
+
     // 🚨 DIAGNOSTIC: Check for bounds error cause
     print('🔧 DIAGNOSTIC: Node ID length: ${nodeId.length}');
     print('🔧 DIAGNOSTIC: Node ID: "$nodeId"');
@@ -109,18 +109,18 @@ class BLEMessageHandler {
       this.onRelayMessageReceived = onRelayMessageReceived;
       this.onRelayDecisionMade = onRelayDecisionMade;
       this.onRelayStatsUpdated = onRelayStatsUpdated;
-      
+
       // Initialize spam prevention
       _spamPrevention = SpamPreventionManager();
       await _spamPrevention!.initialize();
-      
+
       // Initialize relay engine
       _relayEngine = MeshRelayEngine(
         contactRepository: _contactRepository,
         messageQueue: messageQueue,
         spamPrevention: _spamPrevention!,
       );
-      
+
       await _relayEngine!.initialize(
         currentNodeId: currentNodeId,
         onRelayMessage: _handleRelayToNextHop,
@@ -128,9 +128,9 @@ class BLEMessageHandler {
         onRelayDecision: onRelayDecisionMade,
         onStatsUpdated: onRelayStatsUpdated,
       );
-      
+
       _logger.info('Mesh relay system initialized for node: ${_safeTruncate(currentNodeId, 16)}...');
-      
+
     } catch (e) {
       _logger.severe('Failed to initialize relay system: $e');
     }
@@ -142,7 +142,7 @@ class BLEMessageHandler {
     // For now, return empty list as placeholder
     return [];
   }
-  
+
   Future<bool> sendMessage({
   required CentralManager centralManager,
   required Peripheral connectedDevice,
@@ -204,7 +204,7 @@ class BLEMessageHandler {
     // 🔧 NEW: Use simplified encryption
     String payload = message;
     String encryptionMethod = 'none';
-    
+
     if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
       try {
         payload = await SecurityManager.encryptMessage(message, contactPublicKey, contactRepository);
@@ -223,14 +223,14 @@ class BLEMessageHandler {
     SecurityLevel trustLevel;
     try {
       trustLevel = await SecurityManager.getCurrentLevel(
-        contactPublicKey ?? '', 
+        contactPublicKey ?? '',
         contactRepository
       );
     } catch (e) {
       _logger.warning('🔒 CENTRAL: Failed to get security level: $e, defaulting to LOW');
       trustLevel = SecurityLevel.low;
     }
-    
+
     final signingInfo = SigningManager.getSigningInfo(trustLevel);
     final signature = SigningManager.signMessage(message, trustLevel);
 
@@ -250,7 +250,7 @@ class BLEMessageHandler {
     'intendedRecipient': finalRecipientId,     // From identity resolution
     'originalSender': finalSenderIf,            // From identity resolution
   };
-  
+
   final finalMessage = ProtocolMessage(
     type: protocolMessage.type,
     payload: legacyPayload,
@@ -259,13 +259,13 @@ class BLEMessageHandler {
     useEphemeralSigning: signingInfo.useEphemeralSigning,
     ephemeralSigningKey: signingInfo.signingKey,
   );
-  
+
   // DIAGNOSTIC: Log message sending details with safe truncation
   print('🔧 SEND DEBUG: ===== MESSAGE SENDING ANALYSIS =====');
   print('🔧 SEND DIAGNOSTIC: Message ID length: ${msgId.length}');
   print('🔧 SEND DIAGNOSTIC: Contact key length: ${contactPublicKey?.length ?? 0}');
   print('🔧 SEND DIAGNOSTIC: Current node length: ${_currentNodeId?.length ?? 0}');
-  
+
   print('🔧 SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...');
   print('🔧 SEND DEBUG: Recipient ID: ${_safeTruncate(recipientId, 16, fallback: "NOT SPECIFIED")}...');
   print('🔧 SEND DEBUG: Addressing: ${useEphemeralAddressing ? "EPHEMERAL" : "PERSISTENT"}');
@@ -279,16 +279,16 @@ class BLEMessageHandler {
     final jsonBytes = finalMessage.toBytes();
     print('📨 SEND STEP 2: Protocol message → ${jsonBytes.length} bytes');
     print('📨 SEND STEP 2a: First 20 bytes: ${jsonBytes.sublist(0, jsonBytes.length > 20 ? 20 : jsonBytes.length)}');
-    
+
     print('📨 SEND STEP 3: Fragmenting into chunks (MTU: $mtuSize)');
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
     _logger.info('Created ${chunks.length} chunks for message: $msgId');
     print('📨 SEND STEP 4: Created ${chunks.length} chunks');
-    
+
     // Set up ACK waiting
     final ackCompleter = Completer<bool>();
     _messageAcks[msgId] = ackCompleter;
-    
+
     // Set up timeout (5 seconds)
     _messageTimeouts[msgId] = Timer(Duration(seconds: 5), () {
       if (!ackCompleter.isCompleted) {
@@ -297,19 +297,19 @@ class BLEMessageHandler {
         ackCompleter.complete(false);
       }
     });
-    
+
     // Send each chunk via write characteristic (central mode)
     for (int i = 0; i < chunks.length; i++) {
       final chunk = chunks[i];
       print('📨 SEND STEP 5.${i + 1}: Converting chunk ${i + 1}/${chunks.length} to bytes');
       print('📨 SEND STEP 5.${i + 1}a: Chunk format: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}|[${chunk.content.length} chars]');
-      
+
       final chunkData = chunk.toBytes();
       print('📨 SEND STEP 5.${i + 1}b: Chunk ${i + 1} → ${chunkData.length} bytes');
       print('📨 SEND STEP 5.${i + 1}c: First 50 bytes: ${chunkData.sublist(0, chunkData.length > 50 ? 50 : chunkData.length)}');
-      
+
       _logger.info('Sending central chunk ${i + 1}/${chunks.length} for message: $msgId');
-      
+
       print('📨 SEND STEP 6.${i + 1}: Writing chunk ${i + 1} to BLE characteristic');
       await centralManager.writeCharacteristic(
         connectedDevice,
@@ -318,33 +318,33 @@ class BLEMessageHandler {
         type: GATTCharacteristicWriteType.withResponse,
       );
       print('📨 SEND STEP 6.${i + 1}✅: Chunk ${i + 1} written to BLE successfully');
-      
+
       if (i < chunks.length - 1) {
         await Future.delayed(Duration(milliseconds: 100));
       }
     }
-    
+
     _logger.info('All chunks sent for message: $msgId, waiting for ACK...');
-    
+
     // Wait for ACK or timeout
     final success = await ackCompleter.future;
-    
+
     // Cleanup
     _messageTimeouts[msgId]?.cancel();
     _messageTimeouts.remove(msgId);
     _messageAcks.remove(msgId);
-    
+
     return success;
-    
+
   } catch (e, stackTrace) {
     _logger.severe('Failed to send message: $e');
     _logger.severe('Stack trace: $stackTrace');
-    
+
     // Cleanup on error
     _messageTimeouts[msgId]?.cancel();
     _messageTimeouts.remove(msgId);
     _messageAcks.remove(msgId);
-    
+
     rethrow;
   } finally {
     Future.delayed(Duration(milliseconds: 500), () {
@@ -368,11 +368,11 @@ Future<bool> sendPeripheralMessage({
   required BLEStateManager stateManager,
 }) async {
   final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
-  
+
   try {
     String payload = message;
     String encryptionMethod = 'none';
-    
+
     if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
       try {
         payload = await SecurityManager.encryptMessage(message, contactPublicKey, contactRepository);
@@ -391,14 +391,14 @@ Future<bool> sendPeripheralMessage({
     SecurityLevel trustLevel;
     try {
       trustLevel = await SecurityManager.getCurrentLevel(
-        contactPublicKey ?? '', 
+        contactPublicKey ?? '',
         contactRepository
       );
     } catch (e) {
       _logger.warning('🔒 PERIPHERAL: Failed to get security level: $e, defaulting to LOW');
       trustLevel = SecurityLevel.low;
     }
-    
+
     final signingInfo = SigningManager.getSigningInfo(trustLevel);
     final signature = SigningManager.signMessage(message, trustLevel);
 
@@ -433,7 +433,7 @@ Future<bool> sendPeripheralMessage({
     'intendedRecipient': finalRecipientId,     // From identity resolution
     'originalSender': finalSenderIf,            // From identity resolution
   };
-  
+
   final finalMessage = ProtocolMessage(
     type: protocolMessage.type,
     payload: legacyPayload,
@@ -442,7 +442,7 @@ Future<bool> sendPeripheralMessage({
     useEphemeralSigning: signingInfo.useEphemeralSigning,
     ephemeralSigningKey: signingInfo.signingKey,
   );
-  
+
   // DIAGNOSTIC: Log peripheral message sending details
   print('🔧 PERIPHERAL SEND DEBUG: ===== MESSAGE SENDING ANALYSIS =====');
   print('🔧 PERIPHERAL SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...');
@@ -456,28 +456,28 @@ Future<bool> sendPeripheralMessage({
     final jsonBytes = finalMessage.toBytes();
     final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
     _logger.info('Created ${chunks.length} chunks for peripheral message: $msgId');
-    
+
     // Send each chunk via notifications
     for (int i = 0; i < chunks.length; i++) {
       final chunk = chunks[i];
       final chunkData = chunk.toBytes();
-      
+
       _logger.info('Sending peripheral chunk ${i + 1}/${chunks.length} for message: $msgId');
-      
+
       await peripheralManager.notifyCharacteristic(
         connectedCentral,
         messageCharacteristic,
         value: chunkData,
       );
-      
+
       if (i < chunks.length - 1) {
         await Future.delayed(Duration(milliseconds: 100));
       }
     }
-    
+
     _logger.info('All peripheral chunks sent for message: $msgId');
     return true;
-    
+
   } catch (e, stackTrace) {
     _logger.severe('Failed to send peripheral message: $e');
     _logger.severe('Stack trace: $stackTrace');
@@ -485,19 +485,33 @@ Future<bool> sendPeripheralMessage({
   }
 }
 
-  
+
+bool _looksLikeChunkString(Uint8List bytes) {
+  final max = bytes.length < 128 ? bytes.length : 128;
+  int pipes = 0;
+  for (var i = 0; i < max; i++) {
+    final b = bytes[i];
+    if (b == 0x7C) pipes++; // '|'
+    // Reject most control chars except TAB(9), LF(10), CR(13)
+    if (b < 0x20 && b != 0x09 && b != 0x0A && b != 0x0D) return false;
+    // Reject extended binary (our chunk strings are ASCII)
+    if (b > 0x7E) return false;
+  }
+  return pipes >= 4; // id|idx|total|isBinary|content
+}
+
 Future<String?> processReceivedData(Uint8List data, {String? Function(String)? onMessageIdFound, String? senderPublicKey, required ContactRepository contactRepository,}) async {
   try {
     print('📥 RECEIVE STEP 1: Received ${data.length} bytes from BLE');
     print('📥 RECEIVE STEP 1a: First 50 bytes: ${data.sublist(0, data.length > 50 ? 50 : data.length)}');
     print('📥 RECEIVE STEP 1b: First 50 chars as string: ${String.fromCharCodes(data.sublist(0, data.length > 50 ? 50 : data.length))}');
-    
+
     // Skip single-byte pings
     if (data.length == 1 && data[0] == 0x00) {
       print('📥 RECEIVE: Skipping single-byte ping [0x00]');
       return null;
     }
-    
+
     // Check for direct protocol messages (non-fragmented ACKs/pings)
     try {
       print('📥 RECEIVE STEP 2: Attempting UTF-8 decode for direct protocol message check');
@@ -511,45 +525,48 @@ Future<String?> processReceivedData(Uint8List data, {String? Function(String)? o
       print('📥 RECEIVE STEP 2❌: UTF-8 decode failed (expected for chunked messages): $e');
       // Not a direct message, try chunk processing
     }
-    
-    // Process as message chunk
-    try {
-      print('📥 RECEIVE STEP 3: Attempting to parse as MessageChunk');
-      final chunk = MessageChunk.fromBytes(data);
-      print('📥 RECEIVE STEP 3✅: Parsed chunk: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}');
 
-      print('📥 RECEIVE STEP 4: Adding chunk to reassembler');
-      // 🔧 FIX BUG #1: Use addChunkBytes() to get raw bytes, NOT addChunk() which returns String
-      // addChunk() converts bytes to UTF-8 string, which corrupts binary protocol messages
-      // addChunkBytes() returns raw Uint8List, preserving binary data integrity
-      final completeMessageBytes = _messageReassembler.addChunkBytes(chunk);
-      print('📥 RECEIVE STEP 4: Reassembler result: ${completeMessageBytes != null ? "MESSAGE COMPLETE ✅" : "waiting for more chunks ⏳"}');
+    // Process as message chunk ONLY if it looks like our chunk string format
+    if (_looksLikeChunkString(data)) {
+      try {
+        print('📥 RECEIVE STEP 3: Attempting to parse as MessageChunk');
+        final chunk = MessageChunk.fromBytes(data);
+        print('📥 RECEIVE STEP 3✅: Parsed chunk: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}');
 
-      if (completeMessageBytes != null) {
-        print('📥 RECEIVE STEP 5: Processing complete message (${completeMessageBytes.length} bytes)');
-        // 🔧 FIX BUG #1: Parse raw bytes directly as ProtocolMessage, not as chunk format
-        try {
-          final protocolMessage = ProtocolMessage.fromBytes(completeMessageBytes);
-          print('📥 RECEIVE STEP 5✅: Protocol message parsed successfully (type: ${protocolMessage.type})');
+        print('📥 RECEIVE STEP 4: Adding chunk to reassembler');
+        // Use addChunkBytes() to get raw bytes
+        final completeMessageBytes = _messageReassembler.addChunkBytes(chunk);
+        print('📥 RECEIVE STEP 4: Reassembler result: ${completeMessageBytes != null ? "MESSAGE COMPLETE ✅" : "waiting for more chunks ⏳"}');
 
-          // Process the protocol message directly
-          return await _processProtocolMessageDirect(protocolMessage, onMessageIdFound, senderPublicKey);
-        } catch (e) {
-          print('📥 RECEIVE STEP 5❌: Failed to parse protocol message: $e');
-          _logger.warning('Protocol message parsing failed: $e');
-          return null;
+        if (completeMessageBytes != null) {
+          print('📥 RECEIVE STEP 5: Processing complete message (${completeMessageBytes.length} bytes)');
+          try {
+            final protocolMessage = ProtocolMessage.fromBytes(completeMessageBytes);
+            print('📥 RECEIVE STEP 5✅: Protocol message parsed successfully (type: ${protocolMessage.type})');
+
+            // Process the protocol message directly
+            return await _processProtocolMessageDirect(protocolMessage, onMessageIdFound, senderPublicKey);
+          } catch (e) {
+            print('📥 RECEIVE STEP 5❌: Failed to parse protocol message: $e');
+            _logger.warning('Protocol message parsing failed: $e');
+            return null;
+          }
         }
-      }
 
-    } catch (e) {
-      print('📥 RECEIVE STEP 3❌: Chunk parsing failed: $e');
-      _logger.warning('Chunk processing failed: $e');
+      } catch (e) {
+        print('📥 RECEIVE STEP 3❌: Chunk parsing failed: $e');
+        _logger.warning('Chunk processing failed: $e');
+      }
+    } else {
+      // Not a chunk-string payload; ignore here so other handlers (e.g., handshake) can process
+      print('📥 RECEIVE STEP 3❌: Not a chunk-string payload; ignoring in message handler');
+      return null;
     }
-    
+
   } catch (e) {
     _logger.severe('Error processing received data: $e');
   }
-  
+
   return null;
 }
 
@@ -557,7 +574,7 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
   try {
     final messageBytes = utf8.encode(jsonMessage);
     final protocolMessage = ProtocolMessage.fromBytes(messageBytes);
-    
+
     switch (protocolMessage.type) {
       case ProtocolMessageType.ack:
         final originalId = protocolMessage.payload['originalMessageId'] as String;
@@ -567,11 +584,11 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
         }
         _logger.info('Received protocol ACK for: $originalId');
         return null;
-        
+
       case ProtocolMessageType.ping:
         _logger.info('Received protocol ping');
         return null;
-        
+
       case ProtocolMessageType.textMessage:
         // Text messages should go through the complete message processing pipeline
         // where routing validation and decryption happens
@@ -610,8 +627,8 @@ Future<String?> _handleDirectProtocolMessage(String jsonMessage, String? Functio
           // Forward to sync manager via callback
           onQueueSyncReceived?.call(syncMessage, senderPublicKey);
           // 🔧 FIX: Safe truncation to prevent RangeError
-          final truncated = senderPublicKey.length > 16 
-              ? senderPublicKey.substring(0, 16) 
+          final truncated = senderPublicKey.length > 16
+              ? senderPublicKey.substring(0, 16)
               : senderPublicKey;
           _logger.info('Received queue sync message from $truncated...');
         } else {
@@ -731,14 +748,14 @@ Future<String?> _processProtocolMessageContent(
   String? senderPublicKey,
 ) async {
   try {
-    
+
     switch (protocolMessage.type) {
       case ProtocolMessageType.textMessage:
         final messageId = protocolMessage.textMessageId!;
         final content = protocolMessage.textContent!;
         final encryptionMethod = protocolMessage.payload['encryptionMethod'] as String?;
         final intendedRecipient = protocolMessage.payload['intendedRecipient'] as String?;
-        
+
         print('🔧 ROUTING DEBUG: ===== MESSAGE ROUTING ANALYSIS =====');
 
         // 🚨 DIAGNOSTIC: Check all string lengths before substring
@@ -776,17 +793,17 @@ Future<String?> _processProtocolMessageContent(
         print('🔧 ROUTING DEBUG: ===== END ROUTING ANALYSIS =====');
 
         onMessageIdFound?.call(messageId);
-        
+
         // 🔧 NEW: Use simplified decryption
         String decryptedContent = content;
-        
+
         if (protocolMessage.isEncrypted && senderPublicKey != null && senderPublicKey.isNotEmpty) {
           try {
             decryptedContent = await SecurityManager.decryptMessage(content, senderPublicKey, _contactRepository);
             _logger.info('🔒 MESSAGE: Decrypted successfully');
           }  catch (e) {
         _logger.severe('🔒 MESSAGE: Decryption failed: $e');
-        
+
         // Don't return error message immediately - try to show what we can
         if (e.toString().contains('security resync requested')) {
           return '[🔄 Security resync in progress - message will be readable after reconnection]';
@@ -798,11 +815,11 @@ Future<String?> _processProtocolMessageContent(
           _logger.warning('🔒 MESSAGE: Encrypted but no sender key available');
           return '[❌ Encrypted message but no sender identity]';
         }
-        
+
         // Verify signature on decrypted content
         if (protocolMessage.signature != null) {
   String verifyingKey;
-  
+
   if (protocolMessage.useEphemeralSigning) {
     // Global message - use ephemeral key from message
     if (protocolMessage.ephemeralSigningKey == null) {
@@ -821,28 +838,28 @@ Future<String?> _processProtocolMessageContent(
     }
     verifyingKey = senderPublicKey;
   }
-  
+
   final isValid = SigningManager.verifySignature(
     decryptedContent,
     protocolMessage.signature!,
     verifyingKey,
     protocolMessage.useEphemeralSigning
   );
-  
+
   if (!isValid) {
     _logger.severe('❌ SIGNATURE VERIFICATION FAILED');
     return '[❌ UNTRUSTED MESSAGE - Signature Invalid]';
   }
-  
+
   if (protocolMessage.useEphemeralSigning) {
     _logger.info('✅ Ephemeral signature verified - message authentic but anonymous');
   } else {
     _logger.info('✅ Real signature verified - message authentic and identified');
   }
 }
-        
+
         return decryptedContent;
-        
+
       case ProtocolMessageType.ack:
         final originalId = protocolMessage.ackOriginalId!;
         final ackCompleter = _messageAcks[originalId];
@@ -850,43 +867,43 @@ Future<String?> _processProtocolMessageContent(
           ackCompleter.complete(true);
         }
         return null;
-        
+
       case ProtocolMessageType.identity:
         return null;
-        
+
       case ProtocolMessageType.contactRequest:
         // Handle incoming contact request
         final requestPublicKey = protocolMessage.contactRequestPublicKey;
         final requestDisplayName = protocolMessage.contactRequestDisplayName;
-        
+
         if (requestPublicKey != null && requestDisplayName != null) {
           _logger.info('📱 CONTACT REQUEST: Received from $requestDisplayName');
           // This will be handled by the BLE state manager via callback
           onContactRequestReceived?.call(requestPublicKey, requestDisplayName);
         }
         return null;
-        
+
       case ProtocolMessageType.contactAccept:
         // Handle contact request acceptance
         final acceptPublicKey = protocolMessage.contactAcceptPublicKey;
         final acceptDisplayName = protocolMessage.contactAcceptDisplayName;
-        
+
         if (acceptPublicKey != null && acceptDisplayName != null) {
           _logger.info('📱 CONTACT ACCEPT: Received from $acceptDisplayName');
           onContactAcceptReceived?.call(acceptPublicKey, acceptDisplayName);
         }
         return null;
-        
+
       case ProtocolMessageType.contactReject:
         // Handle contact request rejection
         _logger.info('📱 CONTACT REJECT: Received');
         onContactRejectReceived?.call();
         return null;
-        
+
       case ProtocolMessageType.queueSync:
         // Handle queue synchronization request/response
         return await _handleQueueSync(protocolMessage, senderPublicKey);
-        
+
       case ProtocolMessageType.meshRelay:
         // Handle mesh relay message
         return await _handleMeshRelay(protocolMessage, senderPublicKey);
@@ -926,24 +943,24 @@ Future<String?> _processCompleteProtocolMessage(
 }
 
 Future<void> handleQRIntroductionClaim({
-  required String otherPublicKey, 
-  required String introId, 
+  required String otherPublicKey,
+  required String introId,
   required int scannedTime,
   required String theirName,
   required BLEStateManager stateManager,
 }) async {
   final prefs = await SharedPreferences.getInstance();
   final sessionData = prefs.getString('my_qr_session_$introId');
-  
+
   if (sessionData != null) {
     final session = jsonDecode(sessionData);
     final startedShowing = session['started_showing'] as int;
     final stoppedShowing = session['stopped_showing'] as int?;
-    
+
     // Check if their scan time is within our showing window
-    final isValidTime = scannedTime >= startedShowing && 
+    final isValidTime = scannedTime >= startedShowing &&
       (stoppedShowing == null || scannedTime <= stoppedShowing);
-    
+
     if (isValidTime) {
       _logger.info('✅ Valid QR introduction from $theirName');
     } else {
@@ -952,25 +969,25 @@ Future<void> handleQRIntroductionClaim({
   } else {
     _logger.info('❓ Unknown QR introduction from $theirName');
   }
-  
+
   // QR verification complete - existing connection flow will handle pairing
 }
 
 Future<bool> checkQRIntroductionMatch({
-  required String otherPublicKey, 
+  required String otherPublicKey,
   required String theirName,
 }) async {
   final prefs = await SharedPreferences.getInstance();
   final introData = prefs.getString('scanned_intro_$otherPublicKey');
-  
+
   if (introData != null) {
     final intro = jsonDecode(introData);
     final introId = intro['intro_id'] as String;
-    
+
     _logger.info('✅ Found matching QR introduction: $introId for $theirName');
     return true;
   }
-  
+
   return false;
 }
 
@@ -979,31 +996,31 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
   if (contactPublicKey == null || contactPublicKey.isEmpty) {
     return 'global';
   }
-  
+
   final level = await SecurityManager.getCurrentLevel(contactPublicKey, contactRepository);
-  
+
   switch (level) {
     case SecurityLevel.high:
       return 'ecdh';
-    case SecurityLevel.medium:  
+    case SecurityLevel.medium:
       return 'pairing';
     case SecurityLevel.low:
       return 'global';
   }
 }
-  
+
   /// Handle queue synchronization message
   Future<String?> _handleQueueSync(ProtocolMessage protocolMessage, String? senderPublicKey) async {
     try {
       final queueHash = protocolMessage.queueSyncHash;
       final messageIds = protocolMessage.queueSyncMessageIds;
       final syncTimestamp = protocolMessage.queueSyncTimestamp;
-      
+
       if (queueHash == null || messageIds == null || syncTimestamp == null || senderPublicKey == null) {
         _logger.warning('🔄 QUEUE SYNC: Invalid sync message received');
         return null;
       }
-      
+
       // Create QueueSyncMessage from protocol message
       final syncMessage = QueueSyncMessage(
         queueHash: queueHash,
@@ -1012,20 +1029,20 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
         nodeId: senderPublicKey,
         syncType: QueueSyncType.request,
       );
-      
+
       _logger.info('🔄 QUEUE SYNC: Received from ${_safeTruncate(senderPublicKey, 16)}...');
-      
+
       // Forward to sync manager via callback
       onQueueSyncReceived?.call(syncMessage, senderPublicKey);
-      
+
       return null; // Queue sync messages don't return text content
-      
+
     } catch (e) {
       _logger.severe('🔄 QUEUE SYNC: Failed to handle sync message: $e');
       return null;
     }
   }
-  
+
   /// Handle friend identity reveal in spy mode
   Future<String?> _handleFriendReveal(ProtocolMessage protocolMessage, String? senderPublicKey) async {
     try {
@@ -1135,7 +1152,7 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
         availableNextHops: getAvailableNextHops(),
         messageType: originalMessageType,  // PHASE 2: Pass to relay engine for policy check
       );
-      
+
       // Handle result based on type
       switch (result.type) {
         case RelayProcessingType.deliveredToSelf:
@@ -1149,27 +1166,27 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
           );
 
           return result.content;
-          
+
         case RelayProcessingType.relayed:
           _logger.info('🔀 MESH RELAY: Message relayed to ${_safeTruncate(result.nextHopNodeId, 8)}...');
           return null; // No content to return for relayed messages
-          
+
         case RelayProcessingType.dropped:
         case RelayProcessingType.blocked:
           _logger.warning('🔀 MESH RELAY: Message ${result.type.name}: ${result.reason}');
           return null;
-          
+
         case RelayProcessingType.error:
           _logger.severe('🔀 MESH RELAY: Processing error: ${result.reason}');
           return null;
       }
-      
+
     } catch (e) {
       _logger.severe('🔀 MESH RELAY: Failed to handle relay message: $e');
       return null;
     }
   }
-  
+
   /// Send queue synchronization message
   Future<bool> sendQueueSyncMessage({
     required CentralManager? centralManager,
@@ -1187,12 +1204,12 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
         messageIds: syncMessage.messageIds,
         syncTimestamp: syncMessage.syncTimestamp.millisecondsSinceEpoch,
       );
-      
+
       final jsonBytes = protocolMessage.toBytes();
       final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, 'queue_sync_${DateTime.now().millisecondsSinceEpoch}');
-      
+
       _logger.info('🔄 QUEUE SYNC: Sending sync message with ${syncMessage.messageIds.length} message IDs');
-      
+
       // Send via central or peripheral
       if (centralManager != null && connectedDevice != null) {
         for (final chunk in chunks) {
@@ -1214,15 +1231,15 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
           await Future.delayed(Duration(milliseconds: 50));
         }
       }
-      
+
       return true;
-      
+
     } catch (e) {
       _logger.severe('🔄 QUEUE SYNC: Failed to send sync message: $e');
       return false;
     }
   }
-  
+
   /// Handle relay message forwarding to next hop
   Future<void> _handleRelayToNextHop(MeshRelayMessage message, String nextHopNodeId) async {
     try {
@@ -1241,7 +1258,7 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
         useEphemeralAddressing: false,  // Relay messages use persistent keys
         originalMessageType: message.originalMessageType,  // PHASE 2: Preserve message type
       );
-      
+
       // Forward via callback to BLE service layer
       if (onSendRelayMessage != null) {
         onSendRelayMessage!(protocolMessage, nextHopNodeId);
@@ -1249,7 +1266,7 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
       } else {
         _logger.warning('⚠️ Cannot forward relay: onSendRelayMessage callback not set');
       }
-      
+
     } catch (e) {
       _logger.severe('Failed to handle relay to next hop: $e');
     }
@@ -1259,10 +1276,10 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
   void _handleRelayDeliveryToSelf(String originalMessageId, String content, String originalSender) {
     try {
       _logger.info('🔀 RELAY DELIVERY: Message delivered to self from ${_safeTruncate(originalSender, 8)}...');
-      
+
       // Notify the application layer
       onRelayMessageReceived?.call(originalMessageId, content, originalSender);
-      
+
     } catch (e) {
       _logger.severe('Failed to handle relay delivery to self: $e');
     }
@@ -1287,7 +1304,7 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
         finalRecipientPublicKey: finalRecipientPublicKey,
         priority: priority,
       );
-      
+
     } catch (e) {
       _logger.severe('Failed to create outgoing relay: $e');
       return null;
@@ -1542,31 +1559,31 @@ class MessageEncryptionMethod {
   final String method;
   final bool isEncrypted;
   final String description;
-  
+
   const MessageEncryptionMethod._({
     required this.method,
     required this.isEncrypted,
     required this.description,
   });
-  
+
   factory MessageEncryptionMethod.ecdh() => MessageEncryptionMethod._(
     method: 'ecdh',
     isEncrypted: true,
     description: 'ECDH + Global Encryption',
   );
-  
+
   factory MessageEncryptionMethod.conversation() => MessageEncryptionMethod._(
     method: 'conversation',
     isEncrypted: true,
     description: 'Pairing Key + Global Encryption',
   );
-  
+
   factory MessageEncryptionMethod.global() => MessageEncryptionMethod._(
     method: 'global',
     isEncrypted: true,
     description: 'Global Encryption Only',
   );
-  
+
   factory MessageEncryptionMethod.none() => MessageEncryptionMethod._(
     method: 'none',
     isEncrypted: false,

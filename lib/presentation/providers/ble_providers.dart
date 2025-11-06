@@ -13,6 +13,8 @@ import '../../domain/entities/enhanced_message.dart';
 import 'mesh_networking_provider.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/messaging/message_router.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initialization check
 
 // =============================================================================
 // REACTIVE USERNAME PROVIDERS (RIVERPOD 3.0 MODERN APPROACH)
@@ -109,26 +111,14 @@ class UsernameOperations {
   }
 }
 
-// BLE Service provider
+// BLE Service provider - creates service instance without initializing
+// ✅ FIX #1: Lazy initialization - don't call initialize() immediately
 final bleServiceProvider = Provider<BLEService>((ref) {
   final service = BLEService();
 
-  // Initialize with error handling to prevent app crash
-  service.initialize().catchError((e, stackTrace) {
-    if (kDebugMode) {
-      print('❌ CRITICAL: BLEService initialization failed: $e');
-      print('Stack trace: $stackTrace');
-    }
-    // Don't rethrow - let the app continue in degraded mode
-  });
-
-  // Initialize MessageRouter with the BLE service (BitChat pattern - MessageRouter.kt line 21)
-  // Must happen AFTER BLEService.initialize() to ensure service is ready
-  MessageRouter.initialize(service).catchError((e) {
-    if (kDebugMode) {
-      print('⚠️ MessageRouter initialization failed: $e');
-    }
-  });
+  // ✅ REMOVED: Immediate initialization that caused LateInitializationError
+  // The service will be initialized properly by bleServiceInitializedProvider
+  // after AppCore is fully ready with messageQueue available
 
   ref.onDispose(() {
     try {
@@ -138,6 +128,47 @@ final bleServiceProvider = Provider<BLEService>((ref) {
     }
     service.dispose();
   });
+
+  return service;
+});
+
+// ✅ NEW: Initialized BLE service provider - waits for AppCore to be ready
+// Use this provider when you need a fully initialized BLE service
+final bleServiceInitializedProvider = FutureProvider<BLEService>((ref) async {
+  final service = ref.watch(bleServiceProvider);
+
+  // Wait for AppCore to be fully initialized (messageQueue must exist)
+  int attempts = 0;
+  while (!AppCore.instance.isInitialized && attempts < 100) {
+    await Future.delayed(Duration(milliseconds: 100));
+    attempts++;
+  }
+
+  if (!AppCore.instance.isInitialized) {
+    throw StateError('AppCore initialization timeout after ${attempts * 100}ms');
+  }
+
+  if (kDebugMode) {
+    print('✅ [BLEService] Starting initialization (AppCore is ready)');
+  }
+
+  // Now it's safe to initialize - messageQueue exists
+  try {
+    await service.initialize();
+
+    // Initialize MessageRouter with the BLE service (BitChat pattern)
+    await MessageRouter.initialize(service);
+
+    if (kDebugMode) {
+      print('✅ [BLEService] Initialization complete with MessageRouter');
+    }
+  } catch (e, stackTrace) {
+    if (kDebugMode) {
+      print('❌ CRITICAL: BLEService initialization failed: $e');
+      print('Stack trace: $stackTrace');
+    }
+    // Don't rethrow - let the app continue in degraded mode
+  }
 
   return service;
 });
@@ -186,14 +217,21 @@ final discoveryDataProvider = StreamProvider<Map<String, DiscoveredEventArgs>>((
   return service.discoveryData;
 });
 
+// 🆕 Deduplicated discovered devices provider (with contact recognition)
+final deduplicatedDevicesProvider = StreamProvider<Map<String, DiscoveredDevice>>((ref) {
+  return DeviceDeduplicationManager.uniqueDevicesStream;
+});
+
 // =============================================================================
 // BURST SCANNING INTEGRATION
 // =============================================================================
 
 /// Burst scanning controller provider - manages the integration between power manager and BLE
+/// ✅ FIX #1: Now waits for fully initialized BLE service
 final burstScanningControllerProvider = FutureProvider<BurstScanningController>((ref) async {
   final controller = BurstScanningController();
-  final bleService = ref.watch(bleServiceProvider);
+  // ✅ Wait for initialized service (which waits for AppCore)
+  final bleService = await ref.watch(bleServiceInitializedProvider.future);
 
   try {
     await controller.initialize(bleService);

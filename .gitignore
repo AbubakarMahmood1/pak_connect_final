@@ -1,29 +1,56 @@
-# Miscellaneous
-*.class
+# =========================
+# OS / Editor cruft
+# =========================
+# macOS / Windows
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Common temp files
+*.swp
 *.log
 *.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+*.class
 
-# IntelliJ related
+# Editors / IDEs
+.atom/
+.history
+.idea/
+# The .vscode folder often contains tasks/launch configs you might want tracked.
+# Uncomment to ignore everything under .vscode:
+# .vscode/
+
+# JetBrains project files
 *.iml
 *.ipr
 *.iws
-.idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# SVN / SwiftPM (if present)
+.svn/
+.swiftpm/
 
-# Flutter/Dart/Pub related
+# Build/CI scratch
+.build/
+.buildlog/
+migrate_working_dir/
+
+# =========================
+# Node / JS
+# =========================
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Tool outputs
+# =========================
+.VSCodeCounter/
+*.log
+
+# =========================
+# Flutter / Dart / Pub
+# =========================
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
@@ -31,18 +58,55 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
+.packages
 /build/
+.metadata           # usually not needed; comment out if you prefer to track
 
-# Symbolication related
+# App symbol/obfuscation artifacts
 app.*.symbols
-
-# Obfuscation related
 app.*.map.json
 
-# Android Studio will place build artifacts here
+# Coverage / reports (optional)
+coverage/
+
+# If this is a *package* (not an app), ignore pubspec.lock.
+# For apps, keep pubspec.lock committed.
+# pubspec.lock
+
+# =========================
+# Android
+# =========================
+/android/.gradle/
+/android/local.properties
 /android/app/debug
 /android/app/profile
 /android/app/release
+# Signing (keep these out of git)
+/android/key.properties
+*.jks
+*.keystore
+
+# =========================
+# iOS / CocoaPods
+# =========================
+/ios/Pods/
+# If you prefer to commit Pods, comment out the line above.
+
+# =========================
+# Desktop (Linux/Mac/Windows) generated
+# =========================
+# Flutter generates platform registrant files; most teams commit them.
+# Build artifacts are already covered by /build/
+
+# =========================
+# Project-specific
+# =========================
+# Local/secret-y configs (adjust as needed)
+.claude/*.local.json
+
+# Temporary or throwaway refs
+temp_*.*
 nul
 
+# Keep reference/ only if you intend to track it; otherwise ignore it:
 reference/

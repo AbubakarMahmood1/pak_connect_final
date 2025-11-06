@@ -209,7 +209,12 @@ Future<void> _logChatOpenState() async {
   final encryptionMethod = await SecurityManager.getEncryptionMethod(publicKey, contactRepo);
   
   _logger.info('💬🔑 CHAT OPEN: ${widget.contactName ?? "Unknown"} | Security=${securityLevel.name} | Encryption=${encryptionMethod.type.name}');
-  _logger.info('💬🔑 Keys: PubKey=${publicKey.substring(0, 16)}... | CurrentEphemeralID=${contact?.currentEphemeralId?.substring(0, 16) ?? "NULL"}... | NoiseSession=${contact?.sessionIdForNoise?.substring(0, 16) ?? "NULL"}...');
+  final pkDisp = publicKey.length > 16 ? '${publicKey.substring(0, 16)}...' : publicKey;
+  final eph = contact?.currentEphemeralId;
+  final ephDisp = eph != null ? (eph.length > 16 ? '${eph.substring(0, 16)}...' : eph) : 'NULL';
+  final sid = contact?.sessionIdForNoise;
+  final sidDisp = sid != null ? (sid.length > 16 ? '${sid.substring(0, 16)}...' : sid) : 'NULL';
+  _logger.info('💬🔑 Keys: PubKey=$pkDisp | CurrentEphemeralID=$ephDisp | NoiseSession=$sidDisp');
 }
 
 void _checkAndSetupLiveMessaging() {

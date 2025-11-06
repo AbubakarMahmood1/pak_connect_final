@@ -60,6 +60,7 @@ class GossipSyncManager {
   // Timers
   Timer? _periodicSyncTimer;
   Timer? _cleanupTimer;
+  bool _isRunning = false; // ✅ FIX: Track if timers are running
 
   GossipSyncManager({
     required String myNodeId,
@@ -67,8 +68,16 @@ class GossipSyncManager {
   })  : _myNodeId = myNodeId,
         _messageQueue = messageQueue;
 
+  /// Check if gossip sync manager is running
+  bool get isRunning => _isRunning;
+
   /// Start gossip sync manager
   Future<void> start() async {
+    if (_isRunning) {
+      _logger.fine('GossipSyncManager already running - skipping start');
+      return;
+    }
+
     // Cancel any existing timers
     stop();
 
@@ -82,6 +91,7 @@ class GossipSyncManager {
       _performCleanup();
     });
 
+    _isRunning = true;
     _logger.info('🔄 GossipSyncManager started (sync interval: ${syncInterval.inSeconds}s)');
   }
 
@@ -93,6 +103,7 @@ class GossipSyncManager {
     _cleanupTimer?.cancel();
     _cleanupTimer = null;
 
+    _isRunning = false;
     _logger.info('GossipSyncManager stopped');
   }
 
