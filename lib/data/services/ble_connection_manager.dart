@@ -49,8 +49,8 @@ class BLEConnectionManager {
   // Advertising control (Phase 2b: Hybrid advertising strategy)
   bool _isAdvertising = false;
   bool _shouldBeAdvertising = true; // Whether we WANT to advertise
-  GATTCharacteristic? _serverMessageCharacteristic; // For incoming connections
-  
+  GATTCharacteristic? _serverMessageCharacteristic; // For incoming connections // ignore: unused_field
+
   // Simplified monitoring system
   Timer? _monitoringTimer;
   bool _isMonitoring = false;
@@ -60,7 +60,7 @@ class BLEConnectionManager {
   bool _pairingInProgress = false;
   bool _handshakeInProgress = false;
   bool _isReconnection = false;
-  
+
   ConnectionMonitorState _monitorState = ConnectionMonitorState.idle;
   ChatConnectionState _connectionState = ChatConnectionState.disconnected;
 
@@ -69,7 +69,7 @@ class BLEConnectionManager {
   static const int minInterval = 3000;
   static const int maxInterval = 30000;
   static const int healthCheckInterval = 5000;
-  
+
   // Callbacks for parent service
   Function(Peripheral?)? onConnectionChanged;
   Function(GATTCharacteristic?)? onCharacteristicFound;
@@ -80,7 +80,7 @@ class BLEConnectionManager {
 
   // 🧹 REAL-TIME CLEANUP: Callback for central disconnect events
   Function(String deviceAddress)? onCentralDisconnected;
-  
+
   BLEConnectionManager({
     required this.centralManager,
     required this.peripheralManager,
@@ -91,7 +91,7 @@ class BLEConnectionManager {
     _logger.info('🎯 Connection limits initialized: $_limitConfig');
     _logger.info('📡 RSSI threshold: $_rssiThreshold dBm (${initialPowerMode.name} mode)');
   }
-  
+
   // Getters - Backward compatibility
   Peripheral? get connectedDevice => _connectedDevice;
   Peripheral? get lastConnectedDevice => _lastConnectedDevice;
@@ -139,28 +139,28 @@ class BLEConnectionManager {
   void _updateConnectionState(ChatConnectionState newState, {String? error}) {
   if (_connectionState != newState) {
     _connectionState = newState;
-    
+
     final info = ConnectionInfo(
       state: newState,
       deviceId: _connectedDevice?.uuid.toString(),
       displayName: null, // Will be filled by state manager
       error: error,
     );
-    
+
     onConnectionInfoChanged?.call(info);
     _logger.info('Connection state: ${newState.name}');
   }
 }
   void startConnectionMonitoring() {
     if (_isMonitoring) return;
-    
+
     _isMonitoring = true;
     _lastConnectedDevice = _connectedDevice;
     _monitorState = hasBleConnection
-      ? ConnectionMonitorState.healthChecking 
+      ? ConnectionMonitorState.healthChecking
       : ConnectionMonitorState.reconnecting;
     _monitoringInterval = minInterval;
-    
+
     _scheduleNextCheck();
     onMonitoringChanged?.call(true);
     _logger.info('Monitoring started in ${_monitorState.name} mode');
@@ -180,10 +180,10 @@ class BLEConnectionManager {
   void _scheduleNextCheck() {
     _monitoringTimer?.cancel();
     if (!_isMonitoring) return;
-    
+
     _monitoringTimer = Timer(Duration(milliseconds: _monitoringInterval), () async {
       if (!_isMonitoring) return;
-      
+
       switch (_monitorState) {
         case ConnectionMonitorState.healthChecking:
           await _performHealthCheck();
@@ -194,10 +194,10 @@ class BLEConnectionManager {
         case ConnectionMonitorState.idle:
           return;
       }
-      
+
       // Exponential backoff
       _monitoringInterval = (_monitoringInterval * 1.2).round().clamp(minInterval, maxInterval);
-      
+
       if (_isMonitoring) {
         _scheduleNextCheck();
       }
@@ -218,7 +218,7 @@ class BLEConnectionManager {
     if (inProgress) {
       _logger.info('🤝 Handshake started - pausing health checks');
     } else {
-      _logger.info('✅ Handshake completed - resuming health checks');
+      _logger.info('⏹️ Handshake ended - resuming health checks');
     }
   }
 
@@ -445,6 +445,16 @@ class BLEConnectionManager {
       return;
     }
 
+    // Collision handling: if we already have an outbound (client) link to this peer, drop it and prefer inbound
+    final existingClient = _clientConnections[address];
+    if (existingClient != null) {
+      _logger.info('🔀 Collision detected with ${_formatAddress(address)} → preferring inbound (server) link, dropping outbound (client)');
+      try {
+        centralManager.disconnect(existingClient.peripheral);
+      } catch (_) {}
+      _clientConnections.remove(address);
+    }
+
     _logger.info('📥 Central connected: ${_formatAddress(address)} (server connections: ${serverConnectionCount + 1}/${_limitConfig.maxServerConnections})');
 
     final connection = BLEServerConnection(
@@ -505,6 +515,19 @@ class BLEConnectionManager {
   String _formatAddress(String address) {
     return address.length > 8 ? '${address.substring(0, 8)}...' : address;
   }
+
+  /// Determine if a connect error is transient and worth a quick retry
+  bool _isTransientConnectError(Object e) {
+    final s = e.toString();
+    // Timeouts and Android GATT status 133/147 are classic transient failures
+    return s.contains('timeout') ||
+           s.contains('Connection timeout') ||
+           s.contains('status=133') ||
+           s.contains('status=147') ||
+           s.contains('GATT 133') ||
+           s.contains('133') && (s.contains('Gatt') || s.contains('GATT'));
+  }
+
 
   // ⚡ ========== PHASE 2B: POWER MODE MANAGEMENT ========== ⚡
 
@@ -638,6 +661,12 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     final address = device.uuid.toString();
 
     try {
+      // Single-link policy: if inbound (server) link already exists to this address, adopt it and skip client connect
+      if (_serverConnections.containsKey(address)) {
+        _logger.info('↔️ Single-link: inbound link already active for ${_formatAddress(address)} — skipping outbound connect');
+        return;
+      }
+
       // Phase 4: RSSI-based connection filtering
       if (rssi != null && rssi < _rssiThreshold) {
         _logger.info(
@@ -663,13 +692,30 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       }
 
       _logger.info('🔌 Connecting to ${_formatAddress(address)}...');
-
       await Future.delayed(Duration(milliseconds: 500));
 
-      await centralManager.connect(device).timeout(
-        Duration(seconds: 10),
-        onTimeout: () => throw Exception('Connection timeout after 10 seconds'),
-      );
+      // Robust connect: 20s timeout + one retry for transient errors (e.g., GATT 133/147)
+      for (var attempt = 1; attempt <= 2; attempt++) {
+        try {
+          _logger.info('🔌 Connecting (attempt $attempt/2) to ${_formatAddress(address)}...');
+          await centralManager.connect(device).timeout(
+            Duration(seconds: 20),
+            onTimeout: () => throw Exception('Connection timeout after 20 seconds'),
+          );
+          break; // success
+        } catch (e) {
+          _logger.warning('❌ Connect attempt $attempt failed: $e');
+          final transient = _isTransientConnectError(e);
+          if (attempt < 2 && transient) {
+            // Best-effort cleanup before retry
+            try { await centralManager.disconnect(device); } catch (_) {}
+            await Future.delayed(Duration(milliseconds: 1200));
+            continue;
+          } else {
+            throw Exception(e.toString());
+          }
+        }
+      }
 
       // Create client connection object
       var connection = BLEClientConnection(
@@ -685,26 +731,26 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       _logger.info('📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)');
 
       onConnectionChanged?.call(device);
-      
+
       // Discover GATT services with retry logic
       List<GATTService> services = [];
       GATTService? messagingService;
-      
+
       for (int retry = 0; retry < 3; retry++) {
         try {
           _logger.info('Discovering services, attempt ${retry + 1}/3');
           services = await centralManager.discoverGATT(device);
-          
+
           messagingService = services.firstWhere(
             (service) => service.uuid == BLEConstants.serviceUUID,
           );
-          
+
           _logger.info('✅ Messaging service found on attempt ${retry + 1}');
           break;
-          
+
         } catch (e) {
           _logger.warning('❌ Service discovery failed on attempt ${retry + 1}: $e');
-          
+
           if (retry < 2) {
             await Future.delayed(Duration(milliseconds: 1000));
           } else {
@@ -712,11 +758,11 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
           }
         }
       }
-      
+
       if (messagingService == null) {
         throw Exception('Messaging service not found after retries');
       }
-      
+
       // Find the message characteristic
       final messageChar = messagingService.characteristics.firstWhere(
         (char) => char.uuid == BLEConstants.messageCharacteristicUUID,
@@ -730,7 +776,7 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       _clientConnections[address] = connection;
 
       onCharacteristicFound?.call(messageChar);
-      
+
       // Enable notifications
       if (messageChar.properties.contains(GATTCharacteristicProperty.notify)) {
         try {
@@ -740,15 +786,15 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
             state: true,
           );
           _logger.info('✅ Notifications enabled successfully');
-          
+
           await Future.delayed(Duration(milliseconds: 500));
-          
+
         } catch (e) {
           _logger.severe('CRITICAL: Failed to enable notifications: $e');
           throw Exception('Cannot enable notifications - connection unusable');
         }
       }
-      
+
       _logger.info('🔐 BLE Connected - starting protocol setup');
       _updateConnectionState(ChatConnectionState.connecting);
 
@@ -770,7 +816,7 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       rethrow;
     }
   }
-  
+
   Future<void> _detectOptimalMTU(Peripheral device, String address) async {
     try {
       _logger.info('📏 Attempting MTU detection...');
@@ -826,18 +872,18 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       _logger.fine('✅ Message operation completed - resuming health checks');
     }
   }
-  
+
   Future<Peripheral?> scanForSpecificDevice({Duration timeout = const Duration(seconds: 10)}) async {
     if (centralManager.state != BluetoothLowEnergyState.poweredOn) {
       return null;
     }
-    
+
     _logger.info('🔍 Scanning for service-advertising devices only');
-    
+
     final completer = Completer<Peripheral?>();
     StreamSubscription? discoverySubscription;
     Timer? timeoutTimer;
-    
+
     try {
       discoverySubscription = centralManager.discovered.listen((event) {
         _logger.info('✅ Found device advertising our service: ${event.peripheral.uuid}');
@@ -845,27 +891,27 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
           completer.complete(event.peripheral);
         }
       });
-      
+
       timeoutTimer = Timer(timeout, () {
         if (!completer.isCompleted) {
           _logger.info('⏰ Service scan timeout');
           completer.complete(null);
         }
       });
-      
+
       await Future.delayed(Duration(milliseconds: 500));
-      
+
       await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
-      
+
       return await completer.future;
-      
+
     } finally {
       await centralManager.stopDiscovery();
       discoverySubscription?.cancel();
       timeoutTimer?.cancel();
     }
   }
-  
+
   /// 🔌 Disconnect all client connections
   Future<void> disconnectAll() async {
     _logger.info('🔌 Disconnecting all connections');
@@ -930,7 +976,7 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     }
     _logger.info('Triggering immediate reconnection...');
   }
-  
+
   void clearConnectionState({bool keepMonitoring = false, String? contactId}) {
     _logger.info('🧹 Clearing connection state');
 
@@ -962,34 +1008,34 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     onCharacteristicFound?.call(null);
     onMtuDetected?.call(null);
   }
-  
+
   /// 🧹 Clean up ephemeral contact immediately if they have no chat history
   /// Called on disconnect to keep database clean without waiting for app restart
   void _cleanupEphemeralContactIfOrphaned(String contactId) async {
     try {
       _logger.info('🧹 Checking if contact needs cleanup: ${contactId.length > 8 ? '${contactId.substring(0, 8)}...' : contactId}');
-      
+
       // Import repositories (will need to add imports at top of file)
       final contactRepo = ContactRepository();
       final messageRepo = MessageRepository();
-      
+
       // Get contact info
       final contact = await contactRepo.getContact(contactId);
       if (contact == null) {
         _logger.fine('Contact not found - nothing to cleanup');
         return;
       }
-      
+
       // Skip if contact is verified (paired/trusted)
       if (contact.trustStatus == TrustStatus.verified) {
         _logger.fine('Contact is verified - keeping');
         return;
       }
-      
+
       // Check for chat history
       final chatId = ChatUtils.generateChatId(contactId);
       final messages = await messageRepo.getMessages(chatId);
-      
+
       if (messages.isEmpty) {
         // No chat history - delete the ephemeral contact
         final deleted = await contactRepo.deleteContact(contactId);

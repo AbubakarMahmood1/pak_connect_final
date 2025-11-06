@@ -924,14 +924,19 @@ class MeshNetworkingService {
       }
 
       // Route to correct send method based on mode (central vs peripheral)
-      final bool success;
+      bool success;
       if (_bleService.isPeripheralMode) {
-        // Peripheral mode: use peripheral-specific send method
-        _logger.fine('Sending via PERIPHERAL mode for $truncatedId...');
-        success = await _bleService.sendPeripheralMessage(
-          message.content,
-          messageId: messageId,
-        );
+        // Guard: only attempt peripheral send if we actually can notify (central + characteristic ready)
+        if (!_bleService.canSendMessages) {
+          _logger.warning('Skipping send in PERIPHERAL mode: no central/characteristic (will retry later): $truncatedId...');
+          success = false;
+        } else {
+          _logger.fine('Sending via PERIPHERAL mode for $truncatedId...');
+          success = await _bleService.sendPeripheralMessage(
+            message.content,
+            messageId: messageId,
+          );
+        }
       } else {
         // Central mode: use regular send method with relay support
         _logger.fine('Sending via CENTRAL mode for $truncatedId...');

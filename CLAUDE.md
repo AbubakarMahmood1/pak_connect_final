@@ -587,6 +587,119 @@ void main() {
 - **Duplicate Detection**: Use bloom filters for memory-efficient seen message tracking
 - **Topology Updates**: Cache topology for 5-10 seconds, don't recalculate on every message
 
+## 🎯 Confidence Protocol (MANDATORY for Critical Areas)
+
+**Purpose**: Prevent regressions and 7-day debugging rabbit holes by verifying approach BEFORE implementation.
+
+Before modifying these systems, run confidence assessment (0.0-1.0):
+
+### Critical Areas (≥90% confidence required):
+
+- **BLE handshake phases** (CONNECTION_READY → IDENTITY_EXCHANGE → NOISE_HANDSHAKE → CONTACT_STATUS_SYNC)
+- **Noise session state machine** (especially XX/KK pattern selection, nonce sequencing)
+- **Identity resolution** (publicKey vs persistentPublicKey vs currentEphemeralId)
+- **Mesh relay routing** (MeshRelayEngine, SmartMeshRouter, SeenMessageStore)
+- **Message fragmentation/defragmentation** (MessageFragmenter with sequence numbers)
+- **Database schema migrations** (MUST test backwards compatibility)
+
+### Confidence Checklist:
+
+- [ ] **No Duplicates (20%)**: Is this functionality already implemented elsewhere?
+  - Example: Don't add new identity storage if Contact model already handles it
+  - Check: BLEService, SecurityManager, MeshRelayEngine, ContactRepository
+
+- [ ] **Architecture Compliance (20%)**: Does this follow existing patterns?
+  - Layered architecture: Presentation → Domain → Core → Data
+  - Repository pattern for data access
+  - Provider pattern (Riverpod 3.0) for state
+  - Service layer for business logic
+
+- [ ] **Official Docs Verified (15%)**: Have I checked authoritative sources?
+  - BLE GATT specification (for handshake timing)
+  - Noise Protocol spec (for XX/KK patterns, rekeying)
+  - Flutter BLE package docs (for MTU negotiation)
+  - ChaCha20-Poly1305 AEAD spec (for encryption/decryption)
+
+- [ ] **Working Reference (15%)**: Have I found proven implementation?
+  - GitHub search: "BLE mesh relay Dart"
+  - GitHub search: "Noise Protocol Flutter"
+  - Stack Overflow: Specific error messages (e.g., "ChaCha20 PAD error")
+
+- [ ] **Root Cause Identified (15%)**: Do I understand WHY, not just WHAT?
+  - Self-connection: Is this MAC address filtering? Ephemeral ID collision? Peripheral advertising logic?
+  - Notification failure: Is this Phase 0 vs Phase 1 timing? Characteristic caching? BLE state issue?
+  - PAD errors: Is this Noise AEAD layer? Fragmentation reassembly? Nonce sequencing?
+
+- [ ] **Codex Second Opinion (15%)**: Have I consulted GPT-5 for unbiased perspective?
+  - **When to trigger**: Score <70% OR critical areas (security, concurrency, architecture)
+  - **Reasoning effort**: Use `high` for security/critical, `medium` for standard review
+  - **What to ask**: "Review this approach for [security vulnerabilities / edge cases / alternative solutions]"
+  - **Value**: Fresh perspective without my implementation bias, catches blind spots
+
+### Scoring:
+
+- **≥90%**: ✅ Proceed immediately with implementation (optional: Codex review after completion)
+- **70-89%**: ⚠️ Present 2-3 alternative approaches with trade-offs, **then consult Codex** for unbiased evaluation
+- **<70%**: ❌ STOP - Ask clarifying questions, research more, **consult Codex for alternative approaches**, don't guess
+
+### Codex Integration Workflow:
+
+**Automatic Triggers** (I'll call Codex without asking):
+1. **Confidence score <70%**: Get second opinion before asking user questions
+2. **Critical areas** (BLE handshake, Noise, mesh routing, security): Review approach before implementation
+3. **Multi-day debugging**: If stuck >2 hours, escalate to Codex for fresh perspective
+4. **Architecture changes**: Consult on trade-offs before proposing to user
+
+**Manual Triggers** (User requests):
+- "Have Codex review this"
+- "Ask Codex about [topic]"
+- "Get a second opinion on [approach]"
+
+**Reasoning Effort Selection**:
+- **High**: Security audits, cryptography, race conditions, critical bugs
+- **Medium**: Code reviews, refactoring, architecture discussions (default)
+- **Low**: Simple questions, explanations, documentation lookups
+
+### Usage Example:
+
+**User**: "Fix Device A connecting to itself"
+
+**Confidence Check**:
+- [ ] No duplicates? ✅ (connection logic in BLEConnectionManager) = 20%
+- [ ] Architecture compliance? ⚠️ (need to check if this affects peripheral vs central role) = 10%
+- [ ] Official docs? ❌ (haven't checked BLE GATT spec for device filtering) = 0%
+- [ ] Working reference? ❌ (no mesh networking self-connection example found) = 0%
+- [ ] Root cause? ❌ (unclear if MAC address vs ephemeral ID vs advertising data issue) = 0%
+- [ ] Codex opinion? ⏳ (not consulted yet) = 0%
+
+**Score: 20% + 10% + 0% + 0% + 0% + 0% = 30% < 70%**
+
+**Action**: ❌ STOP - Consult Codex first, then ask user questions:
+
+**Step 1 - Codex Consultation** (automatic):
+```
+Me → Codex (medium reasoning):
+"BLE dual-role device (central + peripheral) connecting to itself.
+Possible causes: MAC filtering issue, ephemeral ID collision, advertising data match.
+What are common approaches to prevent self-connection in BLE mesh?"
+
+Codex → Returns patterns from BLE mesh implementations
+```
+
+**Step 2 - User Questions** (informed by Codex):
+1. "Can you share logs showing Device A's connection attempt to itself?"
+2. "Is this happening during scanning phase or after connection established?"
+3. "What's in the advertising data that Device A is seeing?"
+4. "Codex suggests checking MAC address filtering - should we add device ID to advertising data?"
+
+### ROI:
+
+Spending 200 tokens on confidence check prevents 20,000 tokens debugging wrong layer (like spending 7 days on PAD errors that were actually Noise AEAD vs fragmentation layer confusion).
+
+**Think of it like unit tests**: You wouldn't skip tests for PakConnect - don't skip confidence checks either.
+
+---
+
 ## Critical Invariants
 
 ### Identity Invariants

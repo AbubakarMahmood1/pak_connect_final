@@ -20,6 +20,7 @@ class PreferenceKeys {
   static const String allowNewContacts = 'allow_new_contacts';
   static const String dataBackupEnabled = 'data_backup_enabled';
   static const String lastBackupTime = 'last_backup_time';
+  static const String autoConnectKnownContacts = 'auto_connect_known_contacts'; // 🆕 Auto-connect to known contacts
 }
 
 /// Default preference values
@@ -37,6 +38,7 @@ class PreferenceDefaults {
   static const bool allowNewContacts = true;
   static const bool dataBackupEnabled = false;
   static const int lastBackupTime = 0;
+  static const bool autoConnectKnownContacts = false; // 🆕 Default: OFF for battery conservation
 }
 
 /// Value types for type-safe storage
@@ -222,6 +224,8 @@ class PreferencesRepository {
         return PreferenceDefaults.dataBackupEnabled;
       case PreferenceKeys.lastBackupTime:
         return PreferenceDefaults.lastBackupTime;
+      case PreferenceKeys.autoConnectKnownContacts: // 🆕 Ensure default exists for auto-connect
+        return PreferenceDefaults.autoConnectKnownContacts;
       default:
         return '';
     }

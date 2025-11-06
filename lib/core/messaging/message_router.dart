@@ -1,3 +1,5 @@
+// ignore_for_file: depend_on_referenced_packages
+
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
@@ -36,11 +38,11 @@ class MessageRouter {
   }
 
   // Dependencies
-  late final BLEService _bleService;
+  late final BLEService _bleService; // ignore: unused_field
   late final OfflineMessageQueue _offlineQueue;
 
   // Statistics (delegated to OfflineMessageQueue)
-  int get _totalQueued {
+  int get _totalQueued { // ignore: unused_element
     try {
       return _offlineQueue.getStatistics().totalQueued;
     } catch (e) {
@@ -49,7 +51,7 @@ class MessageRouter {
     }
   }
 
-  int get _totalFlushed {
+  int get _totalFlushed { // ignore: unused_element
     try {
       return _offlineQueue.getStatistics().totalDelivered;
     } catch (e) {

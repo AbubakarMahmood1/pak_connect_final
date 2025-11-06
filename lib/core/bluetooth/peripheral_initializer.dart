@@ -58,11 +58,25 @@ class PeripheralInitializer {
         // Try to get state - this should work once manager is initialized
         final state = peripheralManager.state;
 
-        // If we can get state without exception, manager is initialized
         _logger.info('  Peripheral state: $state (initialized)');
+
+        // ✅ FIX: Validate Bluetooth state is actually usable
+        // Don't proceed if Bluetooth is off, unauthorized, or unsupported
+        if (state != BluetoothLowEnergyState.poweredOn) {
+          throw StateError(
+            'Bluetooth not available (state: $state). '
+            'Cannot initialize peripheral mode without powered-on Bluetooth.'
+          );
+        }
+
+        // Manager is initialized AND Bluetooth is usable
         return;
 
       } catch (e) {
+        // If it's a StateError about Bluetooth state, rethrow immediately
+        if (e is StateError && e.message.contains('Bluetooth not available')) {
+          rethrow;
+        }
         // Manager not ready yet, wait and retry
         _logger.fine('  Waiting for peripheral... ($e)');
         await Future.delayed(pollInterval);
@@ -118,12 +132,10 @@ class PeripheralInitializer {
     _logger.info('🔍 [PERIPH-DEBUG] Advertisement:');
     _logger.info('   - Service UUIDs: ${advertisement.serviceUUIDs}');
     _logger.info('   - Device name: ${advertisement.name}');
-    _logger.info('   - Manufacturer data: ${advertisement.manufacturerSpecificData?.length ?? 0} entries');
-    if (advertisement.manufacturerSpecificData != null && advertisement.manufacturerSpecificData!.isNotEmpty) {
-      for (var i = 0; i < advertisement.manufacturerSpecificData!.length; i++) {
-        final mfg = advertisement.manufacturerSpecificData![i];
-        _logger.info('     [$i] ID=0x${mfg.id.toRadixString(16)}, Data=${mfg.data.length} bytes');
-      }
+    _logger.info('   - Manufacturer data: ${advertisement.manufacturerSpecificData.length} entries');
+    for (var i = 0; i < advertisement.manufacturerSpecificData.length; i++) {
+      final mfg = advertisement.manufacturerSpecificData[i];
+      _logger.info('     [$i] ID=0x${mfg.id.toRadixString(16)}, Data=${mfg.data.length} bytes');
     }
     _logger.info('🔍 [PERIPH-DEBUG] timeout: $timeout');
     _logger.info('🔍 [PERIPH-DEBUG] skipIfAlreadyAdvertising: $skipIfAlreadyAdvertising');
@@ -162,8 +174,8 @@ class PeripheralInitializer {
       await peripheralManager.startAdvertising(advertisement);
       _logger.info('✅✅✅ [PERIPH-DEBUG] ADVERTISING STARTED! ✅✅✅');
       _logger.info('🔍 [PERIPH-DEBUG] Device should now be broadcasting:');
-      _logger.info('   - Service UUID: ${advertisement.serviceUUIDs?.join(", ")}');
-      _logger.info('   - Manufacturer data: ${advertisement.manufacturerSpecificData?.length ?? 0} entries');
+      _logger.info('   - Service UUID: ${advertisement.serviceUUIDs.join(", ")}');
+      _logger.info('   - Manufacturer data: ${advertisement.manufacturerSpecificData.length} entries');
       return true;
 
     } catch (e, stack) {

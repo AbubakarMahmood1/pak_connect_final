@@ -744,7 +744,7 @@ Widget _buildEmptyState() {
           SizedBox(height: 16),
           Text(
             hasNearbyDevices 
-              ? 'Connect to a nearby device to start chatting'
+              ? 'Connect to a nearby device first.'
               : 'No conversations yet',
             style: Theme.of(context).textTheme.titleLarge,
           ),
@@ -864,14 +864,32 @@ ConnectionStatus _determineConnectionStatus(
 
 bool _isContactOnlineViaHash(String contactPublicKey, Map<String, DiscoveredDevice> discoveryData) {
   if (discoveryData.isEmpty) return false;
-  
+
   for (final device in discoveryData.values) {
-    if (device.isKnownContact && 
-        device.contactInfo?.publicKey == contactPublicKey) {
-      return true;
+    if (device.isKnownContact && device.contactInfo != null) {
+      final contact = device.contactInfo!.contact;
+
+      // 🔐 PRIVACY FIX: Only match current active session
+      // This prevents identity linkage across ephemeral sessions for LOW security contacts
+
+      // Match 1: Current ephemeral ID (active session)
+      if (contact.currentEphemeralId == contactPublicKey) {
+        _logger.fine('🟢 ONLINE: Current session match for ${contact.displayName} (ephemeral)');
+        return true;
+      }
+
+      // Match 2: Persistent public key (MEDIUM+ security only)
+      if (contact.persistentPublicKey != null &&
+          contact.persistentPublicKey == contactPublicKey) {
+        _logger.fine('🟢 ONLINE: Persistent identity match for ${contact.displayName} (paired)');
+        return true;
+      }
+
+      // NO MATCH: Don't match by first publicKey - that would link old sessions
+      // This is intentional for privacy - only current session shows online
     }
   }
-  
+
   return false;
 }
 
