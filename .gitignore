@@ -110,3 +110,6 @@ nul
 
 # Keep reference/ only if you intend to track it; otherwise ignore it:
 reference/
+
+# Local MCP workspace (do not commit)
+serena/
