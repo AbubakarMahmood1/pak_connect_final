@@ -19,11 +19,13 @@ void main() {
 
   setUp(() async {
     // Use a fresh test database for each test
-    DatabaseHelper.setTestDatabaseName('test_selective_${DateTime.now().millisecondsSinceEpoch}.db');
-    
+    DatabaseHelper.setTestDatabaseName(
+      'test_selective_${DateTime.now().millisecondsSinceEpoch}.db',
+    );
+
     // Initialize database
     final db = await DatabaseHelper.database;
-    
+
     // Insert test contacts
     await db.insert('contacts', {
       'public_key': 'contact1_key',
@@ -220,11 +222,12 @@ void main() {
       expect(contactsBefore.length, equals(0));
 
       // Restore backup
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: backupResult.backupPath!,
-        exportType: ExportType.contactsOnly,
-        clearExistingData: false,
-      );
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: backupResult.backupPath!,
+            exportType: ExportType.contactsOnly,
+            clearExistingData: false,
+          );
 
       expect(restoreResult.success, isTrue);
       expect(restoreResult.recordsRestored, equals(2));
@@ -259,11 +262,12 @@ void main() {
       expect(messagesBefore.length, equals(0));
 
       // Restore backup
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: backupResult.backupPath!,
-        exportType: ExportType.messagesOnly,
-        clearExistingData: false,
-      );
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: backupResult.backupPath!,
+            exportType: ExportType.messagesOnly,
+            clearExistingData: false,
+          );
 
       expect(restoreResult.success, isTrue);
       expect(restoreResult.recordsRestored, equals(3)); // 1 chat + 2 messages
@@ -300,11 +304,12 @@ void main() {
       });
 
       // Restore with clearExistingData = true
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: backupResult.backupPath!,
-        exportType: ExportType.contactsOnly,
-        clearExistingData: true,
-      );
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: backupResult.backupPath!,
+            exportType: ExportType.contactsOnly,
+            clearExistingData: true,
+          );
 
       expect(restoreResult.success, isTrue);
 
@@ -319,11 +324,12 @@ void main() {
     });
 
     test('handles non-existent backup file gracefully', () async {
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: '/non/existent/path.db',
-        exportType: ExportType.contactsOnly,
-        clearExistingData: false,
-      );
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: '/non/existent/path.db',
+            exportType: ExportType.contactsOnly,
+            clearExistingData: false,
+          );
 
       expect(restoreResult.success, isFalse);
       expect(restoreResult.errorMessage, contains('not found'));

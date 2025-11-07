@@ -81,9 +81,7 @@ class CompressionConfig {
   /// Disabled configuration (no compression)
   ///
   /// Use for debugging or when compression is not desired.
-  static const CompressionConfig disabled = CompressionConfig(
-    enabled: false,
-  );
+  static const CompressionConfig disabled = CompressionConfig(enabled: false);
 
   /// Create a copy with modified fields
   CompressionConfig copyWith({

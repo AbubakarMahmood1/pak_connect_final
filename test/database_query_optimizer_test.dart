@@ -91,7 +91,11 @@ void main() {
       expect(result.first['display_name'], equals('Updated Name'));
 
       // Cleanup
-      await db.delete('contacts', where: 'public_key = ?', whereArgs: [testKey]);
+      await db.delete(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: [testKey],
+      );
     });
 
     test('Batch operations are executed correctly', () async {
@@ -163,7 +167,11 @@ void main() {
       expect(query.length, equals(1));
 
       // Cleanup
-      await db.delete('contacts', where: 'public_key = ?', whereArgs: [testKey]);
+      await db.delete(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: [testKey],
+      );
     });
 
     test('Performance statistics are tracked correctly', () async {
@@ -271,31 +279,28 @@ void main() {
       final now = DateTime.now().millisecondsSinceEpoch;
 
       // Batch insert using extension
-      await DatabaseHelperOptimizedExtension.batchInsertOptimized(
-        'contacts',
-        [
-          {
-            'public_key': 'ext_test_1_$now',
-            'display_name': 'Extension Test 1',
-            'trust_status': 0,
-            'security_level': 0,
-            'first_seen': now,
-            'last_seen': now,
-            'created_at': now,
-            'updated_at': now,
-          },
-          {
-            'public_key': 'ext_test_2_$now',
-            'display_name': 'Extension Test 2',
-            'trust_status': 0,
-            'security_level': 0,
-            'first_seen': now,
-            'last_seen': now,
-            'created_at': now,
-            'updated_at': now,
-          },
-        ],
-      );
+      await DatabaseHelperOptimizedExtension.batchInsertOptimized('contacts', [
+        {
+          'public_key': 'ext_test_1_$now',
+          'display_name': 'Extension Test 1',
+          'trust_status': 0,
+          'security_level': 0,
+          'first_seen': now,
+          'last_seen': now,
+          'created_at': now,
+          'updated_at': now,
+        },
+        {
+          'public_key': 'ext_test_2_$now',
+          'display_name': 'Extension Test 2',
+          'trust_status': 0,
+          'security_level': 0,
+          'first_seen': now,
+          'last_seen': now,
+          'created_at': now,
+          'updated_at': now,
+        },
+      ]);
 
       // Query using optimized extension
       final results = await DatabaseHelperOptimizedExtension.queryOptimized(

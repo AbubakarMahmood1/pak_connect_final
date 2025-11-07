@@ -26,13 +26,13 @@ void main() {
       for (var i = 0; i < 32; i++) {
         key[i] = i;
       }
-      
+
       final plaintext = Uint8List.fromList([1, 2, 3, 4, 5]);
       final ad = Uint8List.fromList([6, 7, 8]);
 
       cipher.initializeKey(key);
       final ciphertext = await cipher.encryptWithAd(ad, plaintext);
-      
+
       final cipher2 = CipherState();
       cipher2.initializeKey(key);
       final decrypted = await cipher2.decryptWithAd(ad, ciphertext);
@@ -58,7 +58,7 @@ void main() {
       final ad = Uint8List(0);
 
       cipher.initializeKey(key);
-      
+
       final ct1 = await cipher.encryptWithAd(ad, plaintext);
       final ct2 = await cipher.encryptWithAd(ad, plaintext);
 
@@ -72,9 +72,9 @@ void main() {
 
       cipher.initializeKey(key);
       cipher.setNonce(100);
-      
+
       final ct1 = await cipher.encryptWithAd(ad, plaintext);
-      
+
       cipher.setNonce(100);
       final ct2 = await cipher.encryptWithAd(ad, plaintext);
 
@@ -85,7 +85,7 @@ void main() {
       final key1 = Uint8List(32);
       final key2 = Uint8List(32);
       key2[0] = 1;
-      
+
       final plaintext = Uint8List.fromList([1, 2, 3]);
       final ad = Uint8List(0);
 
@@ -94,7 +94,7 @@ void main() {
 
       final cipher2 = CipherState();
       cipher2.initializeKey(key2);
-      
+
       // AEAD should throw on MAC verification failure
       bool threw = false;
       try {
@@ -102,7 +102,7 @@ void main() {
       } catch (e) {
         threw = true;
       }
-      
+
       // Cryptography package throws SecretBoxAuthenticationError
       expect(threw, isTrue, reason: 'Should throw on MAC auth failure');
       cipher2.destroy();
@@ -119,7 +119,7 @@ void main() {
 
       final cipher2 = CipherState();
       cipher2.initializeKey(key);
-      
+
       // AEAD should throw on MAC verification failure with wrong AD
       bool threw = false;
       try {
@@ -127,7 +127,7 @@ void main() {
       } catch (e) {
         threw = true;
       }
-      
+
       expect(threw, isTrue, reason: 'Should throw on wrong AD');
       cipher2.destroy();
     });
@@ -154,7 +154,7 @@ void main() {
       final cipher2 = CipherState();
       cipher2.initializeKey(key);
       final decrypted = await cipher2.decryptWithAd(ad, ciphertext);
-      
+
       expect(decrypted.length, 0);
       cipher2.destroy();
     });

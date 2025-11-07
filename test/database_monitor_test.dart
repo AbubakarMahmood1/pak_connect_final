@@ -82,7 +82,11 @@ void main() {
       expect(contactsMetrics.efficiency, greaterThan(0));
 
       // Cleanup
-      await db.delete('contacts', where: 'public_key = ?', whereArgs: [testKey]);
+      await db.delete(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: [testKey],
+      );
     });
 
     test('Snapshot JSON serialization works', () async {

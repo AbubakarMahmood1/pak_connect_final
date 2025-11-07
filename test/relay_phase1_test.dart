@@ -87,33 +87,107 @@ void main() {
 
   group('Phase 1: Relay Policy - Message Type Filtering', () {
     test('Handshake messages should NOT be relay-eligible', () {
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.connectionReady), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.identity), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.noiseHandshake1), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.noiseHandshake2), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.noiseHandshake3), isFalse);
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.connectionReady,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.identity),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.noiseHandshake1,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.noiseHandshake2,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.noiseHandshake3,
+        ),
+        isFalse,
+      );
     });
 
     test('Pairing messages should NOT be relay-eligible', () {
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.pairingRequest), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.pairingAccept), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.pairingCode), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.pairingCancel), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.contactRequest), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.contactAccept), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.contactReject), isFalse);
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.pairingRequest,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.pairingAccept,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.pairingCode),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.pairingCancel,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.contactRequest,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.contactAccept,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.contactReject,
+        ),
+        isFalse,
+      );
     });
 
     test('Control messages should NOT be relay-eligible', () {
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.ping), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.ack), isFalse);
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.ping),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.ack),
+        isFalse,
+      );
     });
 
     test('Normal messages SHOULD be relay-eligible', () {
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.textMessage), isTrue);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.meshRelay), isTrue);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.queueSync), isTrue);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.relayAck), isTrue);
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.textMessage),
+        isTrue,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.meshRelay),
+        isTrue,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.queueSync),
+        isTrue,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.relayAck),
+        isTrue,
+      );
     });
 
     test('Should get relay-eligible and non-relayable type lists', () {
@@ -239,8 +313,18 @@ void main() {
     test('Message type filtering should be consistent', () {
       // Same message type should always return same result
       for (int i = 0; i < 5; i++) {
-        expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.textMessage), isTrue);
-        expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.pairingRequest), isFalse);
+        expect(
+          RelayPolicy.isRelayEligibleMessageType(
+            ProtocolMessageType.textMessage,
+          ),
+          isTrue,
+        );
+        expect(
+          RelayPolicy.isRelayEligibleMessageType(
+            ProtocolMessageType.pairingRequest,
+          ),
+          isFalse,
+        );
       }
     });
   });
@@ -275,12 +359,30 @@ void main() {
 
     test('Should match BitChat message type filtering behavior', () {
       // BitChat explicitly excludes handshake from relay
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.noiseHandshake1), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.noiseHandshake2), isFalse);
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.noiseHandshake3), isFalse);
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.noiseHandshake1,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.noiseHandshake2,
+        ),
+        isFalse,
+      );
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(
+          ProtocolMessageType.noiseHandshake3,
+        ),
+        isFalse,
+      );
 
       // BitChat allows normal messages to be relayed
-      expect(RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.textMessage), isTrue);
+      expect(
+        RelayPolicy.isRelayEligibleMessageType(ProtocolMessageType.textMessage),
+        isTrue,
+      );
     });
 
     test('Should handle broadcast messages like BitChat', () {

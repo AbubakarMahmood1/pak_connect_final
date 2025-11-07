@@ -31,24 +31,24 @@ class BackupMetadata {
   });
 
   Map<String, dynamic> toJson() => {
-        'backup_id': backupId,
-        'timestamp': timestamp.toIso8601String(),
-        'database_version': databaseVersion,
-        'table_counts': tableCounts,
-        'checksum': checksum,
-        'total_records': totalRecords,
-        'app_version': appVersion,
-      };
+    'backup_id': backupId,
+    'timestamp': timestamp.toIso8601String(),
+    'database_version': databaseVersion,
+    'table_counts': tableCounts,
+    'checksum': checksum,
+    'total_records': totalRecords,
+    'app_version': appVersion,
+  };
 
   factory BackupMetadata.fromJson(Map<String, dynamic> json) => BackupMetadata(
-        backupId: json['backup_id'] as String,
-        timestamp: DateTime.parse(json['timestamp'] as String),
-        databaseVersion: json['database_version'] as int,
-        tableCounts: Map<String, int>.from(json['table_counts'] as Map),
-        checksum: json['checksum'] as String,
-        totalRecords: json['total_records'] as int,
-        appVersion: json['app_version'] as String? ?? 'unknown',
-      );
+    backupId: json['backup_id'] as String,
+    timestamp: DateTime.parse(json['timestamp'] as String),
+    databaseVersion: json['database_version'] as int,
+    tableCounts: Map<String, int>.from(json['table_counts'] as Map),
+    checksum: json['checksum'] as String,
+    totalRecords: json['total_records'] as int,
+    appVersion: json['app_version'] as String? ?? 'unknown',
+  );
 
   @override
   String toString() =>
@@ -67,14 +67,14 @@ class BackupResult {
     required this.backupPath,
     required this.metadata,
     required this.fileSizeBytes,
-  })  : success = true,
-        errorMessage = null;
+  }) : success = true,
+       errorMessage = null;
 
   BackupResult.failure({required this.errorMessage})
-      : success = false,
-        backupPath = null,
-        metadata = null,
-        fileSizeBytes = null;
+    : success = false,
+      backupPath = null,
+      metadata = null,
+      fileSizeBytes = null;
 
   @override
   String toString() => success
@@ -89,16 +89,14 @@ class RestoreResult {
   final String? errorMessage;
   final int? recordsRestored;
 
-  RestoreResult.success({
-    required this.metadata,
-    required this.recordsRestored,
-  })  : success = true,
-        errorMessage = null;
+  RestoreResult.success({required this.metadata, required this.recordsRestored})
+    : success = true,
+      errorMessage = null;
 
   RestoreResult.failure({required this.errorMessage})
-      : success = false,
-        metadata = null,
-        recordsRestored = null;
+    : success = false,
+      metadata = null,
+      recordsRestored = null;
 
   @override
   String toString() => success
@@ -113,7 +111,8 @@ class DatabaseBackupService {
   static const String _autoBackupEnabledKey = 'auto_backup_enabled';
   static const String _backupIntervalDaysKey = 'backup_interval_days';
   static const int _defaultBackupIntervalDays = 7;
-  static const String _appVersion = '1.0.0'; // Version from pubspec.yaml - update manually when version changes
+  static const String _appVersion =
+      '1.0.0'; // Version from pubspec.yaml - update manually when version changes
 
   /// Create encrypted backup of database
   static Future<BackupResult> createBackup({
@@ -132,7 +131,9 @@ class DatabaseBackupService {
 
       // Determine backup path
       final backupDir = destinationPath ?? await _getDefaultBackupDirectory();
-      final backupFile = File(join(backupDir, 'pak_connect_backup_$backupId.db'));
+      final backupFile = File(
+        join(backupDir, 'pak_connect_backup_$backupId.db'),
+      );
 
       // Ensure backup directory exists
       if (!await Directory(dirname(backupFile.path)).exists()) {
@@ -147,7 +148,9 @@ class DatabaseBackupService {
       final sourceFile = File(sourcePath);
 
       if (!await sourceFile.exists()) {
-        return BackupResult.failure(errorMessage: 'Source database does not exist');
+        return BackupResult.failure(
+          errorMessage: 'Source database does not exist',
+        );
       }
 
       // Copy database file
@@ -165,7 +168,9 @@ class DatabaseBackupService {
       // Update last backup timestamp
       await _updateLastBackupTimestamp();
 
-      _logger.info('Backup created successfully: ${backupFile.path} (${fileSize / 1024}KB)');
+      _logger.info(
+        'Backup created successfully: ${backupFile.path} (${fileSize / 1024}KB)',
+      );
 
       // Reopen database
       await DatabaseHelper.database;
@@ -191,7 +196,9 @@ class DatabaseBackupService {
 
       final backupFile = File(backupPath);
       if (!await backupFile.exists()) {
-        return RestoreResult.failure(errorMessage: 'Backup file does not exist');
+        return RestoreResult.failure(
+          errorMessage: 'Backup file does not exist',
+        );
       }
 
       // Load and validate metadata
@@ -206,8 +213,9 @@ class DatabaseBackupService {
           final actualChecksum = await _calculateFileChecksum(backupPath);
           if (actualChecksum != metadata.checksum) {
             return RestoreResult.failure(
-                errorMessage:
-                    'Checksum validation failed. Backup may be corrupted. Expected: ${metadata.checksum}, Got: $actualChecksum');
+              errorMessage:
+                  'Checksum validation failed. Backup may be corrupted. Expected: ${metadata.checksum}, Got: $actualChecksum',
+            );
           }
         }
 
@@ -237,7 +245,9 @@ class DatabaseBackupService {
       final stats = await DatabaseHelper.getStatistics();
       final recordsRestored = stats['total_records'] as int;
 
-      _logger.info('Restore completed successfully. Records restored: $recordsRestored');
+      _logger.info(
+        'Restore completed successfully. Records restored: $recordsRestored',
+      );
 
       return RestoreResult.success(
         metadata: metadata,
@@ -251,7 +261,10 @@ class DatabaseBackupService {
 
   /// Export database to custom location (user-selected)
   static Future<BackupResult> exportToPath(String destinationPath) async {
-    return createBackup(destinationPath: destinationPath, includeMetadata: true);
+    return createBackup(
+      destinationPath: destinationPath,
+      includeMetadata: true,
+    );
   }
 
   /// Check if automatic backup is due
@@ -265,9 +278,12 @@ class DatabaseBackupService {
       final lastBackupTimestamp = prefs.getInt(_lastBackupKey);
       if (lastBackupTimestamp == null) return true;
 
-      final lastBackup = DateTime.fromMillisecondsSinceEpoch(lastBackupTimestamp);
+      final lastBackup = DateTime.fromMillisecondsSinceEpoch(
+        lastBackupTimestamp,
+      );
       final daysSinceBackup = DateTime.now().difference(lastBackup).inDays;
-      final intervalDays = prefs.getInt(_backupIntervalDaysKey) ?? _defaultBackupIntervalDays;
+      final intervalDays =
+          prefs.getInt(_backupIntervalDaysKey) ?? _defaultBackupIntervalDays;
 
       return daysSinceBackup >= intervalDays;
     } catch (e) {
@@ -286,15 +302,22 @@ class DatabaseBackupService {
   }
 
   /// Enable/disable automatic backups
-  static Future<void> setAutoBackupEnabled(bool enabled, {int intervalDays = 7}) async {
+  static Future<void> setAutoBackupEnabled(
+    bool enabled, {
+    int intervalDays = 7,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_autoBackupEnabledKey, enabled);
     await prefs.setInt(_backupIntervalDaysKey, intervalDays);
-    _logger.info('Auto backup ${enabled ? "enabled" : "disabled"} (interval: $intervalDays days)');
+    _logger.info(
+      'Auto backup ${enabled ? "enabled" : "disabled"} (interval: $intervalDays days)',
+    );
   }
 
   /// Get list of available backups
-  static Future<List<BackupMetadata>> getAvailableBackups({String? backupDirectory}) async {
+  static Future<List<BackupMetadata>> getAvailableBackups({
+    String? backupDirectory,
+  }) async {
     try {
       final backupDir = backupDirectory ?? await _getDefaultBackupDirectory();
       final dir = Directory(backupDir);
@@ -310,7 +333,10 @@ class DatabaseBackupService {
             final json = jsonDecode(await entity.readAsString());
             backups.add(BackupMetadata.fromJson(json));
           } catch (e) {
-            _logger.warning('Failed to parse backup metadata: ${entity.path}', e);
+            _logger.warning(
+              'Failed to parse backup metadata: ${entity.path}',
+              e,
+            );
           }
         }
       }
@@ -326,9 +352,14 @@ class DatabaseBackupService {
   }
 
   /// Delete old backups, keeping only the most recent N
-  static Future<int> cleanupOldBackups({int keepCount = 5, String? backupDirectory}) async {
+  static Future<int> cleanupOldBackups({
+    int keepCount = 5,
+    String? backupDirectory,
+  }) async {
     try {
-      final backups = await getAvailableBackups(backupDirectory: backupDirectory);
+      final backups = await getAvailableBackups(
+        backupDirectory: backupDirectory,
+      );
 
       if (backups.length <= keepCount) {
         return 0;
@@ -339,8 +370,11 @@ class DatabaseBackupService {
 
       for (final backup in backupsToDelete) {
         try {
-          final backupDir = backupDirectory ?? await _getDefaultBackupDirectory();
-          final dbFile = File(join(backupDir, 'pak_connect_backup_${backup.backupId}.db'));
+          final backupDir =
+              backupDirectory ?? await _getDefaultBackupDirectory();
+          final dbFile = File(
+            join(backupDir, 'pak_connect_backup_${backup.backupId}.db'),
+          );
           final metaFile = File('${dbFile.path}.meta.json');
 
           if (await dbFile.exists()) await dbFile.delete();
@@ -369,7 +403,9 @@ class DatabaseBackupService {
       final metadataFile = File('$backupPath.meta.json');
       if (!await metadataFile.exists()) return false;
 
-      final metadata = BackupMetadata.fromJson(jsonDecode(await metadataFile.readAsString()));
+      final metadata = BackupMetadata.fromJson(
+        jsonDecode(await metadataFile.readAsString()),
+      );
       final actualChecksum = await _calculateFileChecksum(backupPath);
 
       return actualChecksum == metadata.checksum;
@@ -426,18 +462,23 @@ class DatabaseBackupService {
   }
 
   /// Get backup statistics
-  static Future<Map<String, dynamic>> getBackupStatistics({String? backupDirectory}) async {
+  static Future<Map<String, dynamic>> getBackupStatistics({
+    String? backupDirectory,
+  }) async {
     final backups = await getAvailableBackups(backupDirectory: backupDirectory);
     final prefs = await SharedPreferences.getInstance();
 
     final lastBackupTimestamp = prefs.getInt(_lastBackupKey);
     final autoBackupEnabled = prefs.getBool(_autoBackupEnabledKey) ?? false;
-    final backupIntervalDays = prefs.getInt(_backupIntervalDaysKey) ?? _defaultBackupIntervalDays;
+    final backupIntervalDays =
+        prefs.getInt(_backupIntervalDaysKey) ?? _defaultBackupIntervalDays;
 
     return {
       'total_backups': backups.length,
       'last_backup': lastBackupTimestamp != null
-          ? DateTime.fromMillisecondsSinceEpoch(lastBackupTimestamp).toIso8601String()
+          ? DateTime.fromMillisecondsSinceEpoch(
+              lastBackupTimestamp,
+            ).toIso8601String()
           : null,
       'auto_backup_enabled': autoBackupEnabled,
       'backup_interval_days': backupIntervalDays,

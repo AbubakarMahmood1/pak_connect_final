@@ -17,7 +17,9 @@ void main() {
     await TestSetup.initializeTestEnvironment();
   });
 
-  testWidgets('PakConnect app initialization smoke test', (WidgetTester tester) async {
+  testWidgets('PakConnect app initialization smoke test', (
+    WidgetTester tester,
+  ) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const ProviderScope(child: PakConnectApp()));
 
@@ -26,16 +28,24 @@ void main() {
 
     // Verify that the app loads without crashing
     expect(find.byType(MaterialApp), findsOneWidget);
-    
+
     // The app should show either loading screen or permission screen
-    final hasLoadingIndicator = find.byType(LinearProgressIndicator).evaluate().isNotEmpty;
-    final hasPermissionScreen = find.text('Bluetooth Permissions').evaluate().isNotEmpty;
-    
+    final hasLoadingIndicator = find
+        .byType(LinearProgressIndicator)
+        .evaluate()
+        .isNotEmpty;
+    final hasPermissionScreen = find
+        .text('Bluetooth Permissions')
+        .evaluate()
+        .isNotEmpty;
+
     // At least one of these should be present
     expect(hasLoadingIndicator || hasPermissionScreen, isTrue);
   });
-  
-  testWidgets('App wrapper handles initialization states', (WidgetTester tester) async {
+
+  testWidgets('App wrapper handles initialization states', (
+    WidgetTester tester,
+  ) async {
     // Test that the app wrapper can handle different states without crashing
     await tester.pumpWidget(const ProviderScope(child: PakConnectApp()));
 

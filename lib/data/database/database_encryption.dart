@@ -11,7 +11,7 @@ class DatabaseEncryption {
   static final _logger = Logger('DatabaseEncryption');
   static const String _encryptionKeyStorageKey = 'db_encryption_key_v1';
   static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
-  
+
   // 🔧 FIX: Cache encryption key to prevent duplicate secure storage reads
   static String? _cachedEncryptionKey;
 
@@ -23,16 +23,22 @@ class DatabaseEncryption {
   static Future<String> getOrCreateEncryptionKey() async {
     // 🔧 FIX: Return cached key if available
     if (_cachedEncryptionKey != null) {
-      _logger.fine('✅ Using cached encryption key (skipped secure storage read)');
+      _logger.fine(
+        '✅ Using cached encryption key (skipped secure storage read)',
+      );
       return _cachedEncryptionKey!;
     }
-    
+
     try {
       // Check if key already exists
-      String? existingKey = await _secureStorage.read(key: _encryptionKeyStorageKey);
+      String? existingKey = await _secureStorage.read(
+        key: _encryptionKeyStorageKey,
+      );
 
       if (existingKey != null && existingKey.isNotEmpty) {
-        _logger.info('✅ Retrieved existing database encryption key from secure storage');
+        _logger.info(
+          '✅ Retrieved existing database encryption key from secure storage',
+        );
         _cachedEncryptionKey = existingKey; // Cache it
         return existingKey;
       }
@@ -46,7 +52,6 @@ class DatabaseEncryption {
       _logger.info('🔐 Generated and stored new database encryption key');
       _cachedEncryptionKey = key; // Cache it
       return key;
-
     } catch (e) {
       _logger.severe('❌ Failed to get/create encryption key: $e');
       // Fallback to device-derived key (less secure but better than nothing)
@@ -71,7 +76,9 @@ class DatabaseEncryption {
   /// Fallback key generation (if secure storage fails)
   /// Uses device-specific entropy - less ideal but better than no encryption
   static String _generateFallbackKey() {
-    _logger.warning('⚠️ Using fallback encryption key (secure storage unavailable)');
+    _logger.warning(
+      '⚠️ Using fallback encryption key (secure storage unavailable)',
+    );
 
     // Use timestamp + random as fallback
     final timestamp = DateTime.now().millisecondsSinceEpoch;

@@ -26,7 +26,8 @@ class HintCacheManager {
       final enhancedContact = EnhancedContact(
         contact: contact,
         lastSeenAgo: DateTime.now().difference(contact.lastSeen),
-        isRecentlyActive: DateTime.now().difference(contact.lastSeen).inHours < 24,
+        isRecentlyActive:
+            DateTime.now().difference(contact.lastSeen).inHours < 24,
         interactionCount: 0,
         averageResponseTime: const Duration(minutes: 5),
         groupMemberships: const [],

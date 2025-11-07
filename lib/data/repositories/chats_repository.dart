@@ -140,12 +140,14 @@ class ChatsRepository {
       }
 
       // Check if online
-      final isOnline = contactPublicKey != null ?
-        _isContactOnline(contactPublicKey, discoveryData) : false;
+      final isOnline = contactPublicKey != null
+          ? _isContactOnline(contactPublicKey, discoveryData)
+          : false;
 
       // Check for unsent messages
-      final hasUnsent = messages.any((m) =>
-        m.isFromMe && m.status == MessageStatus.failed);
+      final hasUnsent = messages.any(
+        (m) => m.isFromMe && m.status == MessageStatus.failed,
+      );
 
       // Apply search filter
       if (searchQuery != null && searchQuery.isNotEmpty) {
@@ -156,17 +158,19 @@ class ChatsRepository {
         }
       }
 
-      chatItems.add(ChatListItem(
-        chatId: chatId,
-        contactName: contactName,
-        contactPublicKey: contactPublicKey,
-        lastMessage: lastMessage.content,
-        lastMessageTime: lastMessage.timestamp,
-        unreadCount: unreadCount,
-        isOnline: isOnline,
-        hasUnsentMessages: hasUnsent,
-        lastSeen: isOnline ? DateTime.now() : lastSeen,
-      ));
+      chatItems.add(
+        ChatListItem(
+          chatId: chatId,
+          contactName: contactName,
+          contactPublicKey: contactPublicKey,
+          lastMessage: lastMessage.content,
+          lastMessageTime: lastMessage.timestamp,
+          unreadCount: unreadCount,
+          isOnline: isOnline,
+          hasUnsentMessages: hasUnsent,
+          lastSeen: isOnline ? DateTime.now() : lastSeen,
+        ),
+      );
     }
 
     // Sort by online status and last message time
@@ -216,10 +220,7 @@ class ChatsRepository {
       // Update existing chat
       await db.update(
         'chats',
-        {
-          'unread_count': 0,
-          'updated_at': now,
-        },
+        {'unread_count': 0, 'updated_at': now},
         where: 'chat_id = ?',
         whereArgs: [chatId],
       );
@@ -253,10 +254,7 @@ class ChatsRepository {
       final currentCount = existing.first['unread_count'] as int? ?? 0;
       await db.update(
         'chats',
-        {
-          'unread_count': currentCount + 1,
-          'updated_at': now,
-        },
+        {'unread_count': currentCount + 1, 'updated_at': now},
         where: 'chat_id = ?',
         whereArgs: [chatId],
       );
@@ -279,16 +277,12 @@ class ChatsRepository {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // Upsert (insert or replace) last seen data
-    await db.insert(
-      'contact_last_seen',
-      {
-        'public_key': publicKey,
-        'last_seen_at': now,
-        'was_online': 1,
-        'updated_at': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('contact_last_seen', {
+      'public_key': publicKey,
+      'last_seen_at': now,
+      'was_online': 1,
+      'updated_at': now,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Get total unread count across all chats
@@ -296,7 +290,7 @@ class ChatsRepository {
     final db = await DatabaseHelper.database;
 
     final result = await db.rawQuery(
-      'SELECT SUM(unread_count) as total FROM chats'
+      'SELECT SUM(unread_count) as total FROM chats',
     );
 
     if (result.isNotEmpty && result.first['total'] != null) {
@@ -314,17 +308,13 @@ class ChatsRepository {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // Upsert (insert or replace) device mapping
-    await db.insert(
-      'device_mappings',
-      {
-        'device_uuid': deviceUuid,
-        'public_key': publicKey,
-        'last_seen': now,
-        'created_at': now,
-        'updated_at': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('device_mappings', {
+      'device_uuid': deviceUuid,
+      'public_key': publicKey,
+      'last_seen': now,
+      'created_at': now,
+      'updated_at': now,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   // PRIVATE HELPERS
@@ -335,9 +325,11 @@ class ChatsRepository {
     return otherPublicKey;
   }
 
-
   /// Online detection using public key hash matching
-  bool _isContactOnline(String contactPublicKey, Map<String, DiscoveredEventArgs>? discoveryData) {
+  bool _isContactOnline(
+    String contactPublicKey,
+    Map<String, DiscoveredEventArgs>? discoveryData,
+  ) {
     if (discoveryData == null || discoveryData.isEmpty) return false;
 
     // Generate hash for this contact's public key
@@ -351,15 +343,18 @@ class ChatsRepository {
       if (advertisement.manufacturerSpecificData.isNotEmpty) {
         for (final manufacturerData in advertisement.manufacturerSpecificData) {
           // Check if it's our manufacturer ID
-          if (manufacturerData.id == 0x2E19 && manufacturerData.data.length >= 4) {
+          if (manufacturerData.id == 0x2E19 &&
+              manufacturerData.data.length >= 4) {
             // Convert bytes back to hex string
             final deviceHash = manufacturerData.data
-              .map((b) => b.toRadixString(16).padLeft(2, '0'))
-              .join();
+                .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                .join();
 
             // Match found!
             if (deviceHash == contactKeyHash) {
-              _logger.info('✅ ONLINE: Contact $contactKeyHash matches device hash $deviceHash');
+              _logger.info(
+                '✅ ONLINE: Contact $contactKeyHash matches device hash $deviceHash',
+              );
               return true;
             }
           }
@@ -406,7 +401,9 @@ class ChatsRepository {
   Future<int> getTotalMessageCount() async {
     try {
       final db = await DatabaseHelper.database;
-      final result = await db.rawQuery('SELECT COUNT(*) as count FROM messages');
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM messages',
+      );
       return Sqflite.firstIntValue(result) ?? 0;
     } catch (e) {
       _logger.warning('Failed to get total message count: $e');
@@ -420,36 +417,42 @@ class ChatsRepository {
   Future<int> cleanupOrphanedEphemeralContacts() async {
     try {
       _logger.info('🧹 Starting cleanup of orphaned ephemeral contacts...');
-      
+
       final allContacts = await _contactRepository.getAllContacts();
       int deletedCount = 0;
-      
+
       for (final contact in allContacts.values) {
         // Skip verified contacts and those with persistent relationships
         if (contact.trustStatus == TrustStatus.verified) {
           continue;
         }
-        
+
         // Check if contact has any chat history
         final chatId = _generateChatId(contact.publicKey);
         final messages = await _messageRepository.getMessages(chatId);
-        
+
         if (messages.isEmpty) {
           // No chat history - safe to delete ephemeral contact
-          final deleted = await _contactRepository.deleteContact(contact.publicKey);
+          final deleted = await _contactRepository.deleteContact(
+            contact.publicKey,
+          );
           if (deleted) {
             deletedCount++;
-            _logger.fine('Deleted orphaned ephemeral contact: ${contact.displayName} (${contact.publicKey.substring(0, 8)}...)');
+            _logger.fine(
+              'Deleted orphaned ephemeral contact: ${contact.displayName} (${contact.publicKey.substring(0, 8)}...)',
+            );
           }
         }
       }
-      
+
       if (deletedCount > 0) {
-        _logger.info('✅ Cleaned up $deletedCount orphaned ephemeral contact(s)');
+        _logger.info(
+          '✅ Cleaned up $deletedCount orphaned ephemeral contact(s)',
+        );
       } else {
         _logger.info('✅ No orphaned ephemeral contacts found');
       }
-      
+
       return deletedCount;
     } catch (e) {
       _logger.warning('Failed to cleanup orphaned ephemeral contacts: $e');

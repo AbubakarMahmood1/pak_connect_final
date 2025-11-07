@@ -22,20 +22,24 @@ class ChatUtils {
   ///
   /// Result: Different sessions → different chats (session isolation achieved)
   static String generateChatId(String theirId) {
-    final preview = theirId.length > 16 ? '${theirId.substring(0, 16)}...' : theirId;
+    final preview = theirId.length > 16
+        ? '${theirId.substring(0, 16)}...'
+        : theirId;
     _logger.info('🆔 CHAT ID GENERATED: $preview (session-specific)');
-    _logger.info('✅ Session isolation: ephemeral ID (pre-pairing) or persistent key (post-pairing)');
+    _logger.info(
+      '✅ Session isolation: ephemeral ID (pre-pairing) or persistent key (post-pairing)',
+    );
 
     return theirId;
   }
 
-/// Generate 8-character hash from public key for BLE advertising
+  /// Generate 8-character hash from public key for BLE advertising
   static String generatePublicKeyHash(String publicKey) {
     final bytes = utf8.encode(publicKey);
     final digest = sha256.convert(bytes);
     return digest.toString().substring(0, 8); // First 8 hex chars = 4 bytes
   }
-  
+
   /// Convert hash back to bytes for BLE advertising
   static Uint8List hashToBytes(String hash) {
     final bytes = <int>[];
@@ -44,5 +48,4 @@ class ChatUtils {
     }
     return Uint8List.fromList(bytes);
   }
-
 }

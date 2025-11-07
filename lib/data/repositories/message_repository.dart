@@ -114,11 +114,7 @@ class MessageRepository {
     try {
       final db = await DatabaseHelper.database;
 
-      await db.delete(
-        'messages',
-        where: 'chat_id = ?',
-        whereArgs: [chatId],
-      );
+      await db.delete('messages', where: 'chat_id = ?', whereArgs: [chatId]);
 
       _logger.info('✅ Cleared messages for chat $chatId');
     } catch (e) {
@@ -157,10 +153,7 @@ class MessageRepository {
     try {
       final db = await DatabaseHelper.database;
 
-      final results = await db.query(
-        'messages',
-        orderBy: 'timestamp ASC',
-      );
+      final results = await db.query('messages', orderBy: 'timestamp ASC');
 
       return results.map(_fromDatabase).toList();
     } catch (e) {
@@ -194,7 +187,11 @@ class MessageRepository {
 
   /// Ensure chat entry exists before saving message (lazy creation)
   /// This prevents foreign key constraint violations while keeping ChatsScreen clean
-  Future<void> _ensureChatExists(Database db, String chatId, int timestamp) async {
+  Future<void> _ensureChatExists(
+    Database db,
+    String chatId,
+    int timestamp,
+  ) async {
     // Check if chat already exists
     final existing = await db.query(
       'chats',
@@ -236,7 +233,8 @@ class MessageRepository {
           'created_at': timestamp,
           'updated_at': timestamp,
         },
-        conflictAlgorithm: ConflictAlgorithm.ignore, // Prevent duplicates if concurrent
+        conflictAlgorithm:
+            ConflictAlgorithm.ignore, // Prevent duplicates if concurrent
       );
 
       _logger.info('✅ Created chat entry for: $chatId');
@@ -246,7 +244,8 @@ class MessageRepository {
   /// Convert database row to Message/EnhancedMessage
   Message _fromDatabase(Map<String, dynamic> row) {
     // Check if this is an EnhancedMessage by looking for enhanced fields
-    final bool hasEnhancedFields = row['reply_to_message_id'] != null ||
+    final bool hasEnhancedFields =
+        row['reply_to_message_id'] != null ||
         row['thread_id'] != null ||
         row['is_starred'] == 1 ||
         row['is_forwarded'] == 1 ||
@@ -426,7 +425,10 @@ class MessageRepository {
   }
 
   /// Decode JSON string to object (with automatic decompression)
-  T? _decodeJson<T>(dynamic jsonString, [T Function(Map<String, dynamic>)? fromJson]) {
+  T? _decodeJson<T>(
+    dynamic jsonString, [
+    T Function(Map<String, dynamic>)? fromJson,
+  ]) {
     if (jsonString == null) return null;
     if (jsonString is! String) return null;
     if (jsonString.isEmpty) return null;
@@ -439,7 +441,9 @@ class MessageRepository {
         // Extract and decompress
         final compressedBase64 = jsonString.substring('COMPRESSED:'.length);
         final compressedBytes = base64Decode(compressedBase64);
-        final decompressed = CompressionUtil.decompress(Uint8List.fromList(compressedBytes));
+        final decompressed = CompressionUtil.decompress(
+          Uint8List.fromList(compressedBytes),
+        );
 
         if (decompressed == null) {
           _logger.warning('⚠️ Failed to decompress JSON data');
@@ -480,7 +484,9 @@ class MessageRepository {
         // Extract and decompress
         final compressedBase64 = jsonString.substring('COMPRESSED:'.length);
         final compressedBytes = base64Decode(compressedBase64);
-        final decompressed = CompressionUtil.decompress(Uint8List.fromList(compressedBytes));
+        final decompressed = CompressionUtil.decompress(
+          Uint8List.fromList(compressedBytes),
+        );
 
         if (decompressed == null) {
           _logger.warning('⚠️ Failed to decompress JSON list data');

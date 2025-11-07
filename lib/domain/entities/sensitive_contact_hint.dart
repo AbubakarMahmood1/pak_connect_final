@@ -59,7 +59,10 @@ class SensitiveContactHint {
   }
 
   /// Get hint as hex string
-  String get hintHex => hintBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
+  String get hintHex => hintBytes
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join()
+      .toUpperCase();
 
   /// Verify if a discovered hint matches this contact
   bool matches(Uint8List discoveredHint) {
@@ -87,14 +90,16 @@ class SensitiveContactHint {
       contactPublicKey: map['contact_public_key'] as String,
       hintBytes: map['hint_bytes'] as Uint8List,
       displayName: map['display_name'] as String?,
-      establishedAt: DateTime.fromMillisecondsSinceEpoch(map['established_at'] as int),
+      establishedAt: DateTime.fromMillisecondsSinceEpoch(
+        map['established_at'] as int,
+      ),
     );
   }
 
   @override
   String toString() {
     return 'SensitiveContactHint(contact: ${contactPublicKey.substring(0, 16)}..., '
-           'hint: $hintHex, name: $displayName)';
+        'hint: $hintHex, name: $displayName)';
   }
 
   @override

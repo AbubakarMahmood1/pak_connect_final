@@ -245,55 +245,61 @@ void main() {
       expect(relayedOrDelivered, equals(10));
     });
 
-    test('Large network (50 nodes) skips some messages probabilistically', () async {
-      // Create large network with 50 nodes (70% relay probability)
-      for (int i = 1; i < 50; i++) {
-        await topologyAnalyzer.addConnection('node_$i', 'node_${i + 1}');
-      }
-
-      relayEngine.clearStatistics();
-
-      // Process 100 relay messages to get statistical sample
-      int relayedOrDelivered = 0; // Counter for successful relay/delivery
-      int probabilisticSkips = 0;
-
-      for (int i = 0; i < 100; i++) {
-        final relayMessage = MeshRelayMessage.createRelay(
-          originalMessageId: 'msg_large_$i',
-          originalContent: 'Test message $i',
-          metadata: RelayMetadata.create(
-            originalMessageContent: 'Test',
-            priority: MessagePriority.normal,
-            originalSender: 'sender_node',
-            finalRecipient: 'other_node_$i',
-            currentNodeId: 'sender_node',
-          ),
-          relayNodeId: 'relay_node',
-        );
-
-        final result = await relayEngine.processIncomingRelay(
-          relayMessage: relayMessage,
-          fromNodeId: 'relay_node',
-          availableNextHops: ['next_hop_node'],
-          messageType: ProtocolMessageType.textMessage,
-        );
-
-        if (result.isSuccess) {
-          relayedOrDelivered++;
-        } else if (result.reason?.contains('Probabilistic') ?? false) {
-          probabilisticSkips++;
+    test(
+      'Large network (50 nodes) skips some messages probabilistically',
+      () async {
+        // Create large network with 50 nodes (70% relay probability)
+        for (int i = 1; i < 50; i++) {
+          await topologyAnalyzer.addConnection('node_$i', 'node_${i + 1}');
         }
-      }
 
-      final stats = relayEngine.getStatistics();
+        relayEngine.clearStatistics();
 
-      // With 70% relay probability, we expect ~30% to be skipped
-      // Allow tolerance due to randomness (20-40% skip rate)
-      expect(probabilisticSkips, greaterThan(20));
-      expect(probabilisticSkips, lessThan(40));
-      expect(stats.totalProbabilisticSkip, equals(probabilisticSkips));
-      expect(relayedOrDelivered + probabilisticSkips, equals(100)); // All messages accounted for
-    });
+        // Process 100 relay messages to get statistical sample
+        int relayedOrDelivered = 0; // Counter for successful relay/delivery
+        int probabilisticSkips = 0;
+
+        for (int i = 0; i < 100; i++) {
+          final relayMessage = MeshRelayMessage.createRelay(
+            originalMessageId: 'msg_large_$i',
+            originalContent: 'Test message $i',
+            metadata: RelayMetadata.create(
+              originalMessageContent: 'Test',
+              priority: MessagePriority.normal,
+              originalSender: 'sender_node',
+              finalRecipient: 'other_node_$i',
+              currentNodeId: 'sender_node',
+            ),
+            relayNodeId: 'relay_node',
+          );
+
+          final result = await relayEngine.processIncomingRelay(
+            relayMessage: relayMessage,
+            fromNodeId: 'relay_node',
+            availableNextHops: ['next_hop_node'],
+            messageType: ProtocolMessageType.textMessage,
+          );
+
+          if (result.isSuccess) {
+            relayedOrDelivered++;
+          } else if (result.reason?.contains('Probabilistic') ?? false) {
+            probabilisticSkips++;
+          }
+        }
+
+        final stats = relayEngine.getStatistics();
+
+        // With 70% relay probability, we expect ~30% to be skipped
+        // Allow tolerance due to randomness (20-40% skip rate)
+        expect(probabilisticSkips, greaterThan(20));
+        expect(probabilisticSkips, lessThan(40));
+        expect(stats.totalProbabilisticSkip, equals(probabilisticSkips));
+        expect(
+          relayedOrDelivered + probabilisticSkips,
+          equals(100),
+        ); // All messages accounted for
+      },
+    );
 
     test('Massive network (150 nodes) skips majority of messages', () async {
       // Create massive network with 150 nodes (40% relay probability)
@@ -387,7 +393,10 @@ void main() {
 
       expect(stats.networkSize, equals(30));
       expect(stats.currentRelayProbability, equals(0.85));
-      expect(stats.totalProbabilisticSkip, equals(0)); // No messages processed yet
+      expect(
+        stats.totalProbabilisticSkip,
+        equals(0),
+      ); // No messages processed yet
     });
 
     test('Statistics track probabilistic skip count', () async {
@@ -540,67 +549,73 @@ void main() {
       topologyAnalyzer.dispose();
     });
 
-    test('Messages for current node always delivered (bypass probabilistic skip)', () async {
-      final contactRepo = ContactRepository();
+    test(
+      'Messages for current node always delivered (bypass probabilistic skip)',
+      () async {
+        final contactRepo = ContactRepository();
 
-      final messageQueue = OfflineMessageQueue();
-      await messageQueue.initialize(contactRepository: contactRepo);
+        final messageQueue = OfflineMessageQueue();
+        await messageQueue.initialize(contactRepository: contactRepo);
 
-      final spamPrevention = SpamPreventionManager();
-      await spamPrevention.initialize();
+        final spamPrevention = SpamPreventionManager();
+        await spamPrevention.initialize();
 
-      final topologyAnalyzer = NetworkTopologyAnalyzer();
-      await topologyAnalyzer.initialize();
+        final topologyAnalyzer = NetworkTopologyAnalyzer();
+        await topologyAnalyzer.initialize();
 
-      // Create massive network (40% relay probability)
-      for (int i = 1; i < 150; i++) {
-        await topologyAnalyzer.addConnection('node_$i', 'node_${i + 1}');
-      }
+        // Create massive network (40% relay probability)
+        for (int i = 1; i < 150; i++) {
+          await topologyAnalyzer.addConnection('node_$i', 'node_${i + 1}');
+        }
 
-      final currentNodeId = 'delivery_test_node';
-      final relayEngine = MeshRelayEngine(
-        contactRepository: contactRepo,
-        messageQueue: messageQueue,
-        spamPrevention: spamPrevention,
-      );
+        final currentNodeId = 'delivery_test_node';
+        final relayEngine = MeshRelayEngine(
+          contactRepository: contactRepo,
+          messageQueue: messageQueue,
+          spamPrevention: spamPrevention,
+        );
 
-      await relayEngine.initialize(
-        currentNodeId: currentNodeId,
-        topologyAnalyzer: topologyAnalyzer,
-      );
+        await relayEngine.initialize(
+          currentNodeId: currentNodeId,
+          topologyAnalyzer: topologyAnalyzer,
+        );
 
-      final seenStore = SeenMessageStore.instance;
-      await seenStore.clear();
+        final seenStore = SeenMessageStore.instance;
+        await seenStore.clear();
 
-      // Create message FOR current node
-      final relayMessage = MeshRelayMessage.createRelay(
-        originalMessageId: 'delivery_msg',
-        originalContent: 'Message for me',
-        metadata: RelayMetadata.create(
-          originalMessageContent: 'Message for me',
-          priority: MessagePriority.normal,
-          originalSender: 'sender_node',
-          finalRecipient: currentNodeId,  // This message is FOR us
-          currentNodeId: 'sender_node',
-        ),
-        relayNodeId: 'relay_node',
-      );
+        // Create message FOR current node
+        final relayMessage = MeshRelayMessage.createRelay(
+          originalMessageId: 'delivery_msg',
+          originalContent: 'Message for me',
+          metadata: RelayMetadata.create(
+            originalMessageContent: 'Message for me',
+            priority: MessagePriority.normal,
+            originalSender: 'sender_node',
+            finalRecipient: currentNodeId, // This message is FOR us
+            currentNodeId: 'sender_node',
+          ),
+          relayNodeId: 'relay_node',
+        );
 
-      final result = await relayEngine.processIncomingRelay(
-        relayMessage: relayMessage,
-        fromNodeId: 'relay_node',
-        availableNextHops: ['next_hop'],
-        messageType: ProtocolMessageType.textMessage,
-      );
+        final result = await relayEngine.processIncomingRelay(
+          relayMessage: relayMessage,
+          fromNodeId: 'relay_node',
+          availableNextHops: ['next_hop'],
+          messageType: ProtocolMessageType.textMessage,
+        );
 
-      // Message should ALWAYS be delivered to us, never probabilistically skipped
-      expect(result.isDelivered, isTrue);
+        // Message should ALWAYS be delivered to us, never probabilistically skipped
+        expect(result.isDelivered, isTrue);
 
-      final stats = relayEngine.getStatistics();
-      expect(stats.totalDeliveredToSelf, equals(1));
-      expect(stats.totalProbabilisticSkip, equals(0)); // No skip for messages to us
+        final stats = relayEngine.getStatistics();
+        expect(stats.totalDeliveredToSelf, equals(1));
+        expect(
+          stats.totalProbabilisticSkip,
+          equals(0),
+        ); // No skip for messages to us
 
-      topologyAnalyzer.dispose();
-    });
+        topologyAnalyzer.dispose();
+      },
+    );
   });
 }

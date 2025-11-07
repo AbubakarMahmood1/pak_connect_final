@@ -118,16 +118,16 @@ void main() {
     setUp(() async {
       aliceContactRepo = ContactRepository();
       bobContactRepo = ContactRepository();
-      
+
       // Clear all Noise sessions to prevent pollution between tests
       SecurityManager.clearAllNoiseSessions();
-      
+
       // Clear all contacts
       final aliceContacts = await aliceContactRepo.getAllContacts();
       for (var key in aliceContacts.keys) {
         await aliceContactRepo.deleteContact(key);
       }
-      
+
       final bobContacts = await bobContactRepo.getAllContacts();
       for (var key in bobContacts.keys) {
         await bobContactRepo.deleteContact(key);
@@ -140,7 +140,7 @@ void main() {
       for (var key in aliceContacts.keys) {
         await aliceContactRepo.deleteContact(key);
       }
-      
+
       final bobContacts = await bobContactRepo.getAllContacts();
       for (var key in bobContacts.keys) {
         await bobContactRepo.deleteContact(key);
@@ -225,304 +225,355 @@ void main() {
         },
       );
 
-      return {
-        'alice': alice,
-        'bob': bob,
-      };
+      return {'alice': alice, 'bob': bob};
     }
 
-    test('Scenario C: Happy Path KK - Both devices complete 2-message handshake',
-        () async {
-      print('\n=== SCENARIO C: Happy Path KK ===');
-      
-      // Step 1: Establish initial XX session
-      print('\n1. Establishing initial XX session...');
-      final coords1 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      final alice1 = coords1['alice'] as HandshakeCoordinator;
-      final bob1 = coords1['bob'] as HandshakeCoordinator;
+    test(
+      'Scenario C: Happy Path KK - Both devices complete 2-message handshake',
+      () async {
+        print('\n=== SCENARIO C: Happy Path KK ===');
 
-      await establishInitialXXSession(
-        alice: alice1,
-        bob: bob1,
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      print('✅ Initial XX session established');
-
-      // Step 2: Simulate reconnection with new coordinators
-      print('\n2. Simulating reconnection with KK...');
-      final coords2 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1', // Same IDs = known peers
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-
-      final alice2 = coords2['alice'] as HandshakeCoordinator;
-      final bob2 = coords2['bob'] as HandshakeCoordinator;
-
-      // Step 3: Initiate handshake
-      await alice2.startHandshake();
-
-      // Step 4: Verify KK was used (2 messages instead of 3)
-      expect(alice2.currentPhase, ConnectionPhase.complete,
-          reason: 'Alice should complete handshake');
-      expect(bob2.currentPhase, ConnectionPhase.complete,
-          reason: 'Bob should complete handshake');
-
-      print('✅ Handshake completed successfully');
-
-      // Step 5: Verify sessions still work
-      final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
-      final bobContact = await bobContactRepo.getContact('alice_eph_1');
-
-      expect(aliceContact?.noiseSessionState, 'established');
-      expect(bobContact?.noiseSessionState, 'established');
-      
-      print('✅ Scenario C: Happy Path KK - PASSED');
-    });
-
-    test('Scenario A: Central Lost Data - Peripheral detects mismatch, both downgrade to XX',
-        () async {
-      print('\n=== SCENARIO A: Central Lost Data ===');
-      
-      // Step 1: Establish initial session (Alice=Central, Bob=Peripheral)
-      print('\n1. Establishing initial XX session...');
-      final coords1 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      final alice1 = coords1['alice'] as HandshakeCoordinator;
-      final bob1 = coords1['bob'] as HandshakeCoordinator;
-
-      await establishInitialXXSession(
-        alice: alice1,
-        bob: bob1,
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      print('✅ Initial session established');
-
-      // Step 2: Simulate central (Alice) data loss
-      print('\n2. Simulating central data loss...');
-      final aliceContacts = await aliceContactRepo.getAllContacts();
-      for (var key in aliceContacts.keys) {
-        await aliceContactRepo.deleteContact(key);
-      }
-      // Also clear Alice's Noise session (simulates app restart after data loss)
-      SecurityManager.noiseService?.removeSession('bob_eph_1');
-      print('✅ Central data cleared');
-
-      // Step 3: Create new coordinators for reconnection
-      print('\n3. Reconnecting with peripheral having session, central without...');
-      final coords2 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-
-      final alice2 = coords2['alice'] as HandshakeCoordinator;
-      final bob2 = coords2['bob'] as HandshakeCoordinator;
-
-      // Step 4: Bob (peripheral) initiates - will try KK
-      print('\n4. Peripheral initiating handshake with KK...');
-      await bob2.startHandshake();
-
-      // Step 5: Verify handshake completed with XX fallback
-      expect(alice2.currentPhase, ConnectionPhase.complete,
-          reason: 'Alice should complete after XX fallback');
-      expect(bob2.currentPhase, ConnectionPhase.complete,
-          reason: 'Bob should complete after XX fallback');
-
-      // Step 6: Verify new sessions established
-      final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
-      final bobContact = await bobContactRepo.getContact('alice_eph_1');
-
-      expect(aliceContact?.noiseSessionState, 'established',
-          reason: 'Alice should have new session');
-      expect(bobContact?.noiseSessionState, 'established',
-          reason: 'Bob should have updated session');
-
-      print('✅ Scenario A: Central Lost Data - PASSED');
-    });
-
-    test('Scenario B: Peripheral Lost Data - Central detects failure, both downgrade to XX',
-        () async {
-      print('\n=== SCENARIO B: Peripheral Lost Data ===');
-      
-      // Step 1: Establish initial session
-      print('\n1. Establishing initial XX session...');
-      final coords1 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      final alice1 = coords1['alice'] as HandshakeCoordinator;
-      final bob1 = coords1['bob'] as HandshakeCoordinator;
-
-      await establishInitialXXSession(
-        alice: alice1,
-        bob: bob1,
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      print('✅ Initial session established');
-
-      // Step 2: Simulate peripheral (Bob) data loss
-      print('\n2. Simulating peripheral data loss...');
-      final bobContacts = await bobContactRepo.getAllContacts();
-      for (var key in bobContacts.keys) {
-        await bobContactRepo.deleteContact(key);
-      }
-      // Also clear Bob's Noise session (simulates app restart after data loss)
-      SecurityManager.noiseService?.removeSession('alice_eph_1');
-      print('✅ Peripheral data cleared');
-
-      // Step 3: Create new coordinators for reconnection
-      print('\n3. Reconnecting with central having session, peripheral without...');
-      final coords2 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-
-      final alice2 = coords2['alice'] as HandshakeCoordinator;
-      final bob2 = coords2['bob'] as HandshakeCoordinator;
-
-      // Step 4: Alice (central) initiates - will try KK
-      print('\n4. Central initiating handshake with KK...');
-      await alice2.startHandshake();
-
-      // Step 5: Verify handshake completed with XX fallback
-      expect(alice2.currentPhase, ConnectionPhase.complete,
-          reason: 'Alice should complete after XX fallback');
-      expect(bob2.currentPhase, ConnectionPhase.complete,
-          reason: 'Bob should complete after XX fallback');
-
-      // Step 6: Verify new sessions established
-      final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
-      final bobContact = await bobContactRepo.getContact('alice_eph_1');
-
-      expect(aliceContact?.noiseSessionState, 'established',
-          reason: 'Alice should have updated session');
-      expect(bobContact?.noiseSessionState, 'established',
-          reason: 'Bob should have new session');
-
-      print('✅ Scenario B: Peripheral Lost Data - PASSED');
-    });
-
-    test('Scenario D: 3-Strike Downgrade - Multiple KK failures trigger permanent XX',
-        () async {
-      print('\n=== SCENARIO D: 3-Strike Downgrade ===');
-      
-      // Step 1: Establish initial session
-      print('\n1. Establishing initial XX session...');
-      final coords1 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      final alice1 = coords1['alice'] as HandshakeCoordinator;
-      final bob1 = coords1['bob'] as HandshakeCoordinator;
-
-      await establishInitialXXSession(
-        alice: alice1,
-        bob: bob1,
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      print('✅ Initial session established');
-
-      // Step 2-4: Simulate 3 consecutive reconnections with data loss
-      for (int attempt = 1; attempt <= 3; attempt++) {
-        print('\n$attempt. Attempt #$attempt - Simulating failure...');
-        
-        // Clear Bob's data to force KK failure
-        final bobContacts = await bobContactRepo.getAllContacts();
-        for (var key in bobContacts.keys) {
-          await bobContactRepo.deleteContact(key);
-        }
-        
-        // Create new coordinators
-        final coords = await createCoordinatorPair(
+        // Step 1: Establish initial XX session
+        print('\n1. Establishing initial XX session...');
+        final coords1 = await createCoordinatorPair(
           aliceId: 'alice_eph_1',
           bobId: 'bob_eph_1',
           aliceRepo: aliceContactRepo,
           bobRepo: bobContactRepo,
         );
 
-        final alice = coords['alice'] as HandshakeCoordinator;
-        final bob = coords['bob'] as HandshakeCoordinator;
+        final alice1 = coords1['alice'] as HandshakeCoordinator;
+        final bob1 = coords1['bob'] as HandshakeCoordinator;
 
-        // Initiate handshake
-        await alice.startHandshake();
+        await establishInitialXXSession(
+          alice: alice1,
+          bob: bob1,
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
 
-        // Should complete with XX fallback
-        expect(alice.currentPhase, ConnectionPhase.complete,
-            reason: 'Attempt $attempt: Alice should complete');
-        expect(bob.currentPhase, ConnectionPhase.complete,
-            reason: 'Attempt $attempt: Bob should complete');
+        print('✅ Initial XX session established');
 
-        print('✅ Attempt $attempt completed with XX fallback');
-        
-        // Re-establish Bob's session for next attempt
+        // Step 2: Simulate reconnection with new coordinators
+        print('\n2. Simulating reconnection with KK...');
+        final coords2 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1', // Same IDs = known peers
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        final alice2 = coords2['alice'] as HandshakeCoordinator;
+        final bob2 = coords2['bob'] as HandshakeCoordinator;
+
+        // Step 3: Initiate handshake
+        await alice2.startHandshake();
+
+        // Step 4: Verify KK was used (2 messages instead of 3)
+        expect(
+          alice2.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Alice should complete handshake',
+        );
+        expect(
+          bob2.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Bob should complete handshake',
+        );
+
+        print('✅ Handshake completed successfully');
+
+        // Step 5: Verify sessions still work
         final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
-        if (aliceContact != null && aliceContact.noisePublicKey != null) {
-          await bobContactRepo.saveContact('alice_eph_1', 'Alice');
-          await bobContactRepo.updateNoiseSession(
-            publicKey: 'alice_eph_1',
-            noisePublicKey: aliceContact.noisePublicKey!,
-            sessionState: 'established',
-          );
+        final bobContact = await bobContactRepo.getContact('alice_eph_1');
+
+        expect(aliceContact?.noiseSessionState, 'established');
+        expect(bobContact?.noiseSessionState, 'established');
+
+        print('✅ Scenario C: Happy Path KK - PASSED');
+      },
+    );
+
+    test(
+      'Scenario A: Central Lost Data - Peripheral detects mismatch, both downgrade to XX',
+      () async {
+        print('\n=== SCENARIO A: Central Lost Data ===');
+
+        // Step 1: Establish initial session (Alice=Central, Bob=Peripheral)
+        print('\n1. Establishing initial XX session...');
+        final coords1 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1',
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        final alice1 = coords1['alice'] as HandshakeCoordinator;
+        final bob1 = coords1['bob'] as HandshakeCoordinator;
+
+        await establishInitialXXSession(
+          alice: alice1,
+          bob: bob1,
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        print('✅ Initial session established');
+
+        // Step 2: Simulate central (Alice) data loss
+        print('\n2. Simulating central data loss...');
+        final aliceContacts = await aliceContactRepo.getAllContacts();
+        for (var key in aliceContacts.keys) {
+          await aliceContactRepo.deleteContact(key);
         }
-      }
+        // Also clear Alice's Noise session (simulates app restart after data loss)
+        SecurityManager.noiseService?.removeSession('bob_eph_1');
+        print('✅ Central data cleared');
 
-      // Step 5: Fourth attempt should use XX directly (no KK attempt)
-      print('\n5. Fourth attempt - Should skip KK entirely...');
-      
-      final coords4 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
+        // Step 3: Create new coordinators for reconnection
+        print(
+          '\n3. Reconnecting with peripheral having session, central without...',
+        );
+        final coords2 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1',
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
 
-      final alice4 = coords4['alice'] as HandshakeCoordinator;
-      final bob4 = coords4['bob'] as HandshakeCoordinator;
+        final alice2 = coords2['alice'] as HandshakeCoordinator;
+        final bob2 = coords2['bob'] as HandshakeCoordinator;
 
-      await alice4.startHandshake();
+        // Step 4: Bob (peripheral) initiates - will try KK
+        print('\n4. Peripheral initiating handshake with KK...');
+        await bob2.startHandshake();
 
-      expect(alice4.currentPhase, ConnectionPhase.complete,
-          reason: 'Fourth attempt: Should complete with XX');
-      expect(bob4.currentPhase, ConnectionPhase.complete,
-          reason: 'Fourth attempt: Should complete with XX');
+        // Step 5: Verify handshake completed with XX fallback
+        expect(
+          alice2.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Alice should complete after XX fallback',
+        );
+        expect(
+          bob2.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Bob should complete after XX fallback',
+        );
 
-      print('✅ Scenario D: 3-Strike Downgrade - PASSED');
-      print('   After 3 failures, system correctly uses XX directly');
-    });
+        // Step 6: Verify new sessions established
+        final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
+        final bobContact = await bobContactRepo.getContact('alice_eph_1');
+
+        expect(
+          aliceContact?.noiseSessionState,
+          'established',
+          reason: 'Alice should have new session',
+        );
+        expect(
+          bobContact?.noiseSessionState,
+          'established',
+          reason: 'Bob should have updated session',
+        );
+
+        print('✅ Scenario A: Central Lost Data - PASSED');
+      },
+    );
+
+    test(
+      'Scenario B: Peripheral Lost Data - Central detects failure, both downgrade to XX',
+      () async {
+        print('\n=== SCENARIO B: Peripheral Lost Data ===');
+
+        // Step 1: Establish initial session
+        print('\n1. Establishing initial XX session...');
+        final coords1 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1',
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        final alice1 = coords1['alice'] as HandshakeCoordinator;
+        final bob1 = coords1['bob'] as HandshakeCoordinator;
+
+        await establishInitialXXSession(
+          alice: alice1,
+          bob: bob1,
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        print('✅ Initial session established');
+
+        // Step 2: Simulate peripheral (Bob) data loss
+        print('\n2. Simulating peripheral data loss...');
+        final bobContacts = await bobContactRepo.getAllContacts();
+        for (var key in bobContacts.keys) {
+          await bobContactRepo.deleteContact(key);
+        }
+        // Also clear Bob's Noise session (simulates app restart after data loss)
+        SecurityManager.noiseService?.removeSession('alice_eph_1');
+        print('✅ Peripheral data cleared');
+
+        // Step 3: Create new coordinators for reconnection
+        print(
+          '\n3. Reconnecting with central having session, peripheral without...',
+        );
+        final coords2 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1',
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        final alice2 = coords2['alice'] as HandshakeCoordinator;
+        final bob2 = coords2['bob'] as HandshakeCoordinator;
+
+        // Step 4: Alice (central) initiates - will try KK
+        print('\n4. Central initiating handshake with KK...');
+        await alice2.startHandshake();
+
+        // Step 5: Verify handshake completed with XX fallback
+        expect(
+          alice2.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Alice should complete after XX fallback',
+        );
+        expect(
+          bob2.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Bob should complete after XX fallback',
+        );
+
+        // Step 6: Verify new sessions established
+        final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
+        final bobContact = await bobContactRepo.getContact('alice_eph_1');
+
+        expect(
+          aliceContact?.noiseSessionState,
+          'established',
+          reason: 'Alice should have updated session',
+        );
+        expect(
+          bobContact?.noiseSessionState,
+          'established',
+          reason: 'Bob should have new session',
+        );
+
+        print('✅ Scenario B: Peripheral Lost Data - PASSED');
+      },
+    );
+
+    test(
+      'Scenario D: 3-Strike Downgrade - Multiple KK failures trigger permanent XX',
+      () async {
+        print('\n=== SCENARIO D: 3-Strike Downgrade ===');
+
+        // Step 1: Establish initial session
+        print('\n1. Establishing initial XX session...');
+        final coords1 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1',
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        final alice1 = coords1['alice'] as HandshakeCoordinator;
+        final bob1 = coords1['bob'] as HandshakeCoordinator;
+
+        await establishInitialXXSession(
+          alice: alice1,
+          bob: bob1,
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        print('✅ Initial session established');
+
+        // Step 2-4: Simulate 3 consecutive reconnections with data loss
+        for (int attempt = 1; attempt <= 3; attempt++) {
+          print('\n$attempt. Attempt #$attempt - Simulating failure...');
+
+          // Clear Bob's data to force KK failure
+          final bobContacts = await bobContactRepo.getAllContacts();
+          for (var key in bobContacts.keys) {
+            await bobContactRepo.deleteContact(key);
+          }
+
+          // Create new coordinators
+          final coords = await createCoordinatorPair(
+            aliceId: 'alice_eph_1',
+            bobId: 'bob_eph_1',
+            aliceRepo: aliceContactRepo,
+            bobRepo: bobContactRepo,
+          );
+
+          final alice = coords['alice'] as HandshakeCoordinator;
+          final bob = coords['bob'] as HandshakeCoordinator;
+
+          // Initiate handshake
+          await alice.startHandshake();
+
+          // Should complete with XX fallback
+          expect(
+            alice.currentPhase,
+            ConnectionPhase.complete,
+            reason: 'Attempt $attempt: Alice should complete',
+          );
+          expect(
+            bob.currentPhase,
+            ConnectionPhase.complete,
+            reason: 'Attempt $attempt: Bob should complete',
+          );
+
+          print('✅ Attempt $attempt completed with XX fallback');
+
+          // Re-establish Bob's session for next attempt
+          final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
+          if (aliceContact != null && aliceContact.noisePublicKey != null) {
+            await bobContactRepo.saveContact('alice_eph_1', 'Alice');
+            await bobContactRepo.updateNoiseSession(
+              publicKey: 'alice_eph_1',
+              noisePublicKey: aliceContact.noisePublicKey!,
+              sessionState: 'established',
+            );
+          }
+        }
+
+        // Step 5: Fourth attempt should use XX directly (no KK attempt)
+        print('\n5. Fourth attempt - Should skip KK entirely...');
+
+        final coords4 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1',
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
+
+        final alice4 = coords4['alice'] as HandshakeCoordinator;
+        final bob4 = coords4['bob'] as HandshakeCoordinator;
+
+        await alice4.startHandshake();
+
+        expect(
+          alice4.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Fourth attempt: Should complete with XX',
+        );
+        expect(
+          bob4.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Fourth attempt: Should complete with XX',
+        );
+
+        print('✅ Scenario D: 3-Strike Downgrade - PASSED');
+        print('   After 3 failures, system correctly uses XX directly');
+      },
+    );
 
     test('Backward Compatibility: XX-only devices can still connect', () async {
       print('\n=== BACKWARD COMPATIBILITY TEST ===');
-      
+
       // Create two devices with no prior session (fresh connection)
       print('\n1. Creating fresh device pair...');
       final coords = await createCoordinatorPair(
@@ -540,10 +591,16 @@ void main() {
       await alice.startHandshake();
 
       // Step 3: Verify XX handshake completed
-      expect(alice.currentPhase, ConnectionPhase.complete,
-          reason: 'First contact should complete with XX');
-      expect(bob.currentPhase, ConnectionPhase.complete,
-          reason: 'First contact should complete with XX');
+      expect(
+        alice.currentPhase,
+        ConnectionPhase.complete,
+        reason: 'First contact should complete with XX',
+      );
+      expect(
+        bob.currentPhase,
+        ConnectionPhase.complete,
+        reason: 'First contact should complete with XX',
+      );
 
       // Step 4: Verify sessions established
       final aliceContact = await aliceContactRepo.getContact('bob_new');
@@ -557,38 +614,47 @@ void main() {
       print('✅ Backward Compatibility: XX works correctly for first contact');
     });
 
-    test('Pattern Detection: Correctly identifies XX vs KK by message size', () async {
-      print('\n=== PATTERN DETECTION TEST ===');
-      
-      // This test verifies the size-based detection logic:
-      // - XX handshake1: 32 bytes (e only)
-      // - KK handshake1: 96 bytes (e, es, ss)
-      
-      print('\n1. Testing XX detection (32 bytes)...');
-      final coords = await createCoordinatorPair(
-        aliceId: 'alice_test',
-        bobId: 'bob_test',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
+    test(
+      'Pattern Detection: Correctly identifies XX vs KK by message size',
+      () async {
+        print('\n=== PATTERN DETECTION TEST ===');
 
-      final alice = coords['alice'] as HandshakeCoordinator;
-      final bob = coords['bob'] as HandshakeCoordinator;
+        // This test verifies the size-based detection logic:
+        // - XX handshake1: 32 bytes (e only)
+        // - KK handshake1: 96 bytes (e, es, ss)
 
-      // First contact should use XX
-      await alice.startHandshake();
+        print('\n1. Testing XX detection (32 bytes)...');
+        final coords = await createCoordinatorPair(
+          aliceId: 'alice_test',
+          bobId: 'bob_test',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
 
-      expect(alice.currentPhase, ConnectionPhase.complete,
-          reason: 'XX pattern should complete');
-      expect(bob.currentPhase, ConnectionPhase.complete,
-          reason: 'XX pattern should complete');
+        final alice = coords['alice'] as HandshakeCoordinator;
+        final bob = coords['bob'] as HandshakeCoordinator;
 
-      print('✅ Pattern detection working correctly');
-    });
+        // First contact should use XX
+        await alice.startHandshake();
+
+        expect(
+          alice.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'XX pattern should complete',
+        );
+        expect(
+          bob.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'XX pattern should complete',
+        );
+
+        print('✅ Pattern detection working correctly');
+      },
+    );
 
     test('Rejection Message Format: Verify all required fields present', () async {
       print('\n=== REJECTION MESSAGE FORMAT TEST ===');
-      
+
       // Step 1: Establish initial session
       final coords1 = await createCoordinatorPair(
         aliceId: 'alice_eph_1',
@@ -596,7 +662,7 @@ void main() {
         aliceRepo: aliceContactRepo,
         bobRepo: bobContactRepo,
       );
-      
+
       final alice1 = coords1['alice'] as HandshakeCoordinator;
       final bob1 = coords1['bob'] as HandshakeCoordinator;
 
@@ -616,7 +682,7 @@ void main() {
       // Step 3: Intercept rejection message
       // Note: We can't easily intercept the message without modifying the coordinator
       // This test serves as documentation of expected behavior
-      
+
       final coords2 = await createCoordinatorPair(
         aliceId: 'alice_eph_1',
         bobId: 'bob_eph_1',
@@ -629,73 +695,84 @@ void main() {
 
       // Note: We can't easily intercept the message without modifying the coordinator
       // This test serves as documentation of expected behavior
-      
+
       await alice2.startHandshake();
 
       // Verify handshake still completed (with fallback)
       expect(alice2.currentPhase, ConnectionPhase.complete);
       expect(bob2.currentPhase, ConnectionPhase.complete);
 
-      print('✅ Rejection handling verified (handshake completed with fallback)');
+      print(
+        '✅ Rejection handling verified (handshake completed with fallback)',
+      );
     });
 
-    test('Session State Reconciliation: Detects desync and downgrades', () async {
-      print('\n=== SESSION STATE RECONCILIATION TEST ===');
-      
-      // Step 1: Create initial session
-      final coords1 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
-      
-      final alice1 = coords1['alice'] as HandshakeCoordinator;
-      final bob1 = coords1['bob'] as HandshakeCoordinator;
+    test(
+      'Session State Reconciliation: Detects desync and downgrades',
+      () async {
+        print('\n=== SESSION STATE RECONCILIATION TEST ===');
 
-      await establishInitialXXSession(
-        alice: alice1,
-        bob: bob1,
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
+        // Step 1: Create initial session
+        final coords1 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1',
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
 
-      // Step 2: Corrupt one side's session (different noise key)
-      await bobContactRepo.updateNoiseSession(
-        publicKey: 'alice_eph_1',
-        noisePublicKey: 'corrupted_key_xyz',
-        sessionState: 'established',
-      );
+        final alice1 = coords1['alice'] as HandshakeCoordinator;
+        final bob1 = coords1['bob'] as HandshakeCoordinator;
 
-      print('✅ Session desync created');
+        await establishInitialXXSession(
+          alice: alice1,
+          bob: bob1,
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
 
-      // Step 3: Attempt reconnection
-      final coords2 = await createCoordinatorPair(
-        aliceId: 'alice_eph_1',
-        bobId: 'bob_eph_1',
-        aliceRepo: aliceContactRepo,
-        bobRepo: bobContactRepo,
-      );
+        // Step 2: Corrupt one side's session (different noise key)
+        await bobContactRepo.updateNoiseSession(
+          publicKey: 'alice_eph_1',
+          noisePublicKey: 'corrupted_key_xyz',
+          sessionState: 'established',
+        );
 
-      final alice2 = coords2['alice'] as HandshakeCoordinator;
-      final bob2 = coords2['bob'] as HandshakeCoordinator;
+        print('✅ Session desync created');
 
-      await alice2.startHandshake();
+        // Step 3: Attempt reconnection
+        final coords2 = await createCoordinatorPair(
+          aliceId: 'alice_eph_1',
+          bobId: 'bob_eph_1',
+          aliceRepo: aliceContactRepo,
+          bobRepo: bobContactRepo,
+        );
 
-      // Should complete with XX after detecting mismatch
-      expect(alice2.currentPhase, ConnectionPhase.complete,
-          reason: 'Should complete despite desync');
-      expect(bob2.currentPhase, ConnectionPhase.complete,
-          reason: 'Should complete despite desync');
+        final alice2 = coords2['alice'] as HandshakeCoordinator;
+        final bob2 = coords2['bob'] as HandshakeCoordinator;
 
-      // Verify sessions are now in sync
-      final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
-      final bobContact = await bobContactRepo.getContact('alice_eph_1');
+        await alice2.startHandshake();
 
-      expect(aliceContact?.noiseSessionState, 'established');
-      expect(bobContact?.noiseSessionState, 'established');
+        // Should complete with XX after detecting mismatch
+        expect(
+          alice2.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Should complete despite desync',
+        );
+        expect(
+          bob2.currentPhase,
+          ConnectionPhase.complete,
+          reason: 'Should complete despite desync',
+        );
 
-      print('✅ Session reconciliation successful');
-    });
+        // Verify sessions are now in sync
+        final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
+        final bobContact = await bobContactRepo.getContact('alice_eph_1');
+
+        expect(aliceContact?.noiseSessionState, 'established');
+        expect(bobContact?.noiseSessionState, 'established');
+
+        print('✅ Session reconciliation successful');
+      },
+    );
   });
 }

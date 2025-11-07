@@ -24,24 +24,33 @@ void main() {
   if (textResult != null) {
     logger.info('   Original: ${textData.length} bytes');
     logger.info('   Compressed: ${textResult.compressed.length} bytes');
-    logger.info('   Ratio: ${(textResult.stats.compressionRatio * 100).toStringAsFixed(1)}%');
-    logger.info('   Saved: ${textResult.stats.bytesSaved} bytes (${textResult.stats.savingsPercent.toStringAsFixed(1)}%)');
+    logger.info(
+      '   Ratio: ${(textResult.stats.compressionRatio * 100).toStringAsFixed(1)}%',
+    );
+    logger.info(
+      '   Saved: ${textResult.stats.bytesSaved} bytes (${textResult.stats.savingsPercent.toStringAsFixed(1)}%)',
+    );
 
     // Verify round-trip
     final decompressed = CompressionUtil.decompress(textResult.compressed);
-    logger.info('   Round-trip: ${decompressed != null && decompressed.length == textData.length ? "✅ SUCCESS" : "❌ FAILED"}');
+    logger.info(
+      '   Round-trip: ${decompressed != null && decompressed.length == textData.length ? "✅ SUCCESS" : "❌ FAILED"}',
+    );
   }
   logger.info('');
 
   // Test 2: JSON compression
   logger.info('2. JSON Compression:');
   final json = jsonEncode({
-    'messages': List.generate(50, (i) => {
-      'id': 'msg_$i',
-      'content': 'Test message $i',
-      'timestamp': 1234567890 + i,
-      'isFromMe': i % 2 == 0,
-    }),
+    'messages': List.generate(
+      50,
+      (i) => {
+        'id': 'msg_$i',
+        'content': 'Test message $i',
+        'timestamp': 1234567890 + i,
+        'isFromMe': i % 2 == 0,
+      },
+    ),
   });
   final jsonData = Uint8List.fromList(utf8.encode(json));
 
@@ -49,8 +58,12 @@ void main() {
   if (jsonResult != null) {
     logger.info('   Original: ${jsonData.length} bytes');
     logger.info('   Compressed: ${jsonResult.compressed.length} bytes');
-    logger.info('   Ratio: ${(jsonResult.stats.compressionRatio * 100).toStringAsFixed(1)}%');
-    logger.info('   Saved: ${jsonResult.stats.bytesSaved} bytes (${jsonResult.stats.savingsPercent.toStringAsFixed(1)}%)');
+    logger.info(
+      '   Ratio: ${(jsonResult.stats.compressionRatio * 100).toStringAsFixed(1)}%',
+    );
+    logger.info(
+      '   Saved: ${jsonResult.stats.bytesSaved} bytes (${jsonResult.stats.savingsPercent.toStringAsFixed(1)}%)',
+    );
   }
   logger.info('');
 
@@ -59,7 +72,9 @@ void main() {
   final small = Uint8List.fromList(utf8.encode('Hi'));
   final smallResult = CompressionUtil.compress(small);
   logger.info('   Original: ${small.length} bytes');
-  logger.info('   Compressed: ${smallResult == null ? "SKIPPED (below threshold)" : "${smallResult.compressed.length} bytes"}');
+  logger.info(
+    '   Compressed: ${smallResult == null ? "SKIPPED (below threshold)" : "${smallResult.compressed.length} bytes"}',
+  );
   logger.info('');
 
   // Test 4: High entropy data (should skip)
@@ -68,8 +83,12 @@ void main() {
   final randomResult = CompressionUtil.compress(random);
   final entropy = CompressionUtil.calculateEntropy(random);
   logger.info('   Original: ${random.length} bytes');
-  logger.info('   Entropy: ${(entropy * 100).toStringAsFixed(1)}% (high = already compressed)');
-  logger.info('   Compressed: ${randomResult == null ? "SKIPPED (high entropy)" : "${randomResult.compressed.length} bytes"}');
+  logger.info(
+    '   Entropy: ${(entropy * 100).toStringAsFixed(1)}% (high = already compressed)',
+  );
+  logger.info(
+    '   Compressed: ${randomResult == null ? "SKIPPED (high entropy)" : "${randomResult.compressed.length} bytes"}',
+  );
   logger.info('');
 
   // Test 5: Self-test

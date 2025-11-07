@@ -42,7 +42,9 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
   void _onSearchChanged() {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 300), () {
-      ref.read(contactSearchStateProvider.notifier).setQuery(_searchController.text);
+      ref
+          .read(contactSearchStateProvider.notifier)
+          .setQuery(_searchController.text);
     });
   }
 
@@ -97,7 +99,9 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
         currentSortBy: currentState.sortBy,
         currentAscending: currentState.ascending,
         onApply: (sortBy, ascending) {
-          ref.read(contactSearchStateProvider.notifier).setSortOption(sortBy, ascending: ascending);
+          ref
+              .read(contactSearchStateProvider.notifier)
+              .setSortOption(sortBy, ascending: ascending);
           Navigator.pop(context);
         },
       ),
@@ -111,7 +115,8 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
     final contactsAsync = ref.watch(filteredContactsProvider);
     final statsAsync = ref.watch(contactStatsProvider);
 
-    final hasActiveFilter = searchState.filter != null ||
+    final hasActiveFilter =
+        searchState.filter != null ||
         searchState.query.isNotEmpty ||
         searchState.sortBy != ContactSortOption.name;
 
@@ -214,15 +219,21 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: Chip(
-                        label: Text('Security: ${searchState.filter!.securityLevel!.name}'),
+                        label: Text(
+                          'Security: ${searchState.filter!.securityLevel!.name}',
+                        ),
                         deleteIcon: const Icon(Icons.close, size: 18),
                         onDeleted: () {
                           final currentFilter = searchState.filter!;
-                          ref.read(contactSearchStateProvider.notifier).setFilter(
+                          ref
+                              .read(contactSearchStateProvider.notifier)
+                              .setFilter(
                                 ContactSearchFilter(
                                   trustStatus: currentFilter.trustStatus,
-                                  onlyRecentlyActive: currentFilter.onlyRecentlyActive,
-                                  minInteractions: currentFilter.minInteractions,
+                                  onlyRecentlyActive:
+                                      currentFilter.onlyRecentlyActive,
+                                  minInteractions:
+                                      currentFilter.minInteractions,
                                 ),
                               );
                         },
@@ -232,15 +243,21 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: Chip(
-                        label: Text('Trust: ${searchState.filter!.trustStatus!.name}'),
+                        label: Text(
+                          'Trust: ${searchState.filter!.trustStatus!.name}',
+                        ),
                         deleteIcon: const Icon(Icons.close, size: 18),
                         onDeleted: () {
                           final currentFilter = searchState.filter!;
-                          ref.read(contactSearchStateProvider.notifier).setFilter(
+                          ref
+                              .read(contactSearchStateProvider.notifier)
+                              .setFilter(
                                 ContactSearchFilter(
                                   securityLevel: currentFilter.securityLevel,
-                                  onlyRecentlyActive: currentFilter.onlyRecentlyActive,
-                                  minInteractions: currentFilter.minInteractions,
+                                  onlyRecentlyActive:
+                                      currentFilter.onlyRecentlyActive,
+                                  minInteractions:
+                                      currentFilter.minInteractions,
                                 ),
                               );
                         },
@@ -254,12 +271,15 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                         deleteIcon: const Icon(Icons.close, size: 18),
                         onDeleted: () {
                           final currentFilter = searchState.filter!;
-                          ref.read(contactSearchStateProvider.notifier).setFilter(
+                          ref
+                              .read(contactSearchStateProvider.notifier)
+                              .setFilter(
                                 ContactSearchFilter(
                                   securityLevel: currentFilter.securityLevel,
                                   trustStatus: currentFilter.trustStatus,
                                   onlyRecentlyActive: false,
-                                  minInteractions: currentFilter.minInteractions,
+                                  minInteractions:
+                                      currentFilter.minInteractions,
                                 ),
                               );
                         },
@@ -270,10 +290,14 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                       padding: const EdgeInsets.only(right: 8),
                       child: Chip(
                         avatar: Icon(
-                          searchState.ascending ? Icons.arrow_upward : Icons.arrow_downward,
+                          searchState.ascending
+                              ? Icons.arrow_upward
+                              : Icons.arrow_downward,
                           size: 16,
                         ),
-                        label: Text('Sort: ${_getSortLabel(searchState.sortBy)}'),
+                        label: Text(
+                          'Sort: ${_getSortLabel(searchState.sortBy)}',
+                        ),
                       ),
                     ),
                   if (hasActiveFilter)
@@ -294,9 +318,7 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
             child: contactsAsync.when(
               data: (result) {
                 if (result.contacts.isEmpty) {
-                  return EmptyContactsView(
-                    searchQuery: searchState.query,
-                  );
+                  return EmptyContactsView(searchQuery: searchState.query);
                 }
 
                 return RefreshIndicator(
@@ -420,10 +442,7 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
           const SizedBox(height: 24),
 
           // Security level filter
-          Text(
-            'Security Level',
-            style: theme.textTheme.titleSmall,
-          ),
+          Text('Security Level', style: theme.textTheme.titleSmall),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -433,20 +452,19 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                 selected: _selectedSecurity == null,
                 onSelected: (_) => setState(() => _selectedSecurity = null),
               ),
-              ...SecurityLevel.values.map((level) => ChoiceChip(
-                    label: Text(level.name),
-                    selected: _selectedSecurity == level,
-                    onSelected: (_) => setState(() => _selectedSecurity = level),
-                  )),
+              ...SecurityLevel.values.map(
+                (level) => ChoiceChip(
+                  label: Text(level.name),
+                  selected: _selectedSecurity == level,
+                  onSelected: (_) => setState(() => _selectedSecurity = level),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
 
           // Trust status filter
-          Text(
-            'Trust Status',
-            style: theme.textTheme.titleSmall,
-          ),
+          Text('Trust Status', style: theme.textTheme.titleSmall),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -456,11 +474,13 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
                 selected: _selectedTrust == null,
                 onSelected: (_) => setState(() => _selectedTrust = null),
               ),
-              ...TrustStatus.values.map((status) => ChoiceChip(
-                    label: Text(status.name),
-                    selected: _selectedTrust == status,
-                    onSelected: (_) => setState(() => _selectedTrust = status),
-                  )),
+              ...TrustStatus.values.map(
+                (status) => ChoiceChip(
+                  label: Text(status.name),
+                  selected: _selectedTrust == status,
+                  onSelected: (_) => setState(() => _selectedTrust = status),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -487,7 +507,8 @@ class _FilterBottomSheetState extends State<_FilterBottomSheet> {
               const SizedBox(width: 8),
               FilledButton(
                 onPressed: () {
-                  final filter = (_selectedSecurity == null &&
+                  final filter =
+                      (_selectedSecurity == null &&
                           _selectedTrust == null &&
                           !_onlyRecentlyActive &&
                           _minInteractions == null)

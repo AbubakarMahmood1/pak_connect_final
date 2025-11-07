@@ -108,15 +108,39 @@ void main() {
 
   group('HandshakeCoordinator with Noise Protocol', () {
     test('ConnectionPhase enum includes Noise phases', () {
-      expect(ConnectionPhase.values.contains(ConnectionPhase.noiseHandshake1Sent), isTrue);
-      expect(ConnectionPhase.values.contains(ConnectionPhase.noiseHandshake2Sent), isTrue);
-      expect(ConnectionPhase.values.contains(ConnectionPhase.noiseHandshakeComplete), isTrue);
+      expect(
+        ConnectionPhase.values.contains(ConnectionPhase.noiseHandshake1Sent),
+        isTrue,
+      );
+      expect(
+        ConnectionPhase.values.contains(ConnectionPhase.noiseHandshake2Sent),
+        isTrue,
+      );
+      expect(
+        ConnectionPhase.values.contains(ConnectionPhase.noiseHandshakeComplete),
+        isTrue,
+      );
     });
 
     test('message type enum includes Noise types', () {
-      expect(ProtocolMessageType.values.contains(ProtocolMessageType.noiseHandshake1), isTrue);
-      expect(ProtocolMessageType.values.contains(ProtocolMessageType.noiseHandshake2), isTrue);
-      expect(ProtocolMessageType.values.contains(ProtocolMessageType.noiseHandshake3), isTrue);
+      expect(
+        ProtocolMessageType.values.contains(
+          ProtocolMessageType.noiseHandshake1,
+        ),
+        isTrue,
+      );
+      expect(
+        ProtocolMessageType.values.contains(
+          ProtocolMessageType.noiseHandshake2,
+        ),
+        isTrue,
+      );
+      expect(
+        ProtocolMessageType.values.contains(
+          ProtocolMessageType.noiseHandshake3,
+        ),
+        isTrue,
+      );
     });
 
     test('Noise message factory methods work correctly', () {
@@ -150,7 +174,7 @@ void main() {
 
     test('Noise message serialization preserves data', () {
       final testData = Uint8List.fromList(List.generate(32, (i) => i));
-      
+
       final msg = ProtocolMessage.noiseHandshake1(
         handshakeData: testData,
         peerId: 'test123',
@@ -224,12 +248,12 @@ void main() {
 
     test('Noise handshake messages have expected sizes', () async {
       final noiseService = SecurityManager.noiseService!;
-      
+
       // Message 1: -> e (ephemeral key)
       final msg1 = await noiseService.initiateHandshake('peer1');
       expect(msg1, isNotNull);
       expect(msg1!.length, equals(32));
-      
+
       // Note: Full handshake testing requires two separate Noise service instances
       // which isn't possible in a single-process test environment
       // This is tested in real-world multi-device scenarios

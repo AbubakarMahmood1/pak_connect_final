@@ -34,16 +34,14 @@ class DatabaseSnapshot {
   double get totalSizeMB => totalSizeBytes / 1024 / 1024;
 
   Map<String, dynamic> toJson() => {
-        'timestamp': timestamp.toIso8601String(),
-        'total_size_bytes': totalSizeBytes,
-        'total_size_mb': totalSizeMB.toStringAsFixed(2),
-        'total_rows': totalRows,
-        'fragmentation_ratio': fragmentationRatio.toStringAsFixed(3),
-        'table_metrics':
-            tableMetrics.map((k, v) => MapEntry(k, v.toJson())),
-        'index_metrics':
-            indexMetrics.map((k, v) => MapEntry(k, v.toJson())),
-      };
+    'timestamp': timestamp.toIso8601String(),
+    'total_size_bytes': totalSizeBytes,
+    'total_size_mb': totalSizeMB.toStringAsFixed(2),
+    'total_rows': totalRows,
+    'fragmentation_ratio': fragmentationRatio.toStringAsFixed(3),
+    'table_metrics': tableMetrics.map((k, v) => MapEntry(k, v.toJson())),
+    'index_metrics': indexMetrics.map((k, v) => MapEntry(k, v.toJson())),
+  };
 
   factory DatabaseSnapshot.fromJson(Map<String, dynamic> json) {
     return DatabaseSnapshot(
@@ -79,18 +77,19 @@ class TableMetrics {
 
   double get sizeMB => sizeBytes / 1024 / 1024;
   double get unusedMB => unusedBytes / 1024 / 1024;
-  double get efficiency => sizeBytes > 0 ? (sizeBytes - unusedBytes) / sizeBytes : 1.0;
+  double get efficiency =>
+      sizeBytes > 0 ? (sizeBytes - unusedBytes) / sizeBytes : 1.0;
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'row_count': rowCount,
-        'size_bytes': sizeBytes,
-        'size_mb': sizeMB.toStringAsFixed(3),
-        'unused_bytes': unusedBytes,
-        'unused_mb': unusedMB.toStringAsFixed(3),
-        'fragmentation_ratio': fragmentationRatio.toStringAsFixed(3),
-        'efficiency': efficiency.toStringAsFixed(3),
-      };
+    'name': name,
+    'row_count': rowCount,
+    'size_bytes': sizeBytes,
+    'size_mb': sizeMB.toStringAsFixed(3),
+    'unused_bytes': unusedBytes,
+    'unused_mb': unusedMB.toStringAsFixed(3),
+    'fragmentation_ratio': fragmentationRatio.toStringAsFixed(3),
+    'efficiency': efficiency.toStringAsFixed(3),
+  };
 
   factory TableMetrics.fromJson(Map<String, dynamic> json) {
     return TableMetrics(
@@ -120,12 +119,12 @@ class IndexMetrics {
   double get sizeMB => sizeBytes / 1024 / 1024;
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'table_name': tableName,
-        'size_bytes': sizeBytes,
-        'size_mb': sizeMB.toStringAsFixed(3),
-        'is_unique': isUnique,
-      };
+    'name': name,
+    'table_name': tableName,
+    'size_bytes': sizeBytes,
+    'size_mb': sizeMB.toStringAsFixed(3),
+    'is_unique': isUnique,
+  };
 
   factory IndexMetrics.fromJson(Map<String, dynamic> json) {
     return IndexMetrics(
@@ -163,17 +162,17 @@ class GrowthStatistics {
   int get daysElapsed => endTime.difference(startTime).inDays;
 
   Map<String, dynamic> toJson() => {
-        'start_time': startTime.toIso8601String(),
-        'end_time': endTime.toIso8601String(),
-        'days_elapsed': daysElapsed,
-        'start_size_bytes': startSizeBytes,
-        'end_size_bytes': endSizeBytes,
-        'growth_bytes': growthBytes,
-        'growth_mb': growthMB.toStringAsFixed(2),
-        'growth_percentage': growthPercentage.toStringAsFixed(2),
-        'growth_rate_mb_per_day': (growthRate / 1024 / 1024).toStringAsFixed(3),
-        'table_growth': tableGrowth,
-      };
+    'start_time': startTime.toIso8601String(),
+    'end_time': endTime.toIso8601String(),
+    'days_elapsed': daysElapsed,
+    'start_size_bytes': startSizeBytes,
+    'end_size_bytes': endSizeBytes,
+    'growth_bytes': growthBytes,
+    'growth_mb': growthMB.toStringAsFixed(2),
+    'growth_percentage': growthPercentage.toStringAsFixed(2),
+    'growth_rate_mb_per_day': (growthRate / 1024 / 1024).toStringAsFixed(3),
+    'table_growth': tableGrowth,
+  };
 }
 
 /// Alert severity levels
@@ -196,12 +195,12 @@ class MonitoringAlert {
   });
 
   Map<String, dynamic> toJson() => {
-        'severity': severity.name,
-        'title': title,
-        'description': description,
-        'timestamp': timestamp.toIso8601String(),
-        if (metadata != null) 'metadata': metadata,
-      };
+    'severity': severity.name,
+    'title': title,
+    'description': description,
+    'timestamp': timestamp.toIso8601String(),
+    if (metadata != null) 'metadata': metadata,
+  };
 }
 
 /// Main database monitoring service
@@ -212,8 +211,10 @@ class DatabaseMonitorService {
 
   // Alert thresholds
   static const int _alertSizeThresholdMB = 500; // Alert if DB > 500MB
-  static const double _alertGrowthRateMBPerDay = 50; // Alert if growth > 50MB/day
-  static const double _alertFragmentationThreshold = 0.3; // Alert if >30% fragmented
+  static const double _alertGrowthRateMBPerDay =
+      50; // Alert if growth > 50MB/day
+  static const double _alertFragmentationThreshold =
+      0.3; // Alert if >30% fragmented
 
   /// Capture current database metrics snapshot
   static Future<DatabaseSnapshot> captureSnapshot() async {
@@ -232,7 +233,9 @@ class DatabaseMonitorService {
       if (tableName.startsWith('sqlite_')) continue;
 
       // Get row count
-      final countResult = await db.rawQuery('SELECT COUNT(*) as count FROM $tableName');
+      final countResult = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM $tableName',
+      );
       final rowCount = countResult.first['count'] as int;
       totalRows += rowCount;
 
@@ -240,13 +243,16 @@ class DatabaseMonitorService {
       int tableSize = 0;
       int unusedBytes = 0;
       try {
-        final sizeResult = await db.rawQuery('''
+        final sizeResult = await db.rawQuery(
+          '''
           SELECT
             SUM(pgsize) as total_size,
             SUM(unused) as unused_bytes
           FROM dbstat
           WHERE name = ?
-        ''', [tableName]);
+        ''',
+          [tableName],
+        );
 
         if (sizeResult.isNotEmpty && sizeResult.first['total_size'] != null) {
           tableSize = sizeResult.first['total_size'] as int;
@@ -284,11 +290,14 @@ class DatabaseMonitorService {
 
       int indexSize = 0;
       try {
-        final sizeResult = await db.rawQuery('''
+        final sizeResult = await db.rawQuery(
+          '''
           SELECT SUM(pgsize) as total_size
           FROM dbstat
           WHERE name = ?
-        ''', [indexName]);
+        ''',
+          [indexName],
+        );
 
         if (sizeResult.isNotEmpty && sizeResult.first['total_size'] != null) {
           indexSize = sizeResult.first['total_size'] as int;
@@ -311,7 +320,9 @@ class DatabaseMonitorService {
       0,
       (sum, table) => sum + table.unusedBytes,
     );
-    final fragmentationRatio = totalSizeBytes > 0 ? totalUnused / totalSizeBytes : 0.0;
+    final fragmentationRatio = totalSizeBytes > 0
+        ? totalUnused / totalSizeBytes
+        : 0.0;
 
     final snapshot = DatabaseSnapshot(
       timestamp: DateTime.now(),
@@ -353,8 +364,11 @@ class DatabaseMonitorService {
 
     if (startSnapshot == null) return null;
 
-    final growthBytes = endSnapshot.totalSizeBytes - startSnapshot.totalSizeBytes;
-    final daysElapsed = endSnapshot.timestamp.difference(startSnapshot.timestamp).inDays;
+    final growthBytes =
+        endSnapshot.totalSizeBytes - startSnapshot.totalSizeBytes;
+    final daysElapsed = endSnapshot.timestamp
+        .difference(startSnapshot.timestamp)
+        .inDays;
     final growthRate = daysElapsed > 0 ? growthBytes / daysElapsed : 0.0;
 
     // Calculate per-table growth
@@ -387,63 +401,72 @@ class DatabaseMonitorService {
 
     // Alert: Large database size
     if (snapshot.totalSizeMB > _alertSizeThresholdMB) {
-      alerts.add(MonitoringAlert(
-        severity: AlertSeverity.warning,
-        title: 'Large Database Size',
-        description:
-            'Database size (${snapshot.totalSizeMB.toStringAsFixed(2)}MB) exceeds threshold '
-            '($_alertSizeThresholdMB MB). Consider archiving old data or running VACUUM.',
-        timestamp: now,
-        metadata: {'current_size_mb': snapshot.totalSizeMB},
-      ));
+      alerts.add(
+        MonitoringAlert(
+          severity: AlertSeverity.warning,
+          title: 'Large Database Size',
+          description:
+              'Database size (${snapshot.totalSizeMB.toStringAsFixed(2)}MB) exceeds threshold '
+              '($_alertSizeThresholdMB MB). Consider archiving old data or running VACUUM.',
+          timestamp: now,
+          metadata: {'current_size_mb': snapshot.totalSizeMB},
+        ),
+      );
     }
 
     // Alert: High fragmentation
     if (snapshot.fragmentationRatio > _alertFragmentationThreshold) {
-      alerts.add(MonitoringAlert(
-        severity: AlertSeverity.warning,
-        title: 'High Database Fragmentation',
-        description:
-            'Database fragmentation (${(snapshot.fragmentationRatio * 100).toStringAsFixed(1)}%) '
-            'is high. Running VACUUM can reclaim unused space and improve performance.',
-        timestamp: now,
-        metadata: {'fragmentation_ratio': snapshot.fragmentationRatio},
-      ));
+      alerts.add(
+        MonitoringAlert(
+          severity: AlertSeverity.warning,
+          title: 'High Database Fragmentation',
+          description:
+              'Database fragmentation (${(snapshot.fragmentationRatio * 100).toStringAsFixed(1)}%) '
+              'is high. Running VACUUM can reclaim unused space and improve performance.',
+          timestamp: now,
+          metadata: {'fragmentation_ratio': snapshot.fragmentationRatio},
+        ),
+      );
     }
 
     // Alert: Rapid growth
     final growth = await getGrowthStatistics(daysBack: 7);
-    if (growth != null && growth.growthRate > _alertGrowthRateMBPerDay * 1024 * 1024) {
-      alerts.add(MonitoringAlert(
-        severity: AlertSeverity.info,
-        title: 'Rapid Database Growth',
-        description:
-            'Database is growing at ${(growth.growthRate / 1024 / 1024).toStringAsFixed(2)} MB/day. '
-            'Monitor usage patterns and consider data retention policies.',
-        timestamp: now,
-        metadata: {
-          'growth_rate_mb_per_day': growth.growthRate / 1024 / 1024,
-          'table_growth': growth.tableGrowth,
-        },
-      ));
+    if (growth != null &&
+        growth.growthRate > _alertGrowthRateMBPerDay * 1024 * 1024) {
+      alerts.add(
+        MonitoringAlert(
+          severity: AlertSeverity.info,
+          title: 'Rapid Database Growth',
+          description:
+              'Database is growing at ${(growth.growthRate / 1024 / 1024).toStringAsFixed(2)} MB/day. '
+              'Monitor usage patterns and consider data retention policies.',
+          timestamp: now,
+          metadata: {
+            'growth_rate_mb_per_day': growth.growthRate / 1024 / 1024,
+            'table_growth': growth.tableGrowth,
+          },
+        ),
+      );
     }
 
     // Alert: Large individual tables
     for (final table in snapshot.tableMetrics.values) {
       if (table.sizeMB > 100) {
-        alerts.add(MonitoringAlert(
-          severity: AlertSeverity.info,
-          title: 'Large Table: ${table.name}',
-          description:
-              'Table "${table.name}" is ${table.sizeMB.toStringAsFixed(2)}MB with ${table.rowCount} rows. '
-              'Consider data archival or partitioning strategies.',
-          timestamp: now,
-          metadata: {
-            'table_name': table.name,
-            'size_mb': table.sizeMB,
-            'row_count': table.rowCount,
-          },
-        ));
+        alerts.add(
+          MonitoringAlert(
+            severity: AlertSeverity.info,
+            title: 'Large Table: ${table.name}',
+            description:
+                'Table "${table.name}" is ${table.sizeMB.toStringAsFixed(2)}MB with ${table.rowCount} rows. '
+                'Consider data archival or partitioning strategies.',
+            timestamp: now,
+            metadata: {
+              'table_name': table.name,
+              'size_mb': table.sizeMB,
+              'row_count': table.rowCount,
+            },
+          ),
+        );
       }
     }
 
@@ -570,25 +593,36 @@ class DatabaseMonitorService {
     final recommendations = <String>[];
 
     if (snapshot.fragmentationRatio > 0.2) {
-      recommendations.add('Run VACUUM to reclaim ${(snapshot.fragmentationRatio * 100).toStringAsFixed(1)}% unused space');
+      recommendations.add(
+        'Run VACUUM to reclaim ${(snapshot.fragmentationRatio * 100).toStringAsFixed(1)}% unused space',
+      );
     }
 
     if (snapshot.totalSizeMB > 200) {
-      recommendations.add('Consider implementing data archival for old messages and chats');
+      recommendations.add(
+        'Consider implementing data archival for old messages and chats',
+      );
     }
 
     if (growth != null && growth.growthRate > 10 * 1024 * 1024) {
-      recommendations.add('Monitor data retention policies - growth rate is high');
+      recommendations.add(
+        'Monitor data retention policies - growth rate is high',
+      );
     }
 
-    final largestTable = snapshot.tableMetrics.values
-        .reduce((a, b) => a.sizeBytes > b.sizeBytes ? a : b);
+    final largestTable = snapshot.tableMetrics.values.reduce(
+      (a, b) => a.sizeBytes > b.sizeBytes ? a : b,
+    );
     if (largestTable.sizeMB > 50) {
-      recommendations.add('Largest table "${largestTable.name}" (${largestTable.sizeMB.toStringAsFixed(2)}MB) may benefit from cleanup');
+      recommendations.add(
+        'Largest table "${largestTable.name}" (${largestTable.sizeMB.toStringAsFixed(2)}MB) may benefit from cleanup',
+      );
     }
 
     if (recommendations.isEmpty) {
-      recommendations.add('Database health is good - no immediate actions needed');
+      recommendations.add(
+        'Database health is good - no immediate actions needed',
+      );
     }
 
     return recommendations;

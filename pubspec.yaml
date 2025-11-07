@@ -65,6 +65,7 @@ dependencies:
   intl: ^0.19.0  # Date formatting for group chat
   flutter_markdown_plus: ^1.0.5
 
+  uuid: any
 dev_dependencies:
   flutter_test:
     sdk: flutter

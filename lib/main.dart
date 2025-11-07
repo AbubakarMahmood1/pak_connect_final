@@ -47,7 +47,6 @@ class PakConnectApp extends ConsumerWidget {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: themeMode, // Uses persistent user preference
-
         // Accessibility and internationalization
         debugShowCheckedModeBanner: false,
 
@@ -85,10 +84,11 @@ class AppWrapper extends ConsumerStatefulWidget {
   ConsumerState<AppWrapper> createState() => _AppWrapperState();
 }
 
-class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObserver {
+class _AppWrapperState extends ConsumerState<AppWrapper>
+    with WidgetsBindingObserver {
   static final _logger = Logger('AppWrapper');
   bool _initializationStarted = false;
-  
+
   @override
   void initState() {
     super.initState();
@@ -96,14 +96,14 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
     _logger.info('Enhanced PakConnect app started with comprehensive features');
     _initializeApp();
   }
-  
+
   /// Initialize the app core properly
   void _initializeApp() {
     if (_initializationStarted) return;
     _initializationStarted = true;
-    
+
     _logger.info('Starting app initialization...');
-    
+
     // Initialize on the next frame to ensure widget is built
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
@@ -114,27 +114,32 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
       }
     });
   }
-  
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     AppCore.instance.dispose();
     super.dispose();
   }
-  
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    
+
     // Only interact with power manager if initialized
-    if (AppCore.instance.isInitialized) { // Fixed: use isInitialized getter
+    if (AppCore.instance.isInitialized) {
+      // Fixed: use isInitialized getter
       switch (state) {
         case AppLifecycleState.paused:
-          _logger.info('App paused - power management handled by burst scanning controller');
+          _logger.info(
+            'App paused - power management handled by burst scanning controller',
+          );
           // Note: Power management is now handled automatically by BurstScanningController
           break;
         case AppLifecycleState.resumed:
-          _logger.info('App resumed - power management handled by burst scanning controller');
+          _logger.info(
+            'App resumed - power management handled by burst scanning controller',
+          );
           // Note: Power management is now handled automatically by BurstScanningController
           break;
         case AppLifecycleState.detached:
@@ -150,15 +155,15 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return StreamBuilder<AppStatus>(
       stream: AppCore.instance.statusStream,
       initialData: AppStatus.initializing, // Set proper initial data
       builder: (context, snapshot) {
         final status = snapshot.data ?? AppStatus.initializing;
-        
+
         _logger.info('Current app status: $status');
-        
+
         switch (status) {
           case AppStatus.initializing:
             return _buildLoadingScreen(theme);
@@ -173,7 +178,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
       },
     );
   }
-  
+
   /// Build loading screen during initialization
   Widget _buildLoadingScreen(ThemeData theme) {
     return Scaffold(
@@ -196,9 +201,9 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
                 color: theme.colorScheme.onPrimaryContainer,
               ),
             ),
-            
+
             const SizedBox(height: 32),
-            
+
             Text(
               'PakConnect',
               style: theme.textTheme.headlineMedium?.copyWith(
@@ -206,18 +211,18 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
                 fontWeight: FontWeight.w600,
               ),
             ),
-            
+
             const SizedBox(height: 8),
-            
+
             Text(
               'Secure • Private • Battery Efficient',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            
+
             const SizedBox(height: 48),
-            
+
             // Enhanced loading indicator
             SizedBox(
               width: 200,
@@ -225,11 +230,13 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
                 children: [
                   LinearProgressIndicator(
                     backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
+                    valueColor: AlwaysStoppedAnimation(
+                      theme.colorScheme.primary,
+                    ),
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   Text(
                     'Initializing enhanced security and power management...',
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -237,9 +244,9 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  
+
                   const SizedBox(height: 16),
-                  
+
                   // Debug info in debug mode
                   if (kDebugMode)
                     Text(
@@ -257,7 +264,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
       ),
     );
   }
-  
+
   /// Build error screen
   Widget _buildErrorScreen(ThemeData theme) {
     return Scaffold(
@@ -266,23 +273,19 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 80,
-              color: theme.colorScheme.error,
-            ),
-            
+            Icon(Icons.error_outline, size: 80, color: theme.colorScheme.error),
+
             const SizedBox(height: 24),
-            
+
             Text(
               'Initialization Failed',
               style: theme.textTheme.headlineSmall?.copyWith(
                 color: theme.colorScheme.onSurface,
               ),
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             Text(
               'Failed to initialize enhanced messaging features.\nCheck logs for details.',
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -290,9 +293,9 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
               ),
               textAlign: TextAlign.center,
             ),
-            
+
             const SizedBox(height: 32),
-            
+
             FilledButton.icon(
               onPressed: () async {
                 try {
@@ -310,7 +313,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
       ),
     );
   }
-  
+
   /// Build disposing screen
   Widget _buildDisposingScreen(ThemeData theme) {
     return Scaffold(
@@ -319,12 +322,10 @@ class _AppWrapperState extends ConsumerState<AppWrapper> with WidgetsBindingObse
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(
-              color: theme.colorScheme.primary,
-            ),
-            
+            CircularProgressIndicator(color: theme.colorScheme.primary),
+
             const SizedBox(height: 24),
-            
+
             Text(
               'Shutting down...',
               style: theme.textTheme.bodyLarge?.copyWith(

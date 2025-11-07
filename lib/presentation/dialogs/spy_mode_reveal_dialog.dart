@@ -37,17 +37,10 @@ class SpyModeRevealDialog extends StatelessWidget {
     final theme = Theme.of(context);
 
     return AlertDialog(
-      icon: Icon(
-        Icons.masks,
-        size: 48,
-        color: theme.colorScheme.primary,
-      ),
+      icon: Icon(Icons.masks, size: 48, color: theme.colorScheme.primary),
       title: Text(
         '🕵️ Anonymous Session',
-        style: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
+        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -69,7 +62,11 @@ class SpyModeRevealDialog extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.person, size: 16, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.person,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -85,14 +82,16 @@ class SpyModeRevealDialog extends StatelessWidget {
                 SizedBox(height: 8),
                 Row(
                   children: [
-                    Icon(Icons.visibility_off, size: 16, color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.visibility_off,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'They don\'t know it\'s you',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface,
-                        ),
+                        style: TextStyle(color: theme.colorScheme.onSurface),
                       ),
                     ),
                   ],

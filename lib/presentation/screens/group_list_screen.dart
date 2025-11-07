@@ -30,24 +30,20 @@ class GroupListScreen extends ConsumerWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.group_outlined,
-                    size: 64,
-                    color: Colors.grey[400],
-                  ),
+                  Icon(Icons.group_outlined, size: 64, color: Colors.grey[400]),
                   const SizedBox(height: 16),
                   Text(
                     'No groups yet',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Colors.grey[600],
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Create a group to get started',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey[500],
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: Colors.grey[500]),
                   ),
                 ],
               ),
@@ -124,10 +120,7 @@ class _GroupListTile extends ConsumerWidget {
             const SizedBox(height: 4),
             Text(
               '${group.memberCount} member${group.memberCount != 1 ? 's' : ''}',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ],
         ),
@@ -148,7 +141,9 @@ class _GroupListTile extends ConsumerWidget {
                   context: context,
                   builder: (context) => AlertDialog(
                     title: const Text('Delete Group'),
-                    content: Text('Are you sure you want to delete "${group.name}"?'),
+                    content: Text(
+                      'Are you sure you want to delete "${group.name}"?',
+                    ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(context, false),
@@ -210,11 +205,7 @@ class _GroupListTile extends ConsumerWidget {
         ),
         onTap: () {
           // Navigate to group chat screen
-          Navigator.pushNamed(
-            context,
-            '/group-chat',
-            arguments: group.id,
-          );
+          Navigator.pushNamed(context, '/group-chat', arguments: group.id);
         },
       ),
     );

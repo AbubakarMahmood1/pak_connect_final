@@ -102,9 +102,12 @@ class ConnectionLimitConfig {
   /// Returns true if:
   /// - Current client count is below max AND
   /// - Total connection count is below max
-  bool canAcceptClientConnection(int currentClientCount, int currentTotalCount) {
+  bool canAcceptClientConnection(
+    int currentClientCount,
+    int currentTotalCount,
+  ) {
     return currentClientCount < maxClientConnections &&
-           currentTotalCount < maxTotalConnections;
+        currentTotalCount < maxTotalConnections;
   }
 
   /// Check if we can accept another server connection (incoming).
@@ -112,17 +115,26 @@ class ConnectionLimitConfig {
   /// Returns true if:
   /// - Current server count is below max AND
   /// - Total connection count is below max
-  bool canAcceptServerConnection(int currentServerCount, int currentTotalCount) {
+  bool canAcceptServerConnection(
+    int currentServerCount,
+    int currentTotalCount,
+  ) {
     return currentServerCount < maxServerConnections &&
-           currentTotalCount < maxTotalConnections;
+        currentTotalCount < maxTotalConnections;
   }
 
   /// Calculate how many excess client connections need to be disconnected
-  int getExcessClientConnections(int currentClientCount, int currentTotalCount) {
+  int getExcessClientConnections(
+    int currentClientCount,
+    int currentTotalCount,
+  ) {
     final excessDueToClientLimit = currentClientCount - maxClientConnections;
     final excessDueToTotalLimit = currentTotalCount - maxTotalConnections;
     return excessDueToClientLimit > 0 || excessDueToTotalLimit > 0
-        ? [excessDueToClientLimit, excessDueToTotalLimit].reduce((a, b) => a > b ? a : b)
+        ? [
+            excessDueToClientLimit,
+            excessDueToTotalLimit,
+          ].reduce((a, b) => a > b ? a : b)
         : 0;
   }
 

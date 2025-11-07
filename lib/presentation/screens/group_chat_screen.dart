@@ -58,9 +58,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send message: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send message: $e')));
       }
     } finally {
       if (mounted) {
@@ -135,12 +135,17 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                    const Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.red,
+                    ),
                     const SizedBox(height: 16),
                     Text('Error loading messages: $error'),
                     const SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: () => ref.refresh(groupMessagesProvider(widget.groupId)),
+                      onPressed: () =>
+                          ref.refresh(groupMessagesProvider(widget.groupId)),
                       child: const Text('Retry'),
                     ),
                   ],
@@ -238,7 +243,9 @@ class _MessageBubble extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final deliverySummary = ref.watch(messageDeliverySummaryProvider(message.id));
+    final deliverySummary = ref.watch(
+      messageDeliverySummaryProvider(message.id),
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -278,20 +285,22 @@ class _MessageBubble extends ConsumerWidget {
                   children: [
                     Text(
                       DateFormat.jm().format(message.timestamp),
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                     const SizedBox(width: 8),
 
                     // Delivery indicator
                     deliverySummary.when(
                       data: (summary) {
-                        final total = summary.values.fold<int>(0, (sum, count) => sum + count);
-                        final delivered = summary[MessageDeliveryStatus.delivered] ?? 0;
+                        final total = summary.values.fold<int>(
+                          0,
+                          (sum, count) => sum + count,
+                        );
+                        final delivered =
+                            summary[MessageDeliveryStatus.delivered] ?? 0;
                         final sent = summary[MessageDeliveryStatus.sent] ?? 0;
-                        final failed = summary[MessageDeliveryStatus.failed] ?? 0;
+                        final failed =
+                            summary[MessageDeliveryStatus.failed] ?? 0;
 
                         IconData icon;
                         Color color;
@@ -311,7 +320,8 @@ class _MessageBubble extends ConsumerWidget {
                         }
 
                         return Tooltip(
-                          message: 'Delivered: $delivered/$total\nSent: $sent\nFailed: $failed',
+                          message:
+                              'Delivered: $delivered/$total\nSent: $sent\nFailed: $failed',
                           child: Icon(icon, size: 16, color: color),
                         );
                       },

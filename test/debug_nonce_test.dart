@@ -104,7 +104,9 @@ void main() {
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
     final time = record.time.toString().substring(11, 23);
-    print('$time [${record.loggerName}] ${record.level.name}: ${record.message}');
+    print(
+      '$time [${record.loggerName}] ${record.level.name}: ${record.message}',
+    );
   });
 
   late MockSecureStorage mockStorage;
@@ -176,7 +178,7 @@ void main() {
     print('\n──────────────────────────────────────────────────────────');
     print('PHASE 1: STARTING HANDSHAKE');
     print('──────────────────────────────────────────────────────────\n');
-    
+
     await aliceCoordinator.startHandshake();
 
     print('\n──────────────────────────────────────────────────────────');
@@ -186,8 +188,12 @@ void main() {
     // Print session info
     final noiseManager = SecurityManager.noiseService!;
     print('Sessions in manager:');
-    print('  - Looking for bob_id session: ${noiseManager.hasEstablishedSession('bob_id')}');
-    print('  - Looking for alice_id session: ${noiseManager.hasEstablishedSession('alice_id')}');
+    print(
+      '  - Looking for bob_id session: ${noiseManager.hasEstablishedSession('bob_id')}',
+    );
+    print(
+      '  - Looking for alice_id session: ${noiseManager.hasEstablishedSession('alice_id')}',
+    );
 
     print('\n──────────────────────────────────────────────────────────');
     print('PHASE 3: ENCRYPT MESSAGE 1');
@@ -195,9 +201,12 @@ void main() {
 
     final message1 = 'Hello Bob! Message #1';
     final plaintext1 = Uint8List.fromList(utf8.encode(message1));
-    
+
     print('Alice encrypting to bob_id: "$message1"');
-    final ciphertext1 = await SecurityManager.noiseService!.encrypt(plaintext1, 'bob_id');
+    final ciphertext1 = await SecurityManager.noiseService!.encrypt(
+      plaintext1,
+      'bob_id',
+    );
     print('Ciphertext1 length: ${ciphertext1?.length}');
 
     print('\n──────────────────────────────────────────────────────────');
@@ -205,8 +214,13 @@ void main() {
     print('──────────────────────────────────────────────────────────\n');
 
     print('Bob decrypting from alice_id');
-    final decrypted1 = await SecurityManager.noiseService!.decrypt(ciphertext1!, 'alice_id');
-    print('Decrypted1: ${decrypted1 != null ? utf8.decode(decrypted1) : "NULL"}');
+    final decrypted1 = await SecurityManager.noiseService!.decrypt(
+      ciphertext1!,
+      'alice_id',
+    );
+    print(
+      'Decrypted1: ${decrypted1 != null ? utf8.decode(decrypted1) : "NULL"}',
+    );
 
     print('\n──────────────────────────────────────────────────────────');
     print('PHASE 5: ENCRYPT MESSAGE 2');
@@ -214,9 +228,12 @@ void main() {
 
     final message2 = 'Hello Bob! Message #2';
     final plaintext2 = Uint8List.fromList(utf8.encode(message2));
-    
+
     print('Alice encrypting to bob_id: "$message2"');
-    final ciphertext2 = await SecurityManager.noiseService!.encrypt(plaintext2, 'bob_id');
+    final ciphertext2 = await SecurityManager.noiseService!.encrypt(
+      plaintext2,
+      'bob_id',
+    );
     print('Ciphertext2 length: ${ciphertext2?.length}');
 
     print('\n──────────────────────────────────────────────────────────');
@@ -224,8 +241,13 @@ void main() {
     print('──────────────────────────────────────────────────────────\n');
 
     print('Bob decrypting from alice_id');
-    final decrypted2 = await SecurityManager.noiseService!.decrypt(ciphertext2!, 'alice_id');
-    print('Decrypted2: ${decrypted2 != null ? utf8.decode(decrypted2) : "NULL"}');
+    final decrypted2 = await SecurityManager.noiseService!.decrypt(
+      ciphertext2!,
+      'alice_id',
+    );
+    print(
+      'Decrypted2: ${decrypted2 != null ? utf8.decode(decrypted2) : "NULL"}',
+    );
 
     print('\n══════════════════════════════════════════════════════════');
     print('TEST COMPLETE');

@@ -8,27 +8,27 @@ class QueueStatusIndicator extends StatelessWidget {
   final QueueStatistics? queueStats;
   final bool isCompact;
   final VoidCallback? onTap;
-  
+
   const QueueStatusIndicator({
     super.key,
     this.queueStats,
     this.isCompact = false,
     this.onTap,
   });
-  
+
   @override
   Widget build(BuildContext context) {
     if (queueStats == null) {
       return _buildUnavailableState();
     }
-    
+
     if (isCompact) {
       return _buildCompactIndicator(context);
     } else {
       return _buildFullIndicator(context);
     }
   }
-  
+
   /// Build unavailable state when queue stats are null
   Widget _buildUnavailableState() {
     return Container(
@@ -54,18 +54,21 @@ class QueueStatusIndicator extends StatelessWidget {
       ),
     );
   }
-  
+
   /// Build compact indicator for app bar or toolbar
   Widget _buildCompactIndicator(BuildContext context) {
     final pendingCount = queueStats!.pendingMessages;
     final isOnline = queueStats!.isOnline;
-    
+
     if (pendingCount == 0) {
       // Show online/offline status only when no pending messages
       return GestureDetector(
         onTap: () {
           onTap?.call();
-          MeshDebugLogger.info('UI Action', 'Compact queue indicator tapped (no messages)');
+          MeshDebugLogger.info(
+            'UI Action',
+            'Compact queue indicator tapped (no messages)',
+          );
         },
         child: Container(
           padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -81,11 +84,14 @@ class QueueStatusIndicator extends StatelessWidget {
         ),
       );
     }
-    
+
     return GestureDetector(
       onTap: () {
         onTap?.call();
-        MeshDebugLogger.info('UI Action', 'Compact queue indicator tapped ($pendingCount messages)');
+        MeshDebugLogger.info(
+          'UI Action',
+          'Compact queue indicator tapped ($pendingCount messages)',
+        );
       },
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -111,7 +117,7 @@ class QueueStatusIndicator extends StatelessWidget {
       ),
     );
   }
-  
+
   /// Build full indicator with detailed information
   Widget _buildFullIndicator(BuildContext context) {
     final pendingCount = queueStats!.pendingMessages;
@@ -120,7 +126,7 @@ class QueueStatusIndicator extends StatelessWidget {
     final failedCount = queueStats!.failedMessages;
     final isOnline = queueStats!.isOnline;
     final successRate = queueStats!.successRate;
-    
+
     return GestureDetector(
       onTap: () {
         onTap?.call();
@@ -167,11 +173,13 @@ class QueueStatusIndicator extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        _getStatusText(pendingCount, sendingCount, retryingCount, isOnline),
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
+                        _getStatusText(
+                          pendingCount,
+                          sendingCount,
+                          retryingCount,
+                          isOnline,
                         ),
+                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
                       ),
                     ],
                   ),
@@ -194,14 +202,19 @@ class QueueStatusIndicator extends StatelessWidget {
                 ),
               ],
             ),
-            
+
             // Progress indicators if there's activity
-            if (pendingCount > 0 || sendingCount > 0 || retryingCount > 0)
-              ...[
-                SizedBox(height: 12),
-                _buildProgressBar(context, pendingCount, sendingCount, retryingCount, failedCount),
-              ],
-            
+            if (pendingCount > 0 || sendingCount > 0 || retryingCount > 0) ...[
+              SizedBox(height: 12),
+              _buildProgressBar(
+                context,
+                pendingCount,
+                sendingCount,
+                retryingCount,
+                failedCount,
+              ),
+            ],
+
             // Success rate if available
             if (successRate > 0) ...[
               SizedBox(height: 8),
@@ -211,10 +224,7 @@ class QueueStatusIndicator extends StatelessWidget {
                   SizedBox(width: 4),
                   Text(
                     'Success rate: ${(successRate * 100).toStringAsFixed(1)}%',
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
                   ),
                 ],
               ),
@@ -224,12 +234,18 @@ class QueueStatusIndicator extends StatelessWidget {
       ),
     );
   }
-  
+
   /// Build progress bar showing queue status breakdown
-  Widget _buildProgressBar(BuildContext context, int pending, int sending, int retrying, int failed) {
+  Widget _buildProgressBar(
+    BuildContext context,
+    int pending,
+    int sending,
+    int retrying,
+    int failed,
+  ) {
     final total = pending + sending + retrying + failed;
     if (total == 0) return SizedBox.shrink();
-    
+
     return Column(
       children: [
         // Visual progress bar
@@ -248,7 +264,9 @@ class QueueStatusIndicator extends StatelessWidget {
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.green[600],
-                      borderRadius: BorderRadius.horizontal(left: Radius.circular(3)),
+                      borderRadius: BorderRadius.horizontal(
+                        left: Radius.circular(3),
+                      ),
                     ),
                   ),
                 ),
@@ -256,17 +274,13 @@ class QueueStatusIndicator extends StatelessWidget {
               if (pending > 0)
                 Expanded(
                   flex: pending,
-                  child: Container(
-                    color: Colors.blue[600],
-                  ),
+                  child: Container(color: Colors.blue[600]),
                 ),
               // Retrying (orange)
               if (retrying > 0)
                 Expanded(
                   flex: retrying,
-                  child: Container(
-                    color: Colors.orange[600],
-                  ),
+                  child: Container(color: Colors.orange[600]),
                 ),
               // Failed (red)
               if (failed > 0)
@@ -275,30 +289,36 @@ class QueueStatusIndicator extends StatelessWidget {
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.red[600],
-                      borderRadius: BorderRadius.horizontal(right: Radius.circular(3)),
+                      borderRadius: BorderRadius.horizontal(
+                        right: Radius.circular(3),
+                      ),
                     ),
                   ),
                 ),
             ],
           ),
         ),
-        
+
         SizedBox(height: 8),
-        
+
         // Legend
         Wrap(
           spacing: 12,
           children: [
-            if (sending > 0) _buildLegendItem('Sending', Colors.green[600]!, sending),
-            if (pending > 0) _buildLegendItem('Pending', Colors.blue[600]!, pending),
-            if (retrying > 0) _buildLegendItem('Retrying', Colors.orange[600]!, retrying),
-            if (failed > 0) _buildLegendItem('Failed', Colors.red[600]!, failed),
+            if (sending > 0)
+              _buildLegendItem('Sending', Colors.green[600]!, sending),
+            if (pending > 0)
+              _buildLegendItem('Pending', Colors.blue[600]!, pending),
+            if (retrying > 0)
+              _buildLegendItem('Retrying', Colors.orange[600]!, retrying),
+            if (failed > 0)
+              _buildLegendItem('Failed', Colors.red[600]!, failed),
           ],
         ),
       ],
     );
   }
-  
+
   /// Build legend item for progress bar
   Widget _buildLegendItem(String label, Color color, int count) {
     return Row(
@@ -307,31 +327,25 @@ class QueueStatusIndicator extends StatelessWidget {
         Container(
           width: 8,
           height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         SizedBox(width: 4),
         Text(
           '$label ($count)',
-          style: TextStyle(
-            fontSize: 10,
-            color: Colors.grey[600],
-          ),
+          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
         ),
       ],
     );
   }
-  
+
   /// Get status color based on queue state
   Color _getStatusColor() {
     if (queueStats == null) return Colors.grey;
-    
+
     final pendingCount = queueStats!.pendingMessages;
     final failedCount = queueStats!.failedMessages;
     final isOnline = queueStats!.isOnline;
-    
+
     if (failedCount > 0) return Colors.red;
     if (pendingCount == 0 && isOnline) return Colors.green;
     if (pendingCount > 0 && !isOnline) return Colors.orange;
@@ -339,32 +353,32 @@ class QueueStatusIndicator extends StatelessWidget {
     if (pendingCount > 5) return Colors.orange;
     return Colors.blue;
   }
-  
+
   /// Get status icon based on queue state
   IconData _getStatusIcon() {
     if (queueStats == null) return Icons.help_outline;
-    
+
     final pendingCount = queueStats!.pendingMessages;
     final sendingCount = queueStats!.sendingMessages;
     final failedCount = queueStats!.failedMessages;
-    
+
     if (failedCount > 0) return Icons.error;
     if (sendingCount > 0) return Icons.send;
     if (pendingCount == 0) return Icons.check_circle;
     return Icons.queue;
   }
-  
+
   /// Get status text for full indicator
   String _getStatusText(int pending, int sending, int retrying, bool isOnline) {
     if (pending == 0 && sending == 0 && retrying == 0) {
       return isOnline ? 'Ready for messages' : 'Waiting for connection';
     }
-    
+
     final parts = <String>[];
     if (sending > 0) parts.add('$sending sending');
     if (pending > 0) parts.add('$pending queued');
     if (retrying > 0) parts.add('$retrying retrying');
-    
+
     return parts.join(' • ');
   }
 }
@@ -382,7 +396,7 @@ class QueueStatusIndicatorFactory {
       onTap: onTap,
     );
   }
-  
+
   /// Create a detailed indicator for drawer or main screen
   static Widget detailedIndicator({
     required QueueStatistics? queueStats,
@@ -394,7 +408,7 @@ class QueueStatusIndicatorFactory {
       onTap: onTap,
     );
   }
-  
+
   /// Create a floating action button style indicator
   static Widget floatingIndicator({
     required QueueStatistics? queueStats,
@@ -403,10 +417,12 @@ class QueueStatusIndicatorFactory {
     if (queueStats == null || queueStats.pendingMessages == 0) {
       return SizedBox.shrink();
     }
-    
+
     return FloatingActionButton.small(
       onPressed: onTap,
-      backgroundColor: queueStats.pendingMessages > 5 ? Colors.red[600] : Colors.blue[600],
+      backgroundColor: queueStats.pendingMessages > 5
+          ? Colors.red[600]
+          : Colors.blue[600],
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [

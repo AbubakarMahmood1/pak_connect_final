@@ -47,14 +47,15 @@ class MeshRelayEngine {
   int _totalDropped = 0;
   int _totalDeliveredToSelf = 0;
   int _totalProbabilisticSkip = 0; // Phase 3: Probabilistic relay skips
-  
+
   // Callbacks for integration
   Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage;
-  Function(String originalMessageId, String content, String originalSender)? onDeliverToSelf;
+  Function(String originalMessageId, String content, String originalSender)?
+  onDeliverToSelf;
   Function(RelayDecision decision)? onRelayDecision;
   Function(RelayStatistics stats)? onStatsUpdated;
 
-MeshRelayEngine({
+  MeshRelayEngine({
     required ContactRepository contactRepository,
     required OfflineMessageQueue messageQueue,
     required SpamPreventionManager spamPrevention,
@@ -79,25 +80,34 @@ MeshRelayEngine({
   Future<void> initialize({
     required String currentNodeId,
     SmartMeshRouter? smartRouter,
-    NetworkTopologyAnalyzer? topologyAnalyzer,  // Phase 3: Added topology analyzer
+    NetworkTopologyAnalyzer?
+    topologyAnalyzer, // Phase 3: Added topology analyzer
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
-    Function(String originalMessageId, String content, String originalSender)? onDeliverToSelf,
+    Function(String originalMessageId, String content, String originalSender)?
+    onDeliverToSelf,
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,
   }) async {
     // 🔐 VALIDATION: Warn if nodeId looks like a persistent key
     // Ephemeral keys from EphemeralKeyManager are 64-char hex (same as persistent)
     // But we can detect common patterns in persistent key sources
-    if (currentNodeId.startsWith('persistent_') || currentNodeId.contains('Ed25519')) {
-      _logger.severe('❌ SECURITY VIOLATION: Received persistent identity as nodeId!');
+    if (currentNodeId.startsWith('persistent_') ||
+        currentNodeId.contains('Ed25519')) {
+      _logger.severe(
+        '❌ SECURITY VIOLATION: Received persistent identity as nodeId!',
+      );
       _logger.severe('🚨 Mesh routing MUST use ephemeral session keys');
-      _logger.severe('🔧 Fix: Use EphemeralKeyManager.generateMyEphemeralKey()');
-      throw ArgumentError('currentNodeId must be ephemeral session key, not persistent identity');
+      _logger.severe(
+        '🔧 Fix: Use EphemeralKeyManager.generateMyEphemeralKey()',
+      );
+      throw ArgumentError(
+        'currentNodeId must be ephemeral session key, not persistent identity',
+      );
     }
 
     _currentNodeId = currentNodeId;
     _smartRouter = smartRouter;
-    _topologyAnalyzer = topologyAnalyzer;  // Phase 3: Store topology analyzer
+    _topologyAnalyzer = topologyAnalyzer; // Phase 3: Store topology analyzer
     this.onRelayMessage = onRelayMessage;
     this.onDeliverToSelf = onDeliverToSelf;
     this.onRelayDecision = onRelayDecision;
@@ -106,12 +116,20 @@ MeshRelayEngine({
     // Initialize relay configuration
     await _relayConfig.initialize();
 
-    final truncatedNodeId = _currentNodeId.length > 16 ? _currentNodeId.substring(0, 16) : _currentNodeId;
+    final truncatedNodeId = _currentNodeId.length > 16
+        ? _currentNodeId.substring(0, 16)
+        : _currentNodeId;
     final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 0;
-    _logger.info('🔧 MeshRelayEngine (RE)INITIALIZED for node: $truncatedNodeId... (EPHEMERAL)');
-    _logger.info('📡 Relay enabled: ${_relayConfig.isRelayEnabled()} | Network: $networkSize nodes');
+    _logger.info(
+      '🔧 MeshRelayEngine (RE)INITIALIZED for node: $truncatedNodeId... (EPHEMERAL)',
+    );
+    _logger.info(
+      '📡 Relay enabled: ${_relayConfig.isRelayEnabled()} | Network: $networkSize nodes',
+    );
     // ignore: avoid_print
-    print('📡 RELAY ENGINE: Node ID set to $truncatedNodeId... (EPHEMERAL) | Smart Routing: ${_smartRouter != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes');
+    print(
+      '📡 RELAY ENGINE: Node ID set to $truncatedNodeId... (EPHEMERAL) | Smart Routing: ${_smartRouter != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes',
+    );
   }
 
   /// Process incoming relay message and decide what to do
@@ -121,7 +139,8 @@ MeshRelayEngine({
     required MeshRelayMessage relayMessage,
     required String fromNodeId,
     List<String> availableNextHops = const [],
-    ProtocolMessageType? messageType, // Phase 1: Added message type parameter for filtering
+    ProtocolMessageType?
+    messageType, // Phase 1: Added message type parameter for filtering
   }) async {
     try {
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
@@ -130,28 +149,41 @@ MeshRelayEngine({
       final truncatedFromNode = fromNodeId.length > 8
           ? fromNodeId.substring(0, 8)
           : fromNodeId;
-      _logger.info('📨 Processing relay message $truncatedMessageId... from $truncatedFromNode...');
+      _logger.info(
+        '📨 Processing relay message $truncatedMessageId... from $truncatedFromNode...',
+      );
 
       // Step 0A: Check if relay is enabled (Phase 1: Role Awareness)
       if (!_relayConfig.isRelayEnabled()) {
         _totalDropped++;
-        _logger.info('🚫 Relay DISABLED - dropping message $truncatedMessageId...');
+        _logger.info(
+          '🚫 Relay DISABLED - dropping message $truncatedMessageId...',
+        );
         return RelayProcessingResult.dropped('Relay functionality is disabled');
       }
 
       // Step 0B: Check message type eligibility (Phase 1: Role Awareness)
-      if (messageType != null && !RelayPolicy.isRelayEligibleMessageType(messageType)) {
+      if (messageType != null &&
+          !RelayPolicy.isRelayEligibleMessageType(messageType)) {
         _totalDropped++;
-        _logger.info('🚫 Message type ${messageType.name} is NOT relay-eligible - dropping $truncatedMessageId...');
-        return RelayProcessingResult.dropped('Message type ${messageType.name} cannot be relayed');
+        _logger.info(
+          '🚫 Message type ${messageType.name} is NOT relay-eligible - dropping $truncatedMessageId...',
+        );
+        return RelayProcessingResult.dropped(
+          'Message type ${messageType.name} cannot be relayed',
+        );
       }
 
       // Step 0C: Deduplication check (FIRST - before spam prevention)
       final seenStore = SeenMessageStore.instance;
       if (seenStore.hasDelivered(relayMessage.originalMessageId)) {
         _totalDropped++;
-        _logger.info('⏭️  Duplicate message detected (already delivered): $truncatedMessageId...');
-        return RelayProcessingResult.dropped('Message already delivered (duplicate)');
+        _logger.info(
+          '⏭️  Duplicate message detected (already delivered): $truncatedMessageId...',
+        );
+        return RelayProcessingResult.dropped(
+          'Message already delivered (duplicate)',
+        );
       }
 
       // Step 1: Spam prevention check
@@ -184,7 +216,9 @@ MeshRelayEngine({
         final randomValue = Random().nextDouble();
         if (randomValue > relayProbability) {
           _totalProbabilisticSkip++;
-          _logger.info('🎲 Probabilistic relay SKIP (network: $networkSize nodes, prob: ${(relayProbability * 100).toStringAsFixed(0)}%, roll: ${(randomValue * 100).toStringAsFixed(0)}%)');
+          _logger.info(
+            '🎲 Probabilistic relay SKIP (network: $networkSize nodes, prob: ${(relayProbability * 100).toStringAsFixed(0)}%, roll: ${(randomValue * 100).toStringAsFixed(0)}%)',
+          );
 
           final decision = RelayDecision.dropped(
             messageId: relayMessage.originalMessageId,
@@ -196,7 +230,9 @@ MeshRelayEngine({
 
           return RelayProcessingResult.dropped('Probabilistic relay skip');
         } else {
-          _logger.fine('🎲 Probabilistic relay PASS (network: $networkSize nodes, prob: ${(relayProbability * 100).toStringAsFixed(0)}%, roll: ${(randomValue * 100).toStringAsFixed(0)}%)');
+          _logger.fine(
+            '🎲 Probabilistic relay PASS (network: $networkSize nodes, prob: ${(relayProbability * 100).toStringAsFixed(0)}%, roll: ${(randomValue * 100).toStringAsFixed(0)}%)',
+          );
         }
       }
 
@@ -205,7 +241,9 @@ MeshRelayEngine({
         relayMessage.relayMetadata.finalRecipient,
       );
 
-      final isBroadcast = SpecialRecipients.isBroadcast(relayMessage.relayMetadata.finalRecipient);
+      final isBroadcast = SpecialRecipients.isBroadcast(
+        relayMessage.relayMetadata.finalRecipient,
+      );
 
       if (isForUs) {
         await _deliverToCurrentNode(relayMessage);
@@ -226,26 +264,31 @@ MeshRelayEngine({
         // Priority 2: For broadcast messages, deliver to self AND continue forwarding
         // For point-to-point messages, stop here (message reached destination)
         if (!isBroadcast) {
-          return RelayProcessingResult.deliveredToSelf(relayMessage.originalContent);
+          return RelayProcessingResult.deliveredToSelf(
+            relayMessage.originalContent,
+          );
         }
         // Broadcast: Continue to Step 3 to forward to all neighbors
-        _logger.info('📣 Broadcast delivered to self, continuing to forward to neighbors...');
+        _logger.info(
+          '📣 Broadcast delivered to self, continuing to forward to neighbors...',
+        );
       }
-      
+
       // Step 3: Check if message can be relayed further
       if (!relayMessage.canRelay) {
         _totalDropped++;
         final decision = RelayDecision.dropped(
           messageId: relayMessage.originalMessageId,
-          reason: 'TTL exceeded (${relayMessage.relayMetadata.hopCount}/${relayMessage.relayMetadata.ttl})',
+          reason:
+              'TTL exceeded (${relayMessage.relayMetadata.hopCount}/${relayMessage.relayMetadata.ttl})',
         );
-        
+
         onRelayDecision?.call(decision);
         _updateStatistics();
-        
+
         return RelayProcessingResult.dropped('Message TTL exceeded');
       }
-      
+
       // Step 4 & 5: Relay logic (broadcast vs point-to-point)
 
       if (isBroadcast) {
@@ -263,7 +306,6 @@ MeshRelayEngine({
         _updateStatistics();
 
         return RelayProcessingResult.relayed('broadcast_to_all');
-
       } else {
         // Point-to-point: Choose single next hop and relay
         final nextHop = await _chooseNextHop(
@@ -299,7 +341,6 @@ MeshRelayEngine({
 
         return RelayProcessingResult.relayed(nextHop);
       }
-      
     } catch (e) {
       _logger.severe('Failed to process relay message: $e');
       _totalDropped++;
@@ -317,12 +358,16 @@ MeshRelayEngine({
     required String finalRecipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
     String? encryptedPayload,
-    ProtocolMessageType? originalMessageType,  // PHASE 2: Message type for filtering
+    ProtocolMessageType?
+    originalMessageType, // PHASE 2: Message type for filtering
   }) async {
     try {
       // PHASE 2: Check message type eligibility before creating relay
-      if (originalMessageType != null && !RelayPolicy.isRelayEligibleMessageType(originalMessageType)) {
-        _logger.warning('Cannot create relay: Message type ${originalMessageType.name} is not relay-eligible');
+      if (originalMessageType != null &&
+          !RelayPolicy.isRelayEligibleMessageType(originalMessageType)) {
+        _logger.warning(
+          'Cannot create relay: Message type ${originalMessageType.name} is not relay-eligible',
+        );
         return null;
       }
 
@@ -353,19 +398,21 @@ MeshRelayEngine({
         metadata: relayMetadata,
         relayNodeId: _currentNodeId,
         encryptedPayload: encryptedPayload,
-        originalMessageType: originalMessageType,  // PHASE 2: Include message type
+        originalMessageType:
+            originalMessageType, // PHASE 2: Include message type
       );
-      
+
       final truncatedMessageId = originalMessageId.length > 16
           ? originalMessageId.substring(0, 16)
           : originalMessageId;
       final truncatedRecipient = finalRecipientPublicKey.length > 8
           ? finalRecipientPublicKey.substring(0, 8)
           : finalRecipientPublicKey;
-      _logger.info('Created outgoing relay for $truncatedMessageId... to $truncatedRecipient...');
-      
+      _logger.info(
+        'Created outgoing relay for $truncatedMessageId... to $truncatedRecipient...',
+      );
+
       return relayMessage;
-      
     } catch (e) {
       _logger.severe('Failed to create outgoing relay: $e');
       return null;
@@ -382,23 +429,27 @@ MeshRelayEngine({
       if (await _isMessageForCurrentNode(finalRecipientPublicKey)) {
         return true;
       }
-      
+
       // Check if we have a relationship with sender that might indicate
       // we could be an intended intermediate recipient
-      final senderContact = await _contactRepository.getContact(originalSenderPublicKey);
-      if (senderContact != null && senderContact.securityLevel != SecurityLevel.low) {
+      final senderContact = await _contactRepository.getContact(
+        originalSenderPublicKey,
+      );
+      if (senderContact != null &&
+          senderContact.securityLevel != SecurityLevel.low) {
         return true;
       }
-      
+
       // Check if we have a relationship with final recipient (could be group message)
-      final recipientContact = await _contactRepository.getContact(finalRecipientPublicKey);
+      final recipientContact = await _contactRepository.getContact(
+        finalRecipientPublicKey,
+      );
       if (recipientContact != null) {
         return true;
       }
-      
+
       // Default: don't waste resources on decryption attempts
       return false;
-      
     } catch (e) {
       _logger.warning('Error in decryption optimization: $e');
       return false; // Conservative approach
@@ -416,12 +467,14 @@ MeshRelayEngine({
       totalDropped: _totalDropped,
       totalDeliveredToSelf: _totalDeliveredToSelf,
       totalBlocked: spamStats.totalBlocked,
-      totalProbabilisticSkip: _totalProbabilisticSkip,  // Phase 3: Probabilistic skips
+      totalProbabilisticSkip:
+          _totalProbabilisticSkip, // Phase 3: Probabilistic skips
       spamScore: spamStats.averageSpamScore,
       relayEfficiency: _calculateRelayEfficiency(),
       activeRelayMessages: _getActiveRelayCount(),
-      networkSize: networkSize,  // Phase 3: Current network size
-      currentRelayProbability: relayProbability,  // Phase 3: Current relay probability
+      networkSize: networkSize, // Phase 3: Current network size
+      currentRelayProbability:
+          relayProbability, // Phase 3: Current relay probability
     );
   }
 
@@ -455,11 +508,11 @@ MeshRelayEngine({
     if (networkSize <= 3) return 1.0;
 
     // Adaptive relay probability based on network size
-    if (networkSize <= 10) return 1.0;  // Still small, full relay
+    if (networkSize <= 10) return 1.0; // Still small, full relay
     if (networkSize <= 30) return 0.85; // Growing network
-    if (networkSize <= 50) return 0.7;  // Large network
+    if (networkSize <= 50) return 0.7; // Large network
     if (networkSize <= 100) return 0.55; // Very large
-    return 0.4;  // Massive network - prevent broadcast storms
+    return 0.4; // Massive network - prevent broadcast storms
   }
 
   /// Check if message is for current node
@@ -476,7 +529,9 @@ MeshRelayEngine({
 
     // Handle null/empty recipient (reject - must use explicit broadcast sentinel)
     if (finalRecipientPublicKey.isEmpty) {
-      _logger.fine('📭 No recipient specified - rejecting (use broadcast sentinel)');
+      _logger.fine(
+        '📭 No recipient specified - rejecting (use broadcast sentinel)',
+      );
       return false;
     }
 
@@ -495,8 +550,11 @@ MeshRelayEngine({
 
     // Check 3: Match ephemeral signing public key
     final ephemeralSigningKey = EphemeralKeyManager.ephemeralSigningPublicKey;
-    if (ephemeralSigningKey != null && finalRecipientPublicKey == ephemeralSigningKey) {
-      _logger.info('✅ Message IS for current node (ephemeral signing key match)');
+    if (ephemeralSigningKey != null &&
+        finalRecipientPublicKey == ephemeralSigningKey) {
+      _logger.info(
+        '✅ Message IS for current node (ephemeral signing key match)',
+      );
       return true;
     }
 
@@ -511,7 +569,9 @@ MeshRelayEngine({
     _logger.fine('📭 Message NOT for current node:');
     _logger.fine('   - Recipient: $truncatedRecipient...');
     _logger.fine('   - Our persistent key: $truncatedNodeId...');
-    _logger.fine('   - Our ephemeral key: ${ephemeralKey?.substring(0, 16) ?? "NULL"}...');
+    _logger.fine(
+      '   - Our ephemeral key: ${ephemeralKey?.substring(0, 16) ?? "NULL"}...',
+    );
 
     return false;
   }
@@ -523,18 +583,17 @@ MeshRelayEngine({
           ? relayMessage.originalMessageId.substring(0, 16)
           : relayMessage.originalMessageId;
       _logger.info('Delivering message to self: $truncatedMessageId...');
-      
+
       // Extract original content
       final originalContent = relayMessage.originalContent;
       final originalSender = relayMessage.relayMetadata.originalSender;
-      
+
       // Notify delivery
       onDeliverToSelf?.call(
         relayMessage.originalMessageId,
         originalContent,
         originalSender,
       );
-      
     } catch (e) {
       _logger.severe('Failed to deliver message to self: $e');
     }
@@ -548,53 +607,59 @@ MeshRelayEngine({
     if (availableHops.isEmpty) {
       return null;
     }
-    
+
     try {
       // Filter out hops already in routing path (loop prevention)
       final validHops = availableHops
           .where((hop) => !relayMessage.relayMetadata.hasNodeInPath(hop))
           .toList();
-      
+
       if (validHops.isEmpty) {
         _logger.warning('All available hops would create loops');
         return null;
       }
-      
+
       // Use smart router if available
       if (_smartRouter != null) {
         try {
           _logger.info('🧠 Using smart router for next hop selection');
-          
+
           final routingDecision = await _smartRouter!.determineOptimalRoute(
             finalRecipient: relayMessage.relayMetadata.finalRecipient,
             availableHops: validHops,
             priority: relayMessage.relayMetadata.priority,
           );
-          
+
           if (routingDecision.isSuccessful && routingDecision.nextHop != null) {
             final truncatedNextHop = routingDecision.nextHop!.length > 8
                 ? routingDecision.nextHop!.substring(0, 8)
                 : routingDecision.nextHop!;
-            _logger.info('✅ Smart router chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})');
+            _logger.info(
+              '✅ Smart router chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})',
+            );
             return routingDecision.nextHop;
           } else {
-            _logger.warning('⚠️ Smart router failed: ${routingDecision.reason}');
+            _logger.warning(
+              '⚠️ Smart router failed: ${routingDecision.reason}',
+            );
           }
-          
         } catch (e) {
-          _logger.warning('Smart router error: $e - falling back to simple selection');
+          _logger.warning(
+            'Smart router error: $e - falling back to simple selection',
+          );
         }
       }
-      
+
       // Fallback to enhanced simple selection
       final chosenHop = await _selectBestHopByQuality(validHops);
-      
+
       final truncatedChosenHop = chosenHop.length > 8
           ? chosenHop.substring(0, 8)
           : chosenHop;
-      _logger.info('📍 Selected hop: $truncatedChosenHop... from ${validHops.length} valid options');
+      _logger.info(
+        '📍 Selected hop: $truncatedChosenHop... from ${validHops.length} valid options',
+      );
       return chosenHop;
-      
     } catch (e) {
       _logger.severe('Failed to choose next hop: $e');
       return null;
@@ -606,14 +671,17 @@ MeshRelayEngine({
     if (validHops.length == 1) {
       return validHops.first;
     }
-    
+
     // For now, use simple first selection
     // In a more sophisticated implementation, this could use basic quality heuristics
     return validHops.first;
   }
 
   /// Relay message to next hop (point-to-point)
-  Future<void> _relayToNextHop(MeshRelayMessage relayMessage, String nextHopNodeId) async {
+  Future<void> _relayToNextHop(
+    MeshRelayMessage relayMessage,
+    String nextHopNodeId,
+  ) async {
     try {
       // Create next hop relay message
       final nextHopMessage = relayMessage.nextHop(nextHopNodeId);
@@ -631,7 +699,9 @@ MeshRelayEngine({
         chatId: 'mesh_relay_$nextHopNodeId',
         content: nextHopMessage.originalContent,
         recipientPublicKey: nextHopNodeId,
-        senderPublicKey: nextHopMessage.relayMetadata.originalSender,  // ✅ Use original sender, not relay node
+        senderPublicKey: nextHopMessage
+            .relayMetadata
+            .originalSender, // ✅ Use original sender, not relay node
         priority: nextHopMessage.relayMetadata.priority,
       );
 
@@ -644,8 +714,9 @@ MeshRelayEngine({
       final truncatedNextHop = nextHopNodeId.length > 8
           ? nextHopNodeId.substring(0, 8)
           : nextHopNodeId;
-      _logger.info('Relayed message $truncatedMessageId... to $truncatedNextHop...');
-
+      _logger.info(
+        'Relayed message $truncatedMessageId... to $truncatedNextHop...',
+      );
     } catch (e) {
       _logger.severe('Failed to relay to next hop: $e');
       throw RelayException('Failed to relay message: $e');
@@ -667,18 +738,25 @@ MeshRelayEngine({
     try {
       // Filter out neighbors already in routing path (loop prevention)
       final validNeighbors = availableNeighbors
-          .where((neighborId) => !relayMessage.relayMetadata.hasNodeInPath(neighborId))
+          .where(
+            (neighborId) =>
+                !relayMessage.relayMetadata.hasNodeInPath(neighborId),
+          )
           .toList();
 
       if (validNeighbors.isEmpty) {
-        _logger.info('📣 No valid neighbors for broadcast (all in routing path or none available)');
+        _logger.info(
+          '📣 No valid neighbors for broadcast (all in routing path or none available)',
+        );
         return;
       }
 
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
           ? relayMessage.originalMessageId.substring(0, 16)
           : relayMessage.originalMessageId;
-      _logger.info('📣 Broadcasting message $truncatedMessageId... to ${validNeighbors.length} neighbor(s)');
+      _logger.info(
+        '📣 Broadcasting message $truncatedMessageId... to ${validNeighbors.length} neighbor(s)',
+      );
 
       int successCount = 0;
       int failCount = 0;
@@ -702,7 +780,9 @@ MeshRelayEngine({
             chatId: 'broadcast_relay_$neighborId',
             content: nextHopMessage.originalContent,
             recipientPublicKey: neighborId,
-            senderPublicKey: nextHopMessage.relayMetadata.originalSender, // Preserve original sender
+            senderPublicKey: nextHopMessage
+                .relayMetadata
+                .originalSender, // Preserve original sender
             priority: nextHopMessage.relayMetadata.priority,
           );
 
@@ -714,20 +794,24 @@ MeshRelayEngine({
           final truncatedNeighbor = neighborId.length > 8
               ? neighborId.substring(0, 8)
               : neighborId;
-          _logger.fine('  ✅ Broadcast queued for neighbor $truncatedNeighbor...');
-
+          _logger.fine(
+            '  ✅ Broadcast queued for neighbor $truncatedNeighbor...',
+          );
         } catch (e) {
           failCount++;
           final truncatedNeighbor = neighborId.length > 8
               ? neighborId.substring(0, 8)
               : neighborId;
-          _logger.warning('  ⚠️ Failed to broadcast to neighbor $truncatedNeighbor...: $e');
+          _logger.warning(
+            '  ⚠️ Failed to broadcast to neighbor $truncatedNeighbor...: $e',
+          );
           // Continue broadcasting to other neighbors
         }
       }
 
-      _logger.info('📣 Broadcast complete: $successCount success, $failCount failed (total: ${validNeighbors.length})');
-
+      _logger.info(
+        '📣 Broadcast complete: $successCount success, $failCount failed (total: ${validNeighbors.length})',
+      );
     } catch (e) {
       _logger.severe('Failed to broadcast to neighbors: $e');
       throw RelayException('Failed to broadcast message: $e');
@@ -736,9 +820,10 @@ MeshRelayEngine({
 
   /// Calculate relay efficiency
   double _calculateRelayEfficiency() {
-    final totalProcessed = _totalRelayed + _totalDropped + _totalDeliveredToSelf;
+    final totalProcessed =
+        _totalRelayed + _totalDropped + _totalDeliveredToSelf;
     if (totalProcessed == 0) return 1.0;
-    
+
     return (_totalRelayed + _totalDeliveredToSelf) / totalProcessed;
   }
 
@@ -763,37 +848,50 @@ class RelayProcessingResult {
   final String? nextHopNodeId;
   final String? reason;
 
-  const RelayProcessingResult._(this.type, this.content, this.nextHopNodeId, this.reason);
+  const RelayProcessingResult._(
+    this.type,
+    this.content,
+    this.nextHopNodeId,
+    this.reason,
+  );
 
   factory RelayProcessingResult.deliveredToSelf(String content) =>
-      RelayProcessingResult._(RelayProcessingType.deliveredToSelf, content, null, null);
-  
+      RelayProcessingResult._(
+        RelayProcessingType.deliveredToSelf,
+        content,
+        null,
+        null,
+      );
+
   factory RelayProcessingResult.relayed(String nextHopNodeId) =>
-      RelayProcessingResult._(RelayProcessingType.relayed, null, nextHopNodeId, null);
-  
+      RelayProcessingResult._(
+        RelayProcessingType.relayed,
+        null,
+        nextHopNodeId,
+        null,
+      );
+
   factory RelayProcessingResult.dropped(String reason) =>
       RelayProcessingResult._(RelayProcessingType.dropped, null, null, reason);
-  
+
   factory RelayProcessingResult.blocked(String reason) =>
       RelayProcessingResult._(RelayProcessingType.blocked, null, null, reason);
-  
+
   factory RelayProcessingResult.error(String reason) =>
       RelayProcessingResult._(RelayProcessingType.error, null, null, reason);
 
-  bool get isSuccess => type == RelayProcessingType.deliveredToSelf || type == RelayProcessingType.relayed;
+  bool get isSuccess =>
+      type == RelayProcessingType.deliveredToSelf ||
+      type == RelayProcessingType.relayed;
   bool get isDelivered => type == RelayProcessingType.deliveredToSelf;
   bool get isRelayed => type == RelayProcessingType.relayed;
-  bool get isBlocked => type == RelayProcessingType.blocked || type == RelayProcessingType.dropped;
+  bool get isBlocked =>
+      type == RelayProcessingType.blocked ||
+      type == RelayProcessingType.dropped;
 }
 
 /// Type of relay processing result
-enum RelayProcessingType {
-  deliveredToSelf,
-  relayed,
-  dropped,
-  blocked,
-  error,
-}
+enum RelayProcessingType { deliveredToSelf, relayed, dropped, blocked, error }
 
 /// Relay decision information
 class RelayDecision {
@@ -860,12 +958,7 @@ class RelayDecision {
 }
 
 /// Type of relay decision
-enum RelayDecisionType {
-  relayed,
-  delivered,
-  dropped,
-  blocked,
-}
+enum RelayDecisionType { relayed, delivered, dropped, blocked }
 
 /// Relay engine statistics
 class RelayStatistics {
@@ -873,12 +966,12 @@ class RelayStatistics {
   final int totalDropped;
   final int totalDeliveredToSelf;
   final int totalBlocked;
-  final int totalProbabilisticSkip;  // Phase 3: Probabilistic relay skips
+  final int totalProbabilisticSkip; // Phase 3: Probabilistic relay skips
   final double spamScore;
   final double relayEfficiency;
   final int activeRelayMessages;
-  final int networkSize;  // Phase 3: Current network size
-  final double currentRelayProbability;  // Phase 3: Current relay probability
+  final int networkSize; // Phase 3: Current network size
+  final double currentRelayProbability; // Phase 3: Current relay probability
 
   const RelayStatistics({
     required this.totalRelayed,
@@ -896,7 +989,8 @@ class RelayStatistics {
   int get totalProcessed => totalRelayed + totalDropped + totalDeliveredToSelf;
 
   @override
-  String toString() => 'RelayStatistics('
+  String toString() =>
+      'RelayStatistics('
       'relayed: $totalRelayed, '
       'dropped: $totalDropped, '
       'delivered: $totalDeliveredToSelf, '

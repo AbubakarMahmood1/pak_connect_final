@@ -32,7 +32,9 @@ class MessageRouter {
   static MessageRouter? _instance;
   static MessageRouter get instance {
     if (_instance == null) {
-      throw StateError('MessageRouter not initialized. Call initialize() first.');
+      throw StateError(
+        'MessageRouter not initialized. Call initialize() first.',
+      );
     }
     return _instance!;
   }
@@ -42,7 +44,8 @@ class MessageRouter {
   late final OfflineMessageQueue _offlineQueue;
 
   // Statistics (delegated to OfflineMessageQueue)
-  int get _totalQueued { // ignore: unused_element
+  int get _totalQueued {
+    // ignore: unused_element
     try {
       return _offlineQueue.getStatistics().totalQueued;
     } catch (e) {
@@ -51,7 +54,8 @@ class MessageRouter {
     }
   }
 
-  int get _totalFlushed { // ignore: unused_element
+  int get _totalFlushed {
+    // ignore: unused_element
     try {
       return _offlineQueue.getStatistics().totalDelivered;
     } catch (e) {
@@ -77,7 +81,9 @@ class MessageRouter {
     // so it's guaranteed to be available when BLEService initializes
     _instance!._offlineQueue = AppCore.instance.messageQueue;
 
-    _logger.info('✅ MessageRouter initialized (delegating to OfflineMessageQueue)');
+    _logger.info(
+      '✅ MessageRouter initialized (delegating to OfflineMessageQueue)',
+    );
   }
 
   /// Send a message with automatic offline queueing
@@ -94,7 +100,9 @@ class MessageRouter {
     String? recipientName,
   }) async {
     try {
-      _logger.info('📨 MessageRouter: Delegating to OfflineMessageQueue for ${recipientId.substring(0, 8)}...');
+      _logger.info(
+        '📨 MessageRouter: Delegating to OfflineMessageQueue for ${recipientId.substring(0, 8)}...',
+      );
 
       // Get sender's public key
       final prefs = UserPreferences();
@@ -102,7 +110,10 @@ class MessageRouter {
 
       if (senderKey.isEmpty) {
         _logger.severe('❌ No sender public key available');
-        return MessageRouteResult.failed(messageId ?? Uuid().v4(), 'No sender public key');
+        return MessageRouteResult.failed(
+          messageId ?? Uuid().v4(),
+          'No sender public key',
+        );
       }
 
       // Delegate to OfflineMessageQueue (which handles direct send + queueing + retry)
@@ -114,10 +125,11 @@ class MessageRouter {
         priority: MessagePriority.normal,
       );
 
-      _logger.info('📮 Message queued via OfflineMessageQueue: ${queuedMessageId.substring(0, 16)}...');
+      _logger.info(
+        '📮 Message queued via OfflineMessageQueue: ${queuedMessageId.substring(0, 16)}...',
+      );
 
       return MessageRouteResult.queued(queuedMessageId);
-
     } catch (e) {
       _logger.severe('❌ Message routing failed: $e');
       final fallbackId = messageId ?? Uuid().v4();
@@ -136,7 +148,9 @@ class MessageRouter {
   ///
   /// BitChat equivalent: flushOutboxFor() in MessageRouter.kt (lines 127-156)
   Future<void> flushOutboxFor(String peerId) async {
-    _logger.info('📤 MessageRouter: Delegating flush to OfflineMessageQueue for ${peerId.substring(0, 8)}...');
+    _logger.info(
+      '📤 MessageRouter: Delegating flush to OfflineMessageQueue for ${peerId.substring(0, 8)}...',
+    );
 
     try {
       // Delegate to OfflineMessageQueue which has persistent queue + retry logic
@@ -157,7 +171,9 @@ class MessageRouter {
   ///
   /// BitChat equivalent: flushAllOutbox() in MessageRouter.kt (lines 158-161)
   Future<void> flushAllOutbox() async {
-    _logger.info('📤 MessageRouter: Delegating flush all to OfflineMessageQueue...');
+    _logger.info(
+      '📤 MessageRouter: Delegating flush all to OfflineMessageQueue...',
+    );
 
     try {
       // Get all pending messages from OfflineMessageQueue
@@ -171,7 +187,9 @@ class MessageRouter {
         return;
       }
 
-      _logger.info('📤 Flushing outbox for ${uniquePeers.length} peer(s) via OfflineMessageQueue...');
+      _logger.info(
+        '📤 Flushing outbox for ${uniquePeers.length} peer(s) via OfflineMessageQueue...',
+      );
 
       for (final peerId in uniquePeers) {
         await _offlineQueue.flushQueueForPeer(peerId);
@@ -215,14 +233,18 @@ class MessageRouter {
   ///
   /// **DELEGATED** to OfflineMessageQueue for unified queue management.
   Future<void> clearAll() async {
-    _logger.info('MessageRouter: Delegating clearAll to OfflineMessageQueue...');
+    _logger.info(
+      'MessageRouter: Delegating clearAll to OfflineMessageQueue...',
+    );
     await _offlineQueue.clearQueue();
     _logger.info('Cleared all queued messages via OfflineMessageQueue');
   }
 
   /// Dispose resources
   void dispose() {
-    _logger.info('MessageRouter disposed (queue managed by OfflineMessageQueue)');
+    _logger.info(
+      'MessageRouter disposed (queue managed by OfflineMessageQueue)',
+    );
   }
 }
 
@@ -242,21 +264,23 @@ class MessageRouteResult {
     this.errorMessage,
   });
 
-  factory MessageRouteResult.sentDirectly(String messageId) => MessageRouteResult._(
-    messageId: messageId,
-    status: MessageRouteStatus.sentDirectly,
-  );
+  factory MessageRouteResult.sentDirectly(String messageId) =>
+      MessageRouteResult._(
+        messageId: messageId,
+        status: MessageRouteStatus.sentDirectly,
+      );
 
   factory MessageRouteResult.queued(String messageId) => MessageRouteResult._(
     messageId: messageId,
     status: MessageRouteStatus.queued,
   );
 
-  factory MessageRouteResult.failed(String messageId, String error) => MessageRouteResult._(
-    messageId: messageId,
-    status: MessageRouteStatus.failed,
-    errorMessage: error,
-  );
+  factory MessageRouteResult.failed(String messageId, String error) =>
+      MessageRouteResult._(
+        messageId: messageId,
+        status: MessageRouteStatus.failed,
+        errorMessage: error,
+      );
 
   bool get isSuccess => status != MessageRouteStatus.failed;
   bool get isQueued => status == MessageRouteStatus.queued;

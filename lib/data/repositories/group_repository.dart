@@ -44,7 +44,9 @@ class GroupRepository {
           });
         }
 
-        _logger.info('✅ Created group ${group.name} with ${group.memberCount} members');
+        _logger.info(
+          '✅ Created group ${group.name} with ${group.memberCount} members',
+        );
       });
 
       return group;
@@ -89,8 +91,12 @@ class GroupRepository {
         name: groupData['name'] as String,
         memberKeys: memberKeys,
         description: groupData['description'] as String?,
-        created: DateTime.fromMillisecondsSinceEpoch(groupData['created_at'] as int),
-        lastModified: DateTime.fromMillisecondsSinceEpoch(groupData['last_modified_at'] as int),
+        created: DateTime.fromMillisecondsSinceEpoch(
+          groupData['created_at'] as int,
+        ),
+        lastModified: DateTime.fromMillisecondsSinceEpoch(
+          groupData['last_modified_at'] as int,
+        ),
       );
     } catch (e) {
       _logger.severe('❌ Failed to get group $groupId: $e');
@@ -124,14 +130,20 @@ class GroupRepository {
             .map((row) => row['member_key'] as String)
             .toList();
 
-        groups.add(ContactGroup(
-          id: groupId,
-          name: groupData['name'] as String,
-          memberKeys: memberKeys,
-          description: groupData['description'] as String?,
-          created: DateTime.fromMillisecondsSinceEpoch(groupData['created_at'] as int),
-          lastModified: DateTime.fromMillisecondsSinceEpoch(groupData['last_modified_at'] as int),
-        ));
+        groups.add(
+          ContactGroup(
+            id: groupId,
+            name: groupData['name'] as String,
+            memberKeys: memberKeys,
+            description: groupData['description'] as String?,
+            created: DateTime.fromMillisecondsSinceEpoch(
+              groupData['created_at'] as int,
+            ),
+            lastModified: DateTime.fromMillisecondsSinceEpoch(
+              groupData['last_modified_at'] as int,
+            ),
+          ),
+        );
       }
 
       return groups;
@@ -203,7 +215,9 @@ class GroupRepository {
       );
 
       if (count > 0) {
-        _logger.info('✅ Deleted group $groupId (CASCADE removed members + messages)');
+        _logger.info(
+          '✅ Deleted group $groupId (CASCADE removed members + messages)',
+        );
       }
     } catch (e) {
       _logger.severe('❌ Failed to delete group $groupId: $e');
@@ -239,7 +253,9 @@ class GroupRepository {
           });
         }
 
-        _logger.info('✅ Saved group message ${message.id.substring(0, 16)}... with ${message.deliveryStatus.length} delivery records');
+        _logger.info(
+          '✅ Saved group message ${message.id.substring(0, 16)}... with ${message.deliveryStatus.length} delivery records',
+        );
       });
     } catch (e) {
       _logger.severe('❌ Failed to save group message ${message.id}: $e');
@@ -266,7 +282,9 @@ class GroupRepository {
         whereArgs: [messageId, memberKey],
       );
 
-      _logger.fine('Updated delivery status for $messageId -> $memberKey: $status');
+      _logger.fine(
+        'Updated delivery status for $messageId -> $memberKey: $status',
+      );
     } catch (e) {
       _logger.severe('❌ Failed to update delivery status: $e');
       rethrow;
@@ -274,7 +292,10 @@ class GroupRepository {
   }
 
   /// Get messages for a group
-  Future<List<GroupMessage>> getGroupMessages(String groupId, {int limit = 50}) async {
+  Future<List<GroupMessage>> getGroupMessages(
+    String groupId, {
+    int limit = 50,
+  }) async {
     final db = await DatabaseHelper.database;
 
     try {
@@ -304,14 +325,18 @@ class GroupRepository {
           deliveryStatus[memberKey] = MessageDeliveryStatus.values[statusIndex];
         }
 
-        messages.add(GroupMessage(
-          id: messageId,
-          groupId: msgData['group_id'] as String,
-          senderKey: msgData['sender_key'] as String,
-          content: msgData['content'] as String,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(msgData['timestamp'] as int),
-          deliveryStatus: deliveryStatus,
-        ));
+        messages.add(
+          GroupMessage(
+            id: messageId,
+            groupId: msgData['group_id'] as String,
+            senderKey: msgData['sender_key'] as String,
+            content: msgData['content'] as String,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(
+              msgData['timestamp'] as int,
+            ),
+            deliveryStatus: deliveryStatus,
+          ),
+        );
       }
 
       return messages;
@@ -357,7 +382,9 @@ class GroupRepository {
         groupId: msgData['group_id'] as String,
         senderKey: msgData['sender_key'] as String,
         content: msgData['content'] as String,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(msgData['timestamp'] as int),
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          msgData['timestamp'] as int,
+        ),
         deliveryStatus: deliveryStatus,
       );
     } catch (e) {
@@ -408,17 +435,23 @@ class GroupRepository {
     final db = await DatabaseHelper.database;
 
     try {
-      final groupCount = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM contact_groups'),
-      ) ?? 0;
+      final groupCount =
+          Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM contact_groups'),
+          ) ??
+          0;
 
-      final memberCount = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM group_members'),
-      ) ?? 0;
+      final memberCount =
+          Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM group_members'),
+          ) ??
+          0;
 
-      final messageCount = Sqflite.firstIntValue(
-        await db.rawQuery('SELECT COUNT(*) FROM group_messages'),
-      ) ?? 0;
+      final messageCount =
+          Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM group_messages'),
+          ) ??
+          0;
 
       return {
         'groups': groupCount,

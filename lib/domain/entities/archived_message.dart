@@ -7,14 +7,14 @@ import '../../domain/entities/message.dart';
 /// Archived message extending EnhancedMessage with archive-specific metadata
 class ArchivedMessage extends EnhancedMessage {
   static final _logger = Logger('ArchivedMessage');
-  
+
   final DateTime archivedAt;
   final DateTime originalTimestamp; // Preserved original timestamp
   final String archiveId;
   final ArchiveMessageMetadata archiveMetadata;
   final String? originalSearchableText; // Cached for search performance
   final Map<String, dynamic>? preservedState; // Original message state
-  
+
   ArchivedMessage({
     required super.id,
     required super.chatId,
@@ -42,17 +42,17 @@ class ArchivedMessage extends EnhancedMessage {
     this.originalSearchableText,
     this.preservedState,
   });
-  
+
   /// Create archived message from EnhancedMessage
   factory ArchivedMessage.fromEnhancedMessage(
-    EnhancedMessage message, 
+    EnhancedMessage message,
     DateTime archiveTime, {
     String? customArchiveId,
     Map<String, dynamic>? additionalMetadata,
   }) {
     // Generate searchable text for indexing
     final searchableText = _generateSearchableText(message);
-    
+
     // Preserve original message state
     final preservedState = {
       'originalStatus': message.status.index,
@@ -63,7 +63,7 @@ class ArchivedMessage extends EnhancedMessage {
       'wasThreaded': message.isThreaded,
       'wasReply': message.isReply,
     };
-    
+
     return ArchivedMessage(
       id: message.id,
       chatId: message.chatId,
@@ -86,7 +86,8 @@ class ArchivedMessage extends EnhancedMessage {
       encryptionInfo: message.encryptionInfo,
       archivedAt: archiveTime,
       originalTimestamp: message.timestamp,
-      archiveId: customArchiveId ?? _generateArchiveMessageId(message, archiveTime),
+      archiveId:
+          customArchiveId ?? _generateArchiveMessageId(message, archiveTime),
       archiveMetadata: ArchiveMessageMetadata(
         archiveVersion: '1.0',
         preservationLevel: ArchivePreservationLevel.complete,
@@ -99,7 +100,7 @@ class ArchivedMessage extends EnhancedMessage {
       preservedState: preservedState,
     );
   }
-  
+
   /// Create from base Message (for legacy compatibility)
   factory ArchivedMessage.fromMessage(
     Message message,
@@ -108,32 +109,35 @@ class ArchivedMessage extends EnhancedMessage {
   }) {
     final enhanced = EnhancedMessage.fromMessage(message);
     return ArchivedMessage.fromEnhancedMessage(
-      enhanced, 
+      enhanced,
       archiveTime,
       customArchiveId: customArchiveId,
     );
   }
-  
+
   /// Check if message has been preserved with full fidelity
-  bool get isFullyPreserved => archiveMetadata.preservationLevel == ArchivePreservationLevel.complete;
-  
+  bool get isFullyPreserved =>
+      archiveMetadata.preservationLevel == ArchivePreservationLevel.complete;
+
   /// Check if message is searchable
-  bool get isSearchable => archiveMetadata.indexingStatus == ArchiveIndexingStatus.indexed;
-  
+  bool get isSearchable =>
+      archiveMetadata.indexingStatus == ArchiveIndexingStatus.indexed;
+
   /// Check if message content was compressed during archiving
   bool get isCompressed => archiveMetadata.compressionApplied;
-  
+
   /// Get archive age
   Duration get archiveAge => DateTime.now().difference(archivedAt);
-  
+
   /// Get searchable text (cached or generated)
-  String get searchableText => originalSearchableText ?? _generateSearchableText(this);
-  
+  String get searchableText =>
+      originalSearchableText ?? _generateSearchableText(this);
+
   /// Get restoration compatibility info
   MessageRestorationInfo getRestorationInfo() {
     final warnings = <String>[];
     final canRestore = _canRestore(warnings);
-    
+
     return MessageRestorationInfo(
       messageId: id,
       canRestore: canRestore,
@@ -144,7 +148,7 @@ class ArchivedMessage extends EnhancedMessage {
       requiresPostProcessing: _requiresPostProcessing(),
     );
   }
-  
+
   /// Create a restored EnhancedMessage
   EnhancedMessage toRestoredMessage({String? newChatId}) {
     return EnhancedMessage(
@@ -169,7 +173,7 @@ class ArchivedMessage extends EnhancedMessage {
       encryptionInfo: encryptionInfo,
     );
   }
-  
+
   /// Create copy with updated archive metadata
   ArchivedMessage copyWithArchiveUpdate({
     ArchiveMessageMetadata? archiveMetadata,
@@ -200,11 +204,12 @@ class ArchivedMessage extends EnhancedMessage {
       originalTimestamp: originalTimestamp,
       archiveId: archiveId,
       archiveMetadata: archiveMetadata ?? this.archiveMetadata,
-      originalSearchableText: originalSearchableText ?? this.originalSearchableText,
+      originalSearchableText:
+          originalSearchableText ?? this.originalSearchableText,
       preservedState: preservedState ?? this.preservedState,
     );
   }
-  
+
   /// Convert to JSON for storage
   @override
   Map<String, dynamic> toJson() {
@@ -219,12 +224,12 @@ class ArchivedMessage extends EnhancedMessage {
     });
     return json;
   }
-  
+
   /// Create from JSON
   factory ArchivedMessage.fromJson(Map<String, dynamic> json) {
     try {
       final enhancedMessage = EnhancedMessage.fromJson(json);
-      
+
       return ArchivedMessage(
         id: enhancedMessage.id,
         chatId: enhancedMessage.chatId,
@@ -246,80 +251,97 @@ class ArchivedMessage extends EnhancedMessage {
         attachments: enhancedMessage.attachments,
         encryptionInfo: enhancedMessage.encryptionInfo,
         archivedAt: DateTime.fromMillisecondsSinceEpoch(json['archivedAt']),
-        originalTimestamp: DateTime.fromMillisecondsSinceEpoch(json['originalTimestamp']),
+        originalTimestamp: DateTime.fromMillisecondsSinceEpoch(
+          json['originalTimestamp'],
+        ),
         archiveId: json['archiveId'],
-        archiveMetadata: ArchiveMessageMetadata.fromJson(json['archiveMetadata']),
+        archiveMetadata: ArchiveMessageMetadata.fromJson(
+          json['archiveMetadata'],
+        ),
         originalSearchableText: json['originalSearchableText'],
-        preservedState: json['preservedState'] != null 
-          ? Map<String, dynamic>.from(json['preservedState'])
-          : null,
+        preservedState: json['preservedState'] != null
+            ? Map<String, dynamic>.from(json['preservedState'])
+            : null,
       );
     } catch (e) {
       _logger.severe('Failed to deserialize ArchivedMessage: $e');
       rethrow;
     }
   }
-  
+
   // Private helper methods
-  
+
   static String _generateSearchableText(EnhancedMessage message) {
     final buffer = StringBuffer();
     buffer.write(message.content);
-    
+
     // Include attachment names for search
     for (final attachment in message.attachments) {
       buffer.write(' ${attachment.name}');
     }
-    
+
     // Include reaction context
     if (message.reactions.isNotEmpty) {
       buffer.write(' ${message.reactions.map((r) => r.emoji).join(' ')}');
     }
-    
+
     return buffer.toString().toLowerCase().trim();
   }
-  
-  static String _generateArchiveMessageId(EnhancedMessage message, DateTime archiveTime) {
-    final hash = '${message.id}_${archiveTime.millisecondsSinceEpoch}'.hashCode.abs();
+
+  static String _generateArchiveMessageId(
+    EnhancedMessage message,
+    DateTime archiveTime,
+  ) {
+    final hash = '${message.id}_${archiveTime.millisecondsSinceEpoch}'.hashCode
+        .abs();
     return 'archived_msg_$hash';
   }
-  
+
   static int _estimateMessageSize(EnhancedMessage message) {
     int size = message.content.length * 2; // UTF-16 estimate
-    size += message.attachments.fold(0, (sum, att) => sum + att.name.length * 2);
+    size += message.attachments.fold(
+      0,
+      (sum, att) => sum + att.name.length * 2,
+    );
     size += message.reactions.length * 50; // Emoji + metadata
     size += 200; // Base metadata overhead
     return size;
   }
-  
+
   bool _canRestore(List<String> warnings) {
     bool canRestore = true;
-    
+
     if (archiveMetadata.preservationLevel == ArchivePreservationLevel.minimal) {
-      warnings.add('Message was archived with minimal preservation - some data may be lost');
+      warnings.add(
+        'Message was archived with minimal preservation - some data may be lost',
+      );
     }
-    
+
     if (archiveAge > const Duration(days: 365)) {
-      warnings.add('Message is over 1 year old - compatibility issues may occur');
+      warnings.add(
+        'Message is over 1 year old - compatibility issues may occur',
+      );
     }
-    
-    if (attachments.isNotEmpty && archiveMetadata.preservationLevel != ArchivePreservationLevel.complete) {
+
+    if (attachments.isNotEmpty &&
+        archiveMetadata.preservationLevel !=
+            ArchivePreservationLevel.complete) {
       warnings.add('Message attachments may not be fully restored');
       canRestore = false;
     }
-    
+
     if (encryptionInfo != null && archiveAge > const Duration(days: 90)) {
       warnings.add('Encrypted message keys may have expired');
     }
-    
+
     return canRestore;
   }
-  
+
   bool _requiresPostProcessing() {
-    return attachments.isNotEmpty || 
-           encryptionInfo != null || 
-           reactions.isNotEmpty ||
-           threadId != null;
+    return attachments.isNotEmpty ||
+        encryptionInfo != null ||
+        reactions.isNotEmpty ||
+        threadId != null;
   }
 }
 
@@ -331,7 +353,7 @@ class ArchiveMessageMetadata {
   final bool compressionApplied;
   final int originalSize;
   final Map<String, dynamic> additionalData;
-  
+
   const ArchiveMessageMetadata({
     required this.archiveVersion,
     required this.preservationLevel,
@@ -340,7 +362,7 @@ class ArchiveMessageMetadata {
     required this.originalSize,
     required this.additionalData,
   });
-  
+
   Map<String, dynamic> toJson() => {
     'archiveVersion': archiveVersion,
     'preservationLevel': preservationLevel.index,
@@ -349,15 +371,17 @@ class ArchiveMessageMetadata {
     'originalSize': originalSize,
     'additionalData': additionalData,
   };
-  
-  factory ArchiveMessageMetadata.fromJson(Map<String, dynamic> json) => ArchiveMessageMetadata(
-    archiveVersion: json['archiveVersion'],
-    preservationLevel: ArchivePreservationLevel.values[json['preservationLevel']],
-    indexingStatus: ArchiveIndexingStatus.values[json['indexingStatus']],
-    compressionApplied: json['compressionApplied'],
-    originalSize: json['originalSize'],
-    additionalData: Map<String, dynamic>.from(json['additionalData']),
-  );
+
+  factory ArchiveMessageMetadata.fromJson(Map<String, dynamic> json) =>
+      ArchiveMessageMetadata(
+        archiveVersion: json['archiveVersion'],
+        preservationLevel:
+            ArchivePreservationLevel.values[json['preservationLevel']],
+        indexingStatus: ArchiveIndexingStatus.values[json['indexingStatus']],
+        compressionApplied: json['compressionApplied'],
+        originalSize: json['originalSize'],
+        additionalData: Map<String, dynamic>.from(json['additionalData']),
+      );
 }
 
 /// Message restoration information
@@ -369,7 +393,7 @@ class MessageRestorationInfo {
   final Duration archiveAge;
   final ArchivePreservationLevel preservationLevel;
   final bool requiresPostProcessing;
-  
+
   const MessageRestorationInfo({
     required this.messageId,
     required this.canRestore,
@@ -379,9 +403,9 @@ class MessageRestorationInfo {
     required this.preservationLevel,
     required this.requiresPostProcessing,
   });
-  
+
   bool get hasWarnings => warnings.isNotEmpty;
-  
+
   String get riskLevel {
     if (!canRestore) return 'High';
     if (warnings.length > 2) return 'Medium';
@@ -392,15 +416,15 @@ class MessageRestorationInfo {
 
 /// Archive preservation levels
 enum ArchivePreservationLevel {
-  minimal,    // Content only
-  standard,   // Content + basic metadata
-  complete,   // Full message state with all metadata
+  minimal, // Content only
+  standard, // Content + basic metadata
+  complete, // Full message state with all metadata
 }
 
 /// Archive indexing status
 enum ArchiveIndexingStatus {
-  notIndexed,   // Not available for search
-  indexing,     // Currently being indexed
-  indexed,      // Fully searchable
-  indexError,   // Indexing failed
+  notIndexed, // Not available for search
+  indexing, // Currently being indexed
+  indexed, // Fully searchable
+  indexError, // Indexing failed
 }

@@ -15,7 +15,8 @@ class DatabaseHelper {
   static final _logger = Logger('DatabaseHelper');
   static sqlcipher.Database? _database;
   static const String _databaseName = 'pak_connect.db';
-  static const int _databaseVersion = 9; // v9: Added contact groups tables for secure multi-unicast messaging
+  static const int _databaseVersion =
+      9; // v9: Added contact groups tables for secure multi-unicast messaging
 
   /// Override database name for testing (allows using fresh database files)
   static String? _testDatabaseName;
@@ -53,7 +54,9 @@ class DatabaseHelper {
       // In test environment without secure storage, proceed without encryption
     }
 
-    _logger.info('Initializing database at: $path (factory: ${factory.runtimeType})');
+    _logger.info(
+      'Initializing database at: $path (factory: ${factory.runtimeType})',
+    );
 
     return await factory.openDatabase(
       path,
@@ -75,7 +78,9 @@ class DatabaseHelper {
     // Note: PRAGMA journal_mode returns a result, so we must use rawQuery
     try {
       final walResult = await db.rawQuery('PRAGMA journal_mode = WAL');
-      final mode = walResult.isNotEmpty ? walResult.first.values.first : 'unknown';
+      final mode = walResult.isNotEmpty
+          ? walResult.first.values.first
+          : 'unknown';
       _logger.info('WAL mode set, journal_mode: $mode');
     } catch (e) {
       _logger.warning('Failed to enable WAL mode (will use default): $e');
@@ -601,11 +606,17 @@ class DatabaseHelper {
       CREATE INDEX idx_delivery_status ON group_message_delivery(message_id, status)
     ''');
 
-    _logger.info('✅ Database schema created successfully with 17 core tables + FTS5');
+    _logger.info(
+      '✅ Database schema created successfully with 17 core tables + FTS5',
+    );
   }
 
   /// Handle database upgrades
-  static Future<void> _onUpgrade(sqlcipher.Database db, int oldVersion, int newVersion) async {
+  static Future<void> _onUpgrade(
+    sqlcipher.Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
     _logger.info('Upgrading database from v$oldVersion to v$newVersion');
 
     // Migration from version 1 to 2: Add chat_id to archived_messages
@@ -670,11 +681,17 @@ class DatabaseHelper {
       await db.execute('DROP TABLE archived_messages');
 
       // Rename new table
-      await db.execute('ALTER TABLE archived_messages_new RENAME TO archived_messages');
+      await db.execute(
+        'ALTER TABLE archived_messages_new RENAME TO archived_messages',
+      );
 
       // Recreate indexes
-      await db.execute('CREATE INDEX idx_archived_msg_archive ON archived_messages(archive_id, timestamp)');
-      await db.execute('CREATE INDEX idx_archived_msg_starred ON archived_messages(is_starred) WHERE is_starred = 1');
+      await db.execute(
+        'CREATE INDEX idx_archived_msg_archive ON archived_messages(archive_id, timestamp)',
+      );
+      await db.execute(
+        'CREATE INDEX idx_archived_msg_starred ON archived_messages(is_starred) WHERE is_starred = 1',
+      );
 
       // Recreate FTS5 table
       await db.execute('''
@@ -710,7 +727,9 @@ class DatabaseHelper {
         END
       ''');
 
-      _logger.info('Migration to v2 complete: Added chat_id to archived_messages');
+      _logger.info(
+        'Migration to v2 complete: Added chat_id to archived_messages',
+      );
     }
 
     // Migration from version 2 to 3: Remove unused user_preferences table, add encryption
@@ -718,7 +737,9 @@ class DatabaseHelper {
       // Drop unused user_preferences table (config now stays in SharedPreferences)
       await db.execute('DROP TABLE IF EXISTS user_preferences');
 
-      _logger.info('Migration to v3 complete: Removed unused user_preferences table, SQLCipher encryption enabled');
+      _logger.info(
+        'Migration to v3 complete: Removed unused user_preferences table, SQLCipher encryption enabled',
+      );
     }
 
     // Migration from version 3 to 4: Add app_preferences table for settings
@@ -754,7 +775,9 @@ class DatabaseHelper {
         ALTER TABLE contacts ADD COLUMN last_handshake_time INTEGER
       ''');
 
-      _logger.info('Migration to v5 complete: Added Noise Protocol fields to contacts');
+      _logger.info(
+        'Migration to v5 complete: Added Noise Protocol fields to contacts',
+      );
     }
 
     // Migration from version 5 to 6: Add favorites support to contacts
@@ -767,7 +790,9 @@ class DatabaseHelper {
         CREATE INDEX idx_contacts_favorite ON contacts(is_favorite) WHERE is_favorite = 1
       ''');
 
-      _logger.info('Migration to v6 complete: Added is_favorite field to contacts');
+      _logger.info(
+        'Migration to v6 complete: Added is_favorite field to contacts',
+      );
     }
 
     // Migration from version 6 to 7: Add ephemeral_id column for session tracking
@@ -777,47 +802,65 @@ class DatabaseHelper {
       ''');
 
       _logger.info('Migration to v7 complete: Added ephemeral_id to contacts');
-      _logger.info('🔧 Model: LOW security = public_key==ephemeral_id (both ephemeral)');
-      _logger.info('🔧 Model: MEDIUM+ security = public_key!=ephemeral_id (persistent + current ephemeral)');
+      _logger.info(
+        '🔧 Model: LOW security = public_key==ephemeral_id (both ephemeral)',
+      );
+      _logger.info(
+        '🔧 Model: MEDIUM+ security = public_key!=ephemeral_id (persistent + current ephemeral)',
+      );
     }
 
     // Migration from version 7 to 8: Add persistent_public_key and current_ephemeral_id for proper key management
     if (oldVersion < 8) {
-      _logger.info('🔧 SCHEMA FIX: Adding persistent_public_key and current_ephemeral_id columns');
-      
+      _logger.info(
+        '🔧 SCHEMA FIX: Adding persistent_public_key and current_ephemeral_id columns',
+      );
+
       // Add persistent_public_key column (NULL at LOW security, set at MEDIUM+)
       await db.execute('''
         ALTER TABLE contacts ADD COLUMN persistent_public_key TEXT
       ''');
-      
+
       // Add current_ephemeral_id column (tracks active Noise session)
       await db.execute('''
         ALTER TABLE contacts ADD COLUMN current_ephemeral_id TEXT
       ''');
-      
+
       // Create index on persistent_public_key for fast lookups
       await db.execute('''
         CREATE UNIQUE INDEX idx_contacts_persistent_key ON contacts(persistent_public_key) WHERE persistent_public_key IS NOT NULL
       ''');
-      
+
       // Migrate existing data:
       // For all existing contacts, copy ephemeral_id to current_ephemeral_id
       // This preserves current session tracking
       await db.execute('''
         UPDATE contacts SET current_ephemeral_id = ephemeral_id WHERE ephemeral_id IS NOT NULL
       ''');
-      
-      _logger.info('Migration to v8 complete: Added persistent_public_key and current_ephemeral_id');
+
+      _logger.info(
+        'Migration to v8 complete: Added persistent_public_key and current_ephemeral_id',
+      );
       _logger.info('🔧 NEW MODEL:');
-      _logger.info('   - public_key: Immutable first contact ID (never changes)');
-      _logger.info('   - persistent_public_key: NULL at LOW, set at MEDIUM+ (real identity)');
-      _logger.info('   - current_ephemeral_id: Active Noise session ID (updates on reconnect)');
-      _logger.info('   - ephemeral_id: DEPRECATED - use current_ephemeral_id instead');
+      _logger.info(
+        '   - public_key: Immutable first contact ID (never changes)',
+      );
+      _logger.info(
+        '   - persistent_public_key: NULL at LOW, set at MEDIUM+ (real identity)',
+      );
+      _logger.info(
+        '   - current_ephemeral_id: Active Noise session ID (updates on reconnect)',
+      );
+      _logger.info(
+        '   - ephemeral_id: DEPRECATED - use current_ephemeral_id instead',
+      );
     }
 
     // Migration from version 8 to 9: Add contact groups for secure multi-unicast messaging
     if (oldVersion < 9) {
-      _logger.info('🔧 Adding contact groups tables for secure multi-unicast messaging...');
+      _logger.info(
+        '🔧 Adding contact groups tables for secure multi-unicast messaging...',
+      );
 
       // Create contact_groups table
       await db.execute('''
@@ -885,8 +928,12 @@ class DatabaseHelper {
         CREATE INDEX idx_delivery_status ON group_message_delivery(message_id, status)
       ''');
 
-      _logger.info('Migration to v9 complete: Added 4 tables for contact groups');
-      _logger.info('✅ contact_groups, group_members, group_messages, group_message_delivery');
+      _logger.info(
+        'Migration to v9 complete: Added 4 tables for contact groups',
+      );
+      _logger.info(
+        '✅ contact_groups, group_members, group_messages, group_message_delivery',
+      );
     }
   }
 
@@ -939,31 +986,31 @@ class DatabaseHelper {
   static Future<void> clearAllData() async {
     try {
       final db = await database;
-      
+
       _logger.warning('🗑️ Clearing all user data from database...');
-      
+
       // Delete in correct order to respect foreign key constraints
       // 1. Delete messages and related data first
       await db.delete('messages');
       await db.delete('messages_fts'); // Clear FTS index
-      
+
       // 2. Delete archived data
       await db.delete('archived_messages');
       await db.delete('archived_messages_fts'); // Clear FTS index
       await db.delete('archived_chats');
-      
+
       // 3. Delete chats
       await db.delete('chats');
-      
+
       // 4. Delete offline queue
       await db.delete('offline_message_queue');
-      
+
       // 5. Delete contacts
       await db.delete('contacts');
-      
+
       // 6. Delete preferences
       await db.delete('app_preferences');
-      
+
       _logger.warning('🗑️ All user data cleared from database');
     } catch (e) {
       _logger.severe('❌ Failed to clear all data: $e');
@@ -986,7 +1033,8 @@ class DatabaseHelper {
     try {
       final db = await database;
       final result = await db.rawQuery('PRAGMA integrity_check');
-      final isValid = result.isNotEmpty && result.first['integrity_check'] == 'ok';
+      final isValid =
+          result.isNotEmpty && result.first['integrity_check'] == 'ok';
 
       if (isValid) {
         _logger.info('✅ Database integrity check passed');
@@ -1021,7 +1069,9 @@ class DatabaseHelper {
       ];
 
       for (final table in tables) {
-        final result = await db.rawQuery('SELECT COUNT(*) as count FROM $table');
+        final result = await db.rawQuery(
+          'SELECT COUNT(*) as count FROM $table',
+        );
         counts[table] = sqlcipher.Sqflite.firstIntValue(result) ?? 0;
       }
 
@@ -1031,7 +1081,10 @@ class DatabaseHelper {
         'database_path': dbPath,
         'database_version': _databaseVersion,
         'table_counts': counts,
-        'total_records': counts.values.fold<int>(0, (sum, count) => sum + count),
+        'total_records': counts.values.fold<int>(
+          0,
+          (sum, count) => sum + count,
+        ),
       };
     } catch (e) {
       _logger.severe('Failed to get database statistics: $e');
@@ -1068,7 +1121,10 @@ class DatabaseHelper {
       // Update last vacuum timestamp using SharedPreferences
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt(_lastVacuumKey, DateTime.now().millisecondsSinceEpoch);
+        await prefs.setInt(
+          _lastVacuumKey,
+          DateTime.now().millisecondsSinceEpoch,
+        );
       } catch (e) {
         _logger.fine('Could not save vacuum timestamp (test environment): $e');
       }
@@ -1083,15 +1139,13 @@ class DatabaseHelper {
       };
 
       _logger.info(
-          'VACUUM completed in ${duration.inMilliseconds}ms. Space reclaimed: ${result['space_reclaimed_mb']}MB');
+        'VACUUM completed in ${duration.inMilliseconds}ms. Space reclaimed: ${result['space_reclaimed_mb']}MB',
+      );
 
       return result;
     } catch (e, stackTrace) {
       _logger.severe('VACUUM failed', e, stackTrace);
-      return {
-        'success': false,
-        'error': e.toString(),
-      };
+      return {'success': false, 'error': e.toString()};
     }
   }
 
@@ -1103,7 +1157,9 @@ class DatabaseHelper {
 
       if (lastVacuumTimestamp == null) return true; // Never vacuumed
 
-      final lastVacuum = DateTime.fromMillisecondsSinceEpoch(lastVacuumTimestamp);
+      final lastVacuum = DateTime.fromMillisecondsSinceEpoch(
+        lastVacuumTimestamp,
+      );
       final daysSinceVacuum = DateTime.now().difference(lastVacuum).inDays;
 
       return daysSinceVacuum >= _vacuumIntervalDays;
@@ -1129,12 +1185,7 @@ class DatabaseHelper {
       final file = File(dbPath);
 
       if (!await file.exists()) {
-        return {
-          'exists': false,
-          'size_bytes': 0,
-          'size_kb': 0,
-          'size_mb': 0,
-        };
+        return {'exists': false, 'size_bytes': 0, 'size_kb': 0, 'size_mb': 0};
       }
 
       final sizeBytes = await file.length();
@@ -1161,7 +1212,9 @@ class DatabaseHelper {
 
       return {
         'last_vacuum': lastVacuumTimestamp != null
-            ? DateTime.fromMillisecondsSinceEpoch(lastVacuumTimestamp).toIso8601String()
+            ? DateTime.fromMillisecondsSinceEpoch(
+                lastVacuumTimestamp,
+              ).toIso8601String()
             : null,
         'vacuum_interval_days': _vacuumIntervalDays,
         'vacuum_due': await isVacuumDue(),

@@ -27,7 +27,8 @@ void main() {
   group('Database Migration v5→v6', () {
     setUp(() async {
       // Use unique database name for each test
-      final testDbName = 'test_favorites_migration_${DateTime.now().millisecondsSinceEpoch}.db';
+      final testDbName =
+          'test_favorites_migration_${DateTime.now().millisecondsSinceEpoch}.db';
       DatabaseHelper.setTestDatabaseName(testDbName);
       await DatabaseHelper.deleteDatabase();
     });
@@ -39,7 +40,11 @@ void main() {
       final result = await db.rawQuery('PRAGMA table_info(contacts)');
       final columnNames = result.map((row) => row['name'] as String).toList();
 
-      expect(columnNames, contains('is_favorite'), reason: 'contacts table should have is_favorite column');
+      expect(
+        columnNames,
+        contains('is_favorite'),
+        reason: 'contacts table should have is_favorite column',
+      );
     });
 
     test('creates idx_contacts_favorite index', () async {
@@ -49,7 +54,11 @@ void main() {
       final result = await db.rawQuery('PRAGMA index_list(contacts)');
       final indexNames = result.map((row) => row['name'] as String).toList();
 
-      expect(indexNames, contains('idx_contacts_favorite'), reason: 'contacts table should have idx_contacts_favorite index');
+      expect(
+        indexNames,
+        contains('idx_contacts_favorite'),
+        reason: 'contacts table should have idx_contacts_favorite index',
+      );
     });
 
     test('is_favorite defaults to 0 for new contacts', () async {
@@ -69,9 +78,17 @@ void main() {
       });
 
       // Query the contact
-      final result = await db.query('contacts', where: 'public_key = ?', whereArgs: ['test_key_123']);
+      final result = await db.query(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: ['test_key_123'],
+      );
       expect(result.length, 1);
-      expect(result.first['is_favorite'], 0, reason: 'is_favorite should default to 0');
+      expect(
+        result.first['is_favorite'],
+        0,
+        reason: 'is_favorite should default to 0',
+      );
     });
   });
 
@@ -176,7 +193,11 @@ void main() {
       );
 
       final updated = contact.copyWithSecurityLevel(SecurityLevel.high);
-      expect(updated.isFavorite, true, reason: 'isFavorite should be preserved');
+      expect(
+        updated.isFavorite,
+        true,
+        reason: 'isFavorite should be preserved',
+      );
       expect(updated.securityLevel, SecurityLevel.high);
     });
   });
@@ -185,7 +206,8 @@ void main() {
     late ContactRepository repository;
 
     setUp(() async {
-      final testDbName = 'test_favorites_repo_${DateTime.now().millisecondsSinceEpoch}.db';
+      final testDbName =
+          'test_favorites_repo_${DateTime.now().millisecondsSinceEpoch}.db';
       DatabaseHelper.setTestDatabaseName(testDbName);
       await DatabaseHelper.deleteDatabase();
       repository = ContactRepository();
@@ -250,7 +272,10 @@ void main() {
 
       expect(favorites.length, 2);
       expect(favorites.every((c) => c.isFavorite), true);
-      expect(favorites.map((c) => c.publicKey).toList(), containsAll(['fav_key_1', 'fav_key_2']));
+      expect(
+        favorites.map((c) => c.publicKey).toList(),
+        containsAll(['fav_key_1', 'fav_key_2']),
+      );
     });
 
     test('getFavoriteContactCount returns correct count', () async {
@@ -307,7 +332,8 @@ void main() {
     const testFavoriteKey = 'favorite_public_key_789';
 
     setUp(() async {
-      final testDbName = 'test_queue_favorites_${DateTime.now().millisecondsSinceEpoch}.db';
+      final testDbName =
+          'test_queue_favorites_${DateTime.now().millisecondsSinceEpoch}.db';
       DatabaseHelper.setTestDatabaseName(testDbName);
       await DatabaseHelper.deleteDatabase();
 
@@ -331,7 +357,11 @@ void main() {
 
       final message = queue.getMessageById(messageId);
       expect(message, isNotNull);
-      expect(message!.priority, MessagePriority.high, reason: 'Priority should be auto-boosted to HIGH for favorites');
+      expect(
+        message!.priority,
+        MessagePriority.high,
+        reason: 'Priority should be auto-boosted to HIGH for favorites',
+      );
     });
 
     test('does not auto-boost priority for regular contacts', () async {
@@ -345,7 +375,11 @@ void main() {
 
       final message = queue.getMessageById(messageId);
       expect(message, isNotNull);
-      expect(message!.priority, MessagePriority.normal, reason: 'Priority should remain NORMAL for regular contacts');
+      expect(
+        message!.priority,
+        MessagePriority.normal,
+        reason: 'Priority should remain NORMAL for regular contacts',
+      );
     });
 
     test('does not auto-boost if already high priority', () async {
@@ -358,54 +392,68 @@ void main() {
       );
 
       final message = queue.getMessageById(messageId);
-      expect(message!.priority, MessagePriority.urgent, reason: 'Urgent priority should not be changed');
-    });
-
-    test('enforces per-peer limit for regular contacts (100 messages)', () async {
-      // Queue 100 messages (at limit)
-      for (int i = 0; i < 100; i++) {
-        await queue.queueMessage(
-          chatId: 'chat_$i',
-          content: 'Message $i',
-          recipientPublicKey: testRecipientKey,
-          senderPublicKey: testSenderKey,
-        );
-      }
-
-      // Try to queue 101st message - should fail
       expect(
-        () async => await queue.queueMessage(
-          chatId: 'chat_101',
-          content: 'Message 101',
-          recipientPublicKey: testRecipientKey,
-          senderPublicKey: testSenderKey,
-        ),
-        throwsA(isA<MessageQueueException>()),
+        message!.priority,
+        MessagePriority.urgent,
+        reason: 'Urgent priority should not be changed',
       );
     });
 
-    test('enforces per-peer limit for favorite contacts (limit validation)', () async {
-      // Test the limit check logic without queuing all 500 messages (performance)
-      // Queue just 200 messages to verify the feature works
-      for (int i = 0; i < 200; i++) {
-        await queue.queueMessage(
-          chatId: 'chat_fav_$i',
-          content: 'Message $i',
+    test(
+      'enforces per-peer limit for regular contacts (100 messages)',
+      () async {
+        // Queue 100 messages (at limit)
+        for (int i = 0; i < 100; i++) {
+          await queue.queueMessage(
+            chatId: 'chat_$i',
+            content: 'Message $i',
+            recipientPublicKey: testRecipientKey,
+            senderPublicKey: testSenderKey,
+          );
+        }
+
+        // Try to queue 101st message - should fail
+        expect(
+          () async => await queue.queueMessage(
+            chatId: 'chat_101',
+            content: 'Message 101',
+            recipientPublicKey: testRecipientKey,
+            senderPublicKey: testSenderKey,
+          ),
+          throwsA(isA<MessageQueueException>()),
+        );
+      },
+    );
+
+    test(
+      'enforces per-peer limit for favorite contacts (limit validation)',
+      () async {
+        // Test the limit check logic without queuing all 500 messages (performance)
+        // Queue just 200 messages to verify the feature works
+        for (int i = 0; i < 200; i++) {
+          await queue.queueMessage(
+            chatId: 'chat_fav_$i',
+            content: 'Message $i',
+            recipientPublicKey: testFavoriteKey,
+            senderPublicKey: testSenderKey,
+          );
+        }
+
+        // Verify we can still queue more (not at 500 limit yet)
+        final messageId = await queue.queueMessage(
+          chatId: 'chat_fav_201',
+          content: 'Message 201',
           recipientPublicKey: testFavoriteKey,
           senderPublicKey: testSenderKey,
         );
-      }
 
-      // Verify we can still queue more (not at 500 limit yet)
-      final messageId = await queue.queueMessage(
-        chatId: 'chat_fav_201',
-        content: 'Message 201',
-        recipientPublicKey: testFavoriteKey,
-        senderPublicKey: testSenderKey,
-      );
-
-      expect(messageId, isNotEmpty, reason: 'Should be able to queue up to 500 messages for favorites');
-    });
+        expect(
+          messageId,
+          isNotEmpty,
+          reason: 'Should be able to queue up to 500 messages for favorites',
+        );
+      },
+    );
 
     test('favorites get 5x more queue space than regular contacts', () async {
       // Verify the constants are set correctly (performance test)
@@ -413,7 +461,11 @@ void main() {
       const regularLimit = 100;
       const favoriteLimit = 500;
 
-      expect(favoriteLimit ~/ regularLimit, 5, reason: 'Favorites should have 5x more queue space');
+      expect(
+        favoriteLimit ~/ regularLimit,
+        5,
+        reason: 'Favorites should have 5x more queue space',
+      );
     });
 
     test('delivered messages do not count toward per-peer limit', () async {
@@ -454,7 +506,11 @@ void main() {
 
       final message = queueWithoutRepo.getMessageById(messageId);
       expect(message, isNotNull);
-      expect(message!.priority, MessagePriority.normal, reason: 'No auto-boost without ContactRepository');
+      expect(
+        message!.priority,
+        MessagePriority.normal,
+        reason: 'No auto-boost without ContactRepository',
+      );
     });
   });
 
@@ -463,7 +519,8 @@ void main() {
     late OfflineMessageQueue queue;
 
     setUp(() async {
-      final testDbName = 'test_e2e_favorites_${DateTime.now().millisecondsSinceEpoch}.db';
+      final testDbName =
+          'test_e2e_favorites_${DateTime.now().millisecondsSinceEpoch}.db';
       DatabaseHelper.setTestDatabaseName(testDbName);
       await DatabaseHelper.deleteDatabase();
 
@@ -472,48 +529,51 @@ void main() {
       await queue.initialize(contactRepository: repository);
     });
 
-    test('complete workflow: create contact, mark favorite, queue messages', () async {
-      const senderKey = 'sender_key';
-      const recipientKey = 'recipient_key';
+    test(
+      'complete workflow: create contact, mark favorite, queue messages',
+      () async {
+        const senderKey = 'sender_key';
+        const recipientKey = 'recipient_key';
 
-      // 1. Create contact
-      await repository.saveContact(recipientKey, 'Test User');
-      final contact1 = await repository.getContact(recipientKey);
-      expect(contact1!.isFavorite, false);
+        // 1. Create contact
+        await repository.saveContact(recipientKey, 'Test User');
+        final contact1 = await repository.getContact(recipientKey);
+        expect(contact1!.isFavorite, false);
 
-      // 2. Mark as favorite
-      await repository.markContactFavorite(recipientKey);
-      final contact2 = await repository.getContact(recipientKey);
-      expect(contact2!.isFavorite, true);
+        // 2. Mark as favorite
+        await repository.markContactFavorite(recipientKey);
+        final contact2 = await repository.getContact(recipientKey);
+        expect(contact2!.isFavorite, true);
 
-      // 3. Queue message - should auto-boost and have higher limit
-      final messageId = await queue.queueMessage(
-        chatId: 'chat_1',
-        content: 'Test message',
-        recipientPublicKey: recipientKey,
-        senderPublicKey: senderKey,
-        priority: MessagePriority.normal,
-      );
+        // 3. Queue message - should auto-boost and have higher limit
+        final messageId = await queue.queueMessage(
+          chatId: 'chat_1',
+          content: 'Test message',
+          recipientPublicKey: recipientKey,
+          senderPublicKey: senderKey,
+          priority: MessagePriority.normal,
+        );
 
-      final message = queue.getMessageById(messageId);
-      expect(message!.priority, MessagePriority.high);
+        final message = queue.getMessageById(messageId);
+        expect(message!.priority, MessagePriority.high);
 
-      // 4. Unmark favorite
-      await repository.unmarkContactFavorite(recipientKey);
-      final contact3 = await repository.getContact(recipientKey);
-      expect(contact3!.isFavorite, false);
+        // 4. Unmark favorite
+        await repository.unmarkContactFavorite(recipientKey);
+        final contact3 = await repository.getContact(recipientKey);
+        expect(contact3!.isFavorite, false);
 
-      // 5. New messages should use regular limits
-      final messageId2 = await queue.queueMessage(
-        chatId: 'chat_2',
-        content: 'Another message',
-        recipientPublicKey: recipientKey,
-        senderPublicKey: senderKey,
-        priority: MessagePriority.normal,
-      );
+        // 5. New messages should use regular limits
+        final messageId2 = await queue.queueMessage(
+          chatId: 'chat_2',
+          content: 'Another message',
+          recipientPublicKey: recipientKey,
+          senderPublicKey: senderKey,
+          priority: MessagePriority.normal,
+        );
 
-      final message2 = queue.getMessageById(messageId2);
-      expect(message2!.priority, MessagePriority.normal);
-    });
+        final message2 = queue.getMessageById(messageId2);
+        expect(message2!.priority, MessagePriority.normal);
+      },
+    );
   });
 }

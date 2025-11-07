@@ -137,51 +137,54 @@ void main() {
       expect(retrieved.encryptionInfo?.algorithm, 'AES-256');
     });
 
-    test('Save multiple messages and retrieve them sorted by timestamp', () async {
-      final repository = MessageRepository();
+    test(
+      'Save multiple messages and retrieve them sorted by timestamp',
+      () async {
+        final repository = MessageRepository();
 
-      // Create chat first (foreign key requirement)
-      await createChat('chat_001');
+        // Create chat first (foreign key requirement)
+        await createChat('chat_001');
 
-      final now = DateTime.now();
-      final message1 = Message(
-        id: 'msg_001',
-        chatId: 'chat_001',
-        content: 'First',
-        timestamp: now.subtract(const Duration(hours: 2)),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      );
+        final now = DateTime.now();
+        final message1 = Message(
+          id: 'msg_001',
+          chatId: 'chat_001',
+          content: 'First',
+          timestamp: now.subtract(const Duration(hours: 2)),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        );
 
-      final message2 = Message(
-        id: 'msg_002',
-        chatId: 'chat_001',
-        content: 'Second',
-        timestamp: now.subtract(const Duration(hours: 1)),
-        isFromMe: false,
-        status: MessageStatus.delivered,
-      );
+        final message2 = Message(
+          id: 'msg_002',
+          chatId: 'chat_001',
+          content: 'Second',
+          timestamp: now.subtract(const Duration(hours: 1)),
+          isFromMe: false,
+          status: MessageStatus.delivered,
+        );
 
-      final message3 = Message(
-        id: 'msg_003',
-        chatId: 'chat_001',
-        content: 'Third',
-        timestamp: now,
-        isFromMe: true,
-        status: MessageStatus.sent,
-      );
+        final message3 = Message(
+          id: 'msg_003',
+          chatId: 'chat_001',
+          content: 'Third',
+          timestamp: now,
+          isFromMe: true,
+          status: MessageStatus.sent,
+        );
 
-      // Save in random order
-      await repository.saveMessage(message2);
-      await repository.saveMessage(message3);
-      await repository.saveMessage(message1);
+        // Save in random order
+        await repository.saveMessage(message2);
+        await repository.saveMessage(message3);
+        await repository.saveMessage(message1);
 
-      final messages = await repository.getMessages('chat_001');
-      expect(messages.length, 3);
-      expect(messages[0].content, 'First');
-      expect(messages[1].content, 'Second');
-      expect(messages[2].content, 'Third');
-    });
+        final messages = await repository.getMessages('chat_001');
+        expect(messages.length, 3);
+        expect(messages[0].content, 'First');
+        expect(messages[1].content, 'Second');
+        expect(messages[2].content, 'Third');
+      },
+    );
 
     test('Update message', () async {
       final repository = MessageRepository();
@@ -281,32 +284,38 @@ void main() {
       await createChat('chat_002');
 
       // Add messages to two different chats
-      await repository.saveMessage(Message(
-        id: 'msg_001',
-        chatId: 'chat_001',
-        content: 'Chat 1 Message 1',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_001',
+          chatId: 'chat_001',
+          content: 'Chat 1 Message 1',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
-      await repository.saveMessage(Message(
-        id: 'msg_002',
-        chatId: 'chat_001',
-        content: 'Chat 1 Message 2',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_002',
+          chatId: 'chat_001',
+          content: 'Chat 1 Message 2',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
-      await repository.saveMessage(Message(
-        id: 'msg_003',
-        chatId: 'chat_002',
-        content: 'Chat 2 Message 1',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_003',
+          chatId: 'chat_002',
+          content: 'Chat 2 Message 1',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
       // Clear chat_001
       await repository.clearMessages('chat_001');
@@ -322,23 +331,27 @@ void main() {
       await createChat('chat_001');
       await createChat('chat_002');
 
-      await repository.saveMessage(Message(
-        id: 'msg_001',
-        chatId: 'chat_001',
-        content: 'Chat 1',
-        timestamp: DateTime.now().subtract(const Duration(hours: 1)),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_001',
+          chatId: 'chat_001',
+          content: 'Chat 1',
+          timestamp: DateTime.now().subtract(const Duration(hours: 1)),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
-      await repository.saveMessage(Message(
-        id: 'msg_002',
-        chatId: 'chat_002',
-        content: 'Chat 2',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_002',
+          chatId: 'chat_002',
+          content: 'Chat 2',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
       final allMessages = await repository.getAllMessages();
       expect(allMessages.length, 2);
@@ -353,23 +366,27 @@ void main() {
       await createChat('public_key_001');
       await createChat('public_key_002');
 
-      await repository.saveMessage(Message(
-        id: 'msg_001',
-        chatId: 'public_key_001',
-        content: 'Message 1',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_001',
+          chatId: 'public_key_001',
+          content: 'Message 1',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
-      await repository.saveMessage(Message(
-        id: 'msg_002',
-        chatId: 'public_key_002',
-        content: 'Message 2',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_002',
+          chatId: 'public_key_002',
+          content: 'Message 2',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
       final messages = await repository.getMessagesForContact('public_key_001');
       expect(messages.length, 1);
@@ -455,41 +472,56 @@ void main() {
       await createChat('chat_003');
 
       // Add messages to different chats
-      await repository.saveMessage(Message(
-        id: 'msg_001',
-        chatId: 'chat_001',
-        content: 'Chat 1',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_001',
+          chatId: 'chat_001',
+          content: 'Chat 1',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
-      await repository.saveMessage(Message(
-        id: 'msg_002',
-        chatId: 'chat_002',
-        content: 'Chat 2',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_002',
+          chatId: 'chat_002',
+          content: 'Chat 2',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
-      await repository.saveMessage(Message(
-        id: 'msg_003',
-        chatId: 'chat_003',
-        content: 'Chat 3',
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sent,
-      ));
+      await repository.saveMessage(
+        Message(
+          id: 'msg_003',
+          chatId: 'chat_003',
+          content: 'Chat 3',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.sent,
+        ),
+      );
 
       // Verify each chat has only its messages
       expect(await repository.getMessages('chat_001'), hasLength(1));
       expect(await repository.getMessages('chat_002'), hasLength(1));
       expect(await repository.getMessages('chat_003'), hasLength(1));
 
-      expect((await repository.getMessages('chat_001')).first.content, 'Chat 1');
-      expect((await repository.getMessages('chat_002')).first.content, 'Chat 2');
-      expect((await repository.getMessages('chat_003')).first.content, 'Chat 3');
+      expect(
+        (await repository.getMessages('chat_001')).first.content,
+        'Chat 1',
+      );
+      expect(
+        (await repository.getMessages('chat_002')).first.content,
+        'Chat 2',
+      );
+      expect(
+        (await repository.getMessages('chat_003')).first.content,
+        'Chat 3',
+      );
     });
   });
 }

@@ -93,7 +93,7 @@ class TestSetup {
 
       // Get all user tables (exclude sqlite internal tables)
       final tables = await db.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
       );
 
       // Delete all data from each table
@@ -109,7 +109,6 @@ class TestSetup {
 
       // Re-enable foreign key constraints
       await db.execute('PRAGMA foreign_keys = ON');
-
     } catch (e) {
       // ignore: avoid_print
       print('Warning: Database nuke error: $e');
@@ -141,7 +140,7 @@ class TestSetup {
       // This includes tables, indices, triggers, views
       try {
         await db.execute(
-          "DELETE FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+          "DELETE FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
         );
       } catch (e) {
         // ignore: avoid_print
@@ -171,7 +170,7 @@ class TestSetup {
 
       // Verify tables exist now
       final tables = await freshDb.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
       );
 
       // ignore: avoid_print

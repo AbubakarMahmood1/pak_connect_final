@@ -15,16 +15,19 @@ import '../bluetooth/bluetooth_state_monitor.dart'; // ✅ FIX #2: Import for Bl
 class BurstScanningController {
   static final _logger = Logger('BurstScanningController');
 
-  AdaptivePowerManager? _powerManager; // ✅ FIX: Made nullable to prevent LateInitializationError on disposal
+  AdaptivePowerManager?
+  _powerManager; // ✅ FIX: Made nullable to prevent LateInitializationError on disposal
   BLEService? _bleService;
 
   // Status tracking
   bool _isBurstActive = false;
-  bool _scanActuallyStarted = false; // ✅ FIX: Track if scan actually started (vs skipped due to Bluetooth unavailable)
+  bool _scanActuallyStarted =
+      false; // ✅ FIX: Track if scan actually started (vs skipped due to Bluetooth unavailable)
   DateTime? _nextScanTime;
   DateTime? _burstEndTime;
   Timer? _statusUpdateTimer;
-  Timer? _burstDurationTimer; // Timer to handle burst duration in continuous scan mode
+  Timer?
+  _burstDurationTimer; // Timer to handle burst duration in continuous scan mode
 
   // Status stream
   final StreamController<BurstScanningStatus> _statusController =
@@ -45,7 +48,10 @@ class BurstScanningController {
     );
 
     // Start status update timer
-    _statusUpdateTimer = Timer.periodic(Duration(seconds: 1), (_) => _updateStatus());
+    _statusUpdateTimer = Timer.periodic(
+      Duration(seconds: 1),
+      (_) => _updateStatus(),
+    );
 
     _logger.info('🔧 Burst scanning controller initialized');
   }
@@ -53,7 +59,9 @@ class BurstScanningController {
   /// Start adaptive burst scanning
   Future<void> startBurstScanning() async {
     if (_bleService == null || _powerManager == null) {
-      _logger.warning('BLE service or power manager not available for burst scanning');
+      _logger.warning(
+        'BLE service or power manager not available for burst scanning',
+      );
       return;
     }
 
@@ -90,7 +98,7 @@ class BurstScanningController {
     final bluetoothMonitor = BluetoothStateMonitor.instance;
     if (!bluetoothMonitor.isBluetoothReady) {
       _logger.fine(
-        '🔥 BURST: Bluetooth not ready (state: ${bluetoothMonitor.currentState}) - skipping scan'
+        '🔥 BURST: Bluetooth not ready (state: ${bluetoothMonitor.currentState}) - skipping scan',
       );
       _scanActuallyStarted = false; // ✅ FIX: Mark that scan didn't start
       return;
@@ -102,14 +110,22 @@ class BurstScanningController {
     // 🔥 OPTIMIZATION: Check if at max connections before scanning
     final connectionManager = _bleService!.connectionManager;
     if (!connectionManager.canAcceptMoreConnections) {
-      _logger.info('🔥 BURST: Skipping scan - already at max connections (${connectionManager.activeConnectionCount}/${connectionManager.maxClientConnections})');
-      _logger.fine('Connected devices: ${connectionManager.activeConnections.map((p) => p.uuid).join(", ")}');
+      _logger.info(
+        '🔥 BURST: Skipping scan - already at max connections (${connectionManager.activeConnectionCount}/${connectionManager.maxClientConnections})',
+      );
+      _logger.fine(
+        'Connected devices: ${connectionManager.activeConnections.map((p) => p.uuid).join(", ")}',
+      );
       return; // Don't scan if we can't accept more connections
     }
 
-    _logger.info('🔥 BURST: Starting burst scan cycle (${connectionManager.activeConnectionCount}/${connectionManager.maxClientConnections} connections)');
+    _logger.info(
+      '🔥 BURST: Starting burst scan cycle (${connectionManager.activeConnectionCount}/${connectionManager.maxClientConnections} connections)',
+    );
     _isBurstActive = true;
-    _burstEndTime = DateTime.now().add(Duration(milliseconds: 20000)); // 20s burst duration
+    _burstEndTime = DateTime.now().add(
+      Duration(milliseconds: 20000),
+    ); // 20s burst duration
 
     try {
       await _bleService!.startScanning(source: ScanningSource.burst);
@@ -122,7 +138,9 @@ class BurstScanningController {
       _burstDurationTimer?.cancel();
       _burstDurationTimer = Timer(Duration(milliseconds: 20000), () {
         if (_isBurstActive) {
-          _logger.info('🔥 BURST: Duration timer expired - treating as burst end');
+          _logger.info(
+            '🔥 BURST: Duration timer expired - treating as burst end',
+          );
           _handleBurstScanStop();
         }
       });
@@ -142,7 +160,9 @@ class BurstScanningController {
     // ✅ FIX: Make idempotent - if already stopped, do nothing
     // This prevents race condition when both timer AND power manager call this
     if (!_isBurstActive) {
-      _logger.fine('🔥 BURST: Stop called but burst already inactive - skipping');
+      _logger.fine(
+        '🔥 BURST: Stop called but burst already inactive - skipping',
+      );
       return;
     }
 
@@ -166,13 +186,17 @@ class BurstScanningController {
       }
       _scanActuallyStarted = false;
     } else {
-      _logger.fine('🔥 BURST: Scan cycle ended (scan never started due to Bluetooth unavailable)');
+      _logger.fine(
+        '🔥 BURST: Scan cycle ended (scan never started due to Bluetooth unavailable)',
+      );
     }
 
     // Calculate next scan time
     if (_powerManager != null) {
       final stats = _powerManager!.getCurrentStats();
-      _nextScanTime = DateTime.now().add(Duration(milliseconds: stats.currentScanInterval));
+      _nextScanTime = DateTime.now().add(
+        Duration(milliseconds: stats.currentScanInterval),
+      );
     }
 
     _updateStatus();
@@ -186,11 +210,15 @@ class BurstScanningController {
 
   /// Handle power management stats update
   void _handleStatsUpdate(PowerManagementStats stats) {
-    _logger.fine('🔥 BURST: Power stats updated - scan interval: ${stats.currentScanInterval}ms');
+    _logger.fine(
+      '🔥 BURST: Power stats updated - scan interval: ${stats.currentScanInterval}ms',
+    );
 
     // Update next scan time if not currently scanning
     if (!_isBurstActive && _nextScanTime == null) {
-      _nextScanTime = DateTime.now().add(Duration(milliseconds: stats.currentScanInterval));
+      _nextScanTime = DateTime.now().add(
+        Duration(milliseconds: stats.currentScanInterval),
+      );
     }
 
     _updateStatus();
@@ -224,7 +252,9 @@ class BurstScanningController {
 
   /// Manual override - trigger immediate burst scan
   Future<void> triggerManualScan() async {
-    _logger.info('🔥 MANUAL: User requested immediate scan - triggering next burst scan now');
+    _logger.info(
+      '🔥 MANUAL: User requested immediate scan - triggering next burst scan now',
+    );
 
     if (_bleService == null || _powerManager == null) {
       _logger.warning('BLE service or power manager not available');
@@ -276,7 +306,9 @@ class BurstScanningController {
     if (!_isBurstActive) {
       if (stats.nextScheduledScanTime != null) {
         // Use actual scheduled time from power manager (includes randomization)
-        final remaining = stats.nextScheduledScanTime!.difference(DateTime.now()).inSeconds;
+        final remaining = stats.nextScheduledScanTime!
+            .difference(DateTime.now())
+            .inSeconds;
         secondsUntilNextScan = remaining > 0 ? remaining : 0;
       } else if (_nextScanTime != null) {
         // Fallback to our estimated time
@@ -288,10 +320,12 @@ class BurstScanningController {
     if (_burstEndTime != null && _isBurstActive) {
       final remaining = _burstEndTime!.difference(DateTime.now()).inSeconds;
       burstTimeRemaining = remaining > 0 ? remaining : 0;
-      
+
       // Safety check: If burst time expired but still marked as active, force end
       if (remaining <= 0) {
-        _logger.warning('🔥 BURST: Timer expired but still active - forcing burst end');
+        _logger.warning(
+          '🔥 BURST: Timer expired but still active - forcing burst end',
+        );
         // Don't await here as we're in a getter, just schedule the cleanup
         Future.microtask(() => _handleBurstScanStop());
       }
@@ -368,5 +402,6 @@ class BurstScanningStatus {
   }
 
   @override
-  String toString() => 'BurstStatus(burst: $isBurstActive, next: ${secondsUntilNextScan}s, burstRemaining: ${burstTimeRemaining}s)';
+  String toString() =>
+      'BurstStatus(burst: $isBurstActive, next: ${secondsUntilNextScan}s, burstRemaining: ${burstTimeRemaining}s)';
 }

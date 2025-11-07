@@ -15,7 +15,8 @@ void main() {
 
     setUp(() async {
       // Use a unique test database for each test
-      final testDbName = 'test_seen_${DateTime.now().millisecondsSinceEpoch}.db';
+      final testDbName =
+          'test_seen_${DateTime.now().millisecondsSinceEpoch}.db';
       DatabaseHelper.setTestDatabaseName(testDbName);
 
       // Delete any existing test database
@@ -172,8 +173,14 @@ void main() {
 
       // Should trim to maxIdsPerType
       final stats = store.getStatistics();
-      expect(stats['deliveredCount'], lessThanOrEqualTo(SeenMessageStore.maxIdsPerType));
-      expect(stats['readCount'], lessThanOrEqualTo(SeenMessageStore.maxIdsPerType));
+      expect(
+        stats['deliveredCount'],
+        lessThanOrEqualTo(SeenMessageStore.maxIdsPerType),
+      );
+      expect(
+        stats['readCount'],
+        lessThanOrEqualTo(SeenMessageStore.maxIdsPerType),
+      );
     });
 
     test('handles duplicate markings gracefully', () async {

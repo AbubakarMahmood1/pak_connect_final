@@ -88,7 +88,10 @@ void main() {
     });
 
     test('handles large element sets', () {
-      final ids = List.generate(1000, (i) => _randomBytes(32)); // Use larger IDs for more uniqueness
+      final ids = List.generate(
+        1000,
+        (i) => _randomBytes(32),
+      ); // Use larger IDs for more uniqueness
       final filter = GCSFilter.buildFilter(
         ids: ids,
         maxBytes: 512,
@@ -134,36 +137,39 @@ void main() {
       }
     });
 
-    test('contains returns false for non-members (with occasional false positives)', () {
-      final ids = List.generate(100, (i) => _randomBytes(16));
-      final filter = GCSFilter.buildFilter(
-        ids: ids,
-        maxBytes: 512,
-        targetFpr: 0.01,
-      );
+    test(
+      'contains returns false for non-members (with occasional false positives)',
+      () {
+        final ids = List.generate(100, (i) => _randomBytes(16));
+        final filter = GCSFilter.buildFilter(
+          ids: ids,
+          maxBytes: 512,
+          targetFpr: 0.01,
+        );
 
-      final decoded = GCSFilter.decodeToSortedList(filter);
+        final decoded = GCSFilter.decodeToSortedList(filter);
 
-      // Test non-members
-      var falsePositives = 0;
-      final testCount = 100;
+        // Test non-members
+        var falsePositives = 0;
+        final testCount = 100;
 
-      for (var i = 0; i < testCount; i++) {
-        final nonMember = _randomBytes(16);
-        final hash = _hash64(nonMember);
-        final candidate = hash % filter.m;
+        for (var i = 0; i < testCount; i++) {
+          final nonMember = _randomBytes(16);
+          final hash = _hash64(nonMember);
+          final candidate = hash % filter.m;
 
-        final isMember = GCSFilter.contains(decoded, candidate);
-        if (isMember) {
-          falsePositives++;
+          final isMember = GCSFilter.contains(decoded, candidate);
+          if (isMember) {
+            falsePositives++;
+          }
         }
-      }
 
-      // False positive rate should be around 1% (targetFpr = 0.01)
-      // Allow up to 5% variance
-      final fpr = falsePositives / testCount;
-      expect(fpr, lessThan(0.05));
-    });
+        // False positive rate should be around 1% (targetFpr = 0.01)
+        // Allow up to 5% variance
+        final fpr = falsePositives / testCount;
+        expect(fpr, lessThan(0.05));
+      },
+    );
 
     test('binary search works correctly', () {
       final sortedValues = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
@@ -307,7 +313,9 @@ void main() {
       // Simulate 1000 tracked messages with unique IDs
       final messageIds = List.generate(1000, (i) {
         return Uint8List.fromList(
-          utf8.encode('msg_${DateTime.now().microsecondsSinceEpoch}_${_idCounter++}_$i'),
+          utf8.encode(
+            'msg_${DateTime.now().microsecondsSinceEpoch}_${_idCounter++}_$i',
+          ),
         );
       });
 

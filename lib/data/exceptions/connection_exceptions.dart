@@ -12,7 +12,8 @@ class ConnectionLimitException implements Exception {
   });
 
   @override
-  String toString() => 'ConnectionLimitException: $message (current: $currentCount, max: $maxCount)';
+  String toString() =>
+      'ConnectionLimitException: $message (current: $currentCount, max: $maxCount)';
 }
 
 /// Exception thrown when attempting to perform an operation on a connection
@@ -24,7 +25,8 @@ class ConnectionNotFoundException implements Exception {
   ConnectionNotFoundException(this.address, this.operation);
 
   @override
-  String toString() => 'ConnectionNotFoundException: No connection found for $address during $operation';
+  String toString() =>
+      'ConnectionNotFoundException: No connection found for $address during $operation';
 }
 
 /// Exception thrown when advertising fails to start or stop.
@@ -35,7 +37,8 @@ class AdvertisingException implements Exception {
   AdvertisingException(this.message, [this.cause]);
 
   @override
-  String toString() => 'AdvertisingException: $message${cause != null ? ' (cause: $cause)' : ''}';
+  String toString() =>
+      'AdvertisingException: $message${cause != null ? ' (cause: $cause)' : ''}';
 }
 
 /// Exception thrown when scanning/discovery fails.
@@ -46,5 +49,6 @@ class DiscoveryException implements Exception {
   DiscoveryException(this.message, [this.cause]);
 
   @override
-  String toString() => 'DiscoveryException: $message${cause != null ? ' (cause: $cause)' : ''}';
+  String toString() =>
+      'DiscoveryException: $message${cause != null ? ' (cause: $cause)' : ''}';
 }

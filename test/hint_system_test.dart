@@ -157,8 +157,13 @@ void main() {
 
       stopwatch.stop();
 
-      logger.info('Generated 10,000 intro hints in ${stopwatch.elapsedMilliseconds}ms');
-      expect(stopwatch.elapsedMilliseconds, lessThan(5000)); // Should be < 5 seconds
+      logger.info(
+        'Generated 10,000 intro hints in ${stopwatch.elapsedMilliseconds}ms',
+      );
+      expect(
+        stopwatch.elapsedMilliseconds,
+        lessThan(5000),
+      ); // Should be < 5 seconds
     });
 
     test('Compute 10,000 blinded hints in reasonable time', () {
@@ -175,8 +180,13 @@ void main() {
 
       stopwatch.stop();
 
-      logger.info('Computed 10,000 blinded hints in ${stopwatch.elapsedMilliseconds}ms');
-      expect(stopwatch.elapsedMilliseconds, lessThan(2000)); // Should be < 2 seconds
+      logger.info(
+        'Computed 10,000 blinded hints in ${stopwatch.elapsedMilliseconds}ms',
+      );
+      expect(
+        stopwatch.elapsedMilliseconds,
+        lessThan(2000),
+      ); // Should be < 2 seconds
     });
 
     test('Pack/parse 10,000 advertisements in reasonable time', () {
@@ -202,8 +212,13 @@ void main() {
 
       stopwatch.stop();
 
-      logger.info('Pack/parsed 10,000 advertisements in ${stopwatch.elapsedMilliseconds}ms');
-      expect(stopwatch.elapsedMilliseconds, lessThan(1200)); // Should be ~1 second
+      logger.info(
+        'Pack/parsed 10,000 advertisements in ${stopwatch.elapsedMilliseconds}ms',
+      );
+      expect(
+        stopwatch.elapsedMilliseconds,
+        lessThan(1200),
+      ); // Should be ~1 second
     });
   });
 
@@ -258,11 +273,15 @@ void main() {
     });
 
     test('QR data with missing fields returns null', () {
-      final incompleteData = base64Encode(utf8.encode(jsonEncode({
-        'type': 'pak_connect_intro',
-        'version': 1,
-        // Missing 'hint' and 'expires' fields
-      })));
+      final incompleteData = base64Encode(
+        utf8.encode(
+          jsonEncode({
+            'type': 'pak_connect_intro',
+            'version': 1,
+            // Missing 'hint' and 'expires' fields
+          }),
+        ),
+      );
 
       final result = EphemeralDiscoveryHint.fromQRString(incompleteData);
 

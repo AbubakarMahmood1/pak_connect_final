@@ -16,8 +16,8 @@ class DeviceDeduplicationManager {
   static const _noHintValue = 'NO_HINT';
 
   static final Map<String, DiscoveredDevice> _uniqueDevices = {};
-  static final StreamController<Map<String, DiscoveredDevice>> _devicesController =
-      StreamController.broadcast();
+  static final StreamController<Map<String, DiscoveredDevice>>
+  _devicesController = StreamController.broadcast();
 
   static Stream<Map<String, DiscoveredDevice>> get uniqueDevicesStream =>
       _devicesController.stream;
@@ -26,7 +26,8 @@ class DeviceDeduplicationManager {
 
   // 🆕 ENHANCEMENT 3: Auto-connect callback
   // Set by BLEService to enable auto-connect functionality
-  static Future<void> Function(Peripheral device, String contactName)? onKnownContactDiscovered;
+  static Future<void> Function(Peripheral device, String contactName)?
+  onKnownContactDiscovered;
 
   static void processDiscoveredDevice(DiscoveredEventArgs event) {
     final deviceId = event.peripheral.uuid.toString();
@@ -40,25 +41,33 @@ class DeviceDeduplicationManager {
         : _noHintValue;
 
     if (parsedHint == null) {
-      _logger.fine('🔍 [DEDUP] No hint payload found for $deviceIdShort... - treating as anonymous device');
+      _logger.fine(
+        '🔍 [DEDUP] No hint payload found for $deviceIdShort... - treating as anonymous device',
+      );
     }
 
     // Self-filter: if the hint matches our own ephemeral/session fingerprint, ignore
     try {
       final myHint = EphemeralKeyManager.generateMyEphemeralKey();
       if (myHint.isNotEmpty && myHint == ephemeralHint) {
-        _logger.fine('⏭️ [DEDUP] Ignoring self advertisement (hint match) for $deviceIdShort');
+        _logger.fine(
+          '⏭️ [DEDUP] Ignoring self advertisement (hint match) for $deviceIdShort',
+        );
         return;
       }
     } catch (_) {}
 
-    _logger.info('🔍 [DEDUP] Device $deviceIdShort... has hint: $ephemeralHint');
+    _logger.info(
+      '🔍 [DEDUP] Device $deviceIdShort... has hint: $ephemeralHint',
+    );
 
     final existingDevice = _uniqueDevices[deviceId];
 
     if (existingDevice == null) {
       // 🆕 NEW DEVICE - Create and verify (triggers auto-connect)
-      _logger.info('🆕 [DEDUP] NEW DEVICE: $deviceIdShort... - creating entry and verifying contact');
+      _logger.info(
+        '🆕 [DEDUP] NEW DEVICE: $deviceIdShort... - creating entry and verifying contact',
+      );
 
       final newDevice = DiscoveredDevice(
         deviceId: deviceId,
@@ -68,18 +77,25 @@ class DeviceDeduplicationManager {
         advertisement: event.advertisement,
         firstSeen: DateTime.now(),
         lastSeen: DateTime.now(),
-        hintNonce: parsedHint != null ? Uint8List.fromList(parsedHint.nonce) : null,
-        hintBytes: parsedHint != null ? Uint8List.fromList(parsedHint.hintBytes) : null,
+        hintNonce: parsedHint != null
+            ? Uint8List.fromList(parsedHint.nonce)
+            : null,
+        hintBytes: parsedHint != null
+            ? Uint8List.fromList(parsedHint.hintBytes)
+            : null,
         isIntroHint: parsedHint?.isIntro ?? false,
       );
 
       _uniqueDevices[deviceId] = newDevice;
-      _logger.info('✅ [DEDUP] Device $deviceIdShort... added to unique devices map - calling _verifyContactAsync()');
+      _logger.info(
+        '✅ [DEDUP] Device $deviceIdShort... added to unique devices map - calling _verifyContactAsync()',
+      );
       _verifyContactAsync(newDevice); // This will trigger auto-connect
-
     } else {
       // ✅ EXISTING DEVICE - Update metadata
-      _logger.fine('🔄 [DEDUP] EXISTING DEVICE: $deviceIdShort... - updating metadata (RSSI: ${event.rssi})');
+      _logger.fine(
+        '🔄 [DEDUP] EXISTING DEVICE: $deviceIdShort... - updating metadata (RSSI: ${event.rssi})',
+      );
 
       existingDevice.rssi = event.rssi;
       existingDevice.lastSeen = DateTime.now();
@@ -87,31 +103,47 @@ class DeviceDeduplicationManager {
 
       // Check if ephemeral hint changed (key rotation) OR auto-connect not yet attempted
       if (existingDevice.ephemeralHint != ephemeralHint) {
-        _logger.info('🔑 [DEDUP] Hint changed for $deviceIdShort... (old: ${existingDevice.ephemeralHint}, new: $ephemeralHint) - re-verifying');
+        _logger.info(
+          '🔑 [DEDUP] Hint changed for $deviceIdShort... (old: ${existingDevice.ephemeralHint}, new: $ephemeralHint) - re-verifying',
+        );
         existingDevice.ephemeralHint = ephemeralHint;
-        existingDevice.autoConnectAttempted = false; // Reset flag on hint change
-        existingDevice.hintNonce = parsedHint != null ? Uint8List.fromList(parsedHint.nonce) : null;
-        existingDevice.hintBytes = parsedHint != null ? Uint8List.fromList(parsedHint.hintBytes) : null;
+        existingDevice.autoConnectAttempted =
+            false; // Reset flag on hint change
+        existingDevice.hintNonce = parsedHint != null
+            ? Uint8List.fromList(parsedHint.nonce)
+            : null;
+        existingDevice.hintBytes = parsedHint != null
+            ? Uint8List.fromList(parsedHint.hintBytes)
+            : null;
         existingDevice.isIntroHint = parsedHint?.isIntro ?? false;
         _verifyContactAsync(existingDevice);
       } else if (!existingDevice.autoConnectAttempted) {
         // 🆕 AUTO-CONNECT: Trigger for devices that haven't been attempted yet
-        _logger.info('🔗 [DEDUP] Auto-connect not yet attempted for $deviceIdShort... - calling _verifyContactAsync()');
+        _logger.info(
+          '🔗 [DEDUP] Auto-connect not yet attempted for $deviceIdShort... - calling _verifyContactAsync()',
+        );
         _verifyContactAsync(existingDevice);
       } else {
         // 🕒 RETRY WINDOW: allow periodic re-verification/auto-connect attempts
-        if (existingDevice.nextRetryAt != null && DateTime.now().isAfter(existingDevice.nextRetryAt!)) {
-          _logger.info('🔁 [DEDUP] Retry window open for $deviceIdShort... - resetting attempt and re-verifying');
+        if (existingDevice.nextRetryAt != null &&
+            DateTime.now().isAfter(existingDevice.nextRetryAt!)) {
+          _logger.info(
+            '🔁 [DEDUP] Retry window open for $deviceIdShort... - resetting attempt and re-verifying',
+          );
           existingDevice.autoConnectAttempted = false;
           _verifyContactAsync(existingDevice);
         } else {
-          _logger.fine('⏭️ [DEDUP] Skipping verification for $deviceIdShort... (already attempted, hint unchanged)');
+          _logger.fine(
+            '⏭️ [DEDUP] Skipping verification for $deviceIdShort... (already attempted, hint unchanged)',
+          );
         }
       }
     }
 
     _devicesController.add(Map.from(_uniqueDevices));
-    _logger.fine('📡 [DEDUP] Emitted updated device map (${_uniqueDevices.length} unique devices)');
+    _logger.fine(
+      '📡 [DEDUP] Emitted updated device map (${_uniqueDevices.length} unique devices)',
+    );
   }
 
   static void _verifyContactAsync(DiscoveredDevice device) async {
@@ -131,7 +163,9 @@ class DeviceDeduplicationManager {
         hintBytes: parsed.hintBytes,
       );
     } else if (parsed == null) {
-      _logger.info('ℹ️ [VERIFY] No hint payload available for ${device.deviceId.substring(0, 8)}...');
+      _logger.info(
+        'ℹ️ [VERIFY] No hint payload available for ${device.deviceId.substring(0, 8)}...',
+      );
     }
 
     if (contactHint != null) {
@@ -146,7 +180,9 @@ class DeviceDeduplicationManager {
       device.contactInfo = contactHint.contact;
 
       if (kDebugMode) {
-        print('✅ RECOGNIZED CONTACT (PERSISTENT HINT): $contactName ($deviceId...)');
+        print(
+          '✅ RECOGNIZED CONTACT (PERSISTENT HINT): $contactName ($deviceId...)',
+        );
       }
 
       await _triggerAutoConnect(device, contactName);
@@ -155,44 +191,51 @@ class DeviceDeduplicationManager {
       return;
     }
 
-    _logger.info('❌ [VERIFY-P1] No persistent hint match - checking intro hints...');
+    _logger.info(
+      '❌ [VERIFY-P1] No persistent hint match - checking intro hints...',
+    );
 
     if (parsed == null) {
       _logger.info('❌ [VERIFY-P2] Cannot evaluate intro hints without payload');
     } else {
+      // 🔍 PRIORITY 2: Check intro hints (QR-based temporary hints for initial connections)
+      _logger.info('🔍 [VERIFY-P2] Checking intro hints (QR-based)...');
+      try {
+        final introMatch = await _findMatchingIntro(parsed);
 
-    // 🔍 PRIORITY 2: Check intro hints (QR-based temporary hints for initial connections)
-    _logger.info('🔍 [VERIFY-P2] Checking intro hints (QR-based)...');
-    try {
-      final introMatch = await _findMatchingIntro(parsed);
+        if (introMatch != null) {
+          final contactName = introMatch.displayName ?? 'Unknown';
 
-      if (introMatch != null) {
-        final contactName = introMatch.displayName ?? 'Unknown';
+          _logger.info('✅ [VERIFY-P2] INTRO HINT MATCHED!');
+          _logger.info('✅ [VERIFY-P2] Contact: $contactName');
 
-        _logger.info('✅ [VERIFY-P2] INTRO HINT MATCHED!');
-        _logger.info('✅ [VERIFY-P2] Contact: $contactName');
+          device.isKnownContact = true;
 
-        device.isKnownContact = true;
+          if (kDebugMode) {
+            print(
+              '✅ RECOGNIZED CONTACT (INTRO HINT): $contactName ($deviceId...)',
+            );
+          }
 
-        if (kDebugMode) {
-          print('✅ RECOGNIZED CONTACT (INTRO HINT): $contactName ($deviceId...)');
+          await _triggerAutoConnect(device, contactName);
+          _devicesController.add(Map.from(_uniqueDevices));
+          _logger.info(
+            '✅ [VERIFY-P2] Verification complete - device map updated',
+          );
+          return;
         }
 
-        await _triggerAutoConnect(device, contactName);
-        _devicesController.add(Map.from(_uniqueDevices));
-        _logger.info('✅ [VERIFY-P2] Verification complete - device map updated');
-        return;
+        _logger.info('❌ [VERIFY-P2] No intro hint match - device is unknown');
+      } catch (e, stackTrace) {
+        _logger.warning('⚠️ [VERIFY-P2] Failed to check intro hints: $e');
+        _logger.fine('Stack trace: $stackTrace');
       }
-
-      _logger.info('❌ [VERIFY-P2] No intro hint match - device is unknown');
-    } catch (e, stackTrace) {
-      _logger.warning('⚠️ [VERIFY-P2] Failed to check intro hints: $e');
-      _logger.fine('Stack trace: $stackTrace');
-    }
     }
 
     // 🔍 PRIORITY 4: Unknown device - no hint match, but still trigger auto-connect
-    _logger.info('🔍 [VERIFY-P4] No hints matched - treating as UNKNOWN device');
+    _logger.info(
+      '🔍 [VERIFY-P4] No hints matched - treating as UNKNOWN device',
+    );
 
     device.isKnownContact = false;
     device.contactInfo = null;
@@ -205,7 +248,10 @@ class DeviceDeduplicationManager {
   }
 
   /// 🔗 Trigger auto-connect callback if registered
-  static Future<void> _triggerAutoConnect(DiscoveredDevice device, String contactName) async {
+  static Future<void> _triggerAutoConnect(
+    DiscoveredDevice device,
+    String contactName,
+  ) async {
     final deviceIdShort = device.deviceId.substring(0, 8);
 
     _logger.info('🔗 [AUTO-CONNECT] ========================================');
@@ -227,12 +273,20 @@ class DeviceDeduplicationManager {
     } else {
       backoffSecs = 60; // cap
     }
-    device.nextRetryAt = device.lastAttempt!.add(Duration(seconds: backoffSecs));
-    _logger.info('✅ [AUTO-CONNECT] Marked attempted at ${device.lastAttempt} (retry @ ${device.nextRetryAt})');
+    device.nextRetryAt = device.lastAttempt!.add(
+      Duration(seconds: backoffSecs),
+    );
+    _logger.info(
+      '✅ [AUTO-CONNECT] Marked attempted at ${device.lastAttempt} (retry @ ${device.nextRetryAt})',
+    );
 
     if (onKnownContactDiscovered == null) {
-      _logger.warning('⚠️ [AUTO-CONNECT] Callback not registered - cannot proceed');
-      _logger.info('🔗 [AUTO-CONNECT] ========================================');
+      _logger.warning(
+        '⚠️ [AUTO-CONNECT] Callback not registered - cannot proceed',
+      );
+      _logger.info(
+        '🔗 [AUTO-CONNECT] ========================================',
+      );
       return;
     }
 
@@ -240,7 +294,9 @@ class DeviceDeduplicationManager {
 
     try {
       await onKnownContactDiscovered!(device.peripheral, contactName);
-      _logger.info('✅ [AUTO-CONNECT] Callback completed successfully for $contactName');
+      _logger.info(
+        '✅ [AUTO-CONNECT] Callback completed successfully for $contactName',
+      );
     } catch (e, stackTrace) {
       _logger.warning('❌ [AUTO-CONNECT] Callback failed for $contactName: $e');
       _logger.fine('Stack trace: $stackTrace');
@@ -257,15 +313,21 @@ class DeviceDeduplicationManager {
     final removed = _uniqueDevices.remove(deviceId);
     if (removed != null) {
       _devicesController.add(Map.from(_uniqueDevices));
-      Logger('DeviceDeduplicationManager').fine('🗑️ Removed device: $deviceId');
+      Logger(
+        'DeviceDeduplicationManager',
+      ).fine('🗑️ Removed device: $deviceId');
     }
   }
 
-  static Future<EphemeralDiscoveryHint?> _findMatchingIntro(ParsedHint parsed) async {
+  static Future<EphemeralDiscoveryHint?> _findMatchingIntro(
+    ParsedHint parsed,
+  ) async {
     final introHintRepo = IntroHintRepository();
     final scannedHints = await introHintRepo.getScannedHints();
 
-    _logger.info('🔍 [VERIFY-P2] Found ${scannedHints.length} scanned intro hints');
+    _logger.info(
+      '🔍 [VERIFY-P2] Found ${scannedHints.length} scanned intro hints',
+    );
 
     for (final hint in scannedHints.values) {
       if (_matchesIntroHint(parsed, hint)) {
@@ -276,7 +338,10 @@ class DeviceDeduplicationManager {
     return null;
   }
 
-  static bool _matchesIntroHint(ParsedHint parsed, EphemeralDiscoveryHint hint) {
+  static bool _matchesIntroHint(
+    ParsedHint parsed,
+    EphemeralDiscoveryHint hint,
+  ) {
     final expected = HintAdvertisementService.computeHintBytes(
       identifier: hint.hintHex,
       nonce: parsed.nonce,
@@ -321,8 +386,9 @@ class DeviceDeduplicationManager {
 
   static void removeStaleDevices() {
     final cutoff = DateTime.now().subtract(Duration(minutes: 2));
-    _uniqueDevices.removeWhere((deviceId, device) =>
-        device.lastSeen.isBefore(cutoff));
+    _uniqueDevices.removeWhere(
+      (deviceId, device) => device.lastSeen.isBefore(cutoff),
+    );
     _devicesController.add(Map.from(_uniqueDevices));
   }
 
@@ -346,8 +412,9 @@ class DeviceDeduplicationManager {
 
   static void removeStaleDevicesWithConfigurableTimeout() {
     final cutoff = DateTime.now().subtract(_staleTimeout);
-    _uniqueDevices.removeWhere((deviceId, device) =>
-        device.lastSeen.isBefore(cutoff));
+    _uniqueDevices.removeWhere(
+      (deviceId, device) => device.lastSeen.isBefore(cutoff),
+    );
     _devicesController.add(Map.from(_uniqueDevices));
   }
 }
@@ -373,7 +440,6 @@ class DiscoveredDevice {
   DateTime? lastAttempt;
   int attemptCount = 0;
   DateTime? nextRetryAt;
-
 
   DiscoveredDevice({
     required this.deviceId,

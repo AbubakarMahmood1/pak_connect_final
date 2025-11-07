@@ -54,7 +54,8 @@ class BLEClientConnection {
       peripheral: peripheral ?? this.peripheral,
       connectedAt: connectedAt ?? this.connectedAt,
       discoveredServices: discoveredServices ?? this.discoveredServices,
-      messageCharacteristic: messageCharacteristic ?? this.messageCharacteristic,
+      messageCharacteristic:
+          messageCharacteristic ?? this.messageCharacteristic,
       rssi: rssi ?? this.rssi,
       mtu: mtu ?? this.mtu,
     );

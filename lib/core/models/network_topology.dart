@@ -15,7 +15,8 @@ class NetworkNode {
   final DateTime lastSeen;
   final bool isCurrentDevice;
   final Set<String> connectedNeighbors; // Direct connections this node has
-  final int hopDistance; // Hops from current device (0 = self, 1 = direct neighbor, etc.)
+  final int
+  hopDistance; // Hops from current device (0 = self, 1 = direct neighbor, etc.)
 
   NetworkNode({
     required this.nodeId,
@@ -55,8 +56,7 @@ class NetworkNode {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NetworkNode && nodeId == other.nodeId;
+      identical(this, other) || other is NetworkNode && nodeId == other.nodeId;
 
   @override
   int get hashCode => nodeId.hashCode;
@@ -97,7 +97,7 @@ class NetworkConnection {
       identical(this, other) ||
       other is NetworkConnection &&
           ((fromNodeId == other.fromNodeId && toNodeId == other.toNodeId) ||
-           (fromNodeId == other.toNodeId && toNodeId == other.fromNodeId));
+              (fromNodeId == other.toNodeId && toNodeId == other.fromNodeId));
 
   @override
   int get hashCode => fromNodeId.hashCode ^ toNodeId.hashCode;
@@ -158,11 +158,14 @@ class NetworkTopology {
   /// Find neighbors of a specific node
   List<String> getNeighbors(String nodeId) {
     return connections
-        .where((conn) =>
-            (conn.fromNodeId == nodeId || conn.toNodeId == nodeId) &&
-            conn.isActive)
-        .map((conn) =>
-            conn.fromNodeId == nodeId ? conn.toNodeId : conn.fromNodeId)
+        .where(
+          (conn) =>
+              (conn.fromNodeId == nodeId || conn.toNodeId == nodeId) &&
+              conn.isActive,
+        )
+        .map(
+          (conn) => conn.fromNodeId == nodeId ? conn.toNodeId : conn.fromNodeId,
+        )
         .toList();
   }
 
@@ -220,7 +223,9 @@ class NetworkStatistics {
     final factors = [
       activeNodes > 0 ? 1.0 : 0.0, // Has active nodes
       networkDensity, // Network connectivity
-      averageHopDistance < 3 ? 1.0 : (3 / averageHopDistance), // Low hop distance
+      averageHopDistance < 3
+          ? 1.0
+          : (3 / averageHopDistance), // Low hop distance
       activeConnections > 0 ? 1.0 : 0.0, // Has active connections
     ];
     return factors.reduce((a, b) => a + b) / factors.length;

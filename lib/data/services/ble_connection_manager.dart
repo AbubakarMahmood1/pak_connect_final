@@ -15,11 +15,7 @@ import '../repositories/message_repository.dart';
 import '../../core/utils/chat_utils.dart';
 
 // Enum must be declared at top level
-enum ConnectionMonitorState {
-  idle,
-  healthChecking,
-  reconnecting,
-}
+enum ConnectionMonitorState { idle, healthChecking, reconnecting }
 
 class BLEConnectionManager {
   final _logger = Logger('BLEConnectionManager');
@@ -41,9 +37,11 @@ class BLEConnectionManager {
 
   // For backward compatibility with existing health check logic
   // Returns first client connection's peripheral
-  Peripheral? get _connectedDevice => _clientConnections.values.firstOrNull?.peripheral;
+  Peripheral? get _connectedDevice =>
+      _clientConnections.values.firstOrNull?.peripheral;
   Peripheral? _lastConnectedDevice;
-  GATTCharacteristic? get _messageCharacteristic => _clientConnections.values.firstOrNull?.messageCharacteristic;
+  GATTCharacteristic? get _messageCharacteristic =>
+      _clientConnections.values.firstOrNull?.messageCharacteristic;
   int? get _mtuSize => _clientConnections.values.firstOrNull?.mtu;
 
   // Advertising control (Phase 2b: Hybrid advertising strategy)
@@ -88,7 +86,9 @@ class BLEConnectionManager {
     _limitConfig = ConnectionLimitConfig.forPowerMode(initialPowerMode);
     _rssiThreshold = _getRssiThresholdForPowerMode(initialPowerMode);
     _logger.info('🎯 Connection limits initialized: $_limitConfig');
-    _logger.info('📡 RSSI threshold: $_rssiThreshold dBm (${initialPowerMode.name} mode)');
+    _logger.info(
+      '📡 RSSI threshold: $_rssiThreshold dBm (${initialPowerMode.name} mode)',
+    );
   }
 
   // Getters - Backward compatibility
@@ -101,9 +101,9 @@ class BLEConnectionManager {
   bool get isMonitoring => _isMonitoring;
   ChatConnectionState get connectionState => _connectionState;
   bool get isActivelyReconnecting =>
-    _isMonitoring && _monitorState == ConnectionMonitorState.reconnecting;
+      _isMonitoring && _monitorState == ConnectionMonitorState.reconnecting;
   bool get isHealthChecking =>
-    _isMonitoring && _monitorState == ConnectionMonitorState.healthChecking;
+      _isMonitoring && _monitorState == ConnectionMonitorState.healthChecking;
   bool get hasConnection => hasBleConnection;
   bool get _isReady => _connectionState == ChatConnectionState.ready;
 
@@ -123,41 +123,44 @@ class BLEConnectionManager {
   );
 
   bool get isAdvertising => _isAdvertising;
-  List<BLEClientConnection> get clientConnections => _clientConnections.values.toList();
-  List<BLEServerConnection> get serverConnections => _serverConnections.values.toList();
+  List<BLEClientConnection> get clientConnections =>
+      _clientConnections.values.toList();
+  List<BLEServerConnection> get serverConnections =>
+      _serverConnections.values.toList();
 
   // Legacy getter for burst scan optimization (now uses new connection tracking)
   int get activeConnectionCount => clientConnectionCount;
   bool get canAcceptMoreConnections => canAcceptClientConnection;
-  List<Peripheral> get activeConnections => _clientConnections.values.map((c) => c.peripheral).toList();
+  List<Peripheral> get activeConnections =>
+      _clientConnections.values.map((c) => c.peripheral).toList();
 
   // Expose connection limits for logging
   int get maxClientConnections => _limitConfig.maxClientConnections;
 
-
   void _updateConnectionState(ChatConnectionState newState, {String? error}) {
-  if (_connectionState != newState) {
-    _connectionState = newState;
+    if (_connectionState != newState) {
+      _connectionState = newState;
 
-    final info = ConnectionInfo(
-      state: newState,
-      deviceId: _connectedDevice?.uuid.toString(),
-      displayName: null, // Will be filled by state manager
-      error: error,
-    );
+      final info = ConnectionInfo(
+        state: newState,
+        deviceId: _connectedDevice?.uuid.toString(),
+        displayName: null, // Will be filled by state manager
+        error: error,
+      );
 
-    onConnectionInfoChanged?.call(info);
-    _logger.info('Connection state: ${newState.name}');
+      onConnectionInfoChanged?.call(info);
+      _logger.info('Connection state: ${newState.name}');
+    }
   }
-}
+
   void startConnectionMonitoring() {
     if (_isMonitoring) return;
 
     _isMonitoring = true;
     _lastConnectedDevice = _connectedDevice;
     _monitorState = hasBleConnection
-      ? ConnectionMonitorState.healthChecking
-      : ConnectionMonitorState.reconnecting;
+        ? ConnectionMonitorState.healthChecking
+        : ConnectionMonitorState.reconnecting;
     _monitoringInterval = minInterval;
 
     _scheduleNextCheck();
@@ -180,27 +183,33 @@ class BLEConnectionManager {
     _monitoringTimer?.cancel();
     if (!_isMonitoring) return;
 
-    _monitoringTimer = Timer(Duration(milliseconds: _monitoringInterval), () async {
-      if (!_isMonitoring) return;
+    _monitoringTimer = Timer(
+      Duration(milliseconds: _monitoringInterval),
+      () async {
+        if (!_isMonitoring) return;
 
-      switch (_monitorState) {
-        case ConnectionMonitorState.healthChecking:
-          await _performHealthCheck();
-          break;
-        case ConnectionMonitorState.reconnecting:
-          await _attemptReconnection();
-          break;
-        case ConnectionMonitorState.idle:
-          return;
-      }
+        switch (_monitorState) {
+          case ConnectionMonitorState.healthChecking:
+            await _performHealthCheck();
+            break;
+          case ConnectionMonitorState.reconnecting:
+            await _attemptReconnection();
+            break;
+          case ConnectionMonitorState.idle:
+            return;
+        }
 
-      // Exponential backoff
-      _monitoringInterval = (_monitoringInterval * 1.2).round().clamp(minInterval, maxInterval);
+        // Exponential backoff
+        _monitoringInterval = (_monitoringInterval * 1.2).round().clamp(
+          minInterval,
+          maxInterval,
+        );
 
-      if (_isMonitoring) {
-        _scheduleNextCheck();
-      }
-    });
+        if (_isMonitoring) {
+          _scheduleNextCheck();
+        }
+      },
+    );
   }
 
   void setPairingInProgress(bool inProgress) {
@@ -221,16 +230,21 @@ class BLEConnectionManager {
     }
   }
 
-
   Future<void> _performHealthCheck() async {
     if (_pairingInProgress || _handshakeInProgress) {
-      _logger.info('⏸️ Skipping health check - ${_pairingInProgress ? "pairing" : "handshake"} in progress');
+      _logger.info(
+        '⏸️ Skipping health check - ${_pairingInProgress ? "pairing" : "handshake"} in progress',
+      );
       _scheduleNextCheck();
       return;
     }
 
-    if (_messageOperationInProgress || !hasBleConnection || _messageCharacteristic == null) {
-      _logger.fine('⏸️ Skipping health check - no active connection or message in progress');
+    if (_messageOperationInProgress ||
+        !hasBleConnection ||
+        _messageCharacteristic == null) {
+      _logger.fine(
+        '⏸️ Skipping health check - no active connection or message in progress',
+      );
       _scheduleNextCheck();
       return;
     }
@@ -240,15 +254,18 @@ class BLEConnectionManager {
 
       _logger.fine('💓 Sending health check ping...');
 
-      await centralManager.writeCharacteristic(
-        _connectedDevice!,
-        _messageCharacteristic!,
-        value: pingData,
-        type: GATTCharacteristicWriteType.withResponse,
-      ).timeout(Duration(seconds: 3));
+      await centralManager
+          .writeCharacteristic(
+            _connectedDevice!,
+            _messageCharacteristic!,
+            value: pingData,
+            type: GATTCharacteristicWriteType.withResponse,
+          )
+          .timeout(Duration(seconds: 3));
 
-      _logger.info('✅ Health check passed (interval: ${_monitoringInterval}ms)');
-
+      _logger.info(
+        '✅ Health check passed (interval: ${_monitoringInterval}ms)',
+      );
     } catch (e) {
       _logger.warning('❌ Health check failed: $e');
 
@@ -270,14 +287,18 @@ class BLEConnectionManager {
 
   Future<void> _attemptReconnection() async {
     if (_reconnectAttempts >= maxReconnectAttempts) {
-      _logger.warning('❌ Max reconnection attempts reached ($_reconnectAttempts/$maxReconnectAttempts)');
+      _logger.warning(
+        '❌ Max reconnection attempts reached ($_reconnectAttempts/$maxReconnectAttempts)',
+      );
       stopConnectionMonitoring();
       return;
     }
 
     // 🎯 RELAY-AWARE FIX: Don't disconnect if we have a viable relay connection
     if (_hasViableRelayConnection()) {
-      _logger.info('🔄 Maintaining current connection for relay - not reconnecting');
+      _logger.info(
+        '🔄 Maintaining current connection for relay - not reconnecting',
+      );
       _reconnectAttempts = 0; // Reset since we're not actually failing
       _monitorState = ConnectionMonitorState.healthChecking;
       _monitoringInterval = healthCheckInterval;
@@ -285,10 +306,14 @@ class BLEConnectionManager {
     }
 
     _reconnectAttempts++;
-    _logger.info('🔄 Reconnect attempt $_reconnectAttempts/$maxReconnectAttempts');
+    _logger.info(
+      '🔄 Reconnect attempt $_reconnectAttempts/$maxReconnectAttempts',
+    );
 
     try {
-      final foundDevice = await scanForSpecificDevice(timeout: Duration(seconds: 8));
+      final foundDevice = await scanForSpecificDevice(
+        timeout: Duration(seconds: 8),
+      );
 
       if (foundDevice != null) {
         _logger.info('✅ Found device for reconnection');
@@ -329,19 +354,29 @@ class BLEConnectionManager {
   Future<void> startMeshNetworking({
     Future<void> Function()? onStartAdvertising,
   }) async {
-    _logger.info('🚀 Starting mesh networking (simultaneous central + peripheral)');
+    _logger.info(
+      '🚀 Starting mesh networking (simultaneous central + peripheral)',
+    );
 
     try {
       // Start advertising FIRST (like BitChat)
       // ✅ NEW: Use callback to BLEService.startAsPeripheral() → AdvertisingManager
       if (onStartAdvertising != null) {
-        _logger.info('📡 Calling advertising callback (BLEService.startAsPeripheral)...');
+        _logger.info(
+          '📡 Calling advertising callback (BLEService.startAsPeripheral)...',
+        );
         await onStartAdvertising();
-        _isAdvertising = true;  // Assume success if no exception
-        _logger.info('✅ Peripheral role active (advertising via AdvertisingManager)');
+        _isAdvertising = true; // Assume success if no exception
+        _logger.info(
+          '✅ Peripheral role active (advertising via AdvertisingManager)',
+        );
       } else {
-        _logger.severe('❌ No advertising callback provided - advertising will NOT start!');
-        throw Exception('startMeshNetworking requires onStartAdvertising callback');
+        _logger.severe(
+          '❌ No advertising callback provided - advertising will NOT start!',
+        );
+        throw Exception(
+          'startMeshNetworking requires onStartAdvertising callback',
+        );
       }
 
       // Central role is always ready (discovery initiated by BurstScanController)
@@ -350,7 +385,6 @@ class BLEConnectionManager {
 
       _logger.info('🎉 Mesh networking started successfully');
       _logger.info('📊 Connection limits: $_limitConfig');
-
     } catch (e) {
       _logger.severe('❌ Failed to start mesh networking: $e');
       rethrow;
@@ -388,10 +422,13 @@ class BLEConnectionManager {
       if (shouldAdvertise && !_isAdvertising) {
         // ⚠️ CANNOT start advertising here - requires BLEService callback
         // Advertising is managed by AdvertisingManager in BLEService
-        _logger.info('📡 Should start advertising (server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})');
-        _logger.info('⚠️ Advertising start requires BLEService.startAsPeripheral() - skipping');
+        _logger.info(
+          '📡 Should start advertising (server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})',
+        );
+        _logger.info(
+          '⚠️ Advertising start requires BLEService.startAsPeripheral() - skipping',
+        );
         // TODO: Consider adding a callback to BLEService for dynamic advertising control
-
       } else if (!shouldAdvertise && _isAdvertising) {
         // Stop advertising (at limit or user requested stop)
         final reason = !_shouldBeAdvertising
@@ -440,21 +477,27 @@ class BLEConnectionManager {
     final address = central.uuid.toString();
 
     if (_serverConnections.containsKey(address)) {
-      _logger.warning('⚠️ Central already connected: ${_formatAddress(address)}');
+      _logger.warning(
+        '⚠️ Central already connected: ${_formatAddress(address)}',
+      );
       return;
     }
 
     // Collision handling: if we already have an outbound (client) link to this peer, drop it and prefer inbound
     final existingClient = _clientConnections[address];
     if (existingClient != null) {
-      _logger.info('🔀 Collision detected with ${_formatAddress(address)} → preferring inbound (server) link, dropping outbound (client)');
+      _logger.info(
+        '🔀 Collision detected with ${_formatAddress(address)} → preferring inbound (server) link, dropping outbound (client)',
+      );
       try {
         centralManager.disconnect(existingClient.peripheral);
       } catch (_) {}
       _clientConnections.remove(address);
     }
 
-    _logger.info('📥 Central connected: ${_formatAddress(address)} (server connections: ${serverConnectionCount + 1}/${_limitConfig.maxServerConnections})');
+    _logger.info(
+      '📥 Central connected: ${_formatAddress(address)} (server connections: ${serverConnectionCount + 1}/${_limitConfig.maxServerConnections})',
+    );
 
     final connection = BLEServerConnection(
       address: address,
@@ -463,7 +506,9 @@ class BLEConnectionManager {
     );
 
     _serverConnections[address] = connection;
-    _logger.info('📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)');
+    _logger.info(
+      '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
+    );
 
     // Update advertising state (may need to stop if at limit)
     _updateAdvertisingState();
@@ -478,16 +523,22 @@ class BLEConnectionManager {
     final connection = _serverConnections.remove(address);
     if (connection != null) {
       final duration = connection.connectedDuration;
-      _logger.info('📤 Central disconnected: ${_formatAddress(address)} (connected for: ${duration.inSeconds}s, server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})');
+      _logger.info(
+        '📤 Central disconnected: ${_formatAddress(address)} (connected for: ${duration.inSeconds}s, server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})',
+      );
 
       // 🧹 REAL-TIME CLEANUP: Trigger immediate cleanup via BLEService
       // This will remove from deduplication manager and notify UI
       onCentralDisconnected?.call(address);
     } else {
-      _logger.warning('⚠️ Unknown central disconnected: ${_formatAddress(address)}');
+      _logger.warning(
+        '⚠️ Unknown central disconnected: ${_formatAddress(address)}',
+      );
     }
 
-    _logger.info('📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)');
+    _logger.info(
+      '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
+    );
 
     // Update advertising state (may need to resume if below limit)
     _updateAdvertisingState();
@@ -496,7 +547,10 @@ class BLEConnectionManager {
   /// 📝 Handle characteristic subscription (central subscribed to our notifications)
   ///
   /// Called when a remote central subscribes to our characteristic
-  void handleCharacteristicSubscribed(Central central, GATTCharacteristic characteristic) {
+  void handleCharacteristicSubscribed(
+    Central central,
+    GATTCharacteristic characteristic,
+  ) {
     final address = central.uuid.toString();
 
     final connection = _serverConnections[address];
@@ -504,9 +558,13 @@ class BLEConnectionManager {
       _serverConnections[address] = connection.copyWith(
         subscribedCharacteristic: characteristic,
       );
-      _logger.info('📝 Central subscribed to notifications: ${_formatAddress(address)}');
+      _logger.info(
+        '📝 Central subscribed to notifications: ${_formatAddress(address)}',
+      );
     } else {
-      _logger.warning('⚠️ Subscription from unknown central: ${_formatAddress(address)}');
+      _logger.warning(
+        '⚠️ Subscription from unknown central: ${_formatAddress(address)}',
+      );
     }
   }
 
@@ -520,13 +578,12 @@ class BLEConnectionManager {
     final s = e.toString();
     // Timeouts and Android GATT status 133/147 are classic transient failures
     return s.contains('timeout') ||
-           s.contains('Connection timeout') ||
-           s.contains('status=133') ||
-           s.contains('status=147') ||
-           s.contains('GATT 133') ||
-           s.contains('133') && (s.contains('Gatt') || s.contains('GATT'));
+        s.contains('Connection timeout') ||
+        s.contains('status=133') ||
+        s.contains('status=147') ||
+        s.contains('GATT 133') ||
+        s.contains('133') && (s.contains('Gatt') || s.contains('GATT'));
   }
-
 
   // ⚡ ========== PHASE 2B: POWER MODE MANAGEMENT ========== ⚡
 
@@ -544,7 +601,9 @@ class BLEConnectionManager {
     _rssiThreshold = _getRssiThresholdForPowerMode(newMode);
 
     _logger.info('🎯 Connection limits updated: $oldConfig → $_limitConfig');
-    _logger.info('📡 RSSI threshold updated: $oldRssiThreshold dBm → $_rssiThreshold dBm');
+    _logger.info(
+      '📡 RSSI threshold updated: $oldRssiThreshold dBm → $_rssiThreshold dBm',
+    );
 
     // Enforce new limits
     await _enforceConnectionLimits();
@@ -556,10 +615,10 @@ class BLEConnectionManager {
   /// Get RSSI threshold for power mode (Phase 4: BitChat pattern)
   int _getRssiThresholdForPowerMode(PowerMode mode) {
     return switch (mode) {
-      PowerMode.performance => -95,      // Accept all
-      PowerMode.balanced => -85,         // Normal
-      PowerMode.powerSaver => -75,       // Only good signals
-      PowerMode.ultraLowPower => -65,    // Only excellent signals
+      PowerMode.performance => -95, // Accept all
+      PowerMode.balanced => -85, // Normal
+      PowerMode.powerSaver => -75, // Only good signals
+      PowerMode.ultraLowPower => -65, // Only excellent signals
     };
   }
 
@@ -580,11 +639,15 @@ class BLEConnectionManager {
     }
 
     // Check server connections
-    final excessServers = serverConnectionCount - _limitConfig.maxServerConnections;
+    final excessServers =
+        serverConnectionCount - _limitConfig.maxServerConnections;
     final excessTotal = totalConnectionCount - _limitConfig.maxTotalConnections;
 
     if (excessServers > 0 || excessTotal > 0) {
-      final toDisconnect = [excessServers, excessTotal].reduce((a, b) => a > b ? a : b);
+      final toDisconnect = [
+        excessServers,
+        excessTotal,
+      ].reduce((a, b) => a > b ? a : b);
       _logger.warning('⚠️ Excess server connections: $toDisconnect');
       await _disconnectOldestServers(toDisconnect);
     }
@@ -597,12 +660,16 @@ class BLEConnectionManager {
 
     for (int i = 0; i < count && i < sorted.length; i++) {
       final conn = sorted[i];
-      _logger.info('🔌 Disconnecting oldest client: ${_formatAddress(conn.address)}');
+      _logger.info(
+        '🔌 Disconnecting oldest client: ${_formatAddress(conn.address)}',
+      );
       try {
         await centralManager.disconnect(conn.peripheral);
         // Connection will be removed in the disconnect event handler
       } catch (e) {
-        _logger.warning('⚠️ Failed to disconnect ${_formatAddress(conn.address)}: $e');
+        _logger.warning(
+          '⚠️ Failed to disconnect ${_formatAddress(conn.address)}: $e',
+        );
         // Remove from map anyway
         _clientConnections.remove(conn.address);
       }
@@ -616,7 +683,9 @@ class BLEConnectionManager {
 
     for (int i = 0; i < count && i < sorted.length; i++) {
       final conn = sorted[i];
-      _logger.info('🔌 Disconnecting oldest server connection: ${_formatAddress(conn.address)}');
+      _logger.info(
+        '🔌 Disconnecting oldest server connection: ${_formatAddress(conn.address)}',
+      );
 
       // Note: PeripheralManager doesn't have explicit disconnect for incoming connections
       // Platform will handle cleanup. We remove from our tracking:
@@ -627,29 +696,33 @@ class BLEConnectionManager {
     await _updateAdvertisingState();
   }
 
-void handleBluetoothStateChange(BluetoothLowEnergyState state) {
-  if (state == BluetoothLowEnergyState.poweredOn) {
-    if (_lastConnectedDevice != null && !hasBleConnection) {
-      _logger.info('Bluetooth powered on - starting immediate reconnection');
+  void handleBluetoothStateChange(BluetoothLowEnergyState state) {
+    if (state == BluetoothLowEnergyState.poweredOn) {
+      if (_lastConnectedDevice != null && !hasBleConnection) {
+        _logger.info('Bluetooth powered on - starting immediate reconnection');
 
-      stopConnectionMonitoring();
+        stopConnectionMonitoring();
 
-      // Reduce delay for first-time connections
-      Timer(Duration(milliseconds: 800), () {
-        _isReconnection = true;
-        startConnectionMonitoring();
-      });
-    } else {
-      _logger.info('Bluetooth powered on - no previous device, skipping reconnection');
+        // Reduce delay for first-time connections
+        Timer(Duration(milliseconds: 800), () {
+          _isReconnection = true;
+          startConnectionMonitoring();
+        });
+      } else {
+        _logger.info(
+          'Bluetooth powered on - no previous device, skipping reconnection',
+        );
+      }
+    } else if (state == BluetoothLowEnergyState.poweredOff) {
+      if (hasBleConnection) {
+        _logger.info(
+          'Bluetooth powered off - preserving device for reconnection',
+        );
+        _lastConnectedDevice = _connectedDevice;
+      }
+      clearConnectionState(keepMonitoring: false);
     }
-  } else if (state == BluetoothLowEnergyState.poweredOff) {
-    if (hasBleConnection) {
-      _logger.info('Bluetooth powered off - preserving device for reconnection');
-      _lastConnectedDevice = _connectedDevice;
-    }
-    clearConnectionState(keepMonitoring: false);
   }
-}
 
   /// Connect to a BLE peripheral device
   ///
@@ -662,7 +735,9 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     try {
       // Single-link policy: if inbound (server) link already exists to this address, adopt it and skip client connect
       if (_serverConnections.containsKey(address)) {
-        _logger.info('↔️ Single-link: inbound link already active for ${_formatAddress(address)} — skipping outbound connect');
+        _logger.info(
+          '↔️ Single-link: inbound link already active for ${_formatAddress(address)} — skipping outbound connect',
+        );
         return;
       }
 
@@ -677,12 +752,16 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
 
       // Log RSSI if available
       if (rssi != null) {
-        _logger.fine('📡 Device RSSI: $rssi dBm (threshold: $_rssiThreshold dBm)');
+        _logger.fine(
+          '📡 Device RSSI: $rssi dBm (threshold: $_rssiThreshold dBm)',
+        );
       }
 
       // Check connection limits
       if (!canAcceptClientConnection) {
-        _logger.warning('⚠️ Cannot accept client connection (limit: ${_limitConfig.maxClientConnections}, current: $clientConnectionCount, total: $totalConnectionCount)');
+        _logger.warning(
+          '⚠️ Cannot accept client connection (limit: ${_limitConfig.maxClientConnections}, current: $clientConnectionCount, total: $totalConnectionCount)',
+        );
         throw ConnectionLimitException(
           'Client connection limit reached',
           currentCount: clientConnectionCount,
@@ -696,18 +775,25 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       // Robust connect: 20s timeout + one retry for transient errors (e.g., GATT 133/147)
       for (var attempt = 1; attempt <= 2; attempt++) {
         try {
-          _logger.info('🔌 Connecting (attempt $attempt/2) to ${_formatAddress(address)}...');
-          await centralManager.connect(device).timeout(
-            Duration(seconds: 20),
-            onTimeout: () => throw Exception('Connection timeout after 20 seconds'),
+          _logger.info(
+            '🔌 Connecting (attempt $attempt/2) to ${_formatAddress(address)}...',
           );
+          await centralManager
+              .connect(device)
+              .timeout(
+                Duration(seconds: 20),
+                onTimeout: () =>
+                    throw Exception('Connection timeout after 20 seconds'),
+              );
           break; // success
         } catch (e) {
           _logger.warning('❌ Connect attempt $attempt failed: $e');
           final transient = _isTransientConnectError(e);
           if (attempt < 2 && transient) {
             // Best-effort cleanup before retry
-            try { await centralManager.disconnect(device); } catch (_) {}
+            try {
+              await centralManager.disconnect(device);
+            } catch (_) {}
             await Future.delayed(Duration(milliseconds: 1200));
             continue;
           } else {
@@ -726,8 +812,12 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       _clientConnections[address] = connection;
       _lastConnectedDevice = device;
 
-      _logger.info('✅ Connected to ${_formatAddress(address)} (client connections: $clientConnectionCount/${_limitConfig.maxClientConnections})');
-      _logger.info('📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)');
+      _logger.info(
+        '✅ Connected to ${_formatAddress(address)} (client connections: $clientConnectionCount/${_limitConfig.maxClientConnections})',
+      );
+      _logger.info(
+        '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
+      );
 
       onConnectionChanged?.call(device);
 
@@ -746,9 +836,10 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
 
           _logger.info('✅ Messaging service found on attempt ${retry + 1}');
           break;
-
         } catch (e) {
-          _logger.warning('❌ Service discovery failed on attempt ${retry + 1}: $e');
+          _logger.warning(
+            '❌ Service discovery failed on attempt ${retry + 1}: $e',
+          );
 
           if (retry < 2) {
             await Future.delayed(Duration(milliseconds: 1000));
@@ -787,7 +878,6 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
           _logger.info('✅ Notifications enabled successfully');
 
           await Future.delayed(Duration(milliseconds: 500));
-
         } catch (e) {
           _logger.severe('CRITICAL: Failed to enable notifications: $e');
           throw Exception('Cannot enable notifications - connection unusable');
@@ -803,7 +893,6 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       onConnectionComplete?.call();
 
       _isReconnection = false;
-
     } catch (e) {
       _logger.severe('❌ Connection failed: $e');
       _isReconnection = false;
@@ -825,7 +914,9 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       if (Platform.isAndroid) {
         try {
           negotiatedMTU = await centralManager.requestMTU(device, mtu: 250);
-          _logger.info('✅ Successfully negotiated larger MTU: $negotiatedMTU bytes');
+          _logger.info(
+            '✅ Successfully negotiated larger MTU: $negotiatedMTU bytes',
+          );
         } catch (e) {
           _logger.warning('⚠️ MTU negotiation failed, using default 23: $e');
         }
@@ -847,7 +938,6 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
       _logger.info('✅ MTU detection successful: $mtu bytes');
 
       onMtuDetected?.call(mtu);
-
     } catch (e) {
       _logger.warning('❌ MTU detection completely failed: $e');
       const fallbackMtu = 20;
@@ -872,7 +962,9 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     }
   }
 
-  Future<Peripheral?> scanForSpecificDevice({Duration timeout = const Duration(seconds: 10)}) async {
+  Future<Peripheral?> scanForSpecificDevice({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
     if (centralManager.state != BluetoothLowEnergyState.poweredOn) {
       return null;
     }
@@ -885,7 +977,9 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
 
     try {
       discoverySubscription = centralManager.discovered.listen((event) {
-        _logger.info('✅ Found device advertising our service: ${event.peripheral.uuid}');
+        _logger.info(
+          '✅ Found device advertising our service: ${event.peripheral.uuid}',
+        );
         if (!completer.isCompleted) {
           completer.complete(event.peripheral);
         }
@@ -900,10 +994,11 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
 
       await Future.delayed(Duration(milliseconds: 500));
 
-      await centralManager.startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID]);
+      await centralManager.startDiscovery(
+        serviceUUIDs: [BLEConstants.serviceUUID],
+      );
 
       return await completer.future;
-
     } finally {
       await centralManager.stopDiscovery();
       discoverySubscription?.cancel();
@@ -920,10 +1015,14 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
     // Disconnect all clients
     for (final conn in _clientConnections.values.toList()) {
       try {
-        _logger.info('🔌 Disconnecting client: ${_formatAddress(conn.address)}');
+        _logger.info(
+          '🔌 Disconnecting client: ${_formatAddress(conn.address)}',
+        );
         await centralManager.disconnect(conn.peripheral);
       } catch (e) {
-        _logger.warning('⚠️ Failed to disconnect ${_formatAddress(conn.address)}: $e');
+        _logger.warning(
+          '⚠️ Failed to disconnect ${_formatAddress(conn.address)}: $e',
+        );
       }
     }
 
@@ -937,7 +1036,9 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
   Future<void> disconnectClient(String address) async {
     final connection = _clientConnections[address];
     if (connection == null) {
-      _logger.warning('⚠️ Cannot disconnect: client not found ${_formatAddress(address)}');
+      _logger.warning(
+        '⚠️ Cannot disconnect: client not found ${_formatAddress(address)}',
+      );
       return;
     }
 
@@ -1012,7 +1113,9 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
   /// Called on disconnect to keep database clean without waiting for app restart
   void _cleanupEphemeralContactIfOrphaned(String contactId) async {
     try {
-      _logger.info('🧹 Checking if contact needs cleanup: ${contactId.length > 8 ? '${contactId.substring(0, 8)}...' : contactId}');
+      _logger.info(
+        '🧹 Checking if contact needs cleanup: ${contactId.length > 8 ? '${contactId.substring(0, 8)}...' : contactId}',
+      );
 
       // Import repositories (will need to add imports at top of file)
       final contactRepo = ContactRepository();
@@ -1039,7 +1142,9 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
         // No chat history - delete the ephemeral contact
         final deleted = await contactRepo.deleteContact(contactId);
         if (deleted) {
-          _logger.info('✅ Deleted orphaned ephemeral contact: ${contact.displayName}');
+          _logger.info(
+            '✅ Deleted orphaned ephemeral contact: ${contact.displayName}',
+          );
         }
       } else {
         _logger.fine('Contact has ${messages.length} message(s) - keeping');
@@ -1068,9 +1173,10 @@ void handleBluetoothStateChange(BluetoothLowEnergyState state) {
         return false;
       }
 
-      _logger.info('🔄 Viable relay connection detected: ${_connectedDevice?.uuid}');
+      _logger.info(
+        '🔄 Viable relay connection detected: ${_connectedDevice?.uuid}',
+      );
       return true;
-
     } catch (e) {
       _logger.warning('Error checking relay viability: $e');
       return false;

@@ -32,19 +32,23 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       final repo = ContactRepository();
       final contactsMap = await repo.getAllContacts();
       // Convert map to list and filter to only verified contacts at MEDIUM+ security
-      final verified = contactsMap.values.where((c) =>
-        c.trustStatus == TrustStatus.verified &&
-        (c.securityLevel == SecurityLevel.medium || c.securityLevel == SecurityLevel.high)
-      ).toList();
+      final verified = contactsMap.values
+          .where(
+            (c) =>
+                c.trustStatus == TrustStatus.verified &&
+                (c.securityLevel == SecurityLevel.medium ||
+                    c.securityLevel == SecurityLevel.high),
+          )
+          .toList();
 
       setState(() {
         _availableContacts = verified;
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load contacts: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load contacts: $e')));
       }
     }
   }
@@ -88,9 +92,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create group: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to create group: $e')));
       }
     } finally {
       if (mounted) {
@@ -102,9 +106,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Create Group'),
-      ),
+      appBar: AppBar(title: const Text('Create Group')),
       body: _availableContacts == null
           ? const Center(child: CircularProgressIndicator())
           : Form(
@@ -160,7 +162,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                       const SizedBox(width: 8),
                       Chip(
                         label: Text('${_selectedMemberKeys.length} selected'),
-                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.primaryContainer,
                       ),
                     ],
                   ),
@@ -181,12 +185,15 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                     )
                   else
                     ..._availableContacts!.map((contact) {
-                      final isSelected = _selectedMemberKeys.contains(contact.noisePublicKey ?? contact.publicKey);
+                      final isSelected = _selectedMemberKeys.contains(
+                        contact.noisePublicKey ?? contact.publicKey,
+                      );
                       return CheckboxListTile(
                         value: isSelected,
                         onChanged: (selected) {
                           setState(() {
-                            final key = contact.noisePublicKey ?? contact.publicKey;
+                            final key =
+                                contact.noisePublicKey ?? contact.publicKey;
                             if (selected == true) {
                               _selectedMemberKeys.add(key);
                             } else {
@@ -205,11 +212,15 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                           ),
                         ),
                         secondary: CircleAvatar(
-                          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.secondaryContainer,
                           child: Text(
                             contact.displayName[0].toUpperCase(),
                             style: TextStyle(
-                              color: Theme.of(context).colorScheme.onSecondaryContainer,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSecondaryContainer,
                             ),
                           ),
                         ),

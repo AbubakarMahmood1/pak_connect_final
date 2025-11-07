@@ -1,5 +1,5 @@
 /// End-to-end integration tests for Noise Protocol
-/// 
+///
 /// Tests complete flow: BLE handshake → Noise session → encryption → decryption
 /// Simulates two-device communication in a single test process
 library;
@@ -107,7 +107,7 @@ void main() {
   // Initialize test environment
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment();
-    
+
     // Initialize SecurityManager with Noise support
     mockStorage = MockSecureStorage();
     await SecurityManager.initialize(secureStorage: mockStorage);
@@ -116,7 +116,7 @@ void main() {
   setUp(() async {
     // Clean database before each test
     await TestSetup.fullDatabaseReset();
-    
+
     // Clear all Noise sessions to prevent pollution between tests
     SecurityManager.clearAllNoiseSessions();
   });
@@ -127,144 +127,167 @@ void main() {
   });
 
   group('Noise End-to-End Integration Tests', () {
-    test('Complete BLE handshake establishes Noise session and saves to database', () async {
-      final aliceContactRepo = ContactRepository();
-      final bobContactRepo = ContactRepository();
+    test(
+      'Complete BLE handshake establishes Noise session and saves to database',
+      () async {
+        final aliceContactRepo = ContactRepository();
+        final bobContactRepo = ContactRepository();
 
-      bool aliceCompleted = false;
-      bool bobCompleted = false;
-      String? aliceSeesNoiseKey;
-      String? bobSeesNoiseKey;
+        bool aliceCompleted = false;
+        bool bobCompleted = false;
+        String? aliceSeesNoiseKey;
+        String? bobSeesNoiseKey;
 
-      // Declare coordinators (for forward reference in callbacks)
-      late HandshakeCoordinator aliceCoordinator;
-      late HandshakeCoordinator bobCoordinator;
+        // Declare coordinators (for forward reference in callbacks)
+        late HandshakeCoordinator aliceCoordinator;
+        late HandshakeCoordinator bobCoordinator;
 
-      // Alice's coordinator
-      aliceCoordinator = HandshakeCoordinator(
-        myEphemeralId: 'alice_ephemeral_id_12345678',
-        myPublicKey: 'alice_permanent_key',
-        myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
-        sendMessage: (msg) async => await bobCoordinator.handleReceivedMessage(msg),
-        onHandshakeComplete: (ephemeralId, displayName, noiseKey) async {
-          print('✅ Alice completed handshake with $displayName');
-          aliceCompleted = true;
-          aliceSeesNoiseKey = aliceCoordinator.theirNoisePublicKey;
+        // Alice's coordinator
+        aliceCoordinator = HandshakeCoordinator(
+          myEphemeralId: 'alice_ephemeral_id_12345678',
+          myPublicKey: 'alice_permanent_key',
+          myDisplayName: 'Alice',
+          contactRepo: aliceContactRepo,
+          sendMessage: (msg) async =>
+              await bobCoordinator.handleReceivedMessage(msg),
+          onHandshakeComplete: (ephemeralId, displayName, noiseKey) async {
+            print('✅ Alice completed handshake with $displayName');
+            aliceCompleted = true;
+            aliceSeesNoiseKey = aliceCoordinator.theirNoisePublicKey;
 
-          await aliceContactRepo.saveContact(ephemeralId, displayName);
-          if (aliceSeesNoiseKey != null) {
-            await aliceContactRepo.updateNoiseSession(
-              publicKey: ephemeralId,
-              noisePublicKey: aliceSeesNoiseKey!,
-              sessionState: 'established',
-            );
+            await aliceContactRepo.saveContact(ephemeralId, displayName);
+            if (aliceSeesNoiseKey != null) {
+              await aliceContactRepo.updateNoiseSession(
+                publicKey: ephemeralId,
+                noisePublicKey: aliceSeesNoiseKey!,
+                sessionState: 'established',
+              );
+            }
+          },
+        );
+
+        // Bob's coordinator
+        bobCoordinator = HandshakeCoordinator(
+          myEphemeralId: 'bob_ephemeral_id_87654321',
+          myPublicKey: 'bob_permanent_key',
+          myDisplayName: 'Bob',
+          contactRepo: bobContactRepo,
+          sendMessage: (msg) async =>
+              await aliceCoordinator.handleReceivedMessage(msg),
+          onHandshakeComplete: (ephemeralId, displayName, noiseKey) async {
+            print('✅ Bob completed handshake with $displayName');
+            bobCompleted = true;
+            bobSeesNoiseKey = bobCoordinator.theirNoisePublicKey;
+
+            await bobContactRepo.saveContact(ephemeralId, displayName);
+            if (bobSeesNoiseKey != null) {
+              await bobContactRepo.updateNoiseSession(
+                publicKey: ephemeralId,
+                noisePublicKey: bobSeesNoiseKey!,
+                sessionState: 'established',
+              );
+            }
+          },
+        );
+
+        // Start handshake
+        await aliceCoordinator.startHandshake();
+
+        // Verify completion
+        expect(aliceCompleted, true, reason: 'Alice should complete');
+        expect(bobCompleted, true, reason: 'Bob should complete');
+        expect(aliceSeesNoiseKey, isNotNull);
+        expect(bobSeesNoiseKey, isNotNull);
+
+        // Verify database persistence
+        final aliceContact = await aliceContactRepo.getContact(
+          'bob_ephemeral_id_87654321',
+        );
+        final bobContact = await bobContactRepo.getContact(
+          'alice_ephemeral_id_12345678',
+        );
+
+        expect(aliceContact?.noiseSessionState, 'established');
+        expect(aliceContact?.noisePublicKey, isNotNull);
+        expect(aliceContact?.lastHandshakeTime, isNotNull);
+
+        expect(bobContact?.noiseSessionState, 'established');
+        expect(bobContact?.noisePublicKey, isNotNull);
+        expect(bobContact?.lastHandshakeTime, isNotNull);
+      },
+    );
+
+    test(
+      'Encrypt and decrypt messages after Noise session established',
+      () async {
+        final aliceContactRepo = ContactRepository();
+        final bobContactRepo = ContactRepository();
+
+        late HandshakeCoordinator aliceCoordinator;
+        late HandshakeCoordinator bobCoordinator;
+
+        // Setup handshake
+        aliceCoordinator = HandshakeCoordinator(
+          myEphemeralId: 'alice_id',
+          myPublicKey: 'alice_perm',
+          myDisplayName: 'Alice',
+          contactRepo: aliceContactRepo,
+          sendMessage: (msg) async =>
+              await bobCoordinator.handleReceivedMessage(msg),
+          onHandshakeComplete: (id, name, noiseKey) async {
+            await aliceContactRepo.saveContact(id, name);
+            if (aliceCoordinator.theirNoisePublicKey != null) {
+              await aliceContactRepo.updateNoiseSession(
+                publicKey: id,
+                noisePublicKey: aliceCoordinator.theirNoisePublicKey!,
+                sessionState: 'established',
+              );
+            }
+          },
+        );
+
+        bobCoordinator = HandshakeCoordinator(
+          myEphemeralId: 'bob_id',
+          myPublicKey: 'bob_perm',
+          myDisplayName: 'Bob',
+          contactRepo: bobContactRepo,
+          sendMessage: (msg) async =>
+              await aliceCoordinator.handleReceivedMessage(msg),
+          onHandshakeComplete: (id, name, noiseKey) async {},
+        );
+
+        await aliceCoordinator.startHandshake();
+
+        // Test encryption
+        final message = 'Hello Bob! 🔐';
+        final plaintext = Uint8List.fromList(utf8.encode(message));
+
+        final ciphertext = await SecurityManager.noiseService!.encrypt(
+          plaintext,
+          'bob_id',
+        );
+
+        expect(ciphertext, isNotNull);
+        if (ciphertext != null) {
+          expect(
+            ciphertext.length,
+            greaterThan(plaintext.length),
+            reason: 'Ciphertext includes 16-byte auth tag',
+          );
+
+          // Test decryption
+          final decrypted = await SecurityManager.noiseService!.decrypt(
+            ciphertext,
+            'alice_id',
+          );
+
+          expect(decrypted, isNotNull);
+          if (decrypted != null) {
+            expect(utf8.decode(decrypted), message);
           }
-        },
-      );
-
-      // Bob's coordinator
-      bobCoordinator = HandshakeCoordinator(
-        myEphemeralId: 'bob_ephemeral_id_87654321',
-        myPublicKey: 'bob_permanent_key',
-        myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
-        sendMessage: (msg) async => await aliceCoordinator.handleReceivedMessage(msg),
-        onHandshakeComplete: (ephemeralId, displayName, noiseKey) async {
-          print('✅ Bob completed handshake with $displayName');
-          bobCompleted = true;
-          bobSeesNoiseKey = bobCoordinator.theirNoisePublicKey;
-
-          await bobContactRepo.saveContact(ephemeralId, displayName);
-          if (bobSeesNoiseKey != null) {
-            await bobContactRepo.updateNoiseSession(
-              publicKey: ephemeralId,
-              noisePublicKey: bobSeesNoiseKey!,
-              sessionState: 'established',
-            );
-          }
-        },
-      );
-
-      // Start handshake
-      await aliceCoordinator.startHandshake();
-
-      // Verify completion
-      expect(aliceCompleted, true, reason: 'Alice should complete');
-      expect(bobCompleted, true, reason: 'Bob should complete');
-      expect(aliceSeesNoiseKey, isNotNull);
-      expect(bobSeesNoiseKey, isNotNull);
-
-      // Verify database persistence
-      final aliceContact = await aliceContactRepo.getContact('bob_ephemeral_id_87654321');
-      final bobContact = await bobContactRepo.getContact('alice_ephemeral_id_12345678');
-
-      expect(aliceContact?.noiseSessionState, 'established');
-      expect(aliceContact?.noisePublicKey, isNotNull);
-      expect(aliceContact?.lastHandshakeTime, isNotNull);
-
-      expect(bobContact?.noiseSessionState, 'established');
-      expect(bobContact?.noisePublicKey, isNotNull);
-      expect(bobContact?.lastHandshakeTime, isNotNull);
-    });
-
-    test('Encrypt and decrypt messages after Noise session established', () async {
-      final aliceContactRepo = ContactRepository();
-      final bobContactRepo = ContactRepository();
-
-      late HandshakeCoordinator aliceCoordinator;
-      late HandshakeCoordinator bobCoordinator;
-
-      // Setup handshake
-      aliceCoordinator = HandshakeCoordinator(
-        myEphemeralId: 'alice_id',
-        myPublicKey: 'alice_perm',
-        myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
-        sendMessage: (msg) async => await bobCoordinator.handleReceivedMessage(msg),
-        onHandshakeComplete: (id, name, noiseKey) async {
-          await aliceContactRepo.saveContact(id, name);
-          if (aliceCoordinator.theirNoisePublicKey != null) {
-            await aliceContactRepo.updateNoiseSession(
-              publicKey: id,
-              noisePublicKey: aliceCoordinator.theirNoisePublicKey!,
-              sessionState: 'established',
-            );
-          }
-        },
-      );
-
-      bobCoordinator = HandshakeCoordinator(
-        myEphemeralId: 'bob_id',
-        myPublicKey: 'bob_perm',
-        myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
-        sendMessage: (msg) async => await aliceCoordinator.handleReceivedMessage(msg),
-        onHandshakeComplete: (id, name, noiseKey) async {},
-      );
-
-      await aliceCoordinator.startHandshake();
-
-      // Test encryption
-      final message = 'Hello Bob! 🔐';
-      final plaintext = Uint8List.fromList(utf8.encode(message));
-
-      final ciphertext = await SecurityManager.noiseService!.encrypt(plaintext, 'bob_id');
-      
-      expect(ciphertext, isNotNull);
-      if (ciphertext != null) {
-        expect(ciphertext.length, greaterThan(plaintext.length),
-            reason: 'Ciphertext includes 16-byte auth tag');
-
-        // Test decryption
-        final decrypted = await SecurityManager.noiseService!.decrypt(ciphertext, 'alice_id');
-        
-        expect(decrypted, isNotNull);
-        if (decrypted != null) {
-          expect(utf8.decode(decrypted), message);
         }
-      }
-    });
+      },
+    );
 
     test('Session persists across app restart simulation', () async {
       final aliceContactRepo = ContactRepository();
@@ -279,7 +302,8 @@ void main() {
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
         contactRepo: aliceContactRepo,
-        sendMessage: (msg) async => await bobCoordinator.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await bobCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
           savedNoiseKey = aliceCoordinator.theirNoisePublicKey;
           await aliceContactRepo.saveContact(id, name);
@@ -298,7 +322,8 @@ void main() {
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
         contactRepo: bobContactRepo,
-        sendMessage: (msg) async => await aliceCoordinator.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await aliceCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
       );
 
@@ -310,7 +335,9 @@ void main() {
 
       // Simulate restart with new repository instance
       final aliceContactRepoAfterRestart = ContactRepository();
-      final contactAfter = await aliceContactRepoAfterRestart.getContact('bob_id');
+      final contactAfter = await aliceContactRepoAfterRestart.getContact(
+        'bob_id',
+      );
 
       expect(contactAfter, isNotNull, reason: 'Contact persists');
       expect(contactAfter!.noiseSessionState, 'established');
@@ -330,7 +357,8 @@ void main() {
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
         contactRepo: aliceContactRepo,
-        sendMessage: (msg) async => await bobCoordinator1.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await bobCoordinator1.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
           await aliceContactRepo.saveContact(id, name);
           if (aliceCoordinator1.theirNoisePublicKey != null) {
@@ -348,7 +376,8 @@ void main() {
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
         contactRepo: bobContactRepo,
-        sendMessage: (msg) async => await aliceCoordinator1.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await aliceCoordinator1.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
       );
 
@@ -382,7 +411,8 @@ void main() {
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
         contactRepo: aliceContactRepo,
-        sendMessage: (msg) async => await bobCoordinator2.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await bobCoordinator2.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
           if (aliceCoordinator2.theirNoisePublicKey != null) {
             await aliceContactRepo.updateNoiseSession(
@@ -399,7 +429,8 @@ void main() {
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
         contactRepo: bobContactRepo,
-        sendMessage: (msg) async => await aliceCoordinator2.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await aliceCoordinator2.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
       );
 
@@ -407,14 +438,20 @@ void main() {
 
       final rekeyedContact = await aliceContactRepo.getContact('bob_id');
       expect(rekeyedContact?.noiseSessionState, 'established');
-      expect(rekeyedContact!.lastHandshakeTime!.isAfter(initialTime!), true,
-          reason: 'Rekeyed session should have newer timestamp');
+      expect(
+        rekeyedContact!.lastHandshakeTime!.isAfter(initialTime!),
+        true,
+        reason: 'Rekeyed session should have newer timestamp',
+      );
     });
 
     test('Encryption without session returns null', () async {
       final plaintext = Uint8List.fromList(utf8.encode('test'));
-      final result = await SecurityManager.noiseService!.encrypt(plaintext, 'unknown_peer');
-      
+      final result = await SecurityManager.noiseService!.encrypt(
+        plaintext,
+        'unknown_peer',
+      );
+
       expect(result, isNull, reason: 'Should return null for unknown peer');
     });
 
@@ -430,7 +467,8 @@ void main() {
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
         contactRepo: aliceContactRepo,
-        sendMessage: (msg) async => await bobCoordinator.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await bobCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
           await aliceContactRepo.saveContact(id, name);
           if (aliceCoordinator.theirNoisePublicKey != null) {
@@ -448,7 +486,8 @@ void main() {
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
         contactRepo: bobContactRepo,
-        sendMessage: (msg) async => await aliceCoordinator.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await aliceCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
       );
 
@@ -458,11 +497,17 @@ void main() {
       final largeMessage = 'A' * 10240;
       final plaintext = Uint8List.fromList(utf8.encode(largeMessage));
 
-      final ciphertext = await SecurityManager.noiseService!.encrypt(plaintext, 'bob_id');
+      final ciphertext = await SecurityManager.noiseService!.encrypt(
+        plaintext,
+        'bob_id',
+      );
       expect(ciphertext, isNotNull);
 
       if (ciphertext != null) {
-        final decrypted = await SecurityManager.noiseService!.decrypt(ciphertext, 'alice_id');
+        final decrypted = await SecurityManager.noiseService!.decrypt(
+          ciphertext,
+          'alice_id',
+        );
         expect(decrypted, isNotNull);
         if (decrypted != null) {
           expect(utf8.decode(decrypted), largeMessage);
@@ -482,7 +527,8 @@ void main() {
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
         contactRepo: aliceContactRepo,
-        sendMessage: (msg) async => await bobCoordinator.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await bobCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
           await aliceContactRepo.saveContact(id, name);
           if (aliceCoordinator.theirNoisePublicKey != null) {
@@ -500,7 +546,8 @@ void main() {
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
         contactRepo: bobContactRepo,
-        sendMessage: (msg) async => await aliceCoordinator.handleReceivedMessage(msg),
+        sendMessage: (msg) async =>
+            await aliceCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
       );
 
@@ -511,11 +558,17 @@ void main() {
         final message = 'Message #$i';
         final plaintext = Uint8List.fromList(utf8.encode(message));
 
-        final ciphertext = await SecurityManager.noiseService!.encrypt(plaintext, 'bob_id');
+        final ciphertext = await SecurityManager.noiseService!.encrypt(
+          plaintext,
+          'bob_id',
+        );
         expect(ciphertext, isNotNull);
 
         if (ciphertext != null) {
-          final decrypted = await SecurityManager.noiseService!.decrypt(ciphertext, 'alice_id');
+          final decrypted = await SecurityManager.noiseService!.decrypt(
+            ciphertext,
+            'alice_id',
+          );
           expect(decrypted, isNotNull);
           if (decrypted != null) {
             expect(utf8.decode(decrypted), message);

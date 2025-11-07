@@ -95,8 +95,16 @@ void main() {
 
       // Assert
       expect(deviceId1, isNotEmpty);
-      expect(deviceId1, equals(deviceId2), reason: 'Device ID should be persistent');
-      expect(deviceId1, startsWith('dev_'), reason: 'Device ID should have correct format');
+      expect(
+        deviceId1,
+        equals(deviceId2),
+        reason: 'Device ID should be persistent',
+      );
+      expect(
+        deviceId1,
+        startsWith('dev_'),
+        reason: 'Device ID should have correct format',
+      );
     });
 
     // ==============================================
@@ -109,8 +117,16 @@ void main() {
       // Assert
       expect(keyPair['public'], isNotEmpty);
       expect(keyPair['private'], isNotEmpty);
-      expect(keyPair['public']!.length, greaterThan(50), reason: 'Public key should be substantial');
-      expect(keyPair['private']!.length, greaterThan(50), reason: 'Private key should be substantial');
+      expect(
+        keyPair['public']!.length,
+        greaterThan(50),
+        reason: 'Public key should be substantial',
+      );
+      expect(
+        keyPair['private']!.length,
+        greaterThan(50),
+        reason: 'Private key should be substantial',
+      );
     });
 
     test('Public key can be retrieved independently', () async {
@@ -135,8 +151,11 @@ void main() {
 
       // Assert
       expect(newPublicKey, isNotEmpty);
-      expect(newPublicKey, isNot(equals(originalPublicKey)), 
-        reason: 'Regenerated key should be different');
+      expect(
+        newPublicKey,
+        isNot(equals(originalPublicKey)),
+        reason: 'Regenerated key should be different',
+      );
     });
 
     // ==============================================
@@ -166,8 +185,11 @@ void main() {
       final verifiedCount = await contactRepository.getVerifiedContactCount();
 
       // Assert
-      expect(verifiedCount, lessThanOrEqualTo(totalCount),
-        reason: 'Verified contacts cannot exceed total contacts');
+      expect(
+        verifiedCount,
+        lessThanOrEqualTo(totalCount),
+        reason: 'Verified contacts cannot exceed total contacts',
+      );
     });
 
     // ==============================================
@@ -247,8 +269,11 @@ void main() {
       final qrJson = jsonEncode(qrData);
 
       // Assert
-      expect(() => jsonDecode(qrJson), returnsNormally,
-        reason: 'QR data should be valid JSON');
+      expect(
+        () => jsonDecode(qrJson),
+        returnsNormally,
+        reason: 'QR data should be valid JSON',
+      );
     });
 
     // ==============================================
@@ -292,8 +317,11 @@ void main() {
       final deviceId2 = await prefs2.getOrCreateDeviceId();
 
       // Assert
-      expect(deviceId2, equals(deviceId1),
-        reason: 'Device ID should remain the same across restarts');
+      expect(
+        deviceId2,
+        equals(deviceId1),
+        reason: 'Device ID should remain the same across restarts',
+      );
     });
 
     // ==============================================
@@ -307,13 +335,20 @@ void main() {
       final username = await userPreferences.getUserName();
 
       // Assert
-      expect(username, equals('User'), reason: 'Empty username should default to "User"');
+      expect(
+        username,
+        equals('User'),
+        reason: 'Empty username should default to "User"',
+      );
     });
 
     test('Statistics methods handle errors gracefully', () async {
       // Act & Assert - Should not throw, even if database has issues
       expect(() => contactRepository.getContactCount(), returnsNormally);
-      expect(() => contactRepository.getVerifiedContactCount(), returnsNormally);
+      expect(
+        () => contactRepository.getVerifiedContactCount(),
+        returnsNormally,
+      );
       expect(() => chatsRepository.getChatCount(), returnsNormally);
       expect(() => chatsRepository.getTotalMessageCount(), returnsNormally);
     });

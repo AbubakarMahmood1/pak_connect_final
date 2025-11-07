@@ -43,7 +43,10 @@ void main() {
       await repo.saveContact('test_key_456', 'Original Name');
 
       // Upgrade security
-      await repo.updateContactSecurityLevel('test_key_456', SecurityLevel.medium);
+      await repo.updateContactSecurityLevel(
+        'test_key_456',
+        SecurityLevel.medium,
+      );
 
       // Update contact name
       await repo.saveContact('test_key_456', 'Updated Name');
@@ -51,8 +54,11 @@ void main() {
       final contact = await repo.getContact('test_key_456');
 
       expect(contact!.displayName, equals('Updated Name'));
-      expect(contact.securityLevel, equals(SecurityLevel.medium),
-        reason: 'Security level should be preserved');
+      expect(
+        contact.securityLevel,
+        equals(SecurityLevel.medium),
+        reason: 'Security level should be preserved',
+      );
     });
 
     test('Get all contacts returns map', () async {
@@ -87,26 +93,38 @@ void main() {
       await repo.saveContact('upgrade_test', 'User');
 
       // Valid upgrade: low -> medium
-      final upgrade1 = await repo.upgradeContactSecurity('upgrade_test', SecurityLevel.medium);
+      final upgrade1 = await repo.upgradeContactSecurity(
+        'upgrade_test',
+        SecurityLevel.medium,
+      );
       expect(upgrade1, isTrue);
 
       var contact = await repo.getContact('upgrade_test');
       expect(contact!.securityLevel, equals(SecurityLevel.medium));
 
       // Valid upgrade: medium -> high
-      final upgrade2 = await repo.upgradeContactSecurity('upgrade_test', SecurityLevel.high);
+      final upgrade2 = await repo.upgradeContactSecurity(
+        'upgrade_test',
+        SecurityLevel.high,
+      );
       expect(upgrade2, isTrue);
 
       contact = await repo.getContact('upgrade_test');
       expect(contact!.securityLevel, equals(SecurityLevel.high));
 
       // Invalid downgrade: high -> low (should fail)
-      final downgrade = await repo.upgradeContactSecurity('upgrade_test', SecurityLevel.low);
+      final downgrade = await repo.upgradeContactSecurity(
+        'upgrade_test',
+        SecurityLevel.low,
+      );
       expect(downgrade, isFalse, reason: 'Downgrade should be blocked');
 
       contact = await repo.getContact('upgrade_test');
-      expect(contact!.securityLevel, equals(SecurityLevel.high),
-        reason: 'Security level should remain high');
+      expect(
+        contact!.securityLevel,
+        equals(SecurityLevel.high),
+        reason: 'Security level should remain high',
+      );
     });
 
     test('Reset contact security', () async {
@@ -116,7 +134,10 @@ void main() {
       await repo.upgradeContactSecurity('reset_test', SecurityLevel.high);
 
       // Reset security
-      final success = await repo.resetContactSecurity('reset_test', 'Test reset');
+      final success = await repo.resetContactSecurity(
+        'reset_test',
+        'Test reset',
+      );
 
       expect(success, isTrue);
 
@@ -127,26 +148,43 @@ void main() {
 
     // Test is skipped due to FlutterSecureStorage mocking limitations in test environment
     // The delete functionality itself works correctly and is verified by checking the result
-    test('Delete contact', () async {
-      final repo = ContactRepository();
+    test(
+      'Delete contact',
+      () async {
+        final repo = ContactRepository();
 
-      await repo.saveContact('delete_test', 'User');
+        await repo.saveContact('delete_test', 'User');
 
-      // Verify contact was saved
-      final savedContact = await repo.getContact('delete_test');
-      expect(savedContact, isNotNull, reason: 'Contact should exist before delete');
+        // Verify contact was saved
+        final savedContact = await repo.getContact('delete_test');
+        expect(
+          savedContact,
+          isNotNull,
+          reason: 'Contact should exist before delete',
+        );
 
-      // Test that contact can be deleted via verification it's gone after
-      final beforeCount = (await repo.getAllContacts()).length;
-      await repo.deleteContact('delete_test');
+        // Test that contact can be deleted via verification it's gone after
+        final beforeCount = (await repo.getAllContacts()).length;
+        await repo.deleteContact('delete_test');
 
-      // Verify contact is gone (this works even if return value is wrong)
-      final contact = await repo.getContact('delete_test');
-      final afterCount = (await repo.getAllContacts()).length;
+        // Verify contact is gone (this works even if return value is wrong)
+        final contact = await repo.getContact('delete_test');
+        final afterCount = (await repo.getAllContacts()).length;
 
-      expect(contact, isNull, reason: 'Contact should not exist after delete');
-      expect(afterCount, equals(beforeCount - 1), reason: 'Contact count should decrease');
-    }, skip: 'FlutterSecureStorage mocking issue - functionality verified by other means');
+        expect(
+          contact,
+          isNull,
+          reason: 'Contact should not exist after delete',
+        );
+        expect(
+          afterCount,
+          equals(beforeCount - 1),
+          reason: 'Contact count should decrease',
+        );
+      },
+      skip:
+          'FlutterSecureStorage mocking issue - functionality verified by other means',
+    );
 
     test('Get contact name by public key', () async {
       final repo = ContactRepository();
@@ -163,7 +201,11 @@ void main() {
     test('Save contact with explicit security level', () async {
       final repo = ContactRepository();
 
-      await repo.saveContactWithSecurity('secure_key', 'Secure User', SecurityLevel.high);
+      await repo.saveContactWithSecurity(
+        'secure_key',
+        'Secure User',
+        SecurityLevel.high,
+      );
 
       final contact = await repo.getContact('secure_key');
       expect(contact!.securityLevel, equals(SecurityLevel.high));
@@ -189,7 +231,10 @@ void main() {
       await repo.saveContact('downgrade_test', 'User');
       await repo.upgradeContactSecurity('downgrade_test', SecurityLevel.high);
 
-      await repo.downgradeSecurityForDeletedContact('downgrade_test', 'Contact deleted me');
+      await repo.downgradeSecurityForDeletedContact(
+        'downgrade_test',
+        'Contact deleted me',
+      );
 
       final contact = await repo.getContact('downgrade_test');
       expect(contact!.securityLevel, equals(SecurityLevel.low));
@@ -204,8 +249,14 @@ void main() {
 
       final contact = await repo.getContact('time_test');
 
-      expect(contact!.firstSeen.isAfter(before.subtract(Duration(seconds: 1))), isTrue);
-      expect(contact.lastSeen.isAfter(before.subtract(Duration(seconds: 1))), isTrue);
+      expect(
+        contact!.firstSeen.isAfter(before.subtract(Duration(seconds: 1))),
+        isTrue,
+      );
+      expect(
+        contact.lastSeen.isAfter(before.subtract(Duration(seconds: 1))),
+        isTrue,
+      );
     });
   });
 
@@ -216,8 +267,15 @@ void main() {
       await repo.saveContact('skip_test', 'User');
 
       // Try to jump from low to high (should fail)
-      final skipUpgrade = await repo.upgradeContactSecurity('skip_test', SecurityLevel.high);
-      expect(skipUpgrade, isFalse, reason: 'Should not allow skipping security levels');
+      final skipUpgrade = await repo.upgradeContactSecurity(
+        'skip_test',
+        SecurityLevel.high,
+      );
+      expect(
+        skipUpgrade,
+        isFalse,
+        reason: 'Should not allow skipping security levels',
+      );
 
       final contact = await repo.getContact('skip_test');
       expect(contact!.securityLevel, equals(SecurityLevel.low));
@@ -251,17 +309,26 @@ void main() {
       // Update Noise session
       await repo.updateNoiseSession(
         publicKey: 'noise_test_key',
-        noisePublicKey: 'dGVzdF9ub2lzZV9wdWJsaWNfa2V5X2Jhc2U2NF9lbmNvZGVk', // Base64 test key
+        noisePublicKey:
+            'dGVzdF9ub2lzZV9wdWJsaWNfa2V5X2Jhc2U2NF9lbmNvZGVk', // Base64 test key
         sessionState: 'established',
       );
 
       final contact = await repo.getContact('noise_test_key');
 
       expect(contact, isNotNull);
-      expect(contact!.noisePublicKey, equals('dGVzdF9ub2lzZV9wdWJsaWNfa2V5X2Jhc2U2NF9lbmNvZGVk'));
+      expect(
+        contact!.noisePublicKey,
+        equals('dGVzdF9ub2lzZV9wdWJsaWNfa2V5X2Jhc2U2NF9lbmNvZGVk'),
+      );
       expect(contact.noiseSessionState, equals('established'));
       expect(contact.lastHandshakeTime, isNotNull);
-      expect(contact.lastHandshakeTime!.isAfter(DateTime.now().subtract(Duration(seconds: 5))), isTrue);
+      expect(
+        contact.lastHandshakeTime!.isAfter(
+          DateTime.now().subtract(Duration(seconds: 5)),
+        ),
+        isTrue,
+      );
     });
 
     test('Noise fields are null for new contacts', () async {
@@ -294,7 +361,10 @@ void main() {
       final contact = await repo.getContact('persist_test');
 
       expect(contact!.displayName, equals('Updated Name'));
-      expect(contact.noisePublicKey, equals('bm9pc2VfcHVibGljX2tleV90ZXN0X2RhdGE='));
+      expect(
+        contact.noisePublicKey,
+        equals('bm9pc2VfcHVibGljX2tleV90ZXN0X2RhdGE='),
+      );
       expect(contact.noiseSessionState, equals('established'));
       expect(contact.lastHandshakeTime, isNotNull);
     });
@@ -312,12 +382,18 @@ void main() {
       );
 
       // Upgrade security level
-      await repo.updateContactSecurityLevel('security_noise_test', SecurityLevel.medium);
+      await repo.updateContactSecurityLevel(
+        'security_noise_test',
+        SecurityLevel.medium,
+      );
 
       final contact = await repo.getContact('security_noise_test');
 
       expect(contact!.securityLevel, equals(SecurityLevel.medium));
-      expect(contact.noisePublicKey, equals('c2VjdXJpdHlfbm9pc2VfdGVzdF9rZXk='));
+      expect(
+        contact.noisePublicKey,
+        equals('c2VjdXJpdHlfbm9pc2VfdGVzdF9rZXk='),
+      );
       expect(contact.noiseSessionState, equals('established'));
     });
 
@@ -349,8 +425,11 @@ void main() {
 
       expect(second!.noisePublicKey, equals('c2Vjb25kX2tleV9kYXRh'));
       expect(second.noiseSessionState, equals('established'));
-      expect(second.lastHandshakeTime!.isAfter(firstTime), isTrue,
-        reason: 'Second handshake time should be after first');
+      expect(
+        second.lastHandshakeTime!.isAfter(firstTime),
+        isTrue,
+        reason: 'Second handshake time should be after first',
+      );
     });
 
     test('Contact JSON serialization includes Noise fields', () async {
@@ -432,4 +511,3 @@ void main() {
     });
   });
 }
-

@@ -46,7 +46,8 @@ class BLEServerConnection {
       address: address ?? this.address,
       central: central ?? this.central,
       connectedAt: connectedAt ?? this.connectedAt,
-      subscribedCharacteristic: subscribedCharacteristic ?? this.subscribedCharacteristic,
+      subscribedCharacteristic:
+          subscribedCharacteristic ?? this.subscribedCharacteristic,
       mtu: mtu ?? this.mtu,
     );
   }

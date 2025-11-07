@@ -61,9 +61,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final contactCount = await _contactRepository.getContactCount();
     final chatCount = await _chatsRepository.getChatCount();
     final messageCount = await _chatsRepository.getTotalMessageCount();
-    final verifiedContactCount = await _contactRepository.getVerifiedContactCount();
+    final verifiedContactCount = await _contactRepository
+        .getVerifiedContactCount();
     final archivedCount = await _archiveRepository.getArchivedChatsCount();
-    
+
     // Get storage size
     final sizeInfo = await DatabaseHelper.getDatabaseSize();
     final storageMB = sizeInfo['size_mb'] ?? '0.00';
@@ -132,7 +133,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  Widget _buildAvatarSection(AsyncValue<String> usernameAsync, ThemeData theme) {
+  Widget _buildAvatarSection(
+    AsyncValue<String> usernameAsync,
+    ThemeData theme,
+  ) {
     return usernameAsync.when(
       data: (username) => Column(
         children: [
@@ -181,11 +185,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                 ),
                 SizedBox(width: 8),
-                Icon(
-                  Icons.edit,
-                  size: 20,
-                  color: theme.colorScheme.primary,
-                ),
+                Icon(Icons.edit, size: 20, color: theme.colorScheme.primary),
               ],
             ),
           ),
@@ -393,15 +393,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       try {
         await ref.read(usernameProvider.notifier).updateUsername(result);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Name updated successfully')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Name updated successfully')));
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to update name: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Failed to update name: $e')));
         }
       }
     }
@@ -409,9 +409,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   void _copyToClipboard(String text, String label) {
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$label copied to clipboard')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$label copied to clipboard')));
   }
 
   void _shareProfile() {

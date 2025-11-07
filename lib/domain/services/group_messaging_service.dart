@@ -32,9 +32,9 @@ class GroupMessagingService {
     required GroupRepository groupRepo,
     required ContactRepository contactRepo,
     required OfflineMessageQueue messageQueue,
-  })  : _groupRepo = groupRepo,
-        _contactRepo = contactRepo,
-        _messageQueue = messageQueue;
+  }) : _groupRepo = groupRepo,
+       _contactRepo = contactRepo,
+       _messageQueue = messageQueue;
 
   /// Send a message to a group
   ///
@@ -70,7 +70,9 @@ class GroupMessagingService {
 
       // Save to repository immediately with pending status
       await _groupRepo.saveGroupMessage(message);
-      _logger.info('  Created message ${message.id.substring(0, 16)}... for ${message.deliveryStatus.length} recipients');
+      _logger.info(
+        '  Created message ${message.id.substring(0, 16)}... for ${message.deliveryStatus.length} recipients',
+      );
 
       // Send to each member asynchronously (fire and forget)
       // Delivery status will be updated via callbacks
@@ -100,7 +102,11 @@ class GroupMessagingService {
         final contact = await _contactRepo.getContact(memberKey);
         if (contact == null) {
           _logger.warning('  ⚠️ Member $memberKey not in contacts - skipping');
-          await _updateStatus(message.id, memberKey, MessageDeliveryStatus.failed);
+          await _updateStatus(
+            message.id,
+            memberKey,
+            MessageDeliveryStatus.failed,
+          );
           failed++;
           continue;
         }
@@ -112,7 +118,7 @@ class GroupMessagingService {
           content: message.content,
           recipientPublicKey: memberKey,
           senderPublicKey: message.senderKey,
-          priority: MessagePriority.normal
+          priority: MessagePriority.normal,
         );
 
         // Update status to sent (queue will handle delivery)
@@ -124,15 +130,20 @@ class GroupMessagingService {
         sent++;
 
         _logger.fine('  ✅ Queued for ${contact.displayName}');
-
       } catch (e) {
         _logger.warning('  ❌ Failed to send to $memberKey: $e');
-        await _updateStatus(message.id, memberKey, MessageDeliveryStatus.failed);
+        await _updateStatus(
+          message.id,
+          memberKey,
+          MessageDeliveryStatus.failed,
+        );
         failed++;
       }
     }
 
-    _logger.info('✅ Group send complete: $sent sent, $queued queued, $failed failed');
+    _logger.info(
+      '✅ Group send complete: $sent sent, $queued queued, $failed failed',
+    );
   }
 
   /// Update delivery status for a member
@@ -150,7 +161,10 @@ class GroupMessagingService {
   }
 
   /// Get messages for a group
-  Future<List<GroupMessage>> getGroupMessages(String groupId, {int limit = 50}) async {
+  Future<List<GroupMessage>> getGroupMessages(
+    String groupId, {
+    int limit = 50,
+  }) async {
     return await _groupRepo.getGroupMessages(groupId, limit: limit);
   }
 
@@ -178,7 +192,9 @@ class GroupMessagingService {
   /// Get delivery summary for a message
   ///
   /// Returns counts of messages in each status.
-  Future<Map<MessageDeliveryStatus, int>> getDeliverySummary(String messageId) async {
+  Future<Map<MessageDeliveryStatus, int>> getDeliverySummary(
+    String messageId,
+  ) async {
     final message = await getMessage(messageId);
     if (message == null) {
       return {};

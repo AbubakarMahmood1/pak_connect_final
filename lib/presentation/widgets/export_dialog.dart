@@ -20,40 +20,41 @@ class _ExportDialogState extends State<ExportDialog> {
   final _formKey = GlobalKey<FormState>();
   final _passphraseController = TextEditingController();
   final _confirmPassphraseController = TextEditingController();
-  
+
   bool _obscurePassphrase = true;
   bool _obscureConfirm = true;
   bool _isExporting = false;
   String? _exportPath;
   String? _errorMessage;
-  ExportType _selectedExportType = ExportType.full; // NEW: Export type selection
+  ExportType _selectedExportType =
+      ExportType.full; // NEW: Export type selection
   int? _recordCount; // NEW: Record count
-  
+
   @override
   void dispose() {
     _passphraseController.dispose();
     _confirmPassphraseController.dispose();
     super.dispose();
   }
-  
+
   Future<void> _performExport() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-    
+
     setState(() {
       _isExporting = true;
       _errorMessage = null;
       _exportPath = null;
     });
-    
+
     try {
       // Create export
       final result = await ExportService.createExport(
         userPassphrase: _passphraseController.text,
         exportType: _selectedExportType, // NEW: Use selected export type
       );
-      
+
       if (result.success && result.bundlePath != null) {
         setState(() {
           _exportPath = result.bundlePath;
@@ -74,10 +75,10 @@ class _ExportDialogState extends State<ExportDialog> {
       });
     }
   }
-  
+
   Future<void> _shareExport() async {
     if (_exportPath == null) return;
-    
+
     try {
       final file = File(_exportPath!);
       if (await file.exists()) {
@@ -91,28 +92,28 @@ class _ExportDialogState extends State<ExportDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to share: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to share: $e')));
       }
     }
   }
-  
+
   Future<void> _copyPathToClipboard() async {
     if (_exportPath == null) return;
-    
+
     await Clipboard.setData(ClipboardData(text: _exportPath!));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Path copied to clipboard')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Path copied to clipboard')));
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return AlertDialog(
       title: const Row(
         children: [
@@ -134,7 +135,7 @@ class _ExportDialogState extends State<ExportDialog> {
           : _buildSuccessActions(),
     );
   }
-  
+
   Widget _buildExportForm(ThemeData theme) {
     return Form(
       key: _formKey,
@@ -159,18 +160,15 @@ class _ExportDialogState extends State<ExportDialog> {
                   child: Text(
                     'Choose a strong passphrase to encrypt your backup. '
                     'You\'ll need this passphrase to restore your data.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.blue[900],
-                    ),
+                    style: TextStyle(fontSize: 13, color: Colors.blue[900]),
                   ),
                 ),
               ],
             ),
           ),
-          
+
           const SizedBox(height: 20),
-          
+
           // Export type selector - NEW
           DropdownButtonFormField<ExportType>(
             initialValue: _selectedExportType,
@@ -202,9 +200,9 @@ class _ExportDialogState extends State<ExportDialog> {
               }
             },
           ),
-          
+
           const SizedBox(height: 20),
-          
+
           // Passphrase field
           TextFormField(
             controller: _passphraseController,
@@ -235,14 +233,12 @@ class _ExportDialogState extends State<ExportDialog> {
               setState(() {}); // Rebuild to update strength indicator
             },
           ),
-          
+
           // Strength indicator
-          PassphraseStrengthIndicator(
-            passphrase: _passphraseController.text,
-          ),
-          
+          PassphraseStrengthIndicator(passphrase: _passphraseController.text),
+
           const SizedBox(height: 16),
-          
+
           // Confirm passphrase field
           TextFormField(
             controller: _confirmPassphraseController,
@@ -273,7 +269,7 @@ class _ExportDialogState extends State<ExportDialog> {
               return null;
             },
           ),
-          
+
           // Error message
           if (_errorMessage != null) ...[
             const SizedBox(height: 16),
@@ -292,17 +288,14 @@ class _ExportDialogState extends State<ExportDialog> {
                   Expanded(
                     child: Text(
                       _errorMessage!,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.red[900],
-                      ),
+                      style: TextStyle(fontSize: 13, color: Colors.red[900]),
                     ),
                   ),
                 ],
               ),
             ),
           ],
-          
+
           // Progress indicator
           if (_isExporting) ...[
             const SizedBox(height: 16),
@@ -320,11 +313,11 @@ class _ExportDialogState extends State<ExportDialog> {
       ),
     );
   }
-  
+
   Widget _buildSuccessView(ThemeData theme) {
     final file = File(_exportPath!);
     final filename = file.uri.pathSegments.last;
-    
+
     // Helper function to get export type display name
     String getExportTypeName(ExportType type) {
       switch (type) {
@@ -336,7 +329,7 @@ class _ExportDialogState extends State<ExportDialog> {
           return 'Messages Only';
       }
     }
-    
+
     // Helper function to get export type icon
     IconData getExportTypeIcon(ExportType type) {
       switch (type) {
@@ -348,7 +341,7 @@ class _ExportDialogState extends State<ExportDialog> {
           return Icons.message;
       }
     }
-    
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -366,9 +359,9 @@ class _ExportDialogState extends State<ExportDialog> {
             size: 40,
           ),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Success message
         Text(
           '${getExportTypeName(_selectedExportType)} Created!',
@@ -377,21 +370,19 @@ class _ExportDialogState extends State<ExportDialog> {
           ),
           textAlign: TextAlign.center,
         ),
-        
+
         const SizedBox(height: 8),
-        
+
         Text(
-          _recordCount != null 
-            ? 'Successfully exported $_recordCount records'
-            : 'Your data has been encrypted and saved.',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: Colors.grey[600],
-          ),
+          _recordCount != null
+              ? 'Successfully exported $_recordCount records'
+              : 'Your data has been encrypted and saved.',
+          style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
           textAlign: TextAlign.center,
         ),
-        
+
         const SizedBox(height: 24),
-        
+
         // File info
         Container(
           padding: const EdgeInsets.all(12),
@@ -405,7 +396,11 @@ class _ExportDialogState extends State<ExportDialog> {
               // Export type badge
               Row(
                 children: [
-                  Icon(getExportTypeIcon(_selectedExportType), color: theme.primaryColor, size: 20),
+                  Icon(
+                    getExportTypeIcon(_selectedExportType),
+                    color: theme.primaryColor,
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     getExportTypeName(_selectedExportType),
@@ -420,7 +415,11 @@ class _ExportDialogState extends State<ExportDialog> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Icon(Icons.file_present_rounded, color: Colors.grey[700], size: 20),
+                  Icon(
+                    Icons.file_present_rounded,
+                    color: Colors.grey[700],
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -437,17 +436,14 @@ class _ExportDialogState extends State<ExportDialog> {
               const SizedBox(height: 8),
               Text(
                 'Location: ${file.parent.path}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
             ],
           ),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Action buttons
         Row(
           children: [
@@ -468,9 +464,9 @@ class _ExportDialogState extends State<ExportDialog> {
             ),
           ],
         ),
-        
+
         const SizedBox(height: 12),
-        
+
         // Important note
         Container(
           padding: const EdgeInsets.all(12),
@@ -482,15 +478,16 @@ class _ExportDialogState extends State<ExportDialog> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange[700], size: 20),
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.orange[700],
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Keep your passphrase safe! You cannot recover your backup without it.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.orange[900],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.orange[900]),
                 ),
               ),
             ],
@@ -499,7 +496,7 @@ class _ExportDialogState extends State<ExportDialog> {
       ],
     );
   }
-  
+
   List<Widget> _buildExportActions() {
     return [
       TextButton(
@@ -512,7 +509,7 @@ class _ExportDialogState extends State<ExportDialog> {
       ),
     ];
   }
-  
+
   List<Widget> _buildSuccessActions() {
     return [
       TextButton(

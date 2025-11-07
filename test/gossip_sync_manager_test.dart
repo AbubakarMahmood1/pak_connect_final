@@ -122,7 +122,11 @@ void main() {
       // Set a known hash for the mock queue
       mockQueue.setMockHash('my_hash_123');
 
-      final announcement = _createTestMessage('announce_1', 'sender_1', 'recipient_1');
+      final announcement = _createTestMessage(
+        'announce_1',
+        'sender_1',
+        'recipient_1',
+      );
 
       manager.trackPublicMessage(
         messageId: 'announce_1',
@@ -132,7 +136,11 @@ void main() {
 
       // Verify announcement was tracked
       final stats = manager.getStatistics();
-      expect(stats['trackedAnnouncements'], 1, reason: 'Announcement should be tracked');
+      expect(
+        stats['trackedAnnouncements'],
+        1,
+        reason: 'Announcement should be tracked',
+      );
 
       // Peer doesn't have any messages (empty list) and has different hash
       final syncRequest = QueueSyncMessage.createRequest(
@@ -177,7 +185,11 @@ void main() {
     });
 
     test('removes announcement for peer', () {
-      final announcement = _createTestMessage('announce_1', 'sender_1', 'recipient_1');
+      final announcement = _createTestMessage(
+        'announce_1',
+        'sender_1',
+        'recipient_1',
+      );
 
       manager.trackPublicMessage(
         messageId: 'announce_1',
@@ -277,7 +289,11 @@ class MockOfflineMessageQueue extends OfflineMessageQueue {
 }
 
 /// Helper to create test relay message
-MeshRelayMessage _createTestMessage(String messageId, String sender, String recipient) {
+MeshRelayMessage _createTestMessage(
+  String messageId,
+  String sender,
+  String recipient,
+) {
   final metadata = RelayMetadata.create(
     originalMessageContent: 'test content',
     priority: MessagePriority.normal,
