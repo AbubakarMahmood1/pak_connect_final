@@ -12,17 +12,17 @@ import '../../domain/interfaces/i_notification_handler.dart';
 import '../../core/services/navigation_service.dart';
 
 /// Background notification handler implementation
-/// 
+///
 /// Provides full notification support for Android, iOS, Linux, macOS, and Windows
 /// using flutter_local_notifications package.
-/// 
+///
 /// KEY FEATURES:
 /// - System tray notifications when app is backgrounded/killed
 /// - Notification channels for proper organization (Android 8.0+)
 /// - Handles user taps to navigate to relevant screens
 /// - Platform-specific optimizations
 /// - Proper permission handling
-/// 
+///
 /// USAGE:
 /// ```dart
 /// final handler = BackgroundNotificationHandlerImpl();
@@ -35,26 +35,28 @@ import '../../core/services/navigation_service.dart';
 /// ```
 class BackgroundNotificationHandlerImpl implements INotificationHandler {
   static final _logger = Logger('BackgroundNotificationHandlerImpl');
-  
+
   /// Flutter local notifications plugin instance
-  final FlutterLocalNotificationsPlugin _notificationsPlugin = 
+  final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
-  
+
   /// Track initialization state
   bool _isInitialized = false;
-  
+
   @override
   Future<void> initialize() async {
     if (_isInitialized) {
       _logger.fine('Already initialized');
       return;
     }
-    
+
     _logger.info('Initializing background notification handler');
-    
+
     try {
       // Platform-specific initialization settings
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const androidSettings = AndroidInitializationSettings(
+        '@mipmap/ic_launcher',
+      );
       const iosSettings = DarwinInitializationSettings(
         requestAlertPermission: true,
         requestBadgePermission: true,
@@ -63,30 +65,36 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
       const linuxSettings = LinuxInitializationSettings(
         defaultActionName: 'Open notification',
       );
-      
+
       const initSettings = InitializationSettings(
         android: androidSettings,
         iOS: iosSettings,
         linux: linuxSettings,
       );
-      
+
       // Initialize with tap callback
       await _notificationsPlugin.initialize(
         initSettings,
         onDidReceiveNotificationResponse: _onNotificationTapped,
       );
-      
+
       // Create notification channels (Android 8.0+)
       await _createNotificationChannels();
-      
+
       _isInitialized = true;
-      _logger.info('✅ Background notification handler initialized successfully');
+      _logger.info(
+        '✅ Background notification handler initialized successfully',
+      );
     } catch (e, stackTrace) {
-      _logger.severe('Failed to initialize notification handler', e, stackTrace);
+      _logger.severe(
+        'Failed to initialize notification handler',
+        e,
+        stackTrace,
+      );
       rethrow;
     }
   }
-  
+
   @override
   Future<void> showNotification({
     required String id,
@@ -103,11 +111,11 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
       _logger.warning('Cannot show notification: not initialized');
       return;
     }
-    
+
     try {
       final importance = _mapPriorityToImportance(priority);
       final androidPriority = _mapPriorityToAndroidPriority(priority);
-      
+
       final androidDetails = AndroidNotificationDetails(
         _getChannelId(channel),
         _getChannelName(channel),
@@ -120,18 +128,18 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         showWhen: true,
         when: DateTime.now().millisecondsSinceEpoch,
       );
-      
+
       const iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
       );
-      
+
       final platformDetails = NotificationDetails(
         android: androidDetails,
         iOS: iosDetails,
       );
-      
+
       await _notificationsPlugin.show(
         id.hashCode,
         title,
@@ -139,13 +147,13 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         platformDetails,
         payload: payload,
       );
-      
+
       _logger.fine('Notification shown: $title');
     } catch (e, stackTrace) {
       _logger.severe('Failed to show notification', e, stackTrace);
     }
   }
-  
+
   @override
   Future<void> showMessageNotification({
     required app_entities.Message message,
@@ -154,7 +162,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
     String? contactPublicKey,
   }) async {
     if (!_isInitialized) return;
-    
+
     try {
       // Use messaging style for Android
       final messagingStyle = MessagingStyleInformation(
@@ -169,11 +177,13 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         conversationTitle: contactName,
         groupConversation: false,
       );
-      
+
       final androidDetails = AndroidNotificationDetails(
         _getChannelId(NotificationChannel.messages),
         _getChannelName(NotificationChannel.messages),
-        channelDescription: _getChannelDescription(NotificationChannel.messages),
+        channelDescription: _getChannelDescription(
+          NotificationChannel.messages,
+        ),
         importance: Importance.high,
         priority: Priority.high,
         styleInformation: messagingStyle,
@@ -182,18 +192,18 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         visibility: NotificationVisibility.public,
         showWhen: true,
       );
-      
+
       const iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
       );
-      
+
       final platformDetails = NotificationDetails(
         android: androidDetails,
         iOS: iosDetails,
       );
-      
+
       await _notificationsPlugin.show(
         'msg_${message.id}'.hashCode,
         contactName,
@@ -206,20 +216,20 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
           'contactPublicKey': contactPublicKey ?? '',
         }),
       );
-      
+
       _logger.fine('Message notification shown from $contactName');
     } catch (e, stackTrace) {
       _logger.severe('Failed to show message notification', e, stackTrace);
     }
   }
-  
+
   @override
   Future<void> showContactRequestNotification({
     required String contactName,
     required String publicKey,
   }) async {
     if (!_isInitialized) return;
-    
+
     try {
       await showNotification(
         id: 'contact_$publicKey',
@@ -236,10 +246,14 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         vibrate: true,
       );
     } catch (e, stackTrace) {
-      _logger.severe('Failed to show contact request notification', e, stackTrace);
+      _logger.severe(
+        'Failed to show contact request notification',
+        e,
+        stackTrace,
+      );
     }
   }
-  
+
   @override
   Future<void> showSystemNotification({
     required String title,
@@ -247,7 +261,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
     NotificationPriority priority = NotificationPriority.default_,
   }) async {
     if (!_isInitialized) return;
-    
+
     try {
       await showNotification(
         id: 'system_${DateTime.now().millisecondsSinceEpoch}',
@@ -255,18 +269,22 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         body: message,
         channel: NotificationChannel.system,
         priority: priority,
-        playSound: priority == NotificationPriority.high || priority == NotificationPriority.max,
-        vibrate: priority == NotificationPriority.high || priority == NotificationPriority.max,
+        playSound:
+            priority == NotificationPriority.high ||
+            priority == NotificationPriority.max,
+        vibrate:
+            priority == NotificationPriority.high ||
+            priority == NotificationPriority.max,
       );
     } catch (e, stackTrace) {
       _logger.severe('Failed to show system notification', e, stackTrace);
     }
   }
-  
+
   @override
   Future<void> cancelNotification(String id) async {
     if (!_isInitialized) return;
-    
+
     try {
       await _notificationsPlugin.cancel(id.hashCode);
       _logger.fine('Notification cancelled: $id');
@@ -274,11 +292,11 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
       _logger.severe('Failed to cancel notification', e, stackTrace);
     }
   }
-  
+
   @override
   Future<void> cancelAllNotifications() async {
     if (!_isInitialized) return;
-    
+
     try {
       await _notificationsPlugin.cancelAll();
       _logger.info('All notifications cancelled');
@@ -286,29 +304,31 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
       _logger.severe('Failed to cancel all notifications', e, stackTrace);
     }
   }
-  
+
   @override
   Future<void> cancelChannelNotifications(NotificationChannel channel) async {
     // Note: flutter_local_notifications doesn't support cancelling by channel
     // Would need to track notification IDs per channel in app state
     _logger.warning('Channel-specific cancellation not implemented');
   }
-  
+
   @override
   Future<bool> areNotificationsEnabled() async {
     if (!_isInitialized) return false;
-    
+
     try {
       if (Platform.isAndroid) {
         final androidImpl = _notificationsPlugin
             .resolvePlatformSpecificImplementation<
-                AndroidFlutterLocalNotificationsPlugin>();
+              AndroidFlutterLocalNotificationsPlugin
+            >();
         final enabled = await androidImpl?.areNotificationsEnabled();
         return enabled ?? false;
       } else if (Platform.isIOS) {
         final iosImpl = _notificationsPlugin
             .resolvePlatformSpecificImplementation<
-                IOSFlutterLocalNotificationsPlugin>();
+              IOSFlutterLocalNotificationsPlugin
+            >();
         final perms = await iosImpl?.checkPermissions();
         return perms?.isEnabled ?? false;
       }
@@ -318,61 +338,68 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
       return false;
     }
   }
-  
+
   @override
   Future<bool> requestPermissions() async {
     if (!_isInitialized) return false;
-    
+
     try {
       _logger.info('Requesting notification permissions');
-      
+
       if (Platform.isAndroid) {
         final androidImpl = _notificationsPlugin
             .resolvePlatformSpecificImplementation<
-                AndroidFlutterLocalNotificationsPlugin>();
+              AndroidFlutterLocalNotificationsPlugin
+            >();
         final granted = await androidImpl?.requestNotificationsPermission();
-        _logger.info('Android permission: ${granted == true ? "granted" : "denied"}');
+        _logger.info(
+          'Android permission: ${granted == true ? "granted" : "denied"}',
+        );
         return granted ?? false;
       } else if (Platform.isIOS) {
         final iosImpl = _notificationsPlugin
             .resolvePlatformSpecificImplementation<
-                IOSFlutterLocalNotificationsPlugin>();
+              IOSFlutterLocalNotificationsPlugin
+            >();
         final granted = await iosImpl?.requestPermissions(
           alert: true,
           badge: true,
           sound: true,
         );
-        _logger.info('iOS permission: ${granted == true ? "granted" : "denied"}');
+        _logger.info(
+          'iOS permission: ${granted == true ? "granted" : "denied"}',
+        );
         return granted ?? false;
       }
-      
+
       return false;
     } catch (e, stackTrace) {
       _logger.severe('Failed to request permissions', e, stackTrace);
       return false;
     }
   }
-  
+
   @override
   void dispose() {
     _logger.info('Disposing notification handler');
     _isInitialized = false;
   }
-  
+
   // ============================================================================
   // PRIVATE HELPER METHODS
   // ============================================================================
-  
+
   Future<void> _createNotificationChannels() async {
     if (!Platform.isAndroid) return;
-    
+
     try {
       final androidImpl = _notificationsPlugin
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
-      
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+
       if (androidImpl == null) return;
-      
+
       // Messages channel
       await androidImpl.createNotificationChannel(
         AndroidNotificationChannel(
@@ -385,7 +412,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
           showBadge: true,
         ),
       );
-      
+
       // Contacts channel
       await androidImpl.createNotificationChannel(
         AndroidNotificationChannel(
@@ -398,7 +425,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
           showBadge: true,
         ),
       );
-      
+
       // System channel
       await androidImpl.createNotificationChannel(
         AndroidNotificationChannel(
@@ -411,7 +438,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
           showBadge: false,
         ),
       );
-      
+
       // Mesh relay channel
       await androidImpl.createNotificationChannel(
         AndroidNotificationChannel(
@@ -424,7 +451,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
           showBadge: false,
         ),
       );
-      
+
       // Archive status channel
       await androidImpl.createNotificationChannel(
         AndroidNotificationChannel(
@@ -437,33 +464,33 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
           showBadge: false,
         ),
       );
-      
+
       _logger.fine('Notification channels created');
     } catch (e, stackTrace) {
       _logger.severe('Failed to create channels', e, stackTrace);
     }
   }
-  
+
   void _onNotificationTapped(NotificationResponse response) {
     _logger.info('Notification tapped: ${response.payload}');
-    
+
     if (response.payload == null || response.payload!.isEmpty) {
       _logger.warning('No payload in notification, cannot navigate');
       return;
     }
-    
+
     try {
       // Parse the JSON payload
       final payloadData = jsonDecode(response.payload!) as Map<String, dynamic>;
       final type = payloadData['type'] as String?;
-      
+
       switch (type) {
         case 'message':
           // Navigate to chat screen
           final chatId = payloadData['chatId'] as String?;
           final contactName = payloadData['contactName'] as String?;
           final contactPublicKey = payloadData['contactPublicKey'] as String?;
-          
+
           if (chatId != null && contactName != null) {
             _logger.info('Navigating to chat: $chatId ($contactName)');
             NavigationService.instance.navigateToChatById(
@@ -473,12 +500,12 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
             );
           }
           break;
-          
+
         case 'contact_request':
           // Navigate to contacts screen
           final publicKey = payloadData['publicKey'] as String?;
           final contactName = payloadData['contactName'] as String?;
-          
+
           if (publicKey != null && contactName != null) {
             _logger.info('Navigating to contact request: $contactName');
             NavigationService.instance.navigateToContactRequest(
@@ -487,7 +514,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
             );
           }
           break;
-          
+
         default:
           // System notification or unknown type - navigate to home
           _logger.info('Navigating to home screen');
@@ -500,7 +527,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
       NavigationService.instance.navigateToHome();
     }
   }
-  
+
   String _getChannelId(NotificationChannel channel) {
     switch (channel) {
       case NotificationChannel.messages:
@@ -515,7 +542,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         return 'archive_status';
     }
   }
-  
+
   String _getChannelName(NotificationChannel channel) {
     switch (channel) {
       case NotificationChannel.messages:
@@ -530,7 +557,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         return 'Archive Operations';
     }
   }
-  
+
   String _getChannelDescription(NotificationChannel channel) {
     switch (channel) {
       case NotificationChannel.messages:
@@ -545,7 +572,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         return 'Progress updates for archive import/export operations';
     }
   }
-  
+
   Importance _mapPriorityToImportance(NotificationPriority priority) {
     switch (priority) {
       case NotificationPriority.low:
@@ -558,7 +585,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         return Importance.max;
     }
   }
-  
+
   Priority _mapPriorityToAndroidPriority(NotificationPriority priority) {
     switch (priority) {
       case NotificationPriority.low:

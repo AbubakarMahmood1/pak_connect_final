@@ -24,21 +24,14 @@ class BluetoothStatusWidget extends StatelessWidget {
       decoration: BoxDecoration(
         color: _getBackgroundColor(theme),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _getBorderColor(theme),
-          width: 1,
-        ),
+        border: Border.all(color: _getBorderColor(theme), width: 1),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              Icon(
-                _getIcon(),
-                color: _getIconColor(theme),
-                size: 24,
-              ),
+              Icon(_getIcon(), color: _getIconColor(theme), size: 24),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -55,7 +48,9 @@ class BluetoothStatusWidget extends StatelessWidget {
                       Text(
                         message.actionHint!,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.7,
+                          ),
                         ),
                       ),
                     ],
@@ -151,34 +146,35 @@ class BluetoothStatusWidget extends StatelessWidget {
   Color _getBorderColor(ThemeData theme) {
     switch (message.type) {
       case BluetoothMessageType.ready:
-        return Colors.green.withValues(alpha:0.3);
+        return Colors.green.withValues(alpha: 0.3);
       case BluetoothMessageType.disabled:
       case BluetoothMessageType.unauthorized:
       case BluetoothMessageType.unsupported:
-        return Colors.orange.withValues(alpha:0.3);
+        return Colors.orange.withValues(alpha: 0.3);
       case BluetoothMessageType.unknown:
       case BluetoothMessageType.initializing:
-        return theme.colorScheme.primary.withValues(alpha:0.3);
+        return theme.colorScheme.primary.withValues(alpha: 0.3);
       case BluetoothMessageType.error:
-        return Colors.red.withValues(alpha:0.3);
+        return Colors.red.withValues(alpha: 0.3);
     }
   }
 
   bool _shouldShowActions() {
     return message.type != BluetoothMessageType.ready &&
-           message.type != BluetoothMessageType.initializing;
+        message.type != BluetoothMessageType.initializing;
   }
 
   bool _shouldShowSettingsButton() {
     return message.type == BluetoothMessageType.disabled ||
-           message.type == BluetoothMessageType.unauthorized ||
-           message.type == BluetoothMessageType.unsupported;
+        message.type == BluetoothMessageType.unauthorized ||
+        message.type == BluetoothMessageType.unsupported;
   }
 }
 
 /// Stream builder widget for displaying real-time Bluetooth status
 class BluetoothStatusListener extends StatelessWidget {
-  final Widget Function(BuildContext context, BluetoothStatusMessage? message) builder;
+  final Widget Function(BuildContext context, BluetoothStatusMessage? message)
+  builder;
   final Stream<BluetoothStatusMessage> messageStream;
 
   const BluetoothStatusListener({
@@ -222,10 +218,7 @@ class BluetoothBanner extends StatelessWidget {
     }
 
     return MaterialBanner(
-      leading: Icon(
-        _getIcon(),
-        color: _getIconColor(theme),
-      ),
+      leading: Icon(_getIcon(), color: _getIconColor(theme)),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -241,7 +234,7 @@ class BluetoothBanner extends StatelessWidget {
             Text(
               message.actionHint!,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha:0.7),
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
               ),
             ),
           ],
@@ -249,15 +242,9 @@ class BluetoothBanner extends StatelessWidget {
       ),
       actions: [
         if (onAction != null)
-          TextButton(
-            onPressed: onAction,
-            child: Text(_getActionText()),
-          ),
+          TextButton(onPressed: onAction, child: Text(_getActionText())),
         if (onDismiss != null)
-          TextButton(
-            onPressed: onDismiss,
-            child: const Text('Dismiss'),
-          ),
+          TextButton(onPressed: onDismiss, child: const Text('Dismiss')),
       ],
       backgroundColor: _getBackgroundColor(theme),
     );
@@ -298,11 +285,11 @@ class BluetoothBanner extends StatelessWidget {
       case BluetoothMessageType.disabled:
       case BluetoothMessageType.unauthorized:
       case BluetoothMessageType.unsupported:
-        return Colors.orange.withValues(alpha:0.1);
+        return Colors.orange.withValues(alpha: 0.1);
       case BluetoothMessageType.error:
         return Colors.red.withValues(alpha: 0.1);
       default:
-        return theme.colorScheme.primary.withValues(alpha:0.1);
+        return theme.colorScheme.primary.withValues(alpha: 0.1);
     }
   }
 

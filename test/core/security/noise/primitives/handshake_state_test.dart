@@ -12,14 +12,14 @@ void main() {
     late Uint8List bobStaticPrivate;
     late Uint8List aliceStaticPublic;
     late Uint8List bobStaticPublic;
-    
+
     setUp(() {
       final aliceDH = DHState();
       aliceDH.generateKeyPair();
       aliceStaticPrivate = Uint8List.fromList(aliceDH.getPrivateKey()!);
       aliceStaticPublic = Uint8List.fromList(aliceDH.getPublicKey()!);
       aliceDH.destroy();
-      
+
       final bobDH = DHState();
       bobDH.generateKeyPair();
       bobStaticPrivate = Uint8List.fromList(bobDH.getPrivateKey()!);
@@ -58,7 +58,7 @@ void main() {
       final messageA = await alice.writeMessageA();
       expect(messageA.length, equals(32));
       expect(alice.isComplete(), isFalse);
-      
+
       alice.destroy();
     });
 
@@ -74,17 +74,17 @@ void main() {
 
       final messageA = await alice.writeMessageA();
       expect(messageA.length, equals(32));
-      
+
       await bob.readMessageA(messageA);
 
       final messageB = await bob.writeMessageB();
       expect(messageB.length, greaterThan(32));
-      
+
       await alice.readMessageB(messageB);
 
       final messageC = await alice.writeMessageC();
       expect(messageC.length, equals(48));
-      
+
       await bob.readMessageC(messageC);
 
       expect(alice.getHandshakeHash(), equals(bob.getHandshakeHash()));
@@ -92,7 +92,7 @@ void main() {
       expect(bob.getRemoteStaticPublicKey(), equals(aliceStaticPublic));
       expect(alice.isComplete(), isTrue);
       expect(bob.isComplete(), isTrue);
-      
+
       alice.destroy();
       bob.destroy();
     });
@@ -118,17 +118,29 @@ void main() {
       final bobCiphers = bob.split();
 
       final testMessage = Uint8List.fromList([1, 2, 3, 4, 5]);
-      
+
       // Alice (initiator) sends with $1, Bob (responder) receives with $2
-      final encrypted = await aliceCiphers.$1.encryptWithAd(Uint8List(0), testMessage);
-      final decrypted = await bobCiphers.$2.decryptWithAd(Uint8List(0), encrypted);
+      final encrypted = await aliceCiphers.$1.encryptWithAd(
+        Uint8List(0),
+        testMessage,
+      );
+      final decrypted = await bobCiphers.$2.decryptWithAd(
+        Uint8List(0),
+        encrypted,
+      );
       expect(decrypted, equals(testMessage));
 
       // Bob (responder) sends with $1, Alice (initiator) receives with $2
-      final encrypted2 = await bobCiphers.$1.encryptWithAd(Uint8List(0), testMessage);
-      final decrypted2 = await aliceCiphers.$2.decryptWithAd(Uint8List(0), encrypted2);
+      final encrypted2 = await bobCiphers.$1.encryptWithAd(
+        Uint8List(0),
+        testMessage,
+      );
+      final decrypted2 = await aliceCiphers.$2.decryptWithAd(
+        Uint8List(0),
+        encrypted2,
+      );
       expect(decrypted2, equals(testMessage));
-      
+
       aliceCiphers.$1.destroy();
       aliceCiphers.$2.destroy();
       bobCiphers.$1.destroy();

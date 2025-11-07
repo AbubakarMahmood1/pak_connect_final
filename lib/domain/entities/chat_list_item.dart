@@ -8,7 +8,7 @@ class ChatListItem {
   final bool isOnline;
   final bool hasUnsentMessages;
   final DateTime? lastSeen;
-  
+
   const ChatListItem({
     required this.chatId,
     required this.contactName,
@@ -20,13 +20,13 @@ class ChatListItem {
     required this.hasUnsentMessages,
     this.lastSeen,
   });
-  
+
   bool get hasMessages => lastMessage != null;
-  
+
   String get displayLastSeen {
     if (isOnline) return 'Online';
     if (lastSeen == null) return 'Last seen unknown';
-    
+
     final diff = DateTime.now().difference(lastSeen!);
     if (diff.inMinutes < 1) return 'Just now';
     if (diff.inHours < 1) return '${diff.inMinutes}m ago';

@@ -47,31 +47,34 @@ void main() {
       expect(decoded.meshRelayOriginalMessageId, equals('test-msg-123'));
     });
 
-    test('Should handle meshRelay without message type (backward compatibility)', () {
-      final message = ProtocolMessage.meshRelay(
-        originalMessageId: 'test-msg-123',
-        originalSender: 'sender-abc',
-        finalRecipient: 'recipient-xyz',
-        relayMetadata: {
-          'ttl': 10,
-          'hopCount': 1,
-          'routingPath': ['node1'],
-          'messageHash': 'hash123',
-          'priority': 2,
-          'relayTimestamp': DateTime.now().millisecondsSinceEpoch,
-          'originalSender': 'sender-abc',
-          'finalRecipient': 'recipient-xyz',
-          'senderRateCount': 0,
-        },
-        originalPayload: {'content': 'Hello World'},
-      );
+    test(
+      'Should handle meshRelay without message type (backward compatibility)',
+      () {
+        final message = ProtocolMessage.meshRelay(
+          originalMessageId: 'test-msg-123',
+          originalSender: 'sender-abc',
+          finalRecipient: 'recipient-xyz',
+          relayMetadata: {
+            'ttl': 10,
+            'hopCount': 1,
+            'routingPath': ['node1'],
+            'messageHash': 'hash123',
+            'priority': 2,
+            'relayTimestamp': DateTime.now().millisecondsSinceEpoch,
+            'originalSender': 'sender-abc',
+            'finalRecipient': 'recipient-xyz',
+            'senderRateCount': 0,
+          },
+          originalPayload: {'content': 'Hello World'},
+        );
 
-      final bytes = message.toBytes();
-      final decoded = ProtocolMessage.fromBytes(bytes);
+        final bytes = message.toBytes();
+        final decoded = ProtocolMessage.fromBytes(bytes);
 
-      expect(decoded.type, equals(ProtocolMessageType.meshRelay));
-      expect(decoded.meshRelayOriginalMessageType, isNull);
-    });
+        expect(decoded.type, equals(ProtocolMessageType.meshRelay));
+        expect(decoded.meshRelayOriginalMessageType, isNull);
+      },
+    );
 
     test('Should preserve all message types through serialization', () {
       final testTypes = [
@@ -104,8 +107,11 @@ void main() {
         final bytes = message.toBytes();
         final decoded = ProtocolMessage.fromBytes(bytes);
 
-        expect(decoded.meshRelayOriginalMessageType, equals(originalType),
-            reason: 'Failed to preserve ${originalType.name}');
+        expect(
+          decoded.meshRelayOriginalMessageType,
+          equals(originalType),
+          reason: 'Failed to preserve ${originalType.name}',
+        );
       }
     });
   });
@@ -128,7 +134,10 @@ void main() {
         originalMessageType: ProtocolMessageType.textMessage,
       );
 
-      expect(message.originalMessageType, equals(ProtocolMessageType.textMessage));
+      expect(
+        message.originalMessageType,
+        equals(ProtocolMessageType.textMessage),
+      );
     });
 
     test('Should preserve message type through nextHop', () {
@@ -150,7 +159,10 @@ void main() {
 
       final nextHopMessage = originalMessage.nextHop('node2');
 
-      expect(nextHopMessage.originalMessageType, equals(ProtocolMessageType.textMessage));
+      expect(
+        nextHopMessage.originalMessageType,
+        equals(ProtocolMessageType.textMessage),
+      );
       expect(nextHopMessage.relayMetadata.hopCount, equals(2));
     });
 
@@ -174,7 +186,10 @@ void main() {
       final json = original.toJson();
       final decoded = MeshRelayMessage.fromJson(json);
 
-      expect(decoded.originalMessageType, equals(ProtocolMessageType.queueSync));
+      expect(
+        decoded.originalMessageType,
+        equals(ProtocolMessageType.queueSync),
+      );
       expect(decoded.originalMessageId, equals('msg-001'));
     });
 
@@ -222,9 +237,7 @@ void main() {
         spamPrevention: spamPrevention,
       );
 
-      await relayEngine.initialize(
-        currentNodeId: 'node-current',
-      );
+      await relayEngine.initialize(currentNodeId: 'node-current');
 
       // Ensure relay is enabled
       final config = RelayConfigManager.instance;
@@ -264,7 +277,7 @@ void main() {
         originalMessageContent: 'Hello',
         priority: MessagePriority.normal,
         originalSender: 'sender',
-        finalRecipient: 'node-current',  // Address to us
+        finalRecipient: 'node-current', // Address to us
         currentNodeId: 'node1',
       );
 
@@ -284,26 +297,40 @@ void main() {
 
       // Should be delivered to self OR relayed (not dropped for message type)
       // The key check is that it's not dropped due to message type filtering
-      expect(result.type, isNot(equals(RelayProcessingType.dropped)),
-          reason: 'Text messages should not be dropped due to message type filtering');
+      expect(
+        result.type,
+        isNot(equals(RelayProcessingType.dropped)),
+        reason:
+            'Text messages should not be dropped due to message type filtering',
+      );
 
       // If it failed with error, check that it's not message type related
       if (result.type == RelayProcessingType.error) {
-        expect(result.reason, isNot(contains('cannot be relayed')),
-            reason: 'Error should not be message type related');
+        expect(
+          result.reason,
+          isNot(contains('cannot be relayed')),
+          reason: 'Error should not be message type related',
+        );
       }
     });
 
-    test('Should prevent creating relay for non-eligible message type', () async {
-      final relayMessage = await relayEngine.createOutgoingRelay(
-        originalMessageId: 'msg-001',
-        originalContent: 'Pairing request',
-        finalRecipientPublicKey: 'recipient',
-        originalMessageType: ProtocolMessageType.pairingRequest,
-      );
+    test(
+      'Should prevent creating relay for non-eligible message type',
+      () async {
+        final relayMessage = await relayEngine.createOutgoingRelay(
+          originalMessageId: 'msg-001',
+          originalContent: 'Pairing request',
+          finalRecipientPublicKey: 'recipient',
+          originalMessageType: ProtocolMessageType.pairingRequest,
+        );
 
-      expect(relayMessage, isNull, reason: 'Should not create relay for pairing messages');
-    });
+        expect(
+          relayMessage,
+          isNull,
+          reason: 'Should not create relay for pairing messages',
+        );
+      },
+    );
 
     test('Should allow creating relay for eligible message type', () async {
       final relayMessage = await relayEngine.createOutgoingRelay(
@@ -314,7 +341,10 @@ void main() {
       );
 
       expect(relayMessage, isNotNull);
-      expect(relayMessage!.originalMessageType, equals(ProtocolMessageType.textMessage));
+      expect(
+        relayMessage!.originalMessageType,
+        equals(ProtocolMessageType.textMessage),
+      );
     });
 
     test('Should handle null message type gracefully', () async {
@@ -340,66 +370,88 @@ void main() {
       );
 
       // Should not be dropped for missing message type (might error for other reasons, but not type filtering)
-      expect(result.type, isNot(equals(RelayProcessingType.dropped)),
-          reason: 'Should not be dropped when message type is null');
+      expect(
+        result.type,
+        isNot(equals(RelayProcessingType.dropped)),
+        reason: 'Should not be dropped when message type is null',
+      );
 
       // If it failed, verify it's not due to message type issues
-      if (result.type == RelayProcessingType.dropped || result.type == RelayProcessingType.error) {
-        expect(result.reason, isNot(contains('not relay-eligible')),
-            reason: 'Should not fail due to message type when type is null');
+      if (result.type == RelayProcessingType.dropped ||
+          result.type == RelayProcessingType.error) {
+        expect(
+          result.reason,
+          isNot(contains('not relay-eligible')),
+          reason: 'Should not fail due to message type when type is null',
+        );
       }
     });
   });
 
   group('Phase 2: Integration Tests', () {
-    test('Should preserve message type through multi-hop relay chain', () async {
-      final contactRepo = ContactRepository();
-      final messageQueue = OfflineMessageQueue();
-      await messageQueue.initialize(contactRepository: contactRepo);
-      final spamPrevention = SpamPreventionManager();
-      await spamPrevention.initialize();
+    test(
+      'Should preserve message type through multi-hop relay chain',
+      () async {
+        final contactRepo = ContactRepository();
+        final messageQueue = OfflineMessageQueue();
+        await messageQueue.initialize(contactRepository: contactRepo);
+        final spamPrevention = SpamPreventionManager();
+        await spamPrevention.initialize();
 
-      // Create relay engine for node A
-      final engineA = MeshRelayEngine(
-        contactRepository: contactRepo,
-        messageQueue: messageQueue,
-        spamPrevention: spamPrevention,
-      );
-      await engineA.initialize(currentNodeId: 'node-A');
+        // Create relay engine for node A
+        final engineA = MeshRelayEngine(
+          contactRepository: contactRepo,
+          messageQueue: messageQueue,
+          spamPrevention: spamPrevention,
+        );
+        await engineA.initialize(currentNodeId: 'node-A');
 
-      // Create initial relay message
-      final originalMetadata = RelayMetadata.create(
-        originalMessageContent: 'Multi-hop test',
-        priority: MessagePriority.normal,
-        originalSender: 'node-originator',
-        finalRecipient: 'node-final',
-        currentNodeId: 'node-originator',
-      );
+        // Create initial relay message
+        final originalMetadata = RelayMetadata.create(
+          originalMessageContent: 'Multi-hop test',
+          priority: MessagePriority.normal,
+          originalSender: 'node-originator',
+          finalRecipient: 'node-final',
+          currentNodeId: 'node-originator',
+        );
 
-      var relayMessage = MeshRelayMessage.createRelay(
-        originalMessageId: 'multi-hop-msg',
-        originalContent: 'Multi-hop test',
-        metadata: originalMetadata,
-        relayNodeId: 'node-originator',
-        originalMessageType: ProtocolMessageType.textMessage,
-      );
+        var relayMessage = MeshRelayMessage.createRelay(
+          originalMessageId: 'multi-hop-msg',
+          originalContent: 'Multi-hop test',
+          metadata: originalMetadata,
+          relayNodeId: 'node-originator',
+          originalMessageType: ProtocolMessageType.textMessage,
+        );
 
-      // Simulate 3 hops
-      relayMessage = relayMessage.nextHop('node-A');
-      expect(relayMessage.originalMessageType, equals(ProtocolMessageType.textMessage));
-      expect(relayMessage.relayMetadata.hopCount, equals(2));
+        // Simulate 3 hops
+        relayMessage = relayMessage.nextHop('node-A');
+        expect(
+          relayMessage.originalMessageType,
+          equals(ProtocolMessageType.textMessage),
+        );
+        expect(relayMessage.relayMetadata.hopCount, equals(2));
 
-      relayMessage = relayMessage.nextHop('node-B');
-      expect(relayMessage.originalMessageType, equals(ProtocolMessageType.textMessage));
-      expect(relayMessage.relayMetadata.hopCount, equals(3));
+        relayMessage = relayMessage.nextHop('node-B');
+        expect(
+          relayMessage.originalMessageType,
+          equals(ProtocolMessageType.textMessage),
+        );
+        expect(relayMessage.relayMetadata.hopCount, equals(3));
 
-      relayMessage = relayMessage.nextHop('node-C');
-      expect(relayMessage.originalMessageType, equals(ProtocolMessageType.textMessage));
-      expect(relayMessage.relayMetadata.hopCount, equals(4));
+        relayMessage = relayMessage.nextHop('node-C');
+        expect(
+          relayMessage.originalMessageType,
+          equals(ProtocolMessageType.textMessage),
+        );
+        expect(relayMessage.relayMetadata.hopCount, equals(4));
 
-      // Message type should be preserved through entire chain
-      expect(relayMessage.originalMessageType, equals(ProtocolMessageType.textMessage));
-    });
+        // Message type should be preserved through entire chain
+        expect(
+          relayMessage.originalMessageType,
+          equals(ProtocolMessageType.textMessage),
+        );
+      },
+    );
 
     test('All message types should have consistent filtering behavior', () {
       // Test each message type for consistency

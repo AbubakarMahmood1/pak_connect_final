@@ -43,17 +43,18 @@ class QueryStatistics {
     required this.lastExecuted,
   });
 
-  double get averageDurationMs => executionCount > 0 ? totalDurationMs / executionCount : 0;
+  double get averageDurationMs =>
+      executionCount > 0 ? totalDurationMs / executionCount : 0;
 
   Map<String, dynamic> toJson() => {
-        'query': _sanitizeQuery(query),
-        'execution_count': executionCount,
-        'total_duration_ms': totalDurationMs,
-        'min_duration_ms': minDurationMs,
-        'max_duration_ms': maxDurationMs,
-        'avg_duration_ms': averageDurationMs.toStringAsFixed(2),
-        'last_executed': lastExecuted.toIso8601String(),
-      };
+    'query': _sanitizeQuery(query),
+    'execution_count': executionCount,
+    'total_duration_ms': totalDurationMs,
+    'min_duration_ms': minDurationMs,
+    'max_duration_ms': maxDurationMs,
+    'avg_duration_ms': averageDurationMs.toStringAsFixed(2),
+    'last_executed': lastExecuted.toIso8601String(),
+  };
 
   static String _sanitizeQuery(String query) {
     // Remove potential sensitive data from query for logging
@@ -73,8 +74,8 @@ class _QueuedOperation<T> {
     required this.priority,
     required this.operation,
     required this.description,
-  })  : completer = Completer<T>(),
-        queuedAt = DateTime.now();
+  }) : completer = Completer<T>(),
+       queuedAt = DateTime.now();
 
   int get waitTimeMs => DateTime.now().difference(queuedAt).inMilliseconds;
 }
@@ -86,14 +87,15 @@ class BatchWriteOperation {
   final DateTime createdAt = DateTime.now();
 
   void addInsert(String table, Map<String, dynamic> values) {
-    operations.add({
-      'type': 'insert',
-      'table': table,
-      'values': values,
-    });
+    operations.add({'type': 'insert', 'table': table, 'values': values});
   }
 
-  void addUpdate(String table, Map<String, dynamic> values, String where, List<dynamic> whereArgs) {
+  void addUpdate(
+    String table,
+    Map<String, dynamic> values,
+    String where,
+    List<dynamic> whereArgs,
+  ) {
     operations.add({
       'type': 'update',
       'table': table,
@@ -119,7 +121,8 @@ class BatchWriteOperation {
 /// Main query optimizer and connection manager
 class DatabaseQueryOptimizer {
   static DatabaseQueryOptimizer? _instance;
-  static DatabaseQueryOptimizer get instance => _instance ??= DatabaseQueryOptimizer._();
+  static DatabaseQueryOptimizer get instance =>
+      _instance ??= DatabaseQueryOptimizer._();
 
   DatabaseQueryOptimizer._();
 
@@ -209,7 +212,9 @@ class DatabaseQueryOptimizer {
   }
 
   /// Batch multiple write operations into a single transaction
-  Future<void> executeBatch(Future<void> Function(Batch batch) operations) async {
+  Future<void> executeBatch(
+    Future<void> Function(Batch batch) operations,
+  ) async {
     return executeQuery(
       operation: () async {
         final db = await DatabaseHelper.database;
@@ -309,7 +314,8 @@ class DatabaseQueryOptimizer {
           return await operation(txn);
         });
       } catch (e) {
-        if (e.toString().contains('database is locked') && retryCount < maxRetries) {
+        if (e.toString().contains('database is locked') &&
+            retryCount < maxRetries) {
           retryCount++;
           _logger.warning('Database locked, retry $retryCount/$maxRetries');
           await Future.delayed(Duration(milliseconds: 50 * retryCount));
@@ -343,7 +349,9 @@ class DatabaseQueryOptimizer {
     return {
       'total_queries_executed': totalQueries,
       'total_duration_ms': totalDuration,
-      'average_query_time_ms': totalQueries > 0 ? (totalDuration / totalQueries).toStringAsFixed(2) : '0',
+      'average_query_time_ms': totalQueries > 0
+          ? (totalDuration / totalQueries).toStringAsFixed(2)
+          : '0',
       'unique_queries': _queryStats.length,
       'slow_queries': slowQueries.map((q) => q.toJson()).toList(),
       'queue_size': _queryQueue.length,
@@ -353,10 +361,11 @@ class DatabaseQueryOptimizer {
 
   /// Get slow queries report
   List<QueryStatistics> getSlowQueries({int? limit}) {
-    final slowQueries = _queryStats.values
-        .where((q) => q.averageDurationMs > _slowQueryThresholdMs)
-        .toList()
-      ..sort((a, b) => b.averageDurationMs.compareTo(a.averageDurationMs));
+    final slowQueries =
+        _queryStats.values
+            .where((q) => q.averageDurationMs > _slowQueryThresholdMs)
+            .toList()
+          ..sort((a, b) => b.averageDurationMs.compareTo(a.averageDurationMs));
 
     if (limit != null && slowQueries.length > limit) {
       return slowQueries.take(limit).toList();
@@ -403,14 +412,20 @@ class DatabaseQueryOptimizer {
 
         // Warn if operation waited too long
         if (op.waitTimeMs > 1000) {
-          _logger.warning('Operation "${op.description}" waited ${op.waitTimeMs}ms in queue');
+          _logger.warning(
+            'Operation "${op.description}" waited ${op.waitTimeMs}ms in queue',
+          );
         }
 
         try {
           final result = await op.operation();
           op.completer.complete(result);
         } catch (e, stackTrace) {
-          _logger.severe('Query execution failed: ${op.description}', e, stackTrace);
+          _logger.severe(
+            'Query execution failed: ${op.description}',
+            e,
+            stackTrace,
+          );
           op.completer.completeError(e, stackTrace);
         }
       }
@@ -428,8 +443,12 @@ class DatabaseQueryOptimizer {
         query: query,
         executionCount: existing.executionCount + 1,
         totalDurationMs: existing.totalDurationMs + durationMs,
-        minDurationMs: durationMs < existing.minDurationMs ? durationMs : existing.minDurationMs,
-        maxDurationMs: durationMs > existing.maxDurationMs ? durationMs : existing.maxDurationMs,
+        minDurationMs: durationMs < existing.minDurationMs
+            ? durationMs
+            : existing.minDurationMs,
+        maxDurationMs: durationMs > existing.maxDurationMs
+            ? durationMs
+            : existing.maxDurationMs,
         lastExecuted: DateTime.now(),
       );
     } else {
@@ -445,9 +464,13 @@ class DatabaseQueryOptimizer {
 
     // Log slow queries
     if (durationMs > _criticalSlowQueryMs) {
-      _logger.warning('CRITICAL SLOW QUERY (${durationMs}ms): ${_sanitizeQueryForLogging(query)}');
+      _logger.warning(
+        'CRITICAL SLOW QUERY (${durationMs}ms): ${_sanitizeQueryForLogging(query)}',
+      );
     } else if (durationMs > _slowQueryThresholdMs) {
-      _logger.info('Slow query (${durationMs}ms): ${_sanitizeQueryForLogging(query)}');
+      _logger.info(
+        'Slow query (${durationMs}ms): ${_sanitizeQueryForLogging(query)}',
+      );
     }
   }
 

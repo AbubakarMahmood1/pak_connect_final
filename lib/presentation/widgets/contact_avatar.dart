@@ -105,10 +105,7 @@ class LargeContactAvatar extends StatelessWidget {
     );
 
     if (heroTag != null) {
-      return Hero(
-        tag: heroTag!,
-        child: avatar,
-      );
+      return Hero(tag: heroTag!, child: avatar);
     }
 
     return avatar;

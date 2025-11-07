@@ -24,41 +24,48 @@ void main() {
       expect(PowerMode.ultraLowPower.toString(), contains('ultraLowPower'));
     });
 
-    test('PowerManagementStats calculates duty cycle percentages correctly', () {
-      // Test each power mode's duty cycle calculation
-      final perfStats = PowerManagementStats(
-        currentScanInterval: 60000,
-        currentHealthCheckInterval: 30000,
-        consecutiveSuccessfulChecks: 0,
-        consecutiveFailedChecks: 0,
-        connectionQualityScore: 0.5,
-        connectionStabilityScore: 0.5,
-        timeSinceLastSuccess: Duration.zero,
-        qualityMeasurementsCount: 0,
-        isBurstMode: false,
-        powerMode: PowerMode.performance,
-        isDutyCycleScanning: true,
-        batteryLevel: 100,
-        isCharging: true,
-        isAppInBackground: false,
-      );
+    test(
+      'PowerManagementStats calculates duty cycle percentages correctly',
+      () {
+        // Test each power mode's duty cycle calculation
+        final perfStats = PowerManagementStats(
+          currentScanInterval: 60000,
+          currentHealthCheckInterval: 30000,
+          consecutiveSuccessfulChecks: 0,
+          consecutiveFailedChecks: 0,
+          connectionQualityScore: 0.5,
+          connectionStabilityScore: 0.5,
+          timeSinceLastSuccess: Duration.zero,
+          qualityMeasurementsCount: 0,
+          isBurstMode: false,
+          powerMode: PowerMode.performance,
+          isDutyCycleScanning: true,
+          batteryLevel: 100,
+          isCharging: true,
+          isAppInBackground: false,
+        );
 
-      final balancedStats = perfStats.copyWith(powerMode: PowerMode.balanced);
-      final powerSaverStats = perfStats.copyWith(powerMode: PowerMode.powerSaver);
-      final ultraLowStats = perfStats.copyWith(powerMode: PowerMode.ultraLowPower);
+        final balancedStats = perfStats.copyWith(powerMode: PowerMode.balanced);
+        final powerSaverStats = perfStats.copyWith(
+          powerMode: PowerMode.powerSaver,
+        );
+        final ultraLowStats = perfStats.copyWith(
+          powerMode: PowerMode.ultraLowPower,
+        );
 
-      // Verify duty cycle percentages match BitChat
-      expect(perfStats.dutyCyclePercentage, 100.0); // Continuous scanning
-      expect(balancedStats.dutyCyclePercentage, 80.0); // 8s ON / 2s OFF
-      expect(powerSaverStats.dutyCyclePercentage, 20.0); // 2s ON / 8s OFF
-      expect(ultraLowStats.dutyCyclePercentage, 9.0); // 1s ON / 10s OFF
+        // Verify duty cycle percentages match BitChat
+        expect(perfStats.dutyCyclePercentage, 100.0); // Continuous scanning
+        expect(balancedStats.dutyCyclePercentage, 80.0); // 8s ON / 2s OFF
+        expect(powerSaverStats.dutyCyclePercentage, 20.0); // 2s ON / 8s OFF
+        expect(ultraLowStats.dutyCyclePercentage, 9.0); // 1s ON / 10s OFF
 
-      print('✅ Duty cycle percentages verified:');
-      print('   Performance: ${perfStats.dutyCyclePercentage}%');
-      print('   Balanced: ${balancedStats.dutyCyclePercentage}%');
-      print('   Power Saver: ${powerSaverStats.dutyCyclePercentage}%');
-      print('   Ultra Low: ${ultraLowStats.dutyCyclePercentage}%');
-    });
+        print('✅ Duty cycle percentages verified:');
+        print('   Performance: ${perfStats.dutyCyclePercentage}%');
+        print('   Balanced: ${balancedStats.dutyCyclePercentage}%');
+        print('   Power Saver: ${powerSaverStats.dutyCyclePercentage}%');
+        print('   Ultra Low: ${ultraLowStats.dutyCyclePercentage}%');
+      },
+    );
 
     test('Battery efficiency rating considers duty cycle', () {
       final perfStats = PowerManagementStats(
@@ -96,12 +103,19 @@ void main() {
       );
 
       // Ultra low power should have significantly higher battery efficiency
-      expect(ultraLowStats.batteryEfficiencyRating, greaterThan(perfStats.batteryEfficiencyRating));
+      expect(
+        ultraLowStats.batteryEfficiencyRating,
+        greaterThan(perfStats.batteryEfficiencyRating),
+      );
       expect(ultraLowStats.batteryEfficiencyRating, greaterThan(0.9));
 
       print('✅ Battery efficiency ratings:');
-      print('   Performance mode: ${(perfStats.batteryEfficiencyRating * 100).toStringAsFixed(1)}%');
-      print('   Ultra Low Power: ${(ultraLowStats.batteryEfficiencyRating * 100).toStringAsFixed(1)}%');
+      print(
+        '   Performance mode: ${(perfStats.batteryEfficiencyRating * 100).toStringAsFixed(1)}%',
+      );
+      print(
+        '   Ultra Low Power: ${(ultraLowStats.batteryEfficiencyRating * 100).toStringAsFixed(1)}%',
+      );
     });
 
     test('RSSI thresholds vary by power mode (BitChat pattern)', () async {
@@ -113,7 +127,9 @@ void main() {
       // Verify RSSI threshold matches performance mode
 
       print('✅ RSSI thresholds by power mode:');
-      print('   ${powerManager.currentPowerMode.name}: ${powerManager.rssiThreshold} dBm');
+      print(
+        '   ${powerManager.currentPowerMode.name}: ${powerManager.rssiThreshold} dBm',
+      );
 
       // Performance mode should be -95 dBm
       expect(powerManager.rssiThreshold, -95);
@@ -126,7 +142,9 @@ void main() {
 
       // Test connection limits
       print('✅ Connection limits by power mode:');
-      print('   Current mode (${powerManager.currentPowerMode.name}): ${powerManager.maxConnections} connections');
+      print(
+        '   Current mode (${powerManager.currentPowerMode.name}): ${powerManager.maxConnections} connections',
+      );
       expect(powerManager.maxConnections, greaterThan(0));
     });
   });
@@ -151,7 +169,9 @@ void main() {
       expect(stats['batteryLevel'], 50);
       expect(stats['isCharging'], false);
 
-      print('✅ Normal mode: battery ${stats['batteryLevel']}% - emergency mode: ${stats['emergencyMode']}');
+      print(
+        '✅ Normal mode: battery ${stats['batteryLevel']}% - emergency mode: ${stats['emergencyMode']}',
+      );
     });
 
     test('Emergency mode activates when battery <= 10%', () {
@@ -161,7 +181,9 @@ void main() {
       expect(stats['emergencyMode'], true);
       expect(stats['batteryLevel'], 9);
 
-      print('⚠️  Emergency mode: battery ${stats['batteryLevel']}% - emergency mode: ${stats['emergencyMode']}');
+      print(
+        '⚠️  Emergency mode: battery ${stats['batteryLevel']}% - emergency mode: ${stats['emergencyMode']}',
+      );
     });
 
     test('Emergency mode disabled when charging even at low battery', () {
@@ -172,7 +194,9 @@ void main() {
       expect(stats['batteryLevel'], 5);
       expect(stats['isCharging'], true);
 
-      print('✅ Charging overrides emergency mode: battery ${stats['batteryLevel']}% charging: ${stats['isCharging']} - emergency mode: ${stats['emergencyMode']}');
+      print(
+        '✅ Charging overrides emergency mode: battery ${stats['batteryLevel']}% charging: ${stats['isCharging']} - emergency mode: ${stats['emergencyMode']}',
+      );
     });
 
     test('Battery state transitions log correctly', () {
@@ -211,18 +235,24 @@ void main() {
       expect(powerManager.currentPowerMode, PowerMode.performance);
 
       print('✅ Power mode transitions:');
-      print('   Initial (100% battery, foreground): ${powerManager.currentPowerMode.name}');
+      print(
+        '   Initial (100% battery, foreground): ${powerManager.currentPowerMode.name}',
+      );
 
       // Test background state change
       powerManager.setAppBackgroundState(true);
       // Mode should change to balanced (good battery + background)
       expect(powerManager.currentPowerMode, PowerMode.balanced);
-      print('   After background (100% battery, background): ${powerManager.currentPowerMode.name}');
+      print(
+        '   After background (100% battery, background): ${powerManager.currentPowerMode.name}',
+      );
 
       powerManager.setAppBackgroundState(false);
       // Back to performance
       expect(powerManager.currentPowerMode, PowerMode.performance);
-      print('   After foreground (100% battery, foreground): ${powerManager.currentPowerMode.name}');
+      print(
+        '   After foreground (100% battery, foreground): ${powerManager.currentPowerMode.name}',
+      );
     });
   });
 

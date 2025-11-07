@@ -93,7 +93,7 @@ class MockSecureStorage implements FlutterSecureStorage {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize sqflite_ffi for testing
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
@@ -114,30 +114,40 @@ void main() {
   group('SecurityManager with Noise Integration', () {
     test('initializes with Noise service', () {
       expect(SecurityManager.noiseService, isNotNull);
-      expect(SecurityManager.noiseService!.getStaticPublicKeyData().length, equals(32));
+      expect(
+        SecurityManager.noiseService!.getStaticPublicKeyData().length,
+        equals(32),
+      );
     });
 
     test('getIdentityFingerprint returns valid fingerprint', () {
-      final fingerprint = SecurityManager.noiseService!.getIdentityFingerprint();
+      final fingerprint = SecurityManager.noiseService!
+          .getIdentityFingerprint();
       expect(fingerprint.length, equals(64)); // SHA-256 hex
       expect(fingerprint, matches(RegExp(r'^[0-9a-f]{64}$')));
     });
 
     test('can initialize twice (idempotent)', () async {
-      final fingerprint1 = SecurityManager.noiseService!.getIdentityFingerprint();
-      
-      await SecurityManager.initialize(secureStorage: mockStorage); // Second init
-      
-      final fingerprint2 = SecurityManager.noiseService!.getIdentityFingerprint();
+      final fingerprint1 = SecurityManager.noiseService!
+          .getIdentityFingerprint();
+
+      await SecurityManager.initialize(
+        secureStorage: mockStorage,
+      ); // Second init
+
+      final fingerprint2 = SecurityManager.noiseService!
+          .getIdentityFingerprint();
       expect(fingerprint1, equals(fingerprint2));
     });
 
     test('Noise service is available for encryption', () async {
       // Verify Noise service is ready
       expect(SecurityManager.noiseService, isNotNull);
-      
+
       // Verify it can initiate handshakes
-      final msg1 = await SecurityManager.noiseService!.initiateHandshake('test_peer');
+      final msg1 = await SecurityManager.noiseService!.initiateHandshake(
+        'test_peer',
+      );
       expect(msg1, isNotNull);
       expect(msg1!.length, equals(32)); // First message in XX handshake
     });
@@ -145,7 +155,7 @@ void main() {
     test('shutdown clears Noise service', () {
       SecurityManager.shutdown();
       expect(SecurityManager.noiseService, isNull);
-      
+
       // Re-initialize for other tests
       SecurityManager.initialize(secureStorage: mockStorage);
     });
@@ -154,15 +164,15 @@ void main() {
       final ecdh = EncryptionMethod.ecdh('key1');
       expect(ecdh.type, equals(EncryptionType.ecdh));
       expect(ecdh.publicKey, equals('key1'));
-      
+
       final noise = EncryptionMethod.noise('key2');
       expect(noise.type, equals(EncryptionType.noise));
       expect(noise.publicKey, equals('key2'));
-      
+
       final pairing = EncryptionMethod.pairing('key3');
       expect(pairing.type, equals(EncryptionType.pairing));
       expect(pairing.publicKey, equals('key3'));
-      
+
       final global = EncryptionMethod.global();
       expect(global.type, equals(EncryptionType.global));
       expect(global.publicKey, isNull);

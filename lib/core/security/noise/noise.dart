@@ -1,27 +1,27 @@
 /// Noise Protocol implementation for pak_connect
-/// 
+///
 /// Ported from bitchat-android's production-ready Noise Protocol implementation.
 /// Provides XX pattern handshake with forward secrecy and replay protection.
-/// 
+///
 /// ## Usage
-/// 
+///
 /// ```dart
 /// // Initialize service
 /// final noiseService = NoiseEncryptionService();
 /// await noiseService.initialize();
-/// 
+///
 /// // Get our fingerprint
 /// final myFingerprint = noiseService.getIdentityFingerprint();
-/// 
+///
 /// // Initiate handshake
 /// final message1 = await noiseService.initiateHandshake(peerID);
-/// 
+///
 /// // Process handshake messages
 /// final response = await noiseService.processHandshakeMessage(data, peerID);
-/// 
+///
 /// // Encrypt after handshake complete
 /// final encrypted = await noiseService.encrypt(plaintext, peerID);
-/// 
+///
 /// // Decrypt
 /// final decrypted = await noiseService.decrypt(encrypted, peerID);
 /// ```

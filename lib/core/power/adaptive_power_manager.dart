@@ -62,7 +62,7 @@ class AdaptivePowerManager {
   static const int _maxConnectionsNormal = 8;
   static const int _maxConnectionsPowerSave = 4;
   static const int _maxConnectionsUltraLow = 2;
-  
+
   // Current state (quality-based adaptation)
   int _currentScanInterval = 60000;
   int _currentHealthCheckInterval = 30000;
@@ -70,7 +70,8 @@ class AdaptivePowerManager {
   Timer? _scanTimer;
   Timer? _healthCheckTimer;
   Timer? _burstTimer;
-  DateTime? _nextScheduledScanTime; // Track actual scheduled time with randomization
+  DateTime?
+  _nextScheduledScanTime; // Track actual scheduled time with randomization
 
   // Phase 1: Duty cycle state (BitChat pattern)
   PowerMode _currentPowerMode = PowerMode.balanced;
@@ -92,10 +93,10 @@ class AdaptivePowerManager {
   Function()? onHealthCheck;
   Function(PowerManagementStats)? onStatsUpdate;
   Function(PowerMode)? onPowerModeChanged; // Phase 1: Power mode notifications
-  
+
   // Randomization for network desynchronization
   final Random _random = Random();
-  
+
   /// Initialize power management with adaptive algorithms
   ///
   /// Phase 1: Now supports duty cycle scanning and battery awareness
@@ -132,7 +133,7 @@ class AdaptivePowerManager {
       'power mode: ${_currentPowerMode.name}, battery: $_batteryLevel%',
     );
   }
-  
+
   /// Start adaptive scanning with burst-mode optimization
   ///
   /// Phase 2a: ALL modes use burst scanning with variable wait times
@@ -151,7 +152,7 @@ class AdaptivePowerManager {
     // Keep quality-based health checks for connection monitoring
     _scheduleHealthCheck();
   }
-  
+
   /// Stop all power management operations
   Future<void> stopScanning() async {
     await _stopAllTimers();
@@ -169,15 +170,23 @@ class AdaptivePowerManager {
   }
 
   /// [DEPRECATED] Old duty cycle scanning - replaced by burst scanning with variable waits
-  @Deprecated('Phase 2a: Use burst scanning with _getBaseIntervalForPowerMode() instead')
+  @Deprecated(
+    'Phase 2a: Use burst scanning with _getBaseIntervalForPowerMode() instead',
+  )
   // ignore: unused_element
   void _startDutyCycleScanning() {
     _stopDutyCycleScanning();
 
     final (onDuration, offDuration) = switch (_currentPowerMode) {
       PowerMode.balanced => (_scanOnDurationNormal, _scanOffDurationNormal),
-      PowerMode.powerSaver => (_scanOnDurationPowerSave, _scanOffDurationPowerSave),
-      PowerMode.ultraLowPower => (_scanOnDurationUltraLow, _scanOffDurationUltraLow),
+      PowerMode.powerSaver => (
+        _scanOnDurationPowerSave,
+        _scanOffDurationPowerSave,
+      ),
+      PowerMode.ultraLowPower => (
+        _scanOnDurationUltraLow,
+        _scanOffDurationUltraLow,
+      ),
       PowerMode.performance => (0, 0), // No duty cycle
     };
 
@@ -272,7 +281,7 @@ class AdaptivePowerManager {
 
     _logger.info(
       '⚡ Restarted scanning with new power mode: ${_currentPowerMode.name} '
-      '(wait time: ${_getBaseIntervalForPowerMode()}ms)'
+      '(wait time: ${_getBaseIntervalForPowerMode()}ms)',
     );
   }
 
@@ -284,7 +293,9 @@ class AdaptivePowerManager {
     _batteryLevel = info.level;
     _isCharging = info.isCharging;
 
-    _logger.fine('Battery mode changed: ${batteryMode.name} (level: $_batteryLevel%)');
+    _logger.fine(
+      'Battery mode changed: ${batteryMode.name} (level: $_batteryLevel%)',
+    );
     _updatePowerMode();
   }
 
@@ -293,7 +304,9 @@ class AdaptivePowerManager {
     if (_isAppInBackground == inBackground) return;
 
     _isAppInBackground = inBackground;
-    _logger.info('App state changed: ${inBackground ? 'background' : 'foreground'}');
+    _logger.info(
+      'App state changed: ${inBackground ? 'background' : 'foreground'}',
+    );
     _updatePowerMode();
   }
 
@@ -342,7 +355,7 @@ class AdaptivePowerManager {
     // Reschedule next scan
     _scheduleNextScan();
   }
-  
+
   /// Report connection success for adaptive adjustment
   void reportConnectionSuccess({
     int? rssi,
@@ -352,7 +365,7 @@ class AdaptivePowerManager {
     _consecutiveSuccessfulChecks++;
     _consecutiveFailedChecks = 0;
     _lastSuccessfulConnection = DateTime.now();
-    
+
     final quality = ConnectionQualityMeasurement(
       timestamp: DateTime.now(),
       success: true,
@@ -360,14 +373,16 @@ class AdaptivePowerManager {
       connectionTime: connectionTime,
       dataTransferSuccess: dataTransferSuccess ?? true,
     );
-    
+
     _addQualityMeasurement(quality);
     _adaptToConnectionQuality();
-    
-    _logger.fine('Connection success reported - consecutive: $_consecutiveSuccessfulChecks');
+
+    _logger.fine(
+      'Connection success reported - consecutive: $_consecutiveSuccessfulChecks',
+    );
   }
-  
-  /// Report connection failure for adaptive adjustment  
+
+  /// Report connection failure for adaptive adjustment
   void reportConnectionFailure({
     String? reason,
     int? rssi,
@@ -375,7 +390,7 @@ class AdaptivePowerManager {
   }) {
     _consecutiveFailedChecks++;
     _consecutiveSuccessfulChecks = 0;
-    
+
     final quality = ConnectionQualityMeasurement(
       timestamp: DateTime.now(),
       success: false,
@@ -383,19 +398,22 @@ class AdaptivePowerManager {
       connectionTime: attemptTime,
       failureReason: reason,
     );
-    
+
     _addQualityMeasurement(quality);
     _adaptToConnectionQuality();
-    
-    _logger.warning('Connection failure reported - consecutive: $_consecutiveFailedChecks, reason: $reason');
+
+    _logger.warning(
+      'Connection failure reported - consecutive: $_consecutiveFailedChecks, reason: $reason',
+    );
   }
-  
+
   /// Get base wait interval for current power mode (Phase 2a: burst wait times)
   int _getBaseIntervalForPowerMode() {
     return switch (_currentPowerMode) {
-      PowerMode.performance => _currentScanInterval, // Quality-adapted (20-120s)
-      PowerMode.balanced => 5000,       // 5s wait (80% duty with 20s burst)
-      PowerMode.powerSaver => 80000,    // 80s wait (20% duty with 20s burst)
+      PowerMode.performance =>
+        _currentScanInterval, // Quality-adapted (20-120s)
+      PowerMode.balanced => 5000, // 5s wait (80% duty with 20s burst)
+      PowerMode.powerSaver => 80000, // 80s wait (20% duty with 20s burst)
       PowerMode.ultraLowPower => 202000, // 202s wait (9% duty with 20s burst)
     };
   }
@@ -408,11 +426,17 @@ class AdaptivePowerManager {
     int baseInterval = _getBaseIntervalForPowerMode();
 
     // Add randomization (±20%) to prevent network-wide synchronization
-    final randomOffset = (baseInterval * 0.4 * _random.nextDouble()) - (baseInterval * 0.2);
-    final actualInterval = (baseInterval + randomOffset).round().clamp(_minScanInterval, _maxScanInterval);
+    final randomOffset =
+        (baseInterval * 0.4 * _random.nextDouble()) - (baseInterval * 0.2);
+    final actualInterval = (baseInterval + randomOffset).round().clamp(
+      _minScanInterval,
+      _maxScanInterval,
+    );
 
     // Track the actual scheduled time for accurate UI countdown
-    _nextScheduledScanTime = DateTime.now().add(Duration(milliseconds: actualInterval));
+    _nextScheduledScanTime = DateTime.now().add(
+      Duration(milliseconds: actualInterval),
+    );
 
     _scanTimer = Timer(Duration(milliseconds: actualInterval), () {
       if (!_isBurstMode) {
@@ -422,178 +446,210 @@ class AdaptivePowerManager {
     });
 
     _logger.fine(
-      'Next scan scheduled in ${actualInterval}ms (base: ${baseInterval}ms, mode: ${_currentPowerMode.name}) at $_nextScheduledScanTime'
+      'Next scan scheduled in ${actualInterval}ms (base: ${baseInterval}ms, mode: ${_currentPowerMode.name}) at $_nextScheduledScanTime',
     );
   }
-  
+
   /// Execute burst-mode scanning for battery efficiency
   void _startBurstScan() {
     _isBurstMode = true;
-    
+
     _logger.fine('Starting burst scan (${_burstDuration}ms)');
     onStartScan?.call();
-    
+
     _burstTimer = Timer(Duration(milliseconds: _burstDuration), () {
       _stopBurstScan();
     });
   }
-  
+
   /// Stop burst scanning and return to idle
   void _stopBurstScan() {
     _isBurstMode = false;
     _burstTimer?.cancel();
-    
+
     _logger.fine('Stopping burst scan');
     onStopScan?.call();
   }
-  
+
   /// Schedule adaptive health checks
   void _scheduleHealthCheck() {
     // Add slight randomization to health checks too
-    final randomOffset = (_currentHealthCheckInterval * 0.1 * _random.nextDouble()) - (_currentHealthCheckInterval * 0.05);
+    final randomOffset =
+        (_currentHealthCheckInterval * 0.1 * _random.nextDouble()) -
+        (_currentHealthCheckInterval * 0.05);
     final actualInterval = (_currentHealthCheckInterval + randomOffset).round();
-    
+
     _healthCheckTimer = Timer(Duration(milliseconds: actualInterval), () {
       _performHealthCheck();
       _scheduleHealthCheck();
     });
-    
+
     _logger.fine('Next health check scheduled in ${actualInterval}ms');
   }
-  
+
   /// Perform connection health check
   void _performHealthCheck() {
     _logger.fine('Performing connection health check');
     onHealthCheck?.call();
-    
+
     // Update statistics
     final stats = getCurrentStats();
     onStatsUpdate?.call(stats);
   }
-  
+
   /// Adapt scanning behavior based on connection quality
   void _adaptToConnectionQuality() {
     final recentQuality = _calculateRecentQualityScore();
     final stabilityScore = _calculateConnectionStability();
-    
+
     // Adaptive scan interval adjustment
     if (recentQuality > 0.8 && stabilityScore > 0.9) {
       // High quality and stable - increase intervals to save battery
       _increaseScanInterval();
       _increaseHealthCheckInterval();
-      
     } else if (recentQuality < 0.5 || stabilityScore < 0.6) {
       // Poor quality or unstable - decrease intervals for better responsiveness
       _decreaseScanInterval();
       _decreaseHealthCheckInterval();
-      
     } else if (_consecutiveSuccessfulChecks > 10) {
       // Long period of success - gradually increase intervals
       _graduallyIncreaseScanInterval();
-      
     } else if (_consecutiveFailedChecks > 3) {
       // Multiple failures - be more aggressive with scanning
       _decreaseScanInterval();
     }
-    
+
     _saveSettings();
-    _logger.info('Adapted to quality: $recentQuality, stability: $stabilityScore - scan: ${_currentScanInterval}ms, health: ${_currentHealthCheckInterval}ms');
+    _logger.info(
+      'Adapted to quality: $recentQuality, stability: $stabilityScore - scan: ${_currentScanInterval}ms, health: ${_currentHealthCheckInterval}ms',
+    );
   }
-  
+
   /// Calculate recent connection quality score (0.0 - 1.0)
   double _calculateRecentQualityScore() {
     if (_qualityHistory.isEmpty) return 0.5;
-    
+
     final recentMeasurements = _qualityHistory
         .where((m) => DateTime.now().difference(m.timestamp).inMinutes < 5)
         .toList();
-    
+
     if (recentMeasurements.isEmpty) return 0.5;
-    
-    final successRate = recentMeasurements.where((m) => m.success).length / recentMeasurements.length;
-    final avgRssi = recentMeasurements
-        .where((m) => m.rssi != null)
-        .map((m) => m.rssi!)
-        .fold<double>(0, (sum, rssi) => sum + rssi) / 
-        recentMeasurements.where((m) => m.rssi != null).length.clamp(1, double.infinity);
-    
-    final avgConnectionTime = recentMeasurements
-        .where((m) => m.connectionTime != null && m.success)
-        .map((m) => m.connectionTime!)
-        .fold<double>(0, (sum, time) => sum + time) /
-        recentMeasurements.where((m) => m.connectionTime != null && m.success).length.clamp(1, double.infinity);
-    
+
+    final successRate =
+        recentMeasurements.where((m) => m.success).length /
+        recentMeasurements.length;
+    final avgRssi =
+        recentMeasurements
+            .where((m) => m.rssi != null)
+            .map((m) => m.rssi!)
+            .fold<double>(0, (sum, rssi) => sum + rssi) /
+        recentMeasurements
+            .where((m) => m.rssi != null)
+            .length
+            .clamp(1, double.infinity);
+
+    final avgConnectionTime =
+        recentMeasurements
+            .where((m) => m.connectionTime != null && m.success)
+            .map((m) => m.connectionTime!)
+            .fold<double>(0, (sum, time) => sum + time) /
+        recentMeasurements
+            .where((m) => m.connectionTime != null && m.success)
+            .length
+            .clamp(1, double.infinity);
+
     // Combine factors: success rate (50%), RSSI strength (30%), connection speed (20%)
     double qualityScore = successRate * 0.5;
-    
+
     if (!avgRssi.isNaN && avgRssi.isFinite) {
-      final rssiScore = ((avgRssi + 100) / 50).clamp(0, 1); // -100 to -50 dBm range
+      final rssiScore = ((avgRssi + 100) / 50).clamp(
+        0,
+        1,
+      ); // -100 to -50 dBm range
       qualityScore += rssiScore * 0.3;
     }
-    
+
     if (!avgConnectionTime.isNaN && avgConnectionTime.isFinite) {
       final speedScore = (1.0 / (avgConnectionTime / 1000 + 1)).clamp(0, 1);
       qualityScore += speedScore * 0.2;
     }
-    
+
     return qualityScore.clamp(0.0, 1.0);
   }
-  
+
   /// Calculate connection stability score
   double _calculateConnectionStability() {
     if (_qualityHistory.length < 3) return 0.5;
-    
+
     final recent = _qualityHistory.takeLast(10).toList();
     final successPattern = recent.map((m) => m.success ? 1 : 0).toList();
-    
+
     // Calculate variance in success pattern (lower variance = more stable)
-    final mean = successPattern.fold(0, (sum, val) => sum + val) / successPattern.length;
-    final variance = successPattern.map((val) => pow(val - mean, 2)).fold<double>(0, (sum, val) => sum + val) / successPattern.length;
-    
+    final mean =
+        successPattern.fold(0, (sum, val) => sum + val) / successPattern.length;
+    final variance =
+        successPattern
+            .map((val) => pow(val - mean, 2))
+            .fold<double>(0, (sum, val) => sum + val) /
+        successPattern.length;
+
     // Stability score is inverse of variance
     final stabilityScore = 1.0 - variance.clamp(0.0, 1.0);
-    
+
     return stabilityScore;
   }
-  
+
   /// Increase scan interval for battery saving
   void _increaseScanInterval() {
-    _currentScanInterval = (_currentScanInterval * 1.2).round().clamp(_minScanInterval, _maxScanInterval);
+    _currentScanInterval = (_currentScanInterval * 1.2).round().clamp(
+      _minScanInterval,
+      _maxScanInterval,
+    );
   }
-  
+
   /// Decrease scan interval for better responsiveness
   void _decreaseScanInterval() {
-    _currentScanInterval = (_currentScanInterval * 0.8).round().clamp(_minScanInterval, _maxScanInterval);
+    _currentScanInterval = (_currentScanInterval * 0.8).round().clamp(
+      _minScanInterval,
+      _maxScanInterval,
+    );
   }
-  
+
   /// Gradually increase scan interval
   void _graduallyIncreaseScanInterval() {
-    _currentScanInterval = (_currentScanInterval * 1.05).round().clamp(_minScanInterval, _maxScanInterval);
+    _currentScanInterval = (_currentScanInterval * 1.05).round().clamp(
+      _minScanInterval,
+      _maxScanInterval,
+    );
   }
-  
+
   /// Increase health check interval
   void _increaseHealthCheckInterval() {
-    _currentHealthCheckInterval = (_currentHealthCheckInterval * 1.3).round().clamp(_minHealthCheckInterval, _maxHealthCheckInterval);
+    _currentHealthCheckInterval = (_currentHealthCheckInterval * 1.3)
+        .round()
+        .clamp(_minHealthCheckInterval, _maxHealthCheckInterval);
   }
-  
+
   /// Decrease health check interval
   void _decreaseHealthCheckInterval() {
-    _currentHealthCheckInterval = (_currentHealthCheckInterval * 0.7).round().clamp(_minHealthCheckInterval, _maxHealthCheckInterval);
+    _currentHealthCheckInterval = (_currentHealthCheckInterval * 0.7)
+        .round()
+        .clamp(_minHealthCheckInterval, _maxHealthCheckInterval);
   }
-  
+
   /// Add quality measurement and manage history size
   void _addQualityMeasurement(ConnectionQualityMeasurement measurement) {
     _qualityHistory.add(measurement);
-    
+
     // Keep only recent measurements (last 100 or last hour)
     final cutoff = DateTime.now().subtract(Duration(hours: 1));
     _qualityHistory.removeWhere((m) => m.timestamp.isBefore(cutoff));
-    
+
     if (_qualityHistory.length > 100) {
       _qualityHistory.removeRange(0, _qualityHistory.length - 100);
     }
   }
-  
+
   /// Stop all running timers
   Future<void> _stopAllTimers() async {
     _scanTimer?.cancel();
@@ -612,38 +668,54 @@ class AdaptivePowerManager {
       _isDutyCycleScanning = false;
     }
   }
-  
+
   /// Load settings from persistent storage
   Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _currentScanInterval = prefs.getInt('${_settingsPrefix}scan_interval') ?? 60000;
-      _currentHealthCheckInterval = prefs.getInt('${_settingsPrefix}health_interval') ?? 30000;
-      
+      _currentScanInterval =
+          prefs.getInt('${_settingsPrefix}scan_interval') ?? 60000;
+      _currentHealthCheckInterval =
+          prefs.getInt('${_settingsPrefix}health_interval') ?? 30000;
+
       // Ensure values are within valid ranges
-      _currentScanInterval = _currentScanInterval.clamp(_minScanInterval, _maxScanInterval);
-      _currentHealthCheckInterval = _currentHealthCheckInterval.clamp(_minHealthCheckInterval, _maxHealthCheckInterval);
+      _currentScanInterval = _currentScanInterval.clamp(
+        _minScanInterval,
+        _maxScanInterval,
+      );
+      _currentHealthCheckInterval = _currentHealthCheckInterval.clamp(
+        _minHealthCheckInterval,
+        _maxHealthCheckInterval,
+      );
     } catch (e) {
       _logger.warning('Failed to load power management settings: $e');
     }
   }
-  
+
   /// Save settings to persistent storage
   Future<void> _saveSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('${_settingsPrefix}scan_interval', _currentScanInterval);
-      await prefs.setInt('${_settingsPrefix}health_interval', _currentHealthCheckInterval);
+      await prefs.setInt(
+        '${_settingsPrefix}scan_interval',
+        _currentScanInterval,
+      );
+      await prefs.setInt(
+        '${_settingsPrefix}health_interval',
+        _currentHealthCheckInterval,
+      );
     } catch (e) {
       _logger.warning('Failed to save power management settings: $e');
     }
   }
-  
+
   /// Get current power management statistics
   PowerManagementStats getCurrentStats() {
     final recentQuality = _calculateRecentQualityScore();
     final stability = _calculateConnectionStability();
-    final timeSinceLastSuccess = DateTime.now().difference(_lastSuccessfulConnection);
+    final timeSinceLastSuccess = DateTime.now().difference(
+      _lastSuccessfulConnection,
+    );
 
     return PowerManagementStats(
       currentScanInterval: _currentScanInterval,
@@ -667,13 +739,18 @@ class AdaptivePowerManager {
 
   /// Get the actual next scheduled scan time (with randomization)
   DateTime? get nextScheduledScanTime => _nextScheduledScanTime;
-  
+
   /// Manual override for scan interval (temporary)
   void overrideScanInterval(int milliseconds) {
-    _currentScanInterval = milliseconds.clamp(_minScanInterval, _maxScanInterval);
-    _logger.info('Manual override: scan interval set to ${_currentScanInterval}ms');
+    _currentScanInterval = milliseconds.clamp(
+      _minScanInterval,
+      _maxScanInterval,
+    );
+    _logger.info(
+      'Manual override: scan interval set to ${_currentScanInterval}ms',
+    );
   }
-  
+
   /// Reset adaptive algorithms to defaults
   Future<void> resetToDefaults() async {
     _currentScanInterval = 60000;
@@ -684,7 +761,7 @@ class AdaptivePowerManager {
     await _saveSettings();
     _logger.info('Reset power management to default settings');
   }
-  
+
   /// Dispose of resources
   void dispose() {
     _stopAllTimers();
@@ -700,7 +777,7 @@ class ConnectionQualityMeasurement {
   final double? connectionTime;
   final bool? dataTransferSuccess;
   final String? failureReason;
-  
+
   const ConnectionQualityMeasurement({
     required this.timestamp,
     required this.success,
@@ -775,21 +852,21 @@ class PowerManagementStats {
   double get dutyCyclePercentage {
     return switch (powerMode) {
       PowerMode.performance => 100.0, // Quality-adapted, varies
-      PowerMode.balanced => 80.0,     // 20s burst / 25s total
-      PowerMode.powerSaver => 20.0,   // 20s burst / 100s total
+      PowerMode.balanced => 80.0, // 20s burst / 25s total
+      PowerMode.powerSaver => 20.0, // 20s burst / 100s total
       PowerMode.ultraLowPower => 9.0, // 20s burst / 222s total
     };
   }
 
   @override
   String toString() =>
-    'PowerStats('
-    'mode: ${powerMode.name}, '
-    'battery: $batteryLevel%, '
-    'duty: ${dutyCyclePercentage.toStringAsFixed(1)}%, '
-    'quality: ${(connectionQualityScore * 100).toStringAsFixed(1)}%, '
-    'efficiency: ${(batteryEfficiencyRating * 100).toStringAsFixed(1)}%'
-    ')';
+      'PowerStats('
+      'mode: ${powerMode.name}, '
+      'battery: $batteryLevel%, '
+      'duty: ${dutyCyclePercentage.toStringAsFixed(1)}%, '
+      'quality: ${(connectionQualityScore * 100).toStringAsFixed(1)}%, '
+      'efficiency: ${(batteryEfficiencyRating * 100).toStringAsFixed(1)}%'
+      ')';
 }
 
 extension _ListExtensions<T> on List<T> {

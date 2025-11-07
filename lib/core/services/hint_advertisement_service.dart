@@ -17,7 +17,9 @@ class HintAdvertisementService {
   /// Derive a 2-byte nonce from the current session key (hex string).
   static Uint8List deriveNonce(String sessionKey) {
     final sanitized = sessionKey.isNotEmpty ? sessionKey : '0000';
-    final padded = sanitized.length >= 4 ? sanitized : sanitized.padRight(4, '0');
+    final padded = sanitized.length >= 4
+        ? sanitized
+        : sanitized.padRight(4, '0');
     final byte1 = int.parse(padded.substring(0, 2), radix: 16);
     final byte2 = int.parse(padded.substring(2, 4), radix: 16);
     return Uint8List.fromList([byte1, byte2]);
@@ -67,12 +69,17 @@ class HintAdvertisementService {
     }
 
     final nonce = Uint8List.fromList(data.sublist(1, 1 + nonceSize));
-    final hintBytes = Uint8List.fromList(data.sublist(1 + nonceSize, totalSize));
+    final hintBytes = Uint8List.fromList(
+      data.sublist(1 + nonceSize, totalSize),
+    );
     return ParsedHint(nonce: nonce, hintBytes: hintBytes, isIntro: isIntro);
   }
 
   static String bytesToHex(Uint8List bytes) {
-    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
+    return bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join()
+        .toUpperCase();
   }
 }
 

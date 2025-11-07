@@ -14,7 +14,7 @@ class ArchivedChatTile extends ConsumerWidget {
   final VoidCallback? onDelete;
   final bool isSelected;
   final bool showContextMenu;
-  
+
   const ArchivedChatTile({
     super.key,
     required this.archive,
@@ -24,16 +24,18 @@ class ArchivedChatTile extends ConsumerWidget {
     this.isSelected = false,
     this.showContextMenu = true,
   });
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       elevation: isSelected ? 4 : 1,
-      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.15) : null,
+      color: isSelected
+          ? colorScheme.primaryContainer.withValues(alpha: 0.15)
+          : null,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
@@ -43,9 +45,9 @@ class ArchivedChatTile extends ConsumerWidget {
             children: [
               // Archive icon with status indicator
               _buildArchiveIcon(context),
-              
+
               const SizedBox(width: 12),
-              
+
               // Main content
               Expanded(
                 child: Column(
@@ -59,7 +61,9 @@ class ArchivedChatTile extends ConsumerWidget {
                             archive.contactName,
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w600,
-                              color: isSelected ? colorScheme.onPrimaryContainer : null,
+                              color: isSelected
+                                  ? colorScheme.onPrimaryContainer
+                                  : null,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -68,9 +72,9 @@ class ArchivedChatTile extends ConsumerWidget {
                         _buildArchiveStatusBadge(context),
                       ],
                     ),
-                    
+
                     const SizedBox(height: 4),
-                    
+
                     // Archive metadata row
                     Row(
                       children: [
@@ -87,9 +91,9 @@ class ArchivedChatTile extends ConsumerWidget {
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
-                        
+
                         const SizedBox(width: 16),
-                        
+
                         // Archive size
                         Icon(
                           Icons.storage_outlined,
@@ -103,7 +107,7 @@ class ArchivedChatTile extends ConsumerWidget {
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
-                        
+
                         // Compression indicator
                         if (archive.isCompressed) ...[
                           const SizedBox(width: 8),
@@ -115,27 +119,35 @@ class ArchivedChatTile extends ConsumerWidget {
                         ],
                       ],
                     ),
-                    
+
                     const SizedBox(height: 4),
-                    
+
                     // Tags if available
                     if (archive.tags.isNotEmpty)
                       Wrap(
                         spacing: 4,
-                        children: archive.tags.take(3).map((tag) => Chip(
-                          label: Text(
-                            tag,
-                            style: const TextStyle(fontSize: 10),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          visualDensity: VisualDensity.compact,
-                        )).toList(),
+                        children: archive.tags
+                            .take(3)
+                            .map(
+                              (tag) => Chip(
+                                label: Text(
+                                  tag,
+                                  style: const TextStyle(fontSize: 10),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            )
+                            .toList(),
                       ),
                   ],
                 ),
               ),
-              
+
               // Trailing section with dates and actions
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -149,9 +161,9 @@ class ArchivedChatTile extends ConsumerWidget {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  
+
                   const SizedBox(height: 8),
-                  
+
                   // Last message date (if available)
                   if (archive.lastMessageTime != null)
                     Text(
@@ -161,9 +173,9 @@ class ArchivedChatTile extends ConsumerWidget {
                         fontSize: 11,
                       ),
                     ),
-                  
+
                   const SizedBox(height: 8),
-                  
+
                   // Context menu button
                   if (showContextMenu)
                     ArchiveContextMenu(
@@ -184,10 +196,10 @@ class ArchivedChatTile extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildArchiveIcon(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Container(
       width: 48,
       height: 48,
@@ -213,10 +225,7 @@ class ArchivedChatTile extends ConsumerWidget {
               decoration: BoxDecoration(
                 color: theme.colorScheme.tertiary,
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: theme.colorScheme.surface,
-                  width: 2,
-                ),
+                border: Border.all(color: theme.colorScheme.surface, width: 2),
               ),
               child: Icon(
                 Icons.archive,
@@ -229,14 +238,14 @@ class ArchivedChatTile extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildArchiveStatusBadge(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     String statusText;
     Color statusColor;
     IconData statusIcon;
-    
+
     if (!archive.isSearchable) {
       statusText = 'Not Indexed';
       statusColor = theme.colorScheme.error;
@@ -250,7 +259,7 @@ class ArchivedChatTile extends ConsumerWidget {
       statusColor = theme.colorScheme.tertiary;
       statusIcon = Icons.archive;
     }
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -260,11 +269,7 @@ class ArchivedChatTile extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            statusIcon,
-            size: 10,
-            color: statusColor,
-          ),
+          Icon(statusIcon, size: 10, color: statusColor),
           const SizedBox(width: 4),
           Text(
             statusText,
@@ -278,11 +283,11 @@ class ArchivedChatTile extends ConsumerWidget {
       ),
     );
   }
-  
+
   String _formatLastMessageTime(DateTime time) {
     final now = DateTime.now();
     final difference = now.difference(time);
-    
+
     if (difference.inDays > 365) {
       return '${(difference.inDays / 365).round()}y ago';
     } else if (difference.inDays > 30) {
@@ -307,7 +312,7 @@ class CompactArchivedChatTile extends ConsumerWidget {
   final VoidCallback? onTap;
   final VoidCallback? onRestore;
   final bool isSelected;
-  
+
   const CompactArchivedChatTile({
     super.key,
     required this.archive,
@@ -315,14 +320,16 @@ class CompactArchivedChatTile extends ConsumerWidget {
     this.onRestore,
     this.isSelected = false,
   });
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     return Material(
-      color: isSelected ? colorScheme.primaryContainer.withValues(alpha: 0.15) : Colors.transparent,
+      color: isSelected
+          ? colorScheme.primaryContainer.withValues(alpha: 0.15)
+          : Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -334,7 +341,9 @@ class CompactArchivedChatTile extends ConsumerWidget {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.15),
+                  color: theme.colorScheme.tertiaryContainer.withValues(
+                    alpha: 0.15,
+                  ),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -343,9 +352,9 @@ class CompactArchivedChatTile extends ConsumerWidget {
                   color: theme.colorScheme.onTertiaryContainer,
                 ),
               ),
-              
+
               const SizedBox(width: 12),
-              
+
               // Content
               Expanded(
                 child: Column(
@@ -368,7 +377,7 @@ class CompactArchivedChatTile extends ConsumerWidget {
                   ],
                 ),
               ),
-              
+
               // Restore button
               if (onRestore != null)
                 IconButton(
@@ -381,7 +390,7 @@ class CompactArchivedChatTile extends ConsumerWidget {
                   tooltip: 'Restore chat',
                   visualDensity: VisualDensity.compact,
                 ),
-              
+
               // Age indicator
               Text(
                 archive.ageDescription,
@@ -403,7 +412,7 @@ class SearchResultArchivedChatTile extends ConsumerWidget {
   final String searchQuery;
   final VoidCallback? onTap;
   final List<String>? highlights;
-  
+
   const SearchResultArchivedChatTile({
     super.key,
     required this.archive,
@@ -411,11 +420,11 @@ class SearchResultArchivedChatTile extends ConsumerWidget {
     this.onTap,
     this.highlights,
   });
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: InkWell(
@@ -447,7 +456,10 @@ class SearchResultArchivedChatTile extends ConsumerWidget {
                   ),
                   // Search relevance indicator
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(8),
@@ -463,9 +475,9 @@ class SearchResultArchivedChatTile extends ConsumerWidget {
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 8),
-              
+
               // Archive info and highlights
               Row(
                 children: [
@@ -478,9 +490,7 @@ class SearchResultArchivedChatTile extends ConsumerWidget {
                   const SizedBox(width: 8),
                   Text(
                     '•',
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                   ),
                   const SizedBox(width: 8),
                   Text(
@@ -491,21 +501,25 @@ class SearchResultArchivedChatTile extends ConsumerWidget {
                   ),
                 ],
               ),
-              
+
               // Highlights if available
               if (highlights != null && highlights!.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                ...highlights!.take(2).map((highlight) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    _highlightText(highlight, searchQuery),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontStyle: FontStyle.italic,
+                ...highlights!
+                    .take(2)
+                    .map(
+                      (highlight) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          _highlightText(highlight, searchQuery),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontStyle: FontStyle.italic,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                )),
               ],
             ],
           ),
@@ -513,7 +527,7 @@ class SearchResultArchivedChatTile extends ConsumerWidget {
       ),
     );
   }
-  
+
   String _highlightText(String text, String query) {
     // Simple highlighting - in a real implementation, this would use proper text highlighting
     return text; // For now, just return the original text

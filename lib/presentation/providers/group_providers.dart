@@ -45,7 +45,9 @@ final groupMessagingServiceProvider = Provider<GroupMessagingService>((ref) {
 ///   error: (err, stack) => Text('Error: $err'),
 /// );
 /// ```
-final allGroupsProvider = FutureProvider.autoDispose<List<ContactGroup>>((ref) async {
+final allGroupsProvider = FutureProvider.autoDispose<List<ContactGroup>>((
+  ref,
+) async {
   final repo = ref.watch(groupRepositoryProvider);
   return await repo.getAllGroups();
 });
@@ -56,12 +58,11 @@ final allGroupsProvider = FutureProvider.autoDispose<List<ContactGroup>>((ref) a
 /// ```dart
 /// final group = ref.watch(groupByIdProvider(groupId));
 /// ```
-final groupByIdProvider = FutureProvider.autoDispose.family<ContactGroup?, String>(
-  (ref, groupId) async {
-    final repo = ref.watch(groupRepositoryProvider);
-    return await repo.getGroup(groupId);
-  },
-);
+final groupByIdProvider = FutureProvider.autoDispose
+    .family<ContactGroup?, String>((ref, groupId) async {
+      final repo = ref.watch(groupRepositoryProvider);
+      return await repo.getGroup(groupId);
+    });
 
 /// Provider for messages in a group
 ///
@@ -69,68 +70,69 @@ final groupByIdProvider = FutureProvider.autoDispose.family<ContactGroup?, Strin
 /// ```dart
 /// final messages = ref.watch(groupMessagesProvider(groupId));
 /// ```
-final groupMessagesProvider = FutureProvider.autoDispose.family<List<GroupMessage>, String>(
-  (ref, groupId) async {
-    final service = ref.watch(groupMessagingServiceProvider);
-    return await service.getGroupMessages(groupId);
-  },
-);
+final groupMessagesProvider = FutureProvider.autoDispose
+    .family<List<GroupMessage>, String>((ref, groupId) async {
+      final service = ref.watch(groupMessagingServiceProvider);
+      return await service.getGroupMessages(groupId);
+    });
 
 /// Provider for a specific message with delivery status
-final groupMessageByIdProvider = FutureProvider.autoDispose.family<GroupMessage?, String>(
-  (ref, messageId) async {
-    final service = ref.watch(groupMessagingServiceProvider);
-    return await service.getMessage(messageId);
-  },
-);
+final groupMessageByIdProvider = FutureProvider.autoDispose
+    .family<GroupMessage?, String>((ref, messageId) async {
+      final service = ref.watch(groupMessagingServiceProvider);
+      return await service.getMessage(messageId);
+    });
 
 /// Provider for delivery summary of a message
-final messageDeliverySummaryProvider = FutureProvider.autoDispose.family<Map<MessageDeliveryStatus, int>, String>(
-  (ref, messageId) async {
-    final service = ref.watch(groupMessagingServiceProvider);
-    return await service.getDeliverySummary(messageId);
-  },
-);
+final messageDeliverySummaryProvider = FutureProvider.autoDispose
+    .family<Map<MessageDeliveryStatus, int>, String>((ref, messageId) async {
+      final service = ref.watch(groupMessagingServiceProvider);
+      return await service.getDeliverySummary(messageId);
+    });
 
 /// Provider for groups that a specific member belongs to
-final groupsForMemberProvider = FutureProvider.autoDispose.family<List<ContactGroup>, String>(
-  (ref, memberKey) async {
-    final repo = ref.watch(groupRepositoryProvider);
-    return await repo.getGroupsForMember(memberKey);
-  },
-);
+final groupsForMemberProvider = FutureProvider.autoDispose
+    .family<List<ContactGroup>, String>((ref, memberKey) async {
+      final repo = ref.watch(groupRepositoryProvider);
+      return await repo.getGroupsForMember(memberKey);
+    });
 
 // ==================== ACTION PROVIDERS (Simplified - no StateNotifier) ====================
 
 /// Create a new group
-final createGroupProvider = Provider<Future<void> Function({
-  required String name,
-  required List<String> memberKeys,
-  String? description,
-})>((ref) {
-  final repo = ref.watch(groupRepositoryProvider);
+final createGroupProvider =
+    Provider<
+      Future<void> Function({
+        required String name,
+        required List<String> memberKeys,
+        String? description,
+      })
+    >((ref) {
+      final repo = ref.watch(groupRepositoryProvider);
 
-  return ({
-    required String name,
-    required List<String> memberKeys,
-    String? description,
-  }) async {
-    final group = ContactGroup.create(
-      name: name,
-      memberKeys: memberKeys,
-      description: description,
-    );
+      return ({
+        required String name,
+        required List<String> memberKeys,
+        String? description,
+      }) async {
+        final group = ContactGroup.create(
+          name: name,
+          memberKeys: memberKeys,
+          description: description,
+        );
 
-    await repo.createGroup(group);
-    _logger.info('✅ Created group: $name');
+        await repo.createGroup(group);
+        _logger.info('✅ Created group: $name');
 
-    // Invalidate groups list to refresh UI
-    ref.invalidate(allGroupsProvider);
-  };
-});
+        // Invalidate groups list to refresh UI
+        ref.invalidate(allGroupsProvider);
+      };
+    });
 
 /// Update an existing group
-final updateGroupProvider = Provider<Future<void> Function(ContactGroup)>((ref) {
+final updateGroupProvider = Provider<Future<void> Function(ContactGroup)>((
+  ref,
+) {
   final repo = ref.watch(groupRepositoryProvider);
 
   return (ContactGroup group) async {
@@ -168,65 +170,68 @@ final deleteGroupProvider = Provider<Future<void> Function(String)>((ref) {
 ///   content: 'Hello group!',
 /// );
 /// ```
-final sendGroupMessageProvider = Provider<Future<GroupMessage> Function({
-  required String groupId,
-  required String senderKey,
-  required String content,
-})>((ref) {
-  final service = ref.watch(groupMessagingServiceProvider);
+final sendGroupMessageProvider =
+    Provider<
+      Future<GroupMessage> Function({
+        required String groupId,
+        required String senderKey,
+        required String content,
+      })
+    >((ref) {
+      final service = ref.watch(groupMessagingServiceProvider);
 
-  return ({
-    required String groupId,
-    required String senderKey,
-    required String content,
-  }) async {
-    final message = await service.sendGroupMessage(
-      groupId: groupId,
-      senderKey: senderKey,
-      content: content,
-    );
+      return ({
+        required String groupId,
+        required String senderKey,
+        required String content,
+      }) async {
+        final message = await service.sendGroupMessage(
+          groupId: groupId,
+          senderKey: senderKey,
+          content: content,
+        );
 
-    // Invalidate messages list to refresh UI
-    ref.invalidate(groupMessagesProvider(groupId));
+        // Invalidate messages list to refresh UI
+        ref.invalidate(groupMessagesProvider(groupId));
 
-    return message;
-  };
-});
+        return message;
+      };
+    });
 
 /// Mark a message as delivered for a member
-final markMessageDeliveredProvider = Provider<Future<void> Function({
-  required String messageId,
-  required String memberKey,
-})>((ref) {
-  final service = ref.watch(groupMessagingServiceProvider);
+final markMessageDeliveredProvider =
+    Provider<
+      Future<void> Function({
+        required String messageId,
+        required String memberKey,
+      })
+    >((ref) {
+      final service = ref.watch(groupMessagingServiceProvider);
 
-  return ({
-    required String messageId,
-    required String memberKey,
-  }) async {
-    await service.markDelivered(messageId, memberKey);
+      return ({required String messageId, required String memberKey}) async {
+        await service.markDelivered(messageId, memberKey);
 
-    // Invalidate message to refresh delivery status
-    ref.invalidate(groupMessageByIdProvider(messageId));
-    ref.invalidate(messageDeliverySummaryProvider(messageId));
-  };
-});
+        // Invalidate message to refresh delivery status
+        ref.invalidate(groupMessageByIdProvider(messageId));
+        ref.invalidate(messageDeliverySummaryProvider(messageId));
+      };
+    });
 
 /// Mark a message as failed for a member
-final markMessageFailedProvider = Provider<Future<void> Function({
-  required String messageId,
-  required String memberKey,
-})>((ref) {
-  final service = ref.watch(groupMessagingServiceProvider);
+final markMessageFailedProvider =
+    Provider<
+      Future<void> Function({
+        required String messageId,
+        required String memberKey,
+      })
+    >((ref) {
+      final service = ref.watch(groupMessagingServiceProvider);
 
-  return ({
-    required String messageId,
-    required String memberKey,
-  }) async {
-    await service.markFailed(messageId, memberKey);
+      return ({required String messageId, required String memberKey}) async {
+        await service.markFailed(messageId, memberKey);
 
-    // Invalidate message to refresh delivery status
-    ref.invalidate(groupMessageByIdProvider(messageId));
-    ref.invalidate(messageDeliverySummaryProvider(messageId));
-  };
-});
+        // Invalidate message to refresh delivery status
+        ref.invalidate(groupMessageByIdProvider(messageId));
+        ref.invalidate(messageDeliverySummaryProvider(messageId));
+      };
+    });

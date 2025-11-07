@@ -19,8 +19,10 @@ void main() {
 
         // Verify compression was beneficial
         expect(compressed.length, lessThan(uncompressed.length));
-        print('Compression savings: ${uncompressed.length} → ${compressed.length} bytes '
-            '(${((1 - compressed.length / uncompressed.length) * 100).toStringAsFixed(1)}% reduction)');
+        print(
+          'Compression savings: ${uncompressed.length} → ${compressed.length} bytes '
+          '(${((1 - compressed.length / uncompressed.length) * 100).toStringAsFixed(1)}% reduction)',
+        );
 
         // Verify flags byte is set correctly
         expect(compressed[0], equals(0x01)); // IS_COMPRESSED flag
@@ -40,8 +42,11 @@ void main() {
       test('skips compression when not beneficial', () {
         // Create message with truly random payload (use more unique bytes)
         // Generate content that has very high entropy (near-random distribution)
-        final randomContent = List.generate(250, (i) =>
-          String.fromCharCode(33 + (i * 7 + i * 13) % 90) // Pseudo-random chars
+        final randomContent = List.generate(
+          250,
+          (i) => String.fromCharCode(
+            33 + (i * 7 + i * 13) % 90,
+          ), // Pseudo-random chars
         ).join();
 
         final message = ProtocolMessage.textMessage(
@@ -118,8 +123,10 @@ void main() {
         expect(decoded.textContent, equals(original.textContent));
         expect(decoded.isEncrypted, equals(original.isEncrypted));
         expect(decoded.recipientId, equals(original.recipientId));
-        expect(decoded.timestamp.millisecondsSinceEpoch,
-               equals(original.timestamp.millisecondsSinceEpoch));
+        expect(
+          decoded.timestamp.millisecondsSinceEpoch,
+          equals(original.timestamp.millisecondsSinceEpoch),
+        );
       });
 
       test('handles uncompressed messages correctly', () {
@@ -129,8 +136,10 @@ void main() {
         final decoded = ProtocolMessage.fromBytes(bytes);
 
         expect(decoded.type, equals(original.type));
-        expect(decoded.timestamp.millisecondsSinceEpoch,
-               equals(original.timestamp.millisecondsSinceEpoch));
+        expect(
+          decoded.timestamp.millisecondsSinceEpoch,
+          equals(original.timestamp.millisecondsSinceEpoch),
+        );
       });
 
       test('backward compatible with old format (no flags byte)', () {
@@ -142,7 +151,9 @@ void main() {
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'useEphemeralSigning': false,
         };
-        final oldFormatBytes = Uint8List.fromList(utf8.encode(jsonEncode(json)));
+        final oldFormatBytes = Uint8List.fromList(
+          utf8.encode(jsonEncode(json)),
+        );
 
         // Should parse successfully via backward compatibility fallback
         final decoded = ProtocolMessage.fromBytes(oldFormatBytes);
@@ -170,7 +181,9 @@ void main() {
         // 2. Backward compatibility fallback will fail (not valid UTF-8/JSON)
         expect(
           () => ProtocolMessage.fromBytes(invalid),
-          throwsA(anything), // Catches any exception (ArgumentError, FormatException, etc.)
+          throwsA(
+            anything,
+          ), // Catches any exception (ArgumentError, FormatException, etc.)
         );
       });
 
@@ -194,7 +207,10 @@ void main() {
 
         expect(decoded.type, equals(ProtocolMessageType.identity));
         expect(decoded.identityPublicKey, equals(original.identityPublicKey));
-        expect(decoded.identityDisplayName, equals(original.identityDisplayName));
+        expect(
+          decoded.identityDisplayName,
+          equals(original.identityDisplayName),
+        );
       });
 
       test('mesh relay message round-trip with compression', () {
@@ -240,8 +256,14 @@ void main() {
         final decoded = ProtocolMessage.fromBytes(bytes);
 
         expect(decoded.type, equals(ProtocolMessageType.contactRequest));
-        expect(decoded.contactRequestPublicKey, equals(original.contactRequestPublicKey));
-        expect(decoded.contactRequestDisplayName, equals(original.contactRequestDisplayName));
+        expect(
+          decoded.contactRequestPublicKey,
+          equals(original.contactRequestPublicKey),
+        );
+        expect(
+          decoded.contactRequestDisplayName,
+          equals(original.contactRequestDisplayName),
+        );
       });
 
       test('queue sync round-trip with compression', () {
@@ -303,15 +325,22 @@ void main() {
           totalOriginal += uncompressed.length;
           totalCompressed += compressed.length;
 
-          print('${message.type}: ${uncompressed.length} → ${compressed.length} bytes '
-              '(${((1 - compressed.length / uncompressed.length) * 100).toStringAsFixed(1)}% saved)');
+          print(
+            '${message.type}: ${uncompressed.length} → ${compressed.length} bytes '
+            '(${((1 - compressed.length / uncompressed.length) * 100).toStringAsFixed(1)}% saved)',
+          );
         }
 
         final overallSavings = ((1 - totalCompressed / totalOriginal) * 100);
-        print('Overall compression savings: ${overallSavings.toStringAsFixed(1)}%');
+        print(
+          'Overall compression savings: ${overallSavings.toStringAsFixed(1)}%',
+        );
 
         // Verify significant compression
-        expect(totalCompressed, lessThan(totalOriginal * 0.7)); // At least 30% savings
+        expect(
+          totalCompressed,
+          lessThan(totalOriginal * 0.7),
+        ); // At least 30% savings
       });
     });
 
@@ -387,7 +416,9 @@ void main() {
         stopwatch.stop();
 
         final avgMs = stopwatch.elapsedMilliseconds / 100;
-        print('Average compression time: ${avgMs.toStringAsFixed(2)}ms per message');
+        print(
+          'Average compression time: ${avgMs.toStringAsFixed(2)}ms per message',
+        );
 
         // Should be fast enough for real-time BLE (<50ms)
         expect(avgMs, lessThan(50));
@@ -408,7 +439,9 @@ void main() {
         stopwatch.stop();
 
         final avgMs = stopwatch.elapsedMilliseconds / 100;
-        print('Average decompression time: ${avgMs.toStringAsFixed(2)}ms per message');
+        print(
+          'Average decompression time: ${avgMs.toStringAsFixed(2)}ms per message',
+        );
 
         // Decompression should be even faster
         expect(avgMs, lessThan(50));

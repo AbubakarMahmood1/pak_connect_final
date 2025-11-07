@@ -60,11 +60,7 @@ void main() {
       await repo.markChatAsRead(chatId);
 
       // Verify count is now 0
-      rows = await db.query(
-        'chats',
-        where: 'chat_id = ?',
-        whereArgs: [chatId],
-      );
+      rows = await db.query('chats', where: 'chat_id = ?', whereArgs: [chatId]);
       expect(rows.first['unread_count'], 0);
     });
 
@@ -270,24 +266,28 @@ void main() {
       final now = DateTime.now();
 
       // Save message for Alice (creates chat)
-      await messageRepo.saveMessage(Message(
-        id: 'msg1',
-        chatId: 'persistent_chat_alice_key_mykey',
-        content: 'Hello from Alice',
-        timestamp: now,
-        isFromMe: false,
-        status: MessageStatus.delivered,
-      ));
+      await messageRepo.saveMessage(
+        Message(
+          id: 'msg1',
+          chatId: 'persistent_chat_alice_key_mykey',
+          content: 'Hello from Alice',
+          timestamp: now,
+          isFromMe: false,
+          status: MessageStatus.delivered,
+        ),
+      );
 
       // Save message for Bob (creates chat)
-      await messageRepo.saveMessage(Message(
-        id: 'msg2',
-        chatId: 'persistent_chat_bob_key_mykey',
-        content: 'Hello from Bob',
-        timestamp: now,
-        isFromMe: false,
-        status: MessageStatus.delivered,
-      ));
+      await messageRepo.saveMessage(
+        Message(
+          id: 'msg2',
+          chatId: 'persistent_chat_bob_key_mykey',
+          content: 'Hello from Bob',
+          timestamp: now,
+          isFromMe: false,
+          status: MessageStatus.delivered,
+        ),
+      );
 
       // Charlie has no messages, so no chat
 
@@ -296,12 +296,17 @@ void main() {
       // Skip for now as it requires additional setup
     }, skip: 'Requires UserPreferences setup');
 
-    test('getAllChats returns empty list when no messages', () async {
-      final repo = ChatsRepository();
+    test(
+      'getAllChats returns empty list when no messages',
+      () async {
+        final repo = ChatsRepository();
 
-      final chats = await repo.getAllChats();
-      expect(chats, isEmpty);
-    }, skip: 'Requires UserPreferences/FlutterSecureStorage - getPublicKey() has no fallback');
+        final chats = await repo.getAllChats();
+        expect(chats, isEmpty);
+      },
+      skip:
+          'Requires UserPreferences/FlutterSecureStorage - getPublicKey() has no fallback',
+    );
 
     test('Multiple chats with different unread counts', () async {
       final repo = ChatsRepository();
@@ -332,13 +337,25 @@ void main() {
       // Verify individual counts
       final db = await DatabaseHelper.database;
 
-      final chat1Rows = await db.query('chats', where: 'chat_id = ?', whereArgs: [chat1]);
+      final chat1Rows = await db.query(
+        'chats',
+        where: 'chat_id = ?',
+        whereArgs: [chat1],
+      );
       expect(chat1Rows.first['unread_count'], 5);
 
-      final chat2Rows = await db.query('chats', where: 'chat_id = ?', whereArgs: [chat2]);
+      final chat2Rows = await db.query(
+        'chats',
+        where: 'chat_id = ?',
+        whereArgs: [chat2],
+      );
       expect(chat2Rows.first['unread_count'], 2);
 
-      final chat3Rows = await db.query('chats', where: 'chat_id = ?', whereArgs: [chat3]);
+      final chat3Rows = await db.query(
+        'chats',
+        where: 'chat_id = ?',
+        whereArgs: [chat3],
+      );
       expect(chat3Rows.first['unread_count'], 0);
     });
 
@@ -386,7 +403,7 @@ void main() {
 
       final mappings = {
         for (var row in rows)
-          row['device_uuid'] as String: row['public_key'] as String
+          row['device_uuid'] as String: row['public_key'] as String,
       };
 
       expect(mappings['device1'], 'alice_key');

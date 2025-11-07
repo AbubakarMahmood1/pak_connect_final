@@ -17,22 +17,14 @@ import 'dart:math' as math;
 
 /// Golomb-Coded Set filter parameters
 class GCSFilterParams {
-  final int p;              // Golomb-Rice parameter (controls false positive rate)
-  final int m;              // Range M = N * 2^P
-  final Uint8List data;     // Encoded Golomb-Rice bitstream
+  final int p; // Golomb-Rice parameter (controls false positive rate)
+  final int m; // Range M = N * 2^P
+  final Uint8List data; // Encoded Golomb-Rice bitstream
 
-  const GCSFilterParams({
-    required this.p,
-    required this.m,
-    required this.data,
-  });
+  const GCSFilterParams({required this.p, required this.m, required this.data});
 
   /// Convert to JSON for serialization
-  Map<String, dynamic> toJson() => {
-    'p': p,
-    'm': m,
-    'data': data.toList(),
-  };
+  Map<String, dynamic> toJson() => {'p': p, 'm': m, 'data': data.toList()};
 
   /// Create from JSON
   factory GCSFilterParams.fromJson(Map<String, dynamic> json) {
@@ -100,11 +92,7 @@ class GCSFilter {
 
     final finalM = trimmedN << p;
 
-    return GCSFilterParams(
-      p: p,
-      m: finalM,
-      data: encoded,
-    );
+    return GCSFilterParams(p: p, m: finalM, data: encoded);
   }
 
   /// Decode filter to sorted set of values
@@ -191,7 +179,9 @@ class GCSFilter {
 
       // Safety check: delta must be >= 1 (values must be strictly increasing)
       if (delta <= 0) {
-        throw ArgumentError('Values must be strictly increasing (got delta=$delta at v=$v, prev=$prev)');
+        throw ArgumentError(
+          'Values must be strictly increasing (got delta=$delta at v=$v, prev=$prev)',
+        );
       }
 
       prev = v;

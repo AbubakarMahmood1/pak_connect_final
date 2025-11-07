@@ -11,13 +11,13 @@ import '../../domain/entities/enhanced_message.dart';
 class RelayQueueWidget extends StatefulWidget {
   final MeshNetworkingService meshService;
   final VoidCallback? onRequestClose;
-  
+
   const RelayQueueWidget({
-    super.key, 
+    super.key,
     required this.meshService,
     this.onRequestClose,
   });
-  
+
   @override
   // ignore: library_private_types_in_public_api
   _RelayQueueWidgetState createState() => _RelayQueueWidgetState();
@@ -53,7 +53,10 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
         setState(() {
           _timeoutReached = true;
         });
-        MeshDebugLogger.warning('RelayQueueWidget', 'Loading timeout reached - mesh status stream not providing data');
+        MeshDebugLogger.warning(
+          'RelayQueueWidget',
+          'Loading timeout reached - mesh status stream not providing data',
+        );
       }
     });
   }
@@ -71,8 +74,12 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
 
         if (statusChanged || dataStateChanged) {
           _logger.fine('🔍 RELAY QUEUE STATUS CHANGE:');
-          _logger.fine('  - hasData: ${snapshot.hasData}, initialized: ${status?.isInitialized ?? false}');
-          _logger.fine('  - queue: ${status?.queueMessages?.length ?? 0} messages');
+          _logger.fine(
+            '  - hasData: ${snapshot.hasData}, initialized: ${status?.isInitialized ?? false}',
+          );
+          _logger.fine(
+            '  - queue: ${status?.queueMessages?.length ?? 0} messages',
+          );
 
           _lastLoggedStatus = status;
           _lastHasData = snapshot.hasData;
@@ -80,7 +87,9 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
 
         if (status == null) {
           if (statusChanged) {
-            _logger.fine('ℹ️ RelayQueueWidget: Loading state - waiting for status');
+            _logger.fine(
+              'ℹ️ RelayQueueWidget: Loading state - waiting for status',
+            );
           }
           // Cancel timeout if we get data
           if (_timeoutReached) {
@@ -101,7 +110,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
             }
           });
         }
-        
+
         return Card(
           elevation: 2,
           margin: EdgeInsets.all(8),
@@ -109,14 +118,12 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
             children: [
               // 📋 Header with queue summary
               _buildQueueHeader(status),
-              
+
               // 📝 Queue content list
-              Expanded(
-                child: _buildQueueList(status),
-              ),
-              
+              Expanded(child: _buildQueueList(status)),
+
               // 🔄 Action buttons
-              if (status.statistics.queueStatistics != null && 
+              if (status.statistics.queueStatistics != null &&
                   status.statistics.queueStatistics!.pendingMessages > 0)
                 _buildActionButtons(),
             ],
@@ -125,11 +132,14 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       },
     );
   }
-  
+
   /// Build loading state while waiting for mesh status
   Widget _buildLoadingState() {
     // Add diagnostic logging
-    MeshDebugLogger.info('RelayQueueWidget', 'Loading state displayed - MeshNetworkStatus is null');
+    MeshDebugLogger.info(
+      'RelayQueueWidget',
+      'Loading state displayed - MeshNetworkStatus is null',
+    );
 
     return Center(
       child: Column(
@@ -137,9 +147,15 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
         children: [
           CircularProgressIndicator(),
           SizedBox(height: 16),
-          Text('Loading relay queue...', style: TextStyle(color: Colors.grey[600])),
+          Text(
+            'Loading relay queue...',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
           SizedBox(height: 8),
-          Text('Initializing mesh network...', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+          Text(
+            'Initializing mesh network...',
+            style: TextStyle(color: Colors.grey[500], fontSize: 12),
+          ),
         ],
       ),
     );
@@ -171,10 +187,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
             Text(
               'Unable to load relay queue status. This may indicate a connection issue.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
             SizedBox(height: 16),
             Row(
@@ -186,7 +199,10 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
                       _timeoutReached = false;
                     });
                     _startLoadingTimeout();
-                    MeshDebugLogger.info('RelayQueueWidget', 'Retry after timeout requested');
+                    MeshDebugLogger.info(
+                      'RelayQueueWidget',
+                      'Retry after timeout requested',
+                    );
                   },
                   icon: Icon(Icons.refresh),
                   label: Text('Retry'),
@@ -208,7 +224,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       ),
     );
   }
-  
+
   /// Build queue header with summary information
   Widget _buildQueueHeader(MeshNetworkStatus status) {
     final queueStats = status.statistics.queueStatistics;
@@ -216,7 +232,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     final sendingCount = queueStats?.sendingMessages ?? 0;
     final retryingCount = queueStats?.retryingMessages ?? 0;
     final isOnline = queueStats?.isOnline ?? false;
-    
+
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -235,7 +251,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
             size: 28,
           ),
           SizedBox(width: 12),
-          
+
           // Title and subtitle
           Expanded(
             child: Column(
@@ -251,16 +267,18 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  _buildQueueSummary(pendingCount, sendingCount, retryingCount, isOnline),
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
+                  _buildQueueSummary(
+                    pendingCount,
+                    sendingCount,
+                    retryingCount,
+                    isOnline,
                   ),
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                 ),
               ],
             ),
           ),
-          
+
           // Connection status indicator
           Container(
             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -277,7 +295,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
               ),
             ),
           ),
-          
+
           // Refresh button
           IconButton(
             icon: Icon(Icons.refresh, color: Colors.grey[600]),
@@ -288,26 +306,33 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       ),
     );
   }
-  
+
   /// Build summary text for queue status
-  String _buildQueueSummary(int pending, int sending, int retrying, bool isOnline) {
+  String _buildQueueSummary(
+    int pending,
+    int sending,
+    int retrying,
+    bool isOnline,
+  ) {
     final totalActive = pending + sending + retrying;
-    
+
     if (totalActive == 0) {
       return 'No messages in queue';
     }
-    
+
     final parts = <String>[];
     if (pending > 0) parts.add('$pending pending');
     if (sending > 0) parts.add('$sending sending');
     if (retrying > 0) parts.add('$retrying retrying');
-    
+
     final statusText = parts.join(' • ');
-    final connectionText = isOnline ? 'Ready to deliver' : 'Waiting for connection';
-    
+    final connectionText = isOnline
+        ? 'Ready to deliver'
+        : 'Waiting for connection';
+
     return '$statusText • $connectionText';
   }
-  
+
   /// Build the main queue list
   Widget _buildQueueList(MeshNetworkStatus status) {
     final queueMessages = status.queueMessages;
@@ -325,10 +350,11 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     return ListView.builder(
       padding: EdgeInsets.symmetric(vertical: 8),
       itemCount: queueMessages.length,
-      itemBuilder: (context, index) => _buildRealQueueItem(queueMessages[index]),
+      itemBuilder: (context, index) =>
+          _buildRealQueueItem(queueMessages[index]),
     );
   }
-  
+
   /// Build empty state when no messages
   Widget _buildEmptyState(String message) {
     return Center(
@@ -337,33 +363,23 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.inbox_outlined,
-              size: 64,
-              color: Colors.grey[400],
-            ),
+            Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[400]),
             SizedBox(height: 16),
             Text(
               message,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
             ),
             SizedBox(height: 8),
             Text(
               'Messages will appear here when queued for relay',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[500],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
             ),
           ],
         ),
       ),
     );
   }
-  
+
   /// Build real queue item from QueuedMessage
   Widget _buildRealQueueItem(QueuedMessage message) {
     return Card(
@@ -385,7 +401,11 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
               ),
               child: Text(
                 message.priority.name.toUpperCase(),
-                style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             SizedBox(width: 8),
@@ -569,14 +589,14 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       ),
     );
   }
-  
+
   // Action handlers
-  
+
   void _refreshQueue() {
     setState(() {});
     MeshDebugLogger.info('UI Action', 'Queue refresh requested');
   }
-  
+
   /// Handle real message actions
   void _handleRealMessageAction(String action, QueuedMessage message) {
     switch (action) {
@@ -597,23 +617,30 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   void _retryRealMessage(QueuedMessage message) async {
     try {
       final success = await widget.meshService.retryMessage(message.id);
-      final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
+      final messageIdShort = message.id.length > 16
+          ? message.id.substring(0, 16)
+          : message.id;
 
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success
-              ? '🔄 Retrying message $messageIdShort...'
-              : '❌ Failed to retry message $messageIdShort...'),
+          content: Text(
+            success
+                ? '🔄 Retrying message $messageIdShort...'
+                : '❌ Failed to retry message $messageIdShort...',
+          ),
           backgroundColor: success ? Colors.green[600] : Colors.red[600],
         ),
       );
 
-      MeshDebugLogger.info('UI Action', 'Real retry ${success ? "successful" : "failed"} for message $messageIdShort...');
+      MeshDebugLogger.info(
+        'UI Action',
+        'Real retry ${success ? "successful" : "failed"} for message $messageIdShort...',
+      );
     } catch (e) {
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error retrying message: $e'),
@@ -625,24 +652,34 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
 
   void _setPriorityReal(QueuedMessage message) async {
     try {
-      final success = await widget.meshService.setPriority(message.id, MessagePriority.high);
-      final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
+      final success = await widget.meshService.setPriority(
+        message.id,
+        MessagePriority.high,
+      );
+      final messageIdShort = message.id.length > 16
+          ? message.id.substring(0, 16)
+          : message.id;
 
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success
-              ? '⚡ Priority updated for $messageIdShort...'
-              : '⚠️ Priority update not supported for $messageIdShort...'),
+          content: Text(
+            success
+                ? '⚡ Priority updated for $messageIdShort...'
+                : '⚠️ Priority update not supported for $messageIdShort...',
+          ),
           backgroundColor: success ? Colors.orange[600] : Colors.grey[600],
         ),
       );
 
-      MeshDebugLogger.info('UI Action', 'Real priority change ${success ? "successful" : "failed"} for message $messageIdShort...');
+      MeshDebugLogger.info(
+        'UI Action',
+        'Real priority change ${success ? "successful" : "failed"} for message $messageIdShort...',
+      );
     } catch (e) {
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error setting priority: $e'),
@@ -655,23 +692,30 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   void _removeRealMessage(QueuedMessage message) async {
     try {
       final success = await widget.meshService.removeMessage(message.id);
-      final messageIdShort = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
+      final messageIdShort = message.id.length > 16
+          ? message.id.substring(0, 16)
+          : message.id;
 
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(success
-              ? '🗑️ Message $messageIdShort... removed from queue'
-              : '❌ Failed to remove message $messageIdShort...'),
+          content: Text(
+            success
+                ? '🗑️ Message $messageIdShort... removed from queue'
+                : '❌ Failed to remove message $messageIdShort...',
+          ),
           backgroundColor: success ? Colors.red[600] : Colors.grey[600],
         ),
       );
 
-      MeshDebugLogger.info('UI Action', 'Real removal ${success ? "successful" : "failed"} for message $messageIdShort...');
+      MeshDebugLogger.info(
+        'UI Action',
+        'Real removal ${success ? "successful" : "failed"} for message $messageIdShort...',
+      );
     } catch (e) {
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error removing message: $e'),
@@ -680,26 +724,31 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       );
     }
   }
-  
+
   void _retryAllMessages() async {
     try {
       final retriedCount = await widget.meshService.retryAllMessages();
 
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(retriedCount > 0
-              ? '🚀 Retrying $retriedCount failed messages...'
-              : '✅ No failed messages to retry'),
+          content: Text(
+            retriedCount > 0
+                ? '🚀 Retrying $retriedCount failed messages...'
+                : '✅ No failed messages to retry',
+          ),
           backgroundColor: Colors.green[600],
         ),
       );
 
-      MeshDebugLogger.info('UI Action', 'Retry all messages: $retriedCount messages queued for retry');
+      MeshDebugLogger.info(
+        'UI Action',
+        'Retry all messages: $retriedCount messages queued for retry',
+      );
     } catch (e) {
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Error retrying messages: $e'),
@@ -708,7 +757,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       );
     }
   }
-  
+
   void _clearFailedMessages() {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -718,14 +767,17 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     );
     MeshDebugLogger.info('UI Action', 'Clear failed messages requested');
   }
-  
+
   /// Handle close request with proper coordination
   void _handleCloseRequest() {
-    MeshDebugLogger.info('RelayQueueWidget', 'Close request - using coordinated close');
-    
+    MeshDebugLogger.info(
+      'RelayQueueWidget',
+      'Close request - using coordinated close',
+    );
+
     // First, cancel any active timers to prevent memory leaks
     _loadingTimeout?.cancel();
-    
+
     // Use callback if provided (for tab-based integration)
     if (widget.onRequestClose != null) {
       widget.onRequestClose!();
@@ -736,7 +788,10 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       if (route != null && route.isFirst == false) {
         Navigator.pop(context);
       } else {
-        MeshDebugLogger.warning('RelayQueueWidget', 'Cannot close - appears to be in tab view without callback');
+        MeshDebugLogger.warning(
+          'RelayQueueWidget',
+          'Cannot close - appears to be in tab view without callback',
+        );
       }
     }
   }

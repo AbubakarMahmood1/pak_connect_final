@@ -20,7 +20,7 @@ class ModernMessageBubble extends StatefulWidget {
   final VoidCallback? onStar;
   final VoidCallback? onDelete;
   final VoidCallback? onLongPress;
-  
+
   const ModernMessageBubble({
     super.key,
     required this.message,
@@ -46,7 +46,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
-  
+
   bool _isPressed = false;
 
   @override
@@ -56,23 +56,24 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    ));
-    
-    _slideAnimation = Tween<Offset>(
-      begin: widget.message.isFromMe ? const Offset(0.5, 0) : const Offset(-0.5, 0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
-    
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
+
+    _slideAnimation =
+        Tween<Offset>(
+          begin: widget.message.isFromMe
+              ? const Offset(0.5, 0)
+              : const Offset(-0.5, 0),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
     _animationController.forward();
   }
 
@@ -86,16 +87,13 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final customColors = theme.customColors;
-    
+
     return FadeTransition(
       opacity: _fadeAnimation,
       child: SlideTransition(
         position: _slideAnimation,
         child: Container(
-          margin: EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 2,
-          ),
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 2),
           child: Row(
             mainAxisAlignment: widget.message.isFromMe
                 ? MainAxisAlignment.end
@@ -104,13 +102,15 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
             children: [
               if (!widget.message.isFromMe && widget.showAvatar)
                 _buildAvatar(theme),
-              
+
               Flexible(
                 child: GestureDetector(
                   onTapDown: (_) => _handleTapDown(),
                   onTapUp: (_) => _handleTapUp(),
                   onTapCancel: () => _handleTapUp(),
-                  onLongPress: widget.enableInteractions ? _handleLongPress : null,
+                  onLongPress: widget.enableInteractions
+                      ? _handleLongPress
+                      : null,
                   child: AnimatedScale(
                     scale: _isPressed ? 0.98 : 1.0,
                     duration: const Duration(milliseconds: 100),
@@ -121,7 +121,9 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
                       ),
                       child: Card(
                         elevation: widget.message.isFromMe ? 1 : 2,
-                        shadowColor: theme.colorScheme.shadow.withValues(alpha: 0.1),
+                        shadowColor: theme.colorScheme.shadow.withValues(
+                          alpha: 0.1,
+                        ),
                         color: _getMessageBackgroundColor(theme),
                         surfaceTintColor: widget.message.isFromMe
                             ? theme.colorScheme.primary
@@ -140,12 +142,12 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
                             children: [
                               if (widget.message.isReply)
                                 _buildReplyReference(theme),
-                              
+
                               _buildMessageContent(theme),
-                              
+
                               if (widget.message.reactions.isNotEmpty)
                                 _buildReactions(theme),
-                              
+
                               const SizedBox(height: 4),
                               _buildMessageFooter(theme, customColors),
                             ],
@@ -156,7 +158,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
                   ),
                 ),
               ),
-              
+
               if (widget.message.isFromMe && widget.showAvatar)
                 _buildAvatar(theme),
             ],
@@ -191,10 +193,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(8),
         border: Border(
-          left: BorderSide(
-            color: theme.colorScheme.primary,
-            width: 3,
-          ),
+          left: BorderSide(color: theme.colorScheme.primary, width: 3),
         ),
       ),
       child: Column(
@@ -251,9 +250,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
             ),
             child: Text(
               '${entry.key} ${entry.value}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontSize: 11,
-              ),
+              style: theme.textTheme.bodySmall?.copyWith(fontSize: 11),
             ),
           );
         }).toList(),
@@ -279,18 +276,15 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
               ),
             ),
           ),
-        
+
         if (widget.message.isStarred)
           Padding(
             padding: const EdgeInsets.only(right: 4),
-            child: Icon(
-              Icons.star,
-              size: 12,
-              color: Colors.amber.shade600,
-            ),
+            child: Icon(Icons.star, size: 12, color: Colors.amber.shade600),
           ),
-        
-        if (widget.showTimestamp || widget.message.status == MessageStatus.failed)
+
+        if (widget.showTimestamp ||
+            widget.message.status == MessageStatus.failed)
           Text(
             widget.message.status == MessageStatus.failed
                 ? 'Failed'
@@ -302,26 +296,20 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
                   : theme.colorScheme.onSurfaceVariant.withValues(),
             ),
           ),
-        
+
         if (widget.showStatus && widget.message.isFromMe) ...[
           const SizedBox(width: 4),
           _buildStatusIcon(theme, customColors),
         ],
-        
-        if (widget.message.status == MessageStatus.failed && widget.onRetry != null)
+
+        if (widget.message.status == MessageStatus.failed &&
+            widget.onRetry != null)
           IconButton(
             onPressed: widget.onRetry,
-            icon: Icon(
-              Icons.refresh,
-              size: 16,
-              color: theme.colorScheme.error,
-            ),
+            icon: Icon(Icons.refresh, size: 16, color: theme.colorScheme.error),
             tooltip: 'Retry sending',
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(
-              minWidth: 24,
-              minHeight: 24,
-            ),
+            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
           ),
       ],
     );
@@ -331,7 +319,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
   Widget _buildStatusIcon(ThemeData theme, CustomColors customColors) {
     IconData icon;
     Color color;
-    
+
     switch (widget.message.status) {
       case MessageStatus.sending:
         icon = Icons.access_time;
@@ -343,23 +331,24 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
         break;
       case MessageStatus.delivered:
         icon = widget.message.isRead ? Icons.done_all : Icons.done_all;
-        color = widget.message.isRead ? customColors.success : theme.colorScheme.onSurfaceVariant.withValues();
+        color = widget.message.isRead
+            ? customColors.success
+            : theme.colorScheme.onSurfaceVariant.withValues();
         break;
       case MessageStatus.failed:
         icon = Icons.error_outline;
         color = theme.colorScheme.error;
         break;
     }
-    
-    return Icon(
-      icon,
-      size: 12,
-      color: color,
-    );
+
+    return Icon(icon, size: 12, color: color);
   }
 
   /// Build context menu for text selection
-  Widget _buildContextMenu(BuildContext context, EditableTextState editableTextState) {
+  Widget _buildContextMenu(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
     return AdaptiveTextSelectionToolbar.buttonItems(
       anchors: editableTextState.contextMenuAnchors,
       buttonItems: [
@@ -439,7 +428,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
   void _showMessageContextMenu() {
     final RenderBox renderBox = context.findRenderObject() as RenderBox;
     final Offset offset = renderBox.localToGlobal(Offset.zero);
-    
+
     showMenu<String>(
       context: context,
       position: RelativeRect.fromLTRB(
@@ -480,7 +469,9 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
           PopupMenuItem<String>(
             value: 'star',
             child: ListTile(
-              leading: Icon(widget.message.isStarred ? Icons.star : Icons.star_border),
+              leading: Icon(
+                widget.message.isStarred ? Icons.star : Icons.star_border,
+              ),
               title: Text(widget.message.isStarred ? 'Unstar' : 'Star'),
               contentPadding: EdgeInsets.zero,
             ),
@@ -522,7 +513,7 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
   /// Copy message content to clipboard
   void _copyMessageToClipboard() {
     Clipboard.setData(ClipboardData(text: widget.message.content));
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Message copied to clipboard'),
@@ -574,8 +565,12 @@ class _ModernMessageBubbleState extends State<ModernMessageBubble>
   String _formatTime(DateTime timestamp) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(timestamp.year, timestamp.month, timestamp.day);
-    
+    final messageDate = DateTime(
+      timestamp.year,
+      timestamp.month,
+      timestamp.day,
+    );
+
     if (messageDate == today) {
       // Same day - show time only
       return '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}';

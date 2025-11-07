@@ -97,7 +97,9 @@ void main() {
 
   group('NoiseEncryptionService', () {
     test('initializes and generates new keys', () async {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
       await service.initialize();
 
       final publicKey = service.getStaticPublicKeyData();
@@ -110,7 +112,9 @@ void main() {
     });
 
     test('throws StateError if not initialized', () {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       expect(
         () => service.getStaticPublicKeyData(),
@@ -119,7 +123,9 @@ void main() {
     });
 
     test('fingerprint is deterministic', () async {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
       await service.initialize();
 
       final fingerprint1 = service.getIdentityFingerprint();
@@ -132,21 +138,55 @@ void main() {
 
     test('calculateFingerprint static method works', () {
       final publicKey = Uint8List.fromList([
-        0x85, 0x20, 0xf0, 0x09, 0x89, 0x30, 0xa7, 0x54,
-        0x74, 0x8b, 0x7d, 0xdc, 0xb4, 0x3e, 0xf7, 0x5a,
-        0x0d, 0xbf, 0x3a, 0x0d, 0x26, 0x38, 0x1a, 0xf4,
-        0xeb, 0xa4, 0xa9, 0x8e, 0xaa, 0x9b, 0x4e, 0x6a,
+        0x85,
+        0x20,
+        0xf0,
+        0x09,
+        0x89,
+        0x30,
+        0xa7,
+        0x54,
+        0x74,
+        0x8b,
+        0x7d,
+        0xdc,
+        0xb4,
+        0x3e,
+        0xf7,
+        0x5a,
+        0x0d,
+        0xbf,
+        0x3a,
+        0x0d,
+        0x26,
+        0x38,
+        0x1a,
+        0xf4,
+        0xeb,
+        0xa4,
+        0xa9,
+        0x8e,
+        0xaa,
+        0x9b,
+        0x4e,
+        0x6a,
       ]);
 
-      final fingerprint = NoiseEncryptionService.calculateFingerprint(publicKey);
-      
+      final fingerprint = NoiseEncryptionService.calculateFingerprint(
+        publicKey,
+      );
+
       expect(fingerprint.length, equals(64));
       expect(fingerprint, matches(RegExp(r'^[0-9a-f]{64}$')));
     });
 
     test('completes handshake between two services', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
@@ -204,8 +244,12 @@ void main() {
     });
 
     test('encrypts and decrypts messages', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
@@ -220,7 +264,7 @@ void main() {
       final plaintext1 = Uint8List.fromList([1, 2, 3, 4, 5]);
       final encrypted1 = await aliceService.encrypt(plaintext1, 'Bob');
       expect(encrypted1, isNotNull);
-      
+
       final decrypted1 = await bobService.decrypt(encrypted1!, 'Alice');
       expect(decrypted1, isNotNull);
       expect(decrypted1, equals(plaintext1));
@@ -229,7 +273,7 @@ void main() {
       final plaintext2 = Uint8List.fromList([10, 20, 30]);
       final encrypted2 = await bobService.encrypt(plaintext2, 'Alice');
       expect(encrypted2, isNotNull);
-      
+
       final decrypted2 = await aliceService.decrypt(encrypted2!, 'Bob');
       expect(decrypted2, isNotNull);
       expect(decrypted2, equals(plaintext2));
@@ -239,7 +283,9 @@ void main() {
     });
 
     test('encrypt returns null without established session', () async {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
       await service.initialize();
 
       bool handshakeRequiredCalled = false;
@@ -247,8 +293,11 @@ void main() {
         handshakeRequiredCalled = true;
       };
 
-      final result = await service.encrypt(Uint8List.fromList([1, 2, 3]), 'Bob');
-      
+      final result = await service.encrypt(
+        Uint8List.fromList([1, 2, 3]),
+        'Bob',
+      );
+
       expect(result, isNull);
       expect(handshakeRequiredCalled, isTrue);
 
@@ -256,19 +305,28 @@ void main() {
     });
 
     test('decrypt returns null without established session', () async {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
       await service.initialize();
 
-      final result = await service.decrypt(Uint8List.fromList([1, 2, 3]), 'Bob');
-      
+      final result = await service.decrypt(
+        Uint8List.fromList([1, 2, 3]),
+        'Bob',
+      );
+
       expect(result, isNull);
 
       service.shutdown();
     });
 
     test('getPeerPublicKeyData returns peer key after handshake', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
@@ -293,37 +351,60 @@ void main() {
     });
 
     test('getSessionState returns correct state', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
 
       // Uninitialized
-      expect(aliceService.getSessionState('Bob'), equals(NoiseSessionState.uninitialized));
+      expect(
+        aliceService.getSessionState('Bob'),
+        equals(NoiseSessionState.uninitialized),
+      );
 
       // Handshaking
       final msg1 = await aliceService.initiateHandshake('Bob');
-      expect(aliceService.getSessionState('Bob'), equals(NoiseSessionState.handshaking));
+      expect(
+        aliceService.getSessionState('Bob'),
+        equals(NoiseSessionState.handshaking),
+      );
 
       // Still handshaking
       final msg2 = await bobService.processHandshakeMessage(msg1!, 'Alice');
-      expect(bobService.getSessionState('Alice'), equals(NoiseSessionState.handshaking));
+      expect(
+        bobService.getSessionState('Alice'),
+        equals(NoiseSessionState.handshaking),
+      );
 
       // Established
       final msg3 = await aliceService.processHandshakeMessage(msg2!, 'Bob');
-      expect(aliceService.getSessionState('Bob'), equals(NoiseSessionState.established));
+      expect(
+        aliceService.getSessionState('Bob'),
+        equals(NoiseSessionState.established),
+      );
 
       await bobService.processHandshakeMessage(msg3!, 'Alice');
-      expect(bobService.getSessionState('Alice'), equals(NoiseSessionState.established));
+      expect(
+        bobService.getSessionState('Alice'),
+        equals(NoiseSessionState.established),
+      );
 
       aliceService.shutdown();
       bobService.shutdown();
     });
 
     test('removeSession clears session', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
@@ -340,15 +421,22 @@ void main() {
       aliceService.removeSession('Bob');
 
       expect(aliceService.hasEstablishedSession('Bob'), isFalse);
-      expect(aliceService.getSessionState('Bob'), equals(NoiseSessionState.uninitialized));
+      expect(
+        aliceService.getSessionState('Bob'),
+        equals(NoiseSessionState.uninitialized),
+      );
 
       aliceService.shutdown();
       bobService.shutdown();
     });
 
     test('getAllSessionStats returns statistics', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
@@ -364,7 +452,7 @@ void main() {
       await aliceService.encrypt(Uint8List.fromList([4, 5, 6]), 'Bob');
 
       final stats = aliceService.getAllSessionStats();
-      
+
       expect(stats.containsKey('Bob'), isTrue);
       expect(stats['Bob']!['state'], equals('established'));
       expect(stats['Bob']!['messagesSent'], equals(2));
@@ -374,7 +462,9 @@ void main() {
     });
 
     test('shutdown clears all sessions', () async {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
       await service.initialize();
 
       await service.initiateHandshake('Bob');
@@ -393,21 +483,25 @@ void main() {
     });
 
     test('can initialize twice (idempotent)', () async {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+
       await service.initialize();
       final fingerprint1 = service.getIdentityFingerprint();
-      
+
       await service.initialize(); // Second init should be no-op
       final fingerprint2 = service.getIdentityFingerprint();
-      
+
       expect(fingerprint1, equals(fingerprint2));
 
       service.shutdown();
     });
 
     test('handles handshake failure gracefully', () async {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
       await service.initialize();
 
       await service.initiateHandshake('Bob');
@@ -424,9 +518,15 @@ void main() {
     });
 
     test('multiple peers independently', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final charlieService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final charlieService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
@@ -450,7 +550,10 @@ void main() {
 
       // Alice can encrypt to both
       final toBob = await aliceService.encrypt(Uint8List.fromList([1]), 'Bob');
-      final toCharlie = await aliceService.encrypt(Uint8List.fromList([2]), 'Charlie');
+      final toCharlie = await aliceService.encrypt(
+        Uint8List.fromList([2]),
+        'Charlie',
+      );
 
       expect(toBob, isNotNull);
       expect(toCharlie, isNotNull);
@@ -467,8 +570,12 @@ void main() {
     });
 
     test('bidirectional message exchange', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
@@ -481,22 +588,44 @@ void main() {
 
       // Interleaved messages
       final msgs = <Uint8List?>[];
-      msgs.add(await aliceService.encrypt(Uint8List.fromList([1, 1, 1]), 'Bob'));
-      msgs.add(await bobService.encrypt(Uint8List.fromList([2, 2, 2]), 'Alice'));
-      msgs.add(await aliceService.encrypt(Uint8List.fromList([3, 3, 3]), 'Bob'));
-      msgs.add(await bobService.encrypt(Uint8List.fromList([4, 4, 4]), 'Alice'));
+      msgs.add(
+        await aliceService.encrypt(Uint8List.fromList([1, 1, 1]), 'Bob'),
+      );
+      msgs.add(
+        await bobService.encrypt(Uint8List.fromList([2, 2, 2]), 'Alice'),
+      );
+      msgs.add(
+        await aliceService.encrypt(Uint8List.fromList([3, 3, 3]), 'Bob'),
+      );
+      msgs.add(
+        await bobService.encrypt(Uint8List.fromList([4, 4, 4]), 'Alice'),
+      );
 
-      expect(await bobService.decrypt(msgs[0]!, 'Alice'), equals(Uint8List.fromList([1, 1, 1])));
-      expect(await aliceService.decrypt(msgs[1]!, 'Bob'), equals(Uint8List.fromList([2, 2, 2])));
-      expect(await bobService.decrypt(msgs[2]!, 'Alice'), equals(Uint8List.fromList([3, 3, 3])));
-      expect(await aliceService.decrypt(msgs[3]!, 'Bob'), equals(Uint8List.fromList([4, 4, 4])));
+      expect(
+        await bobService.decrypt(msgs[0]!, 'Alice'),
+        equals(Uint8List.fromList([1, 1, 1])),
+      );
+      expect(
+        await aliceService.decrypt(msgs[1]!, 'Bob'),
+        equals(Uint8List.fromList([2, 2, 2])),
+      );
+      expect(
+        await bobService.decrypt(msgs[2]!, 'Alice'),
+        equals(Uint8List.fromList([3, 3, 3])),
+      );
+      expect(
+        await aliceService.decrypt(msgs[3]!, 'Bob'),
+        equals(Uint8List.fromList([4, 4, 4])),
+      );
 
       aliceService.shutdown();
       bobService.shutdown();
     });
 
     test('checkForRekeyNeeded returns empty list initially', () async {
-      final service = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
       await service.initialize();
 
       final needsRekey = service.checkForRekeyNeeded();
@@ -506,8 +635,12 @@ void main() {
     });
 
     test('decrypt returns null on corrupted data', () async {
-      final aliceService = NoiseEncryptionService(secureStorage: MockSecureStorage());
-      final bobService = NoiseEncryptionService(secureStorage: MockSecureStorage());
+      final aliceService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      final bobService = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
 
       await aliceService.initialize();
       await bobService.initialize();
@@ -519,8 +652,11 @@ void main() {
       await bobService.processHandshakeMessage(msg!, 'Alice');
 
       // Encrypt valid message
-      final encrypted = await aliceService.encrypt(Uint8List.fromList([1, 2, 3]), 'Bob');
-      
+      final encrypted = await aliceService.encrypt(
+        Uint8List.fromList([1, 2, 3]),
+        'Bob',
+      );
+
       // Corrupt it
       final corrupted = Uint8List.fromList(encrypted!);
       corrupted[corrupted.length ~/ 2] ^= 0xFF;
@@ -535,7 +671,7 @@ void main() {
 
     test('persists and loads keys from storage', () async {
       final storage = MockSecureStorage();
-      
+
       // First service generates keys
       final service1 = NoiseEncryptionService(secureStorage: storage);
       await service1.initialize();
@@ -546,7 +682,7 @@ void main() {
       final service2 = NoiseEncryptionService(secureStorage: storage);
       await service2.initialize();
       final fingerprint2 = service2.getIdentityFingerprint();
-      
+
       expect(fingerprint1, equals(fingerprint2));
       service2.shutdown();
     });

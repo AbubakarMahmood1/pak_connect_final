@@ -10,7 +10,7 @@ void main() {
   // Initialize test environment and clean database from previous runs
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment();
-    await TestSetup.fullDatabaseReset();  // Clean corrupted DB from previous runs
+    await TestSetup.fullDatabaseReset(); // Clean corrupted DB from previous runs
   });
 
   // Reset database before each test
@@ -73,7 +73,8 @@ void main() {
       'archive_reason': 'Test archive',
       'estimated_size': messageCount * 100,
       'is_compressed': 0,
-      'metadata_json': '{"version":"1.0","reason":"Test archive","originalUnreadCount":0,"wasOnline":false,"hadUnsentMessages":false,"estimatedStorageSize":${messageCount * 100},"archiveSource":"test","tags":[],"hasSearchIndex":true}',
+      'metadata_json':
+          '{"version":"1.0","reason":"Test archive","originalUnreadCount":0,"wasOnline":false,"hadUnsentMessages":false,"estimatedStorageSize":${messageCount * 100},"archiveSource":"test","tags":[],"hasSearchIndex":true}',
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': now.millisecondsSinceEpoch,
     });
@@ -133,7 +134,11 @@ void main() {
       final archiveId = await createArchiveDirectly('chat_003', 'Charlie', 3);
 
       // Verify chat is empty initially
-      await createChatWithMessages('chat_003', 'Charlie', 0); // Create empty chat
+      await createChatWithMessages(
+        'chat_003',
+        'Charlie',
+        0,
+      ); // Create empty chat
       final clearedMessages = await messageRepo.getMessages('chat_003');
       expect(clearedMessages.isEmpty, true);
 
@@ -225,13 +230,15 @@ void main() {
       await createArchiveDirectly('chat_014', 'Charlie', 5);
 
       // Sort by message count
-      final filter = ArchiveSearchFilter(sortBy: ArchiveSortOption.messageCount);
+      final filter = ArchiveSearchFilter(
+        sortBy: ArchiveSortOption.messageCount,
+      );
       final archives = await repository.getArchivedChats(filter: filter);
 
       expect(archives.length, 3);
       expect(archives[0].messageCount, 10); // Bob
-      expect(archives[1].messageCount, 5);  // Charlie
-      expect(archives[2].messageCount, 2);  // Alice
+      expect(archives[1].messageCount, 5); // Charlie
+      expect(archives[2].messageCount, 2); // Alice
     });
 
     test('FTS5 search finds messages by content', () async {
@@ -270,7 +277,8 @@ void main() {
         'archive_reason': 'Test',
         'estimated_size': 200,
         'is_compressed': 0,
-        'metadata_json': '{"version":"1.0","reason":"Test","originalUnreadCount":0,"wasOnline":false,"hadUnsentMessages":false,"estimatedStorageSize":200,"archiveSource":"test","tags":[],"hasSearchIndex":true}',
+        'metadata_json':
+            '{"version":"1.0","reason":"Test","originalUnreadCount":0,"wasOnline":false,"hadUnsentMessages":false,"estimatedStorageSize":200,"archiveSource":"test","tags":[],"hasSearchIndex":true}',
         'created_at': now.millisecondsSinceEpoch,
         'updated_at': now.millisecondsSinceEpoch,
       });
@@ -308,7 +316,9 @@ void main() {
       await createArchiveDirectly('chat_017', 'Alice', 3);
 
       // Search for non-existent keyword
-      final result = await repository.searchArchives(query: 'xyznonexistent123');
+      final result = await repository.searchArchives(
+        query: 'xyznonexistent123',
+      );
 
       expect(result.totalResults, 0);
       expect(result.messages.isEmpty, true);
@@ -379,7 +389,9 @@ void main() {
       final repository = ArchiveRepository();
       await repository.initialize();
 
-      final result = await repository.permanentlyDeleteArchive('non_existent_archive');
+      final result = await repository.permanentlyDeleteArchive(
+        'non_existent_archive',
+      );
 
       expect(result.success, false);
       expect(result.message, contains('not found'));
@@ -445,8 +457,12 @@ void main() {
       // Verify messages are in chronological order
       for (int i = 0; i < archive.messages.length - 1; i++) {
         expect(
-          archive.messages[i].timestamp.isBefore(archive.messages[i + 1].timestamp) ||
-          archive.messages[i].timestamp.isAtSameMomentAs(archive.messages[i + 1].timestamp),
+          archive.messages[i].timestamp.isBefore(
+                archive.messages[i + 1].timestamp,
+              ) ||
+              archive.messages[i].timestamp.isAtSameMomentAs(
+                archive.messages[i + 1].timestamp,
+              ),
           true,
         );
       }
@@ -487,7 +503,8 @@ void main() {
         'archive_reason': 'Test',
         'estimated_size': 100,
         'is_compressed': 0,
-        'metadata_json': '{"version":"1.0","reason":"Test","originalUnreadCount":0,"wasOnline":false,"hadUnsentMessages":false,"estimatedStorageSize":100,"archiveSource":"test","tags":[],"hasSearchIndex":true}',
+        'metadata_json':
+            '{"version":"1.0","reason":"Test","originalUnreadCount":0,"wasOnline":false,"hadUnsentMessages":false,"estimatedStorageSize":100,"archiveSource":"test","tags":[],"hasSearchIndex":true}',
         'created_at': now.millisecondsSinceEpoch,
         'updated_at': now.millisecondsSinceEpoch,
       });
@@ -524,7 +541,8 @@ void main() {
         'archive_reason': 'Test',
         'estimated_size': 100,
         'is_compressed': 0,
-        'metadata_json': '{"version":"1.0","reason":"Test","originalUnreadCount":0,"wasOnline":false,"hadUnsentMessages":false,"estimatedStorageSize":100,"archiveSource":"test","tags":[],"hasSearchIndex":true}',
+        'metadata_json':
+            '{"version":"1.0","reason":"Test","originalUnreadCount":0,"wasOnline":false,"hadUnsentMessages":false,"estimatedStorageSize":100,"archiveSource":"test","tags":[],"hasSearchIndex":true}',
         'created_at': now.millisecondsSinceEpoch,
         'updated_at': now.millisecondsSinceEpoch,
       });

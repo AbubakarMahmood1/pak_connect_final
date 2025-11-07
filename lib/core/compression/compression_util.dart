@@ -9,10 +9,7 @@ class CompressionResult {
   final Uint8List compressed;
   final CompressionStats stats;
 
-  const CompressionResult({
-    required this.compressed,
-    required this.stats,
-  });
+  const CompressionResult({required this.compressed, required this.stats});
 }
 
 /// Compression utility for data compression and decompression
@@ -131,10 +128,7 @@ class CompressionUtil {
         compressionTimeMs: stopwatch.elapsedMilliseconds,
       );
 
-      return CompressionResult(
-        compressed: compressedBytes,
-        stats: stats,
-      );
+      return CompressionResult(compressed: compressedBytes, stats: stats);
     } catch (e) {
       // Compression failed - return null (transparent failure)
       return null;
@@ -167,7 +161,8 @@ class CompressionUtil {
         // Validate size if provided
         if (originalSize != null && decompressedBytes.length != originalSize) {
           throw Exception(
-              'Decompressed size mismatch: expected $originalSize, got ${decompressedBytes.length}');
+            'Decompressed size mismatch: expected $originalSize, got ${decompressedBytes.length}',
+          );
         }
 
         return decompressedBytes;
@@ -182,7 +177,8 @@ class CompressionUtil {
         // Validate size if provided
         if (originalSize != null && decompressedBytes.length != originalSize) {
           throw Exception(
-              'Decompressed size mismatch: expected $originalSize, got ${decompressedBytes.length}');
+            'Decompressed size mismatch: expected $originalSize, got ${decompressedBytes.length}',
+          );
         }
 
         return decompressedBytes;

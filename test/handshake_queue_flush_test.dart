@@ -23,15 +23,14 @@ void main() {
 
     setUp(() async {
       // Setup database
-      final testDbName = 'test_handshake_flush_${DateTime.now().millisecondsSinceEpoch}.db';
+      final testDbName =
+          'test_handshake_flush_${DateTime.now().millisecondsSinceEpoch}.db';
       DatabaseHelper.setTestDatabaseName(testDbName);
       await DatabaseHelper.deleteDatabase();
 
       // Initialize queue
       queue = OfflineMessageQueue();
-      await queue.initialize(
-        contactRepository: null,
-      );
+      await queue.initialize(contactRepository: null);
 
       // Setup coordinator (no actual send)
       coordinator = HandshakeCoordinator(
@@ -122,11 +121,13 @@ void main() {
       await queue.flushQueueForPeer(peerEphemeralId);
 
       // Verify only peer 1's messages were processed
-      final peerMessages = queue.getPendingMessages()
+      final peerMessages = queue
+          .getPendingMessages()
           .where((m) => m.recipientPublicKey == peerEphemeralId)
           .toList();
 
-      final otherMessages = queue.getPendingMessages()
+      final otherMessages = queue
+          .getPendingMessages()
           .where((m) => m.recipientPublicKey == otherPeerId)
           .toList();
 
@@ -187,27 +188,30 @@ void main() {
       expect(deliveredMessages.first, urgentId);
     });
 
-    test('multiple handshake completions do not cause duplicate sends', () async {
-      int sendCount = 0;
+    test(
+      'multiple handshake completions do not cause duplicate sends',
+      () async {
+        int sendCount = 0;
 
-      queue.onSendMessage = (messageId) {
-        sendCount++;
-      };
+        queue.onSendMessage = (messageId) {
+          sendCount++;
+        };
 
-      // Queue a message
-      await queue.queueMessage(
-        chatId: 'chat',
-        content: 'Test',
-        recipientPublicKey: peerEphemeralId,
-        senderPublicKey: myPublicKey,
-      );
+        // Queue a message
+        await queue.queueMessage(
+          chatId: 'chat',
+          content: 'Test',
+          recipientPublicKey: peerEphemeralId,
+          senderPublicKey: myPublicKey,
+        );
 
-      // Flush twice (simulating duplicate handshake events)
-      await queue.flushQueueForPeer(peerEphemeralId);
-      await queue.flushQueueForPeer(peerEphemeralId);
+        // Flush twice (simulating duplicate handshake events)
+        await queue.flushQueueForPeer(peerEphemeralId);
+        await queue.flushQueueForPeer(peerEphemeralId);
 
-      // Message should only be sent once
-      expect(sendCount, 1);
-    });
+        // Message should only be sent once
+        expect(sendCount, 1);
+      },
+    );
   });
 }

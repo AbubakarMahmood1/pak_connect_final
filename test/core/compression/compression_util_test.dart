@@ -86,8 +86,10 @@ void main() {
         expect(bestResult, isNotNull);
 
         // Best should compress better (smaller size)
-        expect(bestResult!.compressed.length,
-            lessThanOrEqualTo(fastResult!.compressed.length));
+        expect(
+          bestResult!.compressed.length,
+          lessThanOrEqualTo(fastResult!.compressed.length),
+        );
       });
 
       test('returns null when compression disabled', () {
@@ -130,8 +132,7 @@ void main() {
         final compressed = CompressionUtil.compress(original);
         expect(compressed, isNotNull);
 
-        final decompressed =
-            CompressionUtil.decompress(compressed!.compressed);
+        final decompressed = CompressionUtil.decompress(compressed!.compressed);
         expect(decompressed, isNotNull);
         expect(decompressed, equals(original));
       });
@@ -160,8 +161,10 @@ void main() {
         // Compress with raw deflate
         final original = Uint8List.fromList(utf8.encode('B' * 200));
         final rawConfig = CompressionConfig(useRawDeflate: true);
-        final compressed =
-            CompressionUtil.compress(original, config: rawConfig)!;
+        final compressed = CompressionUtil.compress(
+          original,
+          config: rawConfig,
+        )!;
 
         // Try to decompress with zlib config (should fallback to raw)
         final zlibConfig = CompressionConfig(useRawDeflate: false);
@@ -180,19 +183,25 @@ void main() {
 
         // Compress with raw deflate
         final rawConfig = CompressionConfig(useRawDeflate: true);
-        final rawCompressed =
-            CompressionUtil.compress(original, config: rawConfig)!;
+        final rawCompressed = CompressionUtil.compress(
+          original,
+          config: rawConfig,
+        )!;
 
         // Compress with zlib
         final zlibConfig = CompressionConfig(useRawDeflate: false);
-        final zlibCompressed =
-            CompressionUtil.compress(original, config: zlibConfig)!;
+        final zlibCompressed = CompressionUtil.compress(
+          original,
+          config: zlibConfig,
+        )!;
 
         // Both should decompress correctly
-        final decompressed1 =
-            CompressionUtil.decompress(rawCompressed.compressed);
-        final decompressed2 =
-            CompressionUtil.decompress(zlibCompressed.compressed);
+        final decompressed1 = CompressionUtil.decompress(
+          rawCompressed.compressed,
+        );
+        final decompressed2 = CompressionUtil.decompress(
+          zlibCompressed.compressed,
+        );
 
         expect(decompressed1, equals(original));
         expect(decompressed2, equals(original));
@@ -266,11 +275,17 @@ void main() {
 
         // Loose entropy (0.95) - might compress
         final looseConfig = CompressionConfig(entropyThreshold: 0.95);
-        final should1 = CompressionUtil.shouldCompress(data, config: looseConfig);
+        final should1 = CompressionUtil.shouldCompress(
+          data,
+          config: looseConfig,
+        );
 
         // Strict entropy (0.5) - probably won't compress
         final strictConfig = CompressionConfig(entropyThreshold: 0.5);
-        final should2 = CompressionUtil.shouldCompress(data, config: strictConfig);
+        final should2 = CompressionUtil.shouldCompress(
+          data,
+          config: strictConfig,
+        );
 
         // Loose should be more permissive than strict
         // (actual values depend on data, but loose >= strict)
@@ -379,13 +394,15 @@ void main() {
 
       test('passes self-test with custom configs', () {
         // Test aggressive config
-        final passed1 =
-            CompressionUtil.runSelfTest(config: CompressionConfig.aggressive);
+        final passed1 = CompressionUtil.runSelfTest(
+          config: CompressionConfig.aggressive,
+        );
         expect(passed1, isTrue);
 
         // Test fast config
-        final passed2 =
-            CompressionUtil.runSelfTest(config: CompressionConfig.fast);
+        final passed2 = CompressionUtil.runSelfTest(
+          config: CompressionConfig.fast,
+        );
         expect(passed2, isTrue);
 
         // Test raw deflate
@@ -424,7 +441,10 @@ void main() {
         final modified = config.copyWith(compressionLevel: 9);
 
         expect(modified.compressionLevel, equals(9));
-        expect(modified.compressionThreshold, equals(config.compressionThreshold));
+        expect(
+          modified.compressionThreshold,
+          equals(config.compressionThreshold),
+        );
       });
 
       test('has working equality', () {
@@ -558,8 +578,7 @@ void main() {
             // Should compress
             expect(result, isNotNull);
             // Verify round-trip
-            final decompressed =
-                CompressionUtil.decompress(result!.compressed);
+            final decompressed = CompressionUtil.decompress(result!.compressed);
             expect(decompressed, equals(data));
           }
         }

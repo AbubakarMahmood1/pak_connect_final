@@ -86,13 +86,18 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
 
       if (lowerContent.contains(lowerQuery)) {
         final matchPositions = _findMatchPositions(message.content, query);
-        final highlightedContent = _highlightText(message.content, matchPositions);
+        final highlightedContent = _highlightText(
+          message.content,
+          matchPositions,
+        );
 
-        results.add(SearchResult(
-          messageIndex: i,
-          matchPositions: matchPositions,
-          highlightedContent: highlightedContent,
-        ));
+        results.add(
+          SearchResult(
+            messageIndex: i,
+            matchPositions: matchPositions,
+            highlightedContent: highlightedContent,
+          ),
+        );
       }
     }
 
@@ -143,13 +148,17 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
 
   void _previousResult() {
     if (_searchResults.isEmpty) return;
-    final newIndex = _currentResultIndex > 0 ? _currentResultIndex - 1 : _searchResults.length - 1;
+    final newIndex = _currentResultIndex > 0
+        ? _currentResultIndex - 1
+        : _searchResults.length - 1;
     _navigateToResult(newIndex);
   }
 
   void _nextResult() {
     if (_searchResults.isEmpty) return;
-    final newIndex = _currentResultIndex < _searchResults.length - 1 ? _currentResultIndex + 1 : 0;
+    final newIndex = _currentResultIndex < _searchResults.length - 1
+        ? _currentResultIndex + 1
+        : 0;
     _navigateToResult(newIndex);
   }
 
@@ -249,7 +258,9 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
                   ),
                 ],
                 Spacer(),
-                if (_searchResults.isEmpty && !_isSearching && _searchController.text.isNotEmpty)
+                if (_searchResults.isEmpty &&
+                    !_isSearching &&
+                    _searchController.text.isNotEmpty)
                   Flexible(
                     child: Text(
                       'No results found',

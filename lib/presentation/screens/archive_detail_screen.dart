@@ -11,13 +11,11 @@ import '../widgets/archive_context_menu.dart';
 class ArchiveDetailScreen extends ConsumerStatefulWidget {
   final String archivedChatId;
 
-  const ArchiveDetailScreen({
-    super.key,
-    required this.archivedChatId,
-  });
+  const ArchiveDetailScreen({super.key, required this.archivedChatId});
 
   @override
-  ConsumerState<ArchiveDetailScreen> createState() => _ArchiveDetailScreenState();
+  ConsumerState<ArchiveDetailScreen> createState() =>
+      _ArchiveDetailScreenState();
 }
 
 class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
@@ -56,8 +54,12 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
       // Use the repository directly since the service doesn't expose getArchivedChat method
       // We'll need to create a provider for the repository or access it differently
       // For now, let's use a workaround by getting summaries and finding the one we need
-      final summaries = await ref.read(archiveListProvider(const ArchiveListFilter()).future);
-      final summary = summaries.where((s) => s.id == widget.archivedChatId).firstOrNull;
+      final summaries = await ref.read(
+        archiveListProvider(const ArchiveListFilter()).future,
+      );
+      final summary = summaries
+          .where((s) => s.id == widget.archivedChatId)
+          .firstOrNull;
 
       if (summary == null) {
         if (mounted) {
@@ -152,7 +154,10 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
     final messageIndex = _searchResultIndices[index];
     // Scroll to show the message with some padding
     _scrollController.animateTo(
-      (messageIndex * 80.0).clamp(0.0, _scrollController.position.maxScrollExtent),
+      (messageIndex * 80.0).clamp(
+        0.0,
+        _scrollController.position.maxScrollExtent,
+      ),
       duration: Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
@@ -163,7 +168,8 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
 
     final newIndex = forward
         ? (_currentSearchResultIndex + 1) % _searchResultIndices.length
-        : (_currentSearchResultIndex - 1 + _searchResultIndices.length) % _searchResultIndices.length;
+        : (_currentSearchResultIndex - 1 + _searchResultIndices.length) %
+              _searchResultIndices.length;
 
     setState(() => _currentSearchResultIndex = newIndex);
     _scrollToSearchResult(newIndex);
@@ -183,7 +189,9 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
 
     if (confirmed == true && mounted) {
       try {
-        final result = await ref.read(archiveOperationsProvider.notifier).restoreChat(archiveId: _archivedChat!.id);
+        final result = await ref
+            .read(archiveOperationsProvider.notifier)
+            .restoreChat(archiveId: _archivedChat!.id);
 
         if (mounted) {
           if (result.success) {
@@ -197,7 +205,9 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
                     ),
                     SizedBox(width: 8),
                     Expanded(
-                      child: Text('Chat with ${_archivedChat!.contactName} restored'),
+                      child: Text(
+                        'Chat with ${_archivedChat!.contactName} restored',
+                      ),
                     ),
                   ],
                 ),
@@ -239,7 +249,9 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('This will permanently delete the archived chat with ${_archivedChat!.contactName}.'),
+            Text(
+              'This will permanently delete the archived chat with ${_archivedChat!.contactName}.',
+            ),
             SizedBox(height: 8),
             Container(
               padding: EdgeInsets.all(8),
@@ -276,13 +288,17 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
 
     if (confirmed == true && mounted) {
       try {
-        final success = await ref.read(archiveOperationsProvider.notifier).deleteArchivedChat(_archivedChat!.id);
+        final success = await ref
+            .read(archiveOperationsProvider.notifier)
+            .deleteArchivedChat(_archivedChat!.id);
 
         if (mounted) {
           if (success) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Permanently deleted chat with ${_archivedChat!.contactName}'),
+                content: Text(
+                  'Permanently deleted chat with ${_archivedChat!.contactName}',
+                ),
                 backgroundColor: Theme.of(context).colorScheme.error,
               ),
             );
@@ -347,9 +363,18 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
                 value: ArchiveAction.delete,
                 child: Row(
                   children: [
-                    Icon(Icons.delete_forever, size: 18, color: Theme.of(context).colorScheme.error),
+                    Icon(
+                      Icons.delete_forever,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                     SizedBox(width: 8),
-                    Text('Delete Permanently', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    Text(
+                      'Delete Permanently',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -368,7 +393,9 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
                         child: Text(
                           'Searching for: "$_searchQuery"',
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
                             fontSize: 14,
                           ),
                         ),
@@ -387,8 +414,8 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : _archivedChat == null
-              ? _buildErrorState()
-              : _buildChatContent(),
+          ? _buildErrorState()
+          : _buildChatContent(),
     );
   }
 
@@ -496,10 +523,7 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
           SizedBox(height: 8),
           Row(
             children: [
-              _buildMetadataChip(
-                '${_messages.length} messages',
-                Icons.message,
-              ),
+              _buildMetadataChip('${_messages.length} messages', Icons.message),
               SizedBox(width: 8),
               _buildMetadataChip(
                 '${(_archivedChat!.estimatedSize / 1024).toStringAsFixed(1)} KB',
@@ -522,7 +546,11 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          Icon(
+            icon,
+            size: 14,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           SizedBox(width: 4),
           Text(
             text,
@@ -539,24 +567,26 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
   Widget _buildMessageItem(int index) {
     final message = _messages[index];
     final isSearchResult = _searchResultIndices.contains(index);
-    final isCurrentSearchResult = _currentSearchResultIndex >= 0 &&
-                                  _searchResultIndices.isNotEmpty &&
-                                  _searchResultIndices[_currentSearchResultIndex] == index;
+    final isCurrentSearchResult =
+        _currentSearchResultIndex >= 0 &&
+        _searchResultIndices.isNotEmpty &&
+        _searchResultIndices[_currentSearchResultIndex] == index;
 
     return Container(
       margin: EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
         color: isCurrentSearchResult
-            ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3)
+            ? Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: 0.3)
             : isSearchResult
-                ? Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.2)
-                : null,
+            ? Theme.of(
+                context,
+              ).colorScheme.secondaryContainer.withValues(alpha: 0.2)
+            : null,
         border: isCurrentSearchResult
-            ? Border.all(
-                color: Theme.of(context).colorScheme.primary,
-                width: 2,
-              )
+            ? Border.all(color: Theme.of(context).colorScheme.primary, width: 2)
             : null,
       ),
       child: _buildArchivedMessageBubble(message),
@@ -633,7 +663,8 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontStyle: FontStyle.italic,
-                                  color: theme.colorScheme.onSurfaceVariant.withValues(),
+                                  color: theme.colorScheme.onSurfaceVariant
+                                      .withValues(),
                                 ),
                               ),
                             ),
@@ -641,7 +672,8 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
                             _formatMessageTime(message.originalTimestamp),
                             style: TextStyle(
                               fontSize: 10,
-                              color: theme.colorScheme.onSurfaceVariant.withValues(),
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withValues(),
                             ),
                           ),
                         ],
@@ -689,14 +721,16 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
 
       // Add highlighted match
       final end = index + query.length;
-      spans.add(TextSpan(
-        text: text.substring(index, end),
-        style: TextStyle(
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          color: Theme.of(context).colorScheme.onPrimaryContainer,
-          fontWeight: FontWeight.w600,
+      spans.add(
+        TextSpan(
+          text: text.substring(index, end),
+          style: TextStyle(
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-      ));
+      );
 
       start = end;
       index = lowerText.indexOf(lowerQuery, start);
@@ -721,10 +755,7 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
           SizedBox(height: 16),
-          Text(
-            'No Messages',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
+          Text('No Messages', style: Theme.of(context).textTheme.headlineSmall),
           SizedBox(height: 8),
           Text(
             'This archived chat contains no messages.',
@@ -815,7 +846,11 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
   String _formatMessageTime(DateTime timestamp) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(timestamp.year, timestamp.month, timestamp.day);
+    final messageDate = DateTime(
+      timestamp.year,
+      timestamp.month,
+      timestamp.day,
+    );
 
     if (messageDate == today) {
       // Same day - show time only

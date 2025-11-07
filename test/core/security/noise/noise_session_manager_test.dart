@@ -14,30 +14,142 @@ void main() {
     setUp(() {
       // Alice static key pair
       aliceStaticPrivate = Uint8List.fromList([
-        0x77, 0x07, 0x6d, 0x0a, 0x73, 0x18, 0xa5, 0x7d,
-        0x3c, 0x16, 0xc1, 0x72, 0x51, 0xb2, 0x66, 0x45,
-        0xdf, 0x4c, 0x2f, 0x87, 0xeb, 0xc0, 0x99, 0x2a,
-        0xb1, 0x77, 0xfb, 0xa5, 0x1d, 0xb9, 0x2c, 0x2a,
+        0x77,
+        0x07,
+        0x6d,
+        0x0a,
+        0x73,
+        0x18,
+        0xa5,
+        0x7d,
+        0x3c,
+        0x16,
+        0xc1,
+        0x72,
+        0x51,
+        0xb2,
+        0x66,
+        0x45,
+        0xdf,
+        0x4c,
+        0x2f,
+        0x87,
+        0xeb,
+        0xc0,
+        0x99,
+        0x2a,
+        0xb1,
+        0x77,
+        0xfb,
+        0xa5,
+        0x1d,
+        0xb9,
+        0x2c,
+        0x2a,
       ]);
       aliceStaticPublic = Uint8List.fromList([
-        0x85, 0x20, 0xf0, 0x09, 0x89, 0x30, 0xa7, 0x54,
-        0x74, 0x8b, 0x7d, 0xdc, 0xb4, 0x3e, 0xf7, 0x5a,
-        0x0d, 0xbf, 0x3a, 0x0d, 0x26, 0x38, 0x1a, 0xf4,
-        0xeb, 0xa4, 0xa9, 0x8e, 0xaa, 0x9b, 0x4e, 0x6a,
+        0x85,
+        0x20,
+        0xf0,
+        0x09,
+        0x89,
+        0x30,
+        0xa7,
+        0x54,
+        0x74,
+        0x8b,
+        0x7d,
+        0xdc,
+        0xb4,
+        0x3e,
+        0xf7,
+        0x5a,
+        0x0d,
+        0xbf,
+        0x3a,
+        0x0d,
+        0x26,
+        0x38,
+        0x1a,
+        0xf4,
+        0xeb,
+        0xa4,
+        0xa9,
+        0x8e,
+        0xaa,
+        0x9b,
+        0x4e,
+        0x6a,
       ]);
 
       // Bob static key pair
       bobStaticPrivate = Uint8List.fromList([
-        0x5d, 0xab, 0x08, 0x7e, 0x62, 0x4a, 0x8a, 0x4b,
-        0x79, 0xe1, 0x7f, 0x8b, 0x83, 0x80, 0x0e, 0xe6,
-        0x6f, 0x3b, 0xb1, 0x29, 0x26, 0x18, 0xb6, 0xfd,
-        0x1c, 0x2f, 0x8b, 0x27, 0xff, 0x88, 0xe0, 0xeb,
+        0x5d,
+        0xab,
+        0x08,
+        0x7e,
+        0x62,
+        0x4a,
+        0x8a,
+        0x4b,
+        0x79,
+        0xe1,
+        0x7f,
+        0x8b,
+        0x83,
+        0x80,
+        0x0e,
+        0xe6,
+        0x6f,
+        0x3b,
+        0xb1,
+        0x29,
+        0x26,
+        0x18,
+        0xb6,
+        0xfd,
+        0x1c,
+        0x2f,
+        0x8b,
+        0x27,
+        0xff,
+        0x88,
+        0xe0,
+        0xeb,
       ]);
       bobStaticPublic = Uint8List.fromList([
-        0xde, 0x9e, 0xdb, 0x7d, 0x7b, 0x7d, 0xc1, 0xb4,
-        0xd3, 0x5b, 0x61, 0xc2, 0xec, 0xe4, 0x35, 0x37,
-        0x3f, 0x83, 0x43, 0xc8, 0x5b, 0x78, 0x67, 0x4d,
-        0xad, 0xfc, 0x7e, 0x14, 0x6f, 0x88, 0x2b, 0x4f,
+        0xde,
+        0x9e,
+        0xdb,
+        0x7d,
+        0x7b,
+        0x7d,
+        0xc1,
+        0xb4,
+        0xd3,
+        0x5b,
+        0x61,
+        0xc2,
+        0xec,
+        0xe4,
+        0x35,
+        0x37,
+        0x3f,
+        0x83,
+        0x43,
+        0xc8,
+        0x5b,
+        0x78,
+        0x67,
+        0x4d,
+        0xad,
+        0xfc,
+        0x7e,
+        0x14,
+        0x6f,
+        0x88,
+        0x2b,
+        0x4f,
       ]);
     });
 
@@ -48,7 +160,7 @@ void main() {
       );
 
       expect(manager.getActiveSessionCount(), equals(0));
-      
+
       manager.shutdown();
     });
 
@@ -59,11 +171,14 @@ void main() {
       );
 
       final message1 = await manager.initiateHandshake('Bob');
-      
+
       expect(message1.length, equals(32));
       expect(manager.getActiveSessionCount(), equals(1));
-      expect(manager.getSessionState('Bob'), equals(NoiseSessionState.handshaking));
-      
+      expect(
+        manager.getSessionState('Bob'),
+        equals(NoiseSessionState.handshaking),
+      );
+
       manager.shutdown();
     });
 
@@ -80,15 +195,18 @@ void main() {
 
       // Alice initiates
       final msg1 = await aliceManager.initiateHandshake('Bob');
-      
+
       // Bob receives and responds
       final msg2 = await bobManager.processHandshakeMessage('Alice', msg1);
-      
+
       expect(msg2, isNotNull);
       expect(msg2!.length, equals(80));
       expect(bobManager.getActiveSessionCount(), equals(1));
-      expect(bobManager.getSessionState('Alice'), equals(NoiseSessionState.handshaking));
-      
+      expect(
+        bobManager.getSessionState('Alice'),
+        equals(NoiseSessionState.handshaking),
+      );
+
       aliceManager.shutdown();
       bobManager.shutdown();
     });
@@ -188,8 +306,14 @@ void main() {
       await aliceManager.initiateHandshake('Charlie');
 
       expect(aliceManager.getActiveSessionCount(), equals(2));
-      expect(aliceManager.getSessionState('Bob'), equals(NoiseSessionState.handshaking));
-      expect(aliceManager.getSessionState('Charlie'), equals(NoiseSessionState.handshaking));
+      expect(
+        aliceManager.getSessionState('Bob'),
+        equals(NoiseSessionState.handshaking),
+      );
+      expect(
+        aliceManager.getSessionState('Charlie'),
+        equals(NoiseSessionState.handshaking),
+      );
 
       aliceManager.shutdown();
     });
@@ -227,10 +351,13 @@ void main() {
 
       // Alice initiates again (should remove old session)
       final msg1b = await aliceManager.initiateHandshake('Bob');
-      
+
       expect(aliceManager.getActiveSessionCount(), equals(1));
       expect(msg1b.length, equals(32));
-      expect(aliceManager.getSessionState('Bob'), equals(NoiseSessionState.handshaking));
+      expect(
+        aliceManager.getSessionState('Bob'),
+        equals(NoiseSessionState.handshaking),
+      );
 
       aliceManager.shutdown();
       bobManager.shutdown();
@@ -285,14 +412,20 @@ void main() {
 
       // Send invalid message
       try {
-        await manager.processHandshakeMessage('Bob', Uint8List(5)); // Invalid size
+        await manager.processHandshakeMessage(
+          'Bob',
+          Uint8List(5),
+        ); // Invalid size
       } catch (e) {
         // Expected
       }
 
       expect(failedPeer, equals('Bob'));
       expect(failedException, isNotNull);
-      expect(manager.getSession('Bob'), isNull); // Session removed after failure
+      expect(
+        manager.getSession('Bob'),
+        isNull,
+      ); // Session removed after failure
 
       manager.shutdown();
     });
@@ -402,9 +535,9 @@ void main() {
       );
 
       await manager.initiateHandshake('Bob');
-      
+
       final debugInfo = manager.getDebugInfo();
-      
+
       expect(debugInfo, contains('Noise Session Manager'));
       expect(debugInfo, contains('Active sessions: 1'));
       expect(debugInfo, contains('Bob'));
@@ -419,22 +552,25 @@ void main() {
       );
 
       expect(manager.getSession('NonExistent'), isNull);
-      
+
       manager.shutdown();
     });
 
-    test('hasEstablishedSession returns false for handshaking session', () async {
-      final manager = NoiseSessionManager(
-        localStaticPrivateKey: aliceStaticPrivate,
-        localStaticPublicKey: aliceStaticPublic,
-      );
+    test(
+      'hasEstablishedSession returns false for handshaking session',
+      () async {
+        final manager = NoiseSessionManager(
+          localStaticPrivateKey: aliceStaticPrivate,
+          localStaticPublicKey: aliceStaticPublic,
+        );
 
-      await manager.initiateHandshake('Bob');
+        await manager.initiateHandshake('Bob');
 
-      expect(manager.hasEstablishedSession('Bob'), isFalse);
-      
-      manager.shutdown();
-    });
+        expect(manager.hasEstablishedSession('Bob'), isFalse);
+
+        manager.shutdown();
+      },
+    );
 
     test('bidirectional message exchange', () async {
       final aliceManager = NoiseSessionManager(
@@ -455,16 +591,36 @@ void main() {
 
       // Interleaved bidirectional messages
       final msgs = <Uint8List>[];
-      
-      msgs.add(await aliceManager.encrypt(Uint8List.fromList([1, 1, 1]), 'Bob'));
-      msgs.add(await bobManager.encrypt(Uint8List.fromList([2, 2, 2]), 'Alice'));
-      msgs.add(await aliceManager.encrypt(Uint8List.fromList([3, 3, 3]), 'Bob'));
-      msgs.add(await bobManager.encrypt(Uint8List.fromList([4, 4, 4]), 'Alice'));
 
-      expect(await bobManager.decrypt(msgs[0], 'Alice'), equals(Uint8List.fromList([1, 1, 1])));
-      expect(await aliceManager.decrypt(msgs[1], 'Bob'), equals(Uint8List.fromList([2, 2, 2])));
-      expect(await bobManager.decrypt(msgs[2], 'Alice'), equals(Uint8List.fromList([3, 3, 3])));
-      expect(await aliceManager.decrypt(msgs[3], 'Bob'), equals(Uint8List.fromList([4, 4, 4])));
+      msgs.add(
+        await aliceManager.encrypt(Uint8List.fromList([1, 1, 1]), 'Bob'),
+      );
+      msgs.add(
+        await bobManager.encrypt(Uint8List.fromList([2, 2, 2]), 'Alice'),
+      );
+      msgs.add(
+        await aliceManager.encrypt(Uint8List.fromList([3, 3, 3]), 'Bob'),
+      );
+      msgs.add(
+        await bobManager.encrypt(Uint8List.fromList([4, 4, 4]), 'Alice'),
+      );
+
+      expect(
+        await bobManager.decrypt(msgs[0], 'Alice'),
+        equals(Uint8List.fromList([1, 1, 1])),
+      );
+      expect(
+        await aliceManager.decrypt(msgs[1], 'Bob'),
+        equals(Uint8List.fromList([2, 2, 2])),
+      );
+      expect(
+        await bobManager.decrypt(msgs[2], 'Alice'),
+        equals(Uint8List.fromList([3, 3, 3])),
+      );
+      expect(
+        await aliceManager.decrypt(msgs[3], 'Bob'),
+        equals(Uint8List.fromList([4, 4, 4])),
+      );
 
       aliceManager.shutdown();
       bobManager.shutdown();

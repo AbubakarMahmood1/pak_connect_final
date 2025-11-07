@@ -46,7 +46,9 @@ class ContactGroup {
     return ContactGroup(
       id: id,
       name: name ?? this.name,
-      memberKeys: memberKeys != null ? List.unmodifiable(memberKeys) : this.memberKeys,
+      memberKeys: memberKeys != null
+          ? List.unmodifiable(memberKeys)
+          : this.memberKeys,
       description: description ?? this.description,
       created: created,
       lastModified: lastModified ?? DateTime.now(),
@@ -55,13 +57,13 @@ class ContactGroup {
 
   /// Convert to JSON for storage
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'memberKeys': memberKeys,
-        'description': description,
-        'created': created.millisecondsSinceEpoch,
-        'lastModified': lastModified.millisecondsSinceEpoch,
-      };
+    'id': id,
+    'name': name,
+    'memberKeys': memberKeys,
+    'description': description,
+    'created': created.millisecondsSinceEpoch,
+    'lastModified': lastModified.millisecondsSinceEpoch,
+  };
 
   /// Create from JSON
   factory ContactGroup.fromJson(Map<String, dynamic> json) {
@@ -71,7 +73,9 @@ class ContactGroup {
       memberKeys: (json['memberKeys'] as List<dynamic>).cast<String>(),
       description: json['description'] as String?,
       created: DateTime.fromMillisecondsSinceEpoch(json['created'] as int),
-      lastModified: DateTime.fromMillisecondsSinceEpoch(json['lastModified'] as int),
+      lastModified: DateTime.fromMillisecondsSinceEpoch(
+        json['lastModified'] as int,
+      ),
     );
   }
 
@@ -99,15 +103,16 @@ class ContactGroup {
   int get hashCode => id.hashCode;
 
   @override
-  String toString() => 'ContactGroup(id: $id, name: $name, members: $memberCount)';
+  String toString() =>
+      'ContactGroup(id: $id, name: $name, members: $memberCount)';
 }
 
 /// Delivery status for a single message to a single member
 enum MessageDeliveryStatus {
-  pending,   // Queued but not yet sent
-  sent,      // Sent via Noise session
+  pending, // Queued but not yet sent
+  sent, // Sent via Noise session
   delivered, // Confirmed delivered
-  failed,    // Failed to send
+  failed, // Failed to send
 }
 
 extension MessageDeliveryStatusExtension on MessageDeliveryStatus {
@@ -132,7 +137,8 @@ class GroupMessage {
   final String senderKey; // Noise public key of sender
   final String content;
   final DateTime timestamp;
-  final Map<String, MessageDeliveryStatus> deliveryStatus; // memberKey -> status
+  final Map<String, MessageDeliveryStatus>
+  deliveryStatus; // memberKey -> status
 
   const GroupMessage({
     required this.id,
@@ -169,8 +175,13 @@ class GroupMessage {
   }
 
   /// Update delivery status for a member
-  GroupMessage updateDeliveryStatus(String memberKey, MessageDeliveryStatus status) {
-    final updatedStatus = Map<String, MessageDeliveryStatus>.from(deliveryStatus);
+  GroupMessage updateDeliveryStatus(
+    String memberKey,
+    MessageDeliveryStatus status,
+  ) {
+    final updatedStatus = Map<String, MessageDeliveryStatus>.from(
+      deliveryStatus,
+    );
     updatedStatus[memberKey] = status;
 
     return GroupMessage(
@@ -185,24 +196,23 @@ class GroupMessage {
 
   /// Convert to JSON for storage
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'groupId': groupId,
-        'senderKey': senderKey,
-        'content': content,
-        'timestamp': timestamp.millisecondsSinceEpoch,
-        'deliveryStatus': deliveryStatus.map(
-          (key, value) => MapEntry(key, value.index),
-        ),
-      };
+    'id': id,
+    'groupId': groupId,
+    'senderKey': senderKey,
+    'content': content,
+    'timestamp': timestamp.millisecondsSinceEpoch,
+    'deliveryStatus': deliveryStatus.map(
+      (key, value) => MapEntry(key, value.index),
+    ),
+  };
 
   /// Create from JSON
   factory GroupMessage.fromJson(Map<String, dynamic> json) {
-    final deliveryStatusMap = (json['deliveryStatus'] as Map<String, dynamic>).map(
-      (key, value) => MapEntry(
-        key,
-        MessageDeliveryStatus.values[value as int],
-      ),
-    );
+    final deliveryStatusMap = (json['deliveryStatus'] as Map<String, dynamic>)
+        .map(
+          (key, value) =>
+              MapEntry(key, MessageDeliveryStatus.values[value as int]),
+        );
 
     return GroupMessage(
       id: json['id'] as String,

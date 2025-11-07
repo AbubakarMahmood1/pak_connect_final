@@ -72,7 +72,9 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final daysUntilExpiry = _myHint!.expiresAt.difference(DateTime.now()).inDays;
+    final daysUntilExpiry = _myHint!.expiresAt
+        .difference(DateTime.now())
+        .inDays;
 
     return Center(
       child: SingleChildScrollView(
@@ -109,15 +111,15 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
             Text(
               'Valid for $daysUntilExpiry days',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               'They can scan and find you later',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
@@ -229,7 +231,9 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
       return const Center(child: Text('No contact data'));
     }
 
-    final daysUntilExpiry = _scannedHint!.expiresAt.difference(DateTime.now()).inDays;
+    final daysUntilExpiry = _scannedHint!.expiresAt
+        .difference(DateTime.now())
+        .inDays;
 
     return Center(
       child: SingleChildScrollView(
@@ -254,12 +258,16 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
                 child: Column(
                   children: [
                     CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer,
                       radius: 30,
                       child: Text(
                         (_scannedHint!.displayName ?? 'U')[0].toUpperCase(),
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onPrimaryContainer,
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                         ),
@@ -272,24 +280,29 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
                     ),
                     const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
                         'Hint: ${_scannedHint!.hintHex}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontFamily: 'monospace',
-                            ),
+                          fontFamily: 'monospace',
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Valid for $daysUntilExpiry days',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -300,16 +313,16 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
               'Save this hint to find ${_scannedHint!.displayName ?? "this person"} nearby via Bluetooth',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               'After pairing, you\'ll have secure end-to-end encrypted messaging',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 24),
             Row(
@@ -358,9 +371,9 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save hint: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to save hint: $e')));
       }
     }
   }

@@ -11,31 +11,35 @@ import '../../core/services/security_manager.dart';
 import '../database/database_helper.dart';
 
 enum TrustStatus {
-  newContact,     // 👤 Identity: Never verified this person
-  verified,       // 👤 Identity: Confirmed this is really them
-  keyChanged,     // 👤 Identity: Their key changed (security warning)
+  newContact, // 👤 Identity: Never verified this person
+  verified, // 👤 Identity: Confirmed this is really them
+  keyChanged, // 👤 Identity: Their key changed (security warning)
 }
 
 class Contact {
-  final String publicKey;          // IMMUTABLE: First contact ID (never changes, primary key)
-  final String? persistentPublicKey; // Persistent identity (NULL at LOW, set at MEDIUM+)
-  final String? currentEphemeralId;  // Active Noise session ID (updates on reconnect)
-  
-  
+  final String
+  publicKey; // IMMUTABLE: First contact ID (never changes, primary key)
+  final String?
+  persistentPublicKey; // Persistent identity (NULL at LOW, set at MEDIUM+)
+  final String?
+  currentEphemeralId; // Active Noise session ID (updates on reconnect)
+
   final String displayName;
   final TrustStatus trustStatus;
   final SecurityLevel securityLevel;
   final DateTime firstSeen;
   final DateTime lastSeen;
   final DateTime? lastSecuritySync;
-  
+
   // Noise Protocol fields (Phase 2 integration)
-  final String? noisePublicKey;        // Base64-encoded peer Noise static public key (44 chars)
-  final String? noiseSessionState;     // Session lifecycle state (uninitialized/handshaking/established/expired)
-  final DateTime? lastHandshakeTime;   // When Noise session was last established
+  final String?
+  noisePublicKey; // Base64-encoded peer Noise static public key (44 chars)
+  final String?
+  noiseSessionState; // Session lifecycle state (uninitialized/handshaking/established/expired)
+  final DateTime? lastHandshakeTime; // When Noise session was last established
 
   // Favorites support (Phase 2.5)
-  final bool isFavorite;               // True if user marked this contact as favorite
+  final bool isFavorite; // True if user marked this contact as favorite
 
   Contact({
     required this.publicKey,
@@ -57,7 +61,7 @@ class Contact {
   /// - At LOW: Use publicKey (first ephemeral ID, temporary chat)
   /// - At MEDIUM+: Use persistentPublicKey (permanent chat identity)
   String get chatId => persistentPublicKey ?? publicKey;
-  
+
   /// 🔧 MODEL: Get the session ID for Noise Protocol lookup
   /// Noise sessions are ALWAYS indexed by currentEphemeralId
   String? get sessionIdForNoise => currentEphemeralId ?? publicKey;
@@ -80,25 +84,33 @@ class Contact {
 
   factory Contact.fromJson(Map<String, dynamic> json) => Contact(
     publicKey: json['publicKey'] ?? json['public_key'],
-    persistentPublicKey: json['persistentPublicKey'] ?? json['persistent_public_key'],
-    currentEphemeralId: json['currentEphemeralId'] ?? json['current_ephemeral_id'],
+    persistentPublicKey:
+        json['persistentPublicKey'] ?? json['persistent_public_key'],
+    currentEphemeralId:
+        json['currentEphemeralId'] ?? json['current_ephemeral_id'],
     displayName: json['displayName'] ?? json['display_name'],
-    trustStatus: TrustStatus.values[json['trustStatus'] ?? json['trust_status'] ?? 0],
-    securityLevel: SecurityLevel.values[json['securityLevel'] ?? json['security_level'] ?? 0],
-    firstSeen: DateTime.fromMillisecondsSinceEpoch(json['firstSeen'] ?? json['first_seen']),
-    lastSeen: DateTime.fromMillisecondsSinceEpoch(json['lastSeen'] ?? json['last_seen']),
+    trustStatus:
+        TrustStatus.values[json['trustStatus'] ?? json['trust_status'] ?? 0],
+    securityLevel: SecurityLevel
+        .values[json['securityLevel'] ?? json['security_level'] ?? 0],
+    firstSeen: DateTime.fromMillisecondsSinceEpoch(
+      json['firstSeen'] ?? json['first_seen'],
+    ),
+    lastSeen: DateTime.fromMillisecondsSinceEpoch(
+      json['lastSeen'] ?? json['last_seen'],
+    ),
     lastSecuritySync: json['lastSecuritySync'] != null
-      ? DateTime.fromMillisecondsSinceEpoch(json['lastSecuritySync'])
-      : (json['last_security_sync'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(json['last_security_sync'])
-        : null),
+        ? DateTime.fromMillisecondsSinceEpoch(json['lastSecuritySync'])
+        : (json['last_security_sync'] != null
+              ? DateTime.fromMillisecondsSinceEpoch(json['last_security_sync'])
+              : null),
     noisePublicKey: json['noisePublicKey'] ?? json['noise_public_key'],
     noiseSessionState: json['noiseSessionState'] ?? json['noise_session_state'],
     lastHandshakeTime: json['lastHandshakeTime'] != null
-      ? DateTime.fromMillisecondsSinceEpoch(json['lastHandshakeTime'])
-      : (json['last_handshake_time'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(json['last_handshake_time'])
-        : null),
+        ? DateTime.fromMillisecondsSinceEpoch(json['lastHandshakeTime'])
+        : (json['last_handshake_time'] != null
+              ? DateTime.fromMillisecondsSinceEpoch(json['last_handshake_time'])
+              : null),
     isFavorite: (json['isFavorite'] ?? json['is_favorite'] ?? 0) == 1,
   );
 
@@ -131,13 +143,13 @@ class Contact {
     firstSeen: DateTime.fromMillisecondsSinceEpoch(row['first_seen'] as int),
     lastSeen: DateTime.fromMillisecondsSinceEpoch(row['last_seen'] as int),
     lastSecuritySync: row['last_security_sync'] != null
-      ? DateTime.fromMillisecondsSinceEpoch(row['last_security_sync'] as int)
-      : null,
+        ? DateTime.fromMillisecondsSinceEpoch(row['last_security_sync'] as int)
+        : null,
     noisePublicKey: row['noise_public_key'] as String?,
     noiseSessionState: row['noise_session_state'] as String?,
     lastHandshakeTime: row['last_handshake_time'] != null
-      ? DateTime.fromMillisecondsSinceEpoch(row['last_handshake_time'] as int)
-      : null,
+        ? DateTime.fromMillisecondsSinceEpoch(row['last_handshake_time'] as int)
+        : null,
     isFavorite: (row['is_favorite'] as int? ?? 0) == 1,
   );
 
@@ -157,8 +169,9 @@ class Contact {
     isFavorite: isFavorite,
   );
 
-  bool get isSecurityStale => lastSecuritySync == null ||
-    DateTime.now().difference(lastSecuritySync!).inHours > 24;
+  bool get isSecurityStale =>
+      lastSecuritySync == null ||
+      DateTime.now().difference(lastSecuritySync!).inHours > 24;
 }
 
 class ContactRepository {
@@ -240,7 +253,7 @@ class ContactRepository {
     // Try by publicKey first (primary key - fastest)
     var contact = await getContact(identifier);
     if (contact != null) return contact;
-    
+
     // Try by persistentPublicKey (indexed - still fast)
     contact = await getContactByPersistentKey(identifier);
     return contact;
@@ -250,10 +263,7 @@ class ContactRepository {
   Future<Map<String, Contact>> getAllContacts() async {
     final db = await _db;
 
-    final results = await db.query(
-      'contacts',
-      orderBy: 'last_seen DESC',
-    );
+    final results = await db.query('contacts', orderBy: 'last_seen DESC');
 
     final contacts = <String, Contact>{};
     for (final row in results) {
@@ -311,11 +321,19 @@ class ContactRepository {
         isFavorite: contact.isFavorite,
       );
       await _storeContact(updated);
-      final keyPreview = publicKey.length > 8 ? publicKey.substring(0, 8) : publicKey;
-      _logger.info('🔐 Updated Noise session for $keyPreview... (state: $sessionState)');
+      final keyPreview = publicKey.length > 8
+          ? publicKey.substring(0, 8)
+          : publicKey;
+      _logger.info(
+        '🔐 Updated Noise session for $keyPreview... (state: $sessionState)',
+      );
     } else {
-      final keyPreview = publicKey.length > 8 ? publicKey.substring(0, 8) : publicKey;
-      _logger.warning('Cannot update Noise session - contact not found: $keyPreview...');
+      final keyPreview = publicKey.length > 8
+          ? publicKey.substring(0, 8)
+          : publicKey;
+      _logger.warning(
+        'Cannot update Noise session - contact not found: $keyPreview...',
+      );
     }
   }
 
@@ -336,7 +354,10 @@ class ContactRepository {
   }
 
   /// Cache shared seed as bytes (for hint system)
-  Future<void> cacheSharedSeedBytes(String publicKey, Uint8List seedBytes) async {
+  Future<void> cacheSharedSeedBytes(
+    String publicKey,
+    Uint8List seedBytes,
+  ) async {
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
     final key = '$_sharedSecretPrefix${keyHash.substring(0, 16)}_seed';
 
@@ -368,32 +389,44 @@ class ContactRepository {
   }
 
   /// Update contact security level
-  Future<void> updateContactSecurityLevel(String publicKey, SecurityLevel newLevel) async {
+  Future<void> updateContactSecurityLevel(
+    String publicKey,
+    SecurityLevel newLevel,
+  ) async {
     final contact = await getContact(publicKey);
     if (contact != null) {
-      _logger.info('🔧 REPO DEBUG: Updating ${publicKey.substring(0, 8)}... from ${contact.securityLevel.name} to ${newLevel.name}');
-      _logger.info('🔧 REPO DEBUG: Contact trust status: ${contact.trustStatus.name}');
+      _logger.info(
+        '🔧 REPO DEBUG: Updating ${publicKey.substring(0, 8)}... from ${contact.securityLevel.name} to ${newLevel.name}',
+      );
+      _logger.info(
+        '🔧 REPO DEBUG: Contact trust status: ${contact.trustStatus.name}',
+      );
 
       final updatedContact = contact.copyWithSecurityLevel(newLevel);
       await _storeContact(updatedContact);
       _logger.info('🔧 SECURITY: Updated $publicKey to ${newLevel.name} level');
     } else {
-      _logger.warning('🔧 REPO DEBUG: Cannot update security level - contact not found');
+      _logger.warning(
+        '🔧 REPO DEBUG: Cannot update security level - contact not found',
+      );
     }
   }
 
   /// Update contact's current ephemeral ID (session tracking)
-  Future<void> updateContactEphemeralId(String publicKey, String newEphemeralId) async {
+  Future<void> updateContactEphemeralId(
+    String publicKey,
+    String newEphemeralId,
+  ) async {
     final db = await _db;
     await db.update(
       'contacts',
-      {
-        'current_ephemeral_id': newEphemeralId,
-      },
+      {'current_ephemeral_id': newEphemeralId},
       where: 'public_key = ?',
       whereArgs: [publicKey],
     );
-    _logger.info('🔧 REPO: Updated current_ephemeral_id for ${publicKey.substring(0, 8)}... to ${newEphemeralId.substring(0, 8)}...');
+    _logger.info(
+      '🔧 REPO: Updated current_ephemeral_id for ${publicKey.substring(0, 8)}... to ${newEphemeralId.substring(0, 8)}...',
+    );
   }
 
   /// Get contact's current security level
@@ -403,7 +436,10 @@ class ContactRepository {
   }
 
   /// Downgrade security for deleted contact
-  Future<void> downgradeSecurityForDeletedContact(String publicKey, String reason) async {
+  Future<void> downgradeSecurityForDeletedContact(
+    String publicKey,
+    String reason,
+  ) async {
     final contact = await getContact(publicKey);
     if (contact != null && contact.securityLevel != SecurityLevel.low) {
       _logger.info('🔒 SECURITY DOWNGRADE: $publicKey due to $reason');
@@ -415,7 +451,10 @@ class ContactRepository {
   }
 
   /// Upgrade security level (with validation)
-  Future<bool> upgradeContactSecurity(String publicKey, SecurityLevel newLevel) async {
+  Future<bool> upgradeContactSecurity(
+    String publicKey,
+    SecurityLevel newLevel,
+  ) async {
     final contact = await getContact(publicKey);
     if (contact == null) {
       _logger.warning('🔧 SECURITY: Cannot upgrade non-existent contact');
@@ -437,7 +476,9 @@ class ContactRepository {
   bool _isValidUpgrade(SecurityLevel current, SecurityLevel target) {
     // Allow same level (for re-initialization of keys)
     if (current == target) {
-      _logger.info('🔧 SECURITY: Same level re-initialization: ${current.name}');
+      _logger.info(
+        '🔧 SECURITY: Same level re-initialization: ${current.name}',
+      );
       return true;
     }
 
@@ -455,7 +496,9 @@ class ContactRepository {
     }
 
     // BLOCK all downgrades - they must go through explicit security reset
-    _logger.warning('🔧 SECURITY: BLOCKED downgrade attempt from ${current.name} to ${target.name}');
+    _logger.warning(
+      '🔧 SECURITY: BLOCKED downgrade attempt from ${current.name} to ${target.name}',
+    );
     return false;
   }
 
@@ -473,7 +516,7 @@ class ContactRepository {
         publicKey: contact.publicKey,
         displayName: contact.displayName,
         trustStatus: TrustStatus.newContact, // Reset trust
-        securityLevel: SecurityLevel.low,      // Reset to low
+        securityLevel: SecurityLevel.low, // Reset to low
         firstSeen: contact.firstSeen,
         lastSeen: DateTime.now(),
         lastSecuritySync: DateTime.now(),
@@ -518,21 +561,19 @@ class ContactRepository {
   ///   - persistentPublicKey = real persistent key (set during upgrade)
   ///   - currentEphemeralId = current session ID (updates on reconnect)
   Future<void> saveContactWithSecurity(
-    String publicKey,  // Immutable: first ephemeral ID or existing publicKey
+    String publicKey, // Immutable: first ephemeral ID or existing publicKey
     String displayName,
-    SecurityLevel securityLevel,
-    {
-      String? currentEphemeralId,   // Current session ID
-      String? persistentPublicKey,  // Persistent identity (NULL at LOW)
-    }
-  ) async {
+    SecurityLevel securityLevel, {
+    String? currentEphemeralId, // Current session ID
+    String? persistentPublicKey, // Persistent identity (NULL at LOW)
+  }) async {
     final existing = await getContact(publicKey);
     final now = DateTime.now();
 
     if (existing == null) {
       final contact = Contact(
-        publicKey: publicKey,  // Immutable primary key
-        persistentPublicKey: persistentPublicKey,  // NULL at LOW, set at MEDIUM+
+        publicKey: publicKey, // Immutable primary key
+        persistentPublicKey: persistentPublicKey, // NULL at LOW, set at MEDIUM+
         currentEphemeralId: currentEphemeralId ?? publicKey,
         displayName: displayName,
         trustStatus: TrustStatus.newContact,
@@ -544,14 +585,21 @@ class ContactRepository {
       await _storeContact(contact);
 
       _logger.info('🔒 SECURITY: New contact (${securityLevel.name})');
-      _logger.info('   publicKey (immutable): ${publicKey.substring(0, 16)}...');
-      _logger.info('   persistentPublicKey: ${persistentPublicKey?.substring(0, 16) ?? "NULL"}');
-      _logger.info('   currentEphemeralId: ${(currentEphemeralId ?? publicKey).substring(0, 16)}...');
+      _logger.info(
+        '   publicKey (immutable): ${publicKey.substring(0, 16)}...',
+      );
+      _logger.info(
+        '   persistentPublicKey: ${persistentPublicKey?.substring(0, 16) ?? "NULL"}',
+      );
+      _logger.info(
+        '   currentEphemeralId: ${(currentEphemeralId ?? publicKey).substring(0, 16)}...',
+      );
     } else {
       // Contact exists - update fields
       final updated = Contact(
-        publicKey: publicKey,  // Never changes
-        persistentPublicKey: persistentPublicKey ?? existing.persistentPublicKey,
+        publicKey: publicKey, // Never changes
+        persistentPublicKey:
+            persistentPublicKey ?? existing.persistentPublicKey,
         currentEphemeralId: currentEphemeralId ?? existing.currentEphemeralId,
         displayName: displayName,
         trustStatus: existing.trustStatus,
@@ -584,7 +632,9 @@ class ContactRepository {
         try {
           await clearCachedSecrets(publicKey);
         } catch (e) {
-          _logger.warning('Failed to clear secrets during delete (non-fatal): $e');
+          _logger.warning(
+            'Failed to clear secrets during delete (non-fatal): $e',
+          );
         }
 
         _logger.info('🗑️ Contact deleted: ${publicKey.substring(0, 16)}...');
@@ -620,7 +670,9 @@ class ContactRepository {
   Future<int> getContactCount() async {
     try {
       final db = await _db;
-      final result = await db.rawQuery('SELECT COUNT(*) as count FROM contacts');
+      final result = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM contacts',
+      );
       return Sqflite.firstIntValue(result) ?? 0;
     } catch (e) {
       _logger.warning('Failed to get contact count: $e');
@@ -668,7 +720,9 @@ class ContactRepository {
   Future<int> getRecentlyActiveContactCount() async {
     try {
       final db = await _db;
-      final sevenDaysAgo = DateTime.now().subtract(Duration(days: 7)).millisecondsSinceEpoch;
+      final sevenDaysAgo = DateTime.now()
+          .subtract(Duration(days: 7))
+          .millisecondsSinceEpoch;
 
       final result = await db.rawQuery(
         'SELECT COUNT(*) as count FROM contacts WHERE last_seen >= ?',
@@ -690,12 +744,16 @@ class ContactRepository {
   Future<void> markContactFavorite(String publicKey) async {
     final contact = await getContact(publicKey);
     if (contact == null) {
-      _logger.warning('Cannot mark non-existent contact as favorite: ${publicKey.substring(0, 8)}...');
+      _logger.warning(
+        'Cannot mark non-existent contact as favorite: ${publicKey.substring(0, 8)}...',
+      );
       return;
     }
 
     if (contact.isFavorite) {
-      _logger.fine('Contact already marked as favorite: ${publicKey.substring(0, 8)}...');
+      _logger.fine(
+        'Contact already marked as favorite: ${publicKey.substring(0, 8)}...',
+      );
       return;
     }
 
@@ -707,19 +765,25 @@ class ContactRepository {
       whereArgs: [publicKey],
     );
 
-    _logger.info('⭐ Marked contact as favorite: ${publicKey.substring(0, 8)}...');
+    _logger.info(
+      '⭐ Marked contact as favorite: ${publicKey.substring(0, 8)}...',
+    );
   }
 
   /// Remove favorite status from a contact
   Future<void> unmarkContactFavorite(String publicKey) async {
     final contact = await getContact(publicKey);
     if (contact == null) {
-      _logger.warning('Cannot unmark non-existent contact: ${publicKey.substring(0, 8)}...');
+      _logger.warning(
+        'Cannot unmark non-existent contact: ${publicKey.substring(0, 8)}...',
+      );
       return;
     }
 
     if (!contact.isFavorite) {
-      _logger.fine('Contact is not marked as favorite: ${publicKey.substring(0, 8)}...');
+      _logger.fine(
+        'Contact is not marked as favorite: ${publicKey.substring(0, 8)}...',
+      );
       return;
     }
 
@@ -731,14 +795,18 @@ class ContactRepository {
       whereArgs: [publicKey],
     );
 
-    _logger.info('Removed favorite status from contact: ${publicKey.substring(0, 8)}...');
+    _logger.info(
+      'Removed favorite status from contact: ${publicKey.substring(0, 8)}...',
+    );
   }
 
   /// Toggle favorite status for a contact
   Future<bool> toggleContactFavorite(String publicKey) async {
     final contact = await getContact(publicKey);
     if (contact == null) {
-      _logger.warning('Cannot toggle favorite for non-existent contact: ${publicKey.substring(0, 8)}...');
+      _logger.warning(
+        'Cannot toggle favorite for non-existent contact: ${publicKey.substring(0, 8)}...',
+      );
       return false;
     }
 

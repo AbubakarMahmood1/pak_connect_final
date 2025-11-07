@@ -13,10 +13,7 @@ final _logger = Logger('SpyModeListener');
 class SpyModeListener extends ConsumerStatefulWidget {
   final Widget child;
 
-  const SpyModeListener({
-    super.key,
-    required this.child,
-  });
+  const SpyModeListener({super.key, required this.child});
 
   @override
   ConsumerState<SpyModeListener> createState() => _SpyModeListenerState();
@@ -26,24 +23,21 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
   @override
   Widget build(BuildContext context) {
     // Listen to spy mode detection events
-    ref.listen<AsyncValue<SpyModeInfo>>(
-      spyModeDetectedProvider,
-      (previous, next) {
-        next.whenData((info) {
-          _showSpyModeRevealDialog(context, info);
-        });
-      },
-    );
+    ref.listen<AsyncValue<SpyModeInfo>>(spyModeDetectedProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((info) {
+        _showSpyModeRevealDialog(context, info);
+      });
+    });
 
     // Listen to identity revealed events
-    ref.listen<AsyncValue<String>>(
-      identityRevealedProvider,
-      (previous, next) {
-        next.whenData((contactName) {
-          _showIdentityRevealedNotification(context, contactName);
-        });
-      },
-    );
+    ref.listen<AsyncValue<String>>(identityRevealedProvider, (previous, next) {
+      next.whenData((contactName) {
+        _showIdentityRevealedNotification(context, contactName);
+      });
+    });
 
     return widget.child;
   }
@@ -53,15 +47,13 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
     BuildContext context,
     SpyModeInfo info,
   ) async {
-    final result = await SpyModeRevealDialog.show(
-      context: context,
-      info: info,
-    );
+    final result = await SpyModeRevealDialog.show(context: context, info: info);
 
     if (result == true && context.mounted) {
       // User chose to reveal identity
       final bleService = ref.read(bleServiceProvider);
-      final revealMessage = await bleService.stateManager.revealIdentityToFriend();
+      final revealMessage = await bleService.stateManager
+          .revealIdentityToFriend();
 
       if (revealMessage != null) {
         // Send the reveal message
@@ -94,9 +86,7 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
                   children: [
                     Icon(Icons.error, color: Colors.white),
                     SizedBox(width: 12),
-                    Expanded(
-                      child: Text('Failed to reveal identity: $e'),
-                    ),
+                    Expanded(child: Text('Failed to reveal identity: $e')),
                   ],
                 ),
                 backgroundColor: Colors.red.shade700,
@@ -138,9 +128,7 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
           children: [
             Icon(Icons.person, color: Colors.white),
             SizedBox(width: 12),
-            Expanded(
-              child: Text('$contactName revealed their identity!'),
-            ),
+            Expanded(child: Text('$contactName revealed their identity!')),
           ],
         ),
         backgroundColor: Colors.blue.shade700,

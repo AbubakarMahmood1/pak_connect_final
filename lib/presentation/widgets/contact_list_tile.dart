@@ -82,7 +82,8 @@ class ContactListTile extends StatelessWidget {
                         if (contact.needsAttention) ...[
                           const SizedBox(width: 4),
                           Tooltip(
-                            message: contact.attentionReason ?? 'Needs attention',
+                            message:
+                                contact.attentionReason ?? 'Needs attention',
                             child: Icon(
                               Icons.error_outline,
                               size: 16,
@@ -192,10 +193,7 @@ class CompactContactTile extends StatelessWidget {
 
     return ListTile(
       onTap: onTap,
-      leading: ContactAvatar(
-        displayName: contact.displayName,
-        radius: 18,
-      ),
+      leading: ContactAvatar(displayName: contact.displayName, radius: 18),
       title: Text(
         contact.displayName,
         style: theme.textTheme.bodyMedium?.copyWith(
@@ -207,11 +205,7 @@ class CompactContactTile extends StatelessWidget {
         style: theme.textTheme.labelSmall,
       ),
       trailing: contact.isRecentlyActive
-          ? Icon(
-              Icons.circle,
-              size: 8,
-              color: theme.colorScheme.primary,
-            )
+          ? Icon(Icons.circle, size: 8, color: theme.colorScheme.primary)
           : null,
     );
   }

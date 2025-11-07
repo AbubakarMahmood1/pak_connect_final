@@ -109,7 +109,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         defaultValue: PreferenceDefaults.autoConnectKnownContacts,
       );
     } catch (e) {
-      _logger.warning('⚠️ Failed to load auto-connect preference: $e - using default');
+      _logger.warning(
+        '⚠️ Failed to load auto-connect preference: $e - using default',
+      );
       _autoConnectKnownContacts = PreferenceDefaults.autoConnectKnownContacts;
       // Reset to correct type
       await _preferencesRepository.setBool(
@@ -138,9 +140,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final handler = enableBackground
           ? NotificationHandlerFactory.createBackgroundHandler()
           : NotificationHandlerFactory.createDefault();
-      
+
       await NotificationService.swapHandler(handler);
-      
+
       // No snackbar - toggle switch provides visual feedback
     } catch (e) {
       if (mounted) {
@@ -314,9 +316,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildNotificationSettings(ThemeData theme) {
     // Check if background notifications are supported on this platform
-    final supportsBackgroundNotifications = 
+    final supportsBackgroundNotifications =
         NotificationHandlerFactory.isBackgroundNotificationSupported();
-    
+
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Column(
@@ -351,7 +353,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     PreferenceKeys.backgroundNotifications,
                     value,
                   );
-                  
+
                   // Swap notification handler based on setting
                   await _swapNotificationHandler(value);
                 },
@@ -405,7 +407,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         playSound: _soundEnabled,
         vibrate: _vibrationEnabled,
       );
-      
+
       // No snackbar - the notification itself is the feedback
     } catch (e) {
       if (mounted) {
@@ -426,7 +428,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           // ========== SPY MODE TOGGLE ==========
           SwitchListTile(
-            secondary: Icon(_hintBroadcastEnabled ? Icons.wifi_tethering : Icons.visibility_off),
+            secondary: Icon(
+              _hintBroadcastEnabled
+                  ? Icons.wifi_tethering
+                  : Icons.visibility_off,
+            ),
             title: Text('Broadcast Hints'),
             subtitle: Text(
               _hintBroadcastEnabled
@@ -436,7 +442,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 color: _hintBroadcastEnabled
                     ? theme.textTheme.bodySmall?.color
                     : theme.colorScheme.primary,
-                fontWeight: _hintBroadcastEnabled ? FontWeight.normal : FontWeight.w600,
+                fontWeight: _hintBroadcastEnabled
+                    ? FontWeight.normal
+                    : FontWeight.w600,
               ),
             ),
             value: _hintBroadcastEnabled,
@@ -524,7 +532,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             value: _autoConnectKnownContacts,
             onChanged: (value) async {
-              _logger.info('⚙️ AUTO-CONNECT SETTING: ${value ? "ENABLED" : "DISABLED"}');
+              _logger.info(
+                '⚙️ AUTO-CONNECT SETTING: ${value ? "ENABLED" : "DISABLED"}',
+              );
 
               setState(() => _autoConnectKnownContacts = value);
               await _preferencesRepository.setBool(
@@ -533,9 +543,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               );
 
               if (value) {
-                _logger.info('✅ Auto-connect enabled - known contacts will connect automatically');
+                _logger.info(
+                  '✅ Auto-connect enabled - known contacts will connect automatically',
+                );
               } else {
-                _logger.info('🔗 Auto-connect disabled - manual connection required');
+                _logger.info(
+                  '🔗 Auto-connect disabled - manual connection required',
+                );
               }
 
               // Show feedback
@@ -1107,8 +1121,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _showPrivacyPolicy() async {
     try {
       // Load markdown from assets
-      final markdownContent = await rootBundle.loadString('assets/privacy_policy.md');
-      
+      final markdownContent = await rootBundle.loadString(
+        'assets/privacy_policy.md',
+      );
+
       if (!mounted) return;
 
       showDialog(
@@ -1116,7 +1132,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         builder: (context) => AlertDialog(
           title: Row(
             children: [
-              Icon(Icons.privacy_tip, color: Theme.of(context).colorScheme.primary),
+              Icon(
+                Icons.privacy_tip,
+                color: Theme.of(context).colorScheme.primary,
+              ),
               SizedBox(width: 8),
               Text('Privacy Policy'),
             ],
@@ -1138,10 +1157,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   fontWeight: FontWeight.w600,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                h3: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+                h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 p: TextStyle(fontSize: 14, height: 1.5),
                 listBullet: TextStyle(
                   color: Theme.of(context).colorScheme.primary,
@@ -1161,7 +1177,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (e) {
       // Fallback to basic dialog if markdown fails
       if (!mounted) return;
-      
+
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -1291,12 +1307,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               },
               icon: Icon(Icons.play_arrow, size: 16),
               label: Text('Test'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.orange,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: Colors.orange),
             ),
           ),
-          
+
           Divider(height: 1),
 
           // Test Auto-Archive
@@ -1311,9 +1325,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        count > 0 
-                          ? '✅ Archived $count inactive chat${count == 1 ? '' : 's'}'
-                          : 'No inactive chats found',
+                        count > 0
+                            ? '✅ Archived $count inactive chat${count == 1 ? '' : 's'}'
+                            : 'No inactive chats found',
                       ),
                       duration: Duration(seconds: 3),
                     ),
@@ -1322,9 +1336,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               },
               icon: Icon(Icons.play_arrow, size: 16),
               label: Text('Check'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.brown,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: Colors.brown),
             ),
           ),
 
@@ -1332,16 +1344,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           // Battery Status
           ListTile(
-            leading: Icon(Icons.battery_charging_full, color: Colors.lightGreen),
+            leading: Icon(
+              Icons.battery_charging_full,
+              color: Colors.lightGreen,
+            ),
             title: Text('Battery Optimizer'),
             subtitle: Text('View battery level and power mode'),
             trailing: FilledButton.icon(
               onPressed: _showBatteryInfo,
               icon: Icon(Icons.info, size: 16),
               label: Text('View'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.lightGreen,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: Colors.lightGreen),
             ),
           ),
 
@@ -1356,9 +1369,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onPressed: _showDatabaseInfo,
               icon: Icon(Icons.info, size: 16),
               label: Text('View'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.teal,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: Colors.teal),
             ),
           ),
 
@@ -1373,9 +1384,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onPressed: _clearCache,
               icon: Icon(Icons.delete, size: 16),
               label: Text('Clear'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.deepOrange,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: Colors.deepOrange),
             ),
           ),
 
@@ -1390,9 +1399,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onPressed: _checkDatabaseIntegrity,
               icon: Icon(Icons.play_arrow, size: 16),
               label: Text('Check'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.blue,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: Colors.blue),
             ),
           ),
 
@@ -1405,13 +1412,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _showBatteryInfo() async {
     try {
       final batteryInfo = AppCore.instance.batteryOptimizer.getCurrentInfo();
-      
+
       if (!mounted) return;
 
       // Battery icon based on level
       IconData batteryIcon;
       Color batteryColor;
-      
+
       if (batteryInfo.isCharging) {
         batteryIcon = Icons.battery_charging_full;
         batteryColor = Colors.green;
@@ -1449,16 +1456,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               // Battery Level
               _buildInfoRow('Battery Level', '${batteryInfo.level}%'),
               Divider(),
-              
+
               // Battery State
               _buildInfoRow(
-                'State', 
+                'State',
                 batteryInfo.isCharging ? '⚡ Charging' : '🔋 On Battery',
               ),
               Divider(),
-              
+
               // Power Mode
-              _buildInfoRow('Power Mode', batteryInfo.powerMode.name.toUpperCase()),
+              _buildInfoRow(
+                'Power Mode',
+                batteryInfo.powerMode.name.toUpperCase(),
+              ),
               SizedBox(height: 8),
               Container(
                 padding: EdgeInsets.all(8),
@@ -1480,14 +1490,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
               SizedBox(height: 12),
-              
+
               // Last Update
               Text(
                 'Last updated: ${_formatTime(batteryInfo.lastUpdate)}',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey,
-                ),
+                style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
             ],
           ),
@@ -1509,11 +1516,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
     }
   }
-  
+
   String _formatTime(DateTime time) {
     final now = DateTime.now();
     final diff = now.difference(time);
-    
+
     if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
@@ -1575,9 +1582,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -1627,21 +1634,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       // 1. Clear SimpleCrypto conversation keys (pairing keys)
       SimpleCrypto.clearAllConversationKeys();
-      
+
       // 2. Clear ECDH shared secret cache from memory
       // (Note: Secure storage keeps them, but memory cache is cleared)
-      
+
       // 3. Clear processed message cache (replay protection)
       await MessageSecurity.clearProcessedMessages();
-      
+
       // 4. Clear hint cache
       HintCacheManager.clearCache();
-      
+
       // 5. Clear ephemeral session (rotate to new keys)
       await EphemeralKeyManager.rotateSession();
-      
+
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -1649,7 +1656,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Icon(Icons.check_circle, color: Colors.white),
               SizedBox(width: 8),
               Expanded(
-                child: Text('Cache cleared:\n• Conversation keys\n• Message cache\n• Hint cache\n• Ephemeral session'),
+                child: Text(
+                  'Cache cleared:\n• Conversation keys\n• Message cache\n• Hint cache\n• Ephemeral session',
+                ),
               ),
             ],
           ),
@@ -1657,7 +1666,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           duration: Duration(seconds: 4),
         ),
       );
-      
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1673,11 +1681,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       final db = await DatabaseHelper.database;
       final result = await db.rawQuery('PRAGMA integrity_check');
-      
+
       if (!mounted) return;
 
-      final isOk = result.isNotEmpty && 
-                   result.first.containsValue('ok');
+      final isOk = result.isNotEmpty && result.first.containsValue('ok');
 
       showDialog(
         context: context,
@@ -1686,9 +1693,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             children: [
               Icon(
                 isOk ? Icons.check_circle : Icons.error,
-                color: isOk 
-                  ? Theme.of(context).colorScheme.primary 
-                  : Theme.of(context).colorScheme.error,
+                color: isOk
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.error,
               ),
               SizedBox(width: 8),
               Text('Database Integrity'),
@@ -1699,14 +1706,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isOk 
-                  ? '✅ Database is healthy'
-                  : '⚠️ Database has issues',
+                isOk ? '✅ Database is healthy' : '⚠️ Database has issues',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: isOk 
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.error,
+                  color: isOk
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.error,
                 ),
               ),
               SizedBox(height: 12),
@@ -1720,10 +1725,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 child: Text(
                   result.toString(),
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                  ),
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 12),
                 ),
               ),
             ],
@@ -1738,9 +1740,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error checking integrity: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error checking integrity: $e')));
     }
   }
 }

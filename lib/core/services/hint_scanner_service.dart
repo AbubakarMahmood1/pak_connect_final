@@ -31,19 +31,12 @@ class HintMatchResult {
     );
   }
 
-  factory HintMatchResult.intro({
-    required EphemeralDiscoveryHint hint,
-  }) {
-    return HintMatchResult._(
-      type: HintMatchType.intro,
-      introHint: hint,
-    );
+  factory HintMatchResult.intro({required EphemeralDiscoveryHint hint}) {
+    return HintMatchResult._(type: HintMatchType.intro, introHint: hint);
   }
 
   factory HintMatchResult.stranger() {
-    return HintMatchResult._(
-      type: HintMatchType.stranger,
-    );
+    return HintMatchResult._(type: HintMatchType.stranger);
   }
 
   bool get isContact => type == HintMatchType.contact;
@@ -64,9 +57,9 @@ class HintMatchResult {
 }
 
 enum HintMatchType {
-  contact,   // Matched against cached contact hints (Level 2)
-  intro,     // Matched against active intro hints (Level 1)
-  stranger,  // No match
+  contact, // Matched against cached contact hints (Level 2)
+  intro, // Matched against active intro hints (Level 1)
+  stranger, // No match
 }
 
 /// Service for scanning and matching discovered hints
@@ -82,14 +75,15 @@ class HintScannerService {
   /// Repository for accessing contact data
   final ContactRepository _contactRepository;
 
-  HintScannerService({
-    required ContactRepository contactRepository,
-  }) : _contactRepository = contactRepository;
+  HintScannerService({required ContactRepository contactRepository})
+    : _contactRepository = contactRepository;
 
   /// Initialize scanner by precomputing all contact hints
   Future<void> initialize() async {
     await _rebuildContactCache();
-    _logger.info('✅ HintScannerService initialized with ${_contactCache.length} contacts');
+    _logger.info(
+      '✅ HintScannerService initialized with ${_contactCache.length} contacts',
+    );
   }
 
   /// Rebuild contact hint cache (call after new pairing)
@@ -108,7 +102,9 @@ class HintScannerService {
   void addActiveIntroHint(EphemeralDiscoveryHint hint) {
     if (hint.isUsable) {
       _activeIntroHints[hint.hintHex] = hint;
-      _logger.info('📝 Added active intro hint: ${hint.hintHex} (${hint.displayName})');
+      _logger.info(
+        '📝 Added active intro hint: ${hint.hintHex} (${hint.displayName})',
+      );
     }
   }
 
@@ -139,7 +135,9 @@ class HintScannerService {
   /// Returns match result indicating contact, intro, or stranger
   Future<HintMatchResult> checkDevice(Uint8List advertisementData) async {
     // Parse advertisement
-    final parsed = HintAdvertisementService.parseAdvertisement(advertisementData);
+    final parsed = HintAdvertisementService.parseAdvertisement(
+      advertisementData,
+    );
 
     if (parsed == null) {
       return HintMatchResult.stranger();
@@ -173,7 +171,9 @@ class HintScannerService {
       );
 
       if (_bytesEqual(expected, parsed.hintBytes)) {
-        _logger.info('✅ CONTACT MATCH: ${contact.displayName} (${identifier.substring(0, 16)}...)');
+        _logger.info(
+          '✅ CONTACT MATCH: ${contact.displayName} (${identifier.substring(0, 16)}...)',
+        );
         return HintMatchResult.contact(
           publicKey: contact.publicKey,
           name: contact.displayName,

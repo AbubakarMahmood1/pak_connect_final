@@ -49,7 +49,8 @@ class BluetoothStateMonitor {
   BluetoothLowEnergyState get currentState => _currentState;
 
   /// Whether Bluetooth is ready for use
-  bool get isBluetoothReady => _currentState == BluetoothLowEnergyState.poweredOn;
+  bool get isBluetoothReady =>
+      _currentState == BluetoothLowEnergyState.poweredOn;
 
   /// Whether the system is initialized
   bool get isInitialized => _isInitialized;
@@ -77,12 +78,13 @@ class BluetoothStateMonitor {
 
       _isInitialized = true;
       _logger.info('✅ Bluetooth state monitor initialized successfully');
-
     } catch (e) {
       _logger.severe('❌ Failed to initialize Bluetooth state monitor: $e');
-      _emitMessage(BluetoothStatusMessage.error(
-        'Failed to initialize Bluetooth monitoring: $e'
-      ));
+      _emitMessage(
+        BluetoothStatusMessage.error(
+          'Failed to initialize Bluetooth monitoring: $e',
+        ),
+      );
       rethrow;
     }
   }
@@ -97,7 +99,9 @@ class BluetoothStateMonitor {
       final centralState = centralManager.state;
       final peripheralState = peripheralManager.state;
 
-      _logger.info('Initial Bluetooth states - Central: $centralState, Peripheral: $peripheralState');
+      _logger.info(
+        'Initial Bluetooth states - Central: $centralState, Peripheral: $peripheralState',
+      );
 
       // Use the more restrictive state
       _currentState = _getMostRestrictiveState(centralState, peripheralState);
@@ -107,19 +111,21 @@ class BluetoothStateMonitor {
 
       // Process initial state
       await _processBluetoothState(_currentState, isInitial: true);
-
     } catch (e) {
       _logger.severe('Failed to check initial Bluetooth state: $e');
       _currentState = BluetoothLowEnergyState.unknown;
-      _emitMessage(BluetoothStatusMessage.error(
-        'Unable to access Bluetooth system'
-      ));
+      _emitMessage(
+        BluetoothStatusMessage.error('Unable to access Bluetooth system'),
+      );
       rethrow;
     }
   }
 
   /// Setup listeners for Bluetooth state changes
-  void _setupStateChangeListeners(CentralManager centralManager, PeripheralManager peripheralManager) {
+  void _setupStateChangeListeners(
+    CentralManager centralManager,
+    PeripheralManager peripheralManager,
+  ) {
     // Central manager state changes
     centralManager.stateChanged.listen((event) {
       _logger.info('Central Bluetooth state changed: ${event.state}');
@@ -184,12 +190,14 @@ class BluetoothStateMonitor {
     }
 
     // Emit state information
-    _emitStateInfo(BluetoothStateInfo(
-      state: state,
-      previousState: previousState,
-      isReady: state == BluetoothLowEnergyState.poweredOn,
-      timestamp: DateTime.now(),
-    ));
+    _emitStateInfo(
+      BluetoothStateInfo(
+        state: state,
+        previousState: previousState,
+        isReady: state == BluetoothLowEnergyState.poweredOn,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   /// Handle Bluetooth ready state
@@ -211,9 +219,11 @@ class BluetoothStateMonitor {
   Future<void> _handleBluetoothOff() async {
     _logger.warning('⚠️ Bluetooth is disabled');
 
-    _emitMessage(BluetoothStatusMessage.disabled(
-      'Bluetooth is disabled. Please enable Bluetooth to use mesh networking.'
-    ));
+    _emitMessage(
+      BluetoothStatusMessage.disabled(
+        'Bluetooth is disabled. Please enable Bluetooth to use mesh networking.',
+      ),
+    );
 
     // Start retry monitoring
     _startBluetoothRetryMonitoring();
@@ -226,9 +236,11 @@ class BluetoothStateMonitor {
   Future<void> _handleBluetoothUnauthorized() async {
     _logger.warning('⚠️ Bluetooth permissions not granted');
 
-    _emitMessage(BluetoothStatusMessage.unauthorized(
-      'Bluetooth permission required. Please grant permission in app settings.'
-    ));
+    _emitMessage(
+      BluetoothStatusMessage.unauthorized(
+        'Bluetooth permission required. Please grant permission in app settings.',
+      ),
+    );
 
     // Start permission monitoring
     _startPermissionMonitoring();
@@ -240,9 +252,11 @@ class BluetoothStateMonitor {
   Future<void> _handleBluetoothUnsupported() async {
     _logger.severe('❌ Bluetooth not supported on this device');
 
-    _emitMessage(BluetoothStatusMessage.unsupported(
-      'Bluetooth Low Energy is not supported on this device. Mesh networking is unavailable.'
-    ));
+    _emitMessage(
+      BluetoothStatusMessage.unsupported(
+        'Bluetooth Low Energy is not supported on this device. Mesh networking is unavailable.',
+      ),
+    );
 
     _onBluetoothUnavailable?.call();
   }
@@ -252,16 +266,16 @@ class BluetoothStateMonitor {
     _logger.warning('⚠️ Bluetooth state unknown');
 
     if (isInitial) {
-      _emitMessage(BluetoothStatusMessage.initializing(
-        'Checking Bluetooth status...'
-      ));
+      _emitMessage(
+        BluetoothStatusMessage.initializing('Checking Bluetooth status...'),
+      );
 
       // Start initialization retry
       _startInitializationRetry();
     } else {
-      _emitMessage(BluetoothStatusMessage.unknown(
-        'Bluetooth status unknown. Checking...'
-      ));
+      _emitMessage(
+        BluetoothStatusMessage.unknown('Bluetooth status unknown. Checking...'),
+      );
     }
   }
 
@@ -271,15 +285,19 @@ class BluetoothStateMonitor {
   void _startBluetoothRetryMonitoring() {
     if (_retryAttempts >= _maxRetryAttempts) {
       _logger.warning('Max retry attempts reached for Bluetooth monitoring');
-      _emitMessage(BluetoothStatusMessage.error(
-        'Bluetooth has been disabled for an extended period. Please enable it manually.'
-      ));
+      _emitMessage(
+        BluetoothStatusMessage.error(
+          'Bluetooth has been disabled for an extended period. Please enable it manually.',
+        ),
+      );
       return;
     }
 
     _retryTimer = Timer(_retryInterval, () async {
       _retryAttempts++;
-      _logger.info('Retry attempt $_retryAttempts/$_maxRetryAttempts - checking Bluetooth state');
+      _logger.info(
+        'Retry attempt $_retryAttempts/$_maxRetryAttempts - checking Bluetooth state',
+      );
 
       try {
         final centralManager = CentralManager();
@@ -388,9 +406,9 @@ class BluetoothStateMonitor {
       await _checkInitialBluetoothState();
     } catch (e) {
       _logger.warning('Failed to refresh Bluetooth state: $e');
-      _emitMessage(BluetoothStatusMessage.error(
-        'Failed to refresh Bluetooth status'
-      ));
+      _emitMessage(
+        BluetoothStatusMessage.error('Failed to refresh Bluetooth status'),
+      );
     }
   }
 
@@ -437,51 +455,58 @@ class BluetoothStatusMessage {
     required this.timestamp,
   });
 
-  factory BluetoothStatusMessage.ready(String message) => BluetoothStatusMessage(
-    type: BluetoothMessageType.ready,
-    message: message,
-    timestamp: DateTime.now(),
-  );
+  factory BluetoothStatusMessage.ready(String message) =>
+      BluetoothStatusMessage(
+        type: BluetoothMessageType.ready,
+        message: message,
+        timestamp: DateTime.now(),
+      );
 
-  factory BluetoothStatusMessage.disabled(String message) => BluetoothStatusMessage(
-    type: BluetoothMessageType.disabled,
-    message: message,
-    actionHint: 'Enable Bluetooth in device settings',
-    timestamp: DateTime.now(),
-  );
+  factory BluetoothStatusMessage.disabled(String message) =>
+      BluetoothStatusMessage(
+        type: BluetoothMessageType.disabled,
+        message: message,
+        actionHint: 'Enable Bluetooth in device settings',
+        timestamp: DateTime.now(),
+      );
 
-  factory BluetoothStatusMessage.unauthorized(String message) => BluetoothStatusMessage(
-    type: BluetoothMessageType.unauthorized,
-    message: message,
-    actionHint: 'Grant Bluetooth permission in app settings',
-    timestamp: DateTime.now(),
-  );
+  factory BluetoothStatusMessage.unauthorized(String message) =>
+      BluetoothStatusMessage(
+        type: BluetoothMessageType.unauthorized,
+        message: message,
+        actionHint: 'Grant Bluetooth permission in app settings',
+        timestamp: DateTime.now(),
+      );
 
-  factory BluetoothStatusMessage.unsupported(String message) => BluetoothStatusMessage(
-    type: BluetoothMessageType.unsupported,
-    message: message,
-    timestamp: DateTime.now(),
-  );
+  factory BluetoothStatusMessage.unsupported(String message) =>
+      BluetoothStatusMessage(
+        type: BluetoothMessageType.unsupported,
+        message: message,
+        timestamp: DateTime.now(),
+      );
 
-  factory BluetoothStatusMessage.unknown(String message) => BluetoothStatusMessage(
-    type: BluetoothMessageType.unknown,
-    message: message,
-    timestamp: DateTime.now(),
-  );
+  factory BluetoothStatusMessage.unknown(String message) =>
+      BluetoothStatusMessage(
+        type: BluetoothMessageType.unknown,
+        message: message,
+        timestamp: DateTime.now(),
+      );
 
   // Note: resetting factory method removed as state not available
 
-  factory BluetoothStatusMessage.initializing(String message) => BluetoothStatusMessage(
-    type: BluetoothMessageType.initializing,
-    message: message,
-    timestamp: DateTime.now(),
-  );
+  factory BluetoothStatusMessage.initializing(String message) =>
+      BluetoothStatusMessage(
+        type: BluetoothMessageType.initializing,
+        message: message,
+        timestamp: DateTime.now(),
+      );
 
-  factory BluetoothStatusMessage.error(String message) => BluetoothStatusMessage(
-    type: BluetoothMessageType.error,
-    message: message,
-    timestamp: DateTime.now(),
-  );
+  factory BluetoothStatusMessage.error(String message) =>
+      BluetoothStatusMessage(
+        type: BluetoothMessageType.error,
+        message: message,
+        timestamp: DateTime.now(),
+      );
 
   @override
   String toString() => 'BluetoothStatusMessage(${type.name}: $message)';

@@ -27,7 +27,8 @@ class TopologyManager {
   // Update stream for UI
   final StreamController<NetworkTopology> _topologyStreamController =
       StreamController<NetworkTopology>.broadcast();
-  Stream<NetworkTopology> get topologyStream => _topologyStreamController.stream;
+  Stream<NetworkTopology> get topologyStream =>
+      _topologyStreamController.stream;
 
   // Cleanup timer
   Timer? _cleanupTimer;
@@ -47,7 +48,9 @@ class TopologyManager {
     // Start periodic cleanup
     _startCleanupTimer();
 
-    _logger.info('TopologyManager initialized for node ${currentNodeId.substring(0, 8)}...');
+    _logger.info(
+      'TopologyManager initialized for node ${currentNodeId.substring(0, 8)}...',
+    );
   }
 
   /// Record node announcement (basic - without neighbors)
@@ -70,10 +73,7 @@ class TopologyManager {
 
     // Record connection to this node
     if (nodeId != _currentNodeId) {
-      _addOrUpdateConnection(
-        fromNodeId: _currentNodeId!,
-        toNodeId: nodeId,
-      );
+      _addOrUpdateConnection(fromNodeId: _currentNodeId!, toNodeId: nodeId);
     }
 
     _notifyUpdate();
@@ -101,10 +101,7 @@ class TopologyManager {
 
     // Record connection from us to this node (if direct announcement)
     if (nodeId != _currentNodeId) {
-      _addOrUpdateConnection(
-        fromNodeId: _currentNodeId!,
-        toNodeId: nodeId,
-      );
+      _addOrUpdateConnection(fromNodeId: _currentNodeId!, toNodeId: nodeId);
     }
 
     // Record connections FROM this node TO its neighbors
@@ -115,21 +112,22 @@ class TopologyManager {
       _addOrUpdateNode(
         nodeId: neighborId,
         displayName: 'Node ${neighborId.substring(0, 8)}',
-        hopDistance: nodeId == _currentNodeId ? 1 : 2, // 1 if from us, 2 if from neighbor
+        hopDistance: nodeId == _currentNodeId
+            ? 1
+            : 2, // 1 if from us, 2 if from neighbor
       );
 
       // Record connection
-      _addOrUpdateConnection(
-        fromNodeId: nodeId,
-        toNodeId: neighborId,
-      );
+      _addOrUpdateConnection(fromNodeId: nodeId, toNodeId: neighborId);
     }
 
     // Update hop distances (breadth-first search from current node)
     _updateHopDistances();
 
     _notifyUpdate();
-    _logger.fine('Recorded announcement from ${nodeId.substring(0, 8)} with ${neighborIds.length} neighbors');
+    _logger.fine(
+      'Recorded announcement from ${nodeId.substring(0, 8)} with ${neighborIds.length} neighbors',
+    );
   }
 
   /// Add or update a node
@@ -174,9 +172,11 @@ class TopologyManager {
     required String toNodeId,
   }) {
     // Remove old connection if exists
-    _connections.removeWhere((conn) =>
-        (conn.fromNodeId == fromNodeId && conn.toNodeId == toNodeId) ||
-        (conn.fromNodeId == toNodeId && conn.toNodeId == fromNodeId));
+    _connections.removeWhere(
+      (conn) =>
+          (conn.fromNodeId == fromNodeId && conn.toNodeId == toNodeId) ||
+          (conn.fromNodeId == toNodeId && conn.toNodeId == fromNodeId),
+    );
 
     // Add new connection
     final connection = NetworkConnection(
@@ -212,10 +212,13 @@ class TopologyManager {
 
       // Find neighbors
       final neighbors = _connections
-          .where((conn) =>
-              conn.fromNodeId == current || conn.toNodeId == current)
-          .map((conn) =>
-              conn.fromNodeId == current ? conn.toNodeId : conn.fromNodeId)
+          .where(
+            (conn) => conn.fromNodeId == current || conn.toNodeId == current,
+          )
+          .map(
+            (conn) =>
+                conn.fromNodeId == current ? conn.toNodeId : conn.fromNodeId,
+          )
           .toList();
 
       for (final neighbor in neighbors) {
@@ -256,14 +259,17 @@ class TopologyManager {
     if (_currentNodeId == null) return [];
 
     return _connections
-        .where((conn) =>
-            (conn.fromNodeId == _currentNodeId ||
-             conn.toNodeId == _currentNodeId) &&
-            conn.isActive)
-        .map((conn) =>
-            conn.fromNodeId == _currentNodeId
-                ? conn.toNodeId
-                : conn.fromNodeId)
+        .where(
+          (conn) =>
+              (conn.fromNodeId == _currentNodeId ||
+                  conn.toNodeId == _currentNodeId) &&
+              conn.isActive,
+        )
+        .map(
+          (conn) => conn.fromNodeId == _currentNodeId
+              ? conn.toNodeId
+              : conn.fromNodeId,
+        )
         .toList();
   }
 
@@ -301,12 +307,16 @@ class TopologyManager {
     });
 
     // Remove connections to non-existent nodes
-    _connections.removeWhere((conn) =>
-        !_nodes.containsKey(conn.fromNodeId) ||
-        !_nodes.containsKey(conn.toNodeId));
+    _connections.removeWhere(
+      (conn) =>
+          !_nodes.containsKey(conn.fromNodeId) ||
+          !_nodes.containsKey(conn.toNodeId),
+    );
 
     if (nodesRemoved > 0 || connectionsRemoved > 0) {
-      _logger.info('Cleanup: removed $nodesRemoved nodes, $connectionsRemoved connections');
+      _logger.info(
+        'Cleanup: removed $nodesRemoved nodes, $connectionsRemoved connections',
+      );
       _notifyUpdate();
     }
   }

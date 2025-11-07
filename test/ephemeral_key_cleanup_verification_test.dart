@@ -30,38 +30,52 @@ void main() {
       await SharedPreferences.getInstance().then((prefs) => prefs.clear());
     });
 
-    test('1. No cache restoration - fresh ephemeral key on each initialization', () async {
-      // GIVEN: First initialization creates an ephemeral session
-      await EphemeralKeyManager.initialize('test-private-key');
-      final firstSessionKey = EphemeralKeyManager.generateMyEphemeralKey();
-      
-      print('🔑 First session key: ${firstSessionKey.substring(0, 16)}...');
+    test(
+      '1. No cache restoration - fresh ephemeral key on each initialization',
+      () async {
+        // GIVEN: First initialization creates an ephemeral session
+        await EphemeralKeyManager.initialize('test-private-key');
+        final firstSessionKey = EphemeralKeyManager.generateMyEphemeralKey();
 
-      // Verify session key was saved to SharedPreferences (for debugging)
-      final prefs = await SharedPreferences.getInstance();
-      final savedSessionKey = prefs.getString('current_ephemeral_session');
-      expect(savedSessionKey, isNotNull, reason: 'Session key should be saved for debugging');
-      expect(savedSessionKey, equals(firstSessionKey), reason: 'Saved key should match current session');
+        print('🔑 First session key: ${firstSessionKey.substring(0, 16)}...');
 
-      print('💾 Session key saved to SharedPreferences (for debugging only)');
+        // Verify session key was saved to SharedPreferences (for debugging)
+        final prefs = await SharedPreferences.getInstance();
+        final savedSessionKey = prefs.getString('current_ephemeral_session');
+        expect(
+          savedSessionKey,
+          isNotNull,
+          reason: 'Session key should be saved for debugging',
+        );
+        expect(
+          savedSessionKey,
+          equals(firstSessionKey),
+          reason: 'Saved key should match current session',
+        );
 
-      // WHEN: Re-initialize EphemeralKeyManager (simulating app restart)
-      await EphemeralKeyManager.initialize('test-private-key');
-      final secondSessionKey = EphemeralKeyManager.generateMyEphemeralKey();
-      
-      print('🔑 Second session key: ${secondSessionKey.substring(0, 16)}...');
+        print('💾 Session key saved to SharedPreferences (for debugging only)');
 
-      // THEN: Second session key should be DIFFERENT (not restored from cache)
-      expect(
-        secondSessionKey,
-        isNot(equals(firstSessionKey)),
-        reason: '❌ BUG DETECTED: Ephemeral key was restored from cache! '
-            'Expected fresh key on each initialization. '
-            'Check EphemeralKeyManager._tryRestoreSession() - it should NOT restore from SharedPreferences.',
-      );
+        // WHEN: Re-initialize EphemeralKeyManager (simulating app restart)
+        await EphemeralKeyManager.initialize('test-private-key');
+        final secondSessionKey = EphemeralKeyManager.generateMyEphemeralKey();
 
-      print('✅ PASS: Different ephemeral keys on each initialization (no cache restoration)');
-    });
+        print('🔑 Second session key: ${secondSessionKey.substring(0, 16)}...');
+
+        // THEN: Second session key should be DIFFERENT (not restored from cache)
+        expect(
+          secondSessionKey,
+          isNot(equals(firstSessionKey)),
+          reason:
+              '❌ BUG DETECTED: Ephemeral key was restored from cache! '
+              'Expected fresh key on each initialization. '
+              'Check EphemeralKeyManager._tryRestoreSession() - it should NOT restore from SharedPreferences.',
+        );
+
+        print(
+          '✅ PASS: Different ephemeral keys on each initialization (no cache restoration)',
+        );
+      },
+    );
 
     test('2. Multiple initializations create different ephemeral IDs', () async {
       // GIVEN: Multiple app sessions (simulated by multiple initializations)
@@ -71,9 +85,9 @@ void main() {
         await EphemeralKeyManager.initialize('test-private-key');
         final sessionKey = EphemeralKeyManager.generateMyEphemeralKey();
         sessionKeys.add(sessionKey);
-        
+
         print('🔑 Session $i key: ${sessionKey.substring(0, 16)}...');
-        
+
         // Small delay to ensure timestamp changes
         await Future.delayed(Duration(milliseconds: 10));
       }
@@ -83,12 +97,15 @@ void main() {
       expect(
         uniqueKeys.length,
         equals(sessionKeys.length),
-        reason: '❌ BUG DETECTED: Some ephemeral keys were reused! '
+        reason:
+            '❌ BUG DETECTED: Some ephemeral keys were reused! '
             'Expected ${sessionKeys.length} unique keys, got ${uniqueKeys.length}. '
             'Each initialization should generate a fresh ephemeral key.',
       );
 
-      print('✅ PASS: All ${sessionKeys.length} sessions have unique ephemeral keys');
+      print(
+        '✅ PASS: All ${sessionKeys.length} sessions have unique ephemeral keys',
+      );
     });
 
     test('3. Chat ID mapping - chat ID = their ephemeral ID', () async {
@@ -106,7 +123,8 @@ void main() {
       expect(
         chatId,
         equals(theirEphemeralId),
-        reason: 'Chat ID should be 1:1 mapped to their ephemeral ID. '
+        reason:
+            'Chat ID should be 1:1 mapped to their ephemeral ID. '
             'This is the current behavior (Phase 2). '
             'Phase 3 will use Noise NN session ID instead.',
       );
@@ -130,12 +148,15 @@ void main() {
       expect(
         chatId1,
         equals(chatId2),
-        reason: 'Same ephemeral ID should create same chat ID (current behavior). '
+        reason:
+            'Same ephemeral ID should create same chat ID (current behavior). '
             'This is WHY cache restoration caused bug - cached ID → same chat. '
             'Phase 3 fix: Use Noise NN session ID (unique per handshake).',
       );
 
-      print('✅ PASS: Same ephemeral ID → same chat ID (explains why cache caused duplication)');
+      print(
+        '✅ PASS: Same ephemeral ID → same chat ID (explains why cache caused duplication)',
+      );
     });
 
     test('5. Different ephemeral IDs create different chat IDs', () async {
@@ -157,76 +178,97 @@ void main() {
       expect(
         chatId1,
         isNot(equals(chatId2)),
-        reason: 'Different ephemeral IDs should create different chat IDs. '
+        reason:
+            'Different ephemeral IDs should create different chat IDs. '
             'This proves the fix works - no cache restoration → different IDs → different chats.',
       );
 
-      print('✅ PASS: Different ephemeral IDs → different chat IDs (fix working!)');
+      print(
+        '✅ PASS: Different ephemeral IDs → different chat IDs (fix working!)',
+      );
     });
 
-    test('6. Ephemeral key includes timestamp component (prevents replay)', () async {
-      // GIVEN: Multiple initializations with small time gaps
-      await EphemeralKeyManager.initialize('test-private-key');
-      final key1 = EphemeralKeyManager.generateMyEphemeralKey();
-      
-      await Future.delayed(Duration(milliseconds: 50));
-      
-      await EphemeralKeyManager.initialize('test-private-key');
-      final key2 = EphemeralKeyManager.generateMyEphemeralKey();
+    test(
+      '6. Ephemeral key includes timestamp component (prevents replay)',
+      () async {
+        // GIVEN: Multiple initializations with small time gaps
+        await EphemeralKeyManager.initialize('test-private-key');
+        final key1 = EphemeralKeyManager.generateMyEphemeralKey();
 
-      print('🔑 Key 1 (time T): ${key1.substring(0, 16)}...');
-      print('🔑 Key 2 (time T+50ms): ${key2.substring(0, 16)}...');
+        await Future.delayed(Duration(milliseconds: 50));
 
-      // THEN: Keys should be different (timestamp + random component)
-      expect(
-        key1,
-        isNot(equals(key2)),
-        reason: 'Ephemeral keys should include timestamp component. '
-            'Even with same private key and salt, different timestamps → different keys.',
-      );
+        await EphemeralKeyManager.initialize('test-private-key');
+        final key2 = EphemeralKeyManager.generateMyEphemeralKey();
 
-      print('✅ PASS: Timestamp component ensures key uniqueness');
-    });
+        print('🔑 Key 1 (time T): ${key1.substring(0, 16)}...');
+        print('🔑 Key 2 (time T+50ms): ${key2.substring(0, 16)}...');
 
-    test('7. SharedPreferences save is for debugging only (not restored)', () async {
-      // GIVEN: First initialization saves to SharedPreferences
-      await EphemeralKeyManager.initialize('test-private-key');
-      final firstKey = EphemeralKeyManager.generateMyEphemeralKey();
+        // THEN: Keys should be different (timestamp + random component)
+        expect(
+          key1,
+          isNot(equals(key2)),
+          reason:
+              'Ephemeral keys should include timestamp component. '
+              'Even with same private key and salt, different timestamps → different keys.',
+        );
 
-      final prefs = await SharedPreferences.getInstance();
-      final savedKey = prefs.getString('current_ephemeral_session');
+        print('✅ PASS: Timestamp component ensures key uniqueness');
+      },
+    );
 
-      print('🔑 First key: ${firstKey.substring(0, 16)}...');
-      print('💾 Saved key: ${savedKey?.substring(0, 16)}...');
+    test(
+      '7. SharedPreferences save is for debugging only (not restored)',
+      () async {
+        // GIVEN: First initialization saves to SharedPreferences
+        await EphemeralKeyManager.initialize('test-private-key');
+        final firstKey = EphemeralKeyManager.generateMyEphemeralKey();
 
-      expect(savedKey, equals(firstKey), reason: 'Key should be saved to SharedPreferences');
+        final prefs = await SharedPreferences.getInstance();
+        final savedKey = prefs.getString('current_ephemeral_session');
 
-      // WHEN: Manually modify saved key (simulate cache corruption)
-      await prefs.setString('current_ephemeral_session', 'corrupted-cached-key');
-      print('💣 Manually corrupted cached key');
+        print('🔑 First key: ${firstKey.substring(0, 16)}...');
+        print('💾 Saved key: ${savedKey?.substring(0, 16)}...');
 
-      // Re-initialize
-      await EphemeralKeyManager.initialize('test-private-key');
-      final newKey = EphemeralKeyManager.generateMyEphemeralKey();
+        expect(
+          savedKey,
+          equals(firstKey),
+          reason: 'Key should be saved to SharedPreferences',
+        );
 
-      print('🔑 New key after corruption: ${newKey.substring(0, 16)}...');
+        // WHEN: Manually modify saved key (simulate cache corruption)
+        await prefs.setString(
+          'current_ephemeral_session',
+          'corrupted-cached-key',
+        );
+        print('💣 Manually corrupted cached key');
 
-      // THEN: New key should be fresh (NOT the corrupted cached key)
-      expect(
-        newKey,
-        isNot(equals('corrupted-cached-key')),
-        reason: '❌ BUG DETECTED: Corrupted cache was used! '
-            'EphemeralKeyManager should NOT restore from SharedPreferences.',
-      );
+        // Re-initialize
+        await EphemeralKeyManager.initialize('test-private-key');
+        final newKey = EphemeralKeyManager.generateMyEphemeralKey();
 
-      expect(
-        newKey,
-        isNot(equals(firstKey)),
-        reason: 'New key should be different from first key (fresh generation)',
-      );
+        print('🔑 New key after corruption: ${newKey.substring(0, 16)}...');
 
-      print('✅ PASS: Cached value ignored (proof that cache is NOT restored)');
-    });
+        // THEN: New key should be fresh (NOT the corrupted cached key)
+        expect(
+          newKey,
+          isNot(equals('corrupted-cached-key')),
+          reason:
+              '❌ BUG DETECTED: Corrupted cache was used! '
+              'EphemeralKeyManager should NOT restore from SharedPreferences.',
+        );
+
+        expect(
+          newKey,
+          isNot(equals(firstKey)),
+          reason:
+              'New key should be different from first key (fresh generation)',
+        );
+
+        print(
+          '✅ PASS: Cached value ignored (proof that cache is NOT restored)',
+        );
+      },
+    );
   });
 
   group('Chat Duplication Bug Scenario (Regression Test)', () {
@@ -252,18 +294,22 @@ void main() {
 
       // === FIRST SESSION ===
       print('🔵 SESSION 1: Initial connection');
-      
+
       await EphemeralKeyManager.initialize('alice-private-key');
       final aliceEphemeralId1 = EphemeralKeyManager.generateMyEphemeralKey();
-      
+
       await EphemeralKeyManager.initialize('bob-private-key');
       final bobEphemeralId1 = EphemeralKeyManager.generateMyEphemeralKey();
 
       // Alice sees Bob's ephemeral ID, creates chat
       final chatId1 = ChatUtils.generateChatId(bobEphemeralId1);
 
-      print('👤 Alice ephemeral ID (session 1): ${aliceEphemeralId1.substring(0, 16)}...');
-      print('👤 Bob ephemeral ID (session 1): ${bobEphemeralId1.substring(0, 16)}...');
+      print(
+        '👤 Alice ephemeral ID (session 1): ${aliceEphemeralId1.substring(0, 16)}...',
+      );
+      print(
+        '👤 Bob ephemeral ID (session 1): ${bobEphemeralId1.substring(0, 16)}...',
+      );
       print('💬 Chat ID created: ${chatId1.substring(0, 16)}...');
 
       // === APP RESTART (simulated by re-initialization) ===
@@ -271,18 +317,22 @@ void main() {
 
       // === SECOND SESSION ===
       print('🟢 SESSION 2: Reconnection after restart');
-      
+
       await EphemeralKeyManager.initialize('alice-private-key');
       final aliceEphemeralId2 = EphemeralKeyManager.generateMyEphemeralKey();
-      
+
       await EphemeralKeyManager.initialize('bob-private-key');
       final bobEphemeralId2 = EphemeralKeyManager.generateMyEphemeralKey();
 
       // Alice sees Bob's (new) ephemeral ID, creates chat
       final chatId2 = ChatUtils.generateChatId(bobEphemeralId2);
 
-      print('👤 Alice ephemeral ID (session 2): ${aliceEphemeralId2.substring(0, 16)}...');
-      print('👤 Bob ephemeral ID (session 2): ${bobEphemeralId2.substring(0, 16)}...');
+      print(
+        '👤 Alice ephemeral ID (session 2): ${aliceEphemeralId2.substring(0, 16)}...',
+      );
+      print(
+        '👤 Bob ephemeral ID (session 2): ${bobEphemeralId2.substring(0, 16)}...',
+      );
       print('💬 Chat ID created: ${chatId2.substring(0, 16)}...');
 
       // === VERIFICATION ===
@@ -292,7 +342,8 @@ void main() {
       expect(
         aliceEphemeralId2,
         isNot(equals(aliceEphemeralId1)),
-        reason: '❌ BUG: Alice ephemeral ID was cached! Should be different after restart.',
+        reason:
+            '❌ BUG: Alice ephemeral ID was cached! Should be different after restart.',
       );
       print('✅ Alice ephemeral ID changed (no cache restoration)');
 
@@ -300,7 +351,8 @@ void main() {
       expect(
         bobEphemeralId2,
         isNot(equals(bobEphemeralId1)),
-        reason: '❌ BUG: Bob ephemeral ID was cached! Should be different after restart.',
+        reason:
+            '❌ BUG: Bob ephemeral ID was cached! Should be different after restart.',
       );
       print('✅ Bob ephemeral ID changed (no cache restoration)');
 
@@ -308,7 +360,8 @@ void main() {
       expect(
         chatId2,
         isNot(equals(chatId1)),
-        reason: '❌ BUG: Chat duplication detected! Same chat ID across sessions. '
+        reason:
+            '❌ BUG: Chat duplication detected! Same chat ID across sessions. '
             'This is the bug users reported. '
             'Root cause: Ephemeral keys were cached (6-hour TTL).',
       );
@@ -325,12 +378,14 @@ void main() {
     test('Logging functions work correctly', () {
       // This test just verifies the logging doesn't crash
       // Actual log output is verified during real-world testing
-      
+
       final testId = 'test-ephemeral-id-123';
       final chatId = ChatUtils.generateChatId(testId);
 
       expect(chatId, equals(testId));
-      print('✅ ChatUtils logging works (check logs for investigation messages)');
+      print(
+        '✅ ChatUtils logging works (check logs for investigation messages)',
+      );
     });
   });
 }

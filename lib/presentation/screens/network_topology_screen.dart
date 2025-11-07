@@ -92,8 +92,8 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
     final healthColor = healthScore > 0.7
         ? Colors.green
         : healthScore > 0.4
-            ? Colors.orange
-            : Colors.red;
+        ? Colors.orange
+        : Colors.red;
 
     return Card(
       margin: EdgeInsets.all(16),
@@ -123,12 +123,12 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Network Health',
-                          style: theme.textTheme.bodySmall),
+                      Text('Network Health', style: theme.textTheme.bodySmall),
                       SizedBox(height: 4),
                       LinearProgressIndicator(
                         value: healthScore,
-                        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                        backgroundColor:
+                            theme.colorScheme.surfaceContainerHighest,
                         valueColor: AlwaysStoppedAnimation<Color>(healthColor),
                         minHeight: 8,
                       ),
@@ -157,14 +157,16 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
                   theme,
                   icon: Icons.devices,
                   label: 'Nodes',
-                  value: '${_statistics!.activeNodes}/${_statistics!.totalNodes}',
+                  value:
+                      '${_statistics!.activeNodes}/${_statistics!.totalNodes}',
                   color: Colors.blue,
                 ),
                 _buildStatChip(
                   theme,
                   icon: Icons.link,
                   label: 'Connections',
-                  value: '${_statistics!.activeConnections}/${_statistics!.totalConnections}',
+                  value:
+                      '${_statistics!.activeConnections}/${_statistics!.totalConnections}',
                   color: Colors.green,
                 ),
                 _buildStatChip(
@@ -208,10 +210,7 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
         children: [
           Icon(icon, color: color, size: 16),
           SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(color: color),
-          ),
+          Text(label, style: theme.textTheme.bodySmall?.copyWith(color: color)),
           SizedBox(width: 6),
           Text(
             value,
@@ -250,10 +249,7 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
           ),
           SizedBox(
             height: 300,
-            child: NetworkGraphPainter(
-              topology: _topology!,
-              theme: theme,
-            ),
+            child: NetworkGraphPainter(topology: _topology!, theme: theme),
           ),
           Padding(
             padding: EdgeInsets.all(16),
@@ -261,12 +257,14 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
               spacing: 16,
               runSpacing: 8,
               children: [
+                _buildLegendItem(theme, Colors.blue, 'You', Icons.person),
+                _buildLegendItem(theme, Colors.green, 'Active', Icons.circle),
                 _buildLegendItem(
-                    theme, Colors.blue, 'You', Icons.person),
-                _buildLegendItem(
-                    theme, Colors.green, 'Active', Icons.circle),
-                _buildLegendItem(
-                    theme, Colors.grey, 'Inactive', Icons.circle_outlined),
+                  theme,
+                  Colors.grey,
+                  'Inactive',
+                  Icons.circle_outlined,
+                ),
               ],
             ),
           ),
@@ -276,16 +274,17 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
   }
 
   Widget _buildLegendItem(
-      ThemeData theme, Color color, String label, IconData icon) {
+    ThemeData theme,
+    Color color,
+    String label,
+    IconData icon,
+  ) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, color: color, size: 12),
         SizedBox(width: 4),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall,
-        ),
+        Text(label, style: theme.textTheme.bodySmall),
       ],
     );
   }
@@ -346,8 +345,8 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
     final statusColor = node.isCurrentDevice
         ? Colors.blue
         : isActive
-            ? Colors.green
-            : Colors.grey;
+        ? Colors.green
+        : Colors.grey;
 
     final neighbors = _topology!.getNeighbors(node.nodeId);
 
@@ -370,8 +369,9 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
       title: Text(
         node.displayName,
         style: TextStyle(
-          fontWeight:
-              node.isCurrentDevice ? FontWeight.bold : FontWeight.normal,
+          fontWeight: node.isCurrentDevice
+              ? FontWeight.bold
+              : FontWeight.normal,
         ),
       ),
       subtitle: Column(
@@ -385,10 +385,12 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
           Wrap(
             spacing: 8,
             children: [
+              _buildNodeBadge(theme, Icons.route, '${node.hopDistance} hops'),
               _buildNodeBadge(
-                  theme, Icons.route, '${node.hopDistance} hops'),
-              _buildNodeBadge(
-                  theme, Icons.link, '${neighbors.length} connections'),
+                theme,
+                Icons.link,
+                '${neighbors.length} connections',
+              ),
               if (!node.isCurrentDevice)
                 _buildNodeBadge(
                   theme,
@@ -402,10 +404,7 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
       trailing: Container(
         width: 12,
         height: 12,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: statusColor,
-        ),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
       ),
     );
   }
@@ -450,10 +449,7 @@ class NetworkGraphPainter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _GraphPainter(
-        topology: topology,
-        theme: theme,
-      ),
+      painter: _GraphPainter(topology: topology, theme: theme),
       child: Container(),
     );
   }
@@ -463,10 +459,7 @@ class _GraphPainter extends CustomPainter {
   final NetworkTopology topology;
   final ThemeData theme;
 
-  _GraphPainter({
-    required this.topology,
-    required this.theme,
-  });
+  _GraphPainter({required this.topology, required this.theme});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -501,13 +494,17 @@ class _GraphPainter extends CustomPainter {
     textPainter.layout(maxWidth: size.width - 32);
     textPainter.paint(
       canvas,
-      Offset((size.width - textPainter.width) / 2,
-          (size.height - textPainter.height) / 2),
+      Offset(
+        (size.width - textPainter.width) / 2,
+        (size.height - textPainter.height) / 2,
+      ),
     );
   }
 
   Map<String, Offset> _calculateNodePositions(
-      List<NetworkNode> nodes, Size size) {
+    List<NetworkNode> nodes,
+    Size size,
+  ) {
     final positions = <String, Offset>{};
     final center = Offset(size.width / 2, size.height / 2);
     final radius = math.min(size.width, size.height) * 0.35;
@@ -518,8 +515,10 @@ class _GraphPainter extends CustomPainter {
     }
 
     // Place current device in center
-    final currentNode = nodes.firstWhere((n) => n.isCurrentDevice,
-        orElse: () => nodes.first);
+    final currentNode = nodes.firstWhere(
+      (n) => n.isCurrentDevice,
+      orElse: () => nodes.first,
+    );
     positions[currentNode.nodeId] = center;
 
     // Place other nodes in a circle
@@ -561,8 +560,8 @@ class _GraphPainter extends CustomPainter {
       final nodeColor = isCurrentDevice
           ? Colors.blue
           : node.isActive
-              ? Colors.green
-              : Colors.grey;
+          ? Colors.green
+          : Colors.grey;
 
       // Draw node circle
       final nodePaint = Paint()
@@ -588,8 +587,7 @@ class _GraphPainter extends CustomPainter {
           style: TextStyle(
             color: theme.colorScheme.onSurface,
             fontSize: 10,
-            fontWeight:
-                isCurrentDevice ? FontWeight.bold : FontWeight.normal,
+            fontWeight: isCurrentDevice ? FontWeight.bold : FontWeight.normal,
           ),
         ),
         textAlign: TextAlign.center,

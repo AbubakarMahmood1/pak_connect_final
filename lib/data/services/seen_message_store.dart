@@ -3,7 +3,7 @@
 // Limits to last MAX_IDS entries per type to avoid memory bloat
 
 import 'dart:async';
-import 'dart:collection';  // For LinkedHashSet
+import 'dart:collection'; // For LinkedHashSet
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../database/database_helper.dart';
@@ -47,7 +47,9 @@ class SeenMessageStore {
       await _loadFromDatabase();
       _initialized = true;
 
-      _logger.info('SeenMessageStore initialized: ${_deliveredIds.length} delivered, ${_readIds.length} read');
+      _logger.info(
+        'SeenMessageStore initialized: ${_deliveredIds.length} delivered, ${_readIds.length} read',
+      );
     } catch (e) {
       _logger.severe('Failed to initialize SeenMessageStore: $e');
       rethrow;
@@ -92,8 +94,9 @@ class SeenMessageStore {
       // Persist to database
       await _persistMessage(messageId, SeenType.delivered);
 
-      _logger.fine('Marked message as delivered: ${messageId.substring(0, 16)}...');
-
+      _logger.fine(
+        'Marked message as delivered: ${messageId.substring(0, 16)}...',
+      );
     } catch (e) {
       _logger.warning('Failed to mark delivered: $e');
     }
@@ -120,7 +123,6 @@ class SeenMessageStore {
       await _persistMessage(messageId, SeenType.read);
 
       _logger.fine('Marked message as read: ${messageId.substring(0, 16)}...');
-
     } catch (e) {
       _logger.warning('Failed to mark read: $e');
     }
@@ -161,7 +163,7 @@ class SeenMessageStore {
 
       // Check if table exists
       final tables = await db.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='seen_messages'"
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='seen_messages'",
       );
 
       if (tables.isEmpty) {
@@ -204,7 +206,7 @@ class SeenMessageStore {
         'seen_messages',
         where: 'seen_type = ?',
         whereArgs: [SeenType.delivered.name],
-        orderBy: 'seen_at ASC',  // Changed from DESC to ASC for LRU
+        orderBy: 'seen_at ASC', // Changed from DESC to ASC for LRU
         limit: maxIdsPerType,
       );
 
@@ -218,7 +220,7 @@ class SeenMessageStore {
         'seen_messages',
         where: 'seen_type = ?',
         whereArgs: [SeenType.read.name],
-        orderBy: 'seen_at ASC',  // Changed from DESC to ASC for LRU
+        orderBy: 'seen_at ASC', // Changed from DESC to ASC for LRU
         limit: maxIdsPerType,
       );
 
@@ -227,8 +229,9 @@ class SeenMessageStore {
         _readIds.add(row['message_id'] as String);
       }
 
-      _logger.info('Loaded ${_deliveredIds.length} delivered, ${_readIds.length} read from database');
-
+      _logger.info(
+        'Loaded ${_deliveredIds.length} delivered, ${_readIds.length} read from database',
+      );
     } catch (e) {
       _logger.severe('Failed to load from database: $e');
       rethrow;
@@ -264,7 +267,6 @@ class SeenMessageStore {
       }
 
       _logger.fine('Trimmed ${toRemove.length} old ${type.name} entries');
-
     } catch (e) {
       _logger.warning('Failed to trim set: $e');
     }
@@ -275,16 +277,11 @@ class SeenMessageStore {
     try {
       final db = await DatabaseHelper.database;
 
-      await db.insert(
-        'seen_messages',
-        {
-          'message_id': messageId,
-          'seen_type': type.name,
-          'seen_at': DateTime.now().millisecondsSinceEpoch,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-
+      await db.insert('seen_messages', {
+        'message_id': messageId,
+        'seen_type': type.name,
+        'seen_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     } catch (e) {
       _logger.warning('Failed to persist message: $e');
     }
@@ -311,15 +308,19 @@ class SeenMessageStore {
 
       // Clean up if over limit
       if (deliveredTotal > maxIdsPerType) {
-        await _cleanupOldEntries(SeenType.delivered, deliveredTotal - maxIdsPerType);
+        await _cleanupOldEntries(
+          SeenType.delivered,
+          deliveredTotal - maxIdsPerType,
+        );
       }
 
       if (readTotal > maxIdsPerType) {
         await _cleanupOldEntries(SeenType.read, readTotal - maxIdsPerType);
       }
 
-      _logger.info('Maintenance complete: delivered=$deliveredTotal, read=$readTotal');
-
+      _logger.info(
+        'Maintenance complete: delivered=$deliveredTotal, read=$readTotal',
+      );
     } catch (e) {
       _logger.warning('Maintenance failed: $e');
     }
@@ -331,7 +332,8 @@ class SeenMessageStore {
       final db = await DatabaseHelper.database;
 
       // Delete oldest entries
-      await db.rawDelete('''
+      await db.rawDelete(
+        '''
         DELETE FROM seen_messages
         WHERE rowid IN (
           SELECT rowid FROM seen_messages
@@ -339,10 +341,11 @@ class SeenMessageStore {
           ORDER BY seen_at ASC
           LIMIT ?
         )
-      ''', [type.name, countToRemove]);
+      ''',
+        [type.name, countToRemove],
+      );
 
       _logger.info('Cleaned up $countToRemove old ${type.name} entries');
-
     } catch (e) {
       _logger.warning('Failed to cleanup old entries: $e');
     }
@@ -350,7 +353,4 @@ class SeenMessageStore {
 }
 
 /// Type of seen message
-enum SeenType {
-  delivered,
-  read,
-}
+enum SeenType { delivered, read }

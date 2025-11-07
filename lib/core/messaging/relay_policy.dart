@@ -23,19 +23,25 @@ class RelayPolicy {
   static bool isRelayEligibleMessageType(ProtocolMessageType type) {
     // Handshake messages: NEVER relay (point-to-point only)
     if (_isHandshakeMessage(type)) {
-      _logger.fine('❌ RELAY FILTER: Handshake message type ${type.name} is NOT relay-eligible');
+      _logger.fine(
+        '❌ RELAY FILTER: Handshake message type ${type.name} is NOT relay-eligible',
+      );
       return false;
     }
 
     // Pairing messages: NEVER relay (point-to-point only)
     if (_isPairingMessage(type)) {
-      _logger.fine('❌ RELAY FILTER: Pairing message type ${type.name} is NOT relay-eligible');
+      _logger.fine(
+        '❌ RELAY FILTER: Pairing message type ${type.name} is NOT relay-eligible',
+      );
       return false;
     }
 
     // Control messages: Generally not relayed
     if (_isControlMessage(type)) {
-      _logger.fine('❌ RELAY FILTER: Control message type ${type.name} is NOT relay-eligible');
+      _logger.fine(
+        '❌ RELAY FILTER: Control message type ${type.name} is NOT relay-eligible',
+      );
       return false;
     }
 
@@ -47,27 +53,26 @@ class RelayPolicy {
   /// Check if message type is a handshake message
   static bool _isHandshakeMessage(ProtocolMessageType type) {
     return type == ProtocolMessageType.connectionReady ||
-           type == ProtocolMessageType.identity ||
-           type == ProtocolMessageType.noiseHandshake1 ||
-           type == ProtocolMessageType.noiseHandshake2 ||
-           type == ProtocolMessageType.noiseHandshake3;
+        type == ProtocolMessageType.identity ||
+        type == ProtocolMessageType.noiseHandshake1 ||
+        type == ProtocolMessageType.noiseHandshake2 ||
+        type == ProtocolMessageType.noiseHandshake3;
   }
 
   /// Check if message type is a pairing message
   static bool _isPairingMessage(ProtocolMessageType type) {
     return type == ProtocolMessageType.pairingRequest ||
-           type == ProtocolMessageType.pairingAccept ||
-           type == ProtocolMessageType.pairingCode ||
-           type == ProtocolMessageType.pairingCancel ||
-           type == ProtocolMessageType.contactRequest ||
-           type == ProtocolMessageType.contactAccept ||
-           type == ProtocolMessageType.contactReject;
+        type == ProtocolMessageType.pairingAccept ||
+        type == ProtocolMessageType.pairingCode ||
+        type == ProtocolMessageType.pairingCancel ||
+        type == ProtocolMessageType.contactRequest ||
+        type == ProtocolMessageType.contactAccept ||
+        type == ProtocolMessageType.contactReject;
   }
 
   /// Check if message type is a control message
   static bool _isControlMessage(ProtocolMessageType type) {
-    return type == ProtocolMessageType.ping ||
-           type == ProtocolMessageType.ack;
+    return type == ProtocolMessageType.ping || type == ProtocolMessageType.ack;
   }
 
   /// Get relay-eligible message types (for documentation/testing)
@@ -107,7 +112,8 @@ class RelayPolicy {
     // Check 2: Must have recipient (null/empty not allowed, but broadcast is OK)
     if (recipientId == null || recipientId.isEmpty) {
       return RelayPolicyResult.rejected(
-        reason: 'Message has no recipient (use SpecialRecipients.broadcast for broadcast)',
+        reason:
+            'Message has no recipient (use SpecialRecipients.broadcast for broadcast)',
         code: RelayRejectionCode.noRecipient,
       );
     }
@@ -138,11 +144,7 @@ class RelayPolicyResult {
   final String? reason;
   final RelayRejectionCode? code;
 
-  const RelayPolicyResult._({
-    required this.isAllowed,
-    this.reason,
-    this.code,
-  });
+  const RelayPolicyResult._({required this.isAllowed, this.reason, this.code});
 
   factory RelayPolicyResult.allowed() =>
       const RelayPolicyResult._(isAllowed: true);
@@ -150,12 +152,7 @@ class RelayPolicyResult {
   factory RelayPolicyResult.rejected({
     required String reason,
     required RelayRejectionCode code,
-  }) =>
-      RelayPolicyResult._(
-        isAllowed: false,
-        reason: reason,
-        code: code,
-      );
+  }) => RelayPolicyResult._(isAllowed: false, reason: reason, code: code);
 }
 
 /// Codes for relay rejection reasons

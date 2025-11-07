@@ -10,18 +10,18 @@ import 'offline_message_queue.dart';
 /// Manages queue synchronization between mesh network nodes
 class QueueSyncManager {
   static final _logger = Logger('QueueSyncManager');
-  
+
   // Storage keys
   static const String _syncStatsKey = 'queue_sync_stats_v1';
-  
+
   // Rate limiting constants
   static const int _maxSyncsPerHour = 60;
   static const Duration _minSyncInterval = Duration(seconds: 30);
   static const Duration _syncTimeout = Duration(seconds: 15);
-  
+
   final OfflineMessageQueue _messageQueue;
   final String _nodeId;
-  
+
   // Sync state tracking
   final Map<String, DateTime> _lastSyncWithNode = {};
   final Map<String, Timer> _activeSyncs = {};
@@ -29,28 +29,28 @@ class QueueSyncManager {
   final Map<String, Stopwatch> _syncStopwatches = {};
   final Map<String, int> _syncAttempts = {};
   final Set<String> _syncInProgress = {};
-  
+
   // Rate limiting
   final List<DateTime> _recentSyncs = [];
-  
+
   // Statistics
   int _totalSyncRequests = 0;
   int _successfulSyncs = 0;
   int _failedSyncs = 0;
   int _messagesTransferred = 0;
-  
+
   // Callbacks
   Function(QueueSyncMessage message, String fromNodeId)? onSyncRequest;
   Function(List<QueuedMessage> messages, String toNodeId)? onSendMessages;
   Function(String nodeId, QueueSyncResult result)? onSyncCompleted;
   Function(String nodeId, String error)? onSyncFailed;
-  
+
   QueueSyncManager({
     required OfflineMessageQueue messageQueue,
     required String nodeId,
   }) : _messageQueue = messageQueue,
        _nodeId = nodeId;
-  
+
   /// Initialize the sync manager
   Future<void> initialize({
     Function(QueueSyncMessage message, String fromNodeId)? onSyncRequest,
@@ -62,14 +62,18 @@ class QueueSyncManager {
     this.onSendMessages = onSendMessages;
     this.onSyncCompleted = onSyncCompleted;
     this.onSyncFailed = onSyncFailed;
-    
+
     await _loadSyncStats();
     _startCleanupTimer();
-    
-    final truncatedNodeId = _nodeId.length > 16 ? _nodeId.substring(0, 16) : _nodeId;
-    _logger.info('Queue sync manager initialized for node: $truncatedNodeId...');
+
+    final truncatedNodeId = _nodeId.length > 16
+        ? _nodeId.substring(0, 16)
+        : _nodeId;
+    _logger.info(
+      'Queue sync manager initialized for node: $truncatedNodeId...',
+    );
   }
-  
+
   /// Initiate synchronization with another node
   Future<QueueSyncResult> initiateSync(String targetNodeId) async {
     if (!_canSync(targetNodeId)) {
@@ -77,14 +81,14 @@ class QueueSyncManager {
       _logger.warning('Sync blocked with $targetNodeId: $reason');
       return QueueSyncResult.rateLimited(reason);
     }
-    
+
     _totalSyncRequests++;
     _syncInProgress.add(targetNodeId);
-    
+
     try {
       final syncMessage = _messageQueue.createSyncMessage(_nodeId);
       final result = await _performSync(targetNodeId, syncMessage);
-      
+
       if (result.success) {
         _successfulSyncs++;
         _lastSyncWithNode[targetNodeId] = DateTime.now();
@@ -92,90 +96,101 @@ class QueueSyncManager {
       } else {
         _failedSyncs++;
       }
-      
+
       await _saveSyncStats();
       onSyncCompleted?.call(targetNodeId, result);
-      
+
       return result;
-      
     } catch (e) {
       _failedSyncs++;
       _logger.severe('Sync failed with $targetNodeId: $e');
       onSyncFailed?.call(targetNodeId, e.toString());
-      
+
       return QueueSyncResult.error('Sync failed: $e');
     } finally {
       _syncInProgress.remove(targetNodeId);
       _syncAttempts.remove(targetNodeId);
     }
   }
-  
+
   /// Handle incoming sync request from another node
   Future<QueueSyncResponse> handleSyncRequest(
-    QueueSyncMessage syncMessage, 
+    QueueSyncMessage syncMessage,
     String fromNodeId,
   ) async {
-    final truncatedNodeId = fromNodeId.length > 16 ? fromNodeId.substring(0, 16) : fromNodeId;
+    final truncatedNodeId = fromNodeId.length > 16
+        ? fromNodeId.substring(0, 16)
+        : fromNodeId;
     _logger.info('Handling sync request from $truncatedNodeId...');
-    
+
     if (!_canAcceptSync(fromNodeId)) {
       return QueueSyncResponse.rateLimited('Rate limit exceeded');
     }
-    
+
     try {
-      
       // Check if synchronization is needed
       if (!_messageQueue.needsSynchronization(syncMessage.queueHash)) {
         _logger.info('Queues already synchronized with $fromNodeId');
         return QueueSyncResponse.alreadySynced();
       }
-      
+
       // Determine what needs to be synchronized
-      final missingIds = _messageQueue.getMissingMessageIds(syncMessage.messageIds);
-      final excessMessages = _messageQueue.getExcessMessages(syncMessage.messageIds);
+      final missingIds = _messageQueue.getMissingMessageIds(
+        syncMessage.messageIds,
+      );
+      final excessMessages = _messageQueue.getExcessMessages(
+        syncMessage.messageIds,
+      );
 
       if (excessMessages.isNotEmpty) {
         if (onSendMessages != null) {
           _logger.info(
             'Dispatching ${excessMessages.length} queued message(s) to $truncatedNodeId via sync response',
           );
-          onSendMessages!.call(List<QueuedMessage>.from(excessMessages), fromNodeId);
+          onSendMessages!.call(
+            List<QueuedMessage>.from(excessMessages),
+            fromNodeId,
+          );
         } else {
           _logger.warning(
             'Queue sync found ${excessMessages.length} payload(s) for $truncatedNodeId but no send callback is configured',
           );
         }
       } else {
-        _logger.fine('No queued payloads to send back to $truncatedNodeId during sync');
+        _logger.fine(
+          'No queued payloads to send back to $truncatedNodeId during sync',
+        );
       }
 
       // If there are no missing or excess messages, queues are already synchronized
       if (missingIds.isEmpty && excessMessages.isEmpty) {
-        _logger.info('No messages to sync - queues already synchronized with $fromNodeId');
+        _logger.info(
+          'No messages to sync - queues already synchronized with $fromNodeId',
+        );
         return QueueSyncResponse.alreadySynced();
       }
 
       // Create response with our queue state
       final responseMessage = QueueSyncMessage.createResponse(
-        messageIds: _messageQueue.getMessagesByStatus(QueuedMessageStatus.pending)
+        messageIds: _messageQueue
+            .getMessagesByStatus(QueuedMessageStatus.pending)
             .map((m) => m.id)
             .toList(),
         nodeId: _nodeId,
         stats: _createSyncStats(),
       );
-      
+
       return QueueSyncResponse.success(
         responseMessage: responseMessage,
         missingMessages: missingIds,
         excessMessages: excessMessages,
       );
-      
     } catch (e) {
       _logger.severe('Failed to handle sync request: $e');
       return QueueSyncResponse.error('Failed to process sync request: $e');
     }
   }
-  
+
   /// Process sync response and complete synchronization
   Future<QueueSyncResult> processSyncResponse(
     QueueSyncMessage responseMessage,
@@ -186,18 +201,20 @@ class QueueSyncManager {
       int messagesAdded = 0;
       int messagesSkipped = 0;
       int messagesUpdated = 0;
-      
+
       // Process received messages
       for (final message in receivedMessages) {
         if (_messageQueue.isMessageDeleted(message.id)) {
           messagesSkipped++;
           continue;
         }
-        
+
         // Check if we already have this message
-        final existingMessages = _messageQueue.getMessagesByStatus(QueuedMessageStatus.pending);
+        final existingMessages = _messageQueue.getMessagesByStatus(
+          QueuedMessageStatus.pending,
+        );
         final exists = existingMessages.any((m) => m.id == message.id);
-        
+
         if (exists) {
           // Update status if our version is older
           messagesUpdated++;
@@ -207,9 +224,9 @@ class QueueSyncManager {
           messagesAdded++;
         }
       }
-      
+
       _messagesTransferred += messagesAdded;
-      
+
       final result = QueueSyncResult.success(
         messagesReceived: messagesAdded,
         messagesUpdated: messagesUpdated,
@@ -217,8 +234,10 @@ class QueueSyncManager {
         finalHash: _messageQueue.calculateQueueHash(forceRecalculation: true),
         syncDuration: Duration.zero, // Will be set by caller
       );
-      
-      _logger.info('Sync completed with $fromNodeId: +$messagesAdded, ~$messagesUpdated, -$messagesSkipped');
+
+      _logger.info(
+        'Sync completed with $fromNodeId: +$messagesAdded, ~$messagesUpdated, -$messagesSkipped',
+      );
 
       final pending = _pendingSyncs.remove(fromNodeId);
       final stopwatch = _syncStopwatches.remove(fromNodeId);
@@ -228,22 +247,21 @@ class QueueSyncManager {
       if (pending != null && !pending.isCompleted) {
         pending.complete(result.copyWithDuration(elapsed));
       }
-      
+
       return result.copyWithDuration(elapsed);
-      
     } catch (e) {
       _logger.severe('Failed to process sync response: $e');
       return QueueSyncResult.error('Failed to process response: $e');
     }
   }
-  
+
   /// Check if we can sync with a specific node
   bool _canSync(String nodeId) {
     // Check if sync is already in progress
     if (_syncInProgress.contains(nodeId)) {
       return false;
     }
-    
+
     // Check minimum interval since last sync
     final lastSync = _lastSyncWithNode[nodeId];
     if (lastSync != null) {
@@ -252,28 +270,28 @@ class QueueSyncManager {
         return false;
       }
     }
-    
+
     // Check global rate limiting
     _cleanupRecentSyncs();
     if (_recentSyncs.length >= _maxSyncsPerHour) {
       return false;
     }
-    
+
     return true;
   }
-  
+
   /// Check if we can accept sync from a node
   bool _canAcceptSync(String fromNodeId) {
     // Always accept sync requests, but may rate limit responses
     return true;
   }
-  
+
   /// Get reason why sync is blocked
   String _getSyncBlockReason(String nodeId) {
     if (_syncInProgress.contains(nodeId)) {
       return 'Sync already in progress';
     }
-    
+
     final lastSync = _lastSyncWithNode[nodeId];
     if (lastSync != null) {
       final timeSinceSync = DateTime.now().difference(lastSync);
@@ -281,22 +299,27 @@ class QueueSyncManager {
         return 'Minimum sync interval not met';
       }
     }
-    
+
     _cleanupRecentSyncs();
     if (_recentSyncs.length >= _maxSyncsPerHour) {
       return 'Global rate limit exceeded';
     }
-    
+
     return 'Unknown reason';
   }
-  
+
   /// Perform actual synchronization with timeout
-  Future<QueueSyncResult> _performSync(String targetNodeId, QueueSyncMessage syncMessage) async {
+  Future<QueueSyncResult> _performSync(
+    String targetNodeId,
+    QueueSyncMessage syncMessage,
+  ) async {
     final stopwatch = Stopwatch()..start();
 
     try {
       if (onSyncRequest == null) {
-        _logger.warning('Sync transport not configured - cannot sync with $targetNodeId');
+        _logger.warning(
+          'Sync transport not configured - cannot sync with $targetNodeId',
+        );
         return QueueSyncResult.error('Sync transport unavailable');
       }
 
@@ -329,7 +352,6 @@ class QueueSyncManager {
 
       final result = await completer.future;
       return result.copyWithDuration(stopwatch.elapsed);
-
     } catch (e) {
       _logger.severe('Sync performance failed: $e');
       final pending = _pendingSyncs.remove(targetNodeId);
@@ -339,33 +361,35 @@ class QueueSyncManager {
       return QueueSyncResult.error('Sync failed: $e');
     }
   }
-  
+
   /// Add a received message to our queue
   Future<void> _addReceivedMessage(QueuedMessage message) async {
     try {
       await _messageQueue.addSyncedMessage(message);
     } catch (e) {
-      final truncatedId = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
+      final truncatedId = message.id.length > 16
+          ? message.id.substring(0, 16)
+          : message.id;
       _logger.warning('Failed to add synced message $truncatedId...: $e');
     }
   }
-  
+
   /// Record sync attempt for rate limiting
   void _recordSyncAttempt() {
     _recentSyncs.add(DateTime.now());
     _cleanupRecentSyncs();
   }
-  
+
   /// Clean up old sync timestamps
   void _cleanupRecentSyncs() {
     final cutoff = DateTime.now().subtract(Duration(hours: 1));
     _recentSyncs.removeWhere((timestamp) => timestamp.isBefore(cutoff));
   }
-  
+
   /// Create sync stats for responses
   QueueSyncStats _createSyncStats() {
     final queueStats = _messageQueue.getStatistics();
-    
+
     return QueueSyncStats(
       totalMessages: queueStats.totalQueued,
       pendingMessages: queueStats.pendingMessages,
@@ -374,7 +398,7 @@ class QueueSyncManager {
       successRate: queueStats.successRate,
     );
   }
-  
+
   /// Start cleanup timer for old sync data
   void _startCleanupTimer() {
     Timer.periodic(Duration(hours: 1), (timer) {
@@ -382,48 +406,53 @@ class QueueSyncManager {
       _cleanupOldSyncData();
     });
   }
-  
+
   /// Clean up old sync tracking data
   void _cleanupOldSyncData() {
     final cutoff = DateTime.now().subtract(Duration(hours: 24));
-    
-    _lastSyncWithNode.removeWhere((nodeId, timestamp) => timestamp.isBefore(cutoff));
-    
+
+    _lastSyncWithNode.removeWhere(
+      (nodeId, timestamp) => timestamp.isBefore(cutoff),
+    );
+
     // Clean up active syncs that might be stuck
     final stuckSyncs = <String>[];
     for (final nodeId in _syncInProgress) {
       final lastAttempt = _lastSyncWithNode[nodeId];
-      if (lastAttempt != null && DateTime.now().difference(lastAttempt) > Duration(minutes: 5)) {
+      if (lastAttempt != null &&
+          DateTime.now().difference(lastAttempt) > Duration(minutes: 5)) {
         stuckSyncs.add(nodeId);
       }
     }
-    
+
     for (final nodeId in stuckSyncs) {
       _syncInProgress.remove(nodeId);
       _logger.warning('Cleaned up stuck sync with $nodeId');
     }
   }
-  
+
   /// Load sync statistics from storage
   Future<void> _loadSyncStats() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final statsJson = prefs.getString(_syncStatsKey);
-      
+
       if (statsJson != null) {
         final stats = jsonDecode(statsJson) as Map<String, dynamic>;
         _totalSyncRequests = stats['totalSyncRequests'] ?? 0;
         _successfulSyncs = stats['successfulSyncs'] ?? 0;
         _failedSyncs = stats['failedSyncs'] ?? 0;
         _messagesTransferred = stats['messagesTransferred'] ?? 0;
-        
-        _logger.info('Loaded sync stats: $_successfulSyncs successful, $_failedSyncs failed');
+
+        _logger.info(
+          'Loaded sync stats: $_successfulSyncs successful, $_failedSyncs failed',
+        );
       }
     } catch (e) {
       _logger.warning('Failed to load sync stats: $e');
     }
   }
-  
+
   /// Save sync statistics to storage
   Future<void> _saveSyncStats() async {
     try {
@@ -435,19 +464,19 @@ class QueueSyncManager {
         'messagesTransferred': _messagesTransferred,
         'lastSaved': DateTime.now().millisecondsSinceEpoch,
       };
-      
+
       await prefs.setString(_syncStatsKey, jsonEncode(stats));
     } catch (e) {
       _logger.warning('Failed to save sync stats: $e');
     }
   }
-  
+
   /// Get synchronization statistics
   QueueSyncManagerStats getStats() {
-    final successRate = _totalSyncRequests > 0 
-        ? _successfulSyncs / _totalSyncRequests 
+    final successRate = _totalSyncRequests > 0
+        ? _successfulSyncs / _totalSyncRequests
         : 0.0;
-    
+
     return QueueSyncManagerStats(
       totalSyncRequests: _totalSyncRequests,
       successfulSyncs: _successfulSyncs,
@@ -458,16 +487,18 @@ class QueueSyncManager {
       recentSyncCount: _recentSyncs.length,
     );
   }
-  
+
   /// Force sync with all known nodes (maintenance operation)
-  Future<Map<String, QueueSyncResult>> forceSyncAll(List<String> nodeIds) async {
+  Future<Map<String, QueueSyncResult>> forceSyncAll(
+    List<String> nodeIds,
+  ) async {
     final results = <String, QueueSyncResult>{};
-    
+
     for (final nodeId in nodeIds) {
       try {
         final result = await initiateSync(nodeId);
         results[nodeId] = result;
-        
+
         // Small delay between syncs to prevent overwhelming
         if (nodeId != nodeIds.last) {
           await Future.delayed(Duration(seconds: 1));
@@ -476,10 +507,10 @@ class QueueSyncManager {
         results[nodeId] = QueueSyncResult.error('Force sync failed: $e');
       }
     }
-    
+
     return results;
   }
-  
+
   /// Dispose resources
   void dispose() {
     for (final timer in _activeSyncs.values) {
@@ -493,7 +524,7 @@ class QueueSyncManager {
     }
     _pendingSyncs.clear();
     _syncStopwatches.clear();
-    
+
     _logger.info('Queue sync manager disposed');
   }
 }
@@ -508,7 +539,7 @@ class QueueSyncResult {
   final String? finalHash;
   final Duration? syncDuration;
   final QueueSyncResultType type;
-  
+
   const QueueSyncResult._({
     required this.success,
     this.error,
@@ -519,7 +550,7 @@ class QueueSyncResult {
     this.syncDuration,
     required this.type,
   });
-  
+
   factory QueueSyncResult.success({
     required int messagesReceived,
     required int messagesUpdated,
@@ -535,7 +566,7 @@ class QueueSyncResult {
     syncDuration: syncDuration,
     type: QueueSyncResultType.success,
   );
-  
+
   factory QueueSyncResult.alreadySynced() => QueueSyncResult._(
     success: true,
     messagesReceived: 0,
@@ -543,7 +574,7 @@ class QueueSyncResult {
     messagesSkipped: 0,
     type: QueueSyncResultType.alreadySynced,
   );
-  
+
   factory QueueSyncResult.rateLimited(String reason) => QueueSyncResult._(
     success: false,
     error: reason,
@@ -552,7 +583,7 @@ class QueueSyncResult {
     messagesSkipped: 0,
     type: QueueSyncResultType.rateLimited,
   );
-  
+
   factory QueueSyncResult.timeout() => QueueSyncResult._(
     success: false,
     error: 'Sync timeout',
@@ -561,7 +592,7 @@ class QueueSyncResult {
     messagesSkipped: 0,
     type: QueueSyncResultType.timeout,
   );
-  
+
   factory QueueSyncResult.error(String error) => QueueSyncResult._(
     success: false,
     error: error,
@@ -584,13 +615,7 @@ class QueueSyncResult {
 }
 
 /// Type of sync result
-enum QueueSyncResultType {
-  success,
-  alreadySynced,
-  rateLimited,
-  timeout,
-  error,
-}
+enum QueueSyncResultType { success, alreadySynced, rateLimited, timeout, error }
 
 /// Response to a sync request
 class QueueSyncResponse {
@@ -600,7 +625,7 @@ class QueueSyncResponse {
   final List<String>? missingMessages;
   final List<QueuedMessage>? excessMessages;
   final QueueSyncResponseType type;
-  
+
   const QueueSyncResponse._({
     required this.success,
     this.error,
@@ -609,7 +634,7 @@ class QueueSyncResponse {
     this.excessMessages,
     required this.type,
   });
-  
+
   factory QueueSyncResponse.success({
     required QueueSyncMessage responseMessage,
     required List<String> missingMessages,
@@ -621,18 +646,18 @@ class QueueSyncResponse {
     excessMessages: excessMessages,
     type: QueueSyncResponseType.success,
   );
-  
+
   factory QueueSyncResponse.alreadySynced() => QueueSyncResponse._(
     success: true,
     type: QueueSyncResponseType.alreadySynced,
   );
-  
+
   factory QueueSyncResponse.rateLimited(String reason) => QueueSyncResponse._(
     success: false,
     error: reason,
     type: QueueSyncResponseType.rateLimited,
   );
-  
+
   factory QueueSyncResponse.error(String error) => QueueSyncResponse._(
     success: false,
     error: error,
@@ -641,12 +666,7 @@ class QueueSyncResponse {
 }
 
 /// Type of sync response
-enum QueueSyncResponseType {
-  success,
-  alreadySynced,
-  rateLimited,
-  error,
-}
+enum QueueSyncResponseType { success, alreadySynced, rateLimited, error }
 
 /// Statistics for the queue sync manager
 class QueueSyncManagerStats {
@@ -657,7 +677,7 @@ class QueueSyncManagerStats {
   final int activeSyncs;
   final double successRate;
   final int recentSyncCount;
-  
+
   const QueueSyncManagerStats({
     required this.totalSyncRequests,
     required this.successfulSyncs,
@@ -667,7 +687,8 @@ class QueueSyncManagerStats {
     required this.successRate,
     required this.recentSyncCount,
   });
-  
+
   @override
-  String toString() => 'SyncStats(requests: $totalSyncRequests, success: ${(successRate * 100).toStringAsFixed(1)}%, active: $activeSyncs)';
+  String toString() =>
+      'SyncStats(requests: $totalSyncRequests, success: ${(successRate * 100).toStringAsFixed(1)}%, active: $activeSyncs)';
 }

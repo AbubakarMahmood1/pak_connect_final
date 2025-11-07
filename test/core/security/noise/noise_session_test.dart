@@ -13,30 +13,142 @@ void main() {
     setUp(() {
       // Alice static key pair (hex from previous tests)
       aliceStaticPrivate = Uint8List.fromList([
-        0x77, 0x07, 0x6d, 0x0a, 0x73, 0x18, 0xa5, 0x7d,
-        0x3c, 0x16, 0xc1, 0x72, 0x51, 0xb2, 0x66, 0x45,
-        0xdf, 0x4c, 0x2f, 0x87, 0xeb, 0xc0, 0x99, 0x2a,
-        0xb1, 0x77, 0xfb, 0xa5, 0x1d, 0xb9, 0x2c, 0x2a,
+        0x77,
+        0x07,
+        0x6d,
+        0x0a,
+        0x73,
+        0x18,
+        0xa5,
+        0x7d,
+        0x3c,
+        0x16,
+        0xc1,
+        0x72,
+        0x51,
+        0xb2,
+        0x66,
+        0x45,
+        0xdf,
+        0x4c,
+        0x2f,
+        0x87,
+        0xeb,
+        0xc0,
+        0x99,
+        0x2a,
+        0xb1,
+        0x77,
+        0xfb,
+        0xa5,
+        0x1d,
+        0xb9,
+        0x2c,
+        0x2a,
       ]);
       aliceStaticPublic = Uint8List.fromList([
-        0x85, 0x20, 0xf0, 0x09, 0x89, 0x30, 0xa7, 0x54,
-        0x74, 0x8b, 0x7d, 0xdc, 0xb4, 0x3e, 0xf7, 0x5a,
-        0x0d, 0xbf, 0x3a, 0x0d, 0x26, 0x38, 0x1a, 0xf4,
-        0xeb, 0xa4, 0xa9, 0x8e, 0xaa, 0x9b, 0x4e, 0x6a,
+        0x85,
+        0x20,
+        0xf0,
+        0x09,
+        0x89,
+        0x30,
+        0xa7,
+        0x54,
+        0x74,
+        0x8b,
+        0x7d,
+        0xdc,
+        0xb4,
+        0x3e,
+        0xf7,
+        0x5a,
+        0x0d,
+        0xbf,
+        0x3a,
+        0x0d,
+        0x26,
+        0x38,
+        0x1a,
+        0xf4,
+        0xeb,
+        0xa4,
+        0xa9,
+        0x8e,
+        0xaa,
+        0x9b,
+        0x4e,
+        0x6a,
       ]);
 
       // Bob static key pair (hex from previous tests)
       bobStaticPrivate = Uint8List.fromList([
-        0x5d, 0xab, 0x08, 0x7e, 0x62, 0x4a, 0x8a, 0x4b,
-        0x79, 0xe1, 0x7f, 0x8b, 0x83, 0x80, 0x0e, 0xe6,
-        0x6f, 0x3b, 0xb1, 0x29, 0x26, 0x18, 0xb6, 0xfd,
-        0x1c, 0x2f, 0x8b, 0x27, 0xff, 0x88, 0xe0, 0xeb,
+        0x5d,
+        0xab,
+        0x08,
+        0x7e,
+        0x62,
+        0x4a,
+        0x8a,
+        0x4b,
+        0x79,
+        0xe1,
+        0x7f,
+        0x8b,
+        0x83,
+        0x80,
+        0x0e,
+        0xe6,
+        0x6f,
+        0x3b,
+        0xb1,
+        0x29,
+        0x26,
+        0x18,
+        0xb6,
+        0xfd,
+        0x1c,
+        0x2f,
+        0x8b,
+        0x27,
+        0xff,
+        0x88,
+        0xe0,
+        0xeb,
       ]);
       bobStaticPublic = Uint8List.fromList([
-        0xde, 0x9e, 0xdb, 0x7d, 0x7b, 0x7d, 0xc1, 0xb4,
-        0xd3, 0x5b, 0x61, 0xc2, 0xec, 0xe4, 0x35, 0x37,
-        0x3f, 0x83, 0x43, 0xc8, 0x5b, 0x78, 0x67, 0x4d,
-        0xad, 0xfc, 0x7e, 0x14, 0x6f, 0x88, 0x2b, 0x4f,
+        0xde,
+        0x9e,
+        0xdb,
+        0x7d,
+        0x7b,
+        0x7d,
+        0xc1,
+        0xb4,
+        0xd3,
+        0x5b,
+        0x61,
+        0xc2,
+        0xec,
+        0xe4,
+        0x35,
+        0x37,
+        0x3f,
+        0x83,
+        0x43,
+        0xc8,
+        0x5b,
+        0x78,
+        0x67,
+        0x4d,
+        0xad,
+        0xfc,
+        0x7e,
+        0x14,
+        0x6f,
+        0x88,
+        0x2b,
+        0x4f,
       ]);
     });
 
@@ -51,7 +163,7 @@ void main() {
       expect(session.peerID, equals('Bob'));
       expect(session.state, equals(NoiseSessionState.uninitialized));
       expect(session.isInitiator, isTrue);
-      
+
       session.destroy();
     });
 
@@ -66,7 +178,7 @@ void main() {
       expect(session.peerID, equals('Alice'));
       expect(session.state, equals(NoiseSessionState.uninitialized));
       expect(session.isInitiator, isFalse);
-      
+
       session.destroy();
     });
 
@@ -77,7 +189,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -110,7 +222,7 @@ void main() {
       // Verify remote static keys are exchanged
       expect(alice.remoteStaticPublicKey, equals(bobStaticPublic));
       expect(bob.remoteStaticPublicKey, equals(aliceStaticPublic));
-      
+
       alice.destroy();
       bob.destroy();
     });
@@ -122,7 +234,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -140,17 +252,17 @@ void main() {
       final plaintext1 = Uint8List.fromList([1, 2, 3, 4, 5]);
       final encrypted1 = await alice.encrypt(plaintext1);
       expect(encrypted1.length, greaterThan(plaintext1.length));
-      
+
       final decrypted1 = await bob.decrypt(encrypted1);
       expect(decrypted1, equals(plaintext1));
 
       // Test encryption Bob -> Alice
       final plaintext2 = Uint8List.fromList([10, 20, 30, 40, 50]);
       final encrypted2 = await bob.encrypt(plaintext2);
-      
+
       final decrypted2 = await alice.decrypt(encrypted2);
       expect(decrypted2, equals(plaintext2));
-      
+
       alice.destroy();
       bob.destroy();
     });
@@ -162,7 +274,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -178,21 +290,21 @@ void main() {
 
       // Send multiple messages and verify nonces are different
       final msg = Uint8List.fromList([1, 2, 3]);
-      
+
       final enc1 = await alice.encrypt(msg);
       final enc2 = await alice.encrypt(msg);
       final enc3 = await alice.encrypt(msg);
-      
+
       // Encrypted messages should be different (different nonces)
       expect(enc1, isNot(equals(enc2)));
       expect(enc2, isNot(equals(enc3)));
       expect(enc1, isNot(equals(enc3)));
-      
+
       // But all should decrypt correctly
       expect(await bob.decrypt(enc1), equals(msg));
       expect(await bob.decrypt(enc2), equals(msg));
       expect(await bob.decrypt(enc3), equals(msg));
-      
+
       alice.destroy();
       bob.destroy();
     });
@@ -204,7 +316,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -220,16 +332,13 @@ void main() {
 
       final msg = Uint8List.fromList([1, 2, 3]);
       final encrypted = await alice.encrypt(msg);
-      
+
       // First decryption should work
       expect(await bob.decrypt(encrypted), equals(msg));
-      
+
       // Replay should fail
-      expect(
-        () async => await bob.decrypt(encrypted),
-        throwsA(anything),
-      );
-      
+      expect(() async => await bob.decrypt(encrypted), throwsA(anything));
+
       alice.destroy();
       bob.destroy();
     });
@@ -246,7 +355,7 @@ void main() {
         () async => await alice.encrypt(Uint8List.fromList([1, 2, 3])),
         throwsA(isA<StateError>()),
       );
-      
+
       alice.destroy();
     });
 
@@ -262,7 +371,7 @@ void main() {
         () async => await bob.decrypt(Uint8List.fromList([1, 2, 3, 4, 5])),
         throwsA(isA<StateError>()),
       );
-      
+
       bob.destroy();
     });
 
@@ -273,7 +382,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -283,10 +392,11 @@ void main() {
 
       // Valid message A
       final messageA = await alice.startHandshake();
-      
+
       // Test: Bob receives truncated message A
       expect(
-        () async => await bob.processHandshakeMessage(Uint8List.fromList([1, 2, 3])),
+        () async =>
+            await bob.processHandshakeMessage(Uint8List.fromList([1, 2, 3])),
         throwsA(anything),
       );
 
@@ -307,7 +417,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -340,7 +450,7 @@ void main() {
       );
 
       await alice.startHandshake();
-      
+
       // Second call should fail
       expect(
         () async => await alice.startHandshake(),
@@ -373,7 +483,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -417,7 +527,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -439,10 +549,7 @@ void main() {
       corrupted[encrypted.length ~/ 2] ^= 0xFF;
 
       // Decryption should fail (MAC verification)
-      expect(
-        () async => await bob.decrypt(corrupted),
-        throwsA(anything),
-      );
+      expect(() async => await bob.decrypt(corrupted), throwsA(anything));
 
       alice.destroy();
       bob.destroy();
@@ -455,7 +562,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -477,10 +584,7 @@ void main() {
       corrupted[0] ^= 0xFF;
 
       // Decryption should fail (MAC verification with wrong nonce)
-      expect(
-        () async => await bob.decrypt(corrupted),
-        throwsA(anything),
-      );
+      expect(() async => await bob.decrypt(corrupted), throwsA(anything));
 
       alice.destroy();
       bob.destroy();
@@ -493,7 +597,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -510,7 +614,7 @@ void main() {
       // Encrypt empty message
       final plaintext = Uint8List(0);
       final encrypted = await alice.encrypt(plaintext);
-      
+
       // Should have nonce (4 bytes) + MAC (16 bytes) = 20 bytes minimum
       expect(encrypted.length, greaterThanOrEqualTo(20));
 
@@ -529,7 +633,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -566,7 +670,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -604,7 +708,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -685,7 +789,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -722,7 +826,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -757,7 +861,7 @@ void main() {
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
       );
-      
+
       final bob = NoiseSession(
         peerID: 'Alice',
         isInitiator: false,
@@ -775,10 +879,10 @@ void main() {
       for (final size in [0, 1, 10, 100, 1000]) {
         final plaintext = Uint8List(size);
         final encrypted = await alice.encrypt(plaintext);
-        
+
         // Ciphertext = nonce (4) + plaintext + MAC (16)
         expect(encrypted.length, equals(4 + size + 16));
-        
+
         final decrypted = await bob.decrypt(encrypted);
         expect(decrypted.length, equals(size));
       }

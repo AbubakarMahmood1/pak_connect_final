@@ -19,10 +19,18 @@ final _logger = Logger('MeshNetworkingProvider');
 
 /// Singleton providers for service dependencies
 /// ✅ FIXED: Services now use singleton pattern to prevent re-initialization
-final _messageHandlerProvider = Provider<BLEMessageHandler>((ref) => BLEMessageHandler());
-final _contactRepositoryProvider = Provider<ContactRepository>((ref) => ContactRepository());
-final _chatManagementServiceProvider = Provider<ChatManagementService>((ref) => ChatManagementService.instance);
-final _messageRepositoryProvider = Provider<MessageRepository>((ref) => MessageRepository());
+final _messageHandlerProvider = Provider<BLEMessageHandler>(
+  (ref) => BLEMessageHandler(),
+);
+final _contactRepositoryProvider = Provider<ContactRepository>(
+  (ref) => ContactRepository(),
+);
+final _chatManagementServiceProvider = Provider<ChatManagementService>(
+  (ref) => ChatManagementService.instance,
+);
+final _messageRepositoryProvider = Provider<MessageRepository>(
+  (ref) => MessageRepository(),
+);
 
 /// Provider for Bluetooth state monitor
 final bluetoothStateMonitorProvider = Provider<BluetoothStateMonitor>((ref) {
@@ -36,7 +44,9 @@ final bluetoothStateProvider = StreamProvider<BluetoothStateInfo>((ref) {
 });
 
 /// Stream provider for Bluetooth status messages
-final bluetoothStatusMessageProvider = StreamProvider<BluetoothStatusMessage>((ref) {
+final bluetoothStatusMessageProvider = StreamProvider<BluetoothStatusMessage>((
+  ref,
+) {
   final monitor = ref.watch(bluetoothStateMonitorProvider);
   return monitor.messageStream;
 });
@@ -55,7 +65,9 @@ final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
   final chatManagementService = ref.watch(_chatManagementServiceProvider);
   final messageRepository = ref.watch(_messageRepositoryProvider);
 
-  _logger.info('🔧 Creating MeshNetworkingService instance (should happen only once)');
+  _logger.info(
+    '🔧 Creating MeshNetworkingService instance (should happen only once)',
+  );
 
   final service = MeshNetworkingService(
     bleService: bleService,
@@ -109,7 +121,7 @@ final meshNetworkStatusProvider = StreamProvider<MeshNetworkStatus>((ref) {
 /// Stream provider for relay statistics with fallback
 final relayStatisticsProvider = StreamProvider<RelayStatistics>((ref) {
   final service = ref.watch(meshNetworkingServiceProvider);
-  
+
   return service.relayStats.handleError((error) {
     _logger.warning('Relay stats stream error: $error');
     // Return default stats to prevent stream failure
@@ -117,9 +129,11 @@ final relayStatisticsProvider = StreamProvider<RelayStatistics>((ref) {
 });
 
 /// Stream provider for queue sync statistics with fallback
-final queueSyncStatisticsProvider = StreamProvider<QueueSyncManagerStats>((ref) {
+final queueSyncStatisticsProvider = StreamProvider<QueueSyncManagerStats>((
+  ref,
+) {
   final service = ref.watch(meshNetworkingServiceProvider);
-  
+
   return service.queueStats.handleError((error) {
     _logger.warning('Queue stats stream error: $error');
     // Return default stats to prevent stream failure
@@ -170,7 +184,9 @@ final meshNetworkingUIStateProvider = Provider<MeshNetworkingUIState>((ref) {
 });
 
 /// Controller provider for mesh networking actions
-final meshNetworkingControllerProvider = Provider<MeshNetworkingController>((ref) {
+final meshNetworkingControllerProvider = Provider<MeshNetworkingController>((
+  ref,
+) {
   final service = ref.watch(meshNetworkingServiceProvider);
   return MeshNetworkingController(service);
 });
@@ -189,8 +205,10 @@ class MeshNetworkingController {
     bool isDemo = false,
   }) async {
     try {
-      _logger.info('UI: Sending mesh message to ${recipientPublicKey.substring(0, 8)}...');
-      
+      _logger.info(
+        'UI: Sending mesh message to ${recipientPublicKey.substring(0, 8)}...',
+      );
+
       final result = await _service.sendMeshMessage(
         content: content,
         recipientPublicKey: recipientPublicKey,
@@ -200,7 +218,6 @@ class MeshNetworkingController {
 
       _logger.info('UI: Mesh send result: ${result.type.name}');
       return result;
-      
     } catch (e) {
       _logger.severe('UI: Failed to send mesh message: $e');
       return MeshSendResult.error('Send failed: $e');
@@ -208,18 +225,19 @@ class MeshNetworkingController {
   }
 
   /// Initialize demo scenario
-  Future<DemoScenarioResult> initializeDemoScenario(DemoScenarioType type) async {
+  Future<DemoScenarioResult> initializeDemoScenario(
+    DemoScenarioType type,
+  ) async {
     try {
       _logger.info('UI: Initializing demo scenario: ${type.name}');
-      
+
       final result = await _service.initializeDemoScenario(type);
-      
+
       if (result.success) {
         // Note: Selected scenario state updated (would need StateNotifier for persistence)
       }
-      
+
       return result;
-      
     } catch (e) {
       _logger.severe('UI: Failed to initialize demo scenario: $e');
       return DemoScenarioResult.error('Demo initialization failed: $e');
@@ -254,40 +272,40 @@ class MeshNetworkingController {
   /// Get network health status
   MeshNetworkHealth getNetworkHealth() {
     final statistics = _service.getNetworkStatistics();
-    
+
     final relayEfficiency = statistics.relayStatistics?.relayEfficiency ?? 0.0;
     final queueHealth = statistics.queueStatistics?.queueHealthScore ?? 0.0;
     final spamBlockRate = statistics.spamStatistics?.blockRate ?? 0.0;
-    
+
     // Calculate overall health (0.0 - 1.0)
     double overallHealth = 0.0;
     int factors = 0;
-    
+
     if (statistics.isInitialized) {
       overallHealth += 0.3; // Base health for being initialized
       factors++;
     }
-    
+
     if (statistics.spamPreventionActive) {
       overallHealth += 0.2; // Health bonus for spam prevention
       factors++;
     }
-    
+
     if (statistics.queueSyncActive) {
       overallHealth += 0.2; // Health bonus for queue sync
       factors++;
     }
-    
+
     // Add relay efficiency
     overallHealth += relayEfficiency * 0.2;
     factors++;
-    
+
     // Add queue health
     overallHealth += queueHealth * 0.1;
     factors++;
-    
+
     final finalHealth = factors > 0 ? overallHealth : 0.0;
-    
+
     return MeshNetworkHealth(
       overallHealth: finalHealth.clamp(0.0, 1.0),
       relayEfficiency: relayEfficiency,
@@ -301,41 +319,41 @@ class MeshNetworkingController {
   /// Get network issues for health assessment
   List<String> _getNetworkIssues(MeshNetworkStatistics statistics) {
     final issues = <String>[];
-    
+
     if (!statistics.isInitialized) {
       issues.add('Mesh networking not initialized');
     }
-    
+
     if (!statistics.spamPreventionActive) {
       issues.add('Spam prevention not active');
     }
-    
+
     if (!statistics.queueSyncActive) {
       issues.add('Queue synchronization not active');
     }
-    
+
     if (statistics.relayStatistics != null) {
       final relayStats = statistics.relayStatistics!;
       if (relayStats.totalDropped > relayStats.totalRelayed * 0.5) {
         issues.add('High message drop rate');
       }
-      
+
       if (relayStats.totalBlocked > relayStats.totalProcessed * 0.3) {
         issues.add('High spam block rate');
       }
     }
-    
+
     if (statistics.queueStatistics != null) {
       final queueStats = statistics.queueStatistics!;
       if (queueStats.failedMessages > 10) {
         issues.add('Many failed messages in queue');
       }
-      
+
       if (queueStats.queueHealthScore < 0.5) {
         issues.add('Poor queue health');
       }
     }
-    
+
     return issues;
   }
 }
@@ -386,7 +404,14 @@ class MeshNetworkingUIState {
 
   /// Get queue health percentage
   double get queueHealthPercent {
-    final health = networkStatus.asData?.value.statistics.queueStatistics?.queueHealthScore ?? 0.0;
+    final health =
+        networkStatus
+            .asData
+            ?.value
+            .statistics
+            .queueStatistics
+            ?.queueHealthScore ??
+        0.0;
     return health * 100;
   }
 
@@ -402,7 +427,13 @@ class MeshNetworkingUIState {
 
   /// Get pending messages count
   int get pendingMessages {
-    return networkStatus.asData?.value.statistics.queueStatistics?.pendingMessages ?? 0;
+    return networkStatus
+            .asData
+            ?.value
+            .statistics
+            .queueStatistics
+            ?.pendingMessages ??
+        0;
   }
 }
 
@@ -546,7 +577,10 @@ extension MeshNetworkingProviderExtensions on WidgetRef {
 }
 
 /// Initialize mesh service asynchronously with error handling
-Future<void> _initializeServiceAsync(MeshNetworkingService service, Ref ref) async {
+Future<void> _initializeServiceAsync(
+  MeshNetworkingService service,
+  Ref ref,
+) async {
   try {
     _logger.info('Initializing mesh networking service with auto demo mode...');
 
@@ -561,8 +595,9 @@ Future<void> _initializeServiceAsync(MeshNetworkingService service, Ref ref) asy
 
     // Force a final status broadcast to ensure all listeners get the initialized state
     service.refreshMeshStatus();
-    _logger.info('🔄 Final status broadcast sent to ensure all widgets receive initialized state');
-
+    _logger.info(
+      '🔄 Final status broadcast sent to ensure all widgets receive initialized state',
+    );
   } catch (e) {
     _logger.severe('❌ Failed to initialize mesh networking service: $e');
     // Don't rethrow - let the service handle fallback status broadcasting

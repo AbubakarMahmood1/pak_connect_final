@@ -11,34 +11,33 @@ class RestoreConfirmationDialog extends ConsumerStatefulWidget {
   final ArchivedChatSummary archive;
   final VoidCallback? onConfirm;
   final VoidCallback? onCancel;
-  
+
   const RestoreConfirmationDialog({
     super.key,
     required this.archive,
     this.onConfirm,
     this.onCancel,
   });
-  
+
   @override
-  ConsumerState<RestoreConfirmationDialog> createState() => _RestoreConfirmationDialogState();
+  ConsumerState<RestoreConfirmationDialog> createState() =>
+      _RestoreConfirmationDialogState();
 }
 
-class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationDialog> {
+class _RestoreConfirmationDialogState
+    extends ConsumerState<RestoreConfirmationDialog> {
   bool _overwriteExisting = false;
   bool _isRestoring = false;
-  
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final operationsState = ref.watch(archiveOperationsProvider);
-    
+
     return AlertDialog(
       title: Row(
         children: [
-          Icon(
-            Icons.restore,
-            color: theme.colorScheme.primary,
-          ),
+          Icon(Icons.restore, color: theme.colorScheme.primary),
           const SizedBox(width: 12),
           const Text('Restore Chat'),
         ],
@@ -50,22 +49,22 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
           children: [
             // Archive information
             _buildArchiveInfo(context),
-            
+
             const SizedBox(height: 16),
-            
+
             // What will happen section
             _buildRestoreDetails(context),
-            
+
             const SizedBox(height: 16),
-            
+
             // Options section
             _buildRestoreOptions(context),
-            
+
             const SizedBox(height: 16),
-            
+
             // Warnings section
             _buildWarnings(context),
-            
+
             // Loading indicator if restoring
             if (_isRestoring || operationsState.isRestoring) ...[
               const SizedBox(height: 16),
@@ -74,13 +73,8 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
           ],
         ),
       ),
-      actions: _isRestoring || operationsState.isRestoring 
-          ? [
-              TextButton(
-                onPressed: null,
-                child: const Text('Restoring...'),
-              ),
-            ]
+      actions: _isRestoring || operationsState.isRestoring
+          ? [TextButton(onPressed: null, child: const Text('Restoring...'))]
           : [
               TextButton(
                 onPressed: () {
@@ -96,10 +90,10 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
             ],
     );
   }
-  
+
   Widget _buildArchiveInfo(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -177,10 +171,10 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
       ),
     );
   }
-  
+
   Widget _buildRestoreDetails(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -216,7 +210,7 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
       ],
     );
   }
-  
+
   Widget _buildDetailItem(
     BuildContext context,
     IconData icon,
@@ -225,33 +219,27 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
   }) {
     final theme = Theme.of(context);
     final itemColor = color ?? theme.colorScheme.onSurfaceVariant;
-    
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Icon(
-            icon,
-            size: 16,
-            color: itemColor,
-          ),
+          Icon(icon, size: 16, color: itemColor),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               text,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: itemColor,
-              ),
+              style: theme.textTheme.bodyMedium?.copyWith(color: itemColor),
             ),
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildRestoreOptions(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -279,13 +267,13 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
       ],
     );
   }
-  
+
   Widget _buildWarnings(BuildContext context) {
     final theme = Theme.of(context);
     final warnings = _generateWarnings();
-    
+
     if (warnings.isEmpty) return const SizedBox.shrink();
-    
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -301,11 +289,7 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
         children: [
           Row(
             children: [
-              Icon(
-                Icons.warning,
-                size: 16,
-                color: theme.colorScheme.error,
-              ),
+              Icon(Icons.warning, size: 16, color: theme.colorScheme.error),
               const SizedBox(width: 8),
               Text(
                 'Please note:',
@@ -317,37 +301,37 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
             ],
           ),
           const SizedBox(height: 8),
-          ...warnings.map((warning) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '• ',
-                  style: TextStyle(
-                    color: theme.colorScheme.onErrorContainer,
+          ...warnings.map(
+            (warning) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '• ',
+                    style: TextStyle(color: theme.colorScheme.onErrorContainer),
                   ),
-                ),
-                Expanded(
-                  child: Text(
-                    warning,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onErrorContainer,
+                  Expanded(
+                    child: Text(
+                      warning,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onErrorContainer,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          )),
+          ),
         ],
       ),
     );
   }
-  
+
   Widget _buildRestoringIndicator(BuildContext context) {
     final theme = Theme.of(context);
     final operationsState = ref.watch(archiveOperationsProvider);
-    
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -378,54 +362,56 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
       ),
     );
   }
-  
+
   List<String> _generateWarnings() {
     final warnings = <String>[];
-    
+
     // Archive age warning
     final archiveAge = DateTime.now().difference(widget.archive.archivedAt);
     if (archiveAge.inDays > 30) {
       warnings.add(
-        'This archive is ${archiveAge.inDays} days old. Some data may be outdated.'
+        'This archive is ${archiveAge.inDays} days old. Some data may be outdated.',
       );
     }
-    
+
     // Large archive warning
     if (widget.archive.messageCount > 1000) {
       warnings.add(
         'This is a large archive with ${widget.archive.messageCount} messages. '
-        'Restoration may take longer than usual.'
+        'Restoration may take longer than usual.',
       );
     }
-    
+
     // Compressed archive warning
     if (widget.archive.isCompressed) {
       warnings.add(
-        'This archive is compressed. Decompression will be performed during restore.'
+        'This archive is compressed. Decompression will be performed during restore.',
       );
     }
-    
+
     // Non-searchable archive warning
     if (!widget.archive.isSearchable) {
       warnings.add(
-        'This archive is not searchable. Some metadata may be missing.'
+        'This archive is not searchable. Some metadata may be missing.',
       );
     }
-    
+
     return warnings;
   }
-  
+
   Future<void> _handleRestore() async {
     setState(() {
       _isRestoring = true;
     });
-    
+
     try {
-      final result = await ref.read(archiveOperationsProvider.notifier).restoreChat(
-        archiveId: widget.archive.id,
-        overwriteExisting: _overwriteExisting,
-      );
-      
+      final result = await ref
+          .read(archiveOperationsProvider.notifier)
+          .restoreChat(
+            archiveId: widget.archive.id,
+            overwriteExisting: _overwriteExisting,
+          );
+
       if (mounted) {
         if (result.success) {
           // Show success message
@@ -439,14 +425,18 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text('Successfully restored chat with ${widget.archive.contactName}'),
+                    child: Text(
+                      'Successfully restored chat with ${widget.archive.contactName}',
+                    ),
                   ),
                 ],
               ),
-              backgroundColor: Theme.of(context).extension<CustomColors>()?.success,
+              backgroundColor: Theme.of(
+                context,
+              ).extension<CustomColors>()?.success,
             ),
           );
-          
+
           widget.onConfirm?.call();
           Navigator.pop(context, true);
         } else {
@@ -462,7 +452,7 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
               ),
             ),
           );
-          
+
           setState(() {
             _isRestoring = false;
           });
@@ -476,7 +466,7 @@ class _RestoreConfirmationDialogState extends ConsumerState<RestoreConfirmationD
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
-        
+
         setState(() {
           _isRestoring = false;
         });
@@ -490,25 +480,22 @@ class SimpleRestoreConfirmationDialog extends StatelessWidget {
   final ArchivedChatSummary archive;
   final VoidCallback? onConfirm;
   final VoidCallback? onCancel;
-  
+
   const SimpleRestoreConfirmationDialog({
     super.key,
     required this.archive,
     this.onConfirm,
     this.onCancel,
   });
-  
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return AlertDialog(
       title: Row(
         children: [
-          Icon(
-            Icons.restore,
-            color: theme.colorScheme.primary,
-          ),
+          Icon(Icons.restore, color: theme.colorScheme.primary),
           const SizedBox(width: 8),
           const Text('Restore Chat?'),
         ],

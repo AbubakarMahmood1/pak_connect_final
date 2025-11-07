@@ -1,6 +1,6 @@
 class Message {
   final String id;
-  final String chatId;  // device UUID for now, group ID later
+  final String chatId; // device UUID for now, group ID later
   final String content;
   final DateTime timestamp;
   final bool isFromMe;
@@ -44,9 +44,4 @@ class Message {
   );
 }
 
-enum MessageStatus {
-  sending,
-  sent, 
-  delivered,
-  failed,
-}
+enum MessageStatus { sending, sent, delivered, failed }

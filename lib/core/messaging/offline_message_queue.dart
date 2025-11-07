@@ -31,12 +31,15 @@ class OfflineMessageQueue {
   // PRIORITY 1 FIX: Dual-queue system to prevent relay flooding
   // Direct messages (user-initiated): 80% bandwidth priority
   // Relay messages (mesh forwarding): 20% bandwidth allocation
-  final List<QueuedMessage> _directMessageQueue = [];  // Direct messages (high priority)
-  final List<QueuedMessage> _relayMessageQueue = [];   // Relay messages (controlled bandwidth)
+  final List<QueuedMessage> _directMessageQueue =
+      []; // Direct messages (high priority)
+  final List<QueuedMessage> _relayMessageQueue =
+      []; // Relay messages (controlled bandwidth)
   final Map<String, Timer> _activeRetries = {};
 
   // Bandwidth allocation constant
-  static const double _directBandwidthRatio = 0.8;  // 80% for direct, 20% for relay
+  static const double _directBandwidthRatio =
+      0.8; // 80% for direct, 20% for relay
 
   // Contact repository for favorites support
   ContactRepository? _contactRepository;
@@ -87,8 +90,11 @@ class OfflineMessageQueue {
     _startConnectivityMonitoring();
     _startPeriodicCleanup();
 
-    final totalMessages = _directMessageQueue.length + _relayMessageQueue.length;
-    _logger.info('Offline message queue initialized with $totalMessages pending messages (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})${_contactRepository != null ? ' (favorites support enabled)' : ''}');
+    final totalMessages =
+        _directMessageQueue.length + _relayMessageQueue.length;
+    _logger.info(
+      'Offline message queue initialized with $totalMessages pending messages (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})${_contactRepository != null ? ' (favorites support enabled)' : ''}',
+    );
   }
 
   /// Queue a message for offline delivery
@@ -104,22 +110,30 @@ class OfflineMessageQueue {
     try {
       // Check if recipient is a favorite and apply favorites-based benefits
       bool isFavorite = false;
-      int peerLimit = _maxMessagesPerRegular; // Default limit for regular contacts
+      int peerLimit =
+          _maxMessagesPerRegular; // Default limit for regular contacts
 
       if (_contactRepository != null) {
         try {
-          isFavorite = await _contactRepository!.isContactFavorite(recipientPublicKey);
+          isFavorite = await _contactRepository!.isContactFavorite(
+            recipientPublicKey,
+          );
           if (isFavorite) {
             peerLimit = _maxMessagesPerFavorite;
 
             // Auto-boost priority for favorite contacts (if not already high/urgent)
-            if (priority == MessagePriority.normal || priority == MessagePriority.low) {
+            if (priority == MessagePriority.normal ||
+                priority == MessagePriority.low) {
               priority = MessagePriority.high;
-              _logger.fine('⭐ Auto-boosted priority to HIGH for favorite contact ${recipientPublicKey.substring(0, 8)}...');
+              _logger.fine(
+                '⭐ Auto-boosted priority to HIGH for favorite contact ${recipientPublicKey.substring(0, 8)}...',
+              );
             }
           }
         } catch (e) {
-          _logger.warning('Failed to check favorite status for ${recipientPublicKey.substring(0, 8)}...: $e');
+          _logger.warning(
+            'Failed to check favorite status for ${recipientPublicKey.substring(0, 8)}...: $e',
+          );
           // Continue with default values if check fails
         }
       }
@@ -127,17 +141,23 @@ class OfflineMessageQueue {
       // Check per-peer queue limits
       // PRIORITY 1 FIX: Count across both queues
       final existingMessagesForPeer = _getAllMessages()
-          .where((m) => m.recipientPublicKey == recipientPublicKey &&
-                       m.status != QueuedMessageStatus.delivered &&
-                       m.status != QueuedMessageStatus.failed)
+          .where(
+            (m) =>
+                m.recipientPublicKey == recipientPublicKey &&
+                m.status != QueuedMessageStatus.delivered &&
+                m.status != QueuedMessageStatus.failed,
+          )
           .length;
 
       if (existingMessagesForPeer >= peerLimit) {
         final limitType = isFavorite ? 'favorite' : 'regular';
-        _logger.warning('Queue limit reached for $limitType contact ${recipientPublicKey.substring(0, 8)}...: '
-            '$existingMessagesForPeer/$peerLimit messages');
+        _logger.warning(
+          'Queue limit reached for $limitType contact ${recipientPublicKey.substring(0, 8)}...: '
+          '$existingMessagesForPeer/$peerLimit messages',
+        );
         throw MessageQueueException(
-            'Per-peer queue limit reached: $existingMessagesForPeer/$peerLimit messages for $limitType contact');
+          'Per-peer queue limit reached: $existingMessagesForPeer/$peerLimit messages for $limitType contact',
+        );
       }
 
       // Generate secure message ID with nonce tracking
@@ -175,7 +195,9 @@ class OfflineMessageQueue {
 
       final favoriteTag = isFavorite ? ' ⭐' : '';
       final queueType = queuedMessage.isRelayMessage ? 'relay' : 'direct';
-      _logger.info('Message queued [$queueType]: ${messageId.substring(0, 16)}... (priority: ${priority.name}, peer: ${existingMessagesForPeer + 1}/$peerLimit)$favoriteTag');
+      _logger.info(
+        'Message queued [$queueType]: ${messageId.substring(0, 16)}... (priority: ${priority.name}, peer: ${existingMessagesForPeer + 1}/$peerLimit)$favoriteTag',
+      );
 
       // Attempt immediate delivery if online
       if (_isOnline) {
@@ -183,7 +205,6 @@ class OfflineMessageQueue {
       }
 
       return messageId;
-
     } catch (e) {
       _logger.severe('Failed to queue message: $e');
       if (e is MessageQueueException) {
@@ -197,8 +218,11 @@ class OfflineMessageQueue {
   Future<void> setOnline() async {
     if (!_isOnline) {
       _isOnline = true;
-      final totalMessages = _directMessageQueue.length + _relayMessageQueue.length;
-      _logger.info('Connection online - attempting delivery of $totalMessages queued messages (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})');
+      final totalMessages =
+          _directMessageQueue.length + _relayMessageQueue.length;
+      _logger.info(
+        'Connection online - attempting delivery of $totalMessages queued messages (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})',
+      );
       await _processQueue();
     }
   }
@@ -220,7 +244,9 @@ class OfflineMessageQueue {
 
     if (totalDirect == 0 && totalRelay == 0) return;
 
-    _logger.info('Processing message queues: direct=$totalDirect (80%), relay=$totalRelay (20%)');
+    _logger.info(
+      'Processing message queues: direct=$totalDirect (80%), relay=$totalRelay (20%)',
+    );
 
     // Sort both queues by priority and timestamp
     _directMessageQueue.sort((a, b) {
@@ -247,9 +273,9 @@ class OfflineMessageQueue {
     // Interleaved processing with bandwidth allocation
     while (directProcessed < totalDirect || relayProcessed < totalRelay) {
       // Determine which queue to process from
-      final shouldProcessDirect = directProcessed < totalDirect &&
-                                  (relayProcessed >= totalRelay ||
-                                   directProcessed < directSlots);
+      final shouldProcessDirect =
+          directProcessed < totalDirect &&
+          (relayProcessed >= totalRelay || directProcessed < directSlots);
 
       if (shouldProcessDirect && directProcessed < totalDirect) {
         final message = _directMessageQueue[directProcessed];
@@ -283,7 +309,9 @@ class OfflineMessageQueue {
       }
     }
 
-    _logger.info('Queue processing scheduled: direct=$directProcessed, relay=$relayProcessed (total slots: $slotIndex)');
+    _logger.info(
+      'Queue processing scheduled: direct=$directProcessed, relay=$relayProcessed (total slots: $slotIndex)',
+    );
   }
 
   /// Attempt delivery for a specific message
@@ -292,11 +320,16 @@ class OfflineMessageQueue {
     // This prevents concurrent retries that re-encrypt with new nonce, creating mixed chunks
     const Duration ackTimeout = Duration(seconds: 5);
 
-    if (message.status == QueuedMessageStatus.awaitingAck && message.lastAttemptAt != null) {
-      final timeSinceLastAttempt = DateTime.now().difference(message.lastAttemptAt!);
+    if (message.status == QueuedMessageStatus.awaitingAck &&
+        message.lastAttemptAt != null) {
+      final timeSinceLastAttempt = DateTime.now().difference(
+        message.lastAttemptAt!,
+      );
       if (timeSinceLastAttempt < ackTimeout) {
-        _logger.info('⏳ Still waiting for ACK from previous attempt (${timeSinceLastAttempt.inMilliseconds}ms ago) for ${message.id.substring(0, 16)}...');
-        return;  // Don't retry yet - wait for ACK timeout
+        _logger.info(
+          '⏳ Still waiting for ACK from previous attempt (${timeSinceLastAttempt.inMilliseconds}ms ago) for ${message.id.substring(0, 16)}...',
+        );
+        return; // Don't retry yet - wait for ACK timeout
       }
     }
 
@@ -309,7 +342,9 @@ class OfflineMessageQueue {
 
       await _saveMessageToStorage(message);
 
-      _logger.fine('Attempting delivery: ${message.id.substring(0, 16)}... (attempt ${message.attempts}/${message.maxRetries})');
+      _logger.fine(
+        'Attempting delivery: ${message.id.substring(0, 16)}... (attempt ${message.attempts}/${message.maxRetries})',
+      );
 
       // Note: Skip validation here - sender cannot validate recipient-encrypted messages
       // Validation will be performed by the actual recipient when they decrypt the message
@@ -322,10 +357,13 @@ class OfflineMessageQueue {
       message.status = QueuedMessageStatus.awaitingAck;
       await _saveMessageToStorage(message);
 
-      _logger.info('Message sent, awaiting ACK: ${message.id.substring(0, 16)}...');
-
+      _logger.info(
+        'Message sent, awaiting ACK: ${message.id.substring(0, 16)}...',
+      );
     } catch (e) {
-      _logger.severe('Delivery attempt failed for ${message.id.substring(0, 16)}...: $e');
+      _logger.severe(
+        'Delivery attempt failed for ${message.id.substring(0, 16)}...: $e',
+      );
       await _handleDeliveryFailure(message, e.toString());
     }
   }
@@ -333,7 +371,9 @@ class OfflineMessageQueue {
   /// Handle successful message delivery (called by BLE service)
   Future<void> markMessageDelivered(String messageId) async {
     // PRIORITY 1 FIX: Search both queues
-    final message = _getAllMessages().where((m) => m.id == messageId).firstOrNull;
+    final message = _getAllMessages()
+        .where((m) => m.id == messageId)
+        .firstOrNull;
     if (message == null) return;
 
     message.status = QueuedMessageStatus.delivered;
@@ -349,21 +389,30 @@ class OfflineMessageQueue {
     _updateStatistics();
 
     final queueType = message.isRelayMessage ? 'relay' : 'direct';
-    _logger.info('Message delivered successfully [$queueType]: ${messageId.substring(0, 16)}...');
+    _logger.info(
+      'Message delivered successfully [$queueType]: ${messageId.substring(0, 16)}...',
+    );
   }
 
   /// Handle failed message delivery (called by BLE service)
   Future<void> markMessageFailed(String messageId, String reason) async {
     // PRIORITY 1 FIX: Search both queues
-    final message = _getAllMessages().where((m) => m.id == messageId).firstOrNull;
+    final message = _getAllMessages()
+        .where((m) => m.id == messageId)
+        .firstOrNull;
     if (message == null) return;
 
     await _handleDeliveryFailure(message, reason);
   }
 
   /// Handle delivery failure with intelligent retry
-  Future<void> _handleDeliveryFailure(QueuedMessage message, String reason) async {
-    _logger.warning('Delivery failed for ${message.id.substring(0, 16)}...: $reason (attempt ${message.attempts}/${message.maxRetries})');
+  Future<void> _handleDeliveryFailure(
+    QueuedMessage message,
+    String reason,
+  ) async {
+    _logger.warning(
+      'Delivery failed for ${message.id.substring(0, 16)}...: $reason (attempt ${message.attempts}/${message.maxRetries})',
+    );
 
     // For mesh networking, never permanently fail messages - devices may be offline for long periods
     // Instead, use exponential backoff with increasing delays for persistent retry
@@ -388,7 +437,9 @@ class OfflineMessageQueue {
 
     _activeRetries[message.id] = retryTimer;
 
-    _logger.info('Retry scheduled for ${message.id.substring(0, 16)}... in ${backoffDelay.inSeconds}s');
+    _logger.info(
+      'Retry scheduled for ${message.id.substring(0, 16)}... in ${backoffDelay.inSeconds}s',
+    );
   }
 
   /// Get current queue statistics
@@ -396,19 +447,27 @@ class OfflineMessageQueue {
     // PRIORITY 1 FIX: Aggregate from both queues
     final allMessages = _getAllMessages();
 
-    final pending = allMessages.where((m) => m.status == QueuedMessageStatus.pending).length;
-    final sending = allMessages.where((m) => m.status == QueuedMessageStatus.sending).length;
-    final retrying = allMessages.where((m) => m.status == QueuedMessageStatus.retrying).length;
-    final failed = allMessages.where((m) => m.status == QueuedMessageStatus.failed).length;
+    final pending = allMessages
+        .where((m) => m.status == QueuedMessageStatus.pending)
+        .length;
+    final sending = allMessages
+        .where((m) => m.status == QueuedMessageStatus.sending)
+        .length;
+    final retrying = allMessages
+        .where((m) => m.status == QueuedMessageStatus.retrying)
+        .length;
+    final failed = allMessages
+        .where((m) => m.status == QueuedMessageStatus.failed)
+        .length;
 
     final oldestPending = allMessages
         .where((m) => m.status == QueuedMessageStatus.pending)
         .fold<QueuedMessage?>(null, (oldest, current) {
-      if (oldest == null || current.queuedAt.isBefore(oldest.queuedAt)) {
-        return current;
-      }
-      return oldest;
-    });
+          if (oldest == null || current.queuedAt.isBefore(oldest.queuedAt)) {
+            return current;
+          }
+          return oldest;
+        });
 
     return QueueStatistics(
       totalQueued: _totalQueued,
@@ -421,8 +480,8 @@ class OfflineMessageQueue {
       isOnline: _isOnline,
       oldestPendingMessage: oldestPending,
       averageDeliveryTime: _calculateAverageDeliveryTime(),
-      directQueueSize: _directMessageQueue.length,  // NEW: Track queue sizes
-      relayQueueSize: _relayMessageQueue.length,    // NEW: Track queue sizes
+      directQueueSize: _directMessageQueue.length, // NEW: Track queue sizes
+      relayQueueSize: _relayMessageQueue.length, // NEW: Track queue sizes
     );
   }
 
@@ -499,18 +558,25 @@ class OfflineMessageQueue {
     try {
       // PRIORITY 1 FIX: Flush from both queues
       final peerMessages = _getAllMessages()
-          .where((m) => m.recipientPublicKey == peerPublicKey &&
-                      m.status == QueuedMessageStatus.pending)
+          .where(
+            (m) =>
+                m.recipientPublicKey == peerPublicKey &&
+                m.status == QueuedMessageStatus.pending,
+          )
           .toList();
 
       if (peerMessages.isEmpty) {
-        _logger.fine('No queued messages for peer ${peerPublicKey.substring(0, 8)}...');
+        _logger.fine(
+          'No queued messages for peer ${peerPublicKey.substring(0, 8)}...',
+        );
         return;
       }
 
       final directCount = peerMessages.where((m) => !m.isRelayMessage).length;
       final relayCount = peerMessages.where((m) => m.isRelayMessage).length;
-      _logger.info('📤 Flushing ${peerMessages.length} queued messages for peer ${peerPublicKey.substring(0, 8)}... (direct: $directCount, relay: $relayCount)');
+      _logger.info(
+        '📤 Flushing ${peerMessages.length} queued messages for peer ${peerPublicKey.substring(0, 8)}... (direct: $directCount, relay: $relayCount)',
+      );
 
       // Mark peer as online temporarily for delivery
       final wasOnline = _isOnline;
@@ -526,15 +592,18 @@ class OfflineMessageQueue {
         }
 
         final queueType = message.isRelayMessage ? 'relay' : 'direct';
-        _logger.fine('  Sending queued $queueType message: ${message.id.substring(0, 16)}...');
+        _logger.fine(
+          '  Sending queued $queueType message: ${message.id.substring(0, 16)}...',
+        );
         await _tryDeliveryForMessage(message);
       }
 
       // Restore original online state
       _isOnline = wasOnline;
 
-      _logger.info('✅ Queue flush complete for peer ${peerPublicKey.substring(0, 8)}...');
-
+      _logger.info(
+        '✅ Queue flush complete for peer ${peerPublicKey.substring(0, 8)}...',
+      );
     } catch (e) {
       _logger.severe('Failed to flush queue for peer $peerPublicKey: $e');
     }
@@ -542,18 +611,27 @@ class OfflineMessageQueue {
 
   /// Change priority of a queued message
   /// Returns true if successful, false if message not found
-  Future<bool> changePriority(String messageId, MessagePriority newPriority) async {
+  Future<bool> changePriority(
+    String messageId,
+    MessagePriority newPriority,
+  ) async {
     try {
       // PRIORITY 1 FIX: Search both queues
-      final message = _getAllMessages().where((m) => m.id == messageId).firstOrNull;
+      final message = _getAllMessages()
+          .where((m) => m.id == messageId)
+          .firstOrNull;
       if (message == null) {
-        _logger.warning('Cannot change priority: message ${messageId.substring(0, 16)}... not found');
+        _logger.warning(
+          'Cannot change priority: message ${messageId.substring(0, 16)}... not found',
+        );
         return false;
       }
 
       // Don't change if already at desired priority
       if (message.priority == newPriority) {
-        _logger.fine('Message ${messageId.substring(0, 16)}... already at priority ${newPriority.name}');
+        _logger.fine(
+          'Message ${messageId.substring(0, 16)}... already at priority ${newPriority.name}',
+        );
         return true;
       }
 
@@ -561,7 +639,9 @@ class OfflineMessageQueue {
       message.priority = newPriority;
 
       // Re-sort appropriate queue to maintain priority ordering
-      final targetQueue = message.isRelayMessage ? _relayMessageQueue : _directMessageQueue;
+      final targetQueue = message.isRelayMessage
+          ? _relayMessageQueue
+          : _directMessageQueue;
       targetQueue.sort((a, b) {
         final priorityCompare = b.priority.index.compareTo(a.priority.index);
         if (priorityCompare != 0) return priorityCompare;
@@ -571,11 +651,12 @@ class OfflineMessageQueue {
       await _saveMessageToStorage(message);
 
       final queueType = message.isRelayMessage ? 'relay' : 'direct';
-      _logger.info('Changed message ${messageId.substring(0, 16)}... priority [$queueType]: '
-          '${oldPriority.name} → ${newPriority.name}');
+      _logger.info(
+        'Changed message ${messageId.substring(0, 16)}... priority [$queueType]: '
+        '${oldPriority.name} → ${newPriority.name}',
+      );
 
       return true;
-
     } catch (e) {
       _logger.severe('Failed to change message priority: $e');
       return false;
@@ -588,7 +669,9 @@ class OfflineMessageQueue {
   /// PRIORITY 1 FIX: Route to appropriate queue based on message type
   void _insertMessageByPriority(QueuedMessage message) {
     // Determine target queue
-    final targetQueue = message.isRelayMessage ? _relayMessageQueue : _directMessageQueue;
+    final targetQueue = message.isRelayMessage
+        ? _relayMessageQueue
+        : _directMessageQueue;
 
     // Find insertion point based on priority
     int insertIndex = 0;
@@ -602,7 +685,9 @@ class OfflineMessageQueue {
 
     targetQueue.insert(insertIndex, message);
 
-    _logger.fine('Inserted into ${message.isRelayMessage ? "relay" : "direct"} queue at index $insertIndex (queue size: ${targetQueue.length})');
+    _logger.fine(
+      'Inserted into ${message.isRelayMessage ? "relay" : "direct"} queue at index $insertIndex (queue size: ${targetQueue.length})',
+    );
   }
 
   /// Remove message from queue
@@ -620,19 +705,23 @@ class OfflineMessageQueue {
   /// Calculate exponential backoff delay
   Duration _calculateBackoffDelay(int attempt) {
     final exponentialDelay = Duration(
-      milliseconds: _initialDelay.inMilliseconds * (1 << (attempt - 1))
+      milliseconds: _initialDelay.inMilliseconds * (1 << (attempt - 1)),
     );
 
     // Cap at maximum delay and add jitter
-    final cappedDelay = exponentialDelay.inMilliseconds > _maxDelay.inMilliseconds
+    final cappedDelay =
+        exponentialDelay.inMilliseconds > _maxDelay.inMilliseconds
         ? _maxDelay
         : exponentialDelay;
 
     // Add random jitter (±25%)
     final jitterRange = cappedDelay.inMilliseconds * 0.25;
-    final jitter = (DateTime.now().millisecond % (jitterRange * 2)) - jitterRange;
+    final jitter =
+        (DateTime.now().millisecond % (jitterRange * 2)) - jitterRange;
 
-    return Duration(milliseconds: (cappedDelay.inMilliseconds + jitter).round());
+    return Duration(
+      milliseconds: (cappedDelay.inMilliseconds + jitter).round(),
+    );
   }
 
   /// Get max retries based on message priority
@@ -661,10 +750,10 @@ class OfflineMessageQueue {
         ttl = Duration(hours: 12); // 12 hours for important messages
         break;
       case MessagePriority.normal:
-        ttl = Duration(hours: 6);  // 6 hours for regular messages
+        ttl = Duration(hours: 6); // 6 hours for regular messages
         break;
       case MessagePriority.low:
-        ttl = Duration(hours: 3);  // 3 hours for low priority
+        ttl = Duration(hours: 3); // 3 hours for low priority
         break;
     }
     return queuedAt.add(ttl);
@@ -701,7 +790,11 @@ class OfflineMessageQueue {
   Duration _calculateAverageDeliveryTime() {
     // PRIORITY 1 FIX: Calculate across both queues
     final deliveredMessages = _getAllMessages()
-        .where((m) => m.status == QueuedMessageStatus.delivered && m.deliveredAt != null)
+        .where(
+          (m) =>
+              m.status == QueuedMessageStatus.delivered &&
+              m.deliveredAt != null,
+        )
         .toList();
 
     if (deliveredMessages.isEmpty) return Duration.zero;
@@ -710,7 +803,9 @@ class OfflineMessageQueue {
         .map((m) => m.deliveredAt!.difference(m.queuedAt))
         .fold<Duration>(Duration.zero, (sum, duration) => sum + duration);
 
-    return Duration(milliseconds: totalTime.inMilliseconds ~/ deliveredMessages.length);
+    return Duration(
+      milliseconds: totalTime.inMilliseconds ~/ deliveredMessages.length,
+    );
   }
 
   /// Update statistics and notify listeners
@@ -745,9 +840,13 @@ class OfflineMessageQueue {
       'original_message_id': message.originalMessageId,
       'relay_node_id': message.relayNodeId,
       'message_hash': message.messageHash,
-      'relay_metadata_json': message.relayMetadata != null ? jsonEncode(message.relayMetadata!.toJson()) : null,
+      'relay_metadata_json': message.relayMetadata != null
+          ? jsonEncode(message.relayMetadata!.toJson())
+          : null,
       'reply_to_message_id': message.replyToMessageId,
-      'attachments_json': message.attachments.isNotEmpty ? jsonEncode(message.attachments) : null,
+      'attachments_json': message.attachments.isNotEmpty
+          ? jsonEncode(message.attachments)
+          : null,
       'sender_rate_count': message.senderRateCount,
       'created_at': now,
       'updated_at': now,
@@ -789,7 +888,9 @@ class OfflineMessageQueue {
           : null,
       isRelayMessage: (row['is_relay_message'] as int) == 1,
       relayMetadata: row['relay_metadata_json'] != null
-          ? RelayMetadata.fromJson(jsonDecode(row['relay_metadata_json'] as String))
+          ? RelayMetadata.fromJson(
+              jsonDecode(row['relay_metadata_json'] as String),
+            )
           : null,
       originalMessageId: row['original_message_id'] as String?,
       relayNodeId: row['relay_node_id'] as String?,
@@ -824,8 +925,11 @@ class OfflineMessageQueue {
         }
       }
 
-      final totalLoaded = _directMessageQueue.length + _relayMessageQueue.length;
-      _logger.info('Loaded $totalLoaded messages from storage (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})');
+      final totalLoaded =
+          _directMessageQueue.length + _relayMessageQueue.length;
+      _logger.info(
+        'Loaded $totalLoaded messages from storage (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})',
+      );
     } catch (e) {
       _logger.severe('Failed to load message queue: $e');
     }
@@ -847,7 +951,9 @@ class OfflineMessageQueue {
       _cachedQueueHash = null;
       _lastHashCalculation = null;
     } catch (e) {
-      _logger.warning('Failed to save message ${message.id.substring(0, 16)}...: $e');
+      _logger.warning(
+        'Failed to save message ${message.id.substring(0, 16)}...: $e',
+      );
     }
   }
 
@@ -866,7 +972,9 @@ class OfflineMessageQueue {
       _cachedQueueHash = null;
       _lastHashCalculation = null;
     } catch (e) {
-      _logger.warning('Failed to delete message ${messageId.substring(0, 16)}...: $e');
+      _logger.warning(
+        'Failed to delete message ${messageId.substring(0, 16)}...: $e',
+      );
     }
   }
 
@@ -884,12 +992,18 @@ class OfflineMessageQueue {
 
         // Save direct messages
         for (final message in _directMessageQueue) {
-          await txn.insert('offline_message_queue', _queuedMessageToDb(message));
+          await txn.insert(
+            'offline_message_queue',
+            _queuedMessageToDb(message),
+          );
         }
 
         // Save relay messages
         for (final message in _relayMessageQueue) {
-          await txn.insert('offline_message_queue', _queuedMessageToDb(message));
+          await txn.insert(
+            'offline_message_queue',
+            _queuedMessageToDb(message),
+          );
         }
       });
 
@@ -905,7 +1019,9 @@ class OfflineMessageQueue {
   Future<void> _loadDeletedMessageIds() async {
     try {
       final db = await DatabaseHelper.database;
-      final List<Map<String, dynamic>> results = await db.query('deleted_message_ids');
+      final List<Map<String, dynamic>> results = await db.query(
+        'deleted_message_ids',
+      );
 
       _deletedMessageIds.clear();
       for (final row in results) {
@@ -944,7 +1060,9 @@ class OfflineMessageQueue {
   /// Calculate deterministic hash of current queue state
   /// Excludes delivered/expired messages and includes deleted message tracking
   String calculateQueueHash({bool forceRecalculation = false}) {
-    if (!forceRecalculation && _cachedQueueHash != null && _lastHashCalculation != null) {
+    if (!forceRecalculation &&
+        _cachedQueueHash != null &&
+        _lastHashCalculation != null) {
       // Use cache if less than 30 seconds old
       final cacheAge = DateTime.now().difference(_lastHashCalculation!);
       if (cacheAge.inSeconds < 30) {
@@ -954,8 +1072,11 @@ class OfflineMessageQueue {
 
     // PRIORITY 1 FIX: Get syncable messages from both queues
     final syncableMessages = _getAllMessages()
-        .where((m) => m.status != QueuedMessageStatus.delivered &&
-                     m.status != QueuedMessageStatus.failed)
+        .where(
+          (m) =>
+              m.status != QueuedMessageStatus.delivered &&
+              m.status != QueuedMessageStatus.failed,
+        )
         .toList();
 
     // Sort by message ID for consistent ordering
@@ -983,7 +1104,9 @@ class OfflineMessageQueue {
     _cachedQueueHash = digest.toString();
     _lastHashCalculation = DateTime.now();
 
-    _logger.fine('Calculated queue hash: ${_cachedQueueHash!.substring(0, 16)}... (${syncableMessages.length} messages, ${_deletedMessageIds.length} deleted)');
+    _logger.fine(
+      'Calculated queue hash: ${_cachedQueueHash!.substring(0, 16)}... (${syncableMessages.length} messages, ${_deletedMessageIds.length} deleted)',
+    );
 
     return _cachedQueueHash!;
   }
@@ -1004,8 +1127,11 @@ class OfflineMessageQueue {
   QueueSyncMessage createSyncMessage(String nodeId) {
     // PRIORITY 1 FIX: Get syncable messages from both queues
     final syncableMessages = _getAllMessages()
-        .where((m) => m.status != QueuedMessageStatus.delivered &&
-                     m.status != QueuedMessageStatus.failed)
+        .where(
+          (m) =>
+              m.status != QueuedMessageStatus.delivered &&
+              m.status != QueuedMessageStatus.failed,
+        )
         .toList();
 
     final messageIds = syncableMessages.map((m) => m.id).toList();
@@ -1016,7 +1142,6 @@ class OfflineMessageQueue {
         messageHashes[message.id] = message.messageHash!;
       }
     }
-
 
     return QueueSyncMessage.createRequest(
       messageIds: messageIds,
@@ -1035,14 +1160,18 @@ class OfflineMessageQueue {
   Future<void> addSyncedMessage(QueuedMessage message) async {
     // Skip if message was previously deleted (e.g., aged out)
     if (_deletedMessageIds.contains(message.id)) {
-      _logger.fine('Sync skip - message ${message.id.substring(0, 8)}... was deleted locally');
+      _logger.fine(
+        'Sync skip - message ${message.id.substring(0, 8)}... was deleted locally',
+      );
       return;
     }
 
     // Skip if we already have this message
     final exists = _getAllMessages().any((m) => m.id == message.id);
     if (exists) {
-      _logger.fine('Sync skip - message already exists: ${message.id.substring(0, 8)}...');
+      _logger.fine(
+        'Sync skip - message already exists: ${message.id.substring(0, 8)}...',
+      );
       return;
     }
 
@@ -1058,20 +1187,28 @@ class OfflineMessageQueue {
     _totalQueued++;
     _updateStatistics();
 
-    _logger.info('🔄 Synced new queued message: ${message.id.substring(0, 16)}...');
+    _logger.info(
+      '🔄 Synced new queued message: ${message.id.substring(0, 16)}...',
+    );
   }
 
   /// Get missing messages compared to another queue
   List<String> getMissingMessageIds(List<String> otherMessageIds) {
     // PRIORITY 1 FIX: Check both queues
     final currentIds = _getAllMessages()
-        .where((m) => m.status != QueuedMessageStatus.delivered &&
-                     m.status != QueuedMessageStatus.failed)
+        .where(
+          (m) =>
+              m.status != QueuedMessageStatus.delivered &&
+              m.status != QueuedMessageStatus.failed,
+        )
         .map((m) => m.id)
         .toSet();
 
-    return otherMessageIds.where((id) => !currentIds.contains(id) &&
-                                        !_deletedMessageIds.contains(id)).toList();
+    return otherMessageIds
+        .where(
+          (id) => !currentIds.contains(id) && !_deletedMessageIds.contains(id),
+        )
+        .toList();
   }
 
   /// Get excess messages that the other queue doesn't have
@@ -1080,9 +1217,12 @@ class OfflineMessageQueue {
 
     // PRIORITY 1 FIX: Get from both queues
     return _getAllMessages()
-        .where((m) => m.status != QueuedMessageStatus.delivered &&
-                     m.status != QueuedMessageStatus.failed &&
-                     !otherIdSet.contains(m.id))
+        .where(
+          (m) =>
+              m.status != QueuedMessageStatus.delivered &&
+              m.status != QueuedMessageStatus.failed &&
+              !otherIdSet.contains(m.id),
+        )
         .toList();
   }
 
@@ -1095,7 +1235,9 @@ class OfflineMessageQueue {
     _removeMessageFromQueue(messageId);
     await _saveQueueToStorage();
 
-    _logger.info('Message marked as deleted: ${messageId.length > 16 ? "${messageId.substring(0, 16)}..." : messageId}');
+    _logger.info(
+      'Message marked as deleted: ${messageId.length > 16 ? "${messageId.substring(0, 16)}..." : messageId}',
+    );
   }
 
   /// Check if message was deleted
@@ -1114,7 +1256,9 @@ class OfflineMessageQueue {
       _deletedMessageIds.addAll(deletedList.take(_maxDeletedIdsToKeep));
 
       await _saveDeletedMessageIds();
-      _logger.info('Cleaned up ${initialCount - _deletedMessageIds.length} old deleted message IDs (performance optimization)');
+      _logger.info(
+        'Cleaned up ${initialCount - _deletedMessageIds.length} old deleted message IDs (performance optimization)',
+      );
     }
   }
 
@@ -1183,7 +1327,9 @@ class OfflineMessageQueue {
         if (_isMessageExpired(message)) {
           ttlExpiredCount++;
           expiredIds.add(message.id);
-          _logger.info('Message ${message.id.substring(0, 16)}... expired (TTL exceeded)');
+          _logger.info(
+            'Message ${message.id.substring(0, 16)}... expired (TTL exceeded)',
+          );
           return true;
         }
       }
@@ -1191,7 +1337,8 @@ class OfflineMessageQueue {
       // Remove old delivered or failed messages
       if (message.status == QueuedMessageStatus.delivered ||
           message.status == QueuedMessageStatus.failed) {
-        final messageAge = message.deliveredAt ?? message.failedAt ?? message.queuedAt;
+        final messageAge =
+            message.deliveredAt ?? message.failedAt ?? message.queuedAt;
         if (messageAge.isBefore(cutoffDate)) {
           oldMessagesCount++;
           expiredIds.add(message.id);
@@ -1208,7 +1355,9 @@ class OfflineMessageQueue {
         if (_isMessageExpired(message)) {
           ttlExpiredCount++;
           expiredIds.add(message.id);
-          _logger.info('Message ${message.id.substring(0, 16)}... expired (TTL exceeded)');
+          _logger.info(
+            'Message ${message.id.substring(0, 16)}... expired (TTL exceeded)',
+          );
           return true;
         }
       }
@@ -1216,7 +1365,8 @@ class OfflineMessageQueue {
       // Remove old delivered or failed messages
       if (message.status == QueuedMessageStatus.delivered ||
           message.status == QueuedMessageStatus.failed) {
-        final messageAge = message.deliveredAt ?? message.failedAt ?? message.queuedAt;
+        final messageAge =
+            message.deliveredAt ?? message.failedAt ?? message.queuedAt;
         if (messageAge.isBefore(cutoffDate)) {
           oldMessagesCount++;
           expiredIds.add(message.id);
@@ -1243,8 +1393,10 @@ class OfflineMessageQueue {
       _cachedQueueHash = null;
       _lastHashCalculation = null;
 
-      _logger.info('Cleaned up ${expiredIds.length} expired messages '
-          '(TTL: $ttlExpiredCount, Old: $oldMessagesCount)');
+      _logger.info(
+        'Cleaned up ${expiredIds.length} expired messages '
+        '(TTL: $ttlExpiredCount, Old: $oldMessagesCount)',
+      );
     }
   }
 
@@ -1411,13 +1563,15 @@ class QueuedMessage {
   }
 
   /// Check if message can be relayed further
-  bool get canRelay => isRelayMessage && relayMetadata != null && relayMetadata!.canRelay;
+  bool get canRelay =>
+      isRelayMessage && relayMetadata != null && relayMetadata!.canRelay;
 
   /// Get relay hop count
   int get relayHopCount => relayMetadata?.hopCount ?? 0;
 
   /// Check if this message has exceeded TTL
-  bool get hasExceededTTL => relayMetadata != null && relayMetadata!.hopCount >= relayMetadata!.ttl;
+  bool get hasExceededTTL =>
+      relayMetadata != null && relayMetadata!.hopCount >= relayMetadata!.ttl;
 
   /// Create next hop relay message
   QueuedMessage createNextHopRelay(String nextRelayNodeId) {
@@ -1491,23 +1645,23 @@ class QueuedMessage {
     status: QueuedMessageStatus.values[json['status']],
     attempts: json['attempts'] ?? 0,
     lastAttemptAt: json['lastAttemptAt'] != null
-      ? DateTime.fromMillisecondsSinceEpoch(json['lastAttemptAt'])
-      : null,
+        ? DateTime.fromMillisecondsSinceEpoch(json['lastAttemptAt'])
+        : null,
     nextRetryAt: json['nextRetryAt'] != null
-      ? DateTime.fromMillisecondsSinceEpoch(json['nextRetryAt'])
-      : null,
+        ? DateTime.fromMillisecondsSinceEpoch(json['nextRetryAt'])
+        : null,
     deliveredAt: json['deliveredAt'] != null
-      ? DateTime.fromMillisecondsSinceEpoch(json['deliveredAt'])
-      : null,
+        ? DateTime.fromMillisecondsSinceEpoch(json['deliveredAt'])
+        : null,
     failedAt: json['failedAt'] != null
-      ? DateTime.fromMillisecondsSinceEpoch(json['failedAt'])
-      : null,
+        ? DateTime.fromMillisecondsSinceEpoch(json['failedAt'])
+        : null,
     failureReason: json['failureReason'],
     // Relay-specific fields (backward compatible - default to false/null if not present)
     isRelayMessage: json['isRelayMessage'] ?? false,
     relayMetadata: json['relayMetadata'] != null
-      ? RelayMetadata.fromJson(json['relayMetadata'])
-      : null,
+        ? RelayMetadata.fromJson(json['relayMetadata'])
+        : null,
     originalMessageId: json['originalMessageId'],
     relayNodeId: json['relayNodeId'],
     messageHash: json['messageHash'],
@@ -1519,7 +1673,7 @@ class QueuedMessage {
 enum QueuedMessageStatus {
   pending,
   sending,
-  awaitingAck,  // Waiting for final recipient ACK in mesh relay
+  awaitingAck, // Waiting for final recipient ACK in mesh relay
   retrying,
   delivered,
   failed,
@@ -1553,8 +1707,8 @@ class QueueStatistics {
     required this.isOnline,
     this.oldestPendingMessage,
     required this.averageDeliveryTime,
-    this.directQueueSize = 0,  // Default for backward compatibility
-    this.relayQueueSize = 0,   // Default for backward compatibility
+    this.directQueueSize = 0, // Default for backward compatibility
+    this.relayQueueSize = 0, // Default for backward compatibility
   });
 
   /// Get delivery success rate
@@ -1577,7 +1731,8 @@ class QueueStatistics {
   }
 
   @override
-  String toString() => 'QueueStats(pending: $pendingMessages, success: ${(successRate * 100).toStringAsFixed(1)}%, health: ${(queueHealthScore * 100).toStringAsFixed(1)}%)';
+  String toString() =>
+      'QueueStats(pending: $pendingMessages, success: ${(successRate * 100).toStringAsFixed(1)}%, health: ${(queueHealthScore * 100).toStringAsFixed(1)}%)';
 }
 
 /// Exception for queue operations

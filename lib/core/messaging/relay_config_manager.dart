@@ -15,7 +15,8 @@ class RelayConfigManager {
 
   // Singleton instance
   static RelayConfigManager? _instance;
-  static RelayConfigManager get instance => _instance ??= RelayConfigManager._();
+  static RelayConfigManager get instance =>
+      _instance ??= RelayConfigManager._();
 
   // Private constructor for singleton
   RelayConfigManager._();
@@ -23,7 +24,8 @@ class RelayConfigManager {
   // Configuration keys
   static const String _keyRelayEnabled = 'mesh_relay_enabled';
   static const String _keyMaxRelayHops = 'mesh_relay_max_hops';
-  static const String _keyRelayBatteryThreshold = 'mesh_relay_battery_threshold';
+  static const String _keyRelayBatteryThreshold =
+      'mesh_relay_battery_threshold';
 
   // Default values
   static const bool _defaultRelayEnabled = true;
@@ -41,15 +43,17 @@ class RelayConfigManager {
       final prefs = await SharedPreferences.getInstance();
 
       // Load cached values
-      _cachedRelayEnabled = prefs.getBool(_keyRelayEnabled) ?? _defaultRelayEnabled;
-      _cachedMaxRelayHops = prefs.getInt(_keyMaxRelayHops) ?? _defaultMaxRelayHops;
-      _cachedBatteryThreshold = prefs.getInt(_keyRelayBatteryThreshold) ?? _defaultBatteryThreshold;
+      _cachedRelayEnabled =
+          prefs.getBool(_keyRelayEnabled) ?? _defaultRelayEnabled;
+      _cachedMaxRelayHops =
+          prefs.getInt(_keyMaxRelayHops) ?? _defaultMaxRelayHops;
+      _cachedBatteryThreshold =
+          prefs.getInt(_keyRelayBatteryThreshold) ?? _defaultBatteryThreshold;
 
       _logger.info('📡 RelayConfigManager initialized:');
       _logger.info('   - Relay enabled: $_cachedRelayEnabled');
       _logger.info('   - Max relay hops: $_cachedMaxRelayHops');
       _logger.info('   - Battery threshold: $_cachedBatteryThreshold%');
-
     } catch (e) {
       _logger.severe('Failed to initialize RelayConfigManager: $e');
       // Use defaults on error
@@ -144,7 +148,9 @@ class RelayConfigManager {
     final shouldRelay = currentBatteryPercent >= threshold;
 
     if (!shouldRelay) {
-      _logger.info('🔋 Relay blocked: Battery $currentBatteryPercent% < $threshold%');
+      _logger.info(
+        '🔋 Relay blocked: Battery $currentBatteryPercent% < $threshold%',
+      );
     }
 
     return shouldRelay;

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../utils/gcs_filter.dart';
-import 'protocol_message.dart';  // PHASE 2: For ProtocolMessageType
+import 'protocol_message.dart'; // PHASE 2: For ProtocolMessageType
 
 /// Metadata for mesh relay operations
 ///
@@ -21,25 +21,25 @@ class RelayMetadata {
   /// Path of nodes that have relayed this message (for anti-loop protection)
   /// 🔐 PRIVACY: Contains EPHEMERAL session keys (rotates per session, not long-term identity)
   final List<String> routingPath;
-  
+
   /// Cryptographic hash of the original message for deduplication
   final String messageHash;
-  
+
   /// Priority level affecting TTL limits
   final MessagePriority priority;
-  
+
   /// Timestamp when relay was initiated
   final DateTime relayTimestamp;
-  
+
   /// Original sender's public key
   final String originalSender;
-  
+
   /// Final recipient's public key
   final String finalRecipient;
-  
+
   /// Rate limiting: number of messages relayed by current node in last hour
   final int senderRateCount;
-  
+
   const RelayMetadata({
     required this.ttl,
     required this.hopCount,
@@ -51,7 +51,7 @@ class RelayMetadata {
     required this.finalRecipient,
     this.senderRateCount = 0,
   });
-  
+
   /// Create relay metadata for a new message
   factory RelayMetadata.create({
     required String originalMessageContent,
@@ -80,17 +80,19 @@ class RelayMetadata {
       finalRecipient: finalRecipient,
     );
   }
-  
+
   /// Create next hop metadata (increments hop count, adds to path)
   RelayMetadata nextHop(String currentNodeId) {
     if (hopCount >= ttl) {
       throw RelayException('Message TTL exceeded');
     }
-    
+
     if (routingPath.contains(currentNodeId)) {
-      throw RelayException('Loop detected: node $currentNodeId already in path');
+      throw RelayException(
+        'Loop detected: node $currentNodeId already in path',
+      );
     }
-    
+
     return RelayMetadata(
       ttl: ttl,
       hopCount: hopCount + 1,
@@ -103,13 +105,13 @@ class RelayMetadata {
       senderRateCount: senderRateCount,
     );
   }
-  
+
   /// Check if message should be relayed (TTL and loop check)
   bool get canRelay => hopCount < ttl;
-  
+
   /// Check if current node is in routing path (loop detection)
   bool hasNodeInPath(String nodeId) => routingPath.contains(nodeId);
-  
+
   /// Get remaining hops
   int get remainingHops => ttl - hopCount;
 
@@ -139,7 +141,7 @@ class RelayMetadata {
     'finalRecipient': finalRecipient,
     'senderRateCount': senderRateCount,
   };
-  
+
   /// Create from JSON
   factory RelayMetadata.fromJson(Map<String, dynamic> json) => RelayMetadata(
     ttl: json['ttl'],
@@ -152,7 +154,7 @@ class RelayMetadata {
     finalRecipient: json['finalRecipient'],
     senderRateCount: json['senderRateCount'] ?? 0,
   );
-  
+
   /// Get TTL based on priority level
   static int _getTTLForPriority(MessagePriority priority) {
     switch (priority) {
@@ -166,7 +168,7 @@ class RelayMetadata {
         return 5;
     }
   }
-  
+
   /// Generate cryptographic hash for message deduplication
   /// Includes timestamp to ensure identical messages sent at different times have unique hashes
   static String _generateMessageHash(
@@ -175,7 +177,8 @@ class RelayMetadata {
     String recipient,
     DateTime timestamp,
   ) {
-    final combinedData = '$content:$sender:$recipient:${timestamp.millisecondsSinceEpoch}';
+    final combinedData =
+        '$content:$sender:$recipient:${timestamp.millisecondsSinceEpoch}';
     final bytes = utf8.encode(combinedData);
     final digest = sha256.convert(bytes);
     return digest.toString();
@@ -212,9 +215,9 @@ class MeshRelayMessage {
     required this.relayNodeId,
     required this.relayedAt,
     this.encryptedPayload,
-    this.originalMessageType,  // PHASE 2
+    this.originalMessageType, // PHASE 2
   });
-  
+
   /// Create relay message for forwarding
   factory MeshRelayMessage.createRelay({
     required String originalMessageId,
@@ -222,7 +225,7 @@ class MeshRelayMessage {
     required RelayMetadata metadata,
     required String relayNodeId,
     String? encryptedPayload,
-    ProtocolMessageType? originalMessageType,  // PHASE 2
+    ProtocolMessageType? originalMessageType, // PHASE 2
   }) {
     return MeshRelayMessage(
       originalMessageId: originalMessageId,
@@ -231,10 +234,10 @@ class MeshRelayMessage {
       relayNodeId: relayNodeId,
       relayedAt: DateTime.now(),
       encryptedPayload: encryptedPayload,
-      originalMessageType: originalMessageType,  // PHASE 2
+      originalMessageType: originalMessageType, // PHASE 2
     );
   }
-  
+
   /// Create next hop relay message
   MeshRelayMessage nextHop(String nextRelayNodeId) {
     final nextMetadata = relayMetadata.nextHop(nextRelayNodeId);
@@ -246,16 +249,17 @@ class MeshRelayMessage {
       relayNodeId: nextRelayNodeId,
       relayedAt: DateTime.now(),
       encryptedPayload: encryptedPayload,
-      originalMessageType: originalMessageType,  // PHASE 2: Preserve type through hops
+      originalMessageType:
+          originalMessageType, // PHASE 2: Preserve type through hops
     );
   }
-  
+
   /// Check if message can be relayed further
   bool get canRelay => relayMetadata.canRelay;
-  
+
   /// Get message size for bandwidth management
   int get messageSize => utf8.encode(originalContent).length;
-  
+
   /// Convert to JSON
   Map<String, dynamic> toJson() => {
     'originalMessageId': originalMessageId,
@@ -264,7 +268,8 @@ class MeshRelayMessage {
     'relayNodeId': relayNodeId,
     'relayedAt': relayedAt.millisecondsSinceEpoch,
     if (encryptedPayload != null) 'encryptedPayload': encryptedPayload,
-    if (originalMessageType != null) 'originalMessageType': originalMessageType!.index,  // PHASE 2
+    if (originalMessageType != null)
+      'originalMessageType': originalMessageType!.index, // PHASE 2
   };
 
   /// Create from JSON
@@ -282,7 +287,7 @@ class MeshRelayMessage {
       relayNodeId: json['relayNodeId'],
       relayedAt: DateTime.fromMillisecondsSinceEpoch(json['relayedAt']),
       encryptedPayload: json['encryptedPayload'],
-      originalMessageType: messageType,  // PHASE 2
+      originalMessageType: messageType, // PHASE 2
     );
   }
 }
@@ -324,7 +329,7 @@ class QueueSyncMessage {
     this.queueStats,
     this.gcsFilter,
   });
-  
+
   /// Create queue sync request
   factory QueueSyncMessage.createRequest({
     required List<String> messageIds,
@@ -345,7 +350,7 @@ class QueueSyncMessage {
       gcsFilter: gcsFilter,
     );
   }
-  
+
   /// Create queue sync response
   factory QueueSyncMessage.createResponse({
     required List<String> messageIds,
@@ -354,7 +359,7 @@ class QueueSyncMessage {
     Map<String, String>? messageHashes,
   }) {
     final queueHash = _generateQueueHash(messageIds);
-    
+
     return QueueSyncMessage(
       queueHash: queueHash,
       messageIds: messageIds,
@@ -365,15 +370,16 @@ class QueueSyncMessage {
       queueStats: stats,
     );
   }
-  
+
   /// Check if queues are synchronized
-  bool isQueueSynchronized(String otherQueueHash) => queueHash == otherQueueHash;
-  
+  bool isQueueSynchronized(String otherQueueHash) =>
+      queueHash == otherQueueHash;
+
   /// Get missing message IDs compared to another queue
   List<String> getMissingMessages(List<String> otherMessageIds) {
     return otherMessageIds.where((id) => !messageIds.contains(id)).toList();
   }
-  
+
   /// Convert to JSON
   Map<String, dynamic> toJson() => {
     'queueHash': queueHash,
@@ -387,23 +393,26 @@ class QueueSyncMessage {
   };
 
   /// Create from JSON
-  factory QueueSyncMessage.fromJson(Map<String, dynamic> json) => QueueSyncMessage(
-    queueHash: json['queueHash'],
-    messageIds: List<String>.from(json['messageIds']),
-    syncTimestamp: DateTime.fromMillisecondsSinceEpoch(json['syncTimestamp']),
-    nodeId: json['nodeId'],
-    syncType: QueueSyncType.values[json['syncType']],
-    messageHashes: json['messageHashes'] != null
-      ? Map<String, String>.from(json['messageHashes'])
-      : null,
-    queueStats: json['queueStats'] != null
-      ? QueueSyncStats.fromJson(json['queueStats'])
-      : null,
-    gcsFilter: json['gcsFilter'] != null
-      ? GCSFilterParams.fromJson(json['gcsFilter'])
-      : null,
-  );
-  
+  factory QueueSyncMessage.fromJson(Map<String, dynamic> json) =>
+      QueueSyncMessage(
+        queueHash: json['queueHash'],
+        messageIds: List<String>.from(json['messageIds']),
+        syncTimestamp: DateTime.fromMillisecondsSinceEpoch(
+          json['syncTimestamp'],
+        ),
+        nodeId: json['nodeId'],
+        syncType: QueueSyncType.values[json['syncType']],
+        messageHashes: json['messageHashes'] != null
+            ? Map<String, String>.from(json['messageHashes'])
+            : null,
+        queueStats: json['queueStats'] != null
+            ? QueueSyncStats.fromJson(json['queueStats'])
+            : null,
+        gcsFilter: json['gcsFilter'] != null
+            ? GCSFilterParams.fromJson(json['gcsFilter'])
+            : null,
+      );
+
   /// Generate hash for message queue state
   static String _generateQueueHash(List<String> messageIds) {
     final sortedIds = [...messageIds]..sort();
@@ -415,11 +424,7 @@ class QueueSyncMessage {
 }
 
 /// Queue synchronization operation type
-enum QueueSyncType {
-  request,
-  response,
-  update,
-}
+enum QueueSyncType { request, response, update }
 
 /// Queue synchronization statistics
 class QueueSyncStats {
@@ -428,7 +433,7 @@ class QueueSyncStats {
   final int failedMessages;
   final DateTime lastSyncTime;
   final double successRate;
-  
+
   const QueueSyncStats({
     required this.totalMessages,
     required this.pendingMessages,
@@ -436,7 +441,7 @@ class QueueSyncStats {
     required this.lastSyncTime,
     required this.successRate,
   });
-  
+
   Map<String, dynamic> toJson() => {
     'totalMessages': totalMessages,
     'pendingMessages': pendingMessages,
@@ -444,7 +449,7 @@ class QueueSyncStats {
     'lastSyncTime': lastSyncTime.millisecondsSinceEpoch,
     'successRate': successRate,
   };
-  
+
   factory QueueSyncStats.fromJson(Map<String, dynamic> json) => QueueSyncStats(
     totalMessages: json['totalMessages'],
     pendingMessages: json['pendingMessages'],
@@ -458,7 +463,7 @@ class QueueSyncStats {
 class RelayException implements Exception {
   final String message;
   const RelayException(this.message);
-  
+
   @override
   String toString() => 'RelayException: $message';
 }

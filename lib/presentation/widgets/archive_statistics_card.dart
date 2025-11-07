@@ -10,28 +10,31 @@ import '../../presentation/providers/archive_provider.dart';
 class ArchiveStatisticsCard extends ConsumerWidget {
   final bool isExpanded;
   final VoidCallback? onToggleExpanded;
-  
+
   const ArchiveStatisticsCard({
     super.key,
     this.isExpanded = false,
     this.onToggleExpanded,
   });
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statisticsAsync = ref.watch(archiveStatisticsProvider);
-    
+
     return statisticsAsync.when(
       data: (statistics) => _buildStatisticsCard(context, statistics),
       loading: () => _buildLoadingCard(context),
       error: (error, stack) => _buildErrorCard(context, error.toString()),
     );
   }
-  
-  Widget _buildStatisticsCard(BuildContext context, ArchiveStatistics statistics) {
+
+  Widget _buildStatisticsCard(
+    BuildContext context,
+    ArchiveStatistics statistics,
+  ) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     return Card(
       margin: const EdgeInsets.all(16),
       elevation: 2,
@@ -68,9 +71,9 @@ class ArchiveStatisticsCard extends ConsumerWidget {
                   ),
               ],
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Main statistics row
             Row(
               children: [
@@ -103,13 +106,13 @@ class ArchiveStatisticsCard extends ConsumerWidget {
                 ),
               ],
             ),
-            
+
             // Expanded content
             if (isExpanded) ...[
               const SizedBox(height: 16),
               const Divider(),
               const SizedBox(height: 16),
-              
+
               // Storage efficiency row
               Row(
                 children: [
@@ -134,15 +137,16 @@ class ArchiveStatisticsCard extends ConsumerWidget {
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: 16),
-              
+
               // Archive age distribution
-              if (statistics.oldestArchive != null && statistics.newestArchive != null)
+              if (statistics.oldestArchive != null &&
+                  statistics.newestArchive != null)
                 _buildAgeDistribution(context, statistics),
-              
+
               const SizedBox(height: 16),
-              
+
               // Performance indicators
               _buildPerformanceIndicators(context, statistics.performanceStats),
             ],
@@ -151,7 +155,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildStatItem(
     BuildContext context,
     String label,
@@ -160,7 +164,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
     Color color,
   ) {
     final theme = Theme.of(context);
-    
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -169,11 +173,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          Icon(
-            icon,
-            color: color,
-            size: 24,
-          ),
+          Icon(icon, color: color, size: 24),
           const SizedBox(height: 8),
           Text(
             value,
@@ -195,7 +195,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildProgressItem(
     BuildContext context,
     String label,
@@ -205,7 +205,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
   ) {
     final theme = Theme.of(context);
     final percentage = value / 100;
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -236,12 +236,15 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ],
     );
   }
-  
-  Widget _buildAgeDistribution(BuildContext context, ArchiveStatistics statistics) {
+
+  Widget _buildAgeDistribution(
+    BuildContext context,
+    ArchiveStatistics statistics,
+  ) {
     final theme = Theme.of(context);
     final oldestAge = DateTime.now().difference(statistics.oldestArchive!);
     final newestAge = DateTime.now().difference(statistics.newestArchive!);
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -278,7 +281,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ],
     );
   }
-  
+
   Widget _buildAgeItem(
     BuildContext context,
     String label,
@@ -287,7 +290,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
     Color color,
   ) {
     final theme = Theme.of(context);
-    
+
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -303,9 +306,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
             children: [
               Text(
                 label,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: color,
-                ),
+                style: theme.textTheme.bodySmall?.copyWith(color: color),
               ),
               Text(
                 age,
@@ -319,13 +320,13 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildPerformanceIndicators(
     BuildContext context,
     ArchivePerformanceStats performanceStats,
   ) {
     final theme = Theme.of(context);
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -362,7 +363,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ],
     );
   }
-  
+
   Widget _buildPerformanceItem(
     BuildContext context,
     String label,
@@ -370,7 +371,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
     Color color,
   ) {
     final theme = Theme.of(context);
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
       child: Row(
@@ -378,10 +379,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
           Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 8),
           Column(
@@ -405,10 +403,10 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildLoadingCard(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Card(
       margin: const EdgeInsets.all(16),
       child: Padding(
@@ -438,10 +436,10 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildErrorCard(BuildContext context, String error) {
     final theme = Theme.of(context);
-    
+
     return Card(
       margin: const EdgeInsets.all(16),
       child: Padding(
@@ -477,7 +475,7 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       ),
     );
   }
-  
+
   String _formatDuration(Duration duration) {
     if (duration.inDays > 365) {
       return '${(duration.inDays / 365).round()}y ago';
@@ -496,17 +494,19 @@ class ArchiveStatisticsCard extends ConsumerWidget {
 /// Compact statistics summary for smaller displays
 class CompactArchiveStatistics extends ConsumerWidget {
   const CompactArchiveStatistics({super.key});
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statisticsAsync = ref.watch(archiveStatisticsProvider);
     final theme = Theme.of(context);
-    
+
     return statisticsAsync.when(
       data: (statistics) => Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.5,
+          ),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -541,11 +541,7 @@ class CompactArchiveStatistics extends ConsumerWidget {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            Icon(
-              Icons.error_outline,
-              color: theme.colorScheme.error,
-              size: 16,
-            ),
+            Icon(Icons.error_outline, color: theme.colorScheme.error, size: 16),
             const SizedBox(width: 8),
             Text(
               'Statistics unavailable',
@@ -558,7 +554,7 @@ class CompactArchiveStatistics extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildCompactStat(
     BuildContext context,
     String value,
@@ -566,15 +562,11 @@ class CompactArchiveStatistics extends ConsumerWidget {
     IconData icon,
   ) {
     final theme = Theme.of(context);
-    
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          icon,
-          size: 16,
-          color: theme.colorScheme.primary,
-        ),
+        Icon(icon, size: 16, color: theme.colorScheme.primary),
         const SizedBox(height: 4),
         Text(
           value,

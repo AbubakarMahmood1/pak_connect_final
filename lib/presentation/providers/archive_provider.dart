@@ -14,7 +14,9 @@ final _logger = Logger('ArchiveProvider');
 
 /// Archive management service provider (singleton)
 /// ✅ FIXED: Uses singleton instance instead of creating new instances
-final archiveManagementServiceProvider = Provider<ArchiveManagementService>((ref) {
+final archiveManagementServiceProvider = Provider<ArchiveManagementService>((
+  ref,
+) {
   final service = ArchiveManagementService.instance;
 
   // Initialize service when first accessed (idempotent - safe to call multiple times)
@@ -45,9 +47,11 @@ final archiveSearchServiceProvider = Provider<ArchiveSearchService>((ref) {
 });
 
 /// Archive statistics provider
-final archiveStatisticsProvider = FutureProvider<ArchiveStatistics>((ref) async {
+final archiveStatisticsProvider = FutureProvider<ArchiveStatistics>((
+  ref,
+) async {
   final managementService = ref.watch(archiveManagementServiceProvider);
-  
+
   try {
     final analytics = await managementService.getArchiveAnalytics();
     return analytics.statistics;
@@ -58,84 +62,100 @@ final archiveStatisticsProvider = FutureProvider<ArchiveStatistics>((ref) async 
 });
 
 /// Archive list provider with optional filtering
-final archiveListProvider = FutureProvider.family<List<ArchivedChatSummary>, ArchiveListFilter?>((ref, filter) async {
-  final managementService = ref.watch(archiveManagementServiceProvider);
-  
-  try {
-    final summaries = await managementService.getEnhancedArchiveSummaries(
-      filter: filter?.searchFilter,
-      limit: filter?.limit ?? 50,
-      afterCursor: filter?.afterCursor,
-    );
-    
-    // Convert enhanced summaries to basic summaries for UI
-    return summaries.map((enhanced) => enhanced.summary).toList();
-    
-  } catch (e) {
-    _logger.severe('Failed to get archive list: $e');
-    return [];
-  }
-});
+final archiveListProvider =
+    FutureProvider.family<List<ArchivedChatSummary>, ArchiveListFilter?>((
+      ref,
+      filter,
+    ) async {
+      final managementService = ref.watch(archiveManagementServiceProvider);
+
+      try {
+        final summaries = await managementService.getEnhancedArchiveSummaries(
+          filter: filter?.searchFilter,
+          limit: filter?.limit ?? 50,
+          afterCursor: filter?.afterCursor,
+        );
+
+        // Convert enhanced summaries to basic summaries for UI
+        return summaries.map((enhanced) => enhanced.summary).toList();
+      } catch (e) {
+        _logger.severe('Failed to get archive list: $e');
+        return [];
+      }
+    });
 
 /// Archive search results provider
-final archiveSearchProvider = FutureProvider.family<AdvancedSearchResult, ArchiveSearchQuery>((ref, query) async {
-  final searchService = ref.watch(archiveSearchServiceProvider);
-  
-  if (query.query.trim().isEmpty) {
-    return AdvancedSearchResult.error(
-      query: query.query,
-      error: 'Empty query',
-      searchTime: Duration.zero,
-    );
-  }
-  
-  try {
-    return await searchService.search(
-      query: query.query,
-      filter: query.filter,
-      options: query.options,
-      limit: query.limit,
-    );
-  } catch (e) {
-    _logger.severe('Failed to perform archive search: $e');
-    return AdvancedSearchResult.error(
-      query: query.query,
-      error: 'Search failed: $e',
-      searchTime: Duration.zero,
-    );
-  }
-});
+final archiveSearchProvider =
+    FutureProvider.family<AdvancedSearchResult, ArchiveSearchQuery>((
+      ref,
+      query,
+    ) async {
+      final searchService = ref.watch(archiveSearchServiceProvider);
+
+      if (query.query.trim().isEmpty) {
+        return AdvancedSearchResult.error(
+          query: query.query,
+          error: 'Empty query',
+          searchTime: Duration.zero,
+        );
+      }
+
+      try {
+        return await searchService.search(
+          query: query.query,
+          filter: query.filter,
+          options: query.options,
+          limit: query.limit,
+        );
+      } catch (e) {
+        _logger.severe('Failed to perform archive search: $e');
+        return AdvancedSearchResult.error(
+          query: query.query,
+          error: 'Search failed: $e',
+          searchTime: Duration.zero,
+        );
+      }
+    });
 
 /// Search suggestions provider
-final archiveSearchSuggestionsProvider = FutureProvider.family<List<SearchSuggestion>, String>((ref, partialQuery) async {
-  final searchService = ref.watch(archiveSearchServiceProvider);
-  
-  if (partialQuery.trim().isEmpty) {
-    return [];
-  }
-  
-  try {
-    return await searchService.getSearchSuggestions(
-      partialQuery: partialQuery,
-      limit: 10,
-    );
-  } catch (e) {
-    _logger.warning('Failed to get search suggestions: $e');
-    return [];
-  }
-});
+final archiveSearchSuggestionsProvider =
+    FutureProvider.family<List<SearchSuggestion>, String>((
+      ref,
+      partialQuery,
+    ) async {
+      final searchService = ref.watch(archiveSearchServiceProvider);
+
+      if (partialQuery.trim().isEmpty) {
+        return [];
+      }
+
+      try {
+        return await searchService.getSearchSuggestions(
+          partialQuery: partialQuery,
+          limit: 10,
+        );
+      } catch (e) {
+        _logger.warning('Failed to get search suggestions: $e');
+        return [];
+      }
+    });
 
 /// Individual archived chat provider
-final archivedChatProvider = FutureProvider.family<ArchivedChat?, String>((ref, archiveId) async {
+final archivedChatProvider = FutureProvider.family<ArchivedChat?, String>((
+  ref,
+  archiveId,
+) async {
   final managementService = ref.watch(archiveManagementServiceProvider);
-  
+
   try {
     // Get archived chat through service API
     final summaries = await managementService.getEnhancedArchiveSummaries();
-    final summary = summaries.where((s) => s.summary.id == archiveId).firstOrNull;
-    
+    final summary = summaries
+        .where((s) => s.summary.id == archiveId)
+        .firstOrNull;
+
     if (summary == null) return null;
-    
+
     // For now, return a basic implementation - this would need proper API extension
     return ArchivedChat.fromJson({
       'id': summary.summary.id,
@@ -227,7 +247,9 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
   }
 
   void _setupEventListeners() {
-    _archiveUpdatesSubscription = _managementService.archiveUpdates.listen((event) {
+    _archiveUpdatesSubscription = _managementService.archiveUpdates.listen((
+      event,
+    ) {
       _handleArchiveUpdateEvent(event);
     });
   }
@@ -238,7 +260,10 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
       isArchiving: false,
       isRestoring: false,
       currentOperation: null,
-      recentSuccesses: [...state.recentSuccesses, 'Archive operation completed'],
+      recentSuccesses: [
+        ...state.recentSuccesses,
+        'Archive operation completed',
+      ],
     );
   }
 
@@ -269,7 +294,6 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
       }
 
       return result;
-
     } catch (e) {
       state = state.copyWith(
         isArchiving: false,
@@ -310,7 +334,6 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
       }
 
       return result;
-
     } catch (e) {
       state = state.copyWith(
         isRestoring: false,
@@ -341,11 +364,13 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
       state = state.copyWith(
         isDeleting: false,
         currentOperation: null,
-        recentSuccesses: [...state.recentSuccesses, 'Deleted archive $archiveId'],
+        recentSuccesses: [
+          ...state.recentSuccesses,
+          'Deleted archive $archiveId',
+        ],
       );
 
       return true;
-
     } catch (e) {
       state = state.copyWith(
         isDeleting: false,
@@ -359,17 +384,15 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
 
   /// Clear recent messages
   void clearRecentMessages() {
-    state = state.copyWith(
-      recentErrors: [],
-      recentSuccesses: [],
-    );
+    state = state.copyWith(recentErrors: [], recentSuccesses: []);
   }
 }
 
 /// Modern NotifierProvider for archive operations
-final archiveOperationsProvider = NotifierProvider<ArchiveOperationsNotifier, ArchiveOperationsState>(() {
-  return ArchiveOperationsNotifier();
-});
+final archiveOperationsProvider =
+    NotifierProvider<ArchiveOperationsNotifier, ArchiveOperationsState>(() {
+      return ArchiveOperationsNotifier();
+    });
 
 /// Legacy compatibility - redirects to modern provider
 @Deprecated('Use archiveOperationsProvider directly instead')
@@ -384,7 +407,7 @@ class ArchiveListFilter {
   final String? afterCursor;
   final ArchiveSortOption sortBy;
   final bool ascending;
-  
+
   const ArchiveListFilter({
     this.searchFilter,
     this.limit,
@@ -392,7 +415,7 @@ class ArchiveListFilter {
     this.sortBy = ArchiveSortOption.dateArchived,
     this.ascending = false,
   });
-  
+
   ArchiveListFilter copyWith({
     ArchiveSearchFilter? searchFilter,
     int? limit,
@@ -416,14 +439,14 @@ class ArchiveSearchQuery {
   final ArchiveSearchFilter? filter;
   final SearchOptions? options;
   final int limit;
-  
+
   const ArchiveSearchQuery({
     required this.query,
     this.filter,
     this.options,
     this.limit = 50,
   });
-  
+
   ArchiveSearchQuery copyWith({
     String? query,
     ArchiveSearchFilter? filter,
@@ -437,7 +460,7 @@ class ArchiveSearchQuery {
       limit: limit ?? this.limit,
     );
   }
-  
+
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
@@ -447,7 +470,7 @@ class ArchiveSearchQuery {
         other.options == options &&
         other.limit == limit;
   }
-  
+
   @override
   int get hashCode {
     return Object.hash(query, filter, options, limit);
@@ -527,9 +550,10 @@ class ArchiveUIStateNotifier extends Notifier<ArchiveUIState> {
 }
 
 /// Modern NotifierProvider for archive UI state
-final archiveUIStateProvider = NotifierProvider<ArchiveUIStateNotifier, ArchiveUIState>(() {
-  return ArchiveUIStateNotifier();
-});
+final archiveUIStateProvider =
+    NotifierProvider<ArchiveUIStateNotifier, ArchiveUIState>(() {
+      return ArchiveUIStateNotifier();
+    });
 
 /// Legacy compatibility - redirects to modern provider
 @Deprecated('Use archiveUIStateProvider directly instead')

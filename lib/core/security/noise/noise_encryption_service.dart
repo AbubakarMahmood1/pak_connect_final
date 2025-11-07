@@ -1,8 +1,8 @@
 /// High-level Noise encryption service
-/// 
+///
 /// Ports NoiseEncryptionService.kt from bitchat-android.
 /// Manages identity, sessions, and provides simple API.
-/// 
+///
 /// Reference: bitchat-android/noise/NoiseEncryptionService.kt (496 lines)
 library;
 
@@ -16,40 +16,40 @@ import 'noise_session.dart';
 import 'noise_session_manager.dart';
 
 /// Main Noise encryption service
-/// 
+///
 /// 100% compatible with bitchat-android implementation.
 /// Manages static identity keys, sessions, and provides simple encrypt/decrypt API.
 class NoiseEncryptionService {
   static final _logger = Logger('NoiseEncryptionService');
-  
+
   // Secure storage keys
   static const String _keyStaticPrivate = 'noise_static_private';
   static const String _keyStaticPublic = 'noise_static_public';
-  
+
   /// Secure storage for persistent keys
   final FlutterSecureStorage _secureStorage;
-  
+
   /// Static identity keys (persistent across app restarts)
   late final Uint8List _staticIdentityPrivateKey;
   late final Uint8List _staticIdentityPublicKey;
-  
+
   /// Session manager
   late final NoiseSessionManager _sessionManager;
-  
+
   /// Initialization complete flag
   bool _initialized = false;
-  
+
   /// Callbacks
   void Function(String peerID, String fingerprint)? onPeerAuthenticated;
   void Function(String peerID)? onHandshakeRequired;
 
   NoiseEncryptionService({FlutterSecureStorage? secureStorage})
-      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+    : _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   // ========== INITIALIZATION ==========
 
   /// Initialize service
-  /// 
+  ///
   /// Loads or generates static identity keys.
   /// Must be called before using any other methods.
   Future<void> initialize() async {
@@ -59,20 +59,20 @@ class NoiseEncryptionService {
     }
 
     _logger.info('Initializing Noise encryption service');
-    
+
     // Load or generate static identity key
     await _loadOrGenerateStaticKey();
-    
+
     // Initialize session manager
     _sessionManager = NoiseSessionManager(
       localStaticPrivateKey: _staticIdentityPrivateKey,
       localStaticPublicKey: _staticIdentityPublicKey,
     );
-    
+
     // Set up callbacks
     _sessionManager.onSessionEstablished = _handleSessionEstablished;
     _sessionManager.onSessionFailed = _handleSessionFailed;
-    
+
     _initialized = true;
     _logger.info('Noise encryption service initialized');
     _logger.info('Our fingerprint: ${getIdentityFingerprint()}');
@@ -83,7 +83,7 @@ class NoiseEncryptionService {
     // Try to load existing key
     final privateKeyStr = await _secureStorage.read(key: _keyStaticPrivate);
     final publicKeyStr = await _secureStorage.read(key: _keyStaticPublic);
-    
+
     if (privateKeyStr != null && publicKeyStr != null) {
       // Load existing keys
       _staticIdentityPrivateKey = _hexToBytes(privateKeyStr);
@@ -93,10 +93,10 @@ class NoiseEncryptionService {
       // Generate new key pair
       final dhState = DHState();
       dhState.generateKeyPair();
-      
+
       _staticIdentityPrivateKey = dhState.getPrivateKey()!;
       _staticIdentityPublicKey = dhState.getPublicKey()!;
-      
+
       // Save to secure storage
       await _secureStorage.write(
         key: _keyStaticPrivate,
@@ -106,7 +106,7 @@ class NoiseEncryptionService {
         key: _keyStaticPublic,
         value: _bytesToHex(_staticIdentityPublicKey),
       );
-      
+
       dhState.destroy();
       _logger.info('Generated and saved new static identity key');
     }
@@ -115,7 +115,9 @@ class NoiseEncryptionService {
   /// Ensure service is initialized
   void _checkInitialized() {
     if (!_initialized) {
-      throw StateError('NoiseEncryptionService not initialized - call initialize() first');
+      throw StateError(
+        'NoiseEncryptionService not initialized - call initialize() first',
+      );
     }
   }
 
@@ -128,13 +130,15 @@ class NoiseEncryptionService {
   }
 
   /// Get our identity fingerprint
-  /// 
+  ///
   /// Returns SHA-256 hash of static public key as hex string.
   /// Matches bitchat calculateFingerprint().
   String getIdentityFingerprint() {
     _checkInitialized();
     final digest = sha256.convert(_staticIdentityPublicKey);
-    return digest.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
+    return digest.bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join('');
   }
 
   /// Get peer's public key (if session established)
@@ -149,7 +153,9 @@ class NoiseEncryptionService {
   /// Returns SHA-256 hash as hex string
   static String calculateFingerprint(Uint8List publicKey) {
     final digest = sha256.convert(publicKey);
-    return digest.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
+    return digest.bytes
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join('');
   }
 
   // ========== IDENTITY RESOLUTION ==========
@@ -174,11 +180,11 @@ class NoiseEncryptionService {
   // ========== HANDSHAKE MANAGEMENT ==========
 
   /// Initiate handshake with peer
-  /// 
+  ///
   /// [peerID] Peer identifier
   /// [pattern] Noise pattern to use (defaults to XX for first-time contacts)
   /// [remoteStaticPublicKey] Remote's static public key (REQUIRED for KK pattern)
-  /// 
+  ///
   /// For XX pattern: Returns first handshake message (32 bytes)
   /// For KK pattern: Returns first handshake message (96 bytes)
   Future<Uint8List?> initiateHandshake(
@@ -187,7 +193,7 @@ class NoiseEncryptionService {
     Uint8List? remoteStaticPublicKey,
   }) async {
     _checkInitialized();
-    
+
     try {
       return await _sessionManager.initiateHandshake(
         peerID,
@@ -195,19 +201,24 @@ class NoiseEncryptionService {
         remoteStaticPublicKey: remoteStaticPublicKey,
       );
     } catch (e) {
-      _logger.severe('Failed to initiate ${pattern.name.toUpperCase()} handshake with $peerID: $e');
+      _logger.severe(
+        'Failed to initiate ${pattern.name.toUpperCase()} handshake with $peerID: $e',
+      );
       return null;
     }
   }
 
   /// Process incoming handshake message
-  /// 
+  ///
   /// [data] Handshake message bytes
   /// [peerID] Peer identifier
   /// Returns response message if needed, null if complete/failed
-  Future<Uint8List?> processHandshakeMessage(Uint8List data, String peerID) async {
+  Future<Uint8List?> processHandshakeMessage(
+    Uint8List data,
+    String peerID,
+  ) async {
     _checkInitialized();
-    
+
     try {
       return await _sessionManager.processHandshakeMessage(peerID, data);
     } catch (e) {
@@ -231,21 +242,23 @@ class NoiseEncryptionService {
   // ========== ENCRYPTION / DECRYPTION ==========
 
   /// Encrypt data for peer
-  /// 
+  ///
   /// Requires established session.
-  /// 
+  ///
   /// [data] Plaintext bytes
   /// [peerID] Peer identifier
   /// Returns encrypted bytes with nonce, null if session not ready
   Future<Uint8List?> encrypt(Uint8List data, String peerID) async {
     _checkInitialized();
-    
+
     if (!hasEstablishedSession(peerID)) {
-      _logger.warning('No established session with $peerID - handshake required');
+      _logger.warning(
+        'No established session with $peerID - handshake required',
+      );
       onHandshakeRequired?.call(peerID);
       return null;
     }
-    
+
     try {
       return await _sessionManager.encrypt(data, peerID);
     } catch (e) {
@@ -255,20 +268,22 @@ class NoiseEncryptionService {
   }
 
   /// Decrypt data from peer
-  /// 
+  ///
   /// Requires established session.
-  /// 
+  ///
   /// [encryptedData] Ciphertext bytes with nonce
   /// [peerID] Peer identifier
   /// Returns plaintext bytes, null if session not ready or decryption failed
   Future<Uint8List?> decrypt(Uint8List encryptedData, String peerID) async {
     _checkInitialized();
-    
+
     if (!hasEstablishedSession(peerID)) {
-      _logger.warning('No established session with $peerID when trying to decrypt');
+      _logger.warning(
+        'No established session with $peerID when trying to decrypt',
+      );
       return null;
     }
-    
+
     try {
       return await _sessionManager.decrypt(encryptedData, peerID);
     } catch (e) {
@@ -280,7 +295,7 @@ class NoiseEncryptionService {
   // ========== SESSION MANAGEMENT ==========
 
   /// Check sessions and trigger rekey if needed
-  /// 
+  ///
   /// Returns list of peer IDs that need rekeying.
   List<String> checkForRekeyNeeded() {
     _checkInitialized();
@@ -288,7 +303,7 @@ class NoiseEncryptionService {
   }
 
   /// Remove session for peer
-  /// 
+  ///
   /// Useful for forcing rekey or cleanup.
   void removeSession(String peerID) {
     _checkInitialized();
@@ -311,7 +326,9 @@ class NoiseEncryptionService {
 
   void _handleSessionEstablished(String peerID, Uint8List remoteStaticKey) {
     final fingerprint = calculateFingerprint(remoteStaticKey);
-    _logger.info('Session established with $peerID (fingerprint: $fingerprint)');
+    _logger.info(
+      'Session established with $peerID (fingerprint: $fingerprint)',
+    );
     onPeerAuthenticated?.call(peerID, fingerprint);
   }
 
@@ -322,20 +339,20 @@ class NoiseEncryptionService {
   // ========== CLEANUP ==========
 
   /// Clear persistent identity (DANGEROUS - for panic mode only)
-  /// 
+  ///
   /// Deletes static keys from secure storage.
   /// Service must be re-initialized after this.
   Future<void> clearPersistentIdentity() async {
     _logger.warning('Clearing persistent identity!');
-    
+
     await _secureStorage.delete(key: _keyStaticPrivate);
     await _secureStorage.delete(key: _keyStaticPublic);
-    
+
     _initialized = false;
   }
 
   /// Shutdown service
-  /// 
+  ///
   /// Destroys all sessions and clears memory.
   void shutdown() {
     if (_initialized) {

@@ -1,8 +1,8 @@
 /// Noise session manager for multiple peers
-/// 
+///
 /// Ports NoiseSessionManager.kt from bitchat-android.
 /// Manages sessions for multiple peers with lifecycle handling.
-/// 
+///
 /// Reference: bitchat-android/noise/NoiseSessionManager.kt (227 lines)
 library;
 
@@ -12,7 +12,8 @@ import 'models/noise_models.dart';
 import 'noise_session.dart';
 
 /// Callback when session is established
-typedef SessionEstablishedCallback = void Function(String peerID, Uint8List remoteStaticKey);
+typedef SessionEstablishedCallback =
+    void Function(String peerID, Uint8List remoteStaticKey);
 
 /// Callback when session fails
 typedef SessionFailedCallback = void Function(String peerID, Exception error);
@@ -42,14 +43,14 @@ class NoiseSessionManager {
   SessionFailedCallback? onSessionFailed;
 
   /// Create session manager
-  /// 
+  ///
   /// [localStaticPrivateKey] Our 32-byte static private key
   /// [localStaticPublicKey] Our 32-byte static public key
   NoiseSessionManager({
     required Uint8List localStaticPrivateKey,
     required Uint8List localStaticPublicKey,
-  })  : _localStaticPrivateKey = Uint8List.fromList(localStaticPrivateKey),
-        _localStaticPublicKey = Uint8List.fromList(localStaticPublicKey);
+  }) : _localStaticPrivateKey = Uint8List.fromList(localStaticPrivateKey),
+       _localStaticPublicKey = Uint8List.fromList(localStaticPublicKey);
 
   // ========== SESSION MANAGEMENT ==========
 
@@ -96,13 +97,17 @@ class NoiseSessionManager {
   /// [ephemeralID] The session-specific ID (key in _sessions map)
   void registerIdentityMapping(String persistentPublicKey, String ephemeralID) {
     _persistentToEphemeral[persistentPublicKey] = ephemeralID;
-    _logger.info('🔑 Registered identity mapping: ${persistentPublicKey.substring(0, 8)}... → ${ephemeralID.substring(0, 8)}...');
+    _logger.info(
+      '🔑 Registered identity mapping: ${persistentPublicKey.substring(0, 8)}... → ${ephemeralID.substring(0, 8)}...',
+    );
   }
 
   /// Unregister persistent → ephemeral mapping
   void unregisterIdentityMapping(String persistentPublicKey) {
     _persistentToEphemeral.remove(persistentPublicKey);
-    _logger.fine('Unregistered identity mapping for ${persistentPublicKey.substring(0, 8)}...');
+    _logger.fine(
+      'Unregistered identity mapping for ${persistentPublicKey.substring(0, 8)}...',
+    );
   }
 
   /// Resolve any public key to the actual session ID (ephemeral ID)
@@ -121,12 +126,16 @@ class NoiseSessionManager {
     // Check if this is a persistent key with a mapping
     final ephemeralID = _persistentToEphemeral[publicKey];
     if (ephemeralID != null) {
-      _logger.fine('🔍 Resolved persistent key ${publicKey.substring(0, 8)}... → ephemeral ${ephemeralID.substring(0, 8)}...');
+      _logger.fine(
+        '🔍 Resolved persistent key ${publicKey.substring(0, 8)}... → ephemeral ${ephemeralID.substring(0, 8)}...',
+      );
       return ephemeralID;
     }
 
     // No mapping found, assume input is the session ID
-    _logger.fine('🔍 No mapping for ${publicKey.substring(0, 8)}..., using as-is');
+    _logger.fine(
+      '🔍 No mapping for ${publicKey.substring(0, 8)}..., using as-is',
+    );
     return publicKey;
   }
 
@@ -148,14 +157,14 @@ class NoiseSessionManager {
   // ========== HANDSHAKE METHODS ==========
 
   /// Initiate handshake with peer
-  /// 
+  ///
   /// Creates new session as initiator and returns first message.
   /// Removes any existing session first.
-  /// 
+  ///
   /// [peerID] Peer identifier
   /// [pattern] Noise pattern to use (defaults to XX)
   /// [remoteStaticPublicKey] Remote's static public key (REQUIRED for KK pattern)
-  /// 
+  ///
   /// For XX pattern: Returns Message 1 (32 bytes)
   /// For KK pattern: Returns Message 1 (96 bytes)
   Future<Uint8List> initiateHandshake(
@@ -163,16 +172,18 @@ class NoiseSessionManager {
     NoisePattern pattern = NoisePattern.xx,
     Uint8List? remoteStaticPublicKey,
   }) async {
-    _logger.info('Initiating ${pattern.name.toUpperCase()} handshake with $peerID');
-    
+    _logger.info(
+      'Initiating ${pattern.name.toUpperCase()} handshake with $peerID',
+    );
+
     // Validate KK requirements
     if (pattern == NoisePattern.kk && remoteStaticPublicKey == null) {
       throw ArgumentError('KK pattern requires remoteStaticPublicKey');
     }
-    
+
     // Remove any existing session
     removeSession(peerID);
-    
+
     // Create new session as initiator
     final session = NoiseSession(
       peerID: peerID,
@@ -182,12 +193,14 @@ class NoiseSessionManager {
       localStaticPublicKey: _localStaticPublicKey,
       remoteStaticPublicKey: remoteStaticPublicKey,
     );
-    
+
     addSession(peerID, session);
-    
+
     try {
       final message = await session.startHandshake();
-      _logger.info('Started ${pattern.name.toUpperCase()} handshake with $peerID as INITIATOR');
+      _logger.info(
+        'Started ${pattern.name.toUpperCase()} handshake with $peerID as INITIATOR',
+      );
       return message;
     } catch (e) {
       _logger.severe('Failed to start handshake with $peerID: $e');
@@ -197,60 +210,61 @@ class NoiseSessionManager {
   }
 
   /// Process incoming handshake message
-  /// 
+  ///
   /// Creates responder session if needed, processes message.
   /// Returns response message if needed, null if complete.
-  /// 
+  ///
   /// [peerID] Peer identifier
   /// [message] Handshake message bytes
   Future<Uint8List?> processHandshakeMessage(
     String peerID,
     Uint8List message,
   ) async {
-    _logger.fine('Processing handshake message from $peerID (${message.length} bytes)');
-    
+    _logger.fine(
+      'Processing handshake message from $peerID (${message.length} bytes)',
+    );
+
     try {
       var session = getSession(peerID);
-      
+
       // Create responder session if needed
       if (session == null) {
         _logger.info('Creating new RESPONDER session for $peerID');
-        
+
         session = NoiseSession(
           peerID: peerID,
           isInitiator: false,
           localStaticPrivateKey: _localStaticPrivateKey,
           localStaticPublicKey: _localStaticPublicKey,
         );
-        
+
         addSession(peerID, session);
       }
-      
+
       // Process message
       final response = await session.processHandshakeMessage(message);
-      
+
       // Check if session established
       if (session.isEstablished()) {
         _logger.info('✅ Session ESTABLISHED with $peerID');
-        
+
         final remoteStaticKey = session.getRemoteStaticPublicKey();
         if (remoteStaticKey != null) {
           onSessionEstablished?.call(peerID, remoteStaticKey);
         }
       }
-      
+
       return response;
-      
     } catch (e) {
       _logger.severe('Handshake failed with $peerID: $e');
       removeSession(peerID);
-      
+
       if (e is Exception) {
         onSessionFailed?.call(peerID, e);
       } else {
         onSessionFailed?.call(peerID, Exception(e.toString()));
       }
-      
+
       rethrow;
     }
   }
@@ -272,7 +286,9 @@ class NoiseSessionManager {
     }
 
     if (!session.isEstablished()) {
-      throw StateError('Session not established with $peerID (resolved to $sessionID)');
+      throw StateError(
+        'Session not established with $peerID (resolved to $sessionID)',
+      );
     }
 
     return session.encrypt(data);
@@ -289,15 +305,19 @@ class NoiseSessionManager {
     final session = getSession(sessionID);
 
     if (session == null) {
-      _logger.severe('No session found for $peerID (resolved to $sessionID) when trying to decrypt');
+      _logger.severe(
+        'No session found for $peerID (resolved to $sessionID) when trying to decrypt',
+      );
       throw StateError('No session found for $peerID (resolved to $sessionID)');
     }
-    
+
     if (!session.isEstablished()) {
-      _logger.severe('Session not established with $peerID when trying to decrypt');
+      _logger.severe(
+        'Session not established with $peerID when trying to decrypt',
+      );
       throw StateError('Session not established with $peerID');
     }
-    
+
     return session.decrypt(encryptedData);
   }
 
@@ -321,7 +341,9 @@ class NoiseSessionManager {
   /// Get sessions needing rekey
   List<String> getSessionsNeedingRekey() {
     return _sessions.entries
-        .where((entry) => entry.value.isEstablished() && entry.value.needsRekey())
+        .where(
+          (entry) => entry.value.isEstablished() && entry.value.needsRekey(),
+        )
         .map((entry) => entry.key)
         .toList();
   }
@@ -341,11 +363,11 @@ class NoiseSessionManager {
   /// Shutdown manager and destroy all sessions
   void shutdown() {
     _logger.info('Shutting down Noise session manager');
-    
+
     for (final session in _sessions.values) {
       session.destroy();
     }
-    
+
     _sessions.clear();
     _logger.info('All sessions destroyed');
   }
@@ -356,16 +378,18 @@ class NoiseSessionManager {
     buffer.writeln('=== Noise Session Manager Debug ===');
     buffer.writeln('Active sessions: ${_sessions.length}');
     buffer.writeln('');
-    
+
     if (_sessions.isNotEmpty) {
       buffer.writeln('Sessions:');
       for (final entry in _sessions.entries) {
         final stats = entry.value.getStats();
-        buffer.writeln('  ${entry.key}: ${stats['state']} '
-            '(sent: ${stats['messagesSent']}, received: ${stats['messagesReceived']})');
+        buffer.writeln(
+          '  ${entry.key}: ${stats['state']} '
+          '(sent: ${stats['messagesSent']}, received: ${stats['messagesReceived']})',
+        );
       }
     }
-    
+
     return buffer.toString();
   }
 }
