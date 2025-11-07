@@ -67,6 +67,9 @@ class AdaptivePowerManager {
   int _currentScanInterval = 60000;
   int _currentHealthCheckInterval = 30000;
   bool _isBurstMode = false;
+  bool _shouldRun = false;
+  bool _bluetoothAvailable = true;
+  bool _pausedForBluetooth = false;
   Timer? _scanTimer;
   Timer? _healthCheckTimer;
   Timer? _burstTimer;
@@ -138,6 +141,17 @@ class AdaptivePowerManager {
   ///
   /// Phase 2a: ALL modes use burst scanning with variable wait times
   Future<void> startAdaptiveScanning() async {
+    _shouldRun = true;
+
+    if (!_bluetoothAvailable) {
+      _logger.info(
+        '🔍 Bluetooth unavailable - deferring adaptive scanning start until permissions are granted',
+      );
+      _pausedForBluetooth = true;
+      return;
+    }
+
+    _pausedForBluetooth = false;
     await _stopAllTimers();
 
     _logger.info(
@@ -155,8 +169,38 @@ class AdaptivePowerManager {
 
   /// Stop all power management operations
   Future<void> stopScanning() async {
+    _shouldRun = false;
+    _pausedForBluetooth = false;
     await _stopAllTimers();
     _logger.info('Stopped adaptive scanning');
+  }
+
+  /// Pause/resume adaptive scanning based on Bluetooth availability
+  Future<void> updateBluetoothAvailability(bool isAvailable) async {
+    if (_bluetoothAvailable == isAvailable) {
+      return;
+    }
+
+    _bluetoothAvailable = isAvailable;
+
+    if (!isAvailable) {
+      if (_shouldRun) {
+        _logger.info(
+          '🔒 Bluetooth unavailable (permission/off) - pausing adaptive scanning timers',
+        );
+        _pausedForBluetooth = true;
+      }
+      await _stopAllTimers();
+      return;
+    }
+
+    if (_shouldRun && _pausedForBluetooth) {
+      _logger.info(
+        '🔓 Bluetooth ready again - resuming adaptive scanning timers',
+      );
+      _pausedForBluetooth = false;
+      await startAdaptiveScanning();
+    }
   }
 
   // ============================================================================

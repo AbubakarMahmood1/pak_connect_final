@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
+    show BluetoothLowEnergyState;
 import '../power/adaptive_power_manager.dart';
 import '../../data/services/ble_service.dart';
 import '../bluetooth/bluetooth_state_monitor.dart'; // ✅ FIX #2: Import for Bluetooth state checking
@@ -18,6 +20,7 @@ class BurstScanningController {
   AdaptivePowerManager?
   _powerManager; // ✅ FIX: Made nullable to prevent LateInitializationError on disposal
   BLEService? _bleService;
+  StreamSubscription<BluetoothStateInfo>? _bluetoothStateSubscription;
 
   // Status tracking
   bool _isBurstActive = false;
@@ -46,6 +49,20 @@ class BurstScanningController {
       onHealthCheck: _handleHealthCheck,
       onStatsUpdate: _handleStatsUpdate,
     );
+
+    final bluetoothMonitor = BluetoothStateMonitor.instance;
+    await _powerManager!.updateBluetoothAvailability(
+      bluetoothMonitor.isBluetoothReady,
+    );
+    _bluetoothStateSubscription = bluetoothMonitor.stateStream.listen((
+      stateInfo,
+    ) {
+      final available = stateInfo.state == BluetoothLowEnergyState.poweredOn;
+      final future = _powerManager?.updateBluetoothAvailability(available);
+      if (future != null) {
+        unawaited(future);
+      }
+    });
 
     // Start status update timer
     _statusUpdateTimer = Timer.periodic(
@@ -350,6 +367,7 @@ class BurstScanningController {
   void dispose() {
     _statusUpdateTimer?.cancel();
     _burstDurationTimer?.cancel();
+    _bluetoothStateSubscription?.cancel();
 
     // ✅ FIX: Only dispose power manager if it was initialized
     // This prevents LateInitializationError when Bluetooth was never available

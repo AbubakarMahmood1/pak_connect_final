@@ -14,6 +14,7 @@ import 'database_encryption.dart';
 class DatabaseHelper {
   static final _logger = Logger('DatabaseHelper');
   static sqlcipher.Database? _database;
+  static Future<sqlcipher.Database>? _initializingDatabase;
   static const String _databaseName = 'pak_connect.db';
   static const int _databaseVersion =
       9; // v9: Added contact groups tables for secure multi-unicast messaging
@@ -28,9 +29,21 @@ class DatabaseHelper {
 
   /// Get database instance (singleton pattern)
   static Future<sqlcipher.Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
+    if (_database != null) {
+      return _database!;
+    }
+
+    if (_initializingDatabase != null) {
+      return _initializingDatabase!;
+    }
+
+    _initializingDatabase = _initDatabase();
+    try {
+      _database = await _initializingDatabase!;
+      return _database!;
+    } finally {
+      _initializingDatabase = null;
+    }
   }
 
   /// Initialize the database with SQLCipher encryption
@@ -942,6 +955,7 @@ class DatabaseHelper {
     if (_database != null) {
       await _database!.close();
       _database = null;
+      _initializingDatabase = null;
       _logger.info('Database closed');
     }
   }
@@ -957,11 +971,13 @@ class DatabaseHelper {
       final path = join(databasesPath, dbName);
       await factory.deleteDatabase(path);
       _database = null;
+      _initializingDatabase = null;
       _logger.warning('Database deleted');
     } catch (e) {
       // In test environment, may fail - that's OK
       _logger.fine('Database delete attempted: $e');
       _database = null;
+      _initializingDatabase = null;
     }
   }
 

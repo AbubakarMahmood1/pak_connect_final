@@ -43,27 +43,6 @@ class MessageRouter {
   late final BLEService _bleService; // ignore: unused_field
   late final OfflineMessageQueue _offlineQueue;
 
-  // Statistics (delegated to OfflineMessageQueue)
-  int get _totalQueued {
-    // ignore: unused_element
-    try {
-      return _offlineQueue.getStatistics().totalQueued;
-    } catch (e) {
-      _logger.warning('⚠️ OfflineMessageQueue not initialized for stats');
-      return 0;
-    }
-  }
-
-  int get _totalFlushed {
-    // ignore: unused_element
-    try {
-      return _offlineQueue.getStatistics().totalDelivered;
-    } catch (e) {
-      _logger.warning('⚠️ OfflineMessageQueue not initialized for stats');
-      return 0;
-    }
-  }
-
   MessageRouter._();
 
   /// Initialize the message router
