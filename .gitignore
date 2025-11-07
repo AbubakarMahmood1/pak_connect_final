@@ -113,3 +113,5 @@ reference/
 
 # Local MCP workspace (do not commit)
 serena/
+
+.analysis.machine.txt
