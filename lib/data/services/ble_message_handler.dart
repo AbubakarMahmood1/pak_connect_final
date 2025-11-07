@@ -247,8 +247,8 @@ class BLEMessageHandler {
   final legacyPayload = {
     ...protocolMessage.payload,
     'encryptionMethod': encryptionMethod,
-    'intendedRecipient': finalRecipientId,     // From identity resolution
-    'originalSender': finalSenderIf,            // From identity resolution
+    'intendedRecipient': originalIntendedRecipient ?? finalRecipientId,
+    'originalSender': finalSenderIf,
   };
 
   final finalMessage = ProtocolMessage(
@@ -430,8 +430,8 @@ Future<bool> sendPeripheralMessage({
   final legacyPayload = {
     ...protocolMessage.payload,
     'encryptionMethod': encryptionMethod,
-    'intendedRecipient': finalRecipientId,     // From identity resolution
-    'originalSender': finalSenderIf,            // From identity resolution
+    'intendedRecipient': originalIntendedRecipient ?? finalRecipientId,
+    'originalSender': finalSenderIf,
   };
 
   final finalMessage = ProtocolMessage(
@@ -1012,25 +1012,26 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
   /// Handle queue synchronization message
   Future<String?> _handleQueueSync(ProtocolMessage protocolMessage, String? senderPublicKey) async {
     try {
-      final queueHash = protocolMessage.queueSyncHash;
-      final messageIds = protocolMessage.queueSyncMessageIds;
-      final syncTimestamp = protocolMessage.queueSyncTimestamp;
+      final queueSyncMessage = protocolMessage.queueSyncMessage;
 
-      if (queueHash == null || messageIds == null || syncTimestamp == null || senderPublicKey == null) {
+      if (queueSyncMessage == null || senderPublicKey == null) {
         _logger.warning('🔄 QUEUE SYNC: Invalid sync message received');
         return null;
       }
 
-      // Create QueueSyncMessage from protocol message
+      // Ensure nodeId always reflects the BLE sender
       final syncMessage = QueueSyncMessage(
-        queueHash: queueHash,
-        messageIds: messageIds,
-        syncTimestamp: DateTime.fromMillisecondsSinceEpoch(syncTimestamp),
+        queueHash: queueSyncMessage.queueHash,
+        messageIds: queueSyncMessage.messageIds,
+        syncTimestamp: queueSyncMessage.syncTimestamp,
         nodeId: senderPublicKey,
-        syncType: QueueSyncType.request,
+        syncType: queueSyncMessage.syncType,
+        messageHashes: queueSyncMessage.messageHashes,
+        queueStats: queueSyncMessage.queueStats,
+        gcsFilter: queueSyncMessage.gcsFilter,
       );
 
-      _logger.info('🔄 QUEUE SYNC: Received from ${_safeTruncate(senderPublicKey, 16)}...');
+      _logger.info('🔄 QUEUE SYNC: Received ${syncMessage.syncType.name} from ${_safeTruncate(senderPublicKey, 16)}...');
 
       // Forward to sync manager via callback
       onQueueSyncReceived?.call(syncMessage, senderPublicKey);
@@ -1199,11 +1200,7 @@ Future<String> _getSimpleEncryptionMethod(String? contactPublicKey, ContactRepos
     required BLEStateManager stateManager,
   }) async {
     try {
-      final protocolMessage = ProtocolMessage.queueSync(
-        queueHash: syncMessage.queueHash,
-        messageIds: syncMessage.messageIds,
-        syncTimestamp: syncMessage.syncTimestamp.millisecondsSinceEpoch,
-      );
+      final protocolMessage = ProtocolMessage.queueSync(queueMessage: syncMessage);
 
       final jsonBytes = protocolMessage.toBytes();
       final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, 'queue_sync_${DateTime.now().millisecondsSinceEpoch}');

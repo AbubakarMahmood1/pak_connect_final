@@ -37,20 +37,24 @@ void main() {
     });
     
     test('QueueSync message creation and serialization', () {
-      final queueSyncMessage = ProtocolMessage.queueSync(
+      final syncMessage = QueueSyncMessage(
         queueHash: 'queue-hash-123',
         messageIds: ['msg1', 'msg2', 'msg3'],
-        syncTimestamp: DateTime.now().millisecondsSinceEpoch,
+        syncTimestamp: DateTime.now(),
+        nodeId: 'node-123',
+        syncType: QueueSyncType.request,
       );
+
+      final protocolMessage = ProtocolMessage.queueSync(queueMessage: syncMessage);
       
-      expect(queueSyncMessage.type, ProtocolMessageType.queueSync);
-      expect(queueSyncMessage.queueSyncHash, 'queue-hash-123');
-      expect(queueSyncMessage.queueSyncMessageIds, ['msg1', 'msg2', 'msg3']);
+      expect(protocolMessage.type, ProtocolMessageType.queueSync);
+      expect(protocolMessage.queueSyncMessage?.queueHash, 'queue-hash-123');
+      expect(protocolMessage.queueSyncMessage?.messageIds, ['msg1', 'msg2', 'msg3']);
       
       // Test serialization
-      final bytes = queueSyncMessage.toBytes();
+      final bytes = protocolMessage.toBytes();
       final deserialized = ProtocolMessage.fromBytes(bytes);
-      expect(deserialized.queueSyncMessageIds, ['msg1', 'msg2', 'msg3']);
+      expect(deserialized.queueSyncMessage?.messageIds, ['msg1', 'msg2', 'msg3']);
     });
     
     test('RelayAck message creation and serialization', () {

@@ -2,7 +2,6 @@
 
 import 'dart:typed_data';
 import '../../domain/entities/ephemeral_discovery_hint.dart';
-import '../../domain/entities/sensitive_contact_hint.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../utils/app_logger.dart';
 import 'hint_advertisement_service.dart';
@@ -74,8 +73,8 @@ enum HintMatchType {
 class HintScannerService {
   final _logger = AppLogger.getLogger(LoggerNames.hintSystem);
 
-  /// Cache of contact hints for O(1) lookup
-  final Map<String, SensitiveContactHint> _contactHintCache = {};
+  /// Cache of contacts keyed by identifier (public key)
+  final Map<String, Contact> _contactCache = {};
 
   /// Active intro hints (from QR scans we did)
   final Map<String, EphemeralDiscoveryHint> _activeIntroHints = {};
@@ -90,27 +89,19 @@ class HintScannerService {
   /// Initialize scanner by precomputing all contact hints
   Future<void> initialize() async {
     await _rebuildContactCache();
-    _logger.info('✅ HintScannerService initialized with ${_contactHintCache.length} contacts');
+    _logger.info('✅ HintScannerService initialized with ${_contactCache.length} contacts');
   }
 
   /// Rebuild contact hint cache (call after new pairing)
   Future<void> _rebuildContactCache() async {
-    _contactHintCache.clear();
+    _contactCache.clear();
 
     final contacts = await _contactRepository.getAllContacts();
-
-    for (final contact in contacts.values) {
-      // Compute persistent hint directly from public key
-      final sensitiveHint = SensitiveContactHint.compute(
-        contactPublicKey: contact.publicKey,
-        displayName: contact.displayName,
-      );
-
-      // Cache by hint hex string for fast lookup
-      _contactHintCache[sensitiveHint.hintHex] = sensitiveHint;
+    for (final entry in contacts.entries) {
+      _contactCache[entry.key] = entry.value;
     }
 
-    _logger.info('🔄 Contact hint cache rebuilt: ${_contactHintCache.length} entries');
+    _logger.info('🔄 Contact cache rebuilt: ${_contactCache.length} entries');
   }
 
   /// Add active intro hint (from QR scan)
@@ -154,77 +145,88 @@ class HintScannerService {
       return HintMatchResult.stranger();
     }
 
-    // Check Level 2: Sensitive contact hints (priority)
-    if (parsed.hasEphemeralHint) {
-      final match = _checkContactHint(parsed.ephemeralHintBytes!);
-      if (match != null) {
-        return match;
+    if (parsed.isIntro) {
+      final introMatch = _matchIntroHint(parsed);
+      if (introMatch != null) {
+        return introMatch;
+      }
+    } else {
+      final contactMatch = await _matchContactHint(parsed);
+      if (contactMatch != null) {
+        return contactMatch;
       }
     }
 
-    // Check Level 1: Intro hints
-    if (parsed.hasIntroHint) {
-      final match = _checkIntroHint(parsed.introHintBytes!);
-      if (match != null) {
-        return match;
-      }
-    }
-
-    // No match
     return HintMatchResult.stranger();
   }
 
-  /// Check ephemeral hint against contact cache
-  HintMatchResult? _checkContactHint(Uint8List hintBytes) {
-    final hintHex = hintBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
+  Future<HintMatchResult?> _matchContactHint(ParsedHint parsed) async {
+    if (_contactCache.isEmpty) {
+      await _rebuildContactCache();
+    }
 
-    final contact = _contactHintCache[hintHex];
-
-    if (contact != null) {
-      _logger.info('✅ CONTACT MATCH: ${contact.displayName} (${contact.contactPublicKey.substring(0, 16)}...)');
-
-      return HintMatchResult.contact(
-        publicKey: contact.contactPublicKey,
-        name: contact.displayName ?? 'Unknown',
+    for (final contact in _contactCache.values) {
+      final identifier = contact.persistentPublicKey ?? contact.publicKey;
+      final expected = HintAdvertisementService.computeHintBytes(
+        identifier: identifier,
+        nonce: parsed.nonce,
       );
+
+      if (_bytesEqual(expected, parsed.hintBytes)) {
+        _logger.info('✅ CONTACT MATCH: ${contact.displayName} (${identifier.substring(0, 16)}...)');
+        return HintMatchResult.contact(
+          publicKey: contact.publicKey,
+          name: contact.displayName,
+        );
+      }
     }
 
     return null;
   }
 
-  /// Check intro hint against active intros
-  HintMatchResult? _checkIntroHint(Uint8List hintBytes) {
-    final hintHex = hintBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
+  HintMatchResult? _matchIntroHint(ParsedHint parsed) {
+    for (final intro in _activeIntroHints.values) {
+      if (!intro.isUsable) continue;
 
-    final intro = _activeIntroHints[hintHex];
+      final expected = HintAdvertisementService.computeHintBytes(
+        identifier: intro.hintHex,
+        nonce: parsed.nonce,
+      );
 
-    if (intro != null && intro.isUsable) {
-      _logger.info('✅ INTRO MATCH: ${intro.displayName} (${intro.hintHex})');
-
-      return HintMatchResult.intro(hint: intro);
+      if (_bytesEqual(expected, parsed.hintBytes)) {
+        _logger.info('✅ INTRO MATCH: ${intro.displayName} (${intro.hintHex})');
+        return HintMatchResult.intro(hint: intro);
+      }
     }
-
     return null;
   }
 
   /// Get cache statistics
   Map<String, int> getStatistics() {
     return {
-      'cached_contacts': _contactHintCache.length,
+      'cached_contacts': _contactCache.length,
       'active_intros': _activeIntroHints.length,
     };
   }
 
   /// Clear all caches (for testing)
   void clearCaches() {
-    _contactHintCache.clear();
+    _contactCache.clear();
     _activeIntroHints.clear();
     _logger.info('🧹 All hint caches cleared');
   }
 
   /// Dispose scanner
   void dispose() {
-    _contactHintCache.clear();
+    _contactCache.clear();
     _activeIntroHints.clear();
+  }
+
+  bool _bytesEqual(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 }

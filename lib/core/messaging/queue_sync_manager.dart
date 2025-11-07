@@ -25,6 +25,8 @@ class QueueSyncManager {
   // Sync state tracking
   final Map<String, DateTime> _lastSyncWithNode = {};
   final Map<String, Timer> _activeSyncs = {};
+  final Map<String, Completer<QueueSyncResult>> _pendingSyncs = {};
+  final Map<String, Stopwatch> _syncStopwatches = {};
   final Map<String, int> _syncAttempts = {};
   final Set<String> _syncInProgress = {};
   
@@ -132,6 +134,21 @@ class QueueSyncManager {
       final missingIds = _messageQueue.getMissingMessageIds(syncMessage.messageIds);
       final excessMessages = _messageQueue.getExcessMessages(syncMessage.messageIds);
 
+      if (excessMessages.isNotEmpty) {
+        if (onSendMessages != null) {
+          _logger.info(
+            'Dispatching ${excessMessages.length} queued message(s) to $truncatedNodeId via sync response',
+          );
+          onSendMessages!.call(List<QueuedMessage>.from(excessMessages), fromNodeId);
+        } else {
+          _logger.warning(
+            'Queue sync found ${excessMessages.length} payload(s) for $truncatedNodeId but no send callback is configured',
+          );
+        }
+      } else {
+        _logger.fine('No queued payloads to send back to $truncatedNodeId during sync');
+      }
+
       // If there are no missing or excess messages, queues are already synchronized
       if (missingIds.isEmpty && excessMessages.isEmpty) {
         _logger.info('No messages to sync - queues already synchronized with $fromNodeId');
@@ -202,8 +219,17 @@ class QueueSyncManager {
       );
       
       _logger.info('Sync completed with $fromNodeId: +$messagesAdded, ~$messagesUpdated, -$messagesSkipped');
+
+      final pending = _pendingSyncs.remove(fromNodeId);
+      final stopwatch = _syncStopwatches.remove(fromNodeId);
+      _activeSyncs.remove(fromNodeId)?.cancel();
+      final elapsed = stopwatch?.elapsed ?? Duration.zero;
+
+      if (pending != null && !pending.isCompleted) {
+        pending.complete(result.copyWithDuration(elapsed));
+      }
       
-      return result;
+      return result.copyWithDuration(elapsed);
       
     } catch (e) {
       _logger.severe('Failed to process sync response: $e');
@@ -267,55 +293,61 @@ class QueueSyncManager {
   /// Perform actual synchronization with timeout
   Future<QueueSyncResult> _performSync(String targetNodeId, QueueSyncMessage syncMessage) async {
     final stopwatch = Stopwatch()..start();
-    
+
     try {
-      // Set up timeout
-      final syncCompleter = Completer<QueueSyncResult>();
-      
+      if (onSyncRequest == null) {
+        _logger.warning('Sync transport not configured - cannot sync with $targetNodeId');
+        return QueueSyncResult.error('Sync transport unavailable');
+      }
+
+      if (_pendingSyncs.containsKey(targetNodeId)) {
+        _logger.warning('Sync already pending with $targetNodeId');
+        return QueueSyncResult.rateLimited('Sync already pending');
+      }
+
+      final completer = Completer<QueueSyncResult>();
+      _pendingSyncs[targetNodeId] = completer;
+      _syncStopwatches[targetNodeId] = stopwatch;
+
       final timeoutTimer = Timer(_syncTimeout, () {
-        if (!syncCompleter.isCompleted) {
-          syncCompleter.complete(QueueSyncResult.timeout());
+        final pending = _pendingSyncs.remove(targetNodeId);
+        _syncStopwatches.remove(targetNodeId);
+        if (pending != null && !pending.isCompleted) {
+          pending.complete(QueueSyncResult.timeout());
+          onSyncFailed?.call(targetNodeId, 'Timeout');
         }
+        _activeSyncs.remove(targetNodeId);
       });
-      
-      // Track sync attempts for exponential backoff
+
+      _activeSyncs[targetNodeId]?.cancel();
+      _activeSyncs[targetNodeId] = timeoutTimer;
+
       final attempts = _syncAttempts[targetNodeId] ?? 0;
       _syncAttempts[targetNodeId] = attempts + 1;
-      
-      // Send sync request via callback
-      onSyncRequest?.call(syncMessage, targetNodeId);
-      
-      // Simulate sync completion (in real implementation, this would be handled by response)
-      Timer(Duration(seconds: 2), () {
-        if (!syncCompleter.isCompleted) {
-          final mockResult = QueueSyncResult.success(
-            messagesReceived: 0,
-            messagesUpdated: 0,
-            messagesSkipped: 0,
-            finalHash: _messageQueue.calculateQueueHash(),
-            syncDuration: stopwatch.elapsed,
-          );
-          syncCompleter.complete(mockResult);
-        }
-      });
-      
-      final result = await syncCompleter.future;
-      timeoutTimer.cancel();
-      
-      return result;
-      
+
+      onSyncRequest!.call(syncMessage, targetNodeId);
+
+      final result = await completer.future;
+      return result.copyWithDuration(stopwatch.elapsed);
+
     } catch (e) {
       _logger.severe('Sync performance failed: $e');
+      final pending = _pendingSyncs.remove(targetNodeId);
+      pending?.complete(QueueSyncResult.error('Sync failed: $e'));
+      _syncStopwatches.remove(targetNodeId);
+      _activeSyncs.remove(targetNodeId)?.cancel();
       return QueueSyncResult.error('Sync failed: $e');
     }
   }
   
   /// Add a received message to our queue
   Future<void> _addReceivedMessage(QueuedMessage message) async {
-    // Note: This is a simplified version. In practice, you'd need to integrate
-    // with the queue's internal methods more carefully
-    final truncatedId = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
-    _logger.info('Would add received message: $truncatedId...');
+    try {
+      await _messageQueue.addSyncedMessage(message);
+    } catch (e) {
+      final truncatedId = message.id.length > 16 ? message.id.substring(0, 16) : message.id;
+      _logger.warning('Failed to add synced message $truncatedId...: $e');
+    }
   }
   
   /// Record sync attempt for rate limiting
@@ -454,6 +486,13 @@ class QueueSyncManager {
       timer.cancel();
     }
     _activeSyncs.clear();
+    for (final pending in _pendingSyncs.values) {
+      if (!pending.isCompleted) {
+        pending.complete(QueueSyncResult.error('Sync manager disposed'));
+      }
+    }
+    _pendingSyncs.clear();
+    _syncStopwatches.clear();
     
     _logger.info('Queue sync manager disposed');
   }
@@ -530,6 +569,17 @@ class QueueSyncResult {
     messagesUpdated: 0,
     messagesSkipped: 0,
     type: QueueSyncResultType.error,
+  );
+
+  QueueSyncResult copyWithDuration(Duration duration) => QueueSyncResult._(
+    success: success,
+    error: error,
+    messagesReceived: messagesReceived,
+    messagesUpdated: messagesUpdated,
+    messagesSkipped: messagesSkipped,
+    finalHash: finalHash,
+    syncDuration: duration,
+    type: type,
   );
 }
 

@@ -170,6 +170,7 @@ class AdaptivePowerManager {
 
   /// [DEPRECATED] Old duty cycle scanning - replaced by burst scanning with variable waits
   @Deprecated('Phase 2a: Use burst scanning with _getBaseIntervalForPowerMode() instead')
+  // ignore: unused_element
   void _startDutyCycleScanning() {
     _stopDutyCycleScanning();
 

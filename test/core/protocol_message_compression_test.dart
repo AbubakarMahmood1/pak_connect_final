@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/core/models/mesh_relay_models.dart';
 
 void main() {
   group('ProtocolMessage Compression (Phase 4)', () {
@@ -244,10 +245,15 @@ void main() {
       });
 
       test('queue sync round-trip with compression', () {
-        final original = ProtocolMessage.queueSync(
+        final queueMessage = QueueSyncMessage(
           queueHash: 'hash-123',
-          messageIds: List.generate(100, (i) => 'msg-$i'), // Large list = compressible
+          messageIds: List.generate(100, (i) => 'msg-$i'),
+          syncTimestamp: DateTime.now(),
+          nodeId: 'node-abc',
+          syncType: QueueSyncType.request,
         );
+
+        final original = ProtocolMessage.queueSync(queueMessage: queueMessage);
 
         final bytes = original.toBytes(enableCompression: true);
 
@@ -257,8 +263,8 @@ void main() {
         final decoded = ProtocolMessage.fromBytes(bytes);
 
         expect(decoded.type, equals(ProtocolMessageType.queueSync));
-        expect(decoded.queueSyncHash, equals('hash-123'));
-        expect(decoded.queueSyncMessageIds?.length, equals(100));
+        expect(decoded.queueSyncMessage?.queueHash, equals('hash-123'));
+        expect(decoded.queueSyncMessage?.messageIds.length, equals(100));
       });
     });
 
@@ -277,8 +283,13 @@ void main() {
             originalPayload: {'content': 'y' * 500},
           ),
           ProtocolMessage.queueSync(
-            queueHash: 'hash',
-            messageIds: List.generate(200, (i) => 'message-id-$i'),
+            queueMessage: QueueSyncMessage(
+              queueHash: 'hash',
+              messageIds: List.generate(200, (i) => 'message-id-$i'),
+              syncTimestamp: DateTime.now(),
+              nodeId: 'node-xyz',
+              syncType: QueueSyncType.request,
+            ),
           ),
         ];
 

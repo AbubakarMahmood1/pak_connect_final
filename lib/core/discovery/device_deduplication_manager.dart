@@ -5,13 +5,15 @@ import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import '../security/hint_cache_manager.dart';
 import '../../domain/entities/enhanced_contact.dart';
+import '../../domain/entities/ephemeral_discovery_hint.dart';
 import '../../data/repositories/intro_hint_repository.dart';
-import '../../data/repositories/contact_repository.dart';
 
 import '../security/ephemeral_key_manager.dart';
+import '../services/hint_advertisement_service.dart';
 
 class DeviceDeduplicationManager {
   static final _logger = Logger('DeviceDeduplicationManager');
+  static const _noHintValue = 'NO_HINT';
 
   static final Map<String, DiscoveredDevice> _uniqueDevices = {};
   static final StreamController<Map<String, DiscoveredDevice>> _devicesController =
@@ -32,11 +34,13 @@ class DeviceDeduplicationManager {
 
     _logger.info('🔍 [DEDUP] Processing device: $deviceIdShort...');
 
-    final ephemeralHint = _extractEphemeralHint(event);
+    final parsedHint = _parseHintPayload(event);
+    final ephemeralHint = parsedHint != null
+        ? '${HintAdvertisementService.bytesToHex(parsedHint.nonce)}:${HintAdvertisementService.bytesToHex(parsedHint.hintBytes)}'
+        : _noHintValue;
 
-    if (ephemeralHint == null) {
-      _logger.fine('🔍 [DEDUP] No ephemeral hint found for $deviceIdShort... - skipping (not our device)');
-      return; // Not our device
+    if (parsedHint == null) {
+      _logger.fine('🔍 [DEDUP] No hint payload found for $deviceIdShort... - treating as anonymous device');
     }
 
     // Self-filter: if the hint matches our own ephemeral/session fingerprint, ignore
@@ -64,6 +68,9 @@ class DeviceDeduplicationManager {
         advertisement: event.advertisement,
         firstSeen: DateTime.now(),
         lastSeen: DateTime.now(),
+        hintNonce: parsedHint != null ? Uint8List.fromList(parsedHint.nonce) : null,
+        hintBytes: parsedHint != null ? Uint8List.fromList(parsedHint.hintBytes) : null,
+        isIntroHint: parsedHint?.isIntro ?? false,
       );
 
       _uniqueDevices[deviceId] = newDevice;
@@ -83,6 +90,9 @@ class DeviceDeduplicationManager {
         _logger.info('🔑 [DEDUP] Hint changed for $deviceIdShort... (old: ${existingDevice.ephemeralHint}, new: $ephemeralHint) - re-verifying');
         existingDevice.ephemeralHint = ephemeralHint;
         existingDevice.autoConnectAttempted = false; // Reset flag on hint change
+        existingDevice.hintNonce = parsedHint != null ? Uint8List.fromList(parsedHint.nonce) : null;
+        existingDevice.hintBytes = parsedHint != null ? Uint8List.fromList(parsedHint.hintBytes) : null;
+        existingDevice.isIntroHint = parsedHint?.isIntro ?? false;
         _verifyContactAsync(existingDevice);
       } else if (!existingDevice.autoConnectAttempted) {
         // 🆕 AUTO-CONNECT: Trigger for devices that haven't been attempted yet
@@ -111,13 +121,22 @@ class DeviceDeduplicationManager {
     _logger.info('🔍 [VERIFY] Hint: ${device.ephemeralHint}');
     _logger.info('🔍 [VERIFY] ========================================');
 
-    // 🔍 PRIORITY 1: Check persistent hints (MEDIUM+ security contacts with shared secrets)
-    _logger.info('🔍 [VERIFY-P1] Checking persistent hints (MEDIUM+ security)...');
-    final contactHint = HintCacheManager.getContactFromCache(device.ephemeralHint);
+    final parsed = _parseHintPayloadFromDevice(device);
+
+    _logger.info('🔍 [VERIFY-P1] Checking blinded persistent hints...');
+    ContactHint? contactHint;
+    if (parsed != null && parsed.hintBytes.isNotEmpty && !parsed.isIntro) {
+      contactHint = await HintCacheManager.matchBlindedHint(
+        nonce: parsed.nonce,
+        hintBytes: parsed.hintBytes,
+      );
+    } else if (parsed == null) {
+      _logger.info('ℹ️ [VERIFY] No hint payload available for ${device.deviceId.substring(0, 8)}...');
+    }
 
     if (contactHint != null) {
       // ✅ MEDIUM/HIGH security contact recognized via persistent hint
-      final contactName = contactHint.contact.displayName;
+      final contactName = contactHint.contact.contact.displayName;
 
       _logger.info('✅ [VERIFY-P1] PERSISTENT HINT MATCHED!');
       _logger.info('✅ [VERIFY-P1] Contact: $contactName');
@@ -138,68 +157,38 @@ class DeviceDeduplicationManager {
 
     _logger.info('❌ [VERIFY-P1] No persistent hint match - checking intro hints...');
 
+    if (parsed == null) {
+      _logger.info('❌ [VERIFY-P2] Cannot evaluate intro hints without payload');
+    } else {
+
     // 🔍 PRIORITY 2: Check intro hints (QR-based temporary hints for initial connections)
     _logger.info('🔍 [VERIFY-P2] Checking intro hints (QR-based)...');
     try {
-      final introHintRepo = IntroHintRepository();
-      final scannedHints = await introHintRepo.getScannedHints();
+      final introMatch = await _findMatchingIntro(parsed);
 
-      _logger.info('🔍 [VERIFY-P2] Found ${scannedHints.length} scanned intro hints');
+      if (introMatch != null) {
+        final contactName = introMatch.displayName ?? 'Unknown';
 
-      for (final hint in scannedHints.values) {
-        if (hint.hintHex == device.ephemeralHint) {
-          // ✅ Contact recognized via intro hint (QR scan)
-          final contactName = hint.displayName ?? 'Unknown';
+        _logger.info('✅ [VERIFY-P2] INTRO HINT MATCHED!');
+        _logger.info('✅ [VERIFY-P2] Contact: $contactName');
 
-          _logger.info('✅ [VERIFY-P2] INTRO HINT MATCHED!');
-          _logger.info('✅ [VERIFY-P2] Contact: $contactName');
-          _logger.info('✅ [VERIFY-P2] Security: LOW (QR-based intro hint)');
+        device.isKnownContact = true;
 
-          device.isKnownContact = true;
-
-          // Try to get full contact info from ContactRepository
-          _logger.fine('🔍 [VERIFY-P2] Looking up contact in repository...');
-          final contactRepo = ContactRepository();
-          final contacts = await contactRepo.getAllContacts();
-
-          // Find contact by display name (best effort)
-          Contact? matchedContact;
-          for (final contact in contacts.values) {
-            if (contact.displayName == contactName) {
-              matchedContact = contact;
-              break;
-            }
-          }
-
-          if (matchedContact != null) {
-            _logger.fine('✅ [VERIFY-P2] Found contact in repository: ${matchedContact.publicKey.substring(0, 8)}...');
-            device.contactInfo = EnhancedContact(
-              contact: matchedContact,
-              lastSeenAgo: DateTime.now().difference(matchedContact.lastSeen),
-              isRecentlyActive: DateTime.now().difference(matchedContact.lastSeen).inHours < 24,
-              interactionCount: 0,
-              averageResponseTime: const Duration(minutes: 5),
-              groupMemberships: const [],
-            );
-          } else {
-            _logger.fine('⚠️ [VERIFY-P2] Contact not found in repository');
-          }
-
-          if (kDebugMode) {
-            print('✅ RECOGNIZED CONTACT (INTRO HINT): $contactName ($deviceId...)');
-          }
-
-          await _triggerAutoConnect(device, contactName);
-          _devicesController.add(Map.from(_uniqueDevices));
-          _logger.info('✅ [VERIFY-P2] Verification complete - device map updated');
-          return;
+        if (kDebugMode) {
+          print('✅ RECOGNIZED CONTACT (INTRO HINT): $contactName ($deviceId...)');
         }
+
+        await _triggerAutoConnect(device, contactName);
+        _devicesController.add(Map.from(_uniqueDevices));
+        _logger.info('✅ [VERIFY-P2] Verification complete - device map updated');
+        return;
       }
 
       _logger.info('❌ [VERIFY-P2] No intro hint match - device is unknown');
     } catch (e, stackTrace) {
       _logger.warning('⚠️ [VERIFY-P2] Failed to check intro hints: $e');
       _logger.fine('Stack trace: $stackTrace');
+    }
     }
 
     // 🔍 PRIORITY 4: Unknown device - no hint match, but still trigger auto-connect
@@ -209,10 +198,7 @@ class DeviceDeduplicationManager {
     device.contactInfo = null;
 
     _logger.info('👤 [VERIFY-P4] Unknown device: $deviceId... (no hint match)');
-    _logger.info('🔗 [VERIFY-P4] Triggering auto-connect for unknown device (PRIORITY 4)');
-
-    // 🆕 AUTO-CONNECT: Trigger for unknown devices too (lowest priority)
-    await _triggerAutoConnect(device, 'Unknown Device');
+    _logger.info('⏭️ [VERIFY-P4] Auto-connect skipped for unknown device');
 
     _devicesController.add(Map.from(_uniqueDevices));
     _logger.info('✅ [VERIFY-P4] Verification complete - device map updated');
@@ -263,17 +249,6 @@ class DeviceDeduplicationManager {
     _logger.info('🔗 [AUTO-CONNECT] ========================================');
   }
 
-  static String? _extractEphemeralHint(DiscoveredEventArgs event) {
-    for (final manufacturerData in event.advertisement.manufacturerSpecificData) {
-      if (manufacturerData.id == 0x2E19 && manufacturerData.data.length >= 4) {
-        return manufacturerData.data
-          .map((b) => b.toRadixString(16).padLeft(2, '0'))
-          .join();
-      }
-    }
-    return null;
-  }
-
   /// 🗑️ Remove a specific device immediately (real-time cleanup)
   ///
   /// Called when a device disconnects to ensure no stale data.
@@ -284,6 +259,64 @@ class DeviceDeduplicationManager {
       _devicesController.add(Map.from(_uniqueDevices));
       Logger('DeviceDeduplicationManager').fine('🗑️ Removed device: $deviceId');
     }
+  }
+
+  static Future<EphemeralDiscoveryHint?> _findMatchingIntro(ParsedHint parsed) async {
+    final introHintRepo = IntroHintRepository();
+    final scannedHints = await introHintRepo.getScannedHints();
+
+    _logger.info('🔍 [VERIFY-P2] Found ${scannedHints.length} scanned intro hints');
+
+    for (final hint in scannedHints.values) {
+      if (_matchesIntroHint(parsed, hint)) {
+        return hint;
+      }
+    }
+
+    return null;
+  }
+
+  static bool _matchesIntroHint(ParsedHint parsed, EphemeralDiscoveryHint hint) {
+    final expected = HintAdvertisementService.computeHintBytes(
+      identifier: hint.hintHex,
+      nonce: parsed.nonce,
+    );
+    return _bytesEqual(expected, parsed.hintBytes);
+  }
+
+  static ParsedHint? _parseHintPayload(DiscoveredEventArgs event) {
+    return _parseHintFromAdvertisement(event.advertisement);
+  }
+
+  static ParsedHint? _parseHintPayloadFromDevice(DiscoveredDevice device) {
+    if (device.hintNonce != null && device.hintBytes != null) {
+      return ParsedHint(
+        nonce: Uint8List.fromList(device.hintNonce!),
+        hintBytes: Uint8List.fromList(device.hintBytes!),
+        isIntro: device.isIntroHint,
+      );
+    }
+    return _parseHintFromAdvertisement(device.advertisement);
+  }
+
+  static ParsedHint? _parseHintFromAdvertisement(Advertisement advertisement) {
+    for (final data in advertisement.manufacturerSpecificData) {
+      if (data.id == 0x2E19) {
+        final parsed = HintAdvertisementService.parseAdvertisement(data.data);
+        if (parsed != null) {
+          return parsed;
+        }
+      }
+    }
+    return null;
+  }
+
+  static bool _bytesEqual(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   static void removeStaleDevices() {
@@ -329,6 +362,9 @@ class DiscoveredDevice {
   DateTime lastSeen;
   bool isKnownContact = false;
   EnhancedContact? contactInfo;
+  Uint8List? hintNonce;
+  Uint8List? hintBytes;
+  bool isIntroHint;
 
   // 🆕 Track if auto-connect was attempted for this device
   bool autoConnectAttempted = false;
@@ -347,5 +383,8 @@ class DiscoveredDevice {
     required this.advertisement,
     required this.firstSeen,
     required this.lastSeen,
+    this.hintNonce,
+    this.hintBytes,
+    this.isIntroHint = false,
   });
 }
