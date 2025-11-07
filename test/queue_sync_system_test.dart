@@ -282,6 +282,35 @@ void main() {
         expect(response.missingMessages, isNotNull);
         expect(response.missingMessages!.length, equals(2)); // We're missing 2 messages
       });
+
+      test('should trigger onSendMessages with excess payloads', () async {
+        final queuedMessageId = await queue1.queueMessage(
+          chatId: 'queue_sync_chat',
+          content: 'Queued for sync transport',
+          recipientPublicKey: testRecipientKey,
+          senderPublicKey: testSenderKey,
+        );
+
+        List<QueuedMessage>? delivered;
+        String? deliveredNode;
+        syncManager1.onSendMessages = (messages, nodeId) {
+          delivered = messages;
+          deliveredNode = nodeId;
+        };
+
+        final syncMessage = QueueSyncMessage.createRequest(
+          messageIds: const <String>[], // Peer claims empty queue, so we have excess
+          nodeId: testNodeId2,
+        );
+
+        final response = await syncManager1.handleSyncRequest(syncMessage, testNodeId2);
+
+        expect(response.success, isTrue);
+        expect(deliveredNode, equals(testNodeId2));
+        expect(delivered, isNotNull);
+        expect(delivered, isNotEmpty);
+        expect(delivered!.first.id, equals(queuedMessageId));
+      });
       
       test('should rate limit sync requests', () async {
         // Perform many sync requests quickly
@@ -348,10 +377,7 @@ void main() {
           nodeId: testNodeId1,
         );
         
-        final protocolMessage = ProtocolMessage.queueSync(
-          queueHash: syncMessage.queueHash,
-          messageIds: syncMessage.messageIds,
-        );
+        final protocolMessage = ProtocolMessage.queueSync(queueMessage: syncMessage);
         
         final messageBytes = protocolMessage.toBytes();
         

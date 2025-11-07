@@ -267,6 +267,9 @@ class MeshNetworkingService {
 
     // Monitor BLE connection status for mesh networking
     _bleService.connectionInfo.listen(_handleConnectionChange);
+
+    // Intercept queue sync messages before GossipSyncManager processes them
+    _bleService.registerQueueSyncHandler(_handleIncomingQueueSync);
     
     _logger.info('BLE integration set up');
   }
@@ -924,6 +927,19 @@ class MeshNetworkingService {
       }
 
       // Route to correct send method based on mode (central vs peripheral)
+      final intendedRecipient = message.recipientPublicKey;
+      final connectedPeerId = _bleService.currentSessionId;
+
+      if (intendedRecipient != null && connectedPeerId != null &&
+          intendedRecipient.isNotEmpty && connectedPeerId.isNotEmpty &&
+          intendedRecipient != connectedPeerId) {
+        final truncatedIntended = intendedRecipient.length > 8 ? intendedRecipient.substring(0, 8) : intendedRecipient;
+        final truncatedConnected = connectedPeerId.length > 8 ? connectedPeerId.substring(0, 8) : connectedPeerId;
+        _logger.warning('Skipping delivery for ${message.id.substring(0, 8)}... - connected peer $truncatedConnected… != intended $truncatedIntended…');
+        await _messageQueue?.markMessageFailed(messageId, 'Peer mismatch');
+        return;
+      }
+
       bool success;
       if (_bleService.isPeripheralMode) {
         // Guard: only attempt peripheral send if we actually can notify (central + characteristic ready)
@@ -1138,15 +1154,28 @@ class MeshNetworkingService {
 
   void _handleSyncRequest(QueueSyncMessage message, String fromNodeId) {
     final truncatedNodeId = fromNodeId.length > 8 ? fromNodeId.substring(0, 8) : fromNodeId;
-    _logger.info('Sync request from $truncatedNodeId...');
-    
+    _logger.info('🔄 Sending queue sync to $truncatedNodeId... (${message.messageIds.length} ids)');
+
     if (_isDemoMode) {
       _demoEventController.add(DemoEvent.queueSyncRequested(fromNodeId));
     }
+
+    unawaited(_bleService.sendQueueSyncMessage(message));
   }
 
   void _handleSendMessages(List<QueuedMessage> messages, String toNodeId) {
-    _logger.info('Sending ${messages.length} messages to ${toNodeId.substring(0, 8)}...');
+    if (messages.isEmpty) {
+      return;
+    }
+
+    final truncated = toNodeId.length > 8 ? toNodeId.substring(0, 8) : toNodeId;
+    _logger.info('📤 Sync delivering ${messages.length} queued message(s) to $truncated...');
+
+    for (final message in messages) {
+      _handleSendMessage(message.id).catchError((e) {
+        _logger.warning('Queue sync delivery failed for ${message.id.substring(0, 8)}...: $e');
+      });
+    }
   }
 
   void _handleSyncCompleted(String nodeId, QueueSyncResult result) {
@@ -1166,6 +1195,38 @@ class MeshNetworkingService {
     if (_isDemoMode) {
       _demoEventController.add(DemoEvent.queueSyncFailed(nodeId, error));
     }
+  }
+
+  Future<bool> _handleIncomingQueueSync(QueueSyncMessage message, String fromNodeId) async {
+    if (_queueSyncManager == null) {
+      return false;
+    }
+
+    try {
+      if (message.syncType == QueueSyncType.request) {
+        final response = await _queueSyncManager!.handleSyncRequest(message, fromNodeId);
+
+        if (response.type == QueueSyncResponseType.success && response.responseMessage != null) {
+          await _bleService.sendQueueSyncMessage(response.responseMessage!);
+        }
+
+        return true;
+      }
+
+      if (message.syncType == QueueSyncType.response) {
+        await _queueSyncManager!.processSyncResponse(
+          message,
+          const <QueuedMessage>[], // Payload delivery handled separately via onSendMessages
+          fromNodeId,
+        );
+        return true;
+      }
+
+    } catch (e) {
+      _logger.severe('Queue sync handling failed for ${fromNodeId.substring(0, 8)}...: $e');
+    }
+
+    return false;
   }
 
   void _handleConnectionChange(dynamic connectionInfo) async {

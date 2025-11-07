@@ -84,8 +84,8 @@ class GroupListScreen extends ConsumerWidget {
           // Navigate to create group screen
           Navigator.pushNamed(context, '/create-group');
         },
-        child: const Icon(Icons.add),
         tooltip: 'Create Group',
+        child: const Icon(Icons.add),
       ),
     );
   }

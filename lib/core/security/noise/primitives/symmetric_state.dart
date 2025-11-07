@@ -19,7 +19,7 @@ class SymmetricState {
   Uint8List _chainingKey;
   
   /// Current handshake hash (32 bytes)
-  Uint8List _handshakeHash;
+  final Uint8List _handshakeHash;
   
   /// Cipher state for encrypted payloads during handshake
   final CipherState _cipherState;

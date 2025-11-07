@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/ble_constants.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import '../services/hint_advertisement_service.dart';
-import '../../domain/entities/sensitive_contact_hint.dart';
+import '../../core/security/ephemeral_key_manager.dart';
 import 'peripheral_initializer.dart';
 
 /// 📡 SINGLE RESPONSIBILITY: Manages ALL BLE advertising operations
@@ -240,77 +240,65 @@ class AdvertisingManager {
   /// - Checks hint broadcast enabled (spy mode)
   /// - Returns manufacturer data with hints (if enabled) or empty list
   /// 
-  /// Returns: List of ManufacturerSpecificData (empty if hints disabled)
+  /// Returns: List of ManufacturerSpecificData (empty while hints are disabled)
   Future<List<ManufacturerSpecificData>> _buildAdvertisementData(
     String myPublicKey,
   ) async {
     _logger.info('🔍 [ADV-DEBUG] _buildAdvertisementData called');
     _logger.info('🔍 [ADV-DEBUG] Platform: ${Platform.operatingSystem}');
 
-    // iOS/macOS don't support manufacturer data in advertisements
+    // Privacy hardening: deterministic hint bytes are disabled until the blinded
+    // hint redesign ships. Only the service UUID is advertised for now.
     if (Platform.isIOS || Platform.isMacOS) {
-      _logger.info('🔍 [ADV-DEBUG] iOS/macOS detected - no manufacturer data');
-      return [];
+      _logger.info('🔍 [ADV-DEBUG] iOS/macOS detected - manufacturer data unsupported');
     }
 
     try {
-      // Step 1: Check user preferences
-      _logger.info('🔍 [ADV-DEBUG] STEP 1: Checking user preferences...');
       final prefs = await SharedPreferences.getInstance();
       final showOnlineStatus = prefs.getBool('show_online_status') ?? true;
       final hintBroadcastEnabled = prefs.getBool('hint_broadcast_enabled') ?? true;
 
-      _logger.info('🔍 [ADV-DEBUG] Settings:');
-      _logger.info('   - show_online_status: $showOnlineStatus');
-      _logger.info('   - hint_broadcast_enabled: $hintBroadcastEnabled');
-
-      // Step 2: If hints disabled (spy mode or hidden status), return empty
       if (!showOnlineStatus || !hintBroadcastEnabled) {
-        _logger.info('🔍 [ADV-DEBUG] Hints DISABLED - advertising without manufacturer data');
+        _logger.info('🔍 [ADV-DEBUG] Hints disabled via privacy settings');
         return [];
       }
 
-      _logger.info('✅ [ADV-DEBUG] Hints ENABLED - building manufacturer data...');
+      final sessionKey = EphemeralKeyManager.currentSessionKey;
+      if (sessionKey == null) {
+        _logger.warning('🔍 [ADV-DEBUG] No session key available - cannot compute blinded hint');
+        return [];
+      }
 
-      // Step 3: Get intro hint (if any active QR)
-      _logger.info('🔍 [ADV-DEBUG] STEP 2: Getting intro hint...');
+      final nonce = HintAdvertisementService.deriveNonce(sessionKey);
       final introHint = await _introHintRepo.getMostRecentActiveHint();
-      _logger.info('🔍 [ADV-DEBUG] Intro hint: ${introHint != null ? introHint.hintHex : "none"}');
+      final useIntro = introHint != null && introHint.isUsable;
+      final identifier = useIntro ? introHint!.hintHex : myPublicKey;
 
-      // Step 4: Compute persistent hint from public key
-      _logger.info('🔍 [ADV-DEBUG] STEP 3: Computing persistent hint...');
-      final myPersistentHint = SensitiveContactHint.compute(
-        contactPublicKey: myPublicKey,
+      final hintBytes = HintAdvertisementService.computeHintBytes(
+        identifier: identifier,
+        nonce: nonce,
       );
-      _logger.info('🔍 [ADV-DEBUG] Persistent hint: ${myPersistentHint.hintHex}');
 
-      // Step 5: Pack hints into 6-byte advertisement
-      _logger.info('🔍 [ADV-DEBUG] STEP 4: Packing advertisement...');
       final advData = HintAdvertisementService.packAdvertisement(
-        introHint: introHint,
-        ephemeralHint: myPersistentHint,
+        nonce: nonce,
+        hintBytes: hintBytes,
+        isIntro: useIntro,
       );
-      _logger.info('🔍 [ADV-DEBUG] Packed data: ${advData.length} bytes');
-      _logger.info('🔍 [ADV-DEBUG] Data hex: ${advData.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
 
-      _logger.info('✅ [ADV-DEBUG] Advertising with hints: intro=${introHint?.hintHex ?? "none"}, persistent=${myPersistentHint.hintHex}');
+      final modeLabel = useIntro ? 'intro' : 'persistent';
+      _logger.info('✅ [ADV-DEBUG] Blinded hint ready ($modeLabel, nonce=${HintAdvertisementService.bytesToHex(nonce)})');
 
-      // Step 6: Return manufacturer data
-      final result = [
+      return [
         ManufacturerSpecificData(
-          id: 0x2E19,  // PakConnect manufacturer ID
+          id: 0x2E19,
           data: advData,
         ),
       ];
 
-      _logger.info('✅ [ADV-DEBUG] Manufacturer data created: ID=0x2E19, Data=${advData.length} bytes');
-      return result;
-
     } catch (e, stack) {
       _logger.severe('❌ [ADV-DEBUG] ERROR building advertisement data!', e, stack);
       _logger.warning('📡 Falling back to advertising without hints');
-      return [];  // Fail gracefully - advertise without hints
+      return [];
     }
   }
 }
-

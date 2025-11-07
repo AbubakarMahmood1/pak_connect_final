@@ -10,6 +10,7 @@ import '../../data/services/ble_service.dart';
 import '../providers/ble_providers.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/security/hint_cache_manager.dart';
+import '../../core/services/hint_advertisement_service.dart';
 import '../../core/services/security_manager.dart';
 import '../screens/chat_screen.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
@@ -1244,31 +1245,21 @@ onTap: () {
   /// Resolve device name from ephemeral hints in advertisement data
   String _resolveDeviceNameFromHints(DiscoveredEventArgs advertisement) {
     try {
-      // Check manufacturer specific data for ephemeral hints
       for (final manufacturerData in advertisement.advertisement.manufacturerSpecificData) {
-        final data = manufacturerData.data;
-        if (data.isNotEmpty) {
-          // Try to decode as ephemeral hint
-          final hintString = String.fromCharCodes(data);
-          final contactHint = HintCacheManager.getContactFromCache(hintString);
-
-          if (contactHint != null) {
-            _logger.fine('✅ Resolved device name from hint: ${contactHint.contact.contact.displayName}');
-            return contactHint.contact.contact.displayName;
-          }
+        if (manufacturerData.id != 0x2E19) continue;
+        final parsed = HintAdvertisementService.parseAdvertisement(manufacturerData.data);
+        if (parsed == null || parsed.isIntro) {
+          continue;
         }
-      }
-
-      // Also check service data
-      for (final entry in advertisement.advertisement.serviceData.entries) {
-        final data = entry.value;
-        if (data.isNotEmpty) {
-          final hintString = String.fromCharCodes(data);
-          final contactHint = HintCacheManager.getContactFromCache(hintString);
-
-          if (contactHint != null) {
-            _logger.fine('✅ Resolved device name from service hint: ${contactHint.contact.contact.displayName}');
-            return contactHint.contact.contact.displayName;
+        final contactHint = HintCacheManager.matchBlindedHintSync(
+          nonce: parsed.nonce,
+          hintBytes: parsed.hintBytes,
+        );
+        if (contactHint != null) {
+          final name = contactHint.contact.contact.displayName;
+          if (name.isNotEmpty) {
+            _logger.fine('✅ Resolved device name from hint: $name');
+            return name;
           }
         }
       }

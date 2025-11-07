@@ -49,7 +49,6 @@ class BLEConnectionManager {
   // Advertising control (Phase 2b: Hybrid advertising strategy)
   bool _isAdvertising = false;
   bool _shouldBeAdvertising = true; // Whether we WANT to advertise
-  GATTCharacteristic? _serverMessageCharacteristic; // For incoming connections // ignore: unused_field
 
   // Simplified monitoring system
   Timer? _monitoringTimer;

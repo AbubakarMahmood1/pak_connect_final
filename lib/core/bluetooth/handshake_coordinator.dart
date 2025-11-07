@@ -64,7 +64,6 @@ class HandshakeCoordinator {
   bool? _theyHaveUsAsContact;
   
   // Noise handshake state
-  Uint8List? _noiseMessage1Data; // Stored for responder role (message 1 replay)
   
   // KK pattern support
   NoisePattern? _attemptedPattern;  // Track pattern we tried (xx or kk)
@@ -466,7 +465,6 @@ class HandshakeCoordinator {
       }
       
       // Store data and process
-      _noiseMessage1Data = data;
       
       final noiseService = SecurityManager.noiseService;
       if (noiseService == null) {
@@ -777,6 +775,10 @@ class HandshakeCoordinator {
     // Notify: Handshake complete (resume health checks)
     onHandshakeStateChanged?.call(false);
 
+    if (_theirNoisePublicKey != null) {
+      _resetKKFailures(_theirNoisePublicKey!);
+    }
+
     // Notify caller with their EPHEMERAL ID and Noise public key
     if (_theirEphemeralId != null && _theirDisplayName != null) {
       await _onHandshakeComplete(_theirEphemeralId!, _theirDisplayName!, _theirNoisePublicKey);
@@ -863,6 +865,9 @@ class HandshakeCoordinator {
     _logger.warning('📥 Received handshake rejection');
     _logger.warning('   Reason: $reason');
     _logger.warning('   Attempted: $attemptedPattern → Suggested: $suggestedPattern');
+    if (_attemptedPattern != null) {
+      _logger.info('   Local attempted pattern: ${_attemptedPattern!.name.toUpperCase()}');
+    }
     
     _rejectionReason = reason;
     

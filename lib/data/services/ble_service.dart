@@ -27,14 +27,15 @@ import '../../core/bluetooth/peripheral_initializer.dart';
 import '../../core/bluetooth/advertising_manager.dart';
 import '../../core/bluetooth/connection_cleanup_handler.dart';
 import '../../core/services/hint_scanner_service.dart';
-import '../../data/repositories/intro_hint_repository.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../../data/repositories/intro_hint_repository.dart';
 import '../../data/repositories/preferences_repository.dart'; // 🆕 For auto-connect preference
 import '../../domain/services/notification_service.dart';
 import '../../core/messaging/gossip_sync_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../../core/app_core.dart';
+import '../../core/models/mesh_relay_models.dart';
 
 /// Enum to track the source of scanning requests for better coordination
 enum ScanningSource {
@@ -91,14 +92,17 @@ class BLEService {
 
   // Hint system
   late final HintScannerService _hintScanner;
-  final _introHintRepo = IntroHintRepository();
   final _contactRepo = ContactRepository();
+  final _introHintRepo = IntroHintRepository();
 
   // Phase 1: Gossip sync manager for mesh message discovery
   GossipSyncManager? _gossipSyncManager;
-
+  
   // Phase 1: Offline message queue for store-and-forward
   OfflineMessageQueue? _offlineMessageQueue;
+
+  // Queue sync interception (MeshNetworkingService registers a handler)
+  Future<bool> Function(QueueSyncMessage message, String fromNodeId)? _queueSyncMessageHandler;
 
   // Streams for UI
   StreamController<ConnectionInfo>? _connectionInfoController;
@@ -120,9 +124,6 @@ class BLEService {
 Central? _connectedCentral;
 GATTCharacteristic? _connectedCharacteristic;
 
-// Phase 2a: Connection limit tracking
-int _activeCentralConnections = 0; // Centrals connected to us when we're peripheral // ignore: unused_field
-static const int _maxCentralConnections = 1; // Single connection in peripheral mode (Phase 2a) // ignore: unused_field
 bool _peripheralHandshakeStarted = false;  // Track if handshake initiated for this connection
 bool _meshNetworkingStarted = false;  // ✅ FIX: Track if mesh networking has been started at least once
 
@@ -226,6 +227,15 @@ final MessageReassembler _protocolMessageReassembler = MessageReassembler();
   }
   BLEStateManager get stateManager => _stateManager;
   BLEConnectionManager get connectionManager => _connectionManager;
+
+  void registerQueueSyncHandler(Future<bool> Function(QueueSyncMessage, String) handler) {
+    _queueSyncMessageHandler = handler;
+  }
+
+  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {
+    final protocolMessage = ProtocolMessage.queueSync(queueMessage: queueMessage);
+    await _sendProtocolMessage(protocolMessage);
+  }
 
 
   Future<void> initialize() async {
@@ -397,9 +407,7 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
 
       if (_connectionManager.hasBleConnection) {
         final protocolMessage = ProtocolMessage.queueSync(
-          queueHash: syncRequest.queueHash,
-          messageIds: syncRequest.messageIds,
-          syncTimestamp: syncRequest.syncTimestamp.millisecondsSinceEpoch,
+          queueMessage: syncRequest,
         );
 
         await _sendProtocolMessage(protocolMessage);
@@ -413,17 +421,20 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
       // Send sync request to specific peer (verify peer matches connected device)
       _logger.info('📡 Gossip sync: Sending sync request to ${peerID.substring(0, 8)}... with ${syncRequest.messageIds.length} known messages');
 
-      // Verify we're connected to the target peer
-      final connectedPeerId = _connectionManager.connectedDevice?.toString() ?? '';
-      if (!connectedPeerId.contains(peerID.substring(0, 8))) {
-        _logger.warning('Target peer ${peerID.substring(0, 8)}... not connected - skipping sync');
+      // Verify we're actually connected to the peer we intend to sync with.
+      final connectedPeerEphemeralId = _stateManager.theirEphemeralId;
+      if (connectedPeerEphemeralId == null) {
+        _logger.warning('Target peer ${peerID.substring(0, 8)}... not available - no active handshake');
+        return;
+      }
+
+      if (connectedPeerEphemeralId != peerID) {
+        _logger.warning('Target peer ${peerID.substring(0, 8)}... does not match current connection (${connectedPeerEphemeralId.substring(0, 8)}...) - skipping sync');
         return;
       }
 
       final protocolMessage = ProtocolMessage.queueSync(
-        queueHash: syncRequest.queueHash,
-        messageIds: syncRequest.messageIds,
-        syncTimestamp: syncRequest.syncTimestamp.millisecondsSinceEpoch,
+        queueMessage: syncRequest,
       );
 
       await _sendProtocolMessage(protocolMessage);
@@ -435,9 +446,14 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
       _logger.info('📡 Gossip sync: Sending missing message ${message.originalMessageId.substring(0, 16)}... to ${peerID.substring(0, 8)}...');
 
       // Verify we're connected to the target peer
-      final connectedPeerId = _connectionManager.connectedDevice?.toString() ?? '';
-      if (!connectedPeerId.contains(peerID.substring(0, 8))) {
-        _logger.warning('Target peer ${peerID.substring(0, 8)}... not connected - skipping message send');
+      final connectedPeerEphemeralId = _stateManager.theirEphemeralId;
+      if (connectedPeerEphemeralId == null) {
+        _logger.warning('Target peer ${peerID.substring(0, 8)}... not available - no active handshake');
+        return;
+      }
+
+      if (connectedPeerEphemeralId != peerID) {
+        _logger.warning('Target peer ${peerID.substring(0, 8)}... does not match current connection (${connectedPeerEphemeralId.substring(0, 8)}...) - skipping message send');
         return;
       }
 
@@ -466,11 +482,18 @@ if (peripheralManager.state == BluetoothLowEnergyState.poweredOn && _stateManage
 
     // Wire incoming queue sync messages to gossip sync manager
     _messageHandler.onQueueSyncReceived = (syncMessage, fromNodeId) async {
-      _logger.info('📥 Received queue sync from ${fromNodeId.substring(0, 8)}... - forwarding to GossipSyncManager');
-      await _gossipSyncManager!.handleSyncRequest(
-        fromPeerID: fromNodeId,
-        syncRequest: syncMessage,
-      );
+      // Allow higher-level services to intercept queue sync messages first
+      if (_queueSyncMessageHandler != null) {
+        await _queueSyncMessageHandler!(syncMessage, fromNodeId);
+      }
+
+      if (_gossipSyncManager != null) {
+        _logger.info('📥 Received queue sync from ${fromNodeId.substring(0, 8)}... - forwarding to GossipSyncManager');
+        await _gossipSyncManager!.handleSyncRequest(
+          fromPeerID: fromNodeId,
+          syncRequest: syncMessage,
+        );
+      }
     };
     _logger.info('✅ Queue sync callback wired to GossipSyncManager');
 

@@ -1031,6 +1031,36 @@ class OfflineMessageQueue {
     return currentHash != otherQueueHash;
   }
 
+  /// Insert a message received via queue synchronization
+  Future<void> addSyncedMessage(QueuedMessage message) async {
+    // Skip if message was previously deleted (e.g., aged out)
+    if (_deletedMessageIds.contains(message.id)) {
+      _logger.fine('Sync skip - message ${message.id.substring(0, 8)}... was deleted locally');
+      return;
+    }
+
+    // Skip if we already have this message
+    final exists = _getAllMessages().any((m) => m.id == message.id);
+    if (exists) {
+      _logger.fine('Sync skip - message already exists: ${message.id.substring(0, 8)}...');
+      return;
+    }
+
+    // Normalize status for local retry pipeline
+    message.status = QueuedMessageStatus.pending;
+    message.attempts = 0;
+    message.failureReason = null;
+    message.nextRetryAt = null;
+    message.lastAttemptAt = null;
+
+    _insertMessageByPriority(message);
+    await _saveQueueToStorage();
+    _totalQueued++;
+    _updateStatistics();
+
+    _logger.info('🔄 Synced new queued message: ${message.id.substring(0, 16)}...');
+  }
+
   /// Get missing messages compared to another queue
   List<String> getMissingMessageIds(List<String> otherMessageIds) {
     // PRIORITY 1 FIX: Check both queues

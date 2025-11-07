@@ -89,7 +89,7 @@ class NoiseSession {
   
   // Replay protection
   int _highestReceivedNonce = 0;
-  Uint8List _replayWindow = Uint8List(_replayWindowBytes);
+  final Uint8List _replayWindow = Uint8List(_replayWindowBytes);
 
   /// Create a new Noise session
   /// 

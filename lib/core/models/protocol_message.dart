@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:pak_connect/core/compression/compression_util.dart';
 import 'package:pak_connect/core/compression/compression_config.dart';
 import '../constants/special_recipients.dart';
+import '../models/mesh_relay_models.dart';
 
 enum ProtocolMessageType {
   // ===== HANDSHAKE PROTOCOL (Sequential, No ACKs) =====
@@ -569,10 +570,8 @@ ProtocolMessageType? get meshRelayOriginalMessageType {
 }
 
 // Queue sync helpers
-String? get queueSyncHash => type == ProtocolMessageType.queueSync ? payload['queueHash'] as String? : null;
-List<String>? get queueSyncMessageIds => type == ProtocolMessageType.queueSync ?
-  (payload['messageIds'] as List<dynamic>?)?.cast<String>() : null;
-int? get queueSyncTimestamp => type == ProtocolMessageType.queueSync ? payload['syncTimestamp'] as int? : null;
+QueueSyncMessage? get queueSyncMessage =>
+    type == ProtocolMessageType.queueSync ? QueueSyncMessage.fromJson(payload) : null;
 
 // Relay ack helpers
 String? get relayAckOriginalMessageId => type == ProtocolMessageType.relayAck ? payload['originalMessageId'] as String? : null;
@@ -603,16 +602,10 @@ static ProtocolMessage meshRelay({
 );
 
 static ProtocolMessage queueSync({
-  required String queueHash,
-  required List<String> messageIds,
-  int? syncTimestamp,
+  required QueueSyncMessage queueMessage,
 }) => ProtocolMessage(
   type: ProtocolMessageType.queueSync,
-  payload: {
-    'queueHash': queueHash,
-    'messageIds': messageIds,
-    'syncTimestamp': syncTimestamp ?? DateTime.now().millisecondsSinceEpoch,
-  },
+  payload: queueMessage.toJson(),
   timestamp: DateTime.now(),
 );
 
