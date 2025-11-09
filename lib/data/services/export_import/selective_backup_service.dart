@@ -18,7 +18,7 @@ class SelectiveBackupService {
       _logger.info('Creating selective backup: ${exportType.name}');
 
       final db = await DatabaseHelper.database;
-      
+
       // Determine backup directory
       String backupDir;
       if (customBackupDir != null) {
@@ -27,7 +27,7 @@ class SelectiveBackupService {
         final dbPath = await DatabaseHelper.getDatabasePath();
         backupDir = join(dirname(dbPath), 'selective_backups');
       }
-      
+
       await Directory(backupDir).create(recursive: true);
 
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -40,7 +40,7 @@ class SelectiveBackupService {
       final factory = Platform.isAndroid || Platform.isIOS
           ? sqlcipher.databaseFactory
           : sqflite_common.databaseFactory;
-      
+
       final backupDb = await factory.openDatabase(
         backupPath,
         options: sqflite_common.OpenDatabaseOptions(
@@ -114,12 +114,19 @@ class SelectiveBackupService {
     await db.execute('''
       CREATE TABLE contacts (
         public_key TEXT PRIMARY KEY,
+        persistent_public_key TEXT UNIQUE,
+        current_ephemeral_id TEXT,
+        ephemeral_id TEXT,
         display_name TEXT NOT NULL,
         trust_status INTEGER NOT NULL,
         security_level INTEGER NOT NULL,
         first_seen INTEGER NOT NULL,
         last_seen INTEGER NOT NULL,
         last_security_sync INTEGER,
+        noise_public_key TEXT,
+        noise_session_state TEXT,
+        last_handshake_time INTEGER,
+        is_favorite INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -253,7 +260,9 @@ class SelectiveBackupService {
     await batch2.commit(noResult: true);
 
     final totalRecords = chats.length + messages.length;
-    _logger.info('Exported $totalRecords total records (${chats.length} chats + ${messages.length} messages)');
+    _logger.info(
+      'Exported $totalRecords total records (${chats.length} chats + ${messages.length} messages)',
+    );
     return totalRecords;
   }
 
@@ -265,7 +274,9 @@ class SelectiveBackupService {
 
     switch (exportType) {
       case ExportType.contactsOnly:
-        final result = await db.rawQuery('SELECT COUNT(*) as count FROM contacts');
+        final result = await db.rawQuery(
+          'SELECT COUNT(*) as count FROM contacts',
+        );
         final count = sqlcipher.Sqflite.firstIntValue(result) ?? 0;
         return {
           'type': 'contacts_only',
@@ -274,10 +285,15 @@ class SelectiveBackupService {
         };
 
       case ExportType.messagesOnly:
-        final chatsResult = await db.rawQuery('SELECT COUNT(*) as count FROM chats');
-        final messagesResult = await db.rawQuery('SELECT COUNT(*) as count FROM messages');
+        final chatsResult = await db.rawQuery(
+          'SELECT COUNT(*) as count FROM chats',
+        );
+        final messagesResult = await db.rawQuery(
+          'SELECT COUNT(*) as count FROM messages',
+        );
         final chatCount = sqlcipher.Sqflite.firstIntValue(chatsResult) ?? 0;
-        final messageCount = sqlcipher.Sqflite.firstIntValue(messagesResult) ?? 0;
+        final messageCount =
+            sqlcipher.Sqflite.firstIntValue(messagesResult) ?? 0;
         return {
           'type': 'messages_only',
           'record_count': chatCount + messageCount,

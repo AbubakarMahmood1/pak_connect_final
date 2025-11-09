@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class ContactRequestDialog extends StatelessWidget {
   final String senderName;
@@ -6,7 +7,7 @@ class ContactRequestDialog extends StatelessWidget {
   final VoidCallback onAccept;
   final VoidCallback onReject;
   final bool isOutgoing;
-  
+
   const ContactRequestDialog({
     super.key,
     required this.senderName,
@@ -53,10 +54,14 @@ class ContactRequestDialog extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5),
+                color: Theme.of(
+                  context,
+                ).colorScheme.primaryContainer.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outline.withValues(alpha: 0.3),
                 ),
               ),
               child: Row(
@@ -80,7 +85,7 @@ class ContactRequestDialog extends StatelessWidget {
             ),
             SizedBox(height: 8),
             Text(
-              'Device ID: ${senderPublicKey.length > 16 ? '${senderPublicKey.substring(0, 16)}...' : senderPublicKey}',
+              'Device ID: ${senderPublicKey.length > 16 ? '${senderPublicKey.shortId()}...' : senderPublicKey}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 fontFamily: 'monospace',
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -106,7 +111,7 @@ class ContactRequestDialog extends StatelessWidget {
 class ContactRequestPendingDialog extends StatelessWidget {
   final String recipientName;
   final VoidCallback onCancel;
-  
+
   const ContactRequestPendingDialog({
     super.key,
     required this.recipientName,
@@ -138,12 +143,7 @@ class ContactRequestPendingDialog extends StatelessWidget {
           LinearProgressIndicator(),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: onCancel,
-          child: Text('Cancel'),
-        ),
-      ],
+      actions: [TextButton(onPressed: onCancel, child: Text('Cancel'))],
     );
   }
 }
@@ -152,7 +152,7 @@ class ContactRequestResultDialog extends StatelessWidget {
   final String contactName;
   final bool wasAccepted;
   final VoidCallback onClose;
-  
+
   const ContactRequestResultDialog({
     super.key,
     required this.contactName,
@@ -167,9 +167,9 @@ class ContactRequestResultDialog extends StatelessWidget {
         children: [
           Icon(
             wasAccepted ? Icons.check_circle : Icons.cancel,
-            color: wasAccepted 
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.error,
+            color: wasAccepted
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.error,
           ),
           SizedBox(width: 8),
           Text(wasAccepted ? 'Contact Added!' : 'Request Rejected'),
@@ -177,16 +177,11 @@ class ContactRequestResultDialog extends StatelessWidget {
       ),
       content: Text(
         wasAccepted
-          ? '"$contactName" accepted your contact request. You can now chat securely!'
-          : '"$contactName" rejected your contact request.',
+            ? '"$contactName" accepted your contact request. You can now chat securely!'
+            : '"$contactName" rejected your contact request.',
         style: Theme.of(context).textTheme.bodyLarge,
       ),
-      actions: [
-        FilledButton(
-          onPressed: onClose,
-          child: Text('OK'),
-        ),
-      ],
+      actions: [FilledButton(onPressed: onClose, child: Text('OK'))],
     );
   }
 }

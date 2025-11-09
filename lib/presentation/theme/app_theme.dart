@@ -7,22 +7,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Comprehensive app theme following Material Design 3.0 principles
 class AppTheme {
   AppTheme._();
-  
+
   // Brand colors
   static const Color _primaryColor = Color(0xFF6750A4);
   static const Color _secondaryColor = Color(0xFF625B71);
   static const Color _errorColor = Color(0xFFBA1A1A);
   static const Color _successColor = Color(0xFF198038);
   static const Color _warningColor = Color(0xFFE97500);
-  
+
   // Surface colors for light theme
   static const Color _lightSurface = Color(0xFFFFFBFE);
   static const Color _lightSurfaceVariant = Color(0xFFE7E0EC);
-  
+
   // Surface colors for dark theme
   static const Color _darkSurface = Color(0xFF1C1B1F);
   static const Color _darkSurfaceVariant = Color(0xFF49454F);
-  
+
   /// Light theme configuration
   static ThemeData get lightTheme {
     final colorScheme = const ColorScheme.light(
@@ -56,10 +56,10 @@ class AppTheme {
       inversePrimary: Color(0xFFD0BCFF),
       surfaceTint: _primaryColor,
     );
-    
+
     return _buildTheme(colorScheme, Brightness.light);
   }
-  
+
   /// Dark theme configuration
   static ThemeData get darkTheme {
     final colorScheme = const ColorScheme.dark(
@@ -93,20 +93,20 @@ class AppTheme {
       inversePrimary: _primaryColor,
       surfaceTint: Color(0xFFD0BCFF),
     );
-    
+
     return _buildTheme(colorScheme, Brightness.dark);
   }
-  
+
   /// Build theme with common configurations
   static ThemeData _buildTheme(ColorScheme colorScheme, Brightness brightness) {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
       brightness: brightness,
-      
+
       // Typography
       textTheme: _buildTextTheme(colorScheme),
-      
+
       // App Bar
       appBarTheme: AppBarTheme(
         elevation: 0,
@@ -122,14 +122,14 @@ class AppTheme {
             ? SystemUiOverlayStyle.dark
             : SystemUiOverlayStyle.light,
       ),
-      
+
       // Elevated Button
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           foregroundColor: colorScheme.onPrimary,
           backgroundColor: colorScheme.primary,
           elevation: 1,
-          shadowColor: colorScheme.shadow.withValues(),
+          shadowColor: colorScheme.shadow.withValues(alpha: 0.08),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(40),
           ),
@@ -141,7 +141,7 @@ class AppTheme {
           ),
         ),
       ),
-      
+
       // Filled Button
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
@@ -159,7 +159,7 @@ class AppTheme {
           ),
         ),
       ),
-      
+
       // Text Button
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
@@ -175,7 +175,7 @@ class AppTheme {
           ),
         ),
       ),
-      
+
       // Icon Button
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
@@ -185,7 +185,7 @@ class AppTheme {
           ),
         ),
       ),
-      
+
       // FAB
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: colorScheme.primaryContainer,
@@ -194,22 +194,18 @@ class AppTheme {
         focusElevation: 4,
         hoverElevation: 4,
         highlightElevation: 1,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
-      
+
       // Cards
       cardTheme: CardThemeData(
         elevation: 1,
         shadowColor: colorScheme.shadow.withValues(),
         surfaceTintColor: colorScheme.surfaceTint,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         clipBehavior: Clip.antiAlias,
       ),
-      
+
       // Input Decoration
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -232,9 +228,12 @@ class AppTheme {
         ),
         labelStyle: TextStyle(color: colorScheme.onSurfaceVariant),
         hintStyle: TextStyle(color: colorScheme.onSurfaceVariant.withValues()),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
       ),
-      
+
       // Chips
       chipTheme: ChipThemeData(
         backgroundColor: colorScheme.surfaceContainerHighest,
@@ -246,30 +245,24 @@ class AppTheme {
         secondaryLabelStyle: TextStyle(color: colorScheme.onSecondaryContainer),
         brightness: brightness,
         elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
-      
+
       // List Tiles
       listTileTheme: ListTileThemeData(
         tileColor: Colors.transparent,
         selectedTileColor: colorScheme.secondaryContainer.withValues(),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       ),
-      
+
       // Dialog
       dialogTheme: DialogThemeData(
         backgroundColor: colorScheme.surface,
         surfaceTintColor: colorScheme.surfaceTint,
         elevation: 6,
         shadowColor: colorScheme.shadow.withValues(),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(28),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         titleTextStyle: TextStyle(
           fontSize: 24,
           fontWeight: FontWeight.w400,
@@ -281,7 +274,7 @@ class AppTheme {
           color: colorScheme.onSurfaceVariant,
         ),
       ),
-      
+
       // Bottom Sheet
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: colorScheme.surface,
@@ -294,7 +287,7 @@ class AppTheme {
         ),
         clipBehavior: Clip.antiAlias,
       ),
-      
+
       // Navigation Bar
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: colorScheme.surface,
@@ -322,39 +315,34 @@ class AppTheme {
               size: 24,
             );
           }
-          return IconThemeData(
-            color: colorScheme.onSurfaceVariant,
-            size: 24,
-          );
+          return IconThemeData(color: colorScheme.onSurfaceVariant, size: 24);
         }),
       ),
-      
+
       // Snack Bar
       snackBarTheme: SnackBarThemeData(
         backgroundColor: colorScheme.inverseSurface,
         contentTextStyle: TextStyle(color: colorScheme.onInverseSurface),
         actionTextColor: colorScheme.inversePrimary,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(4),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
         behavior: SnackBarBehavior.floating,
         elevation: 6,
       ),
-      
+
       // Progress Indicators
       progressIndicatorTheme: ProgressIndicatorThemeData(
         color: colorScheme.primary,
         linearTrackColor: colorScheme.surfaceContainerHighest,
         circularTrackColor: colorScheme.surfaceContainerHighest,
       ),
-      
+
       // Divider
       dividerTheme: DividerThemeData(
         color: colorScheme.outlineVariant,
         thickness: 1,
         space: 1,
       ),
-      
+
       // Switch
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {
@@ -370,7 +358,7 @@ class AppTheme {
           return colorScheme.surfaceContainerHighest;
         }),
       ),
-      
+
       // Checkbox
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
@@ -380,11 +368,9 @@ class AppTheme {
           return Colors.transparent;
         }),
         checkColor: WidgetStateProperty.all(colorScheme.onPrimary),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(2),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
       ),
-      
+
       // Radio
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
@@ -394,7 +380,7 @@ class AppTheme {
           return colorScheme.onSurfaceVariant;
         }),
       ),
-      
+
       // Slider
       sliderTheme: SliderThemeData(
         activeTrackColor: colorScheme.primary,
@@ -408,7 +394,7 @@ class AppTheme {
           fontWeight: FontWeight.w500,
         ),
       ),
-      
+
       // Tab Bar
       tabBarTheme: TabBarThemeData(
         labelColor: colorScheme.primary,
@@ -428,7 +414,7 @@ class AppTheme {
           letterSpacing: 0.1,
         ),
       ),
-      
+
       // Drawer
       drawerTheme: DrawerThemeData(
         backgroundColor: colorScheme.surface,
@@ -439,23 +425,23 @@ class AppTheme {
           borderRadius: BorderRadius.horizontal(right: Radius.circular(16)),
         ),
       ),
-      
+
       // Extensions for custom colors
       extensions: [
         CustomColors(
           success: _successColor,
           onSuccess: Colors.white,
-          successContainer: _successColor.withValues(),
+          successContainer: _successColor.withValues(alpha: 0.15),
           onSuccessContainer: _successColor,
           warning: _warningColor,
           onWarning: Colors.white,
-          warningContainer: _warningColor.withValues(),
+          warningContainer: _warningColor.withValues(alpha: 0.15),
           onWarningContainer: _warningColor,
         ),
       ],
     );
   }
-  
+
   /// Build text theme with custom font styles
   static TextTheme _buildTextTheme(ColorScheme colorScheme) {
     return TextTheme(
@@ -481,7 +467,7 @@ class AppTheme {
         fontWeight: FontWeight.w400,
         color: colorScheme.onSurface,
       ),
-      
+
       // Headline styles
       headlineLarge: TextStyle(
         fontSize: 32,
@@ -504,7 +490,7 @@ class AppTheme {
         fontWeight: FontWeight.w400,
         color: colorScheme.onSurface,
       ),
-      
+
       // Title styles
       titleLarge: TextStyle(
         fontSize: 22,
@@ -527,7 +513,7 @@ class AppTheme {
         fontWeight: FontWeight.w500,
         color: colorScheme.onSurface,
       ),
-      
+
       // Label styles
       labelLarge: TextStyle(
         fontSize: 14,
@@ -550,7 +536,7 @@ class AppTheme {
         fontWeight: FontWeight.w500,
         color: colorScheme.onSurface,
       ),
-      
+
       // Body styles
       bodyLarge: TextStyle(
         fontSize: 16,
@@ -631,12 +617,28 @@ class CustomColors extends ThemeExtension<CustomColors> {
     return CustomColors(
       success: Color.lerp(success, other.success, t)!,
       onSuccess: Color.lerp(onSuccess, other.onSuccess, t)!,
-      successContainer: Color.lerp(successContainer, other.successContainer, t)!,
-      onSuccessContainer: Color.lerp(onSuccessContainer, other.onSuccessContainer, t)!,
+      successContainer: Color.lerp(
+        successContainer,
+        other.successContainer,
+        t,
+      )!,
+      onSuccessContainer: Color.lerp(
+        onSuccessContainer,
+        other.onSuccessContainer,
+        t,
+      )!,
       warning: Color.lerp(warning, other.warning, t)!,
       onWarning: Color.lerp(onWarning, other.onWarning, t)!,
-      warningContainer: Color.lerp(warningContainer, other.warningContainer, t)!,
-      onWarningContainer: Color.lerp(onWarningContainer, other.onWarningContainer, t)!,
+      warningContainer: Color.lerp(
+        warningContainer,
+        other.warningContainer,
+        t,
+      )!,
+      onWarningContainer: Color.lerp(
+        onWarningContainer,
+        other.onWarningContainer,
+        t,
+      )!,
     );
   }
 }
@@ -696,13 +698,13 @@ class ThemeManager {
       debugPrint('Failed to save theme mode: $e');
     }
   }
-  
+
   /// Check if high contrast mode is enabled
   static bool isHighContrastEnabled() {
     // In a real app, this would check system accessibility settings
     return false;
   }
-  
+
   /// Check if reduce motion is enabled
   static bool isReduceMotionEnabled() {
     // In a real app, this would check system accessibility settings
@@ -713,7 +715,8 @@ class ThemeManager {
 /// Extension for easy access to custom colors
 extension CustomColorsExtension on ThemeData {
   CustomColors get customColors =>
-      extension<CustomColors>() ?? const CustomColors(
+      extension<CustomColors>() ??
+      const CustomColors(
         success: Color(0xFF198038),
         onSuccess: Colors.white,
         successContainer: Color(0xFFE6F4EA),

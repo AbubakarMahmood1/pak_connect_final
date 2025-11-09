@@ -427,42 +427,56 @@ class RoutingStatusIndicator extends StatelessWidget {
 - Swipe-to-archive functionality in chat list
 - Archive context menus and confirmation dialogs
 
-**Backend Services**: ⚠️ **Framework Complete, Methods Placeholder**
-- ArchiveRepository with comprehensive CRUD operations
-- ArchiveSearchService with advanced full-text search
-- ArchiveManagementService with policy-based archiving
-- ArchiveProvider for state management
-- Archive models and entities fully defined
+**Backend Services**: ✅ **SQLite-backed services in production (hardening ongoing)**
+- `ArchiveRepository` persists to SQLCipher and enforces compression/indexing policies (`lib/data/repositories/archive_repository.dart`)
+- `ArchiveSearchService` ships with fuzzy search, caching, analytics, and strategy-based query execution
+- `ArchiveManagementService` orchestrates policy-driven archiving/restoration flows
+- Riverpod providers + models kept in sync with the repository implementations
 
-**Storage Architecture**: ❌ **Requires Migration**
-- Currently uses SharedPreferences instead of database
-- No proper database schema implemented
-- Data persistence limited to app lifecycle
+**Storage Architecture**: ⚠️ **SQLite schema live, migration validation pending**
+- `archived_chats` / `archived_messages` tables (plus indices + triggers) created in `lib/data/database/database_helper.dart:361-440`
+- SQLCipher + WAL already enforced through `DatabaseHelper`
+- Remaining work: exercise the SharedPreferences → SQLite migration path on upgrade builds and finalize rollback tooling
 
 #### Database Schema Extensions (Required for Completion)
 ```sql
--- New archive tables (NOT YET IMPLEMENTED)
+-- Archive tables created in DatabaseHelper.onCreate
 CREATE TABLE archived_chats (
-  id TEXT PRIMARY KEY,
-  chat_id TEXT NOT NULL,
+  archive_id TEXT PRIMARY KEY,
+  original_chat_id TEXT NOT NULL,
+  contact_name TEXT,
+  contact_public_key TEXT NOT NULL,
   archived_at INTEGER NOT NULL,
-  archived_by TEXT NOT NULL,
+  last_message_time INTEGER,
+  message_count INTEGER NOT NULL,
   archive_reason TEXT,
-  FOREIGN KEY (chat_id) REFERENCES chats(id)
+  estimated_size INTEGER NOT NULL,
+  is_compressed INTEGER NOT NULL DEFAULT 0,
+  compression_ratio REAL,
+  metadata_json TEXT,
+  compression_info_json TEXT,
+  custom_data_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
 );
 
 CREATE TABLE archived_messages (
-  id TEXT PRIMARY KEY,
-  message_id TEXT NOT NULL,
+  message_id TEXT PRIMARY KEY,
+  archive_id TEXT NOT NULL,
   chat_id TEXT NOT NULL,
-  archived_at INTEGER NOT NULL,
-  content_snapshot TEXT NOT NULL,
-  FOREIGN KEY (message_id) REFERENCES messages(id)
+  sender_public_key TEXT,
+  delivered_at INTEGER,
+  content TEXT NOT NULL,
+  content_snapshot TEXT,
+  content_hash TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (archive_id) REFERENCES archived_chats(archive_id) ON DELETE CASCADE
 );
 ```
 
 **Implemented Repository Components:**
-- ✅ [`lib/data/repositories/archive_repository.dart`](lib/data/repositories/archive_repository.dart) - Full implementation with SharedPreferences
+- ✅ [`lib/data/repositories/archive_repository.dart`](lib/data/repositories/archive_repository.dart) - SQLCipher + FTS5 implementation with compression toggles
 - ✅ [`lib/domain/services/archive_search_service.dart`](lib/domain/services/archive_search_service.dart) - Advanced search with indexing
 - ✅ [`lib/domain/services/archive_management_service.dart`](lib/domain/services/archive_management_service.dart) - Policy-based management
 - ✅ Archive models and entities in [`lib/core/models/archive_models.dart`](lib/core/models/archive_models.dart)

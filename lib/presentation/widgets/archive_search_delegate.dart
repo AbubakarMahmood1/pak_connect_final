@@ -12,18 +12,16 @@ import 'archived_chat_tile.dart';
 /// Advanced search delegate for archived content
 class ArchiveSearchDelegate extends SearchDelegate<String> {
   final WidgetRef ref;
-  
+
   ArchiveSearchDelegate(this.ref);
-  
+
   @override
   String get searchFieldLabel => 'Search archived chats and messages...';
-  
+
   @override
-  TextStyle? get searchFieldStyle => TextStyle(
-    fontSize: 16,
-    color: Colors.white,
-  );
-  
+  TextStyle? get searchFieldStyle =>
+      TextStyle(fontSize: 16, color: Colors.white);
+
   @override
   List<Widget> buildActions(BuildContext context) {
     return [
@@ -43,7 +41,7 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ),
     ];
   }
-  
+
   @override
   Widget buildLeading(BuildContext context) {
     return IconButton(
@@ -52,51 +50,51 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       tooltip: 'Back',
     );
   }
-  
+
   @override
   Widget buildResults(BuildContext context) {
     if (query.trim().isEmpty) {
       return _buildEmptyQuery(context);
     }
-    
+
     return Consumer(
       builder: (context, ref, child) {
         final searchQuery = ArchiveSearchQuery(query: query);
         final searchAsync = ref.watch(archiveSearchProvider(searchQuery));
-        
+
         return searchAsync.when(
           data: (searchResult) {
             if (!searchResult.hasResults) {
               return _buildNoResults(context);
             }
-            
+
             return _buildSearchResults(context, searchResult);
           },
-          loading: () => const Center(
-            child: CircularProgressIndicator(),
-          ),
+          loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, stack) => _buildErrorState(context, error.toString()),
         );
       },
     );
   }
-  
+
   @override
   Widget buildSuggestions(BuildContext context) {
     if (query.trim().isEmpty) {
       return _buildRecentSearches(context);
     }
-    
+
     return Consumer(
       builder: (context, ref, child) {
-        final suggestionsAsync = ref.watch(archiveSearchSuggestionsProvider(query));
-        
+        final suggestionsAsync = ref.watch(
+          archiveSearchSuggestionsProvider(query),
+        );
+
         return suggestionsAsync.when(
           data: (suggestions) {
             if (suggestions.isEmpty) {
               return _buildNoSuggestions(context);
             }
-            
+
             return ListView.builder(
               itemCount: suggestions.length,
               itemBuilder: (context, index) {
@@ -105,22 +103,25 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
               },
             );
           },
-          loading: () => const Center(
-            child: CircularProgressIndicator(),
-          ),
+          loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, stack) => _buildErrorState(context, error.toString()),
         );
       },
     );
   }
-  
-  Widget _buildSearchResults(BuildContext context, AdvancedSearchResult searchResult) {
+
+  Widget _buildSearchResults(
+    BuildContext context,
+    AdvancedSearchResult searchResult,
+  ) {
     return Column(
       children: [
         // Search summary
         Container(
           padding: const EdgeInsets.all(16),
-          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(),
+          color: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
           child: Row(
             children: [
               Icon(
@@ -132,20 +133,21 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
               Expanded(
                 child: Text(
                   '${searchResult.totalResults} results found in ${searchResult.formattedSearchTime}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
                 ),
               ),
               if (searchResult.suggestions.isNotEmpty)
                 TextButton(
-                  onPressed: () => _showSuggestions(context, searchResult.suggestions),
+                  onPressed: () =>
+                      _showSuggestions(context, searchResult.suggestions),
                   child: const Text('Suggestions'),
                 ),
             ],
           ),
         ),
-        
+
         // Results tabs
         Expanded(
           child: DefaultTabController(
@@ -167,7 +169,10 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
                 Expanded(
                   child: TabBarView(
                     children: [
-                      _buildChatResults(context, searchResult.searchResult.chats),
+                      _buildChatResults(
+                        context,
+                        searchResult.searchResult.chats,
+                      ),
                       _buildMessageResults(context, searchResult.messages),
                     ],
                   ),
@@ -179,12 +184,15 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ],
     );
   }
-  
-  Widget _buildChatResults(BuildContext context, List<ArchivedChatSummary> chats) {
+
+  Widget _buildChatResults(
+    BuildContext context,
+    List<ArchivedChatSummary> chats,
+  ) {
     if (chats.isEmpty) {
       return _buildNoResults(context, 'No archived chats found');
     }
-    
+
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       itemCount: chats.length,
@@ -201,12 +209,15 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       },
     );
   }
-  
-  Widget _buildMessageResults(BuildContext context, List<ArchivedMessage> messages) {
+
+  Widget _buildMessageResults(
+    BuildContext context,
+    List<ArchivedMessage> messages,
+  ) {
     if (messages.isEmpty) {
       return _buildNoResults(context, 'No messages found');
     }
-    
+
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       itemCount: messages.length,
@@ -216,10 +227,13 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       },
     );
   }
-  
-  Widget _buildMessageResultTile(BuildContext context, ArchivedMessage message) {
+
+  Widget _buildMessageResultTile(
+    BuildContext context,
+    ArchivedMessage message,
+  ) {
     final theme = Theme.of(context);
-    
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
       child: ListTile(
@@ -263,13 +277,16 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ),
     );
   }
-  
-  Widget _buildSuggestionTile(BuildContext context, SearchSuggestion suggestion) {
+
+  Widget _buildSuggestionTile(
+    BuildContext context,
+    SearchSuggestion suggestion,
+  ) {
     final theme = Theme.of(context);
-    
+
     IconData suggestionIcon = Icons.help;
     Color suggestionColor = theme.colorScheme.onSurfaceVariant;
-    
+
     switch (suggestion.type) {
       case SearchSuggestionType.history:
         suggestionIcon = Icons.history;
@@ -292,15 +309,11 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
         suggestionColor = theme.colorScheme.onSurfaceVariant;
         break;
     }
-    
+
     return ListTile(
-      leading: Icon(
-        suggestionIcon,
-        color: suggestionColor,
-        size: 20,
-      ),
+      leading: Icon(suggestionIcon, color: suggestionColor, size: 20),
       title: Text(suggestion.text),
-      subtitle: suggestion.metadata != null 
+      subtitle: suggestion.metadata != null
           ? Text(_buildSuggestionSubtitle(suggestion))
           : null,
       trailing: IconButton(
@@ -317,10 +330,10 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       },
     );
   }
-  
+
   Widget _buildRecentSearches(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -335,7 +348,10 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
         ),
         // For now, show placeholder recent searches
         ListTile(
-          leading: Icon(Icons.history, color: theme.colorScheme.onSurfaceVariant),
+          leading: Icon(
+            Icons.history,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
           title: const Text('holiday photos'),
           onTap: () {
             query = 'holiday photos';
@@ -343,7 +359,10 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
           },
         ),
         ListTile(
-          leading: Icon(Icons.history, color: theme.colorScheme.onSurfaceVariant),
+          leading: Icon(
+            Icons.history,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
           title: const Text('project meeting'),
           onTap: () {
             query = 'project meeting';
@@ -367,10 +386,10 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ],
     );
   }
-  
+
   Widget _buildEmptyQuery(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -381,10 +400,7 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
             color: theme.colorScheme.onSurfaceVariant.withValues(),
           ),
           const SizedBox(height: 16),
-          Text(
-            'Search Archives',
-            style: theme.textTheme.titleLarge,
-          ),
+          Text('Search Archives', style: theme.textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
             'Search through your archived chats and messages',
@@ -396,10 +412,10 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ),
     );
   }
-  
+
   Widget _buildNoResults(BuildContext context, [String? message]) {
     final theme = Theme.of(context);
-    
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -410,10 +426,7 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
             color: theme.colorScheme.onSurfaceVariant.withValues(),
           ),
           const SizedBox(height: 16),
-          Text(
-            'No Results Found',
-            style: theme.textTheme.titleLarge,
-          ),
+          Text('No Results Found', style: theme.textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
             message ?? 'Try different keywords or check your spelling',
@@ -425,10 +438,10 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ),
     );
   }
-  
+
   Widget _buildNoSuggestions(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -439,27 +452,20 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
             color: theme.colorScheme.onSurfaceVariant.withValues(),
           ),
           const SizedBox(height: 16),
-          Text(
-            'No suggestions available',
-            style: theme.textTheme.bodyLarge,
-          ),
+          Text('No suggestions available', style: theme.textTheme.bodyLarge),
         ],
       ),
     );
   }
-  
+
   Widget _buildErrorState(BuildContext context, String error) {
     final theme = Theme.of(context);
-    
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: theme.colorScheme.error,
-          ),
+          Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
           const SizedBox(height: 16),
           Text(
             'Search Error',
@@ -478,7 +484,7 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ),
     );
   }
-  
+
   void _showFilterDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -521,8 +527,11 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ),
     );
   }
-  
-  void _showSuggestions(BuildContext context, List<SearchSuggestion> suggestions) {
+
+  void _showSuggestions(
+    BuildContext context,
+    List<SearchSuggestion> suggestions,
+  ) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -554,16 +563,16 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       ),
     );
   }
-  
+
   String _highlightQuery(String text, String query) {
     // Simple highlighting - in a real implementation, this would use proper text highlighting
     return text;
   }
-  
+
   String _formatMessageTime(DateTime time) {
     final now = DateTime.now();
     final difference = now.difference(time);
-    
+
     if (difference.inDays > 0) {
       return '${difference.inDays}d ago';
     } else if (difference.inHours > 0) {
@@ -574,11 +583,11 @@ class ArchiveSearchDelegate extends SearchDelegate<String> {
       return 'Just now';
     }
   }
-  
+
   String _buildSuggestionSubtitle(SearchSuggestion suggestion) {
     final metadata = suggestion.metadata;
     if (metadata == null) return '';
-    
+
     switch (suggestion.type) {
       case SearchSuggestionType.history:
         final resultCount = metadata['resultCount'] as int? ?? 0;

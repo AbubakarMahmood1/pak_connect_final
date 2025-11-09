@@ -32,7 +32,7 @@ class SelectiveRestoreService {
       final factory = Platform.isAndroid || Platform.isIOS
           ? sqlcipher.databaseFactory
           : sqflite_common.databaseFactory;
-      
+
       final backupDb = await factory.openDatabase(
         backupPath,
         options: sqflite_common.OpenDatabaseOptions(readOnly: true),

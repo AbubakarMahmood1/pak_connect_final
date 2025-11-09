@@ -5,14 +5,14 @@ class PairingDialog extends StatefulWidget {
   final String myCode;
   final Function(String) onCodeEntered;
   final VoidCallback onCancel;
-  
+
   const PairingDialog({
     super.key,
     required this.myCode,
     required this.onCodeEntered,
     required this.onCancel,
   });
-  
+
   @override
   State<PairingDialog> createState() => _PairingDialogState();
 }
@@ -20,7 +20,7 @@ class PairingDialog extends StatefulWidget {
 class _PairingDialogState extends State<PairingDialog> {
   final TextEditingController _controller = TextEditingController();
   bool _isVerifying = false;
-  
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -85,26 +85,26 @@ class _PairingDialogState extends State<PairingDialog> {
           child: Text('Cancel'),
         ),
         FilledButton(
-          onPressed: _isVerifying || _controller.text.length != 4 
-            ? null 
-            : _submitCode,
-          child: _isVerifying 
-            ? SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Text('Verify'),
+          onPressed: _isVerifying || _controller.text.length != 4
+              ? null
+              : _submitCode,
+          child: _isVerifying
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text('Verify'),
         ),
       ],
     );
   }
-  
+
   void _submitCode() {
     setState(() => _isVerifying = true);
     widget.onCodeEntered(_controller.text);
   }
-  
+
   @override
   void dispose() {
     _controller.dispose();

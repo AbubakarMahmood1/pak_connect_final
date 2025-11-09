@@ -9,7 +9,8 @@ import '../database/database_helper.dart';
 class PreferenceKeys {
   static const String themeMode = 'theme_mode'; // 'system', 'light', 'dark'
   static const String notificationsEnabled = 'notifications_enabled';
-  static const String backgroundNotifications = 'background_notifications'; // Android only
+  static const String backgroundNotifications =
+      'background_notifications'; // Android only
   static const String soundEnabled = 'sound_enabled';
   static const String vibrationEnabled = 'vibration_enabled';
   static const String showReadReceipts = 'show_read_receipts';
@@ -20,13 +21,16 @@ class PreferenceKeys {
   static const String allowNewContacts = 'allow_new_contacts';
   static const String dataBackupEnabled = 'data_backup_enabled';
   static const String lastBackupTime = 'last_backup_time';
+  static const String autoConnectKnownContacts =
+      'auto_connect_known_contacts'; // 🆕 Auto-connect to known contacts
 }
 
 /// Default preference values
 class PreferenceDefaults {
   static const String themeMode = 'system';
   static const bool notificationsEnabled = true;
-  static const bool backgroundNotifications = true; // Android only - enable system notifications
+  static const bool backgroundNotifications =
+      true; // Android only - enable system notifications
   static const bool soundEnabled = true;
   static const bool vibrationEnabled = true;
   static const bool showReadReceipts = true;
@@ -37,15 +41,12 @@ class PreferenceDefaults {
   static const bool allowNewContacts = true;
   static const bool dataBackupEnabled = false;
   static const int lastBackupTime = 0;
+  static const bool autoConnectKnownContacts =
+      false; // 🆕 Default: OFF for battery conservation
 }
 
 /// Value types for type-safe storage
-enum PreferenceValueType {
-  string,
-  boolean,
-  integer,
-  double,
-}
+enum PreferenceValueType { string, boolean, integer, double }
 
 class PreferencesRepository {
   static final _logger = Logger('PreferencesRepository');
@@ -93,14 +94,16 @@ class PreferencesRepository {
       }
 
       final value = result.first['value'];
-      
+
       // Handle type mismatch gracefully
       if (value is bool) {
         return value;
       } else if (value is String) {
         return value.toLowerCase() == 'true';
       } else {
-        _logger.warning('Unexpected value type for $key: ${value.runtimeType}, using default');
+        _logger.warning(
+          'Unexpected value type for $key: ${value.runtimeType}, using default',
+        );
         return defaultValue ?? _getDefaultValue(key) as bool;
       }
     } catch (e) {
@@ -169,22 +172,22 @@ class PreferencesRepository {
   }
 
   /// Internal method to set a value with upsert
-  Future<void> _setValue(String key, String value, PreferenceValueType type) async {
+  Future<void> _setValue(
+    String key,
+    String value,
+    PreferenceValueType type,
+  ) async {
     try {
       final db = await DatabaseHelper.database;
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      await db.insert(
-        'app_preferences',
-        {
-          'key': key,
-          'value': value,
-          'value_type': type.name,
-          'created_at': now,
-          'updated_at': now,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await db.insert('app_preferences', {
+        'key': key,
+        'value': value,
+        'value_type': type.name,
+        'created_at': now,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
 
       _logger.fine('Set preference $key = $value (${type.name})');
     } catch (e) {
@@ -222,6 +225,9 @@ class PreferencesRepository {
         return PreferenceDefaults.dataBackupEnabled;
       case PreferenceKeys.lastBackupTime:
         return PreferenceDefaults.lastBackupTime;
+      case PreferenceKeys
+          .autoConnectKnownContacts: // 🆕 Ensure default exists for auto-connect
+        return PreferenceDefaults.autoConnectKnownContacts;
       default:
         return '';
     }
@@ -231,11 +237,7 @@ class PreferencesRepository {
   Future<void> delete(String key) async {
     try {
       final db = await DatabaseHelper.database;
-      await db.delete(
-        'app_preferences',
-        where: 'key = ?',
-        whereArgs: [key],
-      );
+      await db.delete('app_preferences', where: 'key = ?', whereArgs: [key]);
       _logger.fine('Deleted preference $key');
     } catch (e) {
       _logger.warning('Failed to delete preference $key: $e');

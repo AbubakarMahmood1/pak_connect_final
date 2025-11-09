@@ -37,15 +37,22 @@ class ServiceDisposalCoordinator {
 
     try {
       // Sort services by disposal priority (higher priority disposed first)
-      _registeredServices.sort((a, b) => b.disposalPriority.compareTo(a.disposalPriority));
+      _registeredServices.sort(
+        (a, b) => b.disposalPriority.compareTo(a.disposalPriority),
+      );
 
       // Dispose services in priority order
       for (final service in _registeredServices) {
         try {
-          developer.log('Disposing service: ${service.serviceName} (priority: ${service.disposalPriority})');
+          developer.log(
+            'Disposing service: ${service.serviceName} (priority: ${service.disposalPriority})',
+          );
           await service.dispose();
         } catch (e) {
-          developer.log('Error disposing ${service.serviceName}: $e', level: 1000);
+          developer.log(
+            'Error disposing ${service.serviceName}: $e',
+            level: 1000,
+          );
         }
       }
 
@@ -72,7 +79,7 @@ abstract class DisposableService {
 
   /// Priority for disposal order (higher priority disposed first)
   /// UI Services: 100-199
-  /// Business Logic Services: 50-99  
+  /// Business Logic Services: 50-99
   /// Data Services: 10-49
   /// Core Services: 1-9
   int get disposalPriority;

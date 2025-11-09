@@ -29,7 +29,11 @@ class TrustStatusBadge extends StatelessWidget {
     }
   }
 
-  Widget _buildChip(BuildContext context, ThemeData theme, _TrustConfig config) {
+  Widget _buildChip(
+    BuildContext context,
+    ThemeData theme,
+    _TrustConfig config,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -43,11 +47,7 @@ class TrustStatusBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            config.icon,
-            size: 14,
-            color: config.color,
-          ),
+          Icon(config.icon, size: 14, color: config.color),
           const SizedBox(width: 4),
           Text(
             config.label,
@@ -65,23 +65,19 @@ class TrustStatusBadge extends StatelessWidget {
   Widget _buildIcon(BuildContext context, _TrustConfig config) {
     return Tooltip(
       message: config.description,
-      child: Icon(
-        config.icon,
-        size: 18,
-        color: config.color,
-      ),
+      child: Icon(config.icon, size: 18, color: config.color),
     );
   }
 
-  Widget _buildCompact(BuildContext context, ThemeData theme, _TrustConfig config) {
+  Widget _buildCompact(
+    BuildContext context,
+    ThemeData theme,
+    _TrustConfig config,
+  ) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          config.icon,
-          size: 12,
-          color: config.color,
-        ),
+        Icon(config.icon, size: 12, color: config.color),
         const SizedBox(width: 4),
         Text(
           config.label,

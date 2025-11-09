@@ -7,6 +7,7 @@ import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../core/services/security_manager.dart';
 import '../entities/enhanced_contact.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Comprehensive contact management service with advanced search and privacy features
 /// Singleton pattern to prevent multiple service instances
@@ -67,28 +68,28 @@ class ContactManagementService {
     _isInitialized = true;
     _logger.info('Contact management service initialized');
   }
-  
+
   /// Get all contacts with enhanced information
   Future<List<EnhancedContact>> getAllEnhancedContacts() async {
     try {
       final contacts = await _contactRepository.getAllContacts();
       final enhancedContacts = <EnhancedContact>[];
-      
+
       for (final contact in contacts.values) {
         final enhanced = await _enhanceContact(contact);
         enhancedContacts.add(enhanced);
       }
-      
+
       // Sort by display name
       enhancedContacts.sort((a, b) => a.displayName.compareTo(b.displayName));
-      
+
       return enhancedContacts;
     } catch (e) {
       _logger.severe('Failed to get enhanced contacts: $e');
       return [];
     }
   }
-  
+
   /// Search contacts with advanced filtering capabilities
   Future<ContactSearchResult> searchContacts({
     required String query,
@@ -99,25 +100,31 @@ class ContactManagementService {
     try {
       final startTime = DateTime.now();
       final allContacts = await getAllEnhancedContacts();
-      
-      // Apply search query
-      List<EnhancedContact> filteredContacts = allContacts;
-      
+
+      // 🔧 FIX: By default, only show HIGH security level contacts (fully paired)
+      // User can explicitly remove this filter via UI if they want to see all contacts
+      List<EnhancedContact> filteredContacts = allContacts
+          .where((contact) => contact.securityLevel == SecurityLevel.high)
+          .toList();
+
       if (query.isNotEmpty) {
-        filteredContacts = _performTextSearch(allContacts, query);
+        filteredContacts = _performTextSearch(filteredContacts, query);
         _addToSearchHistory(query);
       }
-      
-      // Apply additional filters
+
+      // Apply additional filters (will override default HIGH filter if specified)
       if (filter != null) {
-        filteredContacts = _applySearchFilter(filteredContacts, filter);
+        filteredContacts = _applySearchFilter(
+          allContacts,
+          filter,
+        ); // Apply filter to ALL contacts, not pre-filtered
       }
-      
+
       // Apply sorting
       filteredContacts = _sortContacts(filteredContacts, sortBy, ascending);
-      
+
       final searchTime = DateTime.now().difference(startTime);
-      
+
       final result = ContactSearchResult(
         contacts: filteredContacts,
         query: query,
@@ -127,29 +134,30 @@ class ContactManagementService {
         sortedBy: sortBy,
         ascending: ascending,
       );
-      
-      _logger.info('Contact search completed: ${result.totalResults} results in ${searchTime.inMilliseconds}ms');
+
+      _logger.info(
+        'Contact search completed: ${result.totalResults} results in ${searchTime.inMilliseconds}ms',
+      );
       return result;
-      
     } catch (e) {
       _logger.severe('Contact search failed: $e');
       return ContactSearchResult.empty(query);
     }
   }
-  
+
   /// Get contact by public key with enhanced information
   Future<EnhancedContact?> getEnhancedContact(String publicKey) async {
     try {
       final contact = await _contactRepository.getContact(publicKey);
       if (contact == null) return null;
-      
+
       return await _enhanceContact(contact);
     } catch (e) {
       _logger.severe('Failed to get enhanced contact: $e');
       return null;
     }
   }
-  
+
   /// Delete contact with confirmation and cleanup
   Future<ContactOperationResult> deleteContact(String publicKey) async {
     try {
@@ -157,31 +165,32 @@ class ContactManagementService {
       if (contact == null) {
         return ContactOperationResult.failure('Contact not found');
       }
-      
+
       // Clear associated data
       await _contactRepository.clearCachedSecrets(publicKey);
-      
+
       // Remove from groups
       await _removeContactFromAllGroups(publicKey);
-      
+
       // Delete the contact (this will require implementing delete in ContactRepository)
       await _deleteContactFromRepository(publicKey);
-      
-      _logger.info('Contact deleted: ${contact.displayName} (${publicKey.substring(0, 16)}...)');
+
+      _logger.info(
+        'Contact deleted: ${contact.displayName} (${publicKey.shortId()}...)',
+      );
       return ContactOperationResult.success('Contact deleted successfully');
-      
     } catch (e) {
       _logger.severe('Failed to delete contact: $e');
       return ContactOperationResult.failure('Failed to delete contact: $e');
     }
   }
-  
+
   /// Bulk delete contacts
   Future<BulkOperationResult> deleteContacts(List<String> publicKeys) async {
     int successCount = 0;
     int failureCount = 0;
     final List<String> failedDeletes = [];
-    
+
     for (final publicKey in publicKeys) {
       final result = await deleteContact(publicKey);
       if (result.success) {
@@ -191,7 +200,7 @@ class ContactManagementService {
         failedDeletes.add(publicKey);
       }
     }
-    
+
     return BulkOperationResult(
       totalOperations: publicKeys.length,
       successCount: successCount,
@@ -199,34 +208,38 @@ class ContactManagementService {
       failedItems: failedDeletes,
     );
   }
-  
+
   /// Get contact statistics and analytics
   Future<ContactAnalytics> getContactAnalytics() async {
     try {
       final contacts = await getAllEnhancedContacts();
-      
+
       final totalContacts = contacts.length;
-      final verifiedContacts = contacts.where((c) => c.trustStatus == TrustStatus.verified).length;
-      final highSecurityContacts = contacts.where((c) => c.securityLevel == SecurityLevel.high).length;
-      
+      final verifiedContacts = contacts
+          .where((c) => c.trustStatus == TrustStatus.verified)
+          .length;
+      final highSecurityContacts = contacts
+          .where((c) => c.securityLevel == SecurityLevel.high)
+          .length;
+
       final securityLevelDistribution = <SecurityLevel, int>{};
       final trustStatusDistribution = <TrustStatus, int>{};
-      
+
       for (final contact in contacts) {
-        securityLevelDistribution[contact.securityLevel] = 
-          (securityLevelDistribution[contact.securityLevel] ?? 0) + 1;
-        trustStatusDistribution[contact.trustStatus] = 
-          (trustStatusDistribution[contact.trustStatus] ?? 0) + 1;
+        securityLevelDistribution[contact.securityLevel] =
+            (securityLevelDistribution[contact.securityLevel] ?? 0) + 1;
+        trustStatusDistribution[contact.trustStatus] =
+            (trustStatusDistribution[contact.trustStatus] ?? 0) + 1;
       }
-      
-      final oldestContact = contacts.isNotEmpty 
-        ? contacts.reduce((a, b) => a.firstSeen.isBefore(b.firstSeen) ? a : b)
-        : null;
-      
+
+      final oldestContact = contacts.isNotEmpty
+          ? contacts.reduce((a, b) => a.firstSeen.isBefore(b.firstSeen) ? a : b)
+          : null;
+
       final newestContact = contacts.isNotEmpty
-        ? contacts.reduce((a, b) => a.firstSeen.isAfter(b.firstSeen) ? a : b)
-        : null;
-      
+          ? contacts.reduce((a, b) => a.firstSeen.isAfter(b.firstSeen) ? a : b)
+          : null;
+
       return ContactAnalytics(
         totalContacts: totalContacts,
         verifiedContacts: verifiedContacts,
@@ -237,13 +250,12 @@ class ContactManagementService {
         newestContact: newestContact,
         averageContactAge: _calculateAverageContactAge(contacts),
       );
-      
     } catch (e) {
       _logger.severe('Failed to get contact analytics: $e');
       return ContactAnalytics.empty();
     }
   }
-  
+
   /// Create contact group for organization
   Future<ContactOperationResult> createContactGroup({
     required String name,
@@ -254,7 +266,7 @@ class ContactManagementService {
       if (_contactGroups.containsKey(name)) {
         return ContactOperationResult.failure('Group already exists');
       }
-      
+
       final group = ContactGroup(
         id: _generateGroupId(),
         name: name,
@@ -263,46 +275,51 @@ class ContactManagementService {
         createdAt: DateTime.now(),
         lastModified: DateTime.now(),
       );
-      
+
       _contactGroups[name] = group;
       await _saveContactGroups();
-      
+
       return ContactOperationResult.success('Contact group created');
     } catch (e) {
       _logger.severe('Failed to create contact group: $e');
       return ContactOperationResult.failure('Failed to create group: $e');
     }
   }
-  
+
   /// Add contact to group
-  Future<ContactOperationResult> addContactToGroup(String publicKey, String groupName) async {
+  Future<ContactOperationResult> addContactToGroup(
+    String publicKey,
+    String groupName,
+  ) async {
     try {
       final group = _contactGroups[groupName];
       if (group == null) {
         return ContactOperationResult.failure('Group not found');
       }
-      
+
       group.memberPublicKeys.add(publicKey);
       group.lastModified = DateTime.now();
       await _saveContactGroups();
-      
+
       return ContactOperationResult.success('Contact added to group');
     } catch (e) {
-      return ContactOperationResult.failure('Failed to add contact to group: $e');
+      return ContactOperationResult.failure(
+        'Failed to add contact to group: $e',
+      );
     }
   }
-  
+
   /// Get recent search queries
   List<String> getRecentSearches() {
     return List.from(_recentSearches.reversed);
   }
-  
+
   /// Clear search history
   Future<void> clearSearchHistory() async {
     _recentSearches.clear();
     await _saveSearchHistory();
   }
-  
+
   /// Get privacy settings
   ContactPrivacySettings getPrivacySettings() {
     return ContactPrivacySettings(
@@ -311,30 +328,32 @@ class ContactManagementService {
       enableContactAnalytics: _enableContactAnalytics,
     );
   }
-  
+
   /// Update privacy settings
   Future<void> updatePrivacySettings(ContactPrivacySettings settings) async {
     _allowAddressBookSync = settings.allowAddressBookSync;
     _allowContactExport = settings.allowContactExport;
     _enableContactAnalytics = settings.enableContactAnalytics;
-    
+
     await _saveSettings();
     _logger.info('Privacy settings updated');
   }
-  
+
   /// Export contacts (if privacy settings allow)
   Future<ContactOperationResult> exportContacts({
     ContactExportFormat format = ContactExportFormat.json,
     bool includeSecurityData = false,
   }) async {
     if (!_allowContactExport) {
-      return ContactOperationResult.failure('Contact export is disabled in privacy settings');
+      return ContactOperationResult.failure(
+        'Contact export is disabled in privacy settings',
+      );
     }
-    
+
     try {
       final contacts = await getAllEnhancedContacts();
       final exportData = _prepareExportData(contacts, includeSecurityData);
-      
+
       String serializedData;
       switch (format) {
         case ContactExportFormat.json:
@@ -344,29 +363,36 @@ class ContactManagementService {
           serializedData = _convertToCSV(exportData);
           break;
       }
-      
+
       // Save to SharedPreferences as exported data (in real app would save to file)
       await _saveExportedData(serializedData, format);
-      _logger.info('Exported ${contacts.length} contacts in ${format.name} format');
-      return ContactOperationResult.success('Contacts exported successfully to local storage');
-      
+      _logger.info(
+        'Exported ${contacts.length} contacts in ${format.name} format',
+      );
+      return ContactOperationResult.success(
+        'Contacts exported successfully to local storage',
+      );
     } catch (e) {
       _logger.severe('Failed to export contacts: $e');
       return ContactOperationResult.failure('Export failed: $e');
     }
   }
-  
+
   // Private methods
-  
+
   /// Enhance basic contact with additional information
   Future<EnhancedContact> _enhanceContact(Contact contact) async {
     final lastSeenAgo = DateTime.now().difference(contact.lastSeen);
     final isRecentlyActive = lastSeenAgo.inDays <= 7;
 
     // Calculate interaction metrics using real message data
-    final interactionCount = await _calculateInteractionCount(contact.publicKey);
-    final averageResponseTime = await _calculateAverageResponseTime(contact.publicKey);
-    
+    final interactionCount = await _calculateInteractionCount(
+      contact.publicKey,
+    );
+    final averageResponseTime = await _calculateAverageResponseTime(
+      contact.publicKey,
+    );
+
     return EnhancedContact(
       contact: contact,
       lastSeenAgo: lastSeenAgo,
@@ -376,51 +402,65 @@ class ContactManagementService {
       groupMemberships: _getContactGroupMemberships(contact.publicKey),
     );
   }
-  
+
   /// Perform text-based search on contacts
-  List<EnhancedContact> _performTextSearch(List<EnhancedContact> contacts, String query) {
-    final searchTerms = query.toLowerCase().split(' ').where((term) => term.isNotEmpty).toList();
-    
+  List<EnhancedContact> _performTextSearch(
+    List<EnhancedContact> contacts,
+    String query,
+  ) {
+    final searchTerms = query
+        .toLowerCase()
+        .split(' ')
+        .where((term) => term.isNotEmpty)
+        .toList();
+
     return contacts.where((contact) {
-      final searchableText = '${contact.displayName} ${contact.publicKey}'.toLowerCase();
-      
+      final searchableText = '${contact.displayName} ${contact.publicKey}'
+          .toLowerCase();
+
       // All search terms must be found
       return searchTerms.every((term) => searchableText.contains(term));
     }).toList();
   }
-  
+
   /// Apply advanced search filters
-  List<EnhancedContact> _applySearchFilter(List<EnhancedContact> contacts, ContactSearchFilter filter) {
+  List<EnhancedContact> _applySearchFilter(
+    List<EnhancedContact> contacts,
+    ContactSearchFilter filter,
+  ) {
     return contacts.where((contact) {
-      if (filter.securityLevel != null && contact.securityLevel != filter.securityLevel) {
+      if (filter.securityLevel != null &&
+          contact.securityLevel != filter.securityLevel) {
         return false;
       }
-      
-      if (filter.trustStatus != null && contact.trustStatus != filter.trustStatus) {
+
+      if (filter.trustStatus != null &&
+          contact.trustStatus != filter.trustStatus) {
         return false;
       }
-      
+
       if (filter.onlyRecentlyActive && !contact.isRecentlyActive) {
         return false;
       }
-      
-      if (filter.minInteractions != null && contact.interactionCount < filter.minInteractions!) {
+
+      if (filter.minInteractions != null &&
+          contact.interactionCount < filter.minInteractions!) {
         return false;
       }
-      
+
       return true;
     }).toList();
   }
-  
+
   /// Sort contacts by specified criteria
   List<EnhancedContact> _sortContacts(
-    List<EnhancedContact> contacts, 
-    ContactSortOption sortBy, 
-    bool ascending
+    List<EnhancedContact> contacts,
+    ContactSortOption sortBy,
+    bool ascending,
   ) {
     contacts.sort((a, b) {
       int comparison;
-      
+
       switch (sortBy) {
         case ContactSortOption.name:
           comparison = a.displayName.compareTo(b.displayName);
@@ -438,41 +478,43 @@ class ContactManagementService {
           comparison = a.firstSeen.compareTo(b.firstSeen);
           break;
       }
-      
+
       return ascending ? comparison : -comparison;
     });
-    
+
     return contacts;
   }
-  
+
   /// Add search query to history
   void _addToSearchHistory(String query) {
     _recentSearches.remove(query); // Remove if already exists
     _recentSearches.add(query);
-    
+
     // Keep only last 10 searches
     if (_recentSearches.length > 10) {
       _recentSearches.removeAt(0);
     }
-    
+
     _saveSearchHistory();
   }
-  
+
   /// Delete contact from repository
   Future<void> _deleteContactFromRepository(String publicKey) async {
     try {
       final success = await _contactRepository.deleteContact(publicKey);
       if (success) {
-        _logger.info('Successfully deleted contact: ${publicKey.substring(0, 16)}...');
+        _logger.info('Successfully deleted contact: ${publicKey.shortId()}...');
       } else {
-        _logger.warning('Failed to delete contact - not found: ${publicKey.substring(0, 16)}...');
+        _logger.warning(
+          'Failed to delete contact - not found: ${publicKey.shortId()}...',
+        );
       }
     } catch (e) {
       _logger.severe('Error deleting contact: $e');
       throw Exception('Failed to delete contact: $e');
     }
   }
-  
+
   /// Remove contact from all groups
   Future<void> _removeContactFromAllGroups(String publicKey) async {
     bool modified = false;
@@ -482,16 +524,18 @@ class ContactManagementService {
         modified = true;
       }
     }
-    
+
     if (modified) {
       await _saveContactGroups();
     }
   }
-  
+
   /// Calculate real interaction metrics based on message history
   Future<int> _calculateInteractionCount(String publicKey) async {
     try {
-      final messages = await _messageRepository.getMessagesForContact(publicKey);
+      final messages = await _messageRepository.getMessagesForContact(
+        publicKey,
+      );
       return messages.length;
     } catch (e) {
       _logger.warning('Failed to calculate interaction count: $e');
@@ -499,13 +543,16 @@ class ContactManagementService {
     }
   }
 
-  
   /// Calculate real average response time based on message timestamps
   Future<Duration> _calculateAverageResponseTime(String publicKey) async {
     try {
-      final messages = await _messageRepository.getMessagesForContact(publicKey);
+      final messages = await _messageRepository.getMessagesForContact(
+        publicKey,
+      );
       if (messages.length < 2) {
-        return const Duration(minutes: 5); // Default for contacts with few messages
+        return const Duration(
+          minutes: 5,
+        ); // Default for contacts with few messages
       }
 
       // Sort messages by timestamp
@@ -532,7 +579,10 @@ class ContactManagementService {
       }
 
       // Calculate average response time
-      final totalMs = responseTimes.fold<int>(0, (sum, duration) => sum + duration.inMilliseconds);
+      final totalMs = responseTimes.fold<int>(
+        0,
+        (sum, duration) => sum + duration.inMilliseconds,
+      );
       return Duration(milliseconds: totalMs ~/ responseTimes.length);
     } catch (e) {
       _logger.warning('Failed to calculate response time: $e');
@@ -540,7 +590,6 @@ class ContactManagementService {
     }
   }
 
-  
   /// Get contact group memberships
   List<String> _getContactGroupMemberships(String publicKey) {
     return _contactGroups.values
@@ -548,89 +597,116 @@ class ContactManagementService {
         .map((group) => group.name)
         .toList();
   }
-  
+
   /// Calculate average contact age
   Duration _calculateAverageContactAge(List<EnhancedContact> contacts) {
     if (contacts.isEmpty) return Duration.zero;
-    
+
     final now = DateTime.now();
     final totalAge = contacts
         .map((c) => now.difference(c.firstSeen).inDays)
         .reduce((a, b) => a + b);
-    
+
     return Duration(days: totalAge ~/ contacts.length);
   }
-  
+
   /// Generate unique group ID
   String _generateGroupId() {
     return 'group_${DateTime.now().millisecondsSinceEpoch}';
   }
-  
+
   /// Prepare contact data for export
-  Map<String, dynamic> _prepareExportData(List<EnhancedContact> contacts, bool includeSecurityData) {
+  Map<String, dynamic> _prepareExportData(
+    List<EnhancedContact> contacts,
+    bool includeSecurityData,
+  ) {
     return {
       'export_timestamp': DateTime.now().toIso8601String(),
       'contact_count': contacts.length,
       'include_security_data': includeSecurityData,
-      'contacts': contacts.map((contact) => {
-        'display_name': contact.displayName,
-        'public_key': includeSecurityData ? contact.publicKey : '[REDACTED]',
-        'trust_status': contact.trustStatus.name,
-        'security_level': includeSecurityData ? contact.securityLevel.name : '[REDACTED]',
-        'first_seen': contact.firstSeen.toIso8601String(),
-        'last_seen': contact.lastSeen.toIso8601String(),
-        'interaction_count': contact.interactionCount,
-        'group_memberships': contact.groupMemberships,
-      }).toList(),
+      'contacts': contacts
+          .map(
+            (contact) => {
+              'display_name': contact.displayName,
+              'public_key': includeSecurityData
+                  ? contact.publicKey
+                  : '[REDACTED]',
+              'trust_status': contact.trustStatus.name,
+              'security_level': includeSecurityData
+                  ? contact.securityLevel.name
+                  : '[REDACTED]',
+              'first_seen': contact.firstSeen.toIso8601String(),
+              'last_seen': contact.lastSeen.toIso8601String(),
+              'interaction_count': contact.interactionCount,
+              'group_memberships': contact.groupMemberships,
+            },
+          )
+          .toList(),
     };
   }
-  
+
   /// Convert export data to CSV format
   String _convertToCSV(Map<String, dynamic> exportData) {
     final contacts = exportData['contacts'] as List<dynamic>;
-    
+
     final csvLines = <String>[];
-    csvLines.add('Display Name,Trust Status,First Seen,Last Seen,Interaction Count,Groups');
-    
+    csvLines.add(
+      'Display Name,Trust Status,First Seen,Last Seen,Interaction Count,Groups',
+    );
+
     for (final contact in contacts) {
       final groups = (contact['group_memberships'] as List<dynamic>).join(';');
-      csvLines.add([
-        contact['display_name'],
-        contact['trust_status'],
-        contact['first_seen'],
-        contact['last_seen'],
-        contact['interaction_count'].toString(),
-        groups,
-      ].map((field) => '"$field"').join(','));
+      csvLines.add(
+        [
+          contact['display_name'],
+          contact['trust_status'],
+          contact['first_seen'],
+          contact['last_seen'],
+          contact['interaction_count'].toString(),
+          groups,
+        ].map((field) => '"$field"').join(','),
+      );
     }
-    
+
     return csvLines.join('\n');
   }
-  
+
   /// Load settings from persistent storage
   Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _allowAddressBookSync = prefs.getBool('${_settingsPrefix}address_book_sync') ?? false;
-      _allowContactExport = prefs.getBool('${_settingsPrefix}contact_export') ?? false;
-      _enableContactAnalytics = prefs.getBool('${_settingsPrefix}analytics') ?? false;
+      _allowAddressBookSync =
+          prefs.getBool('${_settingsPrefix}address_book_sync') ?? false;
+      _allowContactExport =
+          prefs.getBool('${_settingsPrefix}contact_export') ?? false;
+      _enableContactAnalytics =
+          prefs.getBool('${_settingsPrefix}analytics') ?? false;
     } catch (e) {
       _logger.warning('Failed to load contact management settings: $e');
     }
   }
-  
+
   /// Save settings to persistent storage
   Future<void> _saveSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('${_settingsPrefix}address_book_sync', _allowAddressBookSync);
-      await prefs.setBool('${_settingsPrefix}contact_export', _allowContactExport);
-      await prefs.setBool('${_settingsPrefix}analytics', _enableContactAnalytics);
+      await prefs.setBool(
+        '${_settingsPrefix}address_book_sync',
+        _allowAddressBookSync,
+      );
+      await prefs.setBool(
+        '${_settingsPrefix}contact_export',
+        _allowContactExport,
+      );
+      await prefs.setBool(
+        '${_settingsPrefix}analytics',
+        _enableContactAnalytics,
+      );
     } catch (e) {
       _logger.warning('Failed to save contact management settings: $e');
     }
   }
-  
+
   /// Load search history from storage
   Future<void> _loadSearchHistory() async {
     try {
@@ -642,7 +718,7 @@ class ContactManagementService {
       _logger.warning('Failed to load search history: $e');
     }
   }
-  
+
   /// Save search history to storage
   Future<void> _saveSearchHistory() async {
     try {
@@ -652,13 +728,13 @@ class ContactManagementService {
       _logger.warning('Failed to save search history: $e');
     }
   }
-  
+
   /// Load contact groups from storage
   Future<void> _loadContactGroups() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final groupsJson = prefs.getStringList(_contactGroupsKey) ?? [];
-      
+
       _contactGroups.clear();
       for (final json in groupsJson) {
         final group = ContactGroup.fromJson(jsonDecode(json));
@@ -668,7 +744,7 @@ class ContactManagementService {
       _logger.warning('Failed to load contact groups: $e');
     }
   }
-  
+
   /// Save contact groups to storage
   Future<void> _saveContactGroups() async {
     try {
@@ -676,7 +752,7 @@ class ContactManagementService {
       final groupsJson = _contactGroups.values
           .map((group) => jsonEncode(group.toJson()))
           .toList();
-      
+
       await prefs.setStringList(_contactGroupsKey, groupsJson);
     } catch (e) {
       _logger.warning('Failed to save contact groups: $e');
@@ -684,33 +760,44 @@ class ContactManagementService {
   }
 
   /// Save exported data to local storage
-  Future<void> _saveExportedData(String data, ContactExportFormat format) async {
+  Future<void> _saveExportedData(
+    String data,
+    ContactExportFormat format,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final key = 'contact_export_${format.name}_$timestamp';
       await prefs.setString(key, data);
-      
+
       // Also save export metadata
       final exports = prefs.getStringList('contact_exports') ?? [];
-      exports.add(jsonEncode({
-        'key': key,
-        'format': format.name,
-        'timestamp': timestamp,
-        'size': data.length,
-      }));
+      exports.add(
+        jsonEncode({
+          'key': key,
+          'format': format.name,
+          'timestamp': timestamp,
+          'size': data.length,
+        }),
+      );
       await prefs.setStringList('contact_exports', exports);
-      
+
       _logger.info('Exported data saved with key: $key');
     } catch (e) {
       _logger.warning('Failed to save exported data: $e');
     }
   }
-
 }
 
 // Enums and data classes would be defined in separate files in a real app
-enum ContactSortOption { name, lastSeen, securityLevel, interactions, dateAdded }
+enum ContactSortOption {
+  name,
+  lastSeen,
+  securityLevel,
+  interactions,
+  dateAdded,
+}
+
 enum ContactExportFormat { json, csv }
 
 class ContactSearchFilter {
@@ -718,7 +805,7 @@ class ContactSearchFilter {
   final TrustStatus? trustStatus;
   final bool onlyRecentlyActive;
   final int? minInteractions;
-  
+
   const ContactSearchFilter({
     this.securityLevel,
     this.trustStatus,
@@ -735,7 +822,7 @@ class ContactSearchResult {
   final ContactSearchFilter? appliedFilter;
   final ContactSortOption sortedBy;
   final bool ascending;
-  
+
   const ContactSearchResult({
     required this.contacts,
     required this.query,
@@ -745,7 +832,7 @@ class ContactSearchResult {
     required this.sortedBy,
     required this.ascending,
   });
-  
+
   factory ContactSearchResult.empty(String query) => ContactSearchResult(
     contacts: [],
     query: query,
@@ -759,11 +846,13 @@ class ContactSearchResult {
 class ContactOperationResult {
   final bool success;
   final String message;
-  
+
   const ContactOperationResult._(this.success, this.message);
-  
-  factory ContactOperationResult.success(String message) => ContactOperationResult._(true, message);
-  factory ContactOperationResult.failure(String message) => ContactOperationResult._(false, message);
+
+  factory ContactOperationResult.success(String message) =>
+      ContactOperationResult._(true, message);
+  factory ContactOperationResult.failure(String message) =>
+      ContactOperationResult._(false, message);
 }
 
 class BulkOperationResult {
@@ -771,15 +860,16 @@ class BulkOperationResult {
   final int successCount;
   final int failureCount;
   final List<String> failedItems;
-  
+
   const BulkOperationResult({
     required this.totalOperations,
     required this.successCount,
     required this.failureCount,
     required this.failedItems,
   });
-  
-  double get successRate => totalOperations > 0 ? successCount / totalOperations : 0.0;
+
+  double get successRate =>
+      totalOperations > 0 ? successCount / totalOperations : 0.0;
 }
 
 class ContactAnalytics {
@@ -791,7 +881,7 @@ class ContactAnalytics {
   final EnhancedContact? oldestContact;
   final EnhancedContact? newestContact;
   final Duration averageContactAge;
-  
+
   const ContactAnalytics({
     required this.totalContacts,
     required this.verifiedContacts,
@@ -802,7 +892,7 @@ class ContactAnalytics {
     this.newestContact,
     required this.averageContactAge,
   });
-  
+
   factory ContactAnalytics.empty() => ContactAnalytics(
     totalContacts: 0,
     verifiedContacts: 0,
@@ -817,7 +907,7 @@ class ContactPrivacySettings {
   final bool allowAddressBookSync;
   final bool allowContactExport;
   final bool enableContactAnalytics;
-  
+
   const ContactPrivacySettings({
     required this.allowAddressBookSync,
     required this.allowContactExport,
@@ -832,7 +922,7 @@ class ContactGroup {
   final Set<String> memberPublicKeys;
   final DateTime createdAt;
   DateTime lastModified;
-  
+
   ContactGroup({
     required this.id,
     required this.name,
@@ -841,7 +931,7 @@ class ContactGroup {
     required this.createdAt,
     required this.lastModified,
   });
-  
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -850,7 +940,7 @@ class ContactGroup {
     'created_at': createdAt.millisecondsSinceEpoch,
     'last_modified': lastModified.millisecondsSinceEpoch,
   };
-  
+
   factory ContactGroup.fromJson(Map<String, dynamic> json) => ContactGroup(
     id: json['id'],
     name: json['name'],

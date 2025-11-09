@@ -2,7 +2,9 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:logging/logging.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -11,6 +13,8 @@ import '../../core/models/archive_models.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/database/database_helper.dart';
+import '../../core/compression/compression_util.dart';
+import '../../core/compression/compression_config.dart';
 
 /// Repository for managing archived chats with SQLite and FTS5 search
 /// Singleton pattern to prevent multiple instances and redundant initialization
@@ -107,7 +111,9 @@ class ArchiveRepository {
       }
 
       // Convert to enhanced messages
-      final enhancedMessages = messages.map((m) => EnhancedMessage.fromMessage(m)).toList();
+      final enhancedMessages = messages
+          .map((m) => EnhancedMessage.fromMessage(m))
+          .toList();
 
       // Create archived chat
       final archiveId = _generateArchiveId(chatId);
@@ -121,8 +127,13 @@ class ArchiveRepository {
 
       // Apply compression if needed
       ArchivedChat finalArchive = archivedChat;
-      if (compressLargeArchives && archivedChat.estimatedSize > 10240) { // 10KB threshold
+      if (compressLargeArchives && archivedChat.estimatedSize > 10240) {
+        // 10KB threshold
         finalArchive = await _compressArchive(archivedChat);
+      } else {
+        _logger.info(
+          'Archive ${archivedChat.id} size (${archivedChat.estimatedSize} bytes) below 10KB threshold - compression skipped',
+        );
       }
 
       // Store the archive in SQLite transaction
@@ -135,7 +146,8 @@ class ArchiveRepository {
           'contact_name': finalArchive.contactName,
           'contact_public_key': chatItem.contactPublicKey,
           'archived_at': finalArchive.archivedAt.millisecondsSinceEpoch,
-          'last_message_time': finalArchive.lastMessageTime?.millisecondsSinceEpoch,
+          'last_message_time':
+              finalArchive.lastMessageTime?.millisecondsSinceEpoch,
           'message_count': finalArchive.messageCount,
           'archive_reason': archiveReason,
           'estimated_size': finalArchive.estimatedSize,
@@ -145,19 +157,27 @@ class ArchiveRepository {
           'compression_info_json': finalArchive.compressionInfo != null
               ? jsonEncode(finalArchive.compressionInfo!.toJson())
               : null,
-          'custom_data_json': customData != null ? jsonEncode(customData) : null,
+          'custom_data_json': customData != null
+              ? jsonEncode(customData)
+              : null,
           'created_at': DateTime.now().millisecondsSinceEpoch,
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });
 
         // Insert archived messages with searchable text for FTS5
         for (final message in finalArchive.messages) {
-          await txn.insert('archived_messages', _archivedMessageToMap(message, finalArchive.id));
+          await txn.insert(
+            'archived_messages',
+            _archivedMessageToMap(message, finalArchive.id),
+          );
         }
+
+        // Delete the chat from chats table (it's now in archived_chats)
+        await txn.delete('chats', where: 'id = ?', whereArgs: [chatId]);
         // FTS5 index is automatically updated via triggers!
       });
 
-      // Clear original chat data
+      // Clear original chat messages
       await _messageRepository.clearMessages(chatId);
 
       final operationTime = DateTime.now().difference(startTime);
@@ -168,10 +188,14 @@ class ArchiveRepository {
         warnings.add('Archive was compressed to save space');
       }
       if (messages.length > 1000) {
-        warnings.add('Large archive created - search indexing may take additional time');
+        warnings.add(
+          'Large archive created - search indexing may take additional time',
+        );
       }
 
-      _logger.info('Successfully archived chat $chatId as $archiveId in ${operationTime.inMilliseconds}ms');
+      _logger.info(
+        'Successfully archived chat $chatId as $archiveId in ${operationTime.inMilliseconds}ms',
+      );
 
       return ArchiveOperationResult.success(
         message: 'Chat archived successfully',
@@ -186,7 +210,6 @@ class ArchiveRepository {
         },
         warnings: warnings,
       );
-
     } catch (e) {
       final operationTime = DateTime.now().difference(startTime);
       _logger.severe('Archive operation failed for $chatId: $e');
@@ -195,7 +218,9 @@ class ArchiveRepository {
         message: 'Failed to archive chat: $e',
         operationType: ArchiveOperationType.archive,
         operationTime: operationTime,
-        error: ArchiveError.storageError('Archive storage failed', {'chatId': chatId}),
+        error: ArchiveError.storageError('Archive storage failed', {
+          'chatId': chatId,
+        }),
       );
     }
   }
@@ -235,7 +260,9 @@ class ArchiveRepository {
           await _messageRepository.saveMessage(restoredMessage);
           restoredCount++;
         } catch (e) {
-          _logger.warning('Failed to restore message ${archivedMessage.id}: $e');
+          _logger.warning(
+            'Failed to restore message ${archivedMessage.id}: $e',
+          );
           warnings.add('Some messages could not be restored');
         }
       }
@@ -251,7 +278,18 @@ class ArchiveRepository {
       final operationTime = DateTime.now().difference(startTime);
       _recordOperationTime('restore', operationTime);
 
-      _logger.info('Successfully restored $restoredCount messages from archive $archiveId');
+      _logger.info(
+        'Successfully restored $restoredCount messages from archive $archiveId',
+      );
+
+      // Delete archive + cascade archived messages now that data is restored
+      final db = await DatabaseHelper.database;
+      await db.delete(
+        'archived_chats',
+        where: 'archive_id = ?',
+        whereArgs: [archiveId],
+      );
+      _logger.info('Archive $archiveId deleted after restoration');
 
       return ArchiveOperationResult.success(
         message: 'Chat restored successfully',
@@ -265,7 +303,6 @@ class ArchiveRepository {
         },
         warnings: warnings,
       );
-
     } catch (e) {
       final operationTime = DateTime.now().difference(startTime);
       _logger.severe('Restore operation failed for $archiveId: $e');
@@ -274,7 +311,9 @@ class ArchiveRepository {
         message: 'Failed to restore chat: $e',
         operationType: ArchiveOperationType.restore,
         operationTime: operationTime,
-        error: ArchiveError.storageError('Restore operation failed', {'archiveId': archiveId}),
+        error: ArchiveError.storageError('Restore operation failed', {
+          'archiveId': archiveId,
+        }),
       );
     }
   }
@@ -292,6 +331,46 @@ class ArchiveRepository {
       _logger.warning('Failed to get archived chats count: $e');
       return 0;
     }
+  }
+
+  Future<void> _ensureChatShellExists({
+    required ArchivedChat archivedChat,
+    required ArchivedChat restoredArchive,
+  }) async {
+    final db = await DatabaseHelper.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await db.transaction((txn) async {
+      if ((archivedChat.contactPublicKey?.isNotEmpty ?? false)) {
+        await txn.insert('contacts', {
+          'public_key': archivedChat.contactPublicKey,
+          'display_name': archivedChat.contactName,
+          'trust_status': 0,
+          'security_level': 0,
+          'first_seen': now,
+          'last_seen': now,
+          'created_at': now,
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+
+      await txn.insert('chats', {
+        'chat_id': archivedChat.originalChatId,
+        'contact_public_key': archivedChat.contactPublicKey,
+        'contact_name': archivedChat.contactName,
+        'last_message': restoredArchive.messages.isNotEmpty
+            ? restoredArchive.messages.last.content
+            : '',
+        'last_message_time':
+            restoredArchive.lastMessageTime?.millisecondsSinceEpoch,
+        'unread_count': 0,
+        'is_archived': 0,
+        'is_muted': 0,
+        'is_pinned': 0,
+        'created_at': now,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
 
   Future<List<ArchivedChatSummary>> getArchivedChats({
@@ -375,7 +454,6 @@ class ArchiveRepository {
       );
 
       return results.map((row) => _mapToArchivedChatSummary(row)).toList();
-
     } catch (e) {
       _logger.severe('Failed to get archived chats: $e');
       return [];
@@ -408,10 +486,11 @@ class ArchiveRepository {
         orderBy: 'timestamp ASC',
       );
 
-      final messages = messageResults.map((row) => _mapToArchivedMessage(row)).toList();
+      final messages = messageResults
+          .map((row) => _mapToArchivedMessage(row))
+          .toList();
 
       return _mapToArchivedChat(archiveRow, messages);
-
     } catch (e) {
       _logger.severe('Failed to get archived chat $archiveId: $e');
       return null;
@@ -449,12 +528,17 @@ class ArchiveRepository {
 
       final results = await db.rawQuery(searchQuery, [query, limit * 2]);
 
-      final matchingMessages = results.map((row) => _mapToArchivedMessage(row)).toList();
+      final matchingMessages = results
+          .map((row) => _mapToArchivedMessage(row))
+          .toList();
 
       // Apply additional filters if needed
       List<ArchivedMessage> filteredMessages = matchingMessages;
       if (filter?.messageTypeFilter != null) {
-        filteredMessages = _applyMessageTypeFilter(matchingMessages, filter!.messageTypeFilter!);
+        filteredMessages = _applyMessageTypeFilter(
+          matchingMessages,
+          filter!.messageTypeFilter!,
+        );
       }
 
       // Get unique archive IDs
@@ -493,10 +577,11 @@ class ArchiveRepository {
         },
       );
 
-      _logger.info('FTS5 search completed: found ${result.totalResults} results in ${result.formattedSearchTime}');
+      _logger.info(
+        'FTS5 search completed: found ${result.totalResults} results in ${result.formattedSearchTime}',
+      );
 
       return result;
-
     } catch (e) {
       _logger.severe('Search failed for "$query": $e');
       return ArchiveSearchResult.empty(query);
@@ -504,7 +589,9 @@ class ArchiveRepository {
   }
 
   /// Permanently delete an archived chat
-  Future<ArchiveOperationResult> permanentlyDeleteArchive(String archiveId) async {
+  Future<ArchiveOperationResult> permanentlyDeleteArchive(
+    String archiveId,
+  ) async {
     final startTime = DateTime.now();
 
     try {
@@ -543,7 +630,6 @@ class ArchiveRepository {
           'sizeFreed': archive.estimatedSize,
         },
       );
-
     } catch (e) {
       final operationTime = DateTime.now().difference(startTime);
       _logger.severe('Delete operation failed for $archiveId: $e');
@@ -552,7 +638,9 @@ class ArchiveRepository {
         message: 'Failed to delete archive: $e',
         operationType: ArchiveOperationType.delete,
         operationTime: operationTime,
-        error: ArchiveError.storageError('Delete operation failed', {'archiveId': archiveId}),
+        error: ArchiveError.storageError('Delete operation failed', {
+          'archiveId': archiveId,
+        }),
       );
     }
   }
@@ -586,7 +674,8 @@ class ArchiveRepository {
       final newestArchive = stats['newest_archive'] != null
           ? DateTime.fromMillisecondsSinceEpoch(stats['newest_archive'] as int)
           : null;
-      final avgCompressionRatio = stats['avg_compression_ratio'] as double? ?? 0.7;
+      final avgCompressionRatio =
+          stats['avg_compression_ratio'] as double? ?? 0.7;
 
       // Archives by month
       final monthResults = await db.rawQuery('''
@@ -616,11 +705,13 @@ class ArchiveRepository {
 
       final messagesByContact = <String, int>{};
       for (final row in contactResults) {
-        messagesByContact[row['contact_name'] as String] = row['total_messages'] as int;
+        messagesByContact[row['contact_name'] as String] =
+            row['total_messages'] as int;
       }
 
       // Calculate average age
-      final averageAge = totalArchives > 0 && newestArchive != null && oldestArchive != null
+      final averageAge =
+          totalArchives > 0 && newestArchive != null && oldestArchive != null
           ? newestArchive.difference(oldestArchive)
           : Duration.zero;
 
@@ -654,7 +745,6 @@ class ArchiveRepository {
         averageArchiveAge: averageAge,
         performanceStats: performanceStats,
       );
-
     } catch (e) {
       _logger.severe('Failed to get archive statistics: $e');
       return ArchiveStatistics.empty();
@@ -681,32 +771,129 @@ class ArchiveRepository {
 
   Future<ArchivedChat> _compressArchive(ArchivedChat archive) async {
     try {
-      // Simple compression simulation (in real implementation, use gzip)
-      final originalJson = jsonEncode(archive.toJson());
-      final originalSize = originalJson.length;
-
-      // Simulate compression by removing some whitespace and optimizing
-      final compressedSize = (originalSize * 0.7).round(); // 30% reduction simulation
-
-      final compressionInfo = ArchiveCompressionInfo(
-        algorithm: 'simulated_gzip',
-        originalSize: originalSize,
-        compressedSize: compressedSize,
-        compressionRatio: compressedSize / originalSize,
-        compressedAt: DateTime.now(),
+      _logger.info(
+        'Compressing archive ${archive.id} (${archive.messageCount} messages)',
       );
 
-      return archive.copyWith(compressionInfo: compressionInfo);
-    } catch (e) {
-      _logger.warning('Compression failed, storing uncompressed: $e');
+      // Serialize messages to JSON
+      final messagesJson = jsonEncode(
+        archive.messages.map((m) => m.toJson()).toList(),
+      );
+      final originalData = Uint8List.fromList(utf8.encode(messagesJson));
+      final originalSize = originalData.length;
+
+      // Compress using our compression module
+      final compressionResult = CompressionUtil.compress(
+        originalData,
+        config: CompressionConfig.aggressive, // Use aggressive for archives
+      );
+
+      if (compressionResult == null) {
+        // Compression not beneficial or failed - store uncompressed
+        _logger.info(
+          'Compression not beneficial for archive ${archive.id}, storing uncompressed',
+        );
+        return archive;
+      }
+
+      // Store compressed data as base64 in customData
+      final compressedBase64 = base64Encode(compressionResult.compressed);
+      final customData = Map<String, dynamic>.from(archive.customData ?? {});
+      customData['_compressed_messages_blob'] = compressedBase64;
+      customData['_compression_original_size'] = originalSize;
+
+      final compressionInfo = ArchiveCompressionInfo(
+        algorithm: compressionResult.stats.algorithm,
+        originalSize: originalSize,
+        compressedSize: compressionResult.stats.compressedSize,
+        compressionRatio: compressionResult.stats.compressionRatio,
+        compressedAt: DateTime.now(),
+        compressionMetadata: {
+          'savingsPercent': compressionResult.stats.savingsPercent,
+          'compressionTimeMs': compressionResult.stats.compressionTimeMs,
+        },
+      );
+
+      _logger.info(
+        'Archive ${archive.id} compressed: $originalSize → ${compressionResult.stats.compressedSize} bytes '
+        '(${compressionResult.stats.savingsPercent.toStringAsFixed(1)}% savings)',
+      );
+
+      return archive.copyWith(
+        compressionInfo: compressionInfo,
+        customData: customData,
+      );
+    } catch (e, stackTrace) {
+      _logger.warning(
+        'Compression failed for archive ${archive.id}, storing uncompressed: $e',
+        e,
+        stackTrace,
+      );
       return archive;
     }
   }
 
   Future<ArchivedChat> _decompressArchive(ArchivedChat archive) async {
-    // In real implementation, decompress the data
-    // For simulation, just return the archive
-    return archive;
+    try {
+      // Check if archive is actually compressed
+      if (!archive.isCompressed || archive.customData == null) {
+        _logger.fine(
+          'Archive ${archive.id} is not compressed, returning as-is',
+        );
+        return archive;
+      }
+
+      final customData = archive.customData!;
+      final compressedBase64 =
+          customData['_compressed_messages_blob'] as String?;
+      final originalSize = customData['_compression_original_size'] as int?;
+
+      if (compressedBase64 == null) {
+        _logger.warning(
+          'Archive ${archive.id} marked as compressed but no compressed data found',
+        );
+        return archive;
+      }
+
+      _logger.info('Decompressing archive ${archive.id}');
+
+      // Decode base64 and decompress
+      final compressedData = base64Decode(compressedBase64);
+      final decompressed = CompressionUtil.decompress(
+        Uint8List.fromList(compressedData),
+        originalSize: originalSize,
+        config: CompressionConfig.aggressive,
+      );
+
+      if (decompressed == null) {
+        _logger.severe(
+          'Failed to decompress archive ${archive.id}, using stored messages',
+        );
+        return archive;
+      }
+
+      // Deserialize messages from decompressed JSON
+      final messagesJson = utf8.decode(decompressed);
+      final messagesList = jsonDecode(messagesJson) as List<dynamic>;
+      final messages = messagesList
+          .map((m) => ArchivedMessage.fromJson(m as Map<String, dynamic>))
+          .toList();
+
+      _logger.info(
+        'Archive ${archive.id} decompressed: ${messages.length} messages restored',
+      );
+
+      // Return archive with decompressed messages
+      // Remove compression info since we're working with uncompressed data now
+      return archive.copyWith(messages: messages);
+    } catch (e, stackTrace) {
+      _logger.severe(
+        'Decompression failed for archive ${archive.id}, using stored messages: $e',
+        e,
+        stackTrace,
+      );
+      return archive; // Fall back to stored messages
+    }
   }
 
   void _recordOperationTime(String operation, Duration time) {
@@ -719,17 +906,29 @@ class ArchiveRepository {
     ArchiveMessageTypeFilter filter,
   ) {
     return messages.where((message) {
-      if (filter.isFromMe != null && message.isFromMe != filter.isFromMe) return false;
-      if (filter.hasAttachments != null && message.attachments.isNotEmpty != filter.hasAttachments) return false;
-      if (filter.wasStarred != null && message.isStarred != filter.wasStarred) return false;
-      if (filter.wasEdited != null && message.wasEdited != filter.wasEdited) return false;
+      if (filter.isFromMe != null && message.isFromMe != filter.isFromMe) {
+        return false;
+      }
+      if (filter.hasAttachments != null &&
+          message.attachments.isNotEmpty != filter.hasAttachments) {
+        return false;
+      }
+      if (filter.wasStarred != null && message.isStarred != filter.wasStarred) {
+        return false;
+      }
+      if (filter.wasEdited != null && message.wasEdited != filter.wasEdited) {
+        return false;
+      }
       return true;
     }).toList();
   }
 
   // Mapping methods
 
-  Map<String, dynamic> _archivedMessageToMap(ArchivedMessage message, String archiveId) {
+  Map<String, dynamic> _archivedMessageToMap(
+    ArchivedMessage message,
+    String archiveId,
+  ) {
     // Determine media type from attachments
     String? mediaType;
     if (message.attachments.isNotEmpty) {
@@ -776,7 +975,8 @@ class ArchiveRepository {
           ? jsonEncode(message.encryptionInfo!.toJson())
           : null,
       'archive_metadata_json': jsonEncode(message.archiveMetadata.toJson()),
-      'preserved_state_json': message.preservedState != null && message.preservedState!.isNotEmpty
+      'preserved_state_json':
+          message.preservedState != null && message.preservedState!.isNotEmpty
           ? jsonEncode(message.preservedState)
           : null,
       'searchable_text': message.searchableText, // KEY for FTS5!
@@ -798,18 +998,24 @@ class ArchiveRepository {
       replyToMessageId: row['reply_to_message_id'] as String?,
       threadId: row['thread_id'] as String?,
       metadata: row['metadata_json'] != null
-          ? Map<String, dynamic>.from(jsonDecode(row['metadata_json'] as String))
+          ? Map<String, dynamic>.from(
+              jsonDecode(row['metadata_json'] as String),
+            )
           : null,
       deliveryReceipt: row['delivery_receipt_json'] != null
-          ? MessageDeliveryReceipt.fromJson(jsonDecode(row['delivery_receipt_json'] as String))
+          ? MessageDeliveryReceipt.fromJson(
+              jsonDecode(row['delivery_receipt_json'] as String),
+            )
           : null,
       readReceipt: row['read_receipt_json'] != null
-          ? MessageReadReceipt.fromJson(jsonDecode(row['read_receipt_json'] as String))
+          ? MessageReadReceipt.fromJson(
+              jsonDecode(row['read_receipt_json'] as String),
+            )
           : null,
       reactions: row['reactions_json'] != null
           ? (jsonDecode(row['reactions_json'] as String) as List)
-              .map((r) => MessageReaction.fromJson(r))
-              .toList()
+                .map((r) => MessageReaction.fromJson(r))
+                .toList()
           : const [],
       isStarred: (row['is_starred'] as int? ?? 0) == 1,
       isForwarded: (row['is_forwarded'] as int? ?? 0) == 1,
@@ -820,19 +1026,27 @@ class ArchiveRepository {
       originalContent: row['original_content'] as String?,
       attachments: row['attachments_json'] != null
           ? (jsonDecode(row['attachments_json'] as String) as List)
-              .map((a) => MessageAttachment.fromJson(a))
-              .toList()
+                .map((a) => MessageAttachment.fromJson(a))
+                .toList()
           : const [],
       encryptionInfo: row['encryption_info_json'] != null
-          ? MessageEncryptionInfo.fromJson(jsonDecode(row['encryption_info_json'] as String))
+          ? MessageEncryptionInfo.fromJson(
+              jsonDecode(row['encryption_info_json'] as String),
+            )
           : null,
 
       // ArchivedMessage specific fields
-      archivedAt: DateTime.fromMillisecondsSinceEpoch(row['archived_at'] as int),
-      originalTimestamp: DateTime.fromMillisecondsSinceEpoch(row['original_timestamp'] as int),
+      archivedAt: DateTime.fromMillisecondsSinceEpoch(
+        row['archived_at'] as int,
+      ),
+      originalTimestamp: DateTime.fromMillisecondsSinceEpoch(
+        row['original_timestamp'] as int,
+      ),
       archiveId: row['archive_id'] as String,
       archiveMetadata: row['archive_metadata_json'] != null
-          ? ArchiveMessageMetadata.fromJson(jsonDecode(row['archive_metadata_json'] as String))
+          ? ArchiveMessageMetadata.fromJson(
+              jsonDecode(row['archive_metadata_json'] as String),
+            )
           : ArchiveMessageMetadata(
               archiveVersion: '1.0',
               preservationLevel: ArchivePreservationLevel.complete,
@@ -843,7 +1057,9 @@ class ArchiveRepository {
             ),
       originalSearchableText: row['searchable_text'] as String?,
       preservedState: row['preserved_state_json'] != null
-          ? Map<String, dynamic>.from(jsonDecode(row['preserved_state_json'] as String))
+          ? Map<String, dynamic>.from(
+              jsonDecode(row['preserved_state_json'] as String),
+            )
           : null,
     );
   }
@@ -853,7 +1069,9 @@ class ArchiveRepository {
       id: row['archive_id'] as String,
       originalChatId: row['original_chat_id'] as String,
       contactName: row['contact_name'] as String,
-      archivedAt: DateTime.fromMillisecondsSinceEpoch(row['archived_at'] as int),
+      archivedAt: DateTime.fromMillisecondsSinceEpoch(
+        row['archived_at'] as int,
+      ),
       lastMessageTime: row['last_message_time'] != null
           ? DateTime.fromMillisecondsSinceEpoch(row['last_message_time'] as int)
           : null,
@@ -865,7 +1083,10 @@ class ArchiveRepository {
     );
   }
 
-  ArchivedChat _mapToArchivedChat(Map<String, dynamic> archiveRow, List<ArchivedMessage> messages) {
+  ArchivedChat _mapToArchivedChat(
+    Map<String, dynamic> archiveRow,
+    List<ArchivedMessage> messages,
+  ) {
     final compressionInfoJson = archiveRow['compression_info_json'] as String?;
     final metadataJson = archiveRow['metadata_json'] as String?;
 
@@ -875,9 +1096,13 @@ class ArchiveRepository {
       contactName: archiveRow['contact_name'] as String,
       contactPublicKey: archiveRow['contact_public_key'] as String?,
       messages: messages,
-      archivedAt: DateTime.fromMillisecondsSinceEpoch(archiveRow['archived_at'] as int),
+      archivedAt: DateTime.fromMillisecondsSinceEpoch(
+        archiveRow['archived_at'] as int,
+      ),
       lastMessageTime: archiveRow['last_message_time'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(archiveRow['last_message_time'] as int)
+          ? DateTime.fromMillisecondsSinceEpoch(
+              archiveRow['last_message_time'] as int,
+            )
           : null,
       messageCount: archiveRow['message_count'] as int,
       metadata: metadataJson != null
@@ -897,7 +1122,9 @@ class ArchiveRepository {
           ? ArchiveCompressionInfo.fromJson(jsonDecode(compressionInfoJson))
           : null,
       customData: archiveRow['custom_data_json'] != null
-          ? Map<String, dynamic>.from(jsonDecode(archiveRow['custom_data_json'] as String))
+          ? Map<String, dynamic>.from(
+              jsonDecode(archiveRow['custom_data_json'] as String),
+            )
           : null,
     );
   }

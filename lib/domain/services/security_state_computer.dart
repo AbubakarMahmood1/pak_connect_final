@@ -5,9 +5,9 @@ import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/security_manager.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class SecurityStateComputer {
-  
   /// Main entry point - computes complete security state for any context
   static Future<SecurityState> computeState({
     required bool isRepositoryMode,
@@ -16,99 +16,111 @@ class SecurityStateComputer {
     String? otherPublicKey,
   }) async {
     print('🐛 DEBUG: SecurityStateComputer.computeState called');
-  print('🐛 DEBUG: - isRepositoryMode: $isRepositoryMode');
-  print('🐛 DEBUG: - connectionInfo: ${connectionInfo?.isConnected}/${connectionInfo?.isReady}');
-  print('🐛 DEBUG: - otherPublicKey: $otherPublicKey');
-  
+    print('🐛 DEBUG: - isRepositoryMode: $isRepositoryMode');
+    print(
+      '🐛 DEBUG: - connectionInfo: ${connectionInfo?.isConnected}/${connectionInfo?.isReady}',
+    );
+    print('🐛 DEBUG: - otherPublicKey: $otherPublicKey');
+
     if (isRepositoryMode) {
-    final result = await _computeRepositoryModeState(otherPublicKey, bleService);
-    print('🐛 DEBUG: Repository mode result: ${result.status.name}');
+      final result = await _computeRepositoryModeState(
+        otherPublicKey,
+        bleService,
+      );
+      print('🐛 DEBUG: Repository mode result: ${result.status.name}');
+      return result;
+    }
+
+    final result = await _computeLiveConnectionState(
+      connectionInfo,
+      bleService,
+    );
+    print('🐛 DEBUG: Live connection result: ${result.status.name}');
     return result;
   }
-  
-  final result = await _computeLiveConnectionState(connectionInfo, bleService);
-  print('🐛 DEBUG: Live connection result: ${result.status.name}');
-  return result;
-  }
-  
+
   /// Repository mode: Offline chats with stored contacts
   static Future<SecurityState> _computeRepositoryModeState(
-  String? otherPublicKey, 
-  BLEService bleService
-) async {
-  if (otherPublicKey == null) {
-    return SecurityState.disconnected();
-  }
-  
-  // Extract actual public key (remove 'repo_' prefix if present)
-  final actualKey = otherPublicKey.startsWith('repo_') 
-      ? otherPublicKey.substring(5) 
-      : otherPublicKey;
-  
-  print('🔧 REPO DEBUG: Processing key: ${actualKey.length > 16 ? '${actualKey.substring(0, 16)}...' : actualKey}');
-  
-  final contactRepo = bleService.stateManager.contactRepository;
-  final contact = await contactRepo.getContact(actualKey);
-  
-  print('🔧 REPO DEBUG: Contact found: ${contact != null}');
-  print('🔧 REPO DEBUG: Contact trust status: ${contact?.trustStatus.name}');
-  print('🔧 REPO DEBUG: Contact security level: ${contact?.securityLevel.name}');
-  
-  if (contact == null) {
-    return SecurityState.needsPairing(
-      otherUserName: 'Unknown Contact',
-      otherPublicKey: actualKey,
+    String? otherPublicKey,
+    BLEService bleService,
+  ) async {
+    if (otherPublicKey == null) {
+      return SecurityState.disconnected();
+    }
+
+    // Extract actual public key (remove 'repo_' prefix if present)
+    final actualKey = otherPublicKey.startsWith('repo_')
+        ? otherPublicKey.substring(5)
+        : otherPublicKey;
+
+    print(
+      '🔧 REPO DEBUG: Processing key: ${actualKey.length > 16 ? '${actualKey.shortId()}...' : actualKey}',
+    );
+
+    final contactRepo = bleService.stateManager.contactRepository;
+    final contact = await contactRepo.getContact(actualKey);
+
+    print('🔧 REPO DEBUG: Contact found: ${contact != null}');
+    print('🔧 REPO DEBUG: Contact trust status: ${contact?.trustStatus.name}');
+    print(
+      '🔧 REPO DEBUG: Contact security level: ${contact?.securityLevel.name}',
+    );
+
+    if (contact == null) {
+      return SecurityState.needsPairing(
+        otherUserName: 'Unknown Contact',
+        otherPublicKey: actualKey,
+      );
+    }
+
+    // Check if this is a verified contact (highest security)
+    if (contact.trustStatus == TrustStatus.verified) {
+      print('🔧 REPO DEBUG: → VERIFIED CONTACT');
+      return SecurityState.verifiedContact(
+        otherUserName: contact.displayName,
+        otherPublicKey: actualKey,
+      );
+    }
+
+    // Fall back to security level mapping
+    return _mapSecurityLevelToState(
+      contact.securityLevel,
+      contact.displayName,
+      actualKey,
     );
   }
-  
-  // Check if this is a verified contact (highest security)
-  if (contact.trustStatus == TrustStatus.verified) {
-    print('🔧 REPO DEBUG: → VERIFIED CONTACT');
-    return SecurityState.verifiedContact(
-      otherUserName: contact.displayName,
-      otherPublicKey: actualKey,
-    );
-  }
-  
-  // Fall back to security level mapping
-  return _mapSecurityLevelToState(
-    contact.securityLevel, 
-    contact.displayName, 
-    actualKey
-  );
-}
-  
+
   /// Live connection mode: Real-time BLE connections
   static Future<SecurityState> _computeLiveConnectionState(
     ConnectionInfo? connectionInfo,
-    BLEService bleService
+    BLEService bleService,
   ) async {
-    
     // No connection at all
     if (connectionInfo == null || !connectionInfo.isConnected) {
       return SecurityState.disconnected();
     }
-    
+
     // Connected but still establishing identity
-    if (!connectionInfo.isReady || 
-        connectionInfo.otherUserName == null || 
+    if (!connectionInfo.isReady ||
+        connectionInfo.otherUserName == null ||
         connectionInfo.otherUserName!.isEmpty) {
       return SecurityState.connecting();
     }
-    
+
     // Have identity - now check security level
     final otherPublicKey = bleService.stateManager.currentSessionId;
     if (otherPublicKey == null) {
       return SecurityState.exchangingIdentity();
     }
-    
+
     final contactRepo = bleService.stateManager.contactRepository;
-    
+
     // Check bilateral contact relationship
     final contact = await contactRepo.getContact(otherPublicKey);
-    final weHaveThem = contact != null && contact.trustStatus == TrustStatus.verified;
+    final weHaveThem =
+        contact != null && contact.trustStatus == TrustStatus.verified;
     final theyHaveUs = bleService.stateManager.theyHaveUsAsContact;
-    
+
     return await _computeBilateralSecurityState(
       weHaveThem: weHaveThem,
       theyHaveUs: theyHaveUs,
@@ -117,64 +129,65 @@ class SecurityStateComputer {
       contactRepo: contactRepo,
     );
   }
-  
+
   /// Compute security state based on bilateral contact relationship
   static Future<SecurityState> _computeBilateralSecurityState({
-  required bool weHaveThem,
-  required bool theyHaveUs,
-  required String otherUserName,
-  required String otherPublicKey,
-  required ContactRepository contactRepo,
-}) async {
-  
-  print('🔧 DEBUG: _computeBilateralSecurityState');
-  print('🔧 DEBUG: - weHaveThem: $weHaveThem');
-  print('🔧 DEBUG: - theyHaveUs: $theyHaveUs');
-  
-  // Get the actual stored security level for accurate state
-  final storedSecurityLevel = await contactRepo.getContactSecurityLevel(otherPublicKey);
-  print('🔧 DEBUG: - storedSecurityLevel: ${storedSecurityLevel.name}');
-  
-  // VERIFIED CONTACT: Both have each other AND we have high security
-  if (weHaveThem && theyHaveUs && storedSecurityLevel == SecurityLevel.high) {
-    print('🔧 DEBUG: → VERIFIED CONTACT');
-    return SecurityState.verifiedContact(
+    required bool weHaveThem,
+    required bool theyHaveUs,
+    required String otherUserName,
+    required String otherPublicKey,
+    required ContactRepository contactRepo,
+  }) async {
+    print('🔧 DEBUG: _computeBilateralSecurityState');
+    print('🔧 DEBUG: - weHaveThem: $weHaveThem');
+    print('🔧 DEBUG: - theyHaveUs: $theyHaveUs');
+
+    // Get the actual stored security level for accurate state
+    final storedSecurityLevel = await contactRepo.getContactSecurityLevel(
+      otherPublicKey,
+    );
+    print('🔧 DEBUG: - storedSecurityLevel: ${storedSecurityLevel.name}');
+
+    // VERIFIED CONTACT: Both have each other AND we have high security
+    if (weHaveThem && theyHaveUs && storedSecurityLevel == SecurityLevel.high) {
+      print('🔧 DEBUG: → VERIFIED CONTACT');
+      return SecurityState.verifiedContact(
+        otherUserName: otherUserName,
+        otherPublicKey: otherPublicKey,
+      );
+    }
+
+    // ASYMMETRIC: They have us but we don't have them
+    if (!weHaveThem && theyHaveUs) {
+      print('🔧 DEBUG: → ASYMMETRIC CONTACT');
+      return SecurityState.asymmetricContact(
+        otherUserName: otherUserName,
+        otherPublicKey: otherPublicKey,
+      );
+    }
+
+    // PAIRED: We have medium security (pairing completed)
+    if (storedSecurityLevel == SecurityLevel.medium) {
+      print('🔧 DEBUG: → PAIRED');
+      return SecurityState.paired(
+        otherUserName: otherUserName,
+        otherPublicKey: otherPublicKey,
+      );
+    }
+
+    // DEFAULT: Basic/low security
+    print('🔧 DEBUG: → NEEDS PAIRING');
+    return SecurityState.needsPairing(
       otherUserName: otherUserName,
       otherPublicKey: otherPublicKey,
     );
   }
-  
-  // ASYMMETRIC: They have us but we don't have them
-  if (!weHaveThem && theyHaveUs) {
-    print('🔧 DEBUG: → ASYMMETRIC CONTACT');
-    return SecurityState.asymmetricContact(
-      otherUserName: otherUserName,
-      otherPublicKey: otherPublicKey,
-    );
-  }
-  
-  // PAIRED: We have medium security (pairing completed)
-  if (storedSecurityLevel == SecurityLevel.medium) {
-    print('🔧 DEBUG: → PAIRED');
-    return SecurityState.paired(
-      otherUserName: otherUserName,
-      otherPublicKey: otherPublicKey,
-    );
-  }
-  
-  // DEFAULT: Basic/low security
-  print('🔧 DEBUG: → NEEDS PAIRING');
-  return SecurityState.needsPairing(
-    otherUserName: otherUserName,
-    otherPublicKey: otherPublicKey,
-  );
-}
-  
+
   /// Map stored security level to UI state (for repository mode)
-static SecurityState _mapSecurityLevelToState(
-    SecurityLevel level, 
-    String userName, 
-    String publicKey
+  static SecurityState _mapSecurityLevelToState(
+    SecurityLevel level,
+    String userName,
+    String publicKey,
   ) {
     switch (level) {
       case SecurityLevel.low:
@@ -182,13 +195,13 @@ static SecurityState _mapSecurityLevelToState(
           otherUserName: userName,
           otherPublicKey: publicKey,
         );
-        
+
       case SecurityLevel.medium:
         return SecurityState.paired(
           otherUserName: userName,
           otherPublicKey: publicKey,
         );
-        
+
       case SecurityLevel.high:
         return SecurityState.verifiedContact(
           otherUserName: userName,
@@ -196,12 +209,12 @@ static SecurityState _mapSecurityLevelToState(
         );
     }
   }
-  
+
   /// Helper: Check if user can send messages based on security state
   static bool canSendMessages(SecurityState state) {
     return state.canSendMessages;
   }
-  
+
   /// Helper: Get appropriate action for current security state
   static String? getRecommendedAction(SecurityState state) {
     switch (state.status) {
@@ -217,7 +230,7 @@ static SecurityState _mapSecurityLevelToState(
         return 'Connect to start chatting';
     }
   }
-  
+
   /// Helper: Get encryption method description
   static String getEncryptionDescription(SecurityState state) {
     switch (state.status) {

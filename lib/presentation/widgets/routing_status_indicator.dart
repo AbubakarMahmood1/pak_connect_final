@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/routing/routing_models.dart';
 import '../../core/routing/network_topology_analyzer.dart';
 import '../../core/routing/connection_quality_monitor.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Widget that displays routing status and decisions for demo purposes
 class RoutingStatusIndicator extends StatelessWidget {
@@ -28,21 +29,14 @@ class RoutingStatusIndicator extends StatelessWidget {
       decoration: BoxDecoration(
         color: _getStatusColor(context).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _getStatusColor(context),
-          width: 1,
-        ),
+        border: Border.all(color: _getStatusColor(context), width: 1),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(
-                _getStatusIcon(),
-                color: _getStatusColor(context),
-                size: 16,
-              ),
+              Icon(_getStatusIcon(), color: _getStatusColor(context), size: 16),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -72,10 +66,7 @@ class RoutingStatusIndicator extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            _getStatusDescription(),
-            style: const TextStyle(fontSize: 11),
-          ),
+          Text(_getStatusDescription(), style: const TextStyle(fontSize: 11)),
           if (lastDecision != null && lastDecision!.routePath != null) ...[
             const SizedBox(height: 8),
             _buildRoutePath(context),
@@ -107,41 +98,37 @@ class RoutingStatusIndicator extends StatelessWidget {
             for (int i = 0; i < path.length; i++) ...[
               if (i > 0) ...[
                 const SizedBox(width: 4),
-                Icon(
-                  Icons.arrow_forward,
-                  size: 12,
-                  color: Colors.grey[600],
-                ),
+                Icon(Icons.arrow_forward, size: 12, color: Colors.grey[600]),
                 const SizedBox(width: 4),
               ],
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: i == 0 
-                      ? Colors.green.withValues(alpha: 0.2) 
-                      : i == path.length - 1 
-                          ? Colors.orange.withValues(alpha: 0.2)
-                          : Colors.blue.withValues(alpha: 0.2),
+                  color: i == 0
+                      ? Colors.green.withValues(alpha: 0.2)
+                      : i == path.length - 1
+                      ? Colors.orange.withValues(alpha: 0.2)
+                      : Colors.blue.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(4),
                   border: Border.all(
-                    color: i == 0 
-                        ? Colors.green 
-                        : i == path.length - 1 
-                            ? Colors.orange
-                            : Colors.blue,
+                    color: i == 0
+                        ? Colors.green
+                        : i == path.length - 1
+                        ? Colors.orange
+                        : Colors.blue,
                     width: 0.5,
                   ),
                 ),
                 child: Text(
-                  path[i].substring(0, 4),
+                  path[i].shortId(4),
                   style: TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.w500,
-                    color: i == 0 
-                        ? Colors.green[700] 
-                        : i == path.length - 1 
-                            ? Colors.orange[700]
-                            : Colors.blue[700],
+                    color: i == 0
+                        ? Colors.green[700]
+                        : i == path.length - 1
+                        ? Colors.orange[700]
+                        : Colors.blue[700],
                   ),
                 ),
               ),
@@ -261,7 +248,7 @@ class RoutingStatusIndicator extends StatelessWidget {
     }
 
     final decision = lastDecision!;
-    final scoreText = decision.routeScore != null 
+    final scoreText = decision.routeScore != null
         ? ' (Score: ${(decision.routeScore! * 100).toInt()}%)'
         : '';
 
@@ -303,19 +290,12 @@ class CompactRoutingIndicator extends StatelessWidget {
       decoration: BoxDecoration(
         color: _getStatusColor().withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(
-          color: _getStatusColor(),
-          width: 0.5,
-        ),
+        border: Border.all(color: _getStatusColor(), width: 0.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            _getStatusIcon(),
-            size: 10,
-            color: _getStatusColor(),
-          ),
+          Icon(_getStatusIcon(), size: 10, color: _getStatusColor()),
           const SizedBox(width: 4),
           Text(
             _getStatusText(),
@@ -399,7 +379,9 @@ class NetworkTopologyVisualization extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
@@ -433,7 +415,9 @@ class NetworkTopologyVisualization extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
@@ -469,17 +453,25 @@ class NetworkTopologyVisualization extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _buildNetworkStat('Nodes', '${stats.totalNodes}', Colors.blue),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _buildNetworkStat('Links', '${stats.totalConnections}', Colors.green),
+                child: _buildNetworkStat(
+                  'Nodes',
+                  '${stats.totalNodes}',
+                  Colors.blue,
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildNetworkStat(
-                  'Quality', 
-                  '${(stats.averageQuality * 100).toInt()}%', 
+                  'Links',
+                  '${stats.totalConnections}',
+                  Colors.green,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildNetworkStat(
+                  'Quality',
+                  '${(stats.averageQuality * 100).toInt()}%',
                   _getQualityColor(stats.averageQuality),
                 ),
               ),

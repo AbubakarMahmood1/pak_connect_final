@@ -7,10 +7,7 @@ import 'package:flutter/material.dart';
 class EmptyContactsView extends StatelessWidget {
   final String? searchQuery;
 
-  const EmptyContactsView({
-    super.key,
-    this.searchQuery,
-  });
+  const EmptyContactsView({super.key, this.searchQuery});
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +25,9 @@ class EmptyContactsView extends StatelessWidget {
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                color: theme.colorScheme.primaryContainer.withValues(
+                  alpha: 0.3,
+                ),
               ),
               child: Icon(
                 isSearchResult ? Icons.search_off : Icons.people_outline,
@@ -57,7 +56,7 @@ class EmptyContactsView extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
-            
+
             // Removed redundant "Add Contact via QR" button - use FAB instead
             // Removed instruction box - redundant with FAB
           ],

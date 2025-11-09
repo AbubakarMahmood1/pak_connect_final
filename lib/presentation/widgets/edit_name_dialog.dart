@@ -2,22 +2,22 @@ import 'package:flutter/material.dart';
 
 class EditNameDialog extends StatefulWidget {
   final String currentName;
-  
+
   const EditNameDialog({super.key, required this.currentName});
-  
+
   @override
   State<EditNameDialog> createState() => _EditNameDialogState();
 }
 
 class _EditNameDialogState extends State<EditNameDialog> {
   late TextEditingController _controller;
-  
+
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.currentName);
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -49,7 +49,7 @@ class _EditNameDialogState extends State<EditNameDialog> {
       ],
     );
   }
-  
+
   @override
   void dispose() {
     _controller.dispose();

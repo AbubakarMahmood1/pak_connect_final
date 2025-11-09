@@ -52,7 +52,10 @@ class MigrationService {
   static Future<bool> needsMigration() async {
     try {
       // Allow skipping migration for fresh starts (dev mode)
-      const skipMigration = bool.fromEnvironment('SKIP_MIGRATION', defaultValue: false);
+      const skipMigration = bool.fromEnvironment(
+        'SKIP_MIGRATION',
+        defaultValue: false,
+      );
       if (skipMigration) {
         _logger.info('Migration skipped (SKIP_MIGRATION=true)');
         return false;
@@ -68,14 +71,19 @@ class MigrationService {
       }
 
       // Check if there's any data to migrate
-      final hasMessages = (prefs.getStringList('chat_messages') ?? []).isNotEmpty;
-      final hasContacts = (prefs.getStringList('enhanced_contacts_v2') ?? []).isNotEmpty;
-      final hasQueue = (prefs.getStringList('offline_message_queue_v2') ?? []).isNotEmpty;
+      final hasMessages =
+          (prefs.getStringList('chat_messages') ?? []).isNotEmpty;
+      final hasContacts =
+          (prefs.getStringList('enhanced_contacts_v2') ?? []).isNotEmpty;
+      final hasQueue =
+          (prefs.getStringList('offline_message_queue_v2') ?? []).isNotEmpty;
 
       final needsMigration = hasMessages || hasContacts || hasQueue;
 
       if (needsMigration) {
-        _logger.info('Migration needed: messages=$hasMessages, contacts=$hasContacts, queue=$hasQueue');
+        _logger.info(
+          'Migration needed: messages=$hasMessages, contacts=$hasContacts, queue=$hasQueue',
+        );
       } else {
         _logger.info('No data to migrate');
       }
@@ -140,9 +148,14 @@ class MigrationService {
       await prefs.setBool('sqlite_migration_completed', true);
 
       final duration = DateTime.now().difference(startTime);
-      final totalRecords = counts.values.fold<int>(0, (sum, count) => sum + count);
+      final totalRecords = counts.values.fold<int>(
+        0,
+        (sum, count) => sum + count,
+      );
 
-      _logger.info('✅ Migration completed successfully in ${duration.inMilliseconds}ms');
+      _logger.info(
+        '✅ Migration completed successfully in ${duration.inMilliseconds}ms',
+      );
       _logger.info('📊 Total records migrated: $totalRecords');
       counts.forEach((key, value) {
         _logger.info('   - $key: $value records');
@@ -150,7 +163,8 @@ class MigrationService {
 
       return MigrationResult(
         success: true,
-        message: 'Migration completed successfully. Migrated $totalRecords records.',
+        message:
+            'Migration completed successfully. Migrated $totalRecords records.',
         migrationCounts: counts,
         checksums: checksums,
         duration: duration,
@@ -174,7 +188,10 @@ class MigrationService {
   }
 
   /// Migrate contacts with security levels
-  static Future<int> _migrateContacts(DatabaseExecutor db, SharedPreferences prefs) async {
+  static Future<int> _migrateContacts(
+    DatabaseExecutor db,
+    SharedPreferences prefs,
+  ) async {
     _logger.info('Migrating contacts...');
 
     final contactsJson = prefs.getStringList('enhanced_contacts_v2') ?? [];
@@ -208,7 +225,10 @@ class MigrationService {
   }
 
   /// Migrate chats metadata
-  static Future<int> _migrateChats(DatabaseExecutor db, SharedPreferences prefs) async {
+  static Future<int> _migrateChats(
+    DatabaseExecutor db,
+    SharedPreferences prefs,
+  ) async {
     _logger.info('Migrating chats metadata...');
 
     // Get all messages to extract unique chat IDs
@@ -256,7 +276,8 @@ class MigrationService {
             }
           }
         } else if (chatId.startsWith('temp_')) {
-          contactName = 'Device ${chatId.substring(5, chatId.length.clamp(0, 13))}';
+          contactName =
+              'Device ${chatId.substring(5, chatId.length.clamp(0, 13))}';
         }
 
         // Get last message for this chat
@@ -302,7 +323,10 @@ class MigrationService {
   }
 
   /// Migrate messages (supports both Message and EnhancedMessage)
-  static Future<int> _migrateMessages(DatabaseExecutor db, SharedPreferences prefs) async {
+  static Future<int> _migrateMessages(
+    DatabaseExecutor db,
+    SharedPreferences prefs,
+  ) async {
     _logger.info('Migrating messages...');
 
     final messagesJson = prefs.getStringList('chat_messages') ?? [];
@@ -350,22 +374,29 @@ class MigrationService {
         }
 
         // Serialize complex objects to JSON
-        if (messageData.containsKey('metadata') && messageData['metadata'] != null) {
+        if (messageData.containsKey('metadata') &&
+            messageData['metadata'] != null) {
           record['metadata_json'] = jsonEncode(messageData['metadata']);
         }
-        if (messageData.containsKey('deliveryReceipt') && messageData['deliveryReceipt'] != null) {
-          record['delivery_receipt_json'] = jsonEncode(messageData['deliveryReceipt']);
+        if (messageData.containsKey('deliveryReceipt') &&
+            messageData['deliveryReceipt'] != null) {
+          record['delivery_receipt_json'] = jsonEncode(
+            messageData['deliveryReceipt'],
+          );
         }
-        if (messageData.containsKey('readReceipt') && messageData['readReceipt'] != null) {
+        if (messageData.containsKey('readReceipt') &&
+            messageData['readReceipt'] != null) {
           record['read_receipt_json'] = jsonEncode(messageData['readReceipt']);
         }
-        if (messageData.containsKey('reactions') && messageData['reactions'] != null) {
+        if (messageData.containsKey('reactions') &&
+            messageData['reactions'] != null) {
           final reactions = messageData['reactions'];
           if (reactions is List && reactions.isNotEmpty) {
             record['reactions_json'] = jsonEncode(reactions);
           }
         }
-        if (messageData.containsKey('attachments') && messageData['attachments'] != null) {
+        if (messageData.containsKey('attachments') &&
+            messageData['attachments'] != null) {
           final attachments = messageData['attachments'];
           if (attachments is List && attachments.isNotEmpty) {
             record['attachments_json'] = jsonEncode(attachments);
@@ -375,8 +406,11 @@ class MigrationService {
             }
           }
         }
-        if (messageData.containsKey('encryptionInfo') && messageData['encryptionInfo'] != null) {
-          record['encryption_info_json'] = jsonEncode(messageData['encryptionInfo']);
+        if (messageData.containsKey('encryptionInfo') &&
+            messageData['encryptionInfo'] != null) {
+          record['encryption_info_json'] = jsonEncode(
+            messageData['encryptionInfo'],
+          );
         }
 
         await db.insert('messages', record);
@@ -391,7 +425,10 @@ class MigrationService {
   }
 
   /// Migrate offline message queue (CRITICAL for mesh networking)
-  static Future<int> _migrateOfflineQueue(DatabaseExecutor db, SharedPreferences prefs) async {
+  static Future<int> _migrateOfflineQueue(
+    DatabaseExecutor db,
+    SharedPreferences prefs,
+  ) async {
     _logger.info('Migrating offline message queue...');
 
     final queueJson = prefs.getStringList('offline_message_queue_v2') ?? [];
@@ -425,12 +462,12 @@ class MigrationService {
           'relay_node_id': queueData['relayNodeId'],
           'message_hash': queueData['messageHash'],
           'relay_metadata_json': queueData['relayMetadata'] != null
-            ? jsonEncode(queueData['relayMetadata'])
-            : null,
+              ? jsonEncode(queueData['relayMetadata'])
+              : null,
           'reply_to_message_id': queueData['replyToMessageId'],
           'attachments_json': queueData['attachments'] != null
-            ? jsonEncode(queueData['attachments'])
-            : null,
+              ? jsonEncode(queueData['attachments'])
+              : null,
           'sender_rate_count': queueData['senderRateCount'] ?? 0,
           'created_at': now,
           'updated_at': now,
@@ -447,7 +484,10 @@ class MigrationService {
   }
 
   /// Migrate deleted message IDs for queue sync
-  static Future<int> _migrateDeletedMessageIds(DatabaseExecutor db, SharedPreferences prefs) async {
+  static Future<int> _migrateDeletedMessageIds(
+    DatabaseExecutor db,
+    SharedPreferences prefs,
+  ) async {
     _logger.info('Migrating deleted message IDs...');
 
     final deletedIds = prefs.getStringList('deleted_message_ids_v1') ?? [];
@@ -472,7 +512,10 @@ class MigrationService {
   }
 
   /// Migrate device to public key mappings
-  static Future<int> _migrateDeviceMappings(DatabaseExecutor db, SharedPreferences prefs) async {
+  static Future<int> _migrateDeviceMappings(
+    DatabaseExecutor db,
+    SharedPreferences prefs,
+  ) async {
     _logger.info('Migrating device mappings...');
 
     final mappingData = prefs.getString('device_public_key_mapping') ?? '';
@@ -504,7 +547,10 @@ class MigrationService {
   }
 
   /// Migrate contact last seen data
-  static Future<int> _migrateLastSeen(DatabaseExecutor db, SharedPreferences prefs) async {
+  static Future<int> _migrateLastSeen(
+    DatabaseExecutor db,
+    SharedPreferences prefs,
+  ) async {
     _logger.info('Migrating last seen data...');
 
     final lastSeenData = await _getLastSeenData(prefs);
@@ -530,7 +576,10 @@ class MigrationService {
   }
 
   /// Migrate user preferences (excluding sensitive data)
-  static Future<int> _migrateUserPreferences(DatabaseExecutor db, SharedPreferences prefs) async {
+  static Future<int> _migrateUserPreferences(
+    DatabaseExecutor db,
+    SharedPreferences prefs,
+  ) async {
     _logger.info('Migrating user preferences...');
 
     // Only migrate non-sensitive preferences
@@ -561,7 +610,9 @@ class MigrationService {
 
   // Helper methods
 
-  static Future<Map<String, int>> _getUnreadCounts(SharedPreferences prefs) async {
+  static Future<Map<String, int>> _getUnreadCounts(
+    SharedPreferences prefs,
+  ) async {
     final data = prefs.getString('chat_unread_counts') ?? '';
     final counts = <String, int>{};
 
@@ -576,7 +627,9 @@ class MigrationService {
     return counts;
   }
 
-  static Future<Map<String, int>> _getLastSeenData(SharedPreferences prefs) async {
+  static Future<Map<String, int>> _getLastSeenData(
+    SharedPreferences prefs,
+  ) async {
     final data = prefs.getString('contact_last_seen') ?? '';
     final lastSeen = <String, int>{};
 
@@ -628,13 +681,20 @@ class MigrationService {
   }
 
   static Future<String> _calculateMessagesChecksum(DatabaseExecutor db) async {
-    final result = await db.query('messages', columns: ['id', 'content'], orderBy: 'id ASC');
+    final result = await db.query(
+      'messages',
+      columns: ['id', 'content'],
+      orderBy: 'id ASC',
+    );
     final data = jsonEncode(result);
     return sha256.convert(utf8.encode(data)).toString();
   }
 
   static Future<String> _calculateQueueChecksum(DatabaseExecutor db) async {
-    final result = await db.query('offline_message_queue', orderBy: 'queue_id ASC');
+    final result = await db.query(
+      'offline_message_queue',
+      orderBy: 'queue_id ASC',
+    );
     final data = jsonEncode(result);
     return sha256.convert(utf8.encode(data)).toString();
   }

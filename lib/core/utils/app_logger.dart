@@ -44,7 +44,9 @@ class AppLogger {
         // (could be sent to Crashlytics/Sentry here)
         if (record.level >= Level.WARNING) {
           // ignore: avoid_print
-          print('[${record.level.name}] ${record.loggerName}: ${record.message}');
+          print(
+            '[${record.level.name}] ${record.loggerName}: ${record.message}',
+          );
         }
       }
     });
@@ -89,7 +91,12 @@ class AppLogger {
     getLogger(tag).warning(message);
   }
 
-  static void error(String message, {Object? error, StackTrace? stackTrace, String tag = 'App'}) {
+  static void error(
+    String message, {
+    Object? error,
+    StackTrace? stackTrace,
+    String tag = 'App',
+  }) {
     getLogger(tag).severe(message, error, stackTrace);
   }
 }

@@ -48,7 +48,9 @@ class BurstStatusWidget extends ConsumerWidget {
       decoration: BoxDecoration(
         color: _getStatusColor(status).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _getStatusColor(status).withValues(alpha: 0.3)),
+        border: Border.all(
+          color: _getStatusColor(status).withValues(alpha: 0.3),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -84,7 +86,9 @@ class BurstStatusWidget extends ConsumerWidget {
               child: Container(
                 padding: EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Icon(
@@ -140,7 +144,9 @@ class BurstStatusWidget extends ConsumerWidget {
               Container(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _getEfficiencyColor(status.efficiencyRating).withValues(alpha: 0.1),
+                  color: _getEfficiencyColor(
+                    status.efficiencyRating,
+                  ).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -174,9 +180,9 @@ class BurstStatusWidget extends ConsumerWidget {
               Expanded(
                 child: Text(
                   status.statusMessage,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
                 ),
               ),
             ],
@@ -230,9 +236,13 @@ class BurstStatusWidget extends ConsumerWidget {
     );
   }
 
-  Widget _buildBurstProgressIndicator(BuildContext context, BurstScanningStatus status) {
+  Widget _buildBurstProgressIndicator(
+    BuildContext context,
+    BurstScanningStatus status,
+  ) {
     final progress = status.burstTimeRemaining != null
-        ? (20 - status.burstTimeRemaining!) / 20 // 20s total burst duration
+        ? (20 - status.burstTimeRemaining!) /
+              20 // 20s total burst duration
         : 0.0;
 
     return Column(
@@ -247,16 +257,18 @@ class BurstStatusWidget extends ConsumerWidget {
             ),
             Text(
               '${status.burstTimeRemaining}s remaining',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
             ),
           ],
         ),
         SizedBox(height: 4),
         LinearProgressIndicator(
           value: progress,
-          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+          backgroundColor: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest,
           valueColor: AlwaysStoppedAnimation<Color>(
             Theme.of(context).colorScheme.primary,
           ),
@@ -265,7 +277,10 @@ class BurstStatusWidget extends ConsumerWidget {
     );
   }
 
-  Widget _buildNextScanCountdown(BuildContext context, BurstScanningStatus status) {
+  Widget _buildNextScanCountdown(
+    BuildContext context,
+    BurstScanningStatus status,
+  ) {
     return Row(
       children: [
         Icon(
@@ -309,7 +324,9 @@ class BurstStatusWidget extends ConsumerWidget {
     return Container(
       padding: EdgeInsets.all(isCompact ? 8 : 16),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.1),
+        color: Theme.of(
+          context,
+        ).colorScheme.errorContainer.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(isCompact ? 8 : 12),
         border: Border.all(
           color: Theme.of(context).colorScheme.error.withValues(alpha: 0.3),
@@ -340,7 +357,8 @@ class BurstStatusWidget extends ConsumerWidget {
   Color _getStatusColor(BurstScanningStatus status) {
     if (status.isBurstActive) {
       return Colors.green;
-    } else if (status.secondsUntilNextScan != null && status.secondsUntilNextScan! <= 10) {
+    } else if (status.secondsUntilNextScan != null &&
+        status.secondsUntilNextScan! <= 10) {
       return Colors.orange;
     } else {
       return Colors.blue;
@@ -371,12 +389,27 @@ class BurstStatusWidget extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInfoRow('Current interval', '${(status.currentScanInterval / 1000).toStringAsFixed(1)}s'),
+            _buildInfoRow(
+              'Current interval',
+              '${(status.currentScanInterval / 1000).toStringAsFixed(1)}s',
+            ),
             _buildInfoRow('Efficiency', status.efficiencyRating),
-            _buildInfoRow('Quality score', '${(status.powerStats.connectionQualityScore * 100).toStringAsFixed(0)}%'),
-            _buildInfoRow('Stability', '${(status.powerStats.connectionStabilityScore * 100).toStringAsFixed(0)}%'),
-            _buildInfoRow('Successful checks', '${status.powerStats.consecutiveSuccessfulChecks}'),
-            _buildInfoRow('Failed checks', '${status.powerStats.consecutiveFailedChecks}'),
+            _buildInfoRow(
+              'Quality score',
+              '${(status.powerStats.connectionQualityScore * 100).toStringAsFixed(0)}%',
+            ),
+            _buildInfoRow(
+              'Stability',
+              '${(status.powerStats.connectionStabilityScore * 100).toStringAsFixed(0)}%',
+            ),
+            _buildInfoRow(
+              'Successful checks',
+              '${status.powerStats.consecutiveSuccessfulChecks}',
+            ),
+            _buildInfoRow(
+              'Failed checks',
+              '${status.powerStats.consecutiveFailedChecks}',
+            ),
             SizedBox(height: 8),
             Text(
               'Burst scanning automatically adapts to connection quality and battery usage to optimize device discovery.',

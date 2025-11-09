@@ -190,48 +190,52 @@ void main() {
       expect(arshadResult.isRelayed, isTrue);
       expect(arshadResult.isDelivered, isFalse);
       expect(arshadResult.nextHopNodeId, equals(abubakar));
-
     });
 
-    test('ACK includes correct routing path for backward propagation', () async {
-      // Create a relay metadata with 3-hop path
-      final metadata = RelayMetadata(
-        ttl: 10,
-        hopCount: 3,
-        routingPath: [ali, arshad, abubakar],
-        messageHash: 'test_hash',
-        priority: MessagePriority.normal,
-        relayTimestamp: DateTime.now(),
-        originalSender: ali,
-        finalRecipient: abubakar,
-      );
+    test(
+      'ACK includes correct routing path for backward propagation',
+      () async {
+        // Create a relay metadata with 3-hop path
+        final metadata = RelayMetadata(
+          ttl: 10,
+          hopCount: 3,
+          routingPath: [ali, arshad, abubakar],
+          messageHash: 'test_hash',
+          priority: MessagePriority.normal,
+          relayTimestamp: DateTime.now(),
+          originalSender: ali,
+          finalRecipient: abubakar,
+        );
 
-      // Verify ACK path is reversed
-      expect(metadata.ackRoutingPath, equals([abubakar, arshad, ali]));
+        // Verify ACK path is reversed
+        expect(metadata.ackRoutingPath, equals([abubakar, arshad, ali]));
 
-      // Verify previousHop calculation from different perspectives
-      final aliMetadata = RelayMetadata(
-        ttl: 10,
-        hopCount: 1,
-        routingPath: [ali],
-        messageHash: 'test',
-        priority: MessagePriority.normal,
-        relayTimestamp: DateTime.now(),
-        originalSender: ali,
-        finalRecipient: abubakar,
-      );
+        // Verify previousHop calculation from different perspectives
+        final aliMetadata = RelayMetadata(
+          ttl: 10,
+          hopCount: 1,
+          routingPath: [ali],
+          messageHash: 'test',
+          priority: MessagePriority.normal,
+          relayTimestamp: DateTime.now(),
+          originalSender: ali,
+          finalRecipient: abubakar,
+        );
 
-      expect(aliMetadata.previousHop, isNull, reason: 'Originator has no previous hop');
-      expect(aliMetadata.isOriginator, isTrue);
+        expect(
+          aliMetadata.previousHop,
+          isNull,
+          reason: 'Originator has no previous hop',
+        );
+        expect(aliMetadata.isOriginator, isTrue);
 
-      final arshadMetadata = metadata.copyWith(routingPath: [ali, arshad]);
-      expect(arshadMetadata.previousHop, equals(ali));
-      expect(arshadMetadata.isOriginator, isFalse);
-
-    });
+        final arshadMetadata = metadata.copyWith(routingPath: [ali, arshad]);
+        expect(arshadMetadata.previousHop, equals(ali));
+        expect(arshadMetadata.isOriginator, isFalse);
+      },
+    );
 
     test('Multiple messages maintain separate ACK states', () async {
-
       final aliEngine = await createRelayEngineForNode(ali);
 
       // Create multiple messages
@@ -249,12 +253,14 @@ void main() {
 
       expect(message1, isNotNull);
       expect(message2, isNotNull);
-      expect(message1!.originalMessageId, isNot(equals(message2!.originalMessageId)));
+      expect(
+        message1!.originalMessageId,
+        isNot(equals(message2!.originalMessageId)),
+      );
 
       // Both should have independent routing paths
       expect(message1.relayMetadata.routingPath.length, equals(1));
       expect(message2.relayMetadata.routingPath.length, equals(1));
-
     });
 
     test('Loop prevention works with ACK routing path', () {
@@ -280,16 +286,13 @@ void main() {
       expect(metadata.hasNodeInPath(ali), isTrue);
       expect(metadata.hasNodeInPath(arshad), isTrue);
       expect(metadata.hasNodeInPath(abubakar), isFalse);
-
     });
   });
 }
 
 // Extension to help with testing
 extension RelayMetadataTest on RelayMetadata {
-  RelayMetadata copyWith({
-    List<String>? routingPath,
-  }) {
+  RelayMetadata copyWith({List<String>? routingPath}) {
     return RelayMetadata(
       ttl: ttl,
       hopCount: routingPath?.length ?? hopCount,

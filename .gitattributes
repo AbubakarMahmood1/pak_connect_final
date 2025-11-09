@@ -1,0 +1,29 @@
+*      text=auto
+*.dart text eol=lf
+*.yaml text eol=lf
+
+
+
+
+
+# common text we want normalized to LF too
+*.yml  text eol=lf
+*.kt   text eol=lf
+*.kts  text eol=lf
+*.gradle text eol=lf
+*.sh   text eol=lf
+*.md   text eol=lf
+
+# Windows scripts can stay CRLF (so they run if double-clicked)
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# binary: never touch line endings
+*.png  -text
+*.jpg  -text
+*.jpeg -text
+*.gif  -text
+*.pdf  -text
+*.ico  -text
+

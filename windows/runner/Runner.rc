@@ -89,11 +89,11 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
+            VALUE "CompanyName", "PakConnect" "\0"
             VALUE "FileDescription", "pak_connect" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "pak_connect" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2025 PakConnect. All rights reserved." "\0"
             VALUE "OriginalFilename", "pak_connect.exe" "\0"
             VALUE "ProductName", "pak_connect" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"

@@ -1,37 +1,64 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'dart:typed_data';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 
+import 'test_helpers/message_handler_test_utils.dart';
+import 'test_helpers/test_setup.dart';
+
 // Minimal stub for ContactRepository to avoid dependencies
 class MinimalContactRepository extends ContactRepository {
   @override
   Future<Contact?> getContact(String publicKey) async => null;
-  
+
   @override
   Future<String?> getCachedSharedSecret(String publicKey) async => null;
-  
+
   @override
-  Future<SecurityLevel> getContactSecurityLevel(String publicKey) async => SecurityLevel.low;
+  Future<SecurityLevel> getContactSecurityLevel(String publicKey) async =>
+      SecurityLevel.low;
+}
+
+Future<void> _configureNodeIdentity(
+  BLEMessageHandler handler,
+  String nodeId,
+) async {
+  await seedTestUserPublicKey(nodeId);
+  handler.setCurrentNodeId(nodeId);
 }
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('Message Routing Validation Tests', () {
     late BLEMessageHandler messageHandler;
     late MinimalContactRepository contactRepository;
-    
+
     // Test node IDs representing Ali, Arshad, and Abubakar
     const aliNodeId = 'ali_public_key_12345678901234567890123456789012';
     const arshadNodeId = 'arshad_public_key_12345678901234567890123456789012';
-    const abubakarNodeId = 'abubakar_public_key_12345678901234567890123456789012';
-    
-    setUp(() {
+    const abubakarNodeId =
+        'abubakar_public_key_12345678901234567890123456789012';
+
+    setUp(() async {
+      await TestSetup.cleanupDatabase();
+      TestSetup.resetSharedPreferences();
+      await EphemeralKeyManager.initialize('test_private_key_1234567890');
       messageHandler = BLEMessageHandler();
       contactRepository = MinimalContactRepository();
+    });
+
+    tearDown(() async {
+      messageHandler.dispose();
+      await TestSetup.completeCleanup();
     });
 
     group('Core Routing Logic Tests', () {
@@ -46,15 +73,15 @@ void main() {
           },
           timestamp: DateTime.now(),
         );
-        
+
         expect(message.payload['intendedRecipient'], equals(arshadNodeId));
         expect(message.payload['content'], equals('Hello Arshad'));
       });
-      
+
       test('should block messages not intended for current user', () async {
         // Set Abubakar as current node
-        messageHandler.setCurrentNodeId(abubakarNodeId);
-        
+        await _configureNodeIdentity(messageHandler, abubakarNodeId);
+
         // Create message intended for Arshad (not Abubakar)
         final messageJson = jsonEncode({
           'type': ProtocolMessageType.textMessage.index,
@@ -67,22 +94,22 @@ void main() {
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'useEphemeralSigning': false,
         });
-        
+
         // Process the message - should be blocked
         final result = await messageHandler.processReceivedData(
           Uint8List.fromList(utf8.encode(messageJson)),
           senderPublicKey: aliNodeId,
           contactRepository: contactRepository,
         );
-        
+
         // Should return null (blocked) since message is not for Abubakar
         expect(result, isNull);
       });
-      
+
       test('should allow messages intended for current user', () async {
         // Set Arshad as current node
-        messageHandler.setCurrentNodeId(arshadNodeId);
-        
+        await _configureNodeIdentity(messageHandler, arshadNodeId);
+
         // Create message intended for Arshad
         final messageJson = jsonEncode({
           'type': ProtocolMessageType.textMessage.index,
@@ -95,22 +122,22 @@ void main() {
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'useEphemeralSigning': false,
         });
-        
+
         // Process the message - should be allowed
         final result = await messageHandler.processReceivedData(
           Uint8List.fromList(utf8.encode(messageJson)),
           senderPublicKey: aliNodeId,
           contactRepository: contactRepository,
         );
-        
+
         // Should return content since message is for Arshad
         expect(result, equals('Message for Arshad'));
       });
-      
+
       test('should block own messages to prevent loops', () async {
         // Set Ali as current node
-        messageHandler.setCurrentNodeId(aliNodeId);
-        
+        await _configureNodeIdentity(messageHandler, aliNodeId);
+
         // Create message where sender == current user
         final messageJson = jsonEncode({
           'type': ProtocolMessageType.textMessage.index,
@@ -124,14 +151,14 @@ void main() {
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'useEphemeralSigning': false,
         });
-        
+
         // Process message where sender == current user
         final result = await messageHandler.processReceivedData(
           Uint8List.fromList(utf8.encode(messageJson)),
           senderPublicKey: aliNodeId, // Same as current node
           contactRepository: contactRepository,
         );
-        
+
         // Should be blocked to prevent message loops
         expect(result, isNull);
       });
@@ -151,10 +178,13 @@ void main() {
           },
           timestamp: DateTime.now(),
         );
-        
+
         expect(encryptedMessage.payload['encrypted'], isTrue);
         expect(encryptedMessage.payload['encryptionMethod'], equals('ecdh'));
-        expect(encryptedMessage.payload['intendedRecipient'], equals(arshadNodeId));
+        expect(
+          encryptedMessage.payload['intendedRecipient'],
+          equals(arshadNodeId),
+        );
       });
     });
 
@@ -165,48 +195,53 @@ void main() {
           'recipient': arshadNodeId,
           'chatId': 'chat_ali_arshad',
         };
-        
+
         final aliToAbubakarChat = {
           'recipient': abubakarNodeId,
           'chatId': 'chat_ali_abubakar',
         };
-        
+
         // Verify contexts are isolated
         expect(aliToArshadChat['recipient'], equals(arshadNodeId));
         expect(aliToAbubakarChat['recipient'], equals(abubakarNodeId));
-        expect(aliToArshadChat['chatId'], isNot(equals(aliToAbubakarChat['chatId'])));
+        expect(
+          aliToArshadChat['chatId'],
+          isNot(equals(aliToAbubakarChat['chatId'])),
+        );
       });
     });
 
     group('Message Handler Safety Tests', () {
-      test('should handle node ID bounds safely', () {
+      test('should handle node ID bounds safely', () async {
         // Test various node ID lengths
         const shortId = 'short';
         const normalId = 'normal_length_node_id_1234567890';
-        const longId = 'very_long_node_id_that_exceeds_normal_bounds_123456789012345678901234567890';
-        
-        // Should not throw exceptions
-        expect(() => messageHandler.setCurrentNodeId(shortId), returnsNormally);
-        expect(() => messageHandler.setCurrentNodeId(normalId), returnsNormally);
-        expect(() => messageHandler.setCurrentNodeId(longId), returnsNormally);
+        const longId =
+            'very_long_node_id_that_exceeds_normal_bounds_123456789012345678901234567890';
+
+        await _configureNodeIdentity(messageHandler, shortId);
+        await _configureNodeIdentity(messageHandler, normalId);
+        await _configureNodeIdentity(messageHandler, longId);
       });
-      
+
       test('should safely process messages with long IDs', () async {
-        const longNodeId = 'extremely_long_node_id_that_could_cause_substring_errors_123456789012345678901234567890123456789012345678901234567890';
-        messageHandler.setCurrentNodeId(longNodeId);
-        
+        const longNodeId =
+            'extremely_long_node_id_that_could_cause_substring_errors_123456789012345678901234567890123456789012345678901234567890';
+        await _configureNodeIdentity(messageHandler, longNodeId);
+
         final messageJson = jsonEncode({
           'type': ProtocolMessageType.textMessage.index,
           'version': 1,
           'payload': {
-            'messageId': 'safety_test_message_with_very_long_id_123456789012345678901234567890',
+            'messageId':
+                'safety_test_message_with_very_long_id_123456789012345678901234567890',
             'content': 'Safety test message',
             'intendedRecipient': longNodeId,
           },
           'timestamp': DateTime.now().millisecondsSinceEpoch,
           'useEphemeralSigning': false,
         });
-        
+
         // Should not throw RangeError during processing
         expect(() async {
           await messageHandler.processReceivedData(
@@ -221,8 +256,8 @@ void main() {
     group('Integration Flow Tests', () {
       test('should handle complete Ali → Arshad messaging flow', () async {
         // Step 1: Ali creates message for Arshad
-        messageHandler.setCurrentNodeId(aliNodeId);
-        
+        await _configureNodeIdentity(messageHandler, aliNodeId);
+
         final outgoingMessage = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           payload: {
@@ -232,45 +267,51 @@ void main() {
           },
           timestamp: DateTime.now(),
         );
-        
-        expect(outgoingMessage.payload['intendedRecipient'], equals(arshadNodeId));
-        
+
+        expect(
+          outgoingMessage.payload['intendedRecipient'],
+          equals(arshadNodeId),
+        );
+
         // Step 2: Arshad receives and processes message
-        messageHandler.setCurrentNodeId(arshadNodeId);
-        
+        await _configureNodeIdentity(messageHandler, arshadNodeId);
+
         final result = await messageHandler.processReceivedData(
-          outgoingMessage.toBytes(),
+          protocolMessageToJsonBytes(outgoingMessage),
           senderPublicKey: aliNodeId,
           contactRepository: contactRepository,
         );
-        
+
         expect(result, equals('Hello from Ali to Arshad'));
       });
-      
-      test('should prevent Abubakar from receiving Ali → Arshad message', () async {
-        // Ali creates message for Arshad
-        final messageForArshad = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'isolation_test_1',
-            'content': 'Private message for Arshad only',
-            'intendedRecipient': arshadNodeId,
-          },
-          timestamp: DateTime.now(),
-        );
-        
-        // Abubakar tries to process it (should be blocked)
-        messageHandler.setCurrentNodeId(abubakarNodeId);
-        
-        final result = await messageHandler.processReceivedData(
-          messageForArshad.toBytes(),
-          senderPublicKey: aliNodeId,
-          contactRepository: contactRepository,
-        );
-        
-        // Should be null (blocked) - Abubakar cannot read Ali's message to Arshad
-        expect(result, isNull);
-      });
+
+      test(
+        'should prevent Abubakar from receiving Ali → Arshad message',
+        () async {
+          // Ali creates message for Arshad
+          final messageForArshad = ProtocolMessage(
+            type: ProtocolMessageType.textMessage,
+            payload: {
+              'messageId': 'isolation_test_1',
+              'content': 'Private message for Arshad only',
+              'intendedRecipient': arshadNodeId,
+            },
+            timestamp: DateTime.now(),
+          );
+
+          // Abubakar tries to process it (should be blocked)
+          await _configureNodeIdentity(messageHandler, abubakarNodeId);
+
+          final result = await messageHandler.processReceivedData(
+            protocolMessageToJsonBytes(messageForArshad),
+            senderPublicKey: aliNodeId,
+            contactRepository: contactRepository,
+          );
+
+          // Should be null (blocked) - Abubakar cannot read Ali's message to Arshad
+          expect(result, isNull);
+        },
+      );
     });
   });
 }

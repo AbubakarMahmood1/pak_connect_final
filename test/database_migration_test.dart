@@ -149,11 +149,17 @@ void main() {
     await db.execute('DROP TABLE archived_messages');
 
     // Rename new table
-    await db.execute('ALTER TABLE archived_messages_new RENAME TO archived_messages');
+    await db.execute(
+      'ALTER TABLE archived_messages_new RENAME TO archived_messages',
+    );
 
     // Recreate indexes
-    await db.execute('CREATE INDEX idx_archived_msg_archive ON archived_messages(archive_id, timestamp)');
-    await db.execute('CREATE INDEX idx_archived_msg_starred ON archived_messages(is_starred) WHERE is_starred = 1');
+    await db.execute(
+      'CREATE INDEX idx_archived_msg_archive ON archived_messages(archive_id, timestamp)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_archived_msg_starred ON archived_messages(is_starred) WHERE is_starred = 1',
+    );
 
     // Recreate FTS5 table
     await db.execute('''
@@ -197,7 +203,10 @@ void main() {
 
   group('Database Migration Tests', () {
     test('v1 schema creates correctly', () async {
-      final dbPath = join(await databaseFactory.getDatabasesPath(), 'test_v1.db');
+      final dbPath = join(
+        await databaseFactory.getDatabasesPath(),
+        'test_v1.db',
+      );
       await databaseFactory.deleteDatabase(dbPath);
 
       final db = await createV1Database(dbPath);
@@ -216,14 +225,21 @@ void main() {
       // Verify archived_messages does NOT have chat_id column
       final columns = await db.rawQuery('PRAGMA table_info(archived_messages)');
       final columnNames = columns.map((c) => c['name'] as String).toList();
-      expect(columnNames, isNot(contains('chat_id')), reason: 'v1 should NOT have chat_id');
+      expect(
+        columnNames,
+        isNot(contains('chat_id')),
+        reason: 'v1 should NOT have chat_id',
+      );
 
       await db.close();
       await databaseFactory.deleteDatabase(dbPath);
     });
 
     test('v1 → v2 migration adds chat_id column', () async {
-      final dbPath = join(await databaseFactory.getDatabasesPath(), 'test_v1_to_v2.db');
+      final dbPath = join(
+        await databaseFactory.getDatabasesPath(),
+        'test_v1_to_v2.db',
+      );
       await databaseFactory.deleteDatabase(dbPath);
 
       // Create v1 database
@@ -262,13 +278,21 @@ void main() {
       // Verify chat_id column now exists
       final columns = await db.rawQuery('PRAGMA table_info(archived_messages)');
       final columnNames = columns.map((c) => c['name'] as String).toList();
-      expect(columnNames, contains('chat_id'), reason: 'v2 should have chat_id column');
+      expect(
+        columnNames,
+        contains('chat_id'),
+        reason: 'v2 should have chat_id column',
+      );
 
       // Verify data preserved
       final afterMigration = await db.query('archived_messages');
       expect(afterMigration.length, equals(1));
       expect(afterMigration.first['content'], equals('Test message'));
-      expect(afterMigration.first['chat_id'], equals(''), reason: 'Default empty string for chat_id');
+      expect(
+        afterMigration.first['chat_id'],
+        equals(''),
+        reason: 'Default empty string for chat_id',
+      );
 
       // Verify FTS5 table recreated
       final ftsExists = await db.rawQuery(
@@ -280,14 +304,21 @@ void main() {
       final triggers = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='archived_messages'",
       );
-      expect(triggers.length, equals(3), reason: 'Should have insert, update, delete triggers');
+      expect(
+        triggers.length,
+        equals(3),
+        reason: 'Should have insert, update, delete triggers',
+      );
 
       await db.close();
       await databaseFactory.deleteDatabase(dbPath);
     });
 
     test('v2 → v3 migration removes user_preferences table', () async {
-      final dbPath = join(await databaseFactory.getDatabasesPath(), 'test_v2_to_v3.db');
+      final dbPath = join(
+        await databaseFactory.getDatabasesPath(),
+        'test_v2_to_v3.db',
+      );
       await databaseFactory.deleteDatabase(dbPath);
 
       // Create v1 then migrate to v2
@@ -298,7 +329,11 @@ void main() {
       final beforeV3 = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'",
       );
-      expect(beforeV3, isNotEmpty, reason: 'user_preferences should exist in v2');
+      expect(
+        beforeV3,
+        isNotEmpty,
+        reason: 'user_preferences should exist in v2',
+      );
 
       // Apply v2→v3 migration
       await migrateV2toV3(db);
@@ -307,14 +342,21 @@ void main() {
       final afterV3 = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'",
       );
-      expect(afterV3, isEmpty, reason: 'user_preferences should be removed in v3');
+      expect(
+        afterV3,
+        isEmpty,
+        reason: 'user_preferences should be removed in v3',
+      );
 
       await db.close();
       await databaseFactory.deleteDatabase(dbPath);
     });
 
     test('v1 → v3 direct migration applies all changes', () async {
-      final dbPath = join(await databaseFactory.getDatabasesPath(), 'test_v1_to_v3.db');
+      final dbPath = join(
+        await databaseFactory.getDatabasesPath(),
+        'test_v1_to_v3.db',
+      );
       await databaseFactory.deleteDatabase(dbPath);
 
       // Create v1 database
@@ -375,7 +417,10 @@ void main() {
     });
 
     test('FTS5 triggers work after v1→v2 migration', () async {
-      final dbPath = join(await databaseFactory.getDatabasesPath(), 'test_fts5_triggers.db');
+      final dbPath = join(
+        await databaseFactory.getDatabasesPath(),
+        'test_fts5_triggers.db',
+      );
       await databaseFactory.deleteDatabase(dbPath);
 
       // Create v1 and migrate to v2
@@ -427,13 +472,25 @@ void main() {
       final ftsAfterUpdate = await db.rawQuery(
         "SELECT * FROM archived_messages_fts WHERE searchable_text MATCH 'Updated'",
       );
-      expect(ftsAfterUpdate, isNotEmpty, reason: 'FTS5 update trigger should work');
+      expect(
+        ftsAfterUpdate,
+        isNotEmpty,
+        reason: 'FTS5 update trigger should work',
+      );
 
       // Delete message and cascade to FTS
-      await db.delete('archived_messages', where: 'id = ?', whereArgs: ['msg_fts_test']);
+      await db.delete(
+        'archived_messages',
+        where: 'id = ?',
+        whereArgs: ['msg_fts_test'],
+      );
 
       // Verify message is deleted from main table
-      final messagesAfterDelete = await db.query('archived_messages', where: 'id = ?', whereArgs: ['msg_fts_test']);
+      final messagesAfterDelete = await db.query(
+        'archived_messages',
+        where: 'id = ?',
+        whereArgs: ['msg_fts_test'],
+      );
       expect(messagesAfterDelete, isEmpty, reason: 'Message should be deleted');
 
       await db.close();
@@ -441,7 +498,10 @@ void main() {
     });
 
     test('Data integrity preserved across complex migration chain', () async {
-      final dbPath = join(await databaseFactory.getDatabasesPath(), 'test_data_integrity.db');
+      final dbPath = join(
+        await databaseFactory.getDatabasesPath(),
+        'test_data_integrity.db',
+      );
       await databaseFactory.deleteDatabase(dbPath);
 
       // Create v1 with multiple records
@@ -483,12 +543,19 @@ void main() {
       await migrateV2toV3(db);
 
       // Verify all data intact
-      final allMessages = await db.query('archived_messages', orderBy: 'id ASC');
+      final allMessages = await db.query(
+        'archived_messages',
+        orderBy: 'id ASC',
+      );
       expect(allMessages.length, equals(3));
 
       expect(allMessages[0]['content'], equals('First message'));
       expect(allMessages[0]['is_starred'], equals(1));
-      expect(allMessages[0]['chat_id'], equals(''), reason: 'Default chat_id after migration');
+      expect(
+        allMessages[0]['chat_id'],
+        equals(''),
+        reason: 'Default chat_id after migration',
+      );
 
       expect(allMessages[1]['content'], equals('Second message'));
       expect(allMessages[1]['is_starred'], equals(0));
@@ -504,6 +571,301 @@ void main() {
       expect(starredMessages.length, equals(2));
 
       await db.close();
+      await databaseFactory.deleteDatabase(dbPath);
+    });
+  });
+
+  group('Database Migration v4 → v5 Tests', () {
+    test('v4→v5 migration adds Noise Protocol fields to contacts', () async {
+      final dbPath = join(
+        await databaseFactory.getDatabasesPath(),
+        'migration_v4_v5_test.db',
+      );
+
+      // Create v4 database (without Noise fields)
+      final db = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 4,
+          onCreate: (db, version) async {
+            // Create contacts table as it existed in v4
+            await db.execute('''
+              CREATE TABLE contacts (
+                public_key TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                trust_status INTEGER NOT NULL,
+                security_level INTEGER NOT NULL,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                last_security_sync INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+
+      // Insert test contact data
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await db.insert('contacts', {
+        'public_key': 'test_key_123',
+        'display_name': 'Test User',
+        'trust_status': 0,
+        'security_level': 1,
+        'first_seen': now,
+        'last_seen': now,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await db.insert('contacts', {
+        'public_key': 'test_key_456',
+        'display_name': 'Another User',
+        'trust_status': 1,
+        'security_level': 2,
+        'first_seen': now,
+        'last_seen': now,
+        'last_security_sync': now,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await db.close();
+
+      // Reopen with v5 migration
+      final dbV5 = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 5,
+          onUpgrade: (db, oldVersion, newVersion) async {
+            if (oldVersion < 5) {
+              // Apply v4→v5 migration (add Noise fields)
+              await db.execute(
+                'ALTER TABLE contacts ADD COLUMN noise_public_key TEXT',
+              );
+              await db.execute(
+                'ALTER TABLE contacts ADD COLUMN noise_session_state TEXT',
+              );
+              await db.execute(
+                'ALTER TABLE contacts ADD COLUMN last_handshake_time INTEGER',
+              );
+            }
+          },
+        ),
+      );
+
+      // Verify schema has new columns
+      final tableInfo = await dbV5.rawQuery('PRAGMA table_info(contacts)');
+      final columnNames = tableInfo
+          .map((row) => row['name'] as String)
+          .toList();
+
+      expect(columnNames, contains('noise_public_key'));
+      expect(columnNames, contains('noise_session_state'));
+      expect(columnNames, contains('last_handshake_time'));
+
+      // Verify existing data is intact with NULL Noise fields
+      final contacts = await dbV5.query('contacts', orderBy: 'public_key');
+      expect(contacts.length, equals(2));
+
+      // First contact
+      expect(contacts[0]['public_key'], equals('test_key_123'));
+      expect(contacts[0]['display_name'], equals('Test User'));
+      expect(
+        contacts[0]['noise_public_key'],
+        isNull,
+        reason: 'New columns should be NULL after migration',
+      );
+      expect(contacts[0]['noise_session_state'], isNull);
+      expect(contacts[0]['last_handshake_time'], isNull);
+
+      // Second contact
+      expect(contacts[1]['public_key'], equals('test_key_456'));
+      expect(contacts[1]['display_name'], equals('Another User'));
+      expect(contacts[1]['last_security_sync'], equals(now));
+      expect(contacts[1]['noise_public_key'], isNull);
+      expect(contacts[1]['noise_session_state'], isNull);
+      expect(contacts[1]['last_handshake_time'], isNull);
+
+      // Test inserting new contact with Noise fields
+      await dbV5.insert('contacts', {
+        'public_key': 'noise_test_key',
+        'display_name': 'Noise User',
+        'trust_status': 0,
+        'security_level': 1,
+        'first_seen': now,
+        'last_seen': now,
+        'noise_public_key': 'dGVzdF9ub2lzZV9wdWJsaWNfa2V5',
+        'noise_session_state': 'established',
+        'last_handshake_time': now,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      final noiseContact = await dbV5.query(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: ['noise_test_key'],
+      );
+
+      expect(
+        noiseContact.first['noise_public_key'],
+        equals('dGVzdF9ub2lzZV9wdWJsaWNfa2V5'),
+      );
+      expect(noiseContact.first['noise_session_state'], equals('established'));
+      expect(noiseContact.first['last_handshake_time'], equals(now));
+
+      // Test updating existing contact with Noise data
+      await dbV5.update(
+        'contacts',
+        {
+          'noise_public_key': 'dXBkYXRlZF9rZXk=',
+          'noise_session_state': 'handshaking',
+          'last_handshake_time': now + 1000,
+          'updated_at': now + 1000,
+        },
+        where: 'public_key = ?',
+        whereArgs: ['test_key_123'],
+      );
+
+      final updatedContact = await dbV5.query(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: ['test_key_123'],
+      );
+
+      expect(
+        updatedContact.first['noise_public_key'],
+        equals('dXBkYXRlZF9rZXk='),
+      );
+      expect(
+        updatedContact.first['noise_session_state'],
+        equals('handshaking'),
+      );
+      expect(updatedContact.first['last_handshake_time'], equals(now + 1000));
+
+      await dbV5.close();
+      await databaseFactory.deleteDatabase(dbPath);
+    });
+
+    test('v4→v5 migration preserves all existing contact data', () async {
+      final dbPath = join(
+        await databaseFactory.getDatabasesPath(),
+        'migration_v4_v5_preserve_test.db',
+      );
+
+      // Create v4 database with comprehensive test data
+      final db = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 4,
+          onCreate: (db, version) async {
+            await db.execute('''
+              CREATE TABLE contacts (
+                public_key TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                trust_status INTEGER NOT NULL,
+                security_level INTEGER NOT NULL,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                last_security_sync INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final testContacts = [
+        {
+          'public_key': 'verified_contact',
+          'display_name': 'Verified User',
+          'trust_status': 1,
+          'security_level': 2,
+          'last_security_sync': now - 3600000,
+        },
+        {
+          'public_key': 'new_contact',
+          'display_name': 'New User',
+          'trust_status': 0,
+          'security_level': 0,
+          'last_security_sync': null,
+        },
+        {
+          'public_key': 'high_security_contact',
+          'display_name': 'High Security User',
+          'trust_status': 1,
+          'security_level': 3,
+          'last_security_sync': now - 1800000,
+        },
+      ];
+
+      for (final contact in testContacts) {
+        await db.insert('contacts', {
+          ...contact,
+          'first_seen': now - 86400000,
+          'last_seen': now - 3600,
+          'created_at': now - 86400000,
+          'updated_at': now - 3600,
+        });
+      }
+
+      await db.close();
+
+      // Reopen with v5 migration
+      final dbV5 = await databaseFactory.openDatabase(
+        dbPath,
+        options: OpenDatabaseOptions(
+          version: 5,
+          onUpgrade: (db, oldVersion, newVersion) async {
+            if (oldVersion < 5) {
+              await db.execute(
+                'ALTER TABLE contacts ADD COLUMN noise_public_key TEXT',
+              );
+              await db.execute(
+                'ALTER TABLE contacts ADD COLUMN noise_session_state TEXT',
+              );
+              await db.execute(
+                'ALTER TABLE contacts ADD COLUMN last_handshake_time INTEGER',
+              );
+            }
+          },
+        ),
+      );
+
+      final migratedContacts = await dbV5.query(
+        'contacts',
+        orderBy: 'public_key',
+      );
+      expect(migratedContacts.length, equals(3));
+
+      // Verify each contact preserved all original data
+      for (var i = 0; i < testContacts.length; i++) {
+        final expected = testContacts[i];
+        final actual = migratedContacts.firstWhere(
+          (c) => c['public_key'] == expected['public_key'],
+        );
+
+        expect(actual['display_name'], equals(expected['display_name']));
+        expect(actual['trust_status'], equals(expected['trust_status']));
+        expect(actual['security_level'], equals(expected['security_level']));
+        expect(
+          actual['last_security_sync'],
+          equals(expected['last_security_sync']),
+        );
+        expect(actual['first_seen'], equals(now - 86400000));
+        expect(actual['last_seen'], equals(now - 3600));
+
+        // New columns should be NULL
+        expect(actual['noise_public_key'], isNull);
+        expect(actual['noise_session_state'], isNull);
+        expect(actual['last_handshake_time'], isNull);
+      }
+
+      await dbV5.close();
       await databaseFactory.deleteDatabase(dbPath);
     });
   });

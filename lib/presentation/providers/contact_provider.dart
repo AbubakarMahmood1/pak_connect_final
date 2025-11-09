@@ -6,6 +6,7 @@ import '../../domain/services/contact_management_service.dart';
 import '../../domain/entities/enhanced_contact.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/security_manager.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 final _logger = Logger('ContactProvider');
 
@@ -32,7 +33,9 @@ final contactsProvider = FutureProvider<List<EnhancedContact>>((ref) async {
 
 /// Auto-refresh contacts provider (opt-in for screens that need periodic updates)
 /// Use this sparingly - most screens should use contactsProvider with manual refresh
-final autoRefreshContactsProvider = StreamProvider<List<EnhancedContact>>((ref) async* {
+final autoRefreshContactsProvider = StreamProvider<List<EnhancedContact>>((
+  ref,
+) async* {
   final service = ref.watch(contactServiceProvider);
 
   // Initial load
@@ -46,7 +49,10 @@ final autoRefreshContactsProvider = StreamProvider<List<EnhancedContact>>((ref) 
 });
 
 /// Single contact provider by public key
-final contactDetailProvider = FutureProvider.family<EnhancedContact?, String>((ref, publicKey) async {
+final contactDetailProvider = FutureProvider.family<EnhancedContact?, String>((
+  ref,
+  publicKey,
+) async {
   final service = ref.watch(contactServiceProvider);
   return await service.getEnhancedContact(publicKey);
 });
@@ -107,12 +113,15 @@ class ContactSearchNotifier extends Notifier<ContactSearchState> {
 }
 
 /// Contact search state provider
-final contactSearchStateProvider = NotifierProvider<ContactSearchNotifier, ContactSearchState>(() {
-  return ContactSearchNotifier();
-});
+final contactSearchStateProvider =
+    NotifierProvider<ContactSearchNotifier, ContactSearchState>(() {
+      return ContactSearchNotifier();
+    });
 
 /// Filtered and sorted contacts based on search state
-final filteredContactsProvider = FutureProvider<ContactSearchResult>((ref) async {
+final filteredContactsProvider = FutureProvider<ContactSearchResult>((
+  ref,
+) async {
   final service = ref.watch(contactServiceProvider);
   final searchState = ref.watch(contactSearchStateProvider);
 
@@ -145,21 +154,28 @@ final contactPrivacySettingsProvider = Provider<ContactPrivacySettings>((ref) {
 /// Contact action handlers
 
 /// Delete contact action
-final deleteContactProvider = FutureProvider.family<ContactOperationResult, String>((ref, publicKey) async {
-  final service = ref.watch(contactServiceProvider);
-  final result = await service.deleteContact(publicKey);
+final deleteContactProvider =
+    FutureProvider.family<ContactOperationResult, String>((
+      ref,
+      publicKey,
+    ) async {
+      final service = ref.watch(contactServiceProvider);
+      final result = await service.deleteContact(publicKey);
 
-  // Invalidate contacts list to trigger refresh
-  if (result.success) {
-    ref.invalidate(contactsProvider);
-    ref.invalidate(filteredContactsProvider);
-  }
+      // Invalidate contacts list to trigger refresh
+      if (result.success) {
+        ref.invalidate(contactsProvider);
+        ref.invalidate(filteredContactsProvider);
+      }
 
-  return result;
-});
+      return result;
+    });
 
 /// Verify contact action
-final verifyContactProvider = FutureProvider.family<bool, String>((ref, publicKey) async {
+final verifyContactProvider = FutureProvider.family<bool, String>((
+  ref,
+  publicKey,
+) async {
   final repository = ref.watch(contactRepositoryProvider);
 
   try {
@@ -170,7 +186,9 @@ final verifyContactProvider = FutureProvider.family<bool, String>((ref, publicKe
     ref.invalidate(filteredContactsProvider);
     ref.invalidate(contactDetailProvider(publicKey));
 
-    _logger.info('✓ Contact verified: ${publicKey.length > 16 ? '${publicKey.substring(0, 16)}...' : publicKey}');
+    _logger.info(
+      '✓ Contact verified: ${publicKey.length > 16 ? '${publicKey.shortId()}...' : publicKey}',
+    );
     return true;
   } catch (e) {
     _logger.severe('Failed to verify contact: $e');
@@ -208,9 +226,13 @@ final contactStatsProvider = FutureProvider<ContactStats>((ref) async {
     data: (contacts) {
       return ContactStats(
         totalContacts: contacts.length,
-        verifiedContacts: contacts.where((c) => c.trustStatus == TrustStatus.verified).length,
+        verifiedContacts: contacts
+            .where((c) => c.trustStatus == TrustStatus.verified)
+            .length,
         activeContacts: contacts.where((c) => c.isRecentlyActive).length,
-        highSecurityContacts: contacts.where((c) => c.securityLevel == SecurityLevel.high).length,
+        highSecurityContacts: contacts
+            .where((c) => c.securityLevel == SecurityLevel.high)
+            .length,
       );
     },
     loading: () => ContactStats.empty,

@@ -103,7 +103,9 @@ void main() {
     test('Offline message queue table exists with relay fields', () async {
       final db = await DatabaseHelper.database;
 
-      final result = await db.rawQuery("PRAGMA table_info(offline_message_queue)");
+      final result = await db.rawQuery(
+        "PRAGMA table_info(offline_message_queue)",
+      );
       final columns = result.map((row) => row['name'] as String).toList();
 
       expect(columns, contains('queue_id'));
@@ -131,7 +133,11 @@ void main() {
       final triggers = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='archived_messages'",
       );
-      expect(triggers.length, equals(3), reason: 'Should have insert, update, delete triggers');
+      expect(
+        triggers.length,
+        equals(3),
+        reason: 'Should have insert, update, delete triggers',
+      );
     });
 
     test('Foreign key constraints are enabled', () async {
@@ -147,14 +153,18 @@ void main() {
 
       final result = await db.rawQuery('PRAGMA journal_mode');
       final mode = result.first['journal_mode'] as String;
-      expect(mode.toLowerCase(), equals('wal'), reason: 'WAL mode should be enabled');
+      expect(
+        mode.toLowerCase(),
+        equals('wal'),
+        reason: 'WAL mode should be enabled',
+      );
     });
 
     test('Database statistics are retrievable', () async {
       final stats = await DatabaseHelper.getStatistics();
 
       expect(stats, isNotNull);
-      expect(stats['database_version'], equals(4)); // v4: Added app_preferences table for settings
+      expect(stats['database_version'], equals(DatabaseHelper.currentVersion));
       expect(stats['table_counts'], isNotNull);
       // Note: may have records from previous tests due to singleton pattern
     });
@@ -163,7 +173,8 @@ void main() {
       final db = await DatabaseHelper.database;
 
       final now = DateTime.now().millisecondsSinceEpoch;
-      final testKey = 'test_key_${now}_${DateTime.now().microsecond}'; // Unique key per test
+      final testKey =
+          'test_key_${now}_${DateTime.now().microsecond}'; // Unique key per test
 
       // Insert a test contact
       await db.insert('contacts', {
@@ -189,7 +200,11 @@ void main() {
       expect(result.first['trust_status'], equals(0));
 
       // Clean up
-      await db.delete('contacts', where: 'public_key = ?', whereArgs: [testKey]);
+      await db.delete(
+        'contacts',
+        where: 'public_key = ?',
+        whereArgs: [testKey],
+      );
     });
 
     test('Can insert message with JSON blobs', () async {
@@ -257,10 +272,18 @@ void main() {
       });
 
       // Delete chat
-      await db.delete('chats', where: 'chat_id = ?', whereArgs: ['cascade_test_chat']);
+      await db.delete(
+        'chats',
+        where: 'chat_id = ?',
+        whereArgs: ['cascade_test_chat'],
+      );
 
       // Verify message was deleted via cascade
-      final result = await db.query('messages', where: 'id = ?', whereArgs: ['cascade_msg']);
+      final result = await db.query(
+        'messages',
+        where: 'id = ?',
+        whereArgs: ['cascade_msg'],
+      );
       expect(result, isEmpty, reason: 'Message should be deleted via CASCADE');
     });
   });

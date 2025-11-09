@@ -1,28 +1,28 @@
 # pak_connect Testing Strategy & Roadmap
 ## Comprehensive Test Suite Overhaul - Future-Proof Investment Plan
 
-**Status**: In Progress | **Target**: 100% Pass Rate + >80% Coverage | **Timeline**: 5 Days
+**Status**: Phase 1 (desktop suites) COMPLETE | **Target**: 100% Pass Rate + >80% Coverage | **Timeline**: 5 Days (non-device) + hardware pass TBD
 
 ---
 
 ## Executive Summary
 
 ### Current State
-- **Test Pass Rate**: 46% (124 passing, 141 failing, 5 skipped)
-- **File Coverage**: ~21% (26 test files / 123 production files)
-- **Service Coverage**: ~44% (15 tested / 34 major services)
-- **Critical Issue**: Logger conflicts causing cascading failures
+- **Test Pass Rate**: 100% for all VM-friendly suites (`flutter test` is green)
+- **File Coverage**: ~40% (56 test files / 138 production files) — desktop scope only
+- **Service Coverage**: ~70% (desktop-accessible services). Remaining gaps are radio-/device-bound.
+- **Critical Issue (RESOLVED)**: Logger conflicts, missing SQLite/secure storage shims, and BLE platform-channel calls no longer block tests.
 
 ### Target State
-- **Test Pass Rate**: 100% (all tests green)
-- **Coverage**: >80% for critical paths, >70% overall
+- **Test Pass Rate**: 100% including hardware suites (post-device validation)
+- **Coverage**: >80% for critical paths, >70% overall after adding device tests & additional specs
 - **Test Count**: ~300+ comprehensive tests
-- **CI/CD Ready**: Fast, reliable, isolated tests
+- **CI/CD Ready**: Fast, reliable, isolated tests (KK/database/shared-pref smokes wired in once hardware is validated)
 
 ### Investment ROI
-- **Time**: 3-5 days focused work
-- **Value**: 10-20 hours/month saved in debugging
-- **Benefit**: Confident refactoring, safe iterations, living documentation
+- **Time**: 3-5 days for desktop; separate hardware window TBD
+- **Value**: 10-20 hours/month saved in debugging + confidence before sensor/field runs
+- **Benefit**: Confident refactoring, safe iterations, living documentation, predictable on-device verification
 
 ---
 
@@ -143,6 +143,18 @@ setUp(() async {
   await DatabaseHelper.deleteDatabase(); // ✅ Clean slate
 });
 ```
+
+### Test Environment Infrastructure Upgrades
+
+- **Native SQLite Loader**: `TestSetup` now delegates to `NativeSqliteLoader` (`test/test_helpers/sqlite/native_sqlite_loader.dart`) which locates `libsqlite3` (or the Windows/macOS equivalents) even when the sandbox lacks the usual unversioned symlinks. Override the path via `SQLITE_FFI_LIB_PATH` if you need a custom build (e.g., SQLCipher).
+- **Deterministic secure storage**: `InMemorySecureStorage` (`test/test_helpers/mocks/in_memory_secure_storage.dart`) registers itself through `FlutterSecureStoragePlatform.instance`, eliminating the `MissingPluginException` that used to break protocol suites. Populate it through the public `FlutterSecureStorage` API exactly as production code would.
+- **Single entry point**: Always call `await TestSetup.initializeTestEnvironment();` in `setUpAll`—it wires up the loader, sqflite factory, secure storage mock, logging, and mock SharedPreferences in one spot so new tests inherit the full environment automatically.
+
+### CI Smoke Tests (run before pushing)
+- `flutter test test/kk_protocol_integration_test.dart` — exercises Noise XX/KK flows, secure storage, and contact persistence end-to-end.
+- `flutter test test/database_migration_test.dart` — validates the SQLCipher schema, archive tables, and incremental migrations.
+- `flutter test test/migration_service_smoke_test.dart` — runs the SharedPreferences → SQLite migration against a representative data snapshot to ensure Phase 3 upgrades succeed.
+- These suites now run cleanly inside the sandbox thanks to the shared test harness; wire them into CI to catch regressions in crypto/migration stacks early.
 
 ### AAA Pattern (Arrange-Act-Assert)
 

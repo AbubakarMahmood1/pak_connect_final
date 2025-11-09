@@ -15,7 +15,7 @@ import '../../domain/entities/archived_message.dart';
 /// Main archive screen showing list of archived chats with management features
 class ArchiveScreen extends ConsumerStatefulWidget {
   const ArchiveScreen({super.key});
-  
+
   @override
   ConsumerState<ArchiveScreen> createState() => _ArchiveScreenState();
 }
@@ -25,25 +25,25 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   Timer? _searchDebounceTimer;
   bool _showStatistics = true;
   ArchiveListFilter? _currentFilter;
-  
+
   @override
   void initState() {
     super.initState();
     // Initialize any required state
   }
-  
+
   @override
   void dispose() {
     _searchController.dispose();
     _searchDebounceTimer?.cancel();
     super.dispose();
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final uiState = ref.watch(archiveUIStateProvider);
     final operationsState = ref.watch(archiveOperationsProvider);
-    
+
     return Scaffold(
       appBar: _buildAppBar(context, uiState),
       body: RefreshIndicator(
@@ -53,11 +53,10 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
             // Show loading indicator for active operations
             if (operationsState.hasActiveOperation)
               _buildOperationIndicator(operationsState),
-            
+
             // Search bar when in search mode
-            if (uiState.isSearchMode)
-              _buildSearchBar(context),
-            
+            if (uiState.isSearchMode) _buildSearchBar(context),
+
             // Statistics card (collapsible)
             if (_showStatistics && !uiState.isSearchMode)
               ArchiveStatisticsCard(
@@ -66,21 +65,22 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                   setState(() => _showStatistics = !_showStatistics);
                 },
               ),
-            
+
             // Archive list
-            Expanded(
-              child: _buildArchiveList(context, uiState),
-            ),
+            Expanded(child: _buildArchiveList(context, uiState)),
           ],
         ),
       ),
       floatingActionButton: _buildFloatingActionButton(context, uiState),
     );
   }
-  
-  PreferredSizeWidget _buildAppBar(BuildContext context, ArchiveUIState uiState) {
+
+  PreferredSizeWidget _buildAppBar(
+    BuildContext context,
+    ArchiveUIState uiState,
+  ) {
     final theme = Theme.of(context);
-    
+
     if (uiState.isSearchMode) {
       return AppBar(
         title: TextField(
@@ -105,7 +105,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
         ],
       );
     }
-    
+
     return AppBar(
       title: const Text('Archived Chats'),
       actions: [
@@ -115,7 +115,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
           icon: const Icon(Icons.search),
           tooltip: 'Search archives',
         ),
-        
+
         // Sort and filter menu
         PopupMenuButton<ArchiveMenuAction>(
           onSelected: _handleMenuAction,
@@ -180,10 +180,10 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       ],
     );
   }
-  
+
   Widget _buildOperationIndicator(ArchiveOperationsState operationsState) {
     final theme = Theme.of(context);
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: theme.colorScheme.primaryContainer.withValues(),
@@ -211,7 +211,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       ),
     );
   }
-  
+
   Widget _buildSearchBar(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -226,15 +226,13 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                   icon: const Icon(Icons.clear),
                 )
               : null,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(28),
-          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(28)),
         ),
         onChanged: _handleSearchQueryChanged,
       ),
     );
   }
-  
+
   Widget _buildArchiveList(BuildContext context, ArchiveUIState uiState) {
     if (uiState.isSearchMode && uiState.searchQuery.isNotEmpty) {
       return _buildSearchResults(context, uiState);
@@ -242,16 +240,16 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       return _buildRegularArchiveList(context);
     }
   }
-  
+
   Widget _buildRegularArchiveList(BuildContext context) {
     final archiveListAsync = ref.watch(archiveListProvider(_currentFilter));
-    
+
     return archiveListAsync.when(
       data: (archives) {
         if (archives.isEmpty) {
           return _buildEmptyState(context);
         }
-        
+
         return ListView.builder(
           padding: const EdgeInsets.only(bottom: 80), // Account for FAB
           itemCount: archives.length,
@@ -262,28 +260,28 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
               onTap: () => _openArchiveDetail(archive),
               onRestore: () => _restoreChat(archive),
               onDelete: () => _deleteChat(archive),
-              isSelected: archive.id == ref.read(archiveUIStateProvider).selectedArchiveId,
+              isSelected:
+                  archive.id ==
+                  ref.read(archiveUIStateProvider).selectedArchiveId,
             );
           },
         );
       },
-      loading: () => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, stack) => _buildErrorState(context, error.toString()),
     );
   }
-  
+
   Widget _buildSearchResults(BuildContext context, ArchiveUIState uiState) {
     final searchQuery = ArchiveSearchQuery(query: uiState.searchQuery);
     final searchAsync = ref.watch(archiveSearchProvider(searchQuery));
-    
+
     return searchAsync.when(
       data: (searchResult) {
         if (!searchResult.hasResults) {
           return _buildNoSearchResults(context, uiState.searchQuery);
         }
-        
+
         return Column(
           children: [
             // Search result summary
@@ -300,7 +298,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                 ],
               ),
             ),
-            
+
             // Search results list
             Expanded(
               child: ListView.builder(
@@ -332,16 +330,14 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
           ],
         );
       },
-      loading: () => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, stack) => _buildErrorState(context, error.toString()),
     );
   }
-  
+
   Widget _buildEmptyState(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -352,10 +348,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
             color: theme.colorScheme.onSurfaceVariant.withValues(),
           ),
           const SizedBox(height: 16),
-          Text(
-            'No Archived Chats',
-            style: theme.textTheme.titleLarge,
-          ),
+          Text('No Archived Chats', style: theme.textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
             'Archived chats will appear here.\nYou can archive chats from the main chat list.',
@@ -374,10 +367,10 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       ),
     );
   }
-  
+
   Widget _buildNoSearchResults(BuildContext context, String query) {
     final theme = Theme.of(context);
-    
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -388,10 +381,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
             color: theme.colorScheme.onSurfaceVariant.withValues(),
           ),
           const SizedBox(height: 16),
-          Text(
-            'No Results Found',
-            style: theme.textTheme.titleLarge,
-          ),
+          Text('No Results Found', style: theme.textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
             'No archived chats or messages found for "$query".',
@@ -409,19 +399,15 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       ),
     );
   }
-  
+
   Widget _buildErrorState(BuildContext context, String error) {
     final theme = Theme.of(context);
-    
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64,
-            color: theme.colorScheme.error,
-          ),
+          Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
           const SizedBox(height: 16),
           Text(
             'Error Loading Archives',
@@ -438,27 +424,27 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _handleRefresh,
-            child: const Text('Retry'),
-          ),
+          FilledButton(onPressed: _handleRefresh, child: const Text('Retry')),
         ],
       ),
     );
   }
-  
-  Widget? _buildFloatingActionButton(BuildContext context, ArchiveUIState uiState) {
+
+  Widget? _buildFloatingActionButton(
+    BuildContext context,
+    ArchiveUIState uiState,
+  ) {
     if (uiState.isSearchMode) return null;
-    
+
     return FloatingActionButton(
       onPressed: _showAdvancedSearch,
       tooltip: 'Advanced Search',
       child: const Icon(Icons.search),
     );
   }
-  
+
   // Event handlers
-  
+
   void _toggleSearch() {
     ref.read(archiveUIStateProvider.notifier).toggleSearchMode();
   }
@@ -474,7 +460,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       ref.read(archiveUIStateProvider.notifier).updateSearchQuery(query);
     });
   }
-  
+
   void _handleMenuAction(ArchiveMenuAction action) {
     switch (action) {
       case ArchiveMenuAction.sortByDate:
@@ -494,7 +480,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
         break;
     }
   }
-  
+
   void _updateSort(ArchiveSortOption sortOption) {
     setState(() {
       _currentFilter = (_currentFilter ?? const ArchiveListFilter()).copyWith(
@@ -503,20 +489,22 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
     });
     ref.read(archiveUIStateProvider.notifier).updateFilter(_currentFilter);
   }
-  
+
   Future<void> _handleRefresh() async {
     // Invalidate providers to trigger refresh
     ref.invalidate(archiveListProvider);
     ref.invalidate(archiveStatisticsProvider);
   }
-  
+
   void _openArchiveDetail(ArchivedChatSummary archive) {
     // For now, show a placeholder dialog - will be replaced with actual detail screen
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Archive Details'),
-        content: Text('Archive details for ${archive.contactName} will be shown here.'),
+        content: Text(
+          'Archive details for ${archive.contactName} will be shown here.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -526,7 +514,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       ),
     );
   }
-  
+
   void _openSearchResult(ArchivedMessage message) {
     // For now, show a placeholder dialog
     showDialog(
@@ -543,10 +531,12 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       ),
     );
   }
-  
+
   Future<void> _restoreChat(ArchivedChatSummary archive) async {
-    final result = await ref.read(archiveOperationsProvider.notifier).restoreChat(archiveId: archive.id);
-    
+    final result = await ref
+        .read(archiveOperationsProvider.notifier)
+        .restoreChat(archiveId: archive.id);
+
     if (mounted) {
       if (result.success) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -569,10 +559,12 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       }
     }
   }
-  
+
   Future<void> _deleteChat(ArchivedChatSummary archive) async {
-    final success = await ref.read(archiveOperationsProvider.notifier).deleteArchivedChat(archive.id);
-    
+    final success = await ref
+        .read(archiveOperationsProvider.notifier)
+        .deleteArchivedChat(archive.id);
+
     if (mounted) {
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -591,12 +583,9 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
       }
     }
   }
-  
+
   void _showAdvancedSearch() {
-    showSearch(
-      context: context,
-      delegate: ArchiveSearchDelegate(ref),
-    );
+    showSearch(context: context, delegate: ArchiveSearchDelegate(ref));
   }
 }
 

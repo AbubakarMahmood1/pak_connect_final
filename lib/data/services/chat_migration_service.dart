@@ -3,32 +3,33 @@ import '../../domain/entities/message.dart';
 import '../../core/utils/chat_utils.dart';
 import '../repositories/message_repository.dart';
 import '../database/database_helper.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Service responsible for migrating chats from ephemeral IDs to persistent public keys
-/// 
+///
 /// This service is used during the pairing process when:
 /// 1. Two devices exchange persistent public keys after PIN verification
 /// 2. Messages were sent using ephemeral (temporary) IDs
 /// 3. Chat history needs to be migrated to use persistent IDs
 class ChatMigrationService {
   static final _logger = Logger('ChatMigrationService');
-  
+
   final MessageRepository _messageRepository = MessageRepository();
 
   /// Migrate a chat from ephemeral ID to persistent public key
-  /// 
+  ///
   /// This method:
   /// 1. Checks if there are messages in the old ephemeral chat
   /// 2. Generates the new persistent chat ID
   /// 3. Copies all messages to the new chat ID
   /// 4. Updates chat metadata (contact info, last message, etc.)
   /// 5. Deletes the old ephemeral chat
-  /// 
+  ///
   /// Parameters:
   /// - [ephemeralId]: The temporary ID used before pairing (e.g., 'temp_abc123')
   /// - [persistentPublicKey]: The other party's persistent public key
   /// - [contactName]: Optional contact name to use
-  /// 
+  ///
   /// Returns: True if migration was successful, false if no migration was needed
   Future<bool> migrateChatToPersistentId({
     required String ephemeralId,
@@ -37,12 +38,16 @@ class ChatMigrationService {
   }) async {
     try {
       _logger.info('🔄 STEP 6: Starting chat migration');
-      _logger.info('   From ephemeral ID: ${ephemeralId.length > 20 ? ephemeralId.substring(0, 20) : ephemeralId}...');
-      _logger.info('   To persistent key: ${persistentPublicKey.length > 20 ? persistentPublicKey.substring(0, 20) : persistentPublicKey}...');
+      _logger.info(
+        '   From ephemeral ID: ${ephemeralId.length > 20 ? ephemeralId.shortId(20) : ephemeralId}...',
+      );
+      _logger.info(
+        '   To persistent key: ${persistentPublicKey.length > 20 ? persistentPublicKey.shortId(20) : persistentPublicKey}...',
+      );
 
       // Get messages from ephemeral chat
       final messages = await _messageRepository.getMessages(ephemeralId);
-      
+
       if (messages.isEmpty) {
         _logger.info('✅ STEP 6: No messages to migrate - chat is empty');
         return false;
@@ -52,18 +57,22 @@ class ChatMigrationService {
 
       // Generate new persistent chat ID
       final newChatId = ChatUtils.generateChatId(persistentPublicKey);
-      
+
       if (newChatId == ephemeralId) {
-        _logger.warning('⚠️ STEP 6: Chat IDs are identical - skipping migration');
+        _logger.warning(
+          '⚠️ STEP 6: Chat IDs are identical - skipping migration',
+        );
         return false;
       }
 
       // Check if new chat already has messages (merge scenario)
       final existingMessages = await _messageRepository.getMessages(newChatId);
       final shouldMerge = existingMessages.isNotEmpty;
-      
+
       if (shouldMerge) {
-        _logger.info('🔀 STEP 6: Merging with existing chat (${existingMessages.length} messages)');
+        _logger.info(
+          '🔀 STEP 6: Merging with existing chat (${existingMessages.length} messages)',
+        );
       }
 
       // IMPORTANT: Create the new chat entry FIRST before updating messages
@@ -78,11 +87,11 @@ class ChatMigrationService {
       // Migrate all messages to new chat ID by updating chat_id in database
       int migratedCount = 0;
       final db = await DatabaseHelper.database;
-      
+
       for (final message in messages) {
         // Check if this message already exists in the new chat (avoid duplicates)
         final isDuplicate = existingMessages.any((m) => m.id == message.id);
-        
+
         if (isDuplicate) {
           _logger.fine('   Skipping duplicate message: ${message.id}');
           continue;
@@ -96,11 +105,13 @@ class ChatMigrationService {
           where: 'id = ?',
           whereArgs: [message.id],
         );
-        
+
         migratedCount++;
       }
 
-      _logger.info('✅ STEP 6: Migrated $migratedCount messages to persistent chat');
+      _logger.info(
+        '✅ STEP 6: Migrated $migratedCount messages to persistent chat',
+      );
 
       // Clean up old ephemeral chat (always do this, even if no messages were migrated)
       // This is because the chat itself needs to be migrated
@@ -111,7 +122,9 @@ class ChatMigrationService {
         chatId: newChatId,
         publicKey: persistentPublicKey,
         contactName: contactName,
-        messages: await _messageRepository.getMessages(newChatId), // Get all messages (old + new)
+        messages: await _messageRepository.getMessages(
+          newChatId,
+        ), // Get all messages (old + new)
       );
 
       _logger.info('✅ STEP 6: Chat migration complete!');
@@ -131,19 +144,19 @@ class ChatMigrationService {
     Map<String, String> ephemeralToPersistentMapping,
   ) async {
     final results = <String, bool>{};
-    
+
     for (final entry in ephemeralToPersistentMapping.entries) {
       final ephemeralId = entry.key;
       final persistentKey = entry.value;
-      
+
       final success = await migrateChatToPersistentId(
         ephemeralId: ephemeralId,
         persistentPublicKey: persistentKey,
       );
-      
+
       results[ephemeralId] = success;
     }
-    
+
     return results;
   }
 
@@ -161,7 +174,7 @@ class ChatMigrationService {
   /// Get all chats that need migration
   Future<List<String>> getChatsNeedingMigration() async {
     final db = await DatabaseHelper.database;
-    
+
     final results = await db.query(
       'chats',
       columns: ['chat_id'],
@@ -170,7 +183,7 @@ class ChatMigrationService {
     );
 
     final chatIds = <String>[];
-    
+
     for (final row in results) {
       final chatId = row['chat_id'] as String;
       if (await needsMigration(chatId)) {
@@ -198,7 +211,7 @@ class ChatMigrationService {
     // Get last message details
     String? lastMessage;
     int? lastMessageTime;
-    
+
     if (messages.isNotEmpty) {
       final lastMsg = messages.last;
       lastMessage = lastMsg.content;
@@ -233,7 +246,8 @@ class ChatMigrationService {
       // It will be updated later when the contact exists in the contacts table
       await db.insert('chats', {
         'chat_id': chatId,
-        'contact_public_key': null, // Set to NULL to avoid foreign key constraint
+        'contact_public_key':
+            null, // Set to NULL to avoid foreign key constraint
         'contact_name': contactName ?? 'User',
         'last_message': lastMessage,
         'last_message_time': lastMessageTime,
@@ -251,18 +265,10 @@ class ChatMigrationService {
     final db = await DatabaseHelper.database;
 
     // Delete all messages from ephemeral chat
-    await db.delete(
-      'messages',
-      where: 'chat_id = ?',
-      whereArgs: [ephemeralId],
-    );
+    await db.delete('messages', where: 'chat_id = ?', whereArgs: [ephemeralId]);
 
     // Delete chat entry
-    await db.delete(
-      'chats',
-      where: 'chat_id = ?',
-      whereArgs: [ephemeralId],
-    );
+    await db.delete('chats', where: 'chat_id = ?', whereArgs: [ephemeralId]);
 
     _logger.fine('   Cleaned up ephemeral chat: $ephemeralId');
   }
