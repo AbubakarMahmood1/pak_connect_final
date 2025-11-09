@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/routing/routing_models.dart';
 import '../../core/routing/network_topology_analyzer.dart';
 import '../../core/routing/connection_quality_monitor.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Widget that displays routing status and decisions for demo purposes
 class RoutingStatusIndicator extends StatelessWidget {
@@ -119,7 +120,7 @@ class RoutingStatusIndicator extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  path[i].substring(0, 4),
+                  path[i].shortId(4),
                   style: TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.w500,

@@ -10,6 +10,7 @@ import '../../data/repositories/contact_repository.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../security/message_security.dart';
 import '../models/mesh_relay_models.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Comprehensive offline message queue with intelligent retry and delivery management
 class OfflineMessageQueue {
@@ -126,13 +127,13 @@ class OfflineMessageQueue {
                 priority == MessagePriority.low) {
               priority = MessagePriority.high;
               _logger.fine(
-                '⭐ Auto-boosted priority to HIGH for favorite contact ${recipientPublicKey.substring(0, 8)}...',
+                '⭐ Auto-boosted priority to HIGH for favorite contact ${recipientPublicKey.shortId(8)}...',
               );
             }
           }
         } catch (e) {
           _logger.warning(
-            'Failed to check favorite status for ${recipientPublicKey.substring(0, 8)}...: $e',
+            'Failed to check favorite status for ${recipientPublicKey.shortId(8)}...: $e',
           );
           // Continue with default values if check fails
         }
@@ -152,7 +153,7 @@ class OfflineMessageQueue {
       if (existingMessagesForPeer >= peerLimit) {
         final limitType = isFavorite ? 'favorite' : 'regular';
         _logger.warning(
-          'Queue limit reached for $limitType contact ${recipientPublicKey.substring(0, 8)}...: '
+          'Queue limit reached for $limitType contact ${recipientPublicKey.shortId(8)}...: '
           '$existingMessagesForPeer/$peerLimit messages',
         );
         throw MessageQueueException(
@@ -196,7 +197,7 @@ class OfflineMessageQueue {
       final favoriteTag = isFavorite ? ' ⭐' : '';
       final queueType = queuedMessage.isRelayMessage ? 'relay' : 'direct';
       _logger.info(
-        'Message queued [$queueType]: ${messageId.substring(0, 16)}... (priority: ${priority.name}, peer: ${existingMessagesForPeer + 1}/$peerLimit)$favoriteTag',
+        'Message queued [$queueType]: ${messageId.shortId()}... (priority: ${priority.name}, peer: ${existingMessagesForPeer + 1}/$peerLimit)$favoriteTag',
       );
 
       // Attempt immediate delivery if online
@@ -327,7 +328,7 @@ class OfflineMessageQueue {
       );
       if (timeSinceLastAttempt < ackTimeout) {
         _logger.info(
-          '⏳ Still waiting for ACK from previous attempt (${timeSinceLastAttempt.inMilliseconds}ms ago) for ${message.id.substring(0, 16)}...',
+          '⏳ Still waiting for ACK from previous attempt (${timeSinceLastAttempt.inMilliseconds}ms ago) for ${message.id.shortId()}...',
         );
         return; // Don't retry yet - wait for ACK timeout
       }
@@ -343,7 +344,7 @@ class OfflineMessageQueue {
       await _saveMessageToStorage(message);
 
       _logger.fine(
-        'Attempting delivery: ${message.id.substring(0, 16)}... (attempt ${message.attempts}/${message.maxRetries})',
+        'Attempting delivery: ${message.id.shortId()}... (attempt ${message.attempts}/${message.maxRetries})',
       );
 
       // Note: Skip validation here - sender cannot validate recipient-encrypted messages
@@ -357,12 +358,10 @@ class OfflineMessageQueue {
       message.status = QueuedMessageStatus.awaitingAck;
       await _saveMessageToStorage(message);
 
-      _logger.info(
-        'Message sent, awaiting ACK: ${message.id.substring(0, 16)}...',
-      );
+      _logger.info('Message sent, awaiting ACK: ${message.id.shortId()}...');
     } catch (e) {
       _logger.severe(
-        'Delivery attempt failed for ${message.id.substring(0, 16)}...: $e',
+        'Delivery attempt failed for ${message.id.shortId()}...: $e',
       );
       await _handleDeliveryFailure(message, e.toString());
     }
@@ -390,7 +389,7 @@ class OfflineMessageQueue {
 
     final queueType = message.isRelayMessage ? 'relay' : 'direct';
     _logger.info(
-      'Message delivered successfully [$queueType]: ${messageId.substring(0, 16)}...',
+      'Message delivered successfully [$queueType]: ${messageId.shortId()}...',
     );
   }
 
@@ -411,7 +410,7 @@ class OfflineMessageQueue {
     String reason,
   ) async {
     _logger.warning(
-      'Delivery failed for ${message.id.substring(0, 16)}...: $reason (attempt ${message.attempts}/${message.maxRetries})',
+      'Delivery failed for ${message.id.shortId()}...: $reason (attempt ${message.attempts}/${message.maxRetries})',
     );
 
     // For mesh networking, never permanently fail messages - devices may be offline for long periods
@@ -438,7 +437,7 @@ class OfflineMessageQueue {
     _activeRetries[message.id] = retryTimer;
 
     _logger.info(
-      'Retry scheduled for ${message.id.substring(0, 16)}... in ${backoffDelay.inSeconds}s',
+      'Retry scheduled for ${message.id.shortId()}... in ${backoffDelay.inSeconds}s',
     );
   }
 
@@ -567,7 +566,7 @@ class OfflineMessageQueue {
 
       if (peerMessages.isEmpty) {
         _logger.fine(
-          'No queued messages for peer ${peerPublicKey.substring(0, 8)}...',
+          'No queued messages for peer ${peerPublicKey.shortId(8)}...',
         );
         return;
       }
@@ -575,7 +574,7 @@ class OfflineMessageQueue {
       final directCount = peerMessages.where((m) => !m.isRelayMessage).length;
       final relayCount = peerMessages.where((m) => m.isRelayMessage).length;
       _logger.info(
-        '📤 Flushing ${peerMessages.length} queued messages for peer ${peerPublicKey.substring(0, 8)}... (direct: $directCount, relay: $relayCount)',
+        '📤 Flushing ${peerMessages.length} queued messages for peer ${peerPublicKey.shortId(8)}... (direct: $directCount, relay: $relayCount)',
       );
 
       // Mark peer as online temporarily for delivery
@@ -593,7 +592,7 @@ class OfflineMessageQueue {
 
         final queueType = message.isRelayMessage ? 'relay' : 'direct';
         _logger.fine(
-          '  Sending queued $queueType message: ${message.id.substring(0, 16)}...',
+          '  Sending queued $queueType message: ${message.id.shortId()}...',
         );
         await _tryDeliveryForMessage(message);
       }
@@ -602,7 +601,7 @@ class OfflineMessageQueue {
       _isOnline = wasOnline;
 
       _logger.info(
-        '✅ Queue flush complete for peer ${peerPublicKey.substring(0, 8)}...',
+        '✅ Queue flush complete for peer ${peerPublicKey.shortId(8)}...',
       );
     } catch (e) {
       _logger.severe('Failed to flush queue for peer $peerPublicKey: $e');
@@ -622,7 +621,7 @@ class OfflineMessageQueue {
           .firstOrNull;
       if (message == null) {
         _logger.warning(
-          'Cannot change priority: message ${messageId.substring(0, 16)}... not found',
+          'Cannot change priority: message ${messageId.shortId()}... not found',
         );
         return false;
       }
@@ -630,7 +629,7 @@ class OfflineMessageQueue {
       // Don't change if already at desired priority
       if (message.priority == newPriority) {
         _logger.fine(
-          'Message ${messageId.substring(0, 16)}... already at priority ${newPriority.name}',
+          'Message ${messageId.shortId()}... already at priority ${newPriority.name}',
         );
         return true;
       }
@@ -652,7 +651,7 @@ class OfflineMessageQueue {
 
       final queueType = message.isRelayMessage ? 'relay' : 'direct';
       _logger.info(
-        'Changed message ${messageId.substring(0, 16)}... priority [$queueType]: '
+        'Changed message ${messageId.shortId()}... priority [$queueType]: '
         '${oldPriority.name} → ${newPriority.name}',
       );
 
@@ -951,9 +950,7 @@ class OfflineMessageQueue {
       _cachedQueueHash = null;
       _lastHashCalculation = null;
     } catch (e) {
-      _logger.warning(
-        'Failed to save message ${message.id.substring(0, 16)}...: $e',
-      );
+      _logger.warning('Failed to save message ${message.id.shortId()}...: $e');
     }
   }
 
@@ -972,9 +969,7 @@ class OfflineMessageQueue {
       _cachedQueueHash = null;
       _lastHashCalculation = null;
     } catch (e) {
-      _logger.warning(
-        'Failed to delete message ${messageId.substring(0, 16)}...: $e',
-      );
+      _logger.warning('Failed to delete message ${messageId.shortId()}...: $e');
     }
   }
 
@@ -1105,7 +1100,7 @@ class OfflineMessageQueue {
     _lastHashCalculation = DateTime.now();
 
     _logger.fine(
-      'Calculated queue hash: ${_cachedQueueHash!.substring(0, 16)}... (${syncableMessages.length} messages, ${_deletedMessageIds.length} deleted)',
+      'Calculated queue hash: ${_cachedQueueHash!.shortId()}... (${syncableMessages.length} messages, ${_deletedMessageIds.length} deleted)',
     );
 
     return _cachedQueueHash!;
@@ -1161,7 +1156,7 @@ class OfflineMessageQueue {
     // Skip if message was previously deleted (e.g., aged out)
     if (_deletedMessageIds.contains(message.id)) {
       _logger.fine(
-        'Sync skip - message ${message.id.substring(0, 8)}... was deleted locally',
+        'Sync skip - message ${message.id.shortId(8)}... was deleted locally',
       );
       return;
     }
@@ -1170,7 +1165,7 @@ class OfflineMessageQueue {
     final exists = _getAllMessages().any((m) => m.id == message.id);
     if (exists) {
       _logger.fine(
-        'Sync skip - message already exists: ${message.id.substring(0, 8)}...',
+        'Sync skip - message already exists: ${message.id.shortId(8)}...',
       );
       return;
     }
@@ -1187,9 +1182,7 @@ class OfflineMessageQueue {
     _totalQueued++;
     _updateStatistics();
 
-    _logger.info(
-      '🔄 Synced new queued message: ${message.id.substring(0, 16)}...',
-    );
+    _logger.info('🔄 Synced new queued message: ${message.id.shortId()}...');
   }
 
   /// Get missing messages compared to another queue
@@ -1236,7 +1229,7 @@ class OfflineMessageQueue {
     await _saveQueueToStorage();
 
     _logger.info(
-      'Message marked as deleted: ${messageId.length > 16 ? "${messageId.substring(0, 16)}..." : messageId}',
+      'Message marked as deleted: ${messageId.length > 16 ? "${messageId.shortId()}..." : messageId}',
     );
   }
 
@@ -1328,7 +1321,7 @@ class OfflineMessageQueue {
           ttlExpiredCount++;
           expiredIds.add(message.id);
           _logger.info(
-            'Message ${message.id.substring(0, 16)}... expired (TTL exceeded)',
+            'Message ${message.id.shortId()}... expired (TTL exceeded)',
           );
           return true;
         }
@@ -1356,7 +1349,7 @@ class OfflineMessageQueue {
           ttlExpiredCount++;
           expiredIds.add(message.id);
           _logger.info(
-            'Message ${message.id.substring(0, 16)}... expired (TTL exceeded)',
+            'Message ${message.id.shortId()}... expired (TTL exceeded)',
           );
           return true;
         }

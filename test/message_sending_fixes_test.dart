@@ -3,7 +3,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 
+import 'test_helpers/test_setup.dart';
+
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+    await SecurityManager.initialize();
+  });
+
+  tearDownAll(() {
+    SecurityManager.shutdown();
+  });
+
+  setUp(() async {
+    await TestSetup.cleanupDatabase();
+    TestSetup.resetSharedPreferences();
+  });
+
+  tearDown(() async {
+    await TestSetup.completeCleanup();
+  });
+
   group('SecurityManager Empty String Handling', () {
     late ContactRepository contactRepo;
 

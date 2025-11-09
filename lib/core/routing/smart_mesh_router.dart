@@ -5,6 +5,7 @@ import 'route_calculator.dart';
 import 'network_topology_analyzer.dart';
 import 'connection_quality_monitor.dart';
 import '../../domain/entities/enhanced_message.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Intelligent mesh router that makes optimal routing decisions
 class SmartMeshRouter {
@@ -44,7 +45,7 @@ class SmartMeshRouter {
   Future<void> initialize({bool enableDemo = false}) async {
     try {
       _logger.info(
-        'Initializing Smart Mesh Router for node ${_currentNodeId.substring(0, 8)}...',
+        'Initializing Smart Mesh Router for node ${_currentNodeId.shortId(8)}...',
       );
 
       _demoMode = enableDemo;
@@ -75,7 +76,7 @@ class SmartMeshRouter {
   }) async {
     try {
       _logger.info(
-        '🤔 Determining route to ${finalRecipient.substring(0, 8)}... via ${availableHops.length} hops',
+        '🤔 Determining route to ${finalRecipient.shortId(8)}... via ${availableHops.length} hops',
       );
 
       // Check cache first
@@ -120,9 +121,7 @@ class SmartMeshRouter {
       );
 
       if (routes.isEmpty) {
-        _logger.warning(
-          '❌ No routes found to ${finalRecipient.substring(0, 8)}...',
-        );
+        _logger.warning('❌ No routes found to ${finalRecipient.shortId(8)}...');
         final decision = RoutingDecision.failed(
           'No route available to destination',
         );
@@ -151,7 +150,7 @@ class SmartMeshRouter {
       );
 
       _logger.info(
-        '✅ Selected route via ${nextHop.substring(0, 8)}... (score: ${bestRoute.score.toStringAsFixed(2)})',
+        '✅ Selected route via ${nextHop.shortId(8)}... (score: ${bestRoute.score.toStringAsFixed(2)})',
       );
 
       // Cache the decision
@@ -504,6 +503,6 @@ class SmartRouterStats {
 
   @override
   String toString() =>
-      'SmartRouterStats(node: ${nodeId.substring(0, 8)}..., '
+      'SmartRouterStats(node: ${nodeId.shortId(8)}..., '
       'cached: $cachedDecisions, demo: $demoModeEnabled)';
 }

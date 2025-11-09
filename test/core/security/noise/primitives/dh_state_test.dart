@@ -14,10 +14,10 @@ void main() {
       bob = DHState();
     });
 
-    tearDown() {
+    tearDown(() {
       alice.destroy();
       bob.destroy();
-    }
+    });
 
     test('generateKeyPair produces valid 32-byte keys', () {
       alice.generateKeyPair();

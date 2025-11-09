@@ -4,8 +4,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/mesh_relay_models.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Comprehensive spam prevention for mesh relay operations
 class SpamPreventionManager {
@@ -27,6 +29,8 @@ class SpamPreventionManager {
   final Map<String, double> _trustScores = {};
   final Set<String> _processedHashes = {};
   final Map<String, RelayOperation> _recentOperations = {};
+  bool _bypassChecksForTests = false;
+  static bool _globalBypassForTests = false;
 
   // Statistics
   int _totalBlocked = 0;
@@ -49,6 +53,14 @@ class SpamPreventionManager {
     required String fromNodeId,
     required String currentNodeId,
   }) async {
+    if (_bypassChecksForTests || _globalBypassForTests) {
+      return const SpamCheckResult(
+        allowed: true,
+        spamScore: 0,
+        reason: 'Testing bypass enabled',
+        checks: [],
+      );
+    }
     try {
       final checks = <SpamCheck>[];
       double totalSpamScore = 0.0;
@@ -123,7 +135,7 @@ class SpamPreventionManager {
 
       if (!allowed) {
         _logger.warning(
-          'Blocked relay from ${fromNodeId.substring(0, 8)}...: ${result.reason} (score: ${averageScore.toStringAsFixed(3)})',
+          'Blocked relay from ${fromNodeId.shortId(8)}...: ${result.reason} (score: ${averageScore.toStringAsFixed(3)})',
         );
       }
 
@@ -145,6 +157,14 @@ class SpamPreventionManager {
     required String senderNodeId,
     required int messageSize,
   }) async {
+    if (_bypassChecksForTests || _globalBypassForTests) {
+      return const SpamCheckResult(
+        allowed: true,
+        spamScore: 0,
+        reason: 'Testing bypass enabled',
+        checks: [],
+      );
+    }
     try {
       final checks = <SpamCheck>[];
       double totalSpamScore = 0.0;
@@ -179,6 +199,16 @@ class SpamPreventionManager {
     }
   }
 
+  @visibleForTesting
+  void bypassAllChecksForTests({bool enable = true}) {
+    _bypassChecksForTests = enable;
+  }
+
+  @visibleForTesting
+  static void bypassAllInstancesForTests({bool enable = true}) {
+    _globalBypassForTests = enable;
+  }
+
   /// Record successful relay operation for trust building
   Future<void> recordRelayOperation({
     required String fromNodeId,
@@ -198,7 +228,7 @@ class SpamPreventionManager {
       await _updateTrustScore(toNodeId, improve: true);
 
       _logger.fine(
-        'Recorded relay operation: ${fromNodeId.substring(0, 8)}... -> ${toNodeId.substring(0, 8)}...',
+        'Recorded relay operation: ${fromNodeId.shortId(8)}... -> ${toNodeId.shortId(8)}...',
       );
     } catch (e) {
       _logger.warning('Failed to record relay operation: $e');

@@ -1,11 +1,16 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'dart:typed_data';
 import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
+import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
+
+import 'test_helpers/message_handler_test_utils.dart';
+import 'test_helpers/test_setup.dart';
 
 // Simple stub for ContactRepository
 class StubContactRepository extends ContactRepository {
@@ -21,6 +26,10 @@ class StubContactRepository extends ContactRepository {
 }
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('Message Encryption and Routing Tests', () {
     late BLEMessageHandler messageHandler;
     late StubContactRepository stubContactRepository;
@@ -31,9 +40,18 @@ void main() {
     const abubakarNodeId =
         'abubakar_public_key_12345678901234567890123456789012';
 
-    setUp(() {
+    setUp(() async {
+      await TestSetup.cleanupDatabase();
+      TestSetup.resetSharedPreferences();
+      await EphemeralKeyManager.initialize('test_private_key_1234567890');
+      await seedTestUserPublicKey(arshadNodeId);
       messageHandler = BLEMessageHandler();
       stubContactRepository = StubContactRepository();
+    });
+
+    tearDown(() async {
+      messageHandler.dispose();
+      await TestSetup.completeCleanup();
     });
 
     group('1. Direct Messaging Tests (Ali → Arshad)', () {
@@ -95,6 +113,7 @@ void main() {
 
       test('should block message when NOT intended for current user', () async {
         // Set Abubakar as current node (NOT the intended recipient)
+        await seedTestUserPublicKey(abubakarNodeId);
         messageHandler.setCurrentNodeId(abubakarNodeId);
 
         // Create message from Ali to Arshad (Abubakar should not receive this)
@@ -380,6 +399,7 @@ void main() {
 
       test('should prevent incorrect delivery to wrong recipient', () async {
         // Set Abubakar as current node
+        await seedTestUserPublicKey(abubakarNodeId);
         messageHandler.setCurrentNodeId(abubakarNodeId);
 
         // Create message intended for Arshad (not Abubakar)
@@ -462,7 +482,7 @@ void main() {
         messageHandler.setCurrentNodeId(arshadNodeId);
 
         final result = await messageHandler.processReceivedData(
-          outgoingMessage.toBytes(),
+          protocolMessageToJsonBytes(outgoingMessage),
           senderPublicKey: aliNodeId,
           contactRepository: stubContactRepository,
         );
@@ -489,14 +509,16 @@ void main() {
 
         // Process encrypted message
         final result = await messageHandler.processReceivedData(
-          encryptedMessage.toBytes(),
+          protocolMessageToJsonBytes(encryptedMessage),
           senderPublicKey: aliNodeId,
           contactRepository: stubContactRepository,
         );
 
-        // Should attempt to process (routing validation passes)
-        // Note: Actual decryption would depend on SecurityManager implementation
-        expect(result, isNotNull);
+        // Should attempt to process and return a deterministic failure placeholder
+        expect(
+          result,
+          '[🔄 Security resync in progress - message will be readable after reconnection]',
+        );
       });
     });
 

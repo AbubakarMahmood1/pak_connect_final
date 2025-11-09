@@ -9,6 +9,7 @@ import '../database/database_helper.dart';
 import 'message_repository.dart';
 import 'contact_repository.dart';
 import 'user_preferences.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class ChatsRepository {
   static final _logger = Logger('ChatsRepository');
@@ -439,7 +440,7 @@ class ChatsRepository {
           if (deleted) {
             deletedCount++;
             _logger.fine(
-              'Deleted orphaned ephemeral contact: ${contact.displayName} (${contact.publicKey.substring(0, 8)}...)',
+              'Deleted orphaned ephemeral contact: ${contact.displayName} (${contact.publicKey.shortId(8)}...)',
             );
           }
         }

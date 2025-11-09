@@ -1,11 +1,16 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'dart:typed_data';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
+
+import 'test_helpers/message_handler_test_utils.dart';
+import 'test_helpers/test_setup.dart';
 
 // Minimal stub for ContactRepository to avoid dependencies
 class MinimalContactRepository extends ContactRepository {
@@ -20,7 +25,19 @@ class MinimalContactRepository extends ContactRepository {
       SecurityLevel.low;
 }
 
+Future<void> _configureNodeIdentity(
+  BLEMessageHandler handler,
+  String nodeId,
+) async {
+  await seedTestUserPublicKey(nodeId);
+  handler.setCurrentNodeId(nodeId);
+}
+
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('Message Routing Validation Tests', () {
     late BLEMessageHandler messageHandler;
     late MinimalContactRepository contactRepository;
@@ -31,9 +48,17 @@ void main() {
     const abubakarNodeId =
         'abubakar_public_key_12345678901234567890123456789012';
 
-    setUp(() {
+    setUp(() async {
+      await TestSetup.cleanupDatabase();
+      TestSetup.resetSharedPreferences();
+      await EphemeralKeyManager.initialize('test_private_key_1234567890');
       messageHandler = BLEMessageHandler();
       contactRepository = MinimalContactRepository();
+    });
+
+    tearDown(() async {
+      messageHandler.dispose();
+      await TestSetup.completeCleanup();
     });
 
     group('Core Routing Logic Tests', () {
@@ -55,7 +80,7 @@ void main() {
 
       test('should block messages not intended for current user', () async {
         // Set Abubakar as current node
-        messageHandler.setCurrentNodeId(abubakarNodeId);
+        await _configureNodeIdentity(messageHandler, abubakarNodeId);
 
         // Create message intended for Arshad (not Abubakar)
         final messageJson = jsonEncode({
@@ -83,7 +108,7 @@ void main() {
 
       test('should allow messages intended for current user', () async {
         // Set Arshad as current node
-        messageHandler.setCurrentNodeId(arshadNodeId);
+        await _configureNodeIdentity(messageHandler, arshadNodeId);
 
         // Create message intended for Arshad
         final messageJson = jsonEncode({
@@ -111,7 +136,7 @@ void main() {
 
       test('should block own messages to prevent loops', () async {
         // Set Ali as current node
-        messageHandler.setCurrentNodeId(aliNodeId);
+        await _configureNodeIdentity(messageHandler, aliNodeId);
 
         // Create message where sender == current user
         final messageJson = jsonEncode({
@@ -187,26 +212,22 @@ void main() {
     });
 
     group('Message Handler Safety Tests', () {
-      test('should handle node ID bounds safely', () {
+      test('should handle node ID bounds safely', () async {
         // Test various node ID lengths
         const shortId = 'short';
         const normalId = 'normal_length_node_id_1234567890';
         const longId =
             'very_long_node_id_that_exceeds_normal_bounds_123456789012345678901234567890';
 
-        // Should not throw exceptions
-        expect(() => messageHandler.setCurrentNodeId(shortId), returnsNormally);
-        expect(
-          () => messageHandler.setCurrentNodeId(normalId),
-          returnsNormally,
-        );
-        expect(() => messageHandler.setCurrentNodeId(longId), returnsNormally);
+        await _configureNodeIdentity(messageHandler, shortId);
+        await _configureNodeIdentity(messageHandler, normalId);
+        await _configureNodeIdentity(messageHandler, longId);
       });
 
       test('should safely process messages with long IDs', () async {
         const longNodeId =
             'extremely_long_node_id_that_could_cause_substring_errors_123456789012345678901234567890123456789012345678901234567890';
-        messageHandler.setCurrentNodeId(longNodeId);
+        await _configureNodeIdentity(messageHandler, longNodeId);
 
         final messageJson = jsonEncode({
           'type': ProtocolMessageType.textMessage.index,
@@ -235,7 +256,7 @@ void main() {
     group('Integration Flow Tests', () {
       test('should handle complete Ali → Arshad messaging flow', () async {
         // Step 1: Ali creates message for Arshad
-        messageHandler.setCurrentNodeId(aliNodeId);
+        await _configureNodeIdentity(messageHandler, aliNodeId);
 
         final outgoingMessage = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -253,10 +274,10 @@ void main() {
         );
 
         // Step 2: Arshad receives and processes message
-        messageHandler.setCurrentNodeId(arshadNodeId);
+        await _configureNodeIdentity(messageHandler, arshadNodeId);
 
         final result = await messageHandler.processReceivedData(
-          outgoingMessage.toBytes(),
+          protocolMessageToJsonBytes(outgoingMessage),
           senderPublicKey: aliNodeId,
           contactRepository: contactRepository,
         );
@@ -279,10 +300,10 @@ void main() {
           );
 
           // Abubakar tries to process it (should be blocked)
-          messageHandler.setCurrentNodeId(abubakarNodeId);
+          await _configureNodeIdentity(messageHandler, abubakarNodeId);
 
           final result = await messageHandler.processReceivedData(
-            messageForArshad.toBytes(),
+            protocolMessageToJsonBytes(messageForArshad),
             senderPublicKey: aliNodeId,
             contactRepository: contactRepository,
           );

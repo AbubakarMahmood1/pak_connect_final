@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 
 import '../../core/discovery/device_deduplication_manager.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// 🧹 REAL-TIME CONNECTION CLEANUP HANDLER
 ///
@@ -202,7 +203,7 @@ class ConnectionCleanupHandler {
   /// 🔧 Format address for logging
   String _formatAddress(String address) {
     if (address.length > 8) {
-      return '${address.substring(0, 8)}...';
+      return '${address.shortId(8)}...';
     }
     return address;
   }

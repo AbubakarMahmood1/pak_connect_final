@@ -164,10 +164,7 @@ void main() {
       final stats = await DatabaseHelper.getStatistics();
 
       expect(stats, isNotNull);
-      expect(
-        stats['database_version'],
-        equals(4),
-      ); // v4: Added app_preferences table for settings
+      expect(stats['database_version'], equals(DatabaseHelper.currentVersion));
       expect(stats['table_counts'], isNotNull);
       // Note: may have records from previous tests due to singleton pattern
     });

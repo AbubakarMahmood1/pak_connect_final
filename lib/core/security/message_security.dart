@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Advanced replay protection using cryptographic message IDs and nonce tracking
 class MessageSecurity {
@@ -43,10 +44,10 @@ class MessageSecurity {
       final messageHash = sha256.convert(utf8.encode(messageData));
 
       // Create message ID with format: VERSION.NONCE.HASH
-      final messageId = '2.$nonce.${messageHash.toString().substring(0, 32)}';
+      final messageId = '2.$nonce.${messageHash.toString().shortId(32)}';
 
       _logger.info(
-        'Generated secure message ID: ${messageId.substring(0, 20)}... (nonce: $nonce)',
+        'Generated secure message ID: ${messageId.shortId(20)}... (nonce: $nonce)',
       );
       return messageId;
     } catch (e) {
@@ -89,7 +90,7 @@ class MessageSecurity {
           );
         }
         _logger.warning(
-          'Potential legitimate retry detected for: ${messageId.substring(0, 20)}...',
+          'Potential legitimate retry detected for: ${messageId.shortId(20)}...',
         );
       }
 
@@ -137,7 +138,7 @@ class MessageSecurity {
       await _markMessageProcessed(messageId, senderPublicKey);
 
       _logger.info(
-        'Message validated successfully: ${messageId.substring(0, 20)}...',
+        'Message validated successfully: ${messageId.shortId(20)}...',
       );
       return MessageValidationResult.valid();
     } catch (e) {
@@ -260,7 +261,7 @@ class MessageSecurity {
       final hash = sha256
           .convert(utf8.encode(messageData))
           .toString()
-          .substring(0, 32);
+          .shortId(32);
 
       if (hash == expectedHash) {
         return true;
@@ -272,12 +273,12 @@ class MessageSecurity {
 
   /// Generate content hash for integrity verification
   static String _hashContent(String content) {
-    return sha256.convert(utf8.encode(content)).toString().substring(0, 16);
+    return sha256.convert(utf8.encode(content)).toString().shortId();
   }
 
   /// Generate consistent hash of public key for storage keys
   static String _hashPublicKey(String publicKey) {
-    return sha256.convert(utf8.encode(publicKey)).toString().substring(0, 16);
+    return sha256.convert(utf8.encode(publicKey)).toString().shortId();
   }
 
   /// Generate cryptographically secure random string

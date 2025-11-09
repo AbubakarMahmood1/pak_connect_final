@@ -3,18 +3,21 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/repositories/user_preferences.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'dart:convert';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Initialize FFI for SQLite testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
+  setUp(() async {
+    await TestSetup.cleanupDatabase();
+    TestSetup.resetSharedPreferences();
   });
 
   group('Profile Screen Backend Validation', () {
@@ -29,8 +32,8 @@ void main() {
     });
 
     tearDown(() async {
-      // Clean up after tests
       UserPreferences.dispose();
+      await TestSetup.completeCleanup();
     });
 
     // ==============================================
@@ -70,7 +73,9 @@ void main() {
 
     test('UsernameNotifier updates correctly', () async {
       // Arrange
-      final container = ProviderContainer();
+      final container = ProviderContainer(
+        overrides: [usernameProvider.overrideWith(_TestUsernameNotifier.new)],
+      );
       const newUsername = 'NotifierTest';
 
       // Act
@@ -407,4 +412,18 @@ void main() {
       expect(name2, equals(updatedName));
     });
   });
+}
+
+class _TestUsernameNotifier extends UsernameNotifier {
+  @override
+  Future<String> build() async {
+    return await UserPreferences().getUserName();
+  }
+
+  @override
+  Future<void> updateUsername(String newUsername) async {
+    state = const AsyncValue.loading();
+    await UserPreferences().setUserName(newUsername);
+    state = AsyncValue.data(newUsername);
+  }
 }

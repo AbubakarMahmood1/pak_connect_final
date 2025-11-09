@@ -7,6 +7,7 @@ import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/security/noise/models/noise_models.dart';
 import 'package:pak_connect/core/networking/topology_manager.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Connection phases for the sequential handshake protocol
 /// Response IS the acknowledgment (no separate ACK messages)
@@ -125,6 +126,7 @@ class HandshakeCoordinator {
     this.onHandshakeStateChanged,
     this.onSecurityDowngrade,
     this.onHandshakeFallback,
+    bool startAsInitiator = true,
   }) : _myEphemeralId = myEphemeralId,
        _myPublicKey = myPublicKey,
        _myDisplayName = myDisplayName,
@@ -134,12 +136,16 @@ class HandshakeCoordinator {
     if (phaseTimeout != null) {
       _phaseTimeout = phaseTimeout;
     }
+    _isInitiator = startAsInitiator;
   }
 
   /// Start the handshake process
   /// This is the entry point - call this after BLE connection is established
   Future<void> startHandshake() async {
-    _logger.info('🤝 Starting handshake protocol from phase: $_phase');
+    _logger.info(
+      '🤝 Starting handshake protocol from phase: $_phase '
+      '(role: ${_isInitiator ? 'INITIATOR' : 'RESPONDER'})',
+    );
 
     if (_phase != ConnectionPhase.bleConnected) {
       _logger.warning('⚠️ Handshake already in progress or complete');
@@ -149,7 +155,12 @@ class HandshakeCoordinator {
     // Notify: Handshake starting (pause health checks)
     onHandshakeStateChanged?.call(true);
 
-    await _advanceToReadySent();
+    if (_isInitiator) {
+      await _advanceToReadySent();
+    } else {
+      _logger.info('⏸️ Responder mode - waiting for initiator connectionReady');
+      _startPhaseTimeout('connectionReady');
+    }
   }
 
   /// Handle received protocol messages
@@ -669,7 +680,7 @@ class HandshakeCoordinator {
           // Store peer's Noise static public key
           _theirNoisePublicKey = base64.encode(peerKey);
           _logger.info(
-            '  Peer Noise public key: ${_theirNoisePublicKey!.substring(0, 16)}...',
+            '  Peer Noise public key: ${_theirNoisePublicKey!.shortId()}...',
           );
         }
       }

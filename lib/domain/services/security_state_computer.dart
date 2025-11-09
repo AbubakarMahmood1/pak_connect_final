@@ -5,6 +5,7 @@ import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/security_manager.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class SecurityStateComputer {
   /// Main entry point - computes complete security state for any context
@@ -53,7 +54,7 @@ class SecurityStateComputer {
         : otherPublicKey;
 
     print(
-      '🔧 REPO DEBUG: Processing key: ${actualKey.length > 16 ? '${actualKey.substring(0, 16)}...' : actualKey}',
+      '🔧 REPO DEBUG: Processing key: ${actualKey.length > 16 ? '${actualKey.shortId()}...' : actualKey}',
     );
 
     final contactRepo = bleService.stateManager.contactRepository;

@@ -15,15 +15,17 @@ import 'package:pak_connect/core/services/security_manager.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Setup logging
-  Logger.root.level = Level.WARNING; // Reduce noise in tests
-  Logger.root.onRecord.listen((record) {
-    // ignore: avoid_print
-    print('${record.level.name}: ${record.time}: ${record.message}');
-  });
-
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment();
+  });
+
+  setUp(() async {
+    await TestSetup.cleanupDatabase();
+    TestSetup.resetSharedPreferences();
+  });
+
+  tearDown(() async {
+    await TestSetup.completeCleanup();
   });
 
   group(
@@ -67,7 +69,6 @@ void main() {
         } catch (e) {
           // Ignore cleanup errors in tests
         }
-        await TestSetup.completeCleanup();
       });
 
       testWidgets('Basic A→B→C Relay Flow', (WidgetTester tester) async {

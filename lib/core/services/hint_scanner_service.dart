@@ -5,6 +5,7 @@ import '../../domain/entities/ephemeral_discovery_hint.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../utils/app_logger.dart';
 import 'hint_advertisement_service.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Result of hint matching
 class HintMatchResult {
@@ -172,7 +173,7 @@ class HintScannerService {
 
       if (_bytesEqual(expected, parsed.hintBytes)) {
         _logger.info(
-          '✅ CONTACT MATCH: ${contact.displayName} (${identifier.substring(0, 16)}...)',
+          '✅ CONTACT MATCH: ${contact.displayName} (${identifier.shortId()}...)',
         );
         return HintMatchResult.contact(
           publicKey: contact.publicKey,

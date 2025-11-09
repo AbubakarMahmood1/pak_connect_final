@@ -3,12 +3,18 @@
 // This file provides utilities to properly initialize the test environment
 // with consistent mocking and setup across all test files.
 
+import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:sqflite_common/sqflite.dart' as sqflite_common;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/core/networking/topology_manager.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common/sqflite.dart' as sqflite_common;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'ble/fake_ble_platform.dart';
+import 'mocks/in_memory_secure_storage.dart';
+import 'sqlite/native_sqlite_loader.dart';
 
 /// Standard test environment setup for pak_connect tests
 class TestSetup {
@@ -24,15 +30,34 @@ class TestSetup {
   static Future<void> initializeTestEnvironment() async {
     TestWidgetsFlutterBinding.ensureInitialized();
 
+    // Prevent platform channel lookups for BLE managers inside flutter test.
+    FakeBlePlatform.ensureRegistered();
+
+    // Provide a deterministic secure-storage backend before any plugin code
+    FlutterSecureStoragePlatform.instance = InMemorySecureStorage();
+
     // Use unique database name for each test run to avoid file locking issues
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     DatabaseHelper.setTestDatabaseName('pak_connect_test_$timestamp.db');
+    final rawNodeId = 'test-node-$timestamp';
+    final topologyManager = TopologyManager.instance;
+    final paddedNodeId = rawNodeId.length >= 8
+        ? rawNodeId
+        : rawNodeId.padRight(8, '0');
+    topologyManager.initializeForTests(paddedNodeId);
 
-    // Initialize sqflite_ffi for database tests
+    // Ensure sqlite3 dynamic library is resolvable in sandboxed environments
+    NativeSqliteLoader.ensureInitialized();
+
+    // Initialize sqflite_ffi for database tests, forcing the loader inside isolates
     sqfliteFfiInit();
-    sqflite_common.databaseFactory = databaseFactoryFfi;
+    final sqliteFactory = createDatabaseFactoryFfi(
+      ffiInit: NativeSqliteLoader.ensureInitialized,
+    );
+    sqflite_common.databaseFactory = sqliteFactory;
 
-    // Initialize SharedPreferences with empty state
+    // Initialize SharedPreferences with empty state and isolated cache
+    SharedPreferences.resetStatic();
     SharedPreferences.setMockInitialValues({});
 
     // Configure logging to reduce noise and avoid conflicts
@@ -190,6 +215,7 @@ class TestSetup {
   /// });
   /// ```
   static void resetSharedPreferences() {
+    SharedPreferences.resetStatic();
     SharedPreferences.setMockInitialValues({});
   }
 

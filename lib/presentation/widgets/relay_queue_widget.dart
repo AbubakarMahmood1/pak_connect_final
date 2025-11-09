@@ -5,6 +5,7 @@ import '../../domain/services/mesh_networking_service.dart';
 import '../../core/utils/mesh_debug_logger.dart';
 import '../../core/utils/app_logger.dart';
 import '../../domain/entities/enhanced_message.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Widget for displaying and managing relay message queue
 /// Shows pending messages, delivery status, and manual retry options
@@ -453,7 +454,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   /// Build subtitle for real message
   String _buildRealMessageSubtitle(QueuedMessage message) {
     final recipientShort = message.recipientPublicKey.length > 12
-        ? '${message.recipientPublicKey.substring(0, 12)}...'
+        ? '${message.recipientPublicKey.shortId(12)}...'
         : message.recipientPublicKey;
 
     if (message.status == QueuedMessageStatus.sending) {
@@ -528,7 +529,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   /// Truncate content for display
   String _truncateContent(String content) {
     if (content.length <= 30) return content;
-    return '${content.substring(0, 30)}...';
+    return '${content.shortId(30)}...';
   }
 
   /// Get retry time string
@@ -618,7 +619,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     try {
       final success = await widget.meshService.retryMessage(message.id);
       final messageIdShort = message.id.length > 16
-          ? message.id.substring(0, 16)
+          ? message.id.shortId()
           : message.id;
 
       if (!mounted) return;
@@ -657,7 +658,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
         MessagePriority.high,
       );
       final messageIdShort = message.id.length > 16
-          ? message.id.substring(0, 16)
+          ? message.id.shortId()
           : message.id;
 
       if (!mounted) return;
@@ -693,7 +694,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     try {
       final success = await widget.meshService.removeMessage(message.id);
       final messageIdShort = message.id.length > 16
-          ? message.id.substring(0, 16)
+          ? message.id.shortId()
           : message.id;
 
       if (!mounted) return;

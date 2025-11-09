@@ -7,6 +7,7 @@ import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:pointycastle/export.dart';
 import '../../data/repositories/contact_repository.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// 🔧 UTILITY: Safe string truncation to prevent RangeError
 String _safeTruncate(String? input, int maxLength, {String fallback = "NULL"}) {
@@ -301,10 +302,10 @@ class SimpleCrypto {
       // DEBUG: Log the key derivation process
       // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
       final truncatedPublicKey = contactPublicKey.length > 16
-          ? contactPublicKey.substring(0, 16)
+          ? contactPublicKey.shortId()
           : contactPublicKey;
       final truncatedSecret = sharedSecret.length > 16
-          ? sharedSecret.substring(0, 16)
+          ? sharedSecret.shortId()
           : sharedSecret;
       print(
         '🔧 ECDH ENCRYPT DEBUG: Starting encryption for $truncatedPublicKey...',
@@ -317,7 +318,7 @@ class SimpleCrypto {
         contactPublicKey,
       );
       final truncatedEnhanced = enhancedSecret.length > 16
-          ? enhancedSecret.substring(0, 16)
+          ? enhancedSecret.shortId()
           : enhancedSecret;
       print('🔧 ECDH ENCRYPT DEBUG: EnhancedSecret: $truncatedEnhanced...');
 
@@ -373,10 +374,10 @@ class SimpleCrypto {
       // DEBUG: Log the key derivation process
       // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
       final truncatedPublicKey = contactPublicKey.length > 16
-          ? contactPublicKey.substring(0, 16)
+          ? contactPublicKey.shortId()
           : contactPublicKey;
       final truncatedSecret = sharedSecret.length > 16
-          ? sharedSecret.substring(0, 16)
+          ? sharedSecret.shortId()
           : sharedSecret;
       print(
         '🔧 ECDH DECRYPT DEBUG: Starting decryption for $truncatedPublicKey...',
@@ -389,7 +390,7 @@ class SimpleCrypto {
         contactPublicKey,
       );
       final truncatedEnhanced = enhancedSecret.length > 16
-          ? enhancedSecret.substring(0, 16)
+          ? enhancedSecret.shortId()
           : enhancedSecret;
       print('🔧 ECDH DECRYPT DEBUG: EnhancedSecret: $truncatedEnhanced...');
 

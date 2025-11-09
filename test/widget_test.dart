@@ -10,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:pak_connect/main.dart';
+import 'package:pak_connect/presentation/providers/ble_providers.dart';
+import 'test_helpers/ble/fake_ble_service.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
@@ -17,11 +19,22 @@ void main() {
     await TestSetup.initializeTestEnvironment();
   });
 
+  Future<void> _pumpApp(WidgetTester tester) async {
+    final fakeBleService = FakeBleService();
+    addTearDown(fakeBleService.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [bleServiceProvider.overrideWithValue(fakeBleService)],
+        child: const PakConnectApp(),
+      ),
+    );
+  }
+
   testWidgets('PakConnect app initialization smoke test', (
     WidgetTester tester,
   ) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const ProviderScope(child: PakConnectApp()));
+    await _pumpApp(tester);
 
     // Wait for the initialization process
     await tester.pump();
@@ -47,7 +60,7 @@ void main() {
     WidgetTester tester,
   ) async {
     // Test that the app wrapper can handle different states without crashing
-    await tester.pumpWidget(const ProviderScope(child: PakConnectApp()));
+    await _pumpApp(tester);
 
     // Verify MaterialApp is created
     expect(find.byType(MaterialApp), findsOneWidget);

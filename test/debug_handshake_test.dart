@@ -96,20 +96,8 @@ class MockSecureStorage implements FlutterSecureStorage {
 void main() {
   late MockSecureStorage mockStorage;
 
-  // Initialize test environment with DEBUG logging
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment();
-
-    // Enable ALL logging to see what's happening
-    Logger.root.level = Level.ALL;
-    Logger.root.clearListeners();
-    Logger.root.onRecord.listen((record) {
-      print(
-        '${record.time.toString().substring(11, 23)} [${record.loggerName}] ${record.level.name}: ${record.message}',
-      );
-    });
-
-    // Initialize SecurityManager with Noise support
     mockStorage = MockSecureStorage();
     await SecurityManager.initialize(secureStorage: mockStorage);
   });
@@ -117,6 +105,15 @@ void main() {
   setUp(() async {
     // Clean database before each test
     await TestSetup.fullDatabaseReset();
+    TestSetup.resetSharedPreferences();
+  });
+
+  tearDown(() async {
+    await TestSetup.completeCleanup();
+  });
+
+  tearDownAll(() {
+    SecurityManager.shutdown();
   });
 
   test('DEBUG: Trace handshake coordinator flow step by step', () async {

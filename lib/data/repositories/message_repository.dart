@@ -6,6 +6,7 @@ import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../database/database_helper.dart';
 import '../../core/compression/compression_util.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class MessageRepository {
   static final _logger = Logger('MessageRepository');
@@ -214,7 +215,7 @@ class MessageRepository {
           // We have both public keys, need to determine which is the other person
           // This will be updated later when contact is properly identified
           contactPublicKey = parts[1]; // Tentative
-          contactName = 'Chat ${chatId.substring(0, 20)}...';
+          contactName = 'Chat ${chatId.shortId(20)}...';
         }
       } else if (chatId.startsWith('temp_')) {
         contactName = 'Device ${chatId.substring(5, 20)}...';

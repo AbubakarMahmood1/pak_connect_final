@@ -33,11 +33,14 @@ class UserPreferences {
   Future<void> setUserName(String name) async {
     final prefs = await SharedPreferences.getInstance();
     final trimmedName = name.trim();
-    await prefs.setString(_userNameKey, trimmedName);
-    _logger.fine('🔧 NAME DEBUG: Saved to SharedPreferences: "$trimmedName"');
+    final normalizedName = trimmedName.isEmpty ? 'User' : trimmedName;
+    await prefs.setString(_userNameKey, normalizedName);
+    _logger.fine(
+      '🔧 NAME DEBUG: Saved to SharedPreferences: "$normalizedName"',
+    );
 
     // USERNAME PROPAGATION FIX: Notify reactive listeners
-    _usernameStreamController?.add(trimmedName);
+    _usernameStreamController?.add(normalizedName);
   }
 
   /// Clean up stream controller

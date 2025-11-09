@@ -15,6 +15,11 @@ void main() {
   // Reset database before each test
   setUp(() async {
     await TestSetup.fullDatabaseReset();
+    TestSetup.resetSharedPreferences();
+  });
+
+  tearDown(() async {
+    await TestSetup.completeCleanup();
   });
 
   group('ChatMigrationService Tests', () {

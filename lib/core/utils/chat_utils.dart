@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class ChatUtils {
   static final _logger = Logger('ChatUtils');
@@ -22,9 +23,7 @@ class ChatUtils {
   ///
   /// Result: Different sessions → different chats (session isolation achieved)
   static String generateChatId(String theirId) {
-    final preview = theirId.length > 16
-        ? '${theirId.substring(0, 16)}...'
-        : theirId;
+    final preview = theirId.length > 16 ? '${theirId.shortId()}...' : theirId;
     _logger.info('🆔 CHAT ID GENERATED: $preview (session-specific)');
     _logger.info(
       '✅ Session isolation: ephemeral ID (pre-pairing) or persistent key (post-pairing)',
@@ -37,7 +36,7 @@ class ChatUtils {
   static String generatePublicKeyHash(String publicKey) {
     final bytes = utf8.encode(publicKey);
     final digest = sha256.convert(bytes);
-    return digest.toString().substring(0, 8); // First 8 hex chars = 4 bytes
+    return digest.toString().shortId(8); // First 8 hex chars = 4 bytes
   }
 
   /// Convert hash back to bytes for BLE advertising

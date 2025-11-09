@@ -14,6 +14,7 @@ import 'dart:collection';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'database_helper.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 final _logger = Logger('DatabaseQueryOptimizer');
 
@@ -58,7 +59,7 @@ class QueryStatistics {
 
   static String _sanitizeQuery(String query) {
     // Remove potential sensitive data from query for logging
-    return query.length > 100 ? '${query.substring(0, 100)}...' : query;
+    return query.length > 100 ? '${query.shortId(100)}...' : query;
   }
 }
 
@@ -484,7 +485,7 @@ class DatabaseQueryOptimizer {
   }
 
   String _sanitizeQueryForLogging(String query) {
-    return query.length > 150 ? '${query.substring(0, 150)}...' : query;
+    return query.length > 150 ? '${query.shortId(150)}...' : query;
   }
 }
 

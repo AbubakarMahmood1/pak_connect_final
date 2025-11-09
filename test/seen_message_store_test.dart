@@ -1,13 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/data/services/seen_message_store.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:pak_connect/data/services/seen_message_store.dart';
+
+import 'test_helpers/test_setup.dart';
+
+const _testLimit = 200;
 
 void main() {
-  // Initialize sqflite_ffi for testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   group('SeenMessageStore', () {
@@ -24,12 +25,13 @@ void main() {
 
       store = SeenMessageStore.instance;
       await store.initialize();
+      store.setMaxIdsPerTypeForTests(200);
     });
 
     tearDown(() async {
       await store.clear();
-      await DatabaseHelper.close();
-      await DatabaseHelper.deleteDatabase();
+      store.resetForTests();
+      await TestSetup.completeCleanup();
     });
 
     test('initializes correctly', () async {
@@ -93,36 +95,36 @@ void main() {
 
     test('enforces LRU limit for delivered messages', () async {
       // Add more than maxIdsPerType
-      for (int i = 0; i < SeenMessageStore.maxIdsPerType + 100; i++) {
+      for (int i = 0; i < _testLimit + 100; i++) {
         await store.markDelivered('msg_$i');
       }
 
       final stats = store.getStatistics();
-      expect(stats['deliveredCount'], SeenMessageStore.maxIdsPerType);
+      expect(stats['deliveredCount'], _testLimit);
 
       // Oldest messages should be evicted
       expect(store.hasDelivered('msg_0'), false);
       expect(store.hasDelivered('msg_50'), false);
 
       // Newest messages should be retained
-      final lastIndex = SeenMessageStore.maxIdsPerType + 99;
+      final lastIndex = _testLimit + 99;
       expect(store.hasDelivered('msg_$lastIndex'), true);
     });
 
     test('enforces LRU limit for read messages', () async {
       // Add more than maxIdsPerType
-      for (int i = 0; i < SeenMessageStore.maxIdsPerType + 100; i++) {
+      for (int i = 0; i < _testLimit + 100; i++) {
         await store.markRead('msg_$i');
       }
 
       final stats = store.getStatistics();
-      expect(stats['readCount'], SeenMessageStore.maxIdsPerType);
+      expect(stats['readCount'], _testLimit);
 
       // Oldest messages should be evicted
       expect(store.hasRead('msg_0'), false);
 
       // Newest messages should be retained
-      final lastIndex = SeenMessageStore.maxIdsPerType + 99;
+      final lastIndex = _testLimit + 99;
       expect(store.hasRead('msg_$lastIndex'), true);
     });
 
@@ -136,7 +138,7 @@ void main() {
       await store.markDelivered('msg_1');
 
       // Add many more messages to trigger eviction
-      for (int i = 4; i < SeenMessageStore.maxIdsPerType; i++) {
+      for (int i = 4; i < _testLimit; i++) {
         await store.markDelivered('msg_$i');
       }
 
@@ -163,7 +165,7 @@ void main() {
 
     test('performs maintenance correctly', () async {
       // Add excess messages
-      for (int i = 0; i < SeenMessageStore.maxIdsPerType + 500; i++) {
+      for (int i = 0; i < _testLimit + 500; i++) {
         await store.markDelivered('delivered_$i');
         await store.markRead('read_$i');
       }
@@ -173,14 +175,8 @@ void main() {
 
       // Should trim to maxIdsPerType
       final stats = store.getStatistics();
-      expect(
-        stats['deliveredCount'],
-        lessThanOrEqualTo(SeenMessageStore.maxIdsPerType),
-      );
-      expect(
-        stats['readCount'],
-        lessThanOrEqualTo(SeenMessageStore.maxIdsPerType),
-      );
+      expect(stats['deliveredCount'], lessThanOrEqualTo(_testLimit));
+      expect(stats['readCount'], lessThanOrEqualTo(_testLimit));
     });
 
     test('handles duplicate markings gracefully', () async {

@@ -8,6 +8,7 @@ import '../../data/repositories/contact_repository.dart';
 import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
 import 'simple_crypto.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 enum SecurityLevel {
   low, // Noise session only (temporary, forward secrecy)
@@ -32,9 +33,7 @@ class SecurityManager {
 
       final fingerprint = _noiseService!.getIdentityFingerprint();
       _logger.info('🔒 SecurityManager initialized with Noise Protocol');
-      _logger.info(
-        '🔒 Identity fingerprint: ${fingerprint.substring(0, 16)}...',
-      );
+      _logger.info('🔒 Identity fingerprint: ${fingerprint.shortId()}...');
     } catch (e) {
       _logger.severe('🔒 Failed to initialize SecurityManager: $e');
       rethrow;
@@ -103,7 +102,7 @@ class SecurityManager {
 
     // 🔧 FIX: Safe truncation to prevent RangeError
     final truncatedKey = publicKey.length > 16
-        ? publicKey.substring(0, 16)
+        ? publicKey.shortId()
         : publicKey;
     _logger.fine('🔧 SECURITY DEBUG: getCurrentLevel for $truncatedKey...');
     _logger.fine('🔧 SECURITY DEBUG: Contact exists: ${contact != null}');

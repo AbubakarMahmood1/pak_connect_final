@@ -6,6 +6,7 @@ import '../../domain/services/contact_management_service.dart';
 import '../../domain/entities/enhanced_contact.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/security_manager.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 final _logger = Logger('ContactProvider');
 
@@ -186,7 +187,7 @@ final verifyContactProvider = FutureProvider.family<bool, String>((
     ref.invalidate(contactDetailProvider(publicKey));
 
     _logger.info(
-      '✓ Contact verified: ${publicKey.length > 16 ? '${publicKey.substring(0, 16)}...' : publicKey}',
+      '✓ Contact verified: ${publicKey.length > 16 ? '${publicKey.shortId()}...' : publicKey}',
     );
     return true;
   } catch (e) {

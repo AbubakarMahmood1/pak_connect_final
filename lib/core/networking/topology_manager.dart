@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import '../models/network_topology.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Manages network topology tracking and gossip
 class TopologyManager {
@@ -32,6 +33,7 @@ class TopologyManager {
 
   // Cleanup timer
   Timer? _cleanupTimer;
+  bool _isTestMode = false;
 
   /// Initialize topology manager
   void initialize(String currentNodeId) {
@@ -49,8 +51,27 @@ class TopologyManager {
     _startCleanupTimer();
 
     _logger.info(
-      'TopologyManager initialized for node ${currentNodeId.substring(0, 8)}...',
+      'TopologyManager initialized for node ${currentNodeId.shortId(8)}...',
     );
+  }
+
+  /// Enable or disable lightweight test mode (disables cleanup timers).
+  void enableTestMode({bool enable = true}) {
+    if (_isTestMode == enable) return;
+    _isTestMode = enable;
+    if (_isTestMode) {
+      _cleanupTimer?.cancel();
+      _cleanupTimer = null;
+    } else if (_currentNodeId != null) {
+      _startCleanupTimer();
+    }
+  }
+
+  /// Convenience helper for initializing deterministic test topologies.
+  void initializeForTests(String nodeId) {
+    enableTestMode(enable: true);
+    clear();
+    initialize(nodeId);
   }
 
   /// Record node announcement (basic - without neighbors)
@@ -111,7 +132,7 @@ class TopologyManager {
       // Add neighbor node (placeholder until we get their announcement)
       _addOrUpdateNode(
         nodeId: neighborId,
-        displayName: 'Node ${neighborId.substring(0, 8)}',
+        displayName: 'Node ${neighborId.shortId(8)}',
         hopDistance: nodeId == _currentNodeId
             ? 1
             : 2, // 1 if from us, 2 if from neighbor
@@ -126,7 +147,7 @@ class TopologyManager {
 
     _notifyUpdate();
     _logger.fine(
-      'Recorded announcement from ${nodeId.substring(0, 8)} with ${neighborIds.length} neighbors',
+      'Recorded announcement from ${nodeId.shortId(8)} with ${neighborIds.length} neighbors',
     );
   }
 
@@ -161,7 +182,7 @@ class TopologyManager {
         hopDistance: hopDistance ?? 999,
       );
       _nodes[nodeId] = newNode;
-      _logger.info('Added new node: ${nodeId.substring(0, 8)} ($displayName)');
+      _logger.info('Added new node: ${nodeId.shortId(8)} ($displayName)');
       return newNode;
     }
   }
@@ -275,6 +296,11 @@ class TopologyManager {
 
   /// Start cleanup timer to remove stale nodes
   void _startCleanupTimer() {
+    if (_isTestMode) {
+      _cleanupTimer?.cancel();
+      _cleanupTimer = null;
+      return;
+    }
     _cleanupTimer?.cancel();
     _cleanupTimer = Timer.periodic(Duration(minutes: 1), (_) {
       _cleanupStaleData();

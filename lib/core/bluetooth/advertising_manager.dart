@@ -9,6 +9,7 @@ import '../../data/repositories/intro_hint_repository.dart';
 import '../services/hint_advertisement_service.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'peripheral_initializer.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// 📡 SINGLE RESPONSIBILITY: Manages ALL BLE advertising operations
 ///
@@ -81,9 +82,7 @@ class AdvertisingManager {
   }) async {
     _logger.info('🔍 [ADV-DEBUG] ========================================');
     _logger.info('🔍 [ADV-DEBUG] START ADVERTISING CALLED');
-    _logger.info(
-      '🔍 [ADV-DEBUG] myPublicKey: ${myPublicKey.substring(0, 16)}...',
-    );
+    _logger.info('🔍 [ADV-DEBUG] myPublicKey: ${myPublicKey.shortId()}...');
     _logger.info('🔍 [ADV-DEBUG] timeout: $timeout');
     _logger.info(
       '🔍 [ADV-DEBUG] skipIfAlreadyAdvertising: $skipIfAlreadyAdvertising',

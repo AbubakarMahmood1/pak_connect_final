@@ -15,6 +15,7 @@ import '../../core/models/protocol_message.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'chat_migration_service.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -445,7 +446,7 @@ class BLEStateManager {
           },
         );
         print(
-          '🔒 PAIRING DEBUG: Verification result - success=$success, sharedSecret=${_currentPairing?.sharedSecret?.substring(0, 8)}...',
+          '🔒 PAIRING DEBUG: Verification result - success=$success, sharedSecret=${_currentPairing?.sharedSecret?.shortId(8)}...',
         );
         return success;
       }
@@ -531,7 +532,7 @@ class BLEStateManager {
       final secretHash = sha256
           .convert(utf8.encode(sharedSecret))
           .toString()
-          .substring(0, 8);
+          .shortId(8);
       _logger.info('Sending verification hash: $secretHash');
       await sendPairingVerification(secretHash);
 
@@ -568,10 +569,10 @@ class BLEStateManager {
 
           _logger.info('✅ Contact upgraded to MEDIUM');
           _logger.info(
-            '   publicKey (unchanged): ${contact.publicKey.substring(0, 16)}...',
+            '   publicKey (unchanged): ${contact.publicKey.shortId()}...',
           );
           _logger.info(
-            '   persistentPublicKey (now set): ${_theirPersistentKey!.substring(0, 16)}...',
+            '   persistentPublicKey (now set): ${_theirPersistentKey!.shortId()}...',
           );
 
           // 🔑 CRITICAL: Register identity mapping for Noise session lookup
@@ -582,7 +583,7 @@ class BLEStateManager {
             ephemeralID: _theirEphemeralId!,
           );
           _logger.info(
-            '🔑 Registered Noise identity mapping: ${_theirPersistentKey!.substring(0, 8)}... → ${_theirEphemeralId!.substring(0, 8)}...',
+            '🔑 Registered Noise identity mapping: ${_theirPersistentKey!.shortId(8)}... → ${_theirEphemeralId!.shortId(8)}...',
           );
 
           // Trigger chat migration from ephemeral to persistent ID
@@ -620,7 +621,7 @@ class BLEStateManager {
       final ourHash = sha256
           .convert(utf8.encode(_currentPairing!.sharedSecret!))
           .toString()
-          .substring(0, 8);
+          .shortId(8);
       if (ourHash == theirSecretHash) {
         _logger.info('✅ Verification hashes match - pairing confirmed!');
       } else {

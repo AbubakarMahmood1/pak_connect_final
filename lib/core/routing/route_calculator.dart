@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'package:logging/logging.dart';
 import 'routing_models.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Calculates optimal routes through the mesh network
 class RouteCalculator {
@@ -21,7 +22,7 @@ class RouteCalculator {
   }) async {
     try {
       _logger.info(
-        'Calculating routes from ${from.substring(0, 8)}... to ${to.substring(0, 8)}...',
+        'Calculating routes from ${from.shortId(8)}... to ${to.shortId(8)}...',
       );
 
       // Check cache first
@@ -68,7 +69,7 @@ class RouteCalculator {
             ),
           );
           routes.add(route);
-          _logger.info('Single-hop route via ${hop.substring(0, 8)}...');
+          _logger.info('Single-hop route via ${hop.shortId(8)}...');
         }
       }
 

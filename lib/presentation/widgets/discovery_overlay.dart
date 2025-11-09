@@ -16,6 +16,7 @@ import '../../core/services/security_manager.dart';
 import '../screens/chat_screen.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../data/models/ble_server_connection.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 enum ConnectionAttemptState {
   none, // Never attempted
@@ -991,7 +992,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
 
     // Final fallback to UUID
     if (!isContactResolved) {
-      deviceName = 'Device ${device.uuid.toString().substring(0, 8)}';
+      deviceName = 'Device ${device.uuid.toString().shortId(8)}';
     }
 
     final rssi = advertisement?.rssi ?? -100;
@@ -1565,7 +1566,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
         child: Icon(Icons.phone_android, color: Colors.green),
       ),
       title: Text(
-        connection.address.substring(0, 17), // Show MAC address
+        connection.address.shortId(17), // Show MAC address
         style: TextStyle(fontWeight: FontWeight.bold),
       ),
       subtitle: Column(

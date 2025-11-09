@@ -26,6 +26,7 @@ import '../../core/routing/smart_mesh_router.dart';
 import '../../core/routing/route_calculator.dart';
 import '../../core/routing/network_topology_analyzer.dart';
 import '../../core/routing/connection_quality_monitor.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main orchestrator service for mesh networking functionality
 /// Coordinates all mesh components and provides clean APIs for FYP demonstration
@@ -141,7 +142,7 @@ class MeshNetworkingService {
       _isDemoMode = enableDemo;
 
       final truncatedNodeId = _currentNodeId!.length > 16
-          ? _currentNodeId!.substring(0, 16)
+          ? _currentNodeId!.shortId()
           : _currentNodeId!;
       _logger.info('Node ID: $truncatedNodeId..., Demo mode: $_isDemoMode');
 
@@ -330,7 +331,7 @@ class MeshNetworkingService {
       // Generate fallback ephemeral node ID
       final fallbackId = _generateFallbackNodeId();
       _logger.info(
-        '🔄 Using fallback ephemeral node ID: ${fallbackId.length > 16 ? '${fallbackId.substring(0, 16)}...' : fallbackId}',
+        '🔄 Using fallback ephemeral node ID: ${fallbackId.length > 16 ? '${fallbackId.shortId()}...' : fallbackId}',
       );
 
       return fallbackId;
@@ -442,7 +443,7 @@ class MeshNetworkingService {
 
     try {
       final truncatedRecipient = recipientPublicKey.length > 8
-          ? recipientPublicKey.substring(0, 8)
+          ? recipientPublicKey.shortId(8)
           : recipientPublicKey;
       _logger.info(
         'Sending mesh message to $truncatedRecipient... (demo: $isDemo)',
@@ -502,7 +503,7 @@ class MeshNetworkingService {
       }
 
       final truncatedMessageId = messageId.length > 16
-          ? messageId.substring(0, 16)
+          ? messageId.shortId()
           : messageId;
       _logger.info(
         'Message queued for direct delivery: $truncatedMessageId...',
@@ -550,7 +551,7 @@ class MeshNetworkingService {
             selectedNextHop = routingDecision.nextHop!;
             routeScore = routingDecision.routeScore ?? 0.5;
             final truncatedNextHop = selectedNextHop.length > 8
-                ? selectedNextHop.substring(0, 8)
+                ? selectedNextHop.shortId(8)
                 : selectedNextHop;
             _logger.info(
               '✅ Smart router selected: $truncatedNextHop... (score: ${routeScore.toStringAsFixed(2)})',
@@ -624,10 +625,10 @@ class MeshNetworkingService {
       }
 
       final truncatedMessageId = originalMessageId.length > 16
-          ? originalMessageId.substring(0, 16)
+          ? originalMessageId.shortId()
           : originalMessageId;
       final truncatedNextHop = selectedNextHop.length > 8
-          ? selectedNextHop.substring(0, 8)
+          ? selectedNextHop.shortId(8)
           : selectedNextHop;
       _logger.info(
         'Message queued for smart mesh relay: $truncatedMessageId... -> $truncatedNextHop... (score: ${routeScore.toStringAsFixed(2)})',
@@ -707,7 +708,7 @@ class MeshNetworkingService {
       metadata: {
         'scenario': 'a_to_b_to_c',
         'currentNode': _currentNodeId!.length > 16
-            ? _currentNodeId!.substring(0, 16)
+            ? _currentNodeId!.shortId()
             : _currentNodeId!,
         'relayEngineReady': _relayEngine != null,
         'spamPreventionActive': stats.spamPreventionActive,
@@ -816,7 +817,7 @@ class MeshNetworkingService {
       final message = _messageQueue!.getMessageById(messageId);
       if (message == null) {
         _logger.warning(
-          'Message not found for retry: ${messageId.substring(0, 16)}...',
+          'Message not found for retry: ${messageId.shortId()}...',
         );
         return false;
       }
@@ -832,7 +833,7 @@ class MeshNetworkingService {
         await _handleSendMessage(messageId);
       }
 
-      _logger.info('Message retry initiated: ${messageId.substring(0, 16)}...');
+      _logger.info('Message retry initiated: ${messageId.shortId()}...');
       _broadcastMeshStatus();
       return true;
     } catch (e) {
@@ -850,9 +851,7 @@ class MeshNetworkingService {
 
     try {
       await _messageQueue!.removeMessage(messageId);
-      _logger.info(
-        'Message removed from queue: ${messageId.substring(0, 16)}...',
-      );
+      _logger.info('Message removed from queue: ${messageId.shortId()}...');
       _broadcastMeshStatus();
       return true;
     } catch (e) {
@@ -873,7 +872,7 @@ class MeshNetworkingService {
 
       if (success) {
         _logger.info(
-          'Successfully changed priority for message ${messageId.substring(0, 16)}... to ${priority.name}',
+          'Successfully changed priority for message ${messageId.shortId()}... to ${priority.name}',
         );
       }
 
@@ -948,7 +947,7 @@ class MeshNetworkingService {
 
   void _handleMessageQueued(QueuedMessage message) {
     final truncatedId = message.id.length > 16
-        ? message.id.substring(0, 16)
+        ? message.id.shortId()
         : message.id;
     _logger.fine('Message queued: $truncatedId...');
     _broadcastMeshStatus();
@@ -956,7 +955,7 @@ class MeshNetworkingService {
 
   void _handleMessageDelivered(QueuedMessage message) async {
     final truncatedId = message.id.length > 16
-        ? message.id.substring(0, 16)
+        ? message.id.shortId()
         : message.id;
     _logger.info('Message delivered: $truncatedId...');
 
@@ -990,7 +989,7 @@ class MeshNetworkingService {
 
   void _handleMessageFailed(QueuedMessage message, String reason) {
     final truncatedId = message.id.length > 16
-        ? message.id.substring(0, 16)
+        ? message.id.shortId()
         : message.id;
     _logger.warning('Message failed: $truncatedId... - $reason');
 
@@ -1007,9 +1006,7 @@ class MeshNetworkingService {
   }
 
   Future<void> _handleSendMessage(String messageId) async {
-    final truncatedId = messageId.length > 16
-        ? messageId.substring(0, 16)
-        : messageId;
+    final truncatedId = messageId.length > 16 ? messageId.shortId() : messageId;
     _logger.fine('Send message request: $truncatedId...');
 
     try {
@@ -1034,13 +1031,13 @@ class MeshNetworkingService {
           connectedPeerId.isNotEmpty &&
           intendedRecipient != connectedPeerId) {
         final truncatedIntended = intendedRecipient.length > 8
-            ? intendedRecipient.substring(0, 8)
+            ? intendedRecipient.shortId(8)
             : intendedRecipient;
         final truncatedConnected = connectedPeerId.length > 8
-            ? connectedPeerId.substring(0, 8)
+            ? connectedPeerId.shortId(8)
             : connectedPeerId;
         _logger.warning(
-          'Skipping delivery for ${message.id.substring(0, 8)}... - connected peer $truncatedConnected… != intended $truncatedIntended…',
+          'Skipping delivery for ${message.id.shortId(8)}... - connected peer $truncatedConnected… != intended $truncatedIntended…',
         );
         await _messageQueue?.markMessageFailed(messageId, 'Peer mismatch');
         return;
@@ -1179,10 +1176,10 @@ class MeshNetworkingService {
     String nextHopNodeId,
   ) async {
     final truncatedMessageId = message.originalMessageId.length > 16
-        ? message.originalMessageId.substring(0, 16)
+        ? message.originalMessageId.shortId()
         : message.originalMessageId;
     final truncatedNextHop = nextHopNodeId.length > 8
-        ? nextHopNodeId.substring(0, 8)
+        ? nextHopNodeId.shortId(8)
         : nextHopNodeId;
     _logger.info(
       'Relay message to next hop: $truncatedMessageId... -> $truncatedNextHop...',
@@ -1219,14 +1216,14 @@ class MeshNetworkingService {
     try {
       // 🎯 ENHANCED DEBUG LOGGING for delivery confirmation
       final truncatedMessageId = originalMessageId.length > 16
-          ? originalMessageId.substring(0, 16)
+          ? originalMessageId.shortId()
           : originalMessageId;
       final truncatedSender = originalSender.length > 8
-          ? originalSender.substring(0, 8)
+          ? originalSender.shortId(8)
           : originalSender;
       final truncatedCurrentNode =
           _currentNodeId != null && _currentNodeId!.length > 8
-          ? _currentNodeId!.substring(0, 8)
+          ? _currentNodeId!.shortId(8)
           : _currentNodeId;
 
       _logger.fine('🎯 MESH DELIVERY START: Message $truncatedMessageId...');
@@ -1236,7 +1233,7 @@ class MeshNetworkingService {
       // 🔍 CRITICAL FIX: Generate chat ID using original sender (not relay node)
       final chatId = ChatUtils.generateChatId(originalSender);
       _logger.fine(
-        '🎯 CHAT ID GENERATED: ${chatId.length > 16 ? chatId.substring(0, 16) : chatId}...',
+        '🎯 CHAT ID GENERATED: ${chatId.length > 16 ? chatId.shortId() : chatId}...',
       );
 
       // Create message with proper attribution to original sender
@@ -1276,7 +1273,7 @@ class MeshNetworkingService {
 
   void _handleRelayDecision(RelayDecision decision) {
     final truncatedMessageId = decision.messageId.length > 16
-        ? decision.messageId.substring(0, 16)
+        ? decision.messageId.shortId()
         : decision.messageId;
     _logger.info(
       'Relay decision: ${decision.type.name} for $truncatedMessageId... - ${decision.reason}',
@@ -1304,10 +1301,10 @@ class MeshNetworkingService {
     String originalSender,
   ) {
     final truncatedMessageId = originalMessageId.length > 16
-        ? originalMessageId.substring(0, 16)
+        ? originalMessageId.shortId()
         : originalMessageId;
     final truncatedSender = originalSender.length > 8
-        ? originalSender.substring(0, 8)
+        ? originalSender.shortId(8)
         : originalSender;
     _logger.info(
       'Incoming relay message: $truncatedMessageId... from $truncatedSender...',
@@ -1317,7 +1314,7 @@ class MeshNetworkingService {
 
   void _handleSyncRequest(QueueSyncMessage message, String fromNodeId) {
     final truncatedNodeId = fromNodeId.length > 8
-        ? fromNodeId.substring(0, 8)
+        ? fromNodeId.shortId(8)
         : fromNodeId;
     _logger.info(
       '🔄 Sending queue sync to $truncatedNodeId... (${message.messageIds.length} ids)',
@@ -1335,7 +1332,7 @@ class MeshNetworkingService {
       return;
     }
 
-    final truncated = toNodeId.length > 8 ? toNodeId.substring(0, 8) : toNodeId;
+    final truncated = toNodeId.length > 8 ? toNodeId.shortId(8) : toNodeId;
     _logger.info(
       '📤 Sync delivering ${messages.length} queued message(s) to $truncated...',
     );
@@ -1343,7 +1340,7 @@ class MeshNetworkingService {
     for (final message in messages) {
       _handleSendMessage(message.id).catchError((e) {
         _logger.warning(
-          'Queue sync delivery failed for ${message.id.substring(0, 8)}...: $e',
+          'Queue sync delivery failed for ${message.id.shortId(8)}...: $e',
         );
       });
     }
@@ -1351,7 +1348,7 @@ class MeshNetworkingService {
 
   void _handleSyncCompleted(String nodeId, QueueSyncResult result) {
     _logger.info(
-      'Sync completed with ${nodeId.substring(0, 8)}...: ${result.success ? "success" : "failed"}',
+      'Sync completed with ${nodeId.shortId(8)}...: ${result.success ? "success" : "failed"}',
     );
 
     if (_isDemoMode) {
@@ -1365,7 +1362,7 @@ class MeshNetworkingService {
   }
 
   void _handleSyncFailed(String nodeId, String error) {
-    _logger.warning('Sync failed with ${nodeId.substring(0, 8)}...: $error');
+    _logger.warning('Sync failed with ${nodeId.shortId(8)}...: $error');
 
     if (_isDemoMode) {
       _demoEventController.add(DemoEvent.queueSyncFailed(nodeId, error));
@@ -1407,7 +1404,7 @@ class MeshNetworkingService {
       }
     } catch (e) {
       _logger.severe(
-        'Queue sync handling failed for ${fromNodeId.substring(0, 8)}...: $e',
+        'Queue sync handling failed for ${fromNodeId.shortId(8)}...: $e',
       );
     }
 
@@ -1475,7 +1472,7 @@ class MeshNetworkingService {
       if (allMessages.isEmpty) {
         MeshDebugLogger.info(
           'No queued messages',
-          'No pending messages for ${deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId}...',
+          'No pending messages for ${deviceId.length > 8 ? deviceId.shortId(8) : deviceId}...',
         );
         return;
       }
@@ -1483,7 +1480,7 @@ class MeshNetworkingService {
       final directCount = directMessages.length;
       final relayCount = relayMessages.length;
       _logger.info(
-        'Found $directCount direct + $relayCount relay messages for ${deviceId.substring(0, 8)}...',
+        'Found $directCount direct + $relayCount relay messages for ${deviceId.shortId(8)}...',
       );
 
       MeshDebugLogger.queueDeliveryTriggered(deviceId, allMessages.length);
@@ -1559,13 +1556,13 @@ class MeshNetworkingService {
       }
 
       final truncatedDeviceId = deviceId.length > 8
-          ? deviceId.substring(0, 8)
+          ? deviceId.shortId(8)
           : deviceId;
       _logger.info('🔄 Starting queue sync with $truncatedDeviceId...');
 
       // Calculate our queue hash
       final ourHash = _messageQueue!.calculateQueueHash();
-      final ourHashPreview = ourHash.substring(0, 16);
+      final ourHashPreview = ourHash.shortId();
 
       // Create sync request message
       final syncMessage = _messageQueue!.createSyncMessage(_currentNodeId!);

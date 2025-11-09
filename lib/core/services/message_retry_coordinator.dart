@@ -8,6 +8,7 @@ import '../../domain/entities/message.dart';
 import '../../data/repositories/message_repository.dart';
 import '../messaging/offline_message_queue.dart';
 import '../../domain/services/mesh_networking_service.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Coordinates retry operations between different message persistence systems
 class MessageRetryCoordinator {
@@ -103,7 +104,7 @@ class MessageRetryCoordinator {
         repoAttempted++;
         try {
           _logger.info(
-            '🔄 Retrying repository message: ${message.id.substring(0, 8)}...',
+            '🔄 Retrying repository message: ${message.id.shortId(8)}...',
           );
           await onRepositoryMessageRetry(message);
           repoSucceeded++;

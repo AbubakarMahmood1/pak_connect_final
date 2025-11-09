@@ -1,7 +1,6 @@
 // Comprehensive tests for the queue hash synchronization system
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 // Import the classes we're testing
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
@@ -11,6 +10,7 @@ import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
+import 'test_helpers/message_handler_test_utils.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
@@ -60,7 +60,7 @@ void main() {
       queue2.dispose();
       syncManager1.dispose();
       syncManager2.dispose();
-      await TestSetup.fullDatabaseReset();
+      await TestSetup.completeCleanup();
     });
 
     group('OfflineMessageQueue Hash Calculation Tests', () {
@@ -416,7 +416,7 @@ void main() {
           queueMessage: syncMessage,
         );
 
-        final messageBytes = protocolMessage.toBytes();
+        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
 
         // Set up callback to capture sync messages
         QueueSyncMessage? receivedSyncMessage;
@@ -639,13 +639,15 @@ void main() {
     late OfflineMessageQueue largeQueue;
 
     setUp(() async {
-      SharedPreferences.setMockInitialValues({});
+      await TestSetup.cleanupDatabase();
+      TestSetup.resetSharedPreferences();
       largeQueue = OfflineMessageQueue();
       await largeQueue.initialize();
     });
 
-    tearDown(() {
+    tearDown(() async {
       largeQueue.dispose();
+      await TestSetup.completeCleanup();
     });
 
     test('should handle large queue hash calculation efficiently', () async {

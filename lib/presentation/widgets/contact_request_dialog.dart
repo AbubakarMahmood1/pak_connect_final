@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class ContactRequestDialog extends StatelessWidget {
   final String senderName;
@@ -84,7 +85,7 @@ class ContactRequestDialog extends StatelessWidget {
             ),
             SizedBox(height: 8),
             Text(
-              'Device ID: ${senderPublicKey.length > 16 ? '${senderPublicKey.substring(0, 16)}...' : senderPublicKey}',
+              'Device ID: ${senderPublicKey.length > 16 ? '${senderPublicKey.shortId()}...' : senderPublicKey}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 fontFamily: 'monospace',
                 color: Theme.of(context).colorScheme.onSurfaceVariant,

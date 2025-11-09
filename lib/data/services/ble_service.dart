@@ -27,6 +27,7 @@ import '../../core/bluetooth/peripheral_initializer.dart';
 import '../../core/bluetooth/advertising_manager.dart';
 import '../../core/bluetooth/connection_cleanup_handler.dart';
 import '../../core/services/hint_scanner_service.dart';
+import '../../core/services/hint_advertisement_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import '../../data/repositories/preferences_repository.dart'; // 🆕 For auto-connect preference
@@ -36,6 +37,7 @@ import '../../core/messaging/offline_message_queue.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../../core/app_core.dart';
 import '../../core/models/mesh_relay_models.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Enum to track the source of scanning requests for better coordination
 enum ScanningSource {
@@ -301,6 +303,7 @@ class BLEService {
         initialPowerMode:
             PowerMode.balanced, // Safe default, updated by power manager
       );
+      _connectionManager.setLocalHintProvider(_buildLocalCollisionHint);
 
       // Phase 2b: Power mode integration is handled by BurstScanningController
       // BurstScanningController owns AdaptivePowerManager and will call
@@ -398,7 +401,7 @@ class BLEService {
       // Wire relay message forwarding callback
       _messageHandler.onSendRelayMessage = (protocolMessage, nextHopId) async {
         _logger.info(
-          '🔀 RELAY FORWARD: Sending relay message to ${nextHopId.length > 8 ? '${nextHopId.substring(0, 8)}...' : nextHopId}',
+          '🔀 RELAY FORWARD: Sending relay message to ${nextHopId.length > 8 ? '${nextHopId.shortId(8)}...' : nextHopId}',
         );
         await _sendProtocolMessage(protocolMessage);
       };
@@ -413,7 +416,7 @@ class BLEService {
       try {
         myEphemeralId = EphemeralKeyManager.generateMyEphemeralKey();
         _logger.info(
-          '🔧 BLE SERVICE: Using session ephemeral ID: ${myEphemeralId.substring(0, 16)}...',
+          '🔧 BLE SERVICE: Using session ephemeral ID: ${myEphemeralId.shortId()}...',
         );
 
         // Initialize the message handler with the ephemeral node ID for privacy-preserving routing
@@ -474,21 +477,21 @@ class BLEService {
       _gossipSyncManager!.onSendSyncToPeer = (peerID, syncRequest) async {
         // Send sync request to specific peer (verify peer matches connected device)
         _logger.info(
-          '📡 Gossip sync: Sending sync request to ${peerID.substring(0, 8)}... with ${syncRequest.messageIds.length} known messages',
+          '📡 Gossip sync: Sending sync request to ${peerID.shortId(8)}... with ${syncRequest.messageIds.length} known messages',
         );
 
         // Verify we're actually connected to the peer we intend to sync with.
         final connectedPeerEphemeralId = _stateManager.theirEphemeralId;
         if (connectedPeerEphemeralId == null) {
           _logger.warning(
-            'Target peer ${peerID.substring(0, 8)}... not available - no active handshake',
+            'Target peer ${peerID.shortId(8)}... not available - no active handshake',
           );
           return;
         }
 
         if (connectedPeerEphemeralId != peerID) {
           _logger.warning(
-            'Target peer ${peerID.substring(0, 8)}... does not match current connection (${connectedPeerEphemeralId.substring(0, 8)}...) - skipping sync',
+            'Target peer ${peerID.shortId(8)}... does not match current connection (${connectedPeerEphemeralId.shortId(8)}...) - skipping sync',
           );
           return;
         }
@@ -499,28 +502,28 @@ class BLEService {
 
         await _sendProtocolMessage(protocolMessage);
         _logger.fine(
-          '✅ Gossip sync request sent to peer ${peerID.substring(0, 8)}...',
+          '✅ Gossip sync request sent to peer ${peerID.shortId(8)}...',
         );
       };
 
       _gossipSyncManager!.onSendMessageToPeer = (peerID, message) async {
         // Send missing message to specific peer (relay message)
         _logger.info(
-          '📡 Gossip sync: Sending missing message ${message.originalMessageId.substring(0, 16)}... to ${peerID.substring(0, 8)}...',
+          '📡 Gossip sync: Sending missing message ${message.originalMessageId.shortId()}... to ${peerID.shortId(8)}...',
         );
 
         // Verify we're connected to the target peer
         final connectedPeerEphemeralId = _stateManager.theirEphemeralId;
         if (connectedPeerEphemeralId == null) {
           _logger.warning(
-            'Target peer ${peerID.substring(0, 8)}... not available - no active handshake',
+            'Target peer ${peerID.shortId(8)}... not available - no active handshake',
           );
           return;
         }
 
         if (connectedPeerEphemeralId != peerID) {
           _logger.warning(
-            'Target peer ${peerID.substring(0, 8)}... does not match current connection (${connectedPeerEphemeralId.substring(0, 8)}...) - skipping message send',
+            'Target peer ${peerID.shortId(8)}... does not match current connection (${connectedPeerEphemeralId.shortId(8)}...) - skipping message send',
           );
           return;
         }
@@ -535,9 +538,7 @@ class BLEService {
         );
 
         await _sendProtocolMessage(protocolMessage);
-        _logger.fine(
-          '✅ Missing message sent to peer ${peerID.substring(0, 8)}...',
-        );
+        _logger.fine('✅ Missing message sent to peer ${peerID.shortId(8)}...');
       };
 
       // ✅ FIX: Only start gossip sync if Bluetooth is ready and connected
@@ -562,7 +563,7 @@ class BLEService {
 
         if (_gossipSyncManager != null) {
           _logger.info(
-            '📥 Received queue sync from ${fromNodeId.substring(0, 8)}... - forwarding to GossipSyncManager',
+            '📥 Received queue sync from ${fromNodeId.shortId(8)}... - forwarding to GossipSyncManager',
           );
           await _gossipSyncManager!.handleSyncRequest(
             fromPeerID: fromNodeId,
@@ -615,7 +616,7 @@ class BLEService {
         }
 
         // ✅ NEW: Use handshake protocol instead of simple name exchange
-        await _performHandshake();
+        await _performHandshake(startAsInitiatorOverride: true);
       };
 
       // 🧹 REAL-TIME CLEANUP: Wire up central disconnect callback
@@ -941,7 +942,7 @@ class BLEService {
         .onKnownContactDiscovered = (device, contactName) async {
       final deviceId = device.uuid.toString();
       _logger.info(
-        '👤 KNOWN CONTACT DISCOVERED: $contactName (${deviceId.substring(0, 8)}...)',
+        '👤 KNOWN CONTACT DISCOVERED: $contactName (${deviceId.shortId(8)}...)',
       );
 
       try {
@@ -1417,7 +1418,7 @@ class BLEService {
             '🤝 Characteristic available - initiating handshake on peripheral side',
           );
           // Don't await - let it run async so we can process the incoming message
-          _performHandshake();
+          _performHandshake(startAsInitiatorOverride: false);
         }
 
         await _handleReceivedData(
@@ -1557,10 +1558,18 @@ class BLEService {
       }
 
       if (protocolMessage.type == ProtocolMessageType.identity) {
-        final publicKey =
-            protocolMessage.identityPublicKey ??
-            protocolMessage.identityDeviceIdCompat!;
         final displayName = protocolMessage.identityDisplayName!;
+        final publicKey = protocolMessage.identityPublicKey;
+
+        if (publicKey == null || publicKey.isEmpty) {
+          _logger.info(
+            'Legacy identity payload received (compat device ID). '
+            'Deferring session binding until handshake completes.',
+          );
+          _stateManager.setOtherUserName(displayName);
+          await _stateManager.initializeContactFlags();
+          return;
+        }
 
         // Store identity but DON'T save as contact yet
         _stateManager.setOtherDeviceIdentity(publicKey, displayName);
@@ -1840,20 +1849,20 @@ class BLEService {
         // Use persistent key - Noise will resolve to ephemeral internally
         senderPublicKey = persistentKey;
         _logger.info(
-          '🔐 Decrypting with persistent key (auto-resolves to ephemeral): ${persistentKey.substring(0, 8)}...',
+          '🔐 Decrypting with persistent key (auto-resolves to ephemeral): ${persistentKey.shortId(8)}...',
         );
       } else {
         // Not paired yet, use ephemeral ID directly
         senderPublicKey = _stateManager.theirEphemeralId;
         _logger.info(
-          '🔐 Decrypting with ephemeral ID: ${_stateManager.theirEphemeralId!.substring(0, 8)}...',
+          '🔐 Decrypting with ephemeral ID: ${_stateManager.theirEphemeralId!.shortId(8)}...',
         );
       }
     } else if (_stateManager.currentSessionId != null) {
       // Fallback to current session ID
       senderPublicKey = _stateManager.currentSessionId;
       _logger.info(
-        '🔐 Decrypting with session ID: ${_stateManager.currentSessionId!.substring(0, 8)}...',
+        '🔐 Decrypting with session ID: ${_stateManager.currentSessionId!.shortId(8)}...',
       );
     } else {
       _logger.warning('🔐 No sender identity available - decryption will fail');
@@ -2293,13 +2302,28 @@ class BLEService {
       _updateConnectionInfo(isConnected: false, statusMessage: 'Connecting...');
       await _connectionManager.connectToDevice(device);
 
-      _connectionManager.startHealthChecks();
+      if (_connectionManager.hasBleConnection) {
+        _connectionManager.startHealthChecks();
 
-      if (_connectionManager.isReconnection) {
-        _logger.info('Reconnection completed - monitoring already active');
-      } else {
+        if (_connectionManager.isReconnection) {
+          _logger.info('Reconnection completed - monitoring already active');
+        } else {
+          _logger.info(
+            'Manual connection - health checks started, no reconnection monitoring',
+          );
+          _updateConnectionInfo(isReconnecting: false);
+        }
+      } else if (_connectionManager.serverConnectionCount > 0) {
         _logger.info(
-          'Manual connection - health checks started, no reconnection monitoring',
+          '↔️ Adopted inbound link - skipping outbound health checks',
+        );
+        _updateConnectionInfo(
+          isReconnecting: false,
+          statusMessage: 'Connected via inbound link',
+        );
+      } else {
+        _logger.warning(
+          '⚠️ Connect attempt returned without an active BLE link',
         );
         _updateConnectionInfo(isReconnecting: false);
       }
@@ -2374,7 +2398,7 @@ class BLEService {
 
       _logger.info('Sending peripheral identity re-exchange:');
       _logger.info(
-        '  Public key: ${myPublicKey.length > 16 ? '${myPublicKey.substring(0, 16)}...' : myPublicKey}',
+        '  Public key: ${myPublicKey.length > 16 ? '${myPublicKey.shortId()}...' : myPublicKey}',
       );
       _logger.info('  Display name: $displayName');
 
@@ -2396,8 +2420,45 @@ class BLEService {
     }
   }
 
+  Future<String?> _buildLocalCollisionHint() async {
+    try {
+      final sessionKey = EphemeralKeyManager.currentSessionKey;
+      if (sessionKey == null) {
+        _logger.fine('⚖️ Collision hint unavailable - no session key');
+        return null;
+      }
+
+      final nonce = HintAdvertisementService.deriveNonce(sessionKey);
+      final introHint = await _introHintRepo.getMostRecentActiveHint();
+      final useIntro = introHint != null && introHint.isUsable;
+      final identifier = useIntro
+          ? introHint!.hintHex
+          : await _stateManager.getMyPersistentId();
+
+      if (identifier.isEmpty) {
+        _logger.fine('⚖️ Collision hint unavailable - identifier missing');
+        return null;
+      }
+
+      final hintBytes = HintAdvertisementService.computeHintBytes(
+        identifier: identifier,
+        nonce: nonce,
+      );
+
+      final token =
+          '${HintAdvertisementService.bytesToHex(nonce)}:${HintAdvertisementService.bytesToHex(hintBytes)}';
+      return token;
+    } catch (e) {
+      _logger.warning('⚖️ Failed to compute local collision hint: $e');
+      return null;
+    }
+  }
+
   /// Perform handshake protocol for connection initialization
-  Future<void> _performHandshake() async {
+  /// [startAsInitiatorOverride] lets callers specify the role explicitly.
+  /// This prevents dual-role peripherals from misclassifying outbound
+  /// central links when a separate inbound connection also exists.
+  Future<void> _performHandshake({bool? startAsInitiatorOverride}) async {
     _logger.info('🤝 Starting handshake protocol...');
 
     try {
@@ -2413,10 +2474,10 @@ class BLEService {
 
       _logger.info('🔧 INVESTIGATION: Handshake using EphemeralKeyManager');
       _logger.info(
-        '📱 My ephemeral ID (from EphemeralKeyManager): ${myEphemeralId.length > 16 ? '${myEphemeralId.substring(0, 16)}...' : myEphemeralId}',
+        '📱 My ephemeral ID (from EphemeralKeyManager): ${myEphemeralId.length > 16 ? '${myEphemeralId.shortId()}...' : myEphemeralId}',
       );
       _logger.info(
-        '🔒 My persistent key (not sent during handshake): ${myPublicKey.length > 16 ? '${myPublicKey.substring(0, 16)}...' : myPublicKey}',
+        '🔒 My persistent key (not sent during handshake): ${myPublicKey.length > 16 ? '${myPublicKey.shortId()}...' : myPublicKey}',
       );
       _logger.info('📝 My display name: $myDisplayName');
 
@@ -2424,7 +2485,7 @@ class BLEService {
       final stateManagerEphemeralId = _stateManager.myEphemeralId;
       if (stateManagerEphemeralId != null) {
         _logger.info(
-          '⚠️ BLEStateManager ephemeral ID (NOT used in handshake): ${stateManagerEphemeralId.substring(0, 16)}...',
+          '⚠️ BLEStateManager ephemeral ID (NOT used in handshake): ${stateManagerEphemeralId.shortId()}...',
         );
         if (myEphemeralId != stateManagerEphemeralId) {
           _logger.warning(
@@ -2434,6 +2495,15 @@ class BLEService {
       }
 
       // Create handshake coordinator
+      final bool isInboundPeripheralConnection =
+          isPeripheralMode && _connectedCentral != null;
+      final bool startAsInitiator =
+          startAsInitiatorOverride ?? !isInboundPeripheralConnection;
+
+      _logger.info(
+        '🤝 Handshake role: ${startAsInitiator ? 'INITIATOR (central/client)' : 'RESPONDER (peripheral/server)'}${startAsInitiatorOverride != null ? ' (forced)' : ''}',
+      );
+
       _handshakeCoordinator = HandshakeCoordinator(
         myEphemeralId: myEphemeralId,
         myPublicKey: myPublicKey,
@@ -2445,7 +2515,7 @@ class BLEService {
         // ===== PHASE 1 INTEGRATION: Queue flush on handshake success =====
         onHandshakeSuccess: (peerEphemeralId) async {
           _logger.info(
-            '📤 PHASE 1: Handshake success - flushing queue for peer ${peerEphemeralId.substring(0, 8)}...',
+            '📤 PHASE 1: Handshake success - flushing queue for peer ${peerEphemeralId.shortId(8)}...',
           );
 
           // Get OfflineMessageQueue from AppCore (shared singleton)
@@ -2464,6 +2534,7 @@ class BLEService {
         onHandshakeStateChanged: (inProgress) {
           setHandshakeInProgress(inProgress);
         },
+        startAsInitiator: startAsInitiator,
       );
 
       // Listen to phase changes for UI feedback
@@ -2559,7 +2630,7 @@ class BLEService {
   ) async {
     _logger.info('🎉 Handshake complete! Connected to: $displayName');
     _logger.info(
-      '   Their ephemeral ID: ${ephemeralId.length > 16 ? '${ephemeralId.substring(0, 16)}...' : ephemeralId}',
+      '   Their ephemeral ID: ${ephemeralId.length > 16 ? '${ephemeralId.shortId()}...' : ephemeralId}',
     );
 
     // STEP 3: Store their ephemeral ID (separate from persistent key)
@@ -2729,7 +2800,7 @@ class BLEService {
 
     if (recipientId != null) {
       final truncatedId = recipientId.length > 16
-          ? recipientId.substring(0, 16)
+          ? recipientId.shortId()
           : recipientId;
       _logger.info(
         '📤 STEP 7: Sending message using $idType ID: $truncatedId...',
@@ -2803,7 +2874,7 @@ class BLEService {
 
     if (recipientId != null) {
       final truncatedId = recipientId.length > 16
-          ? recipientId.substring(0, 16)
+          ? recipientId.shortId()
           : recipientId;
       _logger.info(
         '📤 STEP 7 (Peripheral): Sending message using $idType ID: $truncatedId...',
@@ -2965,7 +3036,7 @@ class BLEService {
 
       _logger.info('Sending identity exchange:');
       _logger.info(
-        '  Public key: ${myPublicKey.length > 16 ? '${myPublicKey.substring(0, 16)}...' : myPublicKey}',
+        '  Public key: ${myPublicKey.length > 16 ? '${myPublicKey.shortId()}...' : myPublicKey}',
       );
       _logger.info('  Display name: $displayName');
 
@@ -3020,7 +3091,7 @@ class BLEService {
       _logger.info(
         '  - Public key: ${publicKey.isNotEmpty
             ? publicKey.length > 16
-                  ? '${publicKey.substring(0, 16)}...'
+                  ? '${publicKey.shortId()}...'
                   : publicKey
             : "none"}',
       );
@@ -3073,7 +3144,7 @@ class BLEService {
         // Display session ID with safe truncation
         final sessionIdDisplay = _stateManager.currentSessionId != null
             ? (_stateManager.currentSessionId!.length > 16
-                  ? '${_stateManager.currentSessionId!.substring(0, 16)}...'
+                  ? '${_stateManager.currentSessionId!.shortId()}...'
                   : _stateManager.currentSessionId!)
             : 'null';
         _logger.info('  - Session ID: $sessionIdDisplay');

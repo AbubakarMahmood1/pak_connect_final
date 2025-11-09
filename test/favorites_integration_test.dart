@@ -8,29 +8,36 @@ import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Initialize sqflite_ffi for testing
-  TestWidgetsFlutterBinding.ensureInitialized();
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
-
-  // Set up logging
-  Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen((record) {
-    if (record.level >= Level.INFO) {
-      print('${record.level.name}: ${record.time}: ${record.message}');
-    }
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
+
+  setUp(() async {
+    await TestSetup.cleanupDatabase();
+    TestSetup.resetSharedPreferences();
+  });
+
+  tearDown(() async {
+    await TestSetup.completeCleanup();
+  });
+
+  // logging handled by TestSetup
 
   group('Database Migration v5→v6', () {
     setUp(() async {
+      await TestSetup.cleanupDatabase();
       // Use unique database name for each test
       final testDbName =
           'test_favorites_migration_${DateTime.now().millisecondsSinceEpoch}.db';
       DatabaseHelper.setTestDatabaseName(testDbName);
       await DatabaseHelper.deleteDatabase();
+    });
+
+    tearDown(() async {
+      await TestSetup.completeCleanup();
     });
 
     test('creates is_favorite column in new databases', () async {
@@ -93,6 +100,13 @@ void main() {
   });
 
   group('Contact Model with isFavorite', () {
+    setUp(() async {
+      await TestSetup.cleanupDatabase();
+    });
+
+    tearDown(() async {
+      await TestSetup.completeCleanup();
+    });
     test('creates contact with isFavorite=false by default', () {
       final contact = Contact(
         publicKey: 'test_key',

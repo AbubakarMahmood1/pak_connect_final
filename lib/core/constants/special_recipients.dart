@@ -1,3 +1,4 @@
+import 'package:pak_connect/core/utils/string_extensions.dart';
 // Special recipient constants for mesh networking
 // Inspired by BitChat's SpecialRecipients pattern
 
@@ -53,6 +54,6 @@ class SpecialRecipients {
       return 'Broadcast (all nodes)';
     }
     // Default: assume it's a regular node ID
-    return 'Node ${recipientId.substring(0, 8)}...';
+    return 'Node ${recipientId.shortId(8)}...';
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Blinded hint builder/parser for manufacturer advertisements.
 /// Format (6 bytes):
@@ -20,7 +21,7 @@ class HintAdvertisementService {
     final padded = sanitized.length >= 4
         ? sanitized
         : sanitized.padRight(4, '0');
-    final byte1 = int.parse(padded.substring(0, 2), radix: 16);
+    final byte1 = int.parse(padded.shortId(2), radix: 16);
     final byte2 = int.parse(padded.substring(2, 4), radix: 16);
     return Uint8List.fromList([byte1, byte2]);
   }

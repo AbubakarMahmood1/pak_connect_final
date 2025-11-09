@@ -22,6 +22,7 @@ void main() {
 
     setUp(() async {
       await TestSetup.fullDatabaseReset();
+      TestSetup.resetSharedPreferences();
 
       messageRepository = MessageRepository();
       chatsRepository = ChatsRepository();
@@ -38,7 +39,7 @@ void main() {
 
     tearDown(() async {
       offlineQueue.dispose();
-      await TestSetup.fullDatabaseReset();
+      await TestSetup.completeCleanup();
     });
 
     /// Helper to create a test chat to satisfy foreign key constraints

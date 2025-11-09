@@ -100,14 +100,7 @@ class MockSecureStorage implements FlutterSecureStorage {
 }
 
 void main() {
-  // Enable ALL logging
-  Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen((record) {
-    final time = record.time.toString().substring(11, 23);
-    print(
-      '$time [${record.loggerName}] ${record.level.name}: ${record.message}',
-    );
-  });
+  // logging handled by TestSetup
 
   late MockSecureStorage mockStorage;
 
@@ -119,6 +112,11 @@ void main() {
 
   setUp(() async {
     await TestSetup.fullDatabaseReset();
+    TestSetup.resetSharedPreferences();
+  });
+
+  tearDown(() async {
+    await TestSetup.completeCleanup();
   });
 
   tearDownAll(() async {

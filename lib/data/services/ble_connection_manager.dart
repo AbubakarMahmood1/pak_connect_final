@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/constants/ble_constants.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/models/connection_state.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../models/ble_client_connection.dart';
@@ -13,6 +14,7 @@ import '../exceptions/connection_exceptions.dart';
 import '../repositories/contact_repository.dart';
 import '../repositories/message_repository.dart';
 import '../../core/utils/chat_utils.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 // Enum must be declared at top level
 enum ConnectionMonitorState { idle, healthChecking, reconnecting }
@@ -29,11 +31,17 @@ class BLEConnectionManager {
   // Server connections: We act as peripheral, others connect TO us
   final Map<String, BLEServerConnection> _serverConnections = {};
 
+  // Track devices we are actively trying to connect to so we can detect races
+  final Set<String> _pendingClientConnections = {};
+
   // Connection limits (platform + power mode aware)
   late ConnectionLimitConfig _limitConfig;
 
   // RSSI filtering (Phase 4: Adaptive Sync Frequency - RSSI-based connection filtering)
   int _rssiThreshold = -85; // Default: Balanced mode threshold
+
+  // Collision-resolution hint provider (supplied by BLEService)
+  Future<String?> Function()? _localHintProvider;
 
   // For backward compatibility with existing health check logic
   // Returns first client connection's peripheral
@@ -89,6 +97,10 @@ class BLEConnectionManager {
     _logger.info(
       '📡 RSSI threshold: $_rssiThreshold dBm (${initialPowerMode.name} mode)',
     );
+  }
+
+  void setLocalHintProvider(Future<String?> Function()? provider) {
+    _localHintProvider = provider;
   }
 
   // Getters - Backward compatibility
@@ -335,6 +347,11 @@ class BLEConnectionManager {
   }
 
   void startHealthChecks() {
+    if (!hasBleConnection) {
+      _logger.fine('⏸️ Skipping health checks - no client link to monitor');
+      return;
+    }
+
     if (!_isMonitoring) {
       startConnectionMonitoring();
     }
@@ -568,9 +585,56 @@ class BLEConnectionManager {
     }
   }
 
+  Future<bool> _shouldYieldToInboundLink(String address) async {
+    try {
+      final remoteDevice = DeviceDeduplicationManager.getDevice(address);
+      final remoteHint = remoteDevice?.ephemeralHint;
+      final localHint = _localHintProvider != null
+          ? await _localHintProvider!.call()
+          : null;
+
+      final hasComparableHints =
+          localHint != null &&
+          localHint.isNotEmpty &&
+          remoteHint != null &&
+          remoteHint.isNotEmpty &&
+          remoteHint != DeviceDeduplicationManager.noHintValue;
+
+      if (hasComparableHints) {
+        final comparison = localHint!.compareTo(remoteHint!);
+        if (comparison > 0) {
+          _logger.info(
+            '⚖️ Collision tie-breaker: our hint ($localHint) > remote ($remoteHint) — yielding to inbound link',
+          );
+          return true;
+        } else if (comparison < 0) {
+          _logger.info(
+            '⚖️ Collision tie-breaker: our hint ($localHint) < remote ($remoteHint) — keeping client link',
+          );
+          return false;
+        } else {
+          _logger.info(
+            '⚖️ Collision tie-breaker: hints identical ($localHint) — keeping client link to avoid double-drop',
+          );
+          return false;
+        }
+      }
+
+      _logger.info(
+        '⚖️ Collision tie-breaker: insufficient hint data (local=$localHint, remote=$remoteHint) — keeping client link',
+      );
+      return false;
+    } catch (e) {
+      _logger.warning(
+        '⚖️ Collision tie-breaker failed ($address): $e — keeping client link',
+      );
+      return false;
+    }
+  }
+
   /// 🔍 Format address for logging (first 8 chars)
   String _formatAddress(String address) {
-    return address.length > 8 ? '${address.substring(0, 8)}...' : address;
+    return address.length > 8 ? '${address.shortId(8)}...' : address;
   }
 
   /// Determine if a connect error is transient and worth a quick retry
@@ -732,7 +796,16 @@ class BLEConnectionManager {
   Future<void> connectToDevice(Peripheral device, {int? rssi}) async {
     final address = device.uuid.toString();
 
+    if (_pendingClientConnections.contains(address)) {
+      _logger.fine(
+        '↻ Already connecting to ${_formatAddress(address)} - ignoring duplicate request',
+      );
+      return;
+    }
+
     try {
+      _pendingClientConnections.add(address);
+
       // Single-link policy: if inbound (server) link already exists to this address, adopt it and skip client connect
       if (_serverConnections.containsKey(address)) {
         _logger.info(
@@ -799,6 +872,28 @@ class BLEConnectionManager {
           } else {
             throw Exception(e.toString());
           }
+        }
+      }
+
+      // Re-check for inbound collisions that may have happened while we were connecting.
+      if (_serverConnections.containsKey(address)) {
+        final yieldToInbound = await _shouldYieldToInboundLink(address);
+        if (yieldToInbound) {
+          _logger.info(
+            '↔️ Collision policy yielded to inbound link for ${_formatAddress(address)} — abandoning client link',
+          );
+          try {
+            await centralManager.disconnect(device);
+          } catch (e) {
+            _logger.fine(
+              'Ignoring disconnect error for ${_formatAddress(address)}: $e',
+            );
+          }
+          return;
+        } else {
+          _logger.info(
+            '↔️ Collision policy prefers our client link for ${_formatAddress(address)} — keeping outbound connection',
+          );
         }
       }
 
@@ -902,6 +997,8 @@ class BLEConnectionManager {
 
       clearConnectionState();
       rethrow;
+    } finally {
+      _pendingClientConnections.remove(address);
     }
   }
 
@@ -1114,7 +1211,7 @@ class BLEConnectionManager {
   void _cleanupEphemeralContactIfOrphaned(String contactId) async {
     try {
       _logger.info(
-        '🧹 Checking if contact needs cleanup: ${contactId.length > 8 ? '${contactId.substring(0, 8)}...' : contactId}',
+        '🧹 Checking if contact needs cleanup: ${contactId.length > 8 ? '${contactId.shortId(8)}...' : contactId}',
       );
 
       // Import repositories (will need to add imports at top of file)
