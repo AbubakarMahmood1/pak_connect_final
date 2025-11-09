@@ -7,11 +7,6 @@ import 'package:pak_connect/core/compression/compression_util.dart';
 void main() {
   // Setup logger
   final logger = Logger('CompressionDemo');
-  Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen((record) {
-    // ignore: avoid_print
-    print('${record.level.name}: ${record.time}: ${record.message}');
-  });
 
   logger.info('=== Compression Module Demo ===\n');
 

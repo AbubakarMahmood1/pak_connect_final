@@ -24,6 +24,7 @@ import 'settings_screen.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../domain/services/chat_management_service.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Menu actions for home screen
 enum HomeMenuAction { openProfile, openContacts, openArchives, settings }
@@ -981,9 +982,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _onDeviceSelected(Peripheral device) async {
     setState(() => _showDiscoveryOverlay = false);
 
-    _logger.info(
-      'Connecting to device: ${device.uuid.toString().substring(0, 8)}',
-    );
+    _logger.info('Connecting to device: ${device.uuid.toString().shortId(8)}');
 
     // The connection will be handled by the BLE service
     // The chat list will automatically update to show connection status

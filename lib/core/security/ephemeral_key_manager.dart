@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'hint_cache_manager.dart';
 import '../utils/app_logger.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class EphemeralKeyManager {
   static final _logger = AppLogger.getLogger(LoggerNames.keyManagement);
@@ -37,7 +38,7 @@ class EphemeralKeyManager {
     }
 
     final preview = _currentSessionKey!.length > 16
-        ? '${_currentSessionKey!.substring(0, 16)}...'
+        ? '${_currentSessionKey!.shortId()}...'
         : _currentSessionKey!;
     _logger.info(
       '🔧 INVESTIGATION: Returning current session ephemeral key: $preview',
@@ -102,7 +103,7 @@ class EphemeralKeyManager {
     );
 
     _logger.info(
-      '✅ Generated new ephemeral session: ${_currentSessionKey!.substring(0, 16)}...',
+      '✅ Generated new ephemeral session: ${_currentSessionKey!.shortId()}...',
     );
   }
 

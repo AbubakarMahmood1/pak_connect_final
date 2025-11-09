@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../domain/entities/message.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class DeleteConfirmationDialog extends StatefulWidget {
   final Message message;
@@ -50,7 +51,7 @@ class _DeleteConfirmationDialogState extends State<DeleteConfirmationDialog> {
             ),
             child: Text(
               widget.message.content.length > 100
-                  ? '${widget.message.content.substring(0, 100)}...'
+                  ? '${widget.message.content.shortId(100)}...'
                   : widget.message.content,
               style: Theme.of(
                 context,

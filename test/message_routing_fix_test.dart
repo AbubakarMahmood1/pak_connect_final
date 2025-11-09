@@ -1,9 +1,18 @@
-import 'package:test/test.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 
+import 'test_helpers/message_handler_test_utils.dart';
+import 'test_helpers/test_setup.dart';
+
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('Message Routing Fix Tests', () {
     late BLEMessageHandler messageHandler;
     late ContactRepository contactRepository;
@@ -11,11 +20,13 @@ void main() {
     const String aliPublicKey = 'ali_public_key_12345';
     const String arshadPublicKey = 'arshad_public_key_67890';
 
-    setUp(() {
+    setUp(() async {
+      await TestSetup.cleanupDatabase();
+      TestSetup.resetSharedPreferences();
+      await EphemeralKeyManager.initialize('test_private_key_1234567890');
+      await seedTestUserPublicKey(aliPublicKey);
       messageHandler = BLEMessageHandler();
       contactRepository = ContactRepository();
-
-      // Set Ali as the current user
       messageHandler.setCurrentNodeId(aliPublicKey);
     });
 
@@ -33,11 +44,9 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessage.toBytes();
-
       // Process the message as if it came from Ali (same as current user)
       final result = await messageHandler.processReceivedData(
-        messageBytes,
+        protocolMessageToJsonBytes(protocolMessage),
         senderPublicKey: aliPublicKey, // Same as current user
         contactRepository: contactRepository,
       );
@@ -62,11 +71,9 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessage.toBytes();
-
         // Process the message as if it came from Arshad (different user)
         final result = await messageHandler.processReceivedData(
-          messageBytes,
+          protocolMessageToJsonBytes(protocolMessage),
           senderPublicKey: arshadPublicKey, // Different from current user
           contactRepository: contactRepository,
         );
@@ -96,11 +103,9 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessage.toBytes();
-
         // Process the message (should be blocked since not intended for Ali)
         final result = await messageHandler.processReceivedData(
-          messageBytes,
+          protocolMessageToJsonBytes(protocolMessage),
           senderPublicKey: 'some_other_user',
           contactRepository: contactRepository,
         );
@@ -130,11 +135,9 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessage.toBytes();
-
         // Process the message (should be allowed since intended for Ali)
         final result = await messageHandler.processReceivedData(
-          messageBytes,
+          protocolMessageToJsonBytes(protocolMessage),
           senderPublicKey: arshadPublicKey,
           contactRepository: contactRepository,
         );
@@ -148,8 +151,9 @@ void main() {
       },
     );
 
-    tearDown(() {
+    tearDown(() async {
       messageHandler.dispose();
+      await TestSetup.completeCleanup();
     });
   });
 }

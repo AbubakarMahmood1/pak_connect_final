@@ -27,6 +27,7 @@ import '../data/repositories/preferences_repository.dart';
 import '../data/repositories/message_repository.dart';
 import '../data/database/database_helper.dart';
 import '../domain/entities/message.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
@@ -259,7 +260,7 @@ class AppCore {
       await EphemeralKeyManager.initialize(myPrivateKey);
       final myEphemeralId = EphemeralKeyManager.generateMyEphemeralKey();
       _logger.info(
-        '✅ EphemeralKeyManager initialized - Session ID: ${myEphemeralId.substring(0, 16)}...',
+        '✅ EphemeralKeyManager initialized - Session ID: ${myEphemeralId.shortId()}...',
       );
 
       // Initialize TopologyManager with the same ephemeral ID
@@ -268,7 +269,7 @@ class AppCore {
       );
       TopologyManager.instance.initialize(myEphemeralId);
       _logger.info(
-        '✅ TopologyManager initialized with ephemeral node ID: ${myEphemeralId.substring(0, 16)}...',
+        '✅ TopologyManager initialized with ephemeral node ID: ${myEphemeralId.shortId()}...',
       );
     } catch (e) {
       _logger.warning(
@@ -391,7 +392,7 @@ class AppCore {
   /// Handle message send callback
   void _handleMessageSend(String messageId) {
     // In a real implementation, this would integrate with the BLE service
-    _logger.info('Sending message: ${messageId.substring(0, 16)}...');
+    _logger.info('Sending message: ${messageId.shortId()}...');
   }
 
   /// Check connectivity for message queue
@@ -430,14 +431,14 @@ class AppCore {
       // Queue owns it until delivery, then moves it to repository
       await messageRepo.saveMessage(repoMessage);
       _logger.info(
-        '✅ OPTION B: Moved message ${queuedMessage.id.substring(0, 16)}... from queue → repository (delivered)',
+        '✅ OPTION B: Moved message ${queuedMessage.id.shortId()}... from queue → repository (delivered)',
       );
     } catch (e) {
       // Check if duplicate key error (message already exists)
       if (e.toString().contains('UNIQUE constraint failed') ||
           e.toString().contains('already exists')) {
         _logger.warning(
-          '⚠️ Message ${queuedMessage.id.substring(0, 16)}... already in repository (duplicate delivery callback?)',
+          '⚠️ Message ${queuedMessage.id.shortId()}... already in repository (duplicate delivery callback?)',
         );
         // Not fatal - message is already saved
       } else {

@@ -98,13 +98,6 @@ class MockSecureStorage implements FlutterSecureStorage {
 void main() {
   late MockSecureStorage mockStorage;
 
-  Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen((record) {
-    if (record.level >= Level.WARNING) {
-      print('${record.level.name}: ${record.message}');
-    }
-  });
-
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment();
     mockStorage = MockSecureStorage();

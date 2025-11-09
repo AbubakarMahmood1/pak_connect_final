@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'models/noise_models.dart';
 import 'noise_session.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Callback when session is established
 typedef SessionEstablishedCallback =
@@ -98,7 +99,7 @@ class NoiseSessionManager {
   void registerIdentityMapping(String persistentPublicKey, String ephemeralID) {
     _persistentToEphemeral[persistentPublicKey] = ephemeralID;
     _logger.info(
-      '🔑 Registered identity mapping: ${persistentPublicKey.substring(0, 8)}... → ${ephemeralID.substring(0, 8)}...',
+      '🔑 Registered identity mapping: ${persistentPublicKey.shortId(8)}... → ${ephemeralID.shortId(8)}...',
     );
   }
 
@@ -106,7 +107,7 @@ class NoiseSessionManager {
   void unregisterIdentityMapping(String persistentPublicKey) {
     _persistentToEphemeral.remove(persistentPublicKey);
     _logger.fine(
-      'Unregistered identity mapping for ${persistentPublicKey.substring(0, 8)}...',
+      'Unregistered identity mapping for ${persistentPublicKey.shortId(8)}...',
     );
   }
 
@@ -127,15 +128,13 @@ class NoiseSessionManager {
     final ephemeralID = _persistentToEphemeral[publicKey];
     if (ephemeralID != null) {
       _logger.fine(
-        '🔍 Resolved persistent key ${publicKey.substring(0, 8)}... → ephemeral ${ephemeralID.substring(0, 8)}...',
+        '🔍 Resolved persistent key ${publicKey.shortId(8)}... → ephemeral ${ephemeralID.shortId(8)}...',
       );
       return ephemeralID;
     }
 
     // No mapping found, assume input is the session ID
-    _logger.fine(
-      '🔍 No mapping for ${publicKey.substring(0, 8)}..., using as-is',
-    );
+    _logger.fine('🔍 No mapping for ${publicKey.shortId(8)}..., using as-is');
     return publicKey;
   }
 

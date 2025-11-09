@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../database/database_helper.dart';
 import '../../core/models/contact_group.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Repository for managing contact groups in SQLite
 ///
@@ -254,7 +255,7 @@ class GroupRepository {
         }
 
         _logger.info(
-          '✅ Saved group message ${message.id.substring(0, 16)}... with ${message.deliveryStatus.length} delivery records',
+          '✅ Saved group message ${message.id.shortId()}... with ${message.deliveryStatus.length} delivery records',
         );
       });
     } catch (e) {

@@ -20,6 +20,7 @@ import '../../core/security/spam_prevention_manager.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/security/ephemeral_key_manager.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
@@ -215,10 +216,10 @@ class BLEMessageHandler {
       if (identities.isSpyMode) {
         _logger.info('🕵️ SPY MODE: Sending anonymously');
         _logger.info(
-          '🕵️   Sender: ${finalSenderIf.substring(0, 8)}... (ephemeral)',
+          '🕵️   Sender: ${finalSenderIf.shortId(8)}... (ephemeral)',
         );
         _logger.info(
-          '🕵️   Recipient: ${finalRecipientId.substring(0, 8)}... (ephemeral)',
+          '🕵️   Recipient: ${finalRecipientId.shortId(8)}... (ephemeral)',
         );
       }
 
@@ -770,7 +771,7 @@ class BLEMessageHandler {
             onQueueSyncReceived?.call(syncMessage, senderPublicKey);
             // 🔧 FIX: Safe truncation to prevent RangeError
             final truncated = senderPublicKey.length > 16
-                ? senderPublicKey.substring(0, 16)
+                ? senderPublicKey.shortId()
                 : senderPublicKey;
             _logger.info('Received queue sync message from $truncated...');
           } else {
@@ -861,7 +862,7 @@ class BLEMessageHandler {
             // Forward to sync manager via callback
             onQueueSyncReceived?.call(syncMessage, senderPublicKey);
             final truncated = senderPublicKey.length > 16
-                ? senderPublicKey.substring(0, 16)
+                ? senderPublicKey.shortId()
                 : senderPublicKey;
             _logger.info('Received queue sync message from $truncated...');
           } else {
@@ -1622,10 +1623,10 @@ class BLEMessageHandler {
       }
 
       final truncatedMessageId = originalMessageId.length > 16
-          ? originalMessageId.substring(0, 16)
+          ? originalMessageId.shortId()
           : originalMessageId;
       final truncatedPrevHop = previousHop.length > 8
-          ? previousHop.substring(0, 8)
+          ? previousHop.shortId(8)
           : previousHop;
 
       _logger.info(
@@ -1665,10 +1666,10 @@ class BLEMessageHandler {
       }
 
       final truncatedMessageId = originalMessageId.length > 16
-          ? originalMessageId.substring(0, 16)
+          ? originalMessageId.shortId()
           : originalMessageId;
       final truncatedRelayNode = relayNode.length > 8
-          ? relayNode.substring(0, 8)
+          ? relayNode.shortId(8)
           : relayNode;
 
       _logger.info(
@@ -1694,7 +1695,7 @@ class BLEMessageHandler {
           final previousHop = ackRoutingPath[currentIndex - 1];
 
           final truncatedPrevHop = previousHop.length > 8
-              ? previousHop.substring(0, 8)
+              ? previousHop.shortId(8)
               : previousHop;
 
           _logger.info('⚡ Propagating ACK backward to $truncatedPrevHop...');
@@ -1768,7 +1769,7 @@ class BLEMessageHandler {
       );
     } else {
       _logger.fine(
-        '❌ Message NOT for us (recipient: ${intendedRecipient.substring(0, 8)}...)',
+        '❌ Message NOT for us (recipient: ${intendedRecipient.shortId(8)}...)',
       );
     }
 

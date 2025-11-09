@@ -21,6 +21,7 @@ import '../routing/network_topology_analyzer.dart';
 import 'relay_config_manager.dart';
 import 'relay_policy.dart';
 import '../constants/special_recipients.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Core engine for mesh relay operations
 class MeshRelayEngine {
@@ -117,7 +118,7 @@ class MeshRelayEngine {
     await _relayConfig.initialize();
 
     final truncatedNodeId = _currentNodeId.length > 16
-        ? _currentNodeId.substring(0, 16)
+        ? _currentNodeId.shortId()
         : _currentNodeId;
     final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 0;
     _logger.info(
@@ -144,10 +145,10 @@ class MeshRelayEngine {
   }) async {
     try {
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
-          ? relayMessage.originalMessageId.substring(0, 16)
+          ? relayMessage.originalMessageId.shortId()
           : relayMessage.originalMessageId;
       final truncatedFromNode = fromNodeId.length > 8
-          ? fromNodeId.substring(0, 8)
+          ? fromNodeId.shortId(8)
           : fromNodeId;
       _logger.info(
         '📨 Processing relay message $truncatedMessageId... from $truncatedFromNode...',
@@ -207,12 +208,21 @@ class MeshRelayEngine {
         return RelayProcessingResult.blocked(spamCheck.reason);
       }
 
+      // Determine message targeting before probabilistic decisions
+      final isForUs = await _isMessageForCurrentNode(
+        relayMessage.relayMetadata.finalRecipient,
+      );
+
+      final isBroadcast = SpecialRecipients.isBroadcast(
+        relayMessage.relayMetadata.finalRecipient,
+      );
+
       // Step 1A: Probabilistic relay decision (Phase 3: Network-size adaptive)
       // Apply BEFORE checking if message is for us to reduce processing overhead
       final relayProbability = _calculateRelayProbability();
       final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 1;
 
-      if (relayProbability < 1.0) {
+      if (!isForUs && relayProbability < 1.0) {
         final randomValue = Random().nextDouble();
         if (randomValue > relayProbability) {
           _totalProbabilisticSkip++;
@@ -237,14 +247,6 @@ class MeshRelayEngine {
       }
 
       // Step 2: Check if we are the final recipient
-      final isForUs = await _isMessageForCurrentNode(
-        relayMessage.relayMetadata.finalRecipient,
-      );
-
-      final isBroadcast = SpecialRecipients.isBroadcast(
-        relayMessage.relayMetadata.finalRecipient,
-      );
-
       if (isForUs) {
         await _deliverToCurrentNode(relayMessage);
         _totalDeliveredToSelf++;
@@ -403,10 +405,10 @@ class MeshRelayEngine {
       );
 
       final truncatedMessageId = originalMessageId.length > 16
-          ? originalMessageId.substring(0, 16)
+          ? originalMessageId.shortId()
           : originalMessageId;
       final truncatedRecipient = finalRecipientPublicKey.length > 8
-          ? finalRecipientPublicKey.substring(0, 8)
+          ? finalRecipientPublicKey.shortId(8)
           : finalRecipientPublicKey;
       _logger.info(
         'Created outgoing relay for $truncatedMessageId... to $truncatedRecipient...',
@@ -560,17 +562,17 @@ class MeshRelayEngine {
 
     // No match - message is NOT for us
     final truncatedRecipient = finalRecipientPublicKey.length > 16
-        ? finalRecipientPublicKey.substring(0, 16)
+        ? finalRecipientPublicKey.shortId()
         : finalRecipientPublicKey;
     final truncatedNodeId = _currentNodeId.length > 16
-        ? _currentNodeId.substring(0, 16)
+        ? _currentNodeId.shortId()
         : _currentNodeId;
 
     _logger.fine('📭 Message NOT for current node:');
     _logger.fine('   - Recipient: $truncatedRecipient...');
     _logger.fine('   - Our persistent key: $truncatedNodeId...');
     _logger.fine(
-      '   - Our ephemeral key: ${ephemeralKey?.substring(0, 16) ?? "NULL"}...',
+      '   - Our ephemeral key: ${ephemeralKey?.shortId() ?? "NULL"}...',
     );
 
     return false;
@@ -580,7 +582,7 @@ class MeshRelayEngine {
   Future<void> _deliverToCurrentNode(MeshRelayMessage relayMessage) async {
     try {
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
-          ? relayMessage.originalMessageId.substring(0, 16)
+          ? relayMessage.originalMessageId.shortId()
           : relayMessage.originalMessageId;
       _logger.info('Delivering message to self: $truncatedMessageId...');
 
@@ -632,7 +634,7 @@ class MeshRelayEngine {
 
           if (routingDecision.isSuccessful && routingDecision.nextHop != null) {
             final truncatedNextHop = routingDecision.nextHop!.length > 8
-                ? routingDecision.nextHop!.substring(0, 8)
+                ? routingDecision.nextHop!.shortId(8)
                 : routingDecision.nextHop!;
             _logger.info(
               '✅ Smart router chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})',
@@ -654,7 +656,7 @@ class MeshRelayEngine {
       final chosenHop = await _selectBestHopByQuality(validHops);
 
       final truncatedChosenHop = chosenHop.length > 8
-          ? chosenHop.substring(0, 8)
+          ? chosenHop.shortId(8)
           : chosenHop;
       _logger.info(
         '📍 Selected hop: $truncatedChosenHop... from ${validHops.length} valid options',
@@ -709,10 +711,10 @@ class MeshRelayEngine {
       onRelayMessage?.call(nextHopMessage, nextHopNodeId);
 
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
-          ? relayMessage.originalMessageId.substring(0, 16)
+          ? relayMessage.originalMessageId.shortId()
           : relayMessage.originalMessageId;
       final truncatedNextHop = nextHopNodeId.length > 8
-          ? nextHopNodeId.substring(0, 8)
+          ? nextHopNodeId.shortId(8)
           : nextHopNodeId;
       _logger.info(
         'Relayed message $truncatedMessageId... to $truncatedNextHop...',
@@ -752,7 +754,7 @@ class MeshRelayEngine {
       }
 
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
-          ? relayMessage.originalMessageId.substring(0, 16)
+          ? relayMessage.originalMessageId.shortId()
           : relayMessage.originalMessageId;
       _logger.info(
         '📣 Broadcasting message $truncatedMessageId... to ${validNeighbors.length} neighbor(s)',
@@ -792,7 +794,7 @@ class MeshRelayEngine {
           successCount++;
 
           final truncatedNeighbor = neighborId.length > 8
-              ? neighborId.substring(0, 8)
+              ? neighborId.shortId(8)
               : neighborId;
           _logger.fine(
             '  ✅ Broadcast queued for neighbor $truncatedNeighbor...',
@@ -800,7 +802,7 @@ class MeshRelayEngine {
         } catch (e) {
           failCount++;
           final truncatedNeighbor = neighborId.length > 8
-              ? neighborId.substring(0, 8)
+              ? neighborId.shortId(8)
               : neighborId;
           _logger.warning(
             '  ⚠️ Failed to broadcast to neighbor $truncatedNeighbor...: $e',

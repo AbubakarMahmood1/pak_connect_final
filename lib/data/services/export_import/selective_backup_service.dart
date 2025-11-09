@@ -114,12 +114,19 @@ class SelectiveBackupService {
     await db.execute('''
       CREATE TABLE contacts (
         public_key TEXT PRIMARY KEY,
+        persistent_public_key TEXT UNIQUE,
+        current_ephemeral_id TEXT,
+        ephemeral_id TEXT,
         display_name TEXT NOT NULL,
         trust_status INTEGER NOT NULL,
         security_level INTEGER NOT NULL,
         first_seen INTEGER NOT NULL,
         last_seen INTEGER NOT NULL,
         last_security_sync INTEGER,
+        noise_public_key TEXT,
+        noise_session_state TEXT,
+        last_handshake_time INTEGER,
+        is_favorite INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )

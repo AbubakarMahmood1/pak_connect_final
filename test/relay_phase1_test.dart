@@ -5,11 +5,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/messaging/relay_config_manager.dart';
 import 'package:pak_connect/core/messaging/relay_policy.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('Phase 1: Relay Config Manager', () {
     // Reset config before each test
     setUp(() async {
+      TestSetup.resetSharedPreferences();
       final config = RelayConfigManager.instance;
       await config.resetToDefaults();
     });
@@ -275,6 +281,12 @@ void main() {
   });
 
   group('Phase 1: Integration Tests', () {
+    setUp(() async {
+      TestSetup.resetSharedPreferences();
+      final config = RelayConfigManager.instance;
+      await config.resetToDefaults();
+    });
+
     test('Relay config should handle configuration changes', () async {
       final config = RelayConfigManager.instance;
       await config.initialize();
@@ -331,6 +343,7 @@ void main() {
 
   group('Phase 1: BitChat Compatibility', () {
     setUp(() async {
+      TestSetup.resetSharedPreferences();
       final config = RelayConfigManager.instance;
       await config.resetToDefaults();
     });

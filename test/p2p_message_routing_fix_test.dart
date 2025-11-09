@@ -1,24 +1,36 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
+
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'dart:typed_data';
+import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
+
+import 'test_helpers/message_handler_test_utils.dart';
+import 'test_helpers/test_setup.dart';
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
+  });
+
   group('P2P Message Routing Fix Tests', () {
     late BLEMessageHandler handler;
     late ContactRepository mockContactRepository;
 
-    setUp(() {
+    setUp(() async {
+      await TestSetup.cleanupDatabase();
+      TestSetup.resetSharedPreferences();
+      await EphemeralKeyManager.initialize('test_private_key_1234567890');
+      await seedTestUserPublicKey('our_node_123');
       handler = BLEMessageHandler();
       mockContactRepository = ContactRepository();
-
-      // Set up our node ID for testing
       handler.setCurrentNodeId('our_node_123');
     });
 
-    tearDown(() {
+    tearDown(() async {
       handler.dispose();
+      await TestSetup.completeCleanup();
     });
 
     test(
@@ -37,9 +49,9 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessage.toBytes();
+        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
         final result = await handler.processReceivedData(
-          Uint8List.fromList(messageBytes),
+          messageBytes,
           senderPublicKey: 'sender_key_456',
           contactRepository: mockContactRepository,
         );
@@ -49,31 +61,34 @@ void main() {
       },
     );
 
-    test('Direct P2P message with recipient info should be accepted', () async {
-      // Create a message with intendedRecipient (P2P with routing)
-      final protocolMessage = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        payload: {
-          'messageId': 'test_msg_2',
-          'content': 'Hello with routing!',
-          'encrypted': false,
-          'encryptionMethod': 'none',
-          'intendedRecipient':
-              'recipient_key_789', // Different from our node ID
-        },
-        timestamp: DateTime.now(),
-      );
+    test(
+      'Direct P2P message addressed to someone else should be blocked',
+      () async {
+        // Create a message with intendedRecipient (P2P with routing)
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
+            'messageId': 'test_msg_2',
+            'content': 'Hello with routing!',
+            'encrypted': false,
+            'encryptionMethod': 'none',
+            'intendedRecipient':
+                'recipient_key_789', // Different from our node ID
+          },
+          timestamp: DateTime.now(),
+        );
 
-      final messageBytes = protocolMessage.toBytes();
-      final result = await handler.processReceivedData(
-        Uint8List.fromList(messageBytes),
-        senderPublicKey: 'sender_key_456',
-        contactRepository: mockContactRepository,
-      );
+        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+        final result = await handler.processReceivedData(
+          messageBytes,
+          senderPublicKey: 'sender_key_456',
+          contactRepository: mockContactRepository,
+        );
 
-      // Should accept the P2P message even though intendedRecipient != our node ID
-      expect(result, equals('Hello with routing!'));
-    });
+        // Should block because routing indicates someone else
+        expect(result, isNull);
+      },
+    );
 
     test(
       'Mesh message explicitly addressed to our node ID should be accepted',
@@ -91,9 +106,9 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessage.toBytes();
+        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
         final result = await handler.processReceivedData(
-          Uint8List.fromList(messageBytes),
+          messageBytes,
           senderPublicKey: 'sender_key_456',
           contactRepository: mockContactRepository,
         );
@@ -117,9 +132,9 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessage.toBytes();
+      final messageBytes = protocolMessageToJsonBytes(protocolMessage);
       final result = await handler.processReceivedData(
-        Uint8List.fromList(messageBytes),
+        messageBytes,
         senderPublicKey: 'our_node_123', // Same as our node ID
         contactRepository: mockContactRepository,
       );
@@ -142,9 +157,9 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessage.toBytes();
+      final messageBytes = protocolMessageToJsonBytes(protocolMessage);
       final result = await handler.processReceivedData(
-        Uint8List.fromList(messageBytes),
+        messageBytes,
         senderPublicKey: 'our_node_123', // Same as our node ID
         contactRepository: mockContactRepository,
       );
@@ -153,52 +168,56 @@ void main() {
       expect(result, isNull);
     });
 
-    test('Encrypted P2P message should be processed normally', () async {
-      // Create an encrypted P2P message
-      final protocolMessage = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        payload: {
-          'messageId': 'test_msg_6',
-          'content': 'encrypted_payload_here',
-          'encrypted': true,
-          'encryptionMethod': 'ecdh',
-          'intendedRecipient': 'recipient_public_key',
-        },
-        timestamp: DateTime.now(),
-      );
+    test(
+      'Encrypted P2P message for different recipient should be discarded',
+      () async {
+        // Create an encrypted P2P message
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
+            'messageId': 'test_msg_6',
+            'content': 'encrypted_payload_here',
+            'encrypted': true,
+            'encryptionMethod': 'ecdh',
+            'intendedRecipient': 'recipient_public_key',
+          },
+          timestamp: DateTime.now(),
+        );
 
-      final messageBytes = protocolMessage.toBytes();
-      final result = await handler.processReceivedData(
-        Uint8List.fromList(messageBytes),
-        senderPublicKey: 'sender_key_456',
-        contactRepository: mockContactRepository,
-      );
+        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+        final result = await handler.processReceivedData(
+          messageBytes,
+          senderPublicKey: 'sender_key_456',
+          contactRepository: mockContactRepository,
+        );
 
-      // Should attempt to process the encrypted message
-      // (will fail decryption but shouldn't be blocked by routing)
-      expect(result, isNotNull);
-      expect(
-        result,
-        contains('Could not decrypt'),
-      ); // Expected decryption failure
-    });
+        // Should be discarded because routing says it's for someone else
+        expect(result, isNull);
+      },
+    );
   });
 
   group('Routing Logic Edge Cases', () {
     late BLEMessageHandler handler;
     late ContactRepository mockContactRepository;
 
-    setUp(() {
+    setUp(() async {
+      await TestSetup.cleanupDatabase();
+      TestSetup.resetSharedPreferences();
+      await EphemeralKeyManager.initialize('test_private_key_1234567890');
+      await seedTestUserPublicKey('our_node_123');
       handler = BLEMessageHandler();
       mockContactRepository = ContactRepository();
     });
 
-    tearDown(() {
+    tearDown(() async {
       handler.dispose();
+      await TestSetup.completeCleanup();
     });
 
     test('Message processing without node ID set should work', () async {
-      // Don't set our node ID
+      // Don't set our node ID but ensure persistent identity matches recipient
+      await seedTestUserPublicKey('some_recipient');
 
       final protocolMessage = ProtocolMessage(
         type: ProtocolMessageType.textMessage,
@@ -212,9 +231,9 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessage.toBytes();
+      final messageBytes = protocolMessageToJsonBytes(protocolMessage);
       final result = await handler.processReceivedData(
-        Uint8List.fromList(messageBytes),
+        messageBytes,
         senderPublicKey: 'sender_key_456',
         contactRepository: mockContactRepository,
       );
@@ -237,9 +256,9 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessage.toBytes();
+      final messageBytes = protocolMessageToJsonBytes(protocolMessage);
       final result = await handler.processReceivedData(
-        Uint8List.fromList(messageBytes),
+        messageBytes,
         senderPublicKey: null, // Null sender
         contactRepository: mockContactRepository,
       );

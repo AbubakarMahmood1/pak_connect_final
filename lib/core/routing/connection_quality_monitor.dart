@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:logging/logging.dart';
 import 'routing_models.dart';
 import '../../data/services/ble_service.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Monitors connection quality and provides scoring for routing decisions
 class ConnectionQualityMonitor {
@@ -59,7 +60,7 @@ class ConnectionQualityMonitor {
   /// Record a message sent to track delivery statistics
   void recordMessageSent(String nodeId, String messageId) {
     _messagesSent[nodeId] = (_messagesSent[nodeId] ?? 0) + 1;
-    final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
+    final truncatedNodeId = nodeId.length > 8 ? nodeId.shortId(8) : nodeId;
     _logger.fine('Message sent to $truncatedNodeId...: $messageId');
   }
 
@@ -75,7 +76,7 @@ class ConnectionQualityMonitor {
       _recordLatency(nodeId, latency);
     }
 
-    final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
+    final truncatedNodeId = nodeId.length > 8 ? nodeId.shortId(8) : nodeId;
     _logger.fine(
       'Message acknowledged from $truncatedNodeId...: $messageId (latency: ${latency?.toStringAsFixed(0)}ms)',
     );
@@ -125,9 +126,7 @@ class ConnectionQualityMonitor {
       _connectionMetrics[nodeId] = metrics;
       _lastUpdate[nodeId] = DateTime.now();
 
-      final truncatedNodeId = nodeId.length > 8
-          ? nodeId.substring(0, 8)
-          : nodeId;
+      final truncatedNodeId = nodeId.length > 8 ? nodeId.shortId(8) : nodeId;
       _logger.fine(
         'Updated metrics for $truncatedNodeId...: ${metrics.quality.name} (score: ${metrics.qualityScore.toStringAsFixed(2)})',
       );
@@ -162,7 +161,7 @@ class ConnectionQualityMonitor {
     _connectionMetrics[nodeId] = degradedMetrics;
     _lastUpdate[nodeId] = DateTime.now();
 
-    final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
+    final truncatedNodeId = nodeId.length > 8 ? nodeId.shortId(8) : nodeId;
     _logger.info(
       'Simulated connection degradation for $truncatedNodeId...: ${degradedMetrics.quality.name}',
     );
@@ -194,7 +193,7 @@ class ConnectionQualityMonitor {
     _connectionMetrics[nodeId] = improvedMetrics;
     _lastUpdate[nodeId] = DateTime.now();
 
-    final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
+    final truncatedNodeId = nodeId.length > 8 ? nodeId.shortId(8) : nodeId;
     _logger.info(
       'Simulated connection improvement for $truncatedNodeId...: ${improvedMetrics.quality.name}',
     );
@@ -402,7 +401,7 @@ class ConnectionQualityMonitor {
     _connectionMetrics[nodeId] = degradedMetrics;
     _lastUpdate[nodeId] = DateTime.now();
 
-    final truncatedNodeId = nodeId.length > 8 ? nodeId.substring(0, 8) : nodeId;
+    final truncatedNodeId = nodeId.length > 8 ? nodeId.shortId(8) : nodeId;
     _logger.fine(
       'Degraded stale connection $truncatedNodeId...: ${degradedMetrics.quality.name}',
     );

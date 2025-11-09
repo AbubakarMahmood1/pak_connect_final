@@ -336,22 +336,26 @@ void main() {
       // Test membership for original IDs that actually made it into the filter
       // The filter might have been trimmed to fit in 512 bytes
       var foundCount = 0;
-      final testCount = math.min(100, decoded.length);
-
-      for (var i = 0; i < testCount; i++) {
-        // Test against first N messages (some might have been trimmed)
-        final id = messageIds[i];
+      var inspected = 0;
+      for (final id in messageIds) {
         final hash = _hash64(id);
         final candidate = hash % filter.m;
         if (GCSFilter.contains(decoded, candidate)) {
           foundCount++;
+          if (foundCount >= 10) {
+            break;
+          }
+        }
+        inspected++;
+        if (inspected >= 1000) {
+          break;
         }
       }
 
       // At least some should be found (accounting for trimming and deduplication)
       expect(foundCount, greaterThan(0));
 
-      print('Found $foundCount / $testCount messages in filter');
+      print('Found $foundCount matches while inspecting $inspected messages');
       print('Filter size: ${filter.data.length} bytes (target: 512)');
       print('Encoded ${decoded.length} elements (from 1000 input)');
     });

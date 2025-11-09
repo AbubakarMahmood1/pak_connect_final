@@ -7,6 +7,7 @@ import '../../domain/entities/enhanced_message.dart'; // For MessagePriority
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/messaging/offline_message_queue.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Service for managing group messaging via secure multi-unicast
 ///
@@ -71,7 +72,7 @@ class GroupMessagingService {
       // Save to repository immediately with pending status
       await _groupRepo.saveGroupMessage(message);
       _logger.info(
-        '  Created message ${message.id.substring(0, 16)}... for ${message.deliveryStatus.length} recipients',
+        '  Created message ${message.id.shortId()}... for ${message.deliveryStatus.length} recipients',
       );
 
       // Send to each member asynchronously (fire and forget)

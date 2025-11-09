@@ -30,6 +30,7 @@ import '../../core/app_core.dart';
 import '../../core/security/message_security.dart';
 import '../../domain/services/notification_service.dart';
 import '../../core/messaging/message_router.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device; // For central mode (live connection)
@@ -126,10 +127,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String get _displayContactName {
     if (_isRepositoryMode) return widget.contactName!;
     if (_isCentralMode && widget.device != null) {
-      return widget.device!.uuid.toString().substring(0, 8);
+      return widget.device!.uuid.toString().shortId(8);
     }
     if (_isPeripheralMode && widget.central != null) {
-      return widget.central!.uuid.toString().substring(0, 8);
+      return widget.central!.uuid.toString().shortId(8);
     }
     return 'Unknown';
   }
@@ -180,7 +181,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     print('🐛 NAV DEBUG: - widget.chatId: ${widget.chatId}');
     print('🐛 NAV DEBUG: - widget.contactName: ${widget.contactName}');
     print(
-      '🐛 NAV DEBUG: - widget.contactPublicKey: ${widget.contactPublicKey != null && widget.contactPublicKey!.length > 16 ? '${widget.contactPublicKey!.substring(0, 16)}...' : widget.contactPublicKey ?? 'null'}',
+      '🐛 NAV DEBUG: - widget.contactPublicKey: ${widget.contactPublicKey != null && widget.contactPublicKey!.length > 16 ? '${widget.contactPublicKey!.shortId()}...' : widget.contactPublicKey ?? 'null'}',
     );
 
     _currentChatId = _calculateInitialChatId();
@@ -226,15 +227,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       '💬🔑 CHAT OPEN: ${widget.contactName ?? "Unknown"} | Security=${securityLevel.name} | Encryption=${encryptionMethod.type.name}',
     );
     final pkDisp = publicKey.length > 16
-        ? '${publicKey.substring(0, 16)}...'
+        ? '${publicKey.shortId()}...'
         : publicKey;
     final eph = contact?.currentEphemeralId;
     final ephDisp = eph != null
-        ? (eph.length > 16 ? '${eph.substring(0, 16)}...' : eph)
+        ? (eph.length > 16 ? '${eph.shortId()}...' : eph)
         : 'NULL';
     final sid = contact?.sessionIdForNoise;
     final sidDisp = sid != null
-        ? (sid.length > 16 ? '${sid.substring(0, 16)}...' : sid)
+        ? (sid.length > 16 ? '${sid.shortId()}...' : sid)
         : 'NULL';
     _logger.info(
       '💬🔑 Keys: PubKey=$pkDisp | CurrentEphemeralID=$ephDisp | NoiseSession=$sidDisp',
@@ -356,11 +357,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       });
 
       _logger.fine(
-        '🎯 Updated message ${messageId.substring(0, 16)}... status to ${newStatus.name}',
+        '🎯 Updated message ${messageId.shortId()}... status to ${newStatus.name}',
       );
     } else {
       _logger.fine(
-        '⚠️ Message ${messageId.substring(0, 16)}... not found in current UI (may have been from different chat)',
+        '⚠️ Message ${messageId.shortId()}... not found in current UI (may have been from different chat)',
       );
     }
   }
@@ -929,7 +930,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _retryRepositoryMessage(Message message) async {
     try {
       _logger.info(
-        '🔄 Retrying repository message: ${message.id.substring(0, 8)}... - "${message.content.substring(0, min(20, message.content.length))}..."',
+        '🔄 Retrying repository message: ${message.id.shortId(8)}... - "${message.content.substring(0, min(20, message.content.length))}..."',
       );
 
       // Update to sending status with optimistic UI update
@@ -1006,7 +1007,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (meshResult.isSuccess) {
             success = true;
             _logger.info(
-              '🧠 Smart routing retry successful for message ${message.id.substring(0, 8)}',
+              '🧠 Smart routing retry successful for message ${message.id.shortId(8)}',
             );
           }
         } catch (e) {
@@ -1029,7 +1030,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } catch (e) {
       // Mark as failed again and continue
       _logger.severe(
-        '❌ Repository message retry failed for ${message.id.substring(0, 8)}: $e',
+        '❌ Repository message retry failed for ${message.id.shortId(8)}: $e',
       );
       final failedAgain = message.copyWith(status: MessageStatus.failed);
       await _messageRepository.updateMessage(failedAgain);
@@ -1179,7 +1180,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       content: content,
     );
 
-    print('🔴 Generated message ID: ${secureMessageId.substring(0, 16)}...');
+    print('🔴 Generated message ID: ${secureMessageId.shortId()}...');
 
     // �🔑 COMPREHENSIVE RECEIVE LOGGING (search: 📥🔑)
     await _logMessageReceiveState(senderPublicKey, content, secureMessageId);
@@ -1191,7 +1192,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (existingMessage != null) {
       print('🔴 ❌ DUPLICATE FOUND IN DB - SKIPPING');
       _logger.info(
-        '📬 Duplicate message detected in repository - skipping save: ${secureMessageId.substring(0, 16)}...',
+        '📬 Duplicate message detected in repository - skipping save: ${secureMessageId.shortId()}...',
       );
 
       if (mounted) {
@@ -2141,7 +2142,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         '🔧 SEND DEBUG: Using AppCore.sendSecureMessage() for unified routing',
       );
       print(
-        '🔧 SEND DEBUG: Recipient key: ${recipientKey != null && recipientKey.length > 16 ? "${recipientKey.substring(0, 16)}..." : recipientKey ?? "NULL"}',
+        '🔧 SEND DEBUG: Recipient key: ${recipientKey != null && recipientKey.length > 16 ? "${recipientKey.shortId()}..." : recipientKey ?? "NULL"}',
       );
 
       // Check if we have recipient key (ephemeral or persistent)
@@ -2165,7 +2166,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
       // Message queued successfully - already logged in _logMessageSendState above
       print(
-        '🔧 SEND DEBUG: Message queued with secure ID: ${secureMessageId.length > 16 ? '${secureMessageId.substring(0, 16)}...' : secureMessageId}',
+        '🔧 SEND DEBUG: Message queued with secure ID: ${secureMessageId.length > 16 ? '${secureMessageId.shortId()}...' : secureMessageId}',
       );
 
       // 🎯 OPTION B: Queue owns the message until delivery
@@ -2213,10 +2214,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
 
     final preview = messageContent.length > 30
-        ? "${messageContent.substring(0, 30)}..."
+        ? "${messageContent.shortId(30)}..."
         : messageContent;
     _logger.info(
-      '📤🔑 SEND: "$preview" | To=${recipientKey.substring(0, 16)}... | Encryption=${encryptionMethod.type.name} | NoiseSession=${contact?.sessionIdForNoise?.substring(0, 16) ?? "NULL"}...',
+      '📤🔑 SEND: "$preview" | To=${recipientKey.shortId()}... | Encryption=${encryptionMethod.type.name} | NoiseSession=${contact?.sessionIdForNoise?.shortId() ?? "NULL"}...',
     );
   }
 
@@ -2235,10 +2236,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
 
     final preview = messageContent.length > 30
-        ? "${messageContent.substring(0, 30)}..."
+        ? "${messageContent.shortId(30)}..."
         : messageContent;
     _logger.info(
-      '📥🔑 RECV: "$preview" | From=${senderKey.substring(0, 16)}... | MsgID=${messageId.substring(0, 16)}... | Encryption=${encryptionMethod.type.name} | NoiseSession=${contact?.sessionIdForNoise?.substring(0, 16) ?? "NULL"}...',
+      '📥🔑 RECV: "$preview" | From=${senderKey.shortId()}... | MsgID=${messageId.shortId()}... | Encryption=${encryptionMethod.type.name} | NoiseSession=${contact?.sessionIdForNoise?.shortId() ?? "NULL"}...',
     );
   }
 
@@ -2402,7 +2403,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? widget.device!.uuid.toString()
         : widget.central!.uuid.toString();
 
-    return 'temp_${deviceId.substring(0, 8)}';
+    return 'temp_${deviceId.shortId(8)}';
   }
 
   Future<void> _handleIdentityReceived() async {
@@ -2605,7 +2606,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // 🔧 FIX: Use cached value instead of getter to avoid ref.read() during dispose
     final cachedKey = _cachedContactPublicKey;
     print(
-      '🐛 NAV DEBUG: - Final contact key: ${cachedKey != null && cachedKey.length > 16 ? '${cachedKey.substring(0, 16)}...' : cachedKey ?? 'null'}',
+      '🐛 NAV DEBUG: - Final contact key: ${cachedKey != null && cachedKey.length > 16 ? '${cachedKey.shortId()}...' : cachedKey ?? 'null'}',
     );
     print('🐛 NAV DEBUG: - Final chatId: $_currentChatId');
     print('🐛 NAV DEBUG: - Message listener active: $_messageListenerActive');

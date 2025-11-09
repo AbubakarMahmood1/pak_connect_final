@@ -8,13 +8,13 @@ import 'package:pak_connect/domain/services/mesh_networking_service.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
-import 'package:pak_connect/data/services/ble_service.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/demo/mesh_demo_utils.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'test_helpers/test_setup.dart';
+import 'test_helpers/ble/fake_ble_service.dart';
 
 void main() {
   setUpAll(() async {
@@ -23,7 +23,7 @@ void main() {
 
   group('Mesh Networking Integration Tests', () {
     late MeshNetworkingService meshService;
-    late BLEService mockBleService;
+    late FakeBleService mockBleService;
     late BLEMessageHandler messageHandler;
     late ContactRepository contactRepository;
     late ChatManagementService chatManagementService;
@@ -33,6 +33,9 @@ void main() {
     late String nodeA, nodeB, nodeC;
 
     setUp(() async {
+      await TestSetup.cleanupDatabase();
+      TestSetup.resetSharedPreferences();
+
       // Initialize test dependencies
       contactRepository = ContactRepository();
       chatManagementService = ChatManagementService();
@@ -40,7 +43,7 @@ void main() {
       messageHandler = BLEMessageHandler();
 
       // Create mock BLE service (simplified for testing)
-      mockBleService = _createMockBLEService();
+      mockBleService = FakeBleService();
 
       // Generate test node IDs
       nodeA = 'test_node_a_${DateTime.now().millisecondsSinceEpoch}';
@@ -60,7 +63,10 @@ void main() {
     });
 
     tearDown(() async {
+      mockBleService.dispose();
+      messageHandler.dispose();
       meshService.dispose();
+      await TestSetup.completeCleanup();
     });
 
     group('Service Initialization', () {
@@ -318,6 +324,24 @@ void main() {
           action: 'relay_forwarded',
           timestamp: DateTime.now(),
         ),
+        DemoRelayStep(
+          messageId: 'perf_test_msg',
+          fromNode: 'demo_b',
+          toNode: 'demo_c',
+          finalRecipient: 'demo_c',
+          hopCount: 2,
+          action: 'relay_forwarded',
+          timestamp: DateTime.now(),
+        ),
+        DemoRelayStep(
+          messageId: 'perf_test_msg',
+          fromNode: 'demo_b',
+          toNode: 'demo_c',
+          finalRecipient: 'demo_c',
+          hopCount: 3,
+          action: 'message_delivered',
+          timestamp: DateTime.now(),
+        ),
       ];
 
       final metrics = MeshDemoUtils.generatePerformanceMetrics(
@@ -339,17 +363,8 @@ void main() {
   });
 }
 
-// Helper functions for creating mock services
-
-BLEService _createMockBLEService() {
-  // This would be a proper mock in a real test implementation
-  // For now, return a basic BLEService instance
-  return BLEService();
-}
-
-void _mockDirectConnection(BLEService bleService, String nodeId) {
-  // In a real implementation, this would mock the BLE service
-  // to simulate being connected to the specified node
+void _mockDirectConnection(FakeBleService bleService, String nodeId) {
+  bleService.simulateConnection(peerId: nodeId);
   Logger(
     'MeshNetworkingIntegrationTest',
   ).info('Mock: Simulating direct connection to $nodeId');

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/networking/topology_manager.dart';
 import '../../core/models/network_topology.dart';
 import 'dart:math' as math;
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class NetworkTopologyScreen extends StatefulWidget {
   const NetworkTopologyScreen({super.key});
@@ -378,7 +379,7 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'ID: ${node.nodeId.substring(0, 16)}...',
+            'ID: ${node.nodeId.shortId()}...',
             style: TextStyle(fontFamily: 'monospace', fontSize: 10),
           ),
           SizedBox(height: 2),
@@ -582,7 +583,7 @@ class _GraphPainter extends CustomPainter {
       final textPainter = TextPainter(
         text: TextSpan(
           text: node.displayName.length > 10
-              ? '${node.displayName.substring(0, 10)}...'
+              ? '${node.displayName.shortId(10)}...'
               : node.displayName,
           style: TextStyle(
             color: theme.colorScheme.onSurface,

@@ -6,6 +6,7 @@ import '../providers/group_providers.dart';
 import '../../core/models/contact_group.dart';
 import '../../data/repositories/user_preferences.dart';
 import 'package:intl/intl.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class GroupChatScreen extends ConsumerStatefulWidget {
   final String groupId;
@@ -265,7 +266,7 @@ class _MessageBubble extends ConsumerWidget {
                 // Sender (if not me)
                 // TODO: Add logic to determine if message is from current user
                 Text(
-                  message.senderKey.substring(0, 8),
+                  message.senderKey.shortId(8),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -400,7 +401,7 @@ class _MessageBubble extends ConsumerWidget {
 
               return ListTile(
                 leading: Icon(icon, color: color),
-                title: Text(memberKey.substring(0, 16)),
+                title: Text(memberKey.shortId()),
                 subtitle: Text(statusText),
               );
             }).toList(),

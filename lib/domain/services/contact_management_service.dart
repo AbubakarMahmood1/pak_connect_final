@@ -7,6 +7,7 @@ import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../core/services/security_manager.dart';
 import '../entities/enhanced_contact.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Comprehensive contact management service with advanced search and privacy features
 /// Singleton pattern to prevent multiple service instances
@@ -175,7 +176,7 @@ class ContactManagementService {
       await _deleteContactFromRepository(publicKey);
 
       _logger.info(
-        'Contact deleted: ${contact.displayName} (${publicKey.substring(0, 16)}...)',
+        'Contact deleted: ${contact.displayName} (${publicKey.shortId()}...)',
       );
       return ContactOperationResult.success('Contact deleted successfully');
     } catch (e) {
@@ -502,12 +503,10 @@ class ContactManagementService {
     try {
       final success = await _contactRepository.deleteContact(publicKey);
       if (success) {
-        _logger.info(
-          'Successfully deleted contact: ${publicKey.substring(0, 16)}...',
-        );
+        _logger.info('Successfully deleted contact: ${publicKey.shortId()}...');
       } else {
         _logger.warning(
-          'Failed to delete contact - not found: ${publicKey.substring(0, 16)}...',
+          'Failed to delete contact - not found: ${publicKey.shortId()}...',
         );
       }
     } catch (e) {

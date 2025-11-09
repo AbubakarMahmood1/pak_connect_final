@@ -10,6 +10,7 @@ import '../../data/repositories/intro_hint_repository.dart';
 
 import '../security/ephemeral_key_manager.dart';
 import '../services/hint_advertisement_service.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class DeviceDeduplicationManager {
   static final _logger = Logger('DeviceDeduplicationManager');
@@ -22,6 +23,13 @@ class DeviceDeduplicationManager {
   static Stream<Map<String, DiscoveredDevice>> get uniqueDevicesStream =>
       _devicesController.stream;
 
+  /// Expose the placeholder used when no hint payload is present.
+  static String get noHintValue => _noHintValue;
+
+  /// Retrieve the currently tracked device (if any) for a given peripheral ID.
+  static DiscoveredDevice? getDevice(String deviceId) =>
+      _uniqueDevices[deviceId];
+
   static int get deviceCount => _uniqueDevices.length;
 
   // 🆕 ENHANCEMENT 3: Auto-connect callback
@@ -31,7 +39,7 @@ class DeviceDeduplicationManager {
 
   static void processDiscoveredDevice(DiscoveredEventArgs event) {
     final deviceId = event.peripheral.uuid.toString();
-    final deviceIdShort = deviceId.substring(0, 8);
+    final deviceIdShort = deviceId.shortId(8);
 
     _logger.info('🔍 [DEDUP] Processing device: $deviceIdShort...');
 
@@ -147,7 +155,7 @@ class DeviceDeduplicationManager {
   }
 
   static void _verifyContactAsync(DiscoveredDevice device) async {
-    final deviceId = device.deviceId.substring(0, 8);
+    final deviceId = device.deviceId.shortId(8);
     _logger.info('🔍 [VERIFY] ========================================');
     _logger.info('🔍 [VERIFY] Starting contact verification for: $deviceId...');
     _logger.info('🔍 [VERIFY] Hint: ${device.ephemeralHint}');
@@ -164,7 +172,7 @@ class DeviceDeduplicationManager {
       );
     } else if (parsed == null) {
       _logger.info(
-        'ℹ️ [VERIFY] No hint payload available for ${device.deviceId.substring(0, 8)}...',
+        'ℹ️ [VERIFY] No hint payload available for ${device.deviceId.shortId(8)}...',
       );
     }
 
@@ -252,7 +260,7 @@ class DeviceDeduplicationManager {
     DiscoveredDevice device,
     String contactName,
   ) async {
-    final deviceIdShort = device.deviceId.substring(0, 8);
+    final deviceIdShort = device.deviceId.shortId(8);
 
     _logger.info('🔗 [AUTO-CONNECT] ========================================');
     _logger.info('🔗 [AUTO-CONNECT] Attempting auto-connect for: $contactName');

@@ -8,6 +8,7 @@ import '../../core/app_core.dart';
 import '../../domain/entities/enhanced_message.dart';
 import './offline_message_queue.dart';
 import '../../data/repositories/user_preferences.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Routes messages with offline queue support (based on BitChat's MessageRouter)
 ///
@@ -80,7 +81,7 @@ class MessageRouter {
   }) async {
     try {
       _logger.info(
-        '📨 MessageRouter: Delegating to OfflineMessageQueue for ${recipientId.substring(0, 8)}...',
+        '📨 MessageRouter: Delegating to OfflineMessageQueue for ${recipientId.shortId(8)}...',
       );
 
       // Get sender's public key
@@ -105,7 +106,7 @@ class MessageRouter {
       );
 
       _logger.info(
-        '📮 Message queued via OfflineMessageQueue: ${queuedMessageId.substring(0, 16)}...',
+        '📮 Message queued via OfflineMessageQueue: ${queuedMessageId.shortId()}...',
       );
 
       return MessageRouteResult.queued(queuedMessageId);
@@ -128,7 +129,7 @@ class MessageRouter {
   /// BitChat equivalent: flushOutboxFor() in MessageRouter.kt (lines 127-156)
   Future<void> flushOutboxFor(String peerId) async {
     _logger.info(
-      '📤 MessageRouter: Delegating flush to OfflineMessageQueue for ${peerId.substring(0, 8)}...',
+      '📤 MessageRouter: Delegating flush to OfflineMessageQueue for ${peerId.shortId(8)}...',
     );
 
     try {

@@ -282,38 +282,14 @@ class ArchiveRepository {
         'Successfully restored $restoredCount messages from archive $archiveId',
       );
 
-      // 🔧 CRITICAL FIX: Delete the archive and recreate chat entry after successful restoration
-      // This prevents UNIQUE constraint errors when re-archiving the same chat
-      // CASCADE delete will automatically remove archived_messages
+      // Delete archive + cascade archived messages now that data is restored
       final db = await DatabaseHelper.database;
-      await db.transaction((txn) async {
-        // Delete the archive
-        await txn.delete(
-          'archived_chats',
-          where: 'archive_id = ?',
-          whereArgs: [archiveId],
-        );
-
-        // Recreate the chat entry (it was deleted during archiving)
-        await txn.insert('chats', {
-          'id': archivedChat.originalChatId,
-          'contact_public_key': archivedChat.contactPublicKey,
-          'last_message': workingArchive.messages.isNotEmpty
-              ? workingArchive.messages.last.content
-              : '',
-          'last_message_time':
-              workingArchive.lastMessageTime?.millisecondsSinceEpoch,
-          'unread_count': 0,
-          'is_archived': 0,
-          'is_muted': 0,
-          'is_pinned': 0,
-          'created_at': DateTime.now().millisecondsSinceEpoch,
-          'updated_at': DateTime.now().millisecondsSinceEpoch,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      });
-      _logger.info(
-        'Archive $archiveId deleted and chat restored to chats table',
+      await db.delete(
+        'archived_chats',
+        where: 'archive_id = ?',
+        whereArgs: [archiveId],
       );
+      _logger.info('Archive $archiveId deleted after restoration');
 
       return ArchiveOperationResult.success(
         message: 'Chat restored successfully',
@@ -355,6 +331,46 @@ class ArchiveRepository {
       _logger.warning('Failed to get archived chats count: $e');
       return 0;
     }
+  }
+
+  Future<void> _ensureChatShellExists({
+    required ArchivedChat archivedChat,
+    required ArchivedChat restoredArchive,
+  }) async {
+    final db = await DatabaseHelper.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    await db.transaction((txn) async {
+      if ((archivedChat.contactPublicKey?.isNotEmpty ?? false)) {
+        await txn.insert('contacts', {
+          'public_key': archivedChat.contactPublicKey,
+          'display_name': archivedChat.contactName,
+          'trust_status': 0,
+          'security_level': 0,
+          'first_seen': now,
+          'last_seen': now,
+          'created_at': now,
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+
+      await txn.insert('chats', {
+        'chat_id': archivedChat.originalChatId,
+        'contact_public_key': archivedChat.contactPublicKey,
+        'contact_name': archivedChat.contactName,
+        'last_message': restoredArchive.messages.isNotEmpty
+            ? restoredArchive.messages.last.content
+            : '',
+        'last_message_time':
+            restoredArchive.lastMessageTime?.millisecondsSinceEpoch,
+        'unread_count': 0,
+        'is_archived': 0,
+        'is_muted': 0,
+        'is_pinned': 0,
+        'created_at': now,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
   }
 
   Future<List<ArchivedChatSummary>> getArchivedChats({

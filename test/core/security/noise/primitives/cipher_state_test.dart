@@ -11,9 +11,9 @@ void main() {
       cipher = CipherState();
     });
 
-    tearDown() {
+    tearDown(() {
       cipher.destroy();
-    }
+    });
 
     test('initialization with key', () {
       final key = Uint8List(32);

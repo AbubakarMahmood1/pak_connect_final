@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/security_state.dart';
 import '../../domain/services/security_state_computer.dart';
 import 'ble_providers.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Static cache for security states to prevent frequent recreations
 final Map<String, SecurityState> _securityStateCache = {};
@@ -49,7 +50,7 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((
   final connectionInfo = ref.watch(connectionInfoProvider);
 
   print(
-    '🐛 NAV DEBUG: - bleService.theirPersistentKey: ${bleService.theirPersistentKey != null && bleService.theirPersistentKey!.length > 16 ? '${bleService.theirPersistentKey!.substring(0, 16)}...' : bleService.theirPersistentKey ?? 'null'}',
+    '🐛 NAV DEBUG: - bleService.theirPersistentKey: ${bleService.theirPersistentKey != null && bleService.theirPersistentKey!.length > 16 ? '${bleService.theirPersistentKey!.shortId()}...' : bleService.theirPersistentKey ?? 'null'}',
   );
   print(
     '🐛 NAV DEBUG: - connectionInfo: ${connectionInfo.value?.isConnected}/${connectionInfo.value?.isReady}',

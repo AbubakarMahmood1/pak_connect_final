@@ -3,6 +3,7 @@ import '../../domain/entities/message.dart';
 import '../../core/utils/chat_utils.dart';
 import '../repositories/message_repository.dart';
 import '../database/database_helper.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Service responsible for migrating chats from ephemeral IDs to persistent public keys
 ///
@@ -38,10 +39,10 @@ class ChatMigrationService {
     try {
       _logger.info('🔄 STEP 6: Starting chat migration');
       _logger.info(
-        '   From ephemeral ID: ${ephemeralId.length > 20 ? ephemeralId.substring(0, 20) : ephemeralId}...',
+        '   From ephemeral ID: ${ephemeralId.length > 20 ? ephemeralId.shortId(20) : ephemeralId}...',
       );
       _logger.info(
-        '   To persistent key: ${persistentPublicKey.length > 20 ? persistentPublicKey.substring(0, 20) : persistentPublicKey}...',
+        '   To persistent key: ${persistentPublicKey.length > 20 ? persistentPublicKey.shortId(20) : persistentPublicKey}...',
       );
 
       // Get messages from ephemeral chat

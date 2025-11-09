@@ -48,6 +48,7 @@ lib/
 - `dart format lib test` formats Dart code before commits.
 - `flutter run -d chrome` or `flutter run -d emulator-id` launches the app locally.
 - `flutter test` runs the unit and widget suites; use `flutter test integration_test/` for device-level coverage.
+- **Sandbox note**: When running Flutter CLI commands from Codex, request elevated permissions up front—the CLI sandbox otherwise blocks writes to `/home/abubakar/flutter/bin/cache` (e.g., `engine.stamp` updates) and causes false "Permission denied" failures. Asking the user to approve elevated execution keeps `flutter analyze`, `flutter run`, and `flutter test` working.
 
 ## Coding Style & Naming Conventions
 - Follow Flutter default lints: two-space indentation, trailing commas for multiline widgets, const constructors when possible.

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import 'routing_models.dart';
 import '../../data/services/ble_service.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Analyzes and maintains the mesh network topology
 class NetworkTopologyAnalyzer {
@@ -57,8 +58,8 @@ class NetworkTopologyAnalyzer {
     ConnectionMetrics? metrics,
   }) async {
     try {
-      final truncatedFrom = from.length > 8 ? from.substring(0, 8) : from;
-      final truncatedTo = to.length > 8 ? to.substring(0, 8) : to;
+      final truncatedFrom = from.length > 8 ? from.shortId(8) : from;
+      final truncatedTo = to.length > 8 ? to.shortId(8) : to;
       _logger.info('Adding connection: $truncatedFrom... -> $truncatedTo...');
 
       // Update topology
@@ -84,8 +85,8 @@ class NetworkTopologyAnalyzer {
   /// Remove a node connection
   Future<void> removeConnection(String from, String to) async {
     try {
-      final truncatedFrom = from.length > 8 ? from.substring(0, 8) : from;
-      final truncatedTo = to.length > 8 ? to.substring(0, 8) : to;
+      final truncatedFrom = from.length > 8 ? from.shortId(8) : from;
+      final truncatedTo = to.length > 8 ? to.shortId(8) : to;
       _logger.info('Removing connection: $truncatedFrom... -> $truncatedTo...');
 
       // Update topology
@@ -121,8 +122,8 @@ class NetworkTopologyAnalyzer {
         _currentTopology = _currentTopology.withConnection(from, to, quality);
         _topologyController.add(_currentTopology);
 
-        final truncatedFrom = from.length > 8 ? from.substring(0, 8) : from;
-        final truncatedTo = to.length > 8 ? to.substring(0, 8) : to;
+        final truncatedFrom = from.length > 8 ? from.shortId(8) : from;
+        final truncatedTo = to.length > 8 ? to.shortId(8) : to;
         _logger.info(
           'Updated connection quality: $truncatedFrom... -> $truncatedTo... to ${quality.name}',
         );
@@ -166,7 +167,7 @@ class NetworkTopologyAnalyzer {
           );
 
           final truncatedConnected = connectedNodeId.length > 8
-              ? connectedNodeId.substring(0, 8)
+              ? connectedNodeId.shortId(8)
               : connectedNodeId;
           _logger.info('Discovered connection via BLE: $truncatedConnected...');
         }

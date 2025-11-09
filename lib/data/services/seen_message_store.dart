@@ -4,9 +4,11 @@
 
 import 'dart:async';
 import 'dart:collection'; // For LinkedHashSet
+import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../database/database_helper.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Persistent store for tracking seen messages (delivered and read)
 ///
@@ -21,6 +23,7 @@ class SeenMessageStore {
 
   // Constants
   static const int maxIdsPerType = 10000; // Match BitChat's MAX_IDS
+  static int? _maxIdsOverride;
 
   // Singleton
   static SeenMessageStore? _instance;
@@ -94,9 +97,7 @@ class SeenMessageStore {
       // Persist to database
       await _persistMessage(messageId, SeenType.delivered);
 
-      _logger.fine(
-        'Marked message as delivered: ${messageId.substring(0, 16)}...',
-      );
+      _logger.fine('Marked message as delivered: ${messageId.shortId()}...');
     } catch (e) {
       _logger.warning('Failed to mark delivered: $e');
     }
@@ -122,7 +123,7 @@ class SeenMessageStore {
       // Persist to database
       await _persistMessage(messageId, SeenType.read);
 
-      _logger.fine('Marked message as read: ${messageId.substring(0, 16)}...');
+      _logger.fine('Marked message as read: ${messageId.shortId()}...');
     } catch (e) {
       _logger.warning('Failed to mark read: $e');
     }
@@ -134,7 +135,7 @@ class SeenMessageStore {
       'deliveredCount': _deliveredIds.length,
       'readCount': _readIds.length,
       'totalTracked': _deliveredIds.length + _readIds.length,
-      'maxPerType': maxIdsPerType,
+      'maxPerType': _currentMaxIdsPerType,
       'initialized': _initialized,
     };
   }
@@ -153,6 +154,26 @@ class SeenMessageStore {
       _logger.warning('Failed to clear seen messages: $e');
     }
   }
+
+  @visibleForTesting
+  void resetForTests() {
+    _initialized = false;
+    _deliveredIds.clear();
+    _readIds.clear();
+    _maxIdsOverride = null;
+  }
+
+  @visibleForTesting
+  void setMaxIdsPerTypeForTests(int value) {
+    _maxIdsOverride = value;
+  }
+
+  @visibleForTesting
+  void resetMaxIdsPerTypeForTests() {
+    _maxIdsOverride = null;
+  }
+
+  int get _currentMaxIdsPerType => _maxIdsOverride ?? maxIdsPerType;
 
   // Private methods
 
@@ -242,7 +263,8 @@ class SeenMessageStore {
   /// LinkedHashSet.toList() preserves insertion order (oldest first)
   /// So we take from the start to remove oldest entries (LRU semantics)
   Future<void> _trimSet(LinkedHashSet<String> set, SeenType type) async {
-    if (set.length <= maxIdsPerType) return;
+    final limit = _currentMaxIdsPerType;
+    if (set.length <= limit) return;
 
     try {
       final db = await DatabaseHelper.database;
@@ -250,7 +272,7 @@ class SeenMessageStore {
       // Convert LinkedHashSet to list (preserves order: oldest first)
       final list = set.toList();
       // Take oldest entries from start (LRU eviction)
-      final toRemove = list.take(set.length - maxIdsPerType).toList();
+      final toRemove = list.take(set.length - limit).toList();
 
       // Remove from database
       for (final messageId in toRemove) {

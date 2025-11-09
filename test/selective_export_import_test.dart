@@ -7,21 +7,22 @@ import 'package:pak_connect/data/services/export_import/export_bundle.dart';
 import 'package:pak_connect/data/services/export_import/selective_backup_service.dart';
 import 'package:pak_connect/data/services/export_import/selective_restore_service.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:io';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Setup FFI for desktop testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   setUp(() async {
-    // Use a fresh test database for each test
-    DatabaseHelper.setTestDatabaseName(
-      'test_selective_${DateTime.now().millisecondsSinceEpoch}.db',
-    );
+    final dbName = 'test_selective_${DateTime.now().millisecondsSinceEpoch}.db';
+    DatabaseHelper.setTestDatabaseName(dbName);
+
+    await TestSetup.fullDatabaseReset();
+    TestSetup.resetSharedPreferences();
 
     // Initialize database
     final db = await DatabaseHelper.database;
@@ -91,6 +92,7 @@ void main() {
   tearDown(() async {
     await DatabaseHelper.close();
     DatabaseHelper.setTestDatabaseName(null);
+    await TestSetup.completeCleanup();
   });
 
   group('ExportType', () {

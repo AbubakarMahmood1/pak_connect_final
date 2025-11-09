@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../../core/services/security_manager.dart';
 import '../database/database_helper.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 enum TrustStatus {
   newContact, // 👤 Identity: Never verified this person
@@ -322,14 +323,14 @@ class ContactRepository {
       );
       await _storeContact(updated);
       final keyPreview = publicKey.length > 8
-          ? publicKey.substring(0, 8)
+          ? publicKey.shortId(8)
           : publicKey;
       _logger.info(
         '🔐 Updated Noise session for $keyPreview... (state: $sessionState)',
       );
     } else {
       final keyPreview = publicKey.length > 8
-          ? publicKey.substring(0, 8)
+          ? publicKey.shortId(8)
           : publicKey;
       _logger.warning(
         'Cannot update Noise session - contact not found: $keyPreview...',
@@ -341,7 +342,7 @@ class ContactRepository {
   Future<void> cacheSharedSecret(String publicKey, String sharedSecret) async {
     // Use SHA256 hash of full public key for consistent cache key generation
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
-    final key = _sharedSecretPrefix + keyHash.substring(0, 16);
+    final key = _sharedSecretPrefix + keyHash.shortId();
     await _secureStorage.write(key: key, value: sharedSecret);
   }
 
@@ -349,7 +350,7 @@ class ContactRepository {
   Future<String?> getCachedSharedSecret(String publicKey) async {
     // Use SHA256 hash of full public key for consistent cache key generation
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
-    final key = _sharedSecretPrefix + keyHash.substring(0, 16);
+    final key = _sharedSecretPrefix + keyHash.shortId();
     return await _secureStorage.read(key: key);
   }
 
@@ -359,7 +360,7 @@ class ContactRepository {
     Uint8List seedBytes,
   ) async {
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
-    final key = '$_sharedSecretPrefix${keyHash.substring(0, 16)}_seed';
+    final key = '$_sharedSecretPrefix${keyHash.shortId()}_seed';
 
     // Convert bytes to base64 for storage
     final base64Seed = base64Encode(seedBytes);
@@ -369,7 +370,7 @@ class ContactRepository {
   /// Get cached shared seed as bytes (for hint system)
   Future<Uint8List?> getCachedSharedSeedBytes(String publicKey) async {
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
-    final key = '$_sharedSecretPrefix${keyHash.substring(0, 16)}_seed';
+    final key = '$_sharedSecretPrefix${keyHash.shortId()}_seed';
 
     final base64Seed = await _secureStorage.read(key: key);
     if (base64Seed == null) return null;
@@ -396,7 +397,7 @@ class ContactRepository {
     final contact = await getContact(publicKey);
     if (contact != null) {
       _logger.info(
-        '🔧 REPO DEBUG: Updating ${publicKey.substring(0, 8)}... from ${contact.securityLevel.name} to ${newLevel.name}',
+        '🔧 REPO DEBUG: Updating ${publicKey.shortId(8)}... from ${contact.securityLevel.name} to ${newLevel.name}',
       );
       _logger.info(
         '🔧 REPO DEBUG: Contact trust status: ${contact.trustStatus.name}',
@@ -425,7 +426,7 @@ class ContactRepository {
       whereArgs: [publicKey],
     );
     _logger.info(
-      '🔧 REPO: Updated current_ephemeral_id for ${publicKey.substring(0, 8)}... to ${newEphemeralId.substring(0, 8)}...',
+      '🔧 REPO: Updated current_ephemeral_id for ${publicKey.shortId(8)}... to ${newEphemeralId.shortId(8)}...',
     );
   }
 
@@ -540,7 +541,7 @@ class ContactRepository {
     try {
       // Use SHA256 hash of full public key for consistent cache key generation
       final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
-      final key = _sharedSecretPrefix + keyHash.substring(0, 16);
+      final key = _sharedSecretPrefix + keyHash.shortId();
       await _secureStorage.delete(key: key);
       _logger.info('🔒 SECURITY: Cleared cached secrets for $publicKey');
     } catch (e) {
@@ -585,14 +586,12 @@ class ContactRepository {
       await _storeContact(contact);
 
       _logger.info('🔒 SECURITY: New contact (${securityLevel.name})');
+      _logger.info('   publicKey (immutable): ${publicKey.shortId()}...');
       _logger.info(
-        '   publicKey (immutable): ${publicKey.substring(0, 16)}...',
+        '   persistentPublicKey: ${persistentPublicKey?.shortId() ?? "NULL"}',
       );
       _logger.info(
-        '   persistentPublicKey: ${persistentPublicKey?.substring(0, 16) ?? "NULL"}',
-      );
-      _logger.info(
-        '   currentEphemeralId: ${(currentEphemeralId ?? publicKey).substring(0, 16)}...',
+        '   currentEphemeralId: ${(currentEphemeralId ?? publicKey).shortId()}...',
       );
     } else {
       // Contact exists - update fields
@@ -637,7 +636,7 @@ class ContactRepository {
           );
         }
 
-        _logger.info('🗑️ Contact deleted: ${publicKey.substring(0, 16)}...');
+        _logger.info('🗑️ Contact deleted: ${publicKey.shortId()}...');
         return true;
       }
 
@@ -745,14 +744,14 @@ class ContactRepository {
     final contact = await getContact(publicKey);
     if (contact == null) {
       _logger.warning(
-        'Cannot mark non-existent contact as favorite: ${publicKey.substring(0, 8)}...',
+        'Cannot mark non-existent contact as favorite: ${publicKey.shortId(8)}...',
       );
       return;
     }
 
     if (contact.isFavorite) {
       _logger.fine(
-        'Contact already marked as favorite: ${publicKey.substring(0, 8)}...',
+        'Contact already marked as favorite: ${publicKey.shortId(8)}...',
       );
       return;
     }
@@ -765,9 +764,7 @@ class ContactRepository {
       whereArgs: [publicKey],
     );
 
-    _logger.info(
-      '⭐ Marked contact as favorite: ${publicKey.substring(0, 8)}...',
-    );
+    _logger.info('⭐ Marked contact as favorite: ${publicKey.shortId(8)}...');
   }
 
   /// Remove favorite status from a contact
@@ -775,14 +772,14 @@ class ContactRepository {
     final contact = await getContact(publicKey);
     if (contact == null) {
       _logger.warning(
-        'Cannot unmark non-existent contact: ${publicKey.substring(0, 8)}...',
+        'Cannot unmark non-existent contact: ${publicKey.shortId(8)}...',
       );
       return;
     }
 
     if (!contact.isFavorite) {
       _logger.fine(
-        'Contact is not marked as favorite: ${publicKey.substring(0, 8)}...',
+        'Contact is not marked as favorite: ${publicKey.shortId(8)}...',
       );
       return;
     }
@@ -796,7 +793,7 @@ class ContactRepository {
     );
 
     _logger.info(
-      'Removed favorite status from contact: ${publicKey.substring(0, 8)}...',
+      'Removed favorite status from contact: ${publicKey.shortId(8)}...',
     );
   }
 
@@ -805,7 +802,7 @@ class ContactRepository {
     final contact = await getContact(publicKey);
     if (contact == null) {
       _logger.warning(
-        'Cannot toggle favorite for non-existent contact: ${publicKey.substring(0, 8)}...',
+        'Cannot toggle favorite for non-existent contact: ${publicKey.shortId(8)}...',
       );
       return false;
     }

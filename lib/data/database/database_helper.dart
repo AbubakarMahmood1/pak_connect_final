@@ -18,6 +18,7 @@ class DatabaseHelper {
   static const String _databaseName = 'pak_connect.db';
   static const int _databaseVersion =
       9; // v9: Added contact groups tables for secure multi-unicast messaging
+  static int get currentVersion => _databaseVersion;
 
   /// Override database name for testing (allows using fresh database files)
   static String? _testDatabaseName;

@@ -11,6 +11,7 @@ import '../widgets/contact_avatar.dart';
 import '../widgets/security_level_badge.dart' as security_badge;
 import '../widgets/trust_status_badge.dart' as trust_badge;
 import 'chat_screen.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class ContactDetailScreen extends ConsumerStatefulWidget {
   final String publicKey;
@@ -401,7 +402,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
               children: [
                 Flexible(
                   child: Text(
-                    'Key: ${contact.publicKey.substring(0, 32)}...',
+                    'Key: ${contact.publicKey.shortId(32)}...',
                     style: theme.textTheme.labelSmall?.copyWith(
                       fontFamily: 'monospace',
                       color: theme.colorScheme.onSurfaceVariant,

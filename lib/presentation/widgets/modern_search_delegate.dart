@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/services/chat_management_service.dart' as chat_service;
 import 'modern_message_bubble.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Modern search delegate with advanced filtering and suggestions
 class ModernSearchDelegate extends SearchDelegate<String> {
@@ -286,7 +287,7 @@ class ModernSearchDelegate extends SearchDelegate<String> {
                   ),
                 ),
                 title: Text(
-                  'Chat: ${chatId.substring(0, 8)}...', // In real app, would show contact name
+                  'Chat: ${chatId.shortId(8)}...', // In real app, would show contact name
                   style: theme.textTheme.titleSmall,
                 ),
                 subtitle: Text(

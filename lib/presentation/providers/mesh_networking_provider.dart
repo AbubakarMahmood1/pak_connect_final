@@ -13,6 +13,7 @@ import '../../core/messaging/mesh_relay_engine.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import 'ble_providers.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Logger for mesh networking providers
 final _logger = Logger('MeshNetworkingProvider');
@@ -206,7 +207,7 @@ class MeshNetworkingController {
   }) async {
     try {
       _logger.info(
-        'UI: Sending mesh message to ${recipientPublicKey.substring(0, 8)}...',
+        'UI: Sending mesh message to ${recipientPublicKey.shortId(8)}...',
       );
 
       final result = await _service.sendMeshMessage(

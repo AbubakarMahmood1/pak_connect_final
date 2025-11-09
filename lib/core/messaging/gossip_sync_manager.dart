@@ -18,6 +18,7 @@ import 'package:logging/logging.dart';
 import '../models/mesh_relay_models.dart';
 import '../utils/gcs_filter.dart';
 import 'offline_message_queue.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Gossip-based synchronization manager
 ///
@@ -167,7 +168,7 @@ class GossipSyncManager {
     }
 
     _logger.fine(
-      'Tracked announcement from ${senderNodeId.substring(0, 8)}... (total: ${_latestAnnouncementByNode.length})',
+      'Tracked announcement from ${senderNodeId.shortId(8)}... (total: ${_latestAnnouncementByNode.length})',
     );
   }
 
@@ -182,12 +183,12 @@ class GossipSyncManager {
   }) async {
     try {
       final hashPreview = syncRequest.queueHash.length > 8
-          ? syncRequest.queueHash.substring(0, 8)
+          ? syncRequest.queueHash.shortId(8)
           : syncRequest.queueHash;
 
       final useGCS = syncRequest.gcsFilter != null;
       _logger.info(
-        '📥 Handling sync request from ${fromPeerID.substring(0, 8)}... '
+        '📥 Handling sync request from ${fromPeerID.shortId(8)}... '
         '(${syncRequest.messageIds.length} messages, hash: $hashPreview, '
         'GCS: ${useGCS ? "${syncRequest.gcsFilter!.data.length}B" : "no"})',
       );
@@ -195,7 +196,7 @@ class GossipSyncManager {
       // STEP 1: Quick hash check (98% of syncs will exit here)
       if (!_messageQueue.needsSynchronization(syncRequest.queueHash)) {
         _logger.info(
-          '✅ Peer ${fromPeerID.substring(0, 8)}... is in sync (hash match - no messages to send)',
+          '✅ Peer ${fromPeerID.shortId(8)}... is in sync (hash match - no messages to send)',
         );
         return;
       }
@@ -225,7 +226,7 @@ class GossipSyncManager {
             // Peer doesn't have this message - send it
             messagesToSend.add(tracked.message);
             _logger.fine(
-              'Will send announcement (not in GCS filter): ${tracked.messageId.substring(0, 16)}...',
+              'Will send announcement (not in GCS filter): ${tracked.messageId.shortId()}...',
             );
           }
         }
@@ -238,7 +239,7 @@ class GossipSyncManager {
           if (!peerMessageIds.contains(tracked.messageId)) {
             messagesToSend.add(tracked.message);
             _logger.fine(
-              'Will send announcement: ${tracked.messageId.substring(0, 16)}...',
+              'Will send announcement: ${tracked.messageId.shortId()}...',
             );
           }
         }
@@ -256,21 +257,19 @@ class GossipSyncManager {
       // This would need conversion logic or callback
       // For now, log what we would send
       for (final queuedMsg in excessMessages) {
-        _logger.fine(
-          'Would send queued message: ${queuedMsg.id.substring(0, 16)}...',
-        );
+        _logger.fine('Would send queued message: ${queuedMsg.id.shortId()}...');
       }
 
       if (messagesToSend.isEmpty && excessMessages.isEmpty) {
         _logger.info(
-          '✅ Peer ${fromPeerID.substring(0, 8)}... is in sync (no messages to send)',
+          '✅ Peer ${fromPeerID.shortId(8)}... is in sync (no messages to send)',
         );
         return;
       }
 
       // STEP 5: Send missing messages
       _logger.info(
-        '📤 Sending ${messagesToSend.length} announcements + ${excessMessages.length} queued messages to ${fromPeerID.substring(0, 8)}...',
+        '📤 Sending ${messagesToSend.length} announcements + ${excessMessages.length} queued messages to ${fromPeerID.shortId(8)}...',
       );
 
       for (final message in messagesToSend) {
@@ -281,7 +280,7 @@ class GossipSyncManager {
       }
 
       _logger.info(
-        '✅ Sync complete - sent ${messagesToSend.length} messages to ${fromPeerID.substring(0, 8)}...',
+        '✅ Sync complete - sent ${messagesToSend.length} messages to ${fromPeerID.shortId(8)}...',
       );
     } catch (e) {
       _logger.severe('Failed to handle sync request from $fromPeerID: $e');
@@ -301,9 +300,7 @@ class GossipSyncManager {
   /// Remove announcement for a specific peer (when peer leaves)
   void removeAnnouncementForPeer(String peerID) {
     if (_latestAnnouncementByNode.remove(peerID) != null) {
-      _logger.info(
-        'Removed announcement for peer ${peerID.substring(0, 8)}...',
-      );
+      _logger.info('Removed announcement for peer ${peerID.shortId(8)}...');
     }
     // Note: Regular messages are managed by OfflineMessageQueue
   }
@@ -321,7 +318,7 @@ class GossipSyncManager {
           _latestAnnouncementByNode.length + queueStats.pendingMessages,
       'syncIntervalSeconds': syncInterval.inSeconds,
       'isRunning': _periodicSyncTimer?.isActive ?? false,
-      'queueHash': hash.length > 16 ? hash.substring(0, 16) : hash,
+      'queueHash': hash.length > 16 ? hash.shortId() : hash,
       // Phase 3: Emergency mode stats
       'batteryLevel': _batteryLevel,
       'isCharging': _isCharging,
@@ -394,7 +391,7 @@ class GossipSyncManager {
       final syncMessage = _buildSyncRequest();
 
       _logger.info(
-        '📡 Sending sync request to ${peerID.substring(0, 8)}... (${syncMessage.messageIds.length} known messages)',
+        '📡 Sending sync request to ${peerID.shortId(8)}... (${syncMessage.messageIds.length} known messages)',
       );
 
       onSendSyncToPeer?.call(peerID, syncMessage);

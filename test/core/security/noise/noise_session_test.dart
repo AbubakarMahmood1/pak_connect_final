@@ -390,8 +390,10 @@ void main() {
         localStaticPublicKey: bobStaticPublic,
       );
 
-      // Valid message A
+      // Valid message A (should be accepted without throwing)
       final messageA = await alice.startHandshake();
+      final validResponse = await bob.processHandshakeMessage(messageA);
+      expect(validResponse, isNotNull);
 
       // Test: Bob receives truncated message A
       expect(

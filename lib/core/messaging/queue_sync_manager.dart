@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 import '../models/mesh_relay_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'offline_message_queue.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Manages queue synchronization between mesh network nodes
 class QueueSyncManager {
@@ -66,9 +67,7 @@ class QueueSyncManager {
     await _loadSyncStats();
     _startCleanupTimer();
 
-    final truncatedNodeId = _nodeId.length > 16
-        ? _nodeId.substring(0, 16)
-        : _nodeId;
+    final truncatedNodeId = _nodeId.length > 16 ? _nodeId.shortId() : _nodeId;
     _logger.info(
       'Queue sync manager initialized for node: $truncatedNodeId...',
     );
@@ -119,7 +118,7 @@ class QueueSyncManager {
     String fromNodeId,
   ) async {
     final truncatedNodeId = fromNodeId.length > 16
-        ? fromNodeId.substring(0, 16)
+        ? fromNodeId.shortId()
         : fromNodeId;
     _logger.info('Handling sync request from $truncatedNodeId...');
 
@@ -368,7 +367,7 @@ class QueueSyncManager {
       await _messageQueue.addSyncedMessage(message);
     } catch (e) {
       final truncatedId = message.id.length > 16
-          ? message.id.substring(0, 16)
+          ? message.id.shortId()
           : message.id;
       _logger.warning('Failed to add synced message $truncatedId...: $e');
     }
