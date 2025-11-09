@@ -17,65 +17,75 @@ void main() {
       stateManager = BLEStateManager();
     });
 
-    test('UserPreferences should update username and notify listeners', () async {
-      // Setup
-      final String testUsername = 'TestUser${DateTime.now().millisecondsSinceEpoch}';
-      String? receivedUsername;
-      
-      // Listen to username stream
-      final subscription = UserPreferences.usernameStream.listen((username) {
-        receivedUsername = username;
-      });
+    test(
+      'UserPreferences should update username and notify listeners',
+      () async {
+        // Setup
+        final String testUsername =
+            'TestUser${DateTime.now().millisecondsSinceEpoch}';
+        String? receivedUsername;
 
-      // Test
-      await userPreferences.setUserName(testUsername);
-      
-      // Allow stream to emit
-      await Future.delayed(Duration(milliseconds: 100));
+        // Listen to username stream
+        final subscription = UserPreferences.usernameStream.listen((username) {
+          receivedUsername = username;
+        });
 
-      // Verify
-      expect(receivedUsername, equals(testUsername));
-      
-      // Verify storage
-      final storedUsername = await userPreferences.getUserName();
-      expect(storedUsername, equals(testUsername));
+        // Test
+        await userPreferences.setUserName(testUsername);
 
-      // Cleanup
-      await subscription.cancel();
-    });
+        // Allow stream to emit
+        await Future.delayed(Duration(milliseconds: 100));
 
-    test('BLEStateManager should trigger callback on username change', () async {
-      // Setup
-      final String testUsername = 'CallbackTest${DateTime.now().millisecondsSinceEpoch}';
-      String? callbackUsername;
-      
-      stateManager.onMyUsernameChanged = (username) {
-        callbackUsername = username;
-      };
+        // Verify
+        expect(receivedUsername, equals(testUsername));
 
-      // Test
-      await stateManager.setMyUserName(testUsername);
+        // Verify storage
+        final storedUsername = await userPreferences.getUserName();
+        expect(storedUsername, equals(testUsername));
 
-      // Verify
-      expect(stateManager.myUserName, equals(testUsername));
-      expect(callbackUsername, equals(testUsername));
-    });
+        // Cleanup
+        await subscription.cancel();
+      },
+    );
+
+    test(
+      'BLEStateManager should trigger callback on username change',
+      () async {
+        // Setup
+        final String testUsername =
+            'CallbackTest${DateTime.now().millisecondsSinceEpoch}';
+        String? callbackUsername;
+
+        stateManager.onMyUsernameChanged = (username) {
+          callbackUsername = username;
+        };
+
+        // Test
+        await stateManager.setMyUserName(testUsername);
+
+        // Verify
+        expect(stateManager.myUserName, equals(testUsername));
+        expect(callbackUsername, equals(testUsername));
+      },
+    );
 
     test('Username should be properly cached and invalidated', () async {
       // Setup
-      final String initialUsername = 'Initial${DateTime.now().millisecondsSinceEpoch}';
-      final String updatedUsername = 'Updated${DateTime.now().millisecondsSinceEpoch}';
-      
+      final String initialUsername =
+          'Initial${DateTime.now().millisecondsSinceEpoch}';
+      final String updatedUsername =
+          'Updated${DateTime.now().millisecondsSinceEpoch}';
+
       // Set initial username
       await stateManager.setMyUserName(initialUsername);
       expect(stateManager.myUserName, equals(initialUsername));
-      
+
       // Update username with callbacks
       await stateManager.setMyUserNameWithCallbacks(updatedUsername);
-      
+
       // Verify cache is invalidated and updated
       expect(stateManager.myUserName, equals(updatedUsername));
-      
+
       // Verify storage is consistent
       final storedUsername = await userPreferences.getUserName();
       expect(storedUsername, equals(updatedUsername));

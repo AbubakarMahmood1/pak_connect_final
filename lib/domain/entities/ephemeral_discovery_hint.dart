@@ -61,7 +61,10 @@ class EphemeralDiscoveryHint {
   bool get isUsable => isActive && !isExpired;
 
   /// Get hint as hex string
-  String get hintHex => hintBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join().toUpperCase();
+  String get hintHex => hintBytes
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join()
+      .toUpperCase();
 
   /// Generate QR code data
   Map<String, dynamic> toQRData() {
@@ -91,7 +94,9 @@ class EphemeralDiscoveryHint {
 
       final hintHex = data['hint'] as String;
       final hintBytes = _hexToBytes(hintHex);
-      final expiresAt = DateTime.fromMillisecondsSinceEpoch(data['expires'] as int);
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+        data['expires'] as int,
+      );
 
       return EphemeralDiscoveryHint(
         hintBytes: hintBytes,
@@ -137,7 +142,9 @@ class EphemeralDiscoveryHint {
   /// Generate secure random bytes using cryptographic RNG
   static Uint8List _generateSecureRandomBytes(int length) {
     final random = Random.secure();
-    return Uint8List.fromList(List<int>.generate(length, (_) => random.nextInt(256)));
+    return Uint8List.fromList(
+      List<int>.generate(length, (_) => random.nextInt(256)),
+    );
   }
 
   /// Generate unique hint ID from bytes
@@ -157,7 +164,7 @@ class EphemeralDiscoveryHint {
   @override
   String toString() {
     return 'EphemeralDiscoveryHint(id: $hintId, hex: $hintHex, '
-           'expires: $expiresAt, active: $isActive)';
+        'expires: $expiresAt, active: $isActive)';
   }
 
   @override

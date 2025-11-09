@@ -28,76 +28,109 @@ void main() {
       mockMessageStreamController.close();
     });
 
-    testWidgets('Messages survive ChatScreen dispose/recreate cycles', (WidgetTester tester) async {}, skip: true); // Requires full BLE infrastructure
+    testWidgets(
+      'Messages survive ChatScreen dispose/recreate cycles',
+      (WidgetTester tester) async {},
+      skip: true,
+    ); // Requires full BLE infrastructure
 
-    testWidgets('SecurityStateProvider caching prevents excessive recreations', (WidgetTester tester) async {}, skip: true); // Requires full BLE infrastructure
+    testWidgets(
+      'SecurityStateProvider caching prevents excessive recreations',
+      (WidgetTester tester) async {},
+      skip: true,
+    ); // Requires full BLE infrastructure
 
-    test('PersistentChatStateManager handles multiple chats correctly', () async {
-      const chat1Id = 'chat_1';
-      const chat2Id = 'chat_2';
-      
-      final stream1Controller = StreamController<String>.broadcast();
-      final stream2Controller = StreamController<String>.broadcast();
-      
-      final receivedMessages1 = <String>[];
-      final receivedMessages2 = <String>[];
+    test(
+      'PersistentChatStateManager handles multiple chats correctly',
+      () async {
+        const chat1Id = 'chat_1';
+        const chat2Id = 'chat_2';
 
-      // Setup persistent listeners for both chats
-      persistentManager.setupPersistentListener(chat1Id, stream1Controller.stream);
-      persistentManager.setupPersistentListener(chat2Id, stream2Controller.stream);
+        final stream1Controller = StreamController<String>.broadcast();
+        final stream2Controller = StreamController<String>.broadcast();
 
-      // Register handlers
-      persistentManager.registerChatScreen(chat1Id, (message) => receivedMessages1.add(message));
-      persistentManager.registerChatScreen(chat2Id, (message) => receivedMessages2.add(message));
+        final receivedMessages1 = <String>[];
+        final receivedMessages2 = <String>[];
 
-      // Send messages to both chats
-      stream1Controller.add('Message to chat 1');
-      stream2Controller.add('Message to chat 2');
-      
-      await Future.delayed(Duration(milliseconds: 100));
+        // Setup persistent listeners for both chats
+        persistentManager.setupPersistentListener(
+          chat1Id,
+          stream1Controller.stream,
+        );
+        persistentManager.setupPersistentListener(
+          chat2Id,
+          stream2Controller.stream,
+        );
 
-      expect(receivedMessages1, contains('Message to chat 1'));
-      expect(receivedMessages2, contains('Message to chat 2'));
-      expect(receivedMessages1.length, equals(1));
-      expect(receivedMessages2.length, equals(1));
+        // Register handlers
+        persistentManager.registerChatScreen(
+          chat1Id,
+          (message) => receivedMessages1.add(message),
+        );
+        persistentManager.registerChatScreen(
+          chat2Id,
+          (message) => receivedMessages2.add(message),
+        );
 
-      // Unregister chat 1 (simulate navigation away)
-      persistentManager.unregisterChatScreen(chat1Id);
+        // Send messages to both chats
+        stream1Controller.add('Message to chat 1');
+        stream2Controller.add('Message to chat 2');
 
-      // Send more messages
-      stream1Controller.add('Buffered message to chat 1');
-      stream2Controller.add('Direct message to chat 2');
-      
-      await Future.delayed(Duration(milliseconds: 100));
+        await Future.delayed(Duration(milliseconds: 100));
 
-      // Chat 1 message should be buffered, chat 2 delivered directly
-      expect(persistentManager.getBufferedMessageCount(chat1Id), equals(1));
-      expect(receivedMessages2, contains('Direct message to chat 2'));
-      expect(receivedMessages2.length, equals(2));
+        expect(receivedMessages1, contains('Message to chat 1'));
+        expect(receivedMessages2, contains('Message to chat 2'));
+        expect(receivedMessages1.length, equals(1));
+        expect(receivedMessages2.length, equals(1));
 
-      // Re-register chat 1
-      receivedMessages1.clear();
-      persistentManager.registerChatScreen(chat1Id, (message) => receivedMessages1.add(message));
-      
-      await Future.delayed(Duration(milliseconds: 100));
+        // Unregister chat 1 (simulate navigation away)
+        persistentManager.unregisterChatScreen(chat1Id);
 
-      // Buffered message should now be delivered
-      expect(receivedMessages1, contains('Buffered message to chat 1'));
-      expect(persistentManager.getBufferedMessageCount(chat1Id), equals(0));
+        // Send more messages
+        stream1Controller.add('Buffered message to chat 1');
+        stream2Controller.add('Direct message to chat 2');
 
-      stream1Controller.close();
-      stream2Controller.close();
-      
-      print('✅ Multi-chat persistence verified');
-    });
+        await Future.delayed(Duration(milliseconds: 100));
 
-    test('Debug info provides accurate state information', () {}, skip: true); // Database persistence not fully mocked
+        // Chat 1 message should be buffered, chat 2 delivered directly
+        expect(persistentManager.getBufferedMessageCount(chat1Id), equals(1));
+        expect(receivedMessages2, contains('Direct message to chat 2'));
+        expect(receivedMessages2.length, equals(2));
+
+        // Re-register chat 1
+        receivedMessages1.clear();
+        persistentManager.registerChatScreen(
+          chat1Id,
+          (message) => receivedMessages1.add(message),
+        );
+
+        await Future.delayed(Duration(milliseconds: 100));
+
+        // Buffered message should now be delivered
+        expect(receivedMessages1, contains('Buffered message to chat 1'));
+        expect(persistentManager.getBufferedMessageCount(chat1Id), equals(0));
+
+        stream1Controller.close();
+        stream2Controller.close();
+
+        print('✅ Multi-chat persistence verified');
+      },
+    );
+
+    test(
+      'Debug info provides accurate state information',
+      () {},
+      skip: true,
+    ); // Database persistence not fully mocked
 
     test('Debug info provides accurate state information - NO DB VERSION', () {
       const testChatId = 'debug_chat_no_db';
       final streamController = StreamController<String>.broadcast();
 
-      persistentManager.setupPersistentListener(testChatId, streamController.stream);
+      persistentManager.setupPersistentListener(
+        testChatId,
+        streamController.stream,
+      );
       persistentManager.registerChatScreen(testChatId, (message) {});
 
       final debugInfo = persistentManager.getDebugInfo();

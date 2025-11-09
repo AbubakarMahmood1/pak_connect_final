@@ -15,7 +15,7 @@ class ImportDialog extends StatefulWidget {
 
 class _ImportDialogState extends State<ImportDialog> {
   final _passphraseController = TextEditingController();
-  
+
   String? _selectedFilePath;
   bool _obscurePassphrase = true;
   bool _isValidating = false;
@@ -24,13 +24,13 @@ class _ImportDialogState extends State<ImportDialog> {
   String? _errorMessage;
   bool _importComplete = false;
   int? _recordsRestored;
-  
+
   @override
   void dispose() {
     _passphraseController.dispose();
     super.dispose();
   }
-  
+
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -38,7 +38,7 @@ class _ImportDialogState extends State<ImportDialog> {
         allowedExtensions: ['pakconnect'],
         dialogTitle: 'Select PakConnect Backup',
       );
-      
+
       if (result != null && result.files.single.path != null) {
         setState(() {
           _selectedFilePath = result.files.single.path;
@@ -52,24 +52,24 @@ class _ImportDialogState extends State<ImportDialog> {
       });
     }
   }
-  
+
   Future<void> _validateBundle() async {
     if (_selectedFilePath == null || _passphraseController.text.isEmpty) {
       return;
     }
-    
+
     setState(() {
       _isValidating = true;
       _errorMessage = null;
       _bundleInfo = null;
     });
-    
+
     try {
       final validation = await ImportService.validateBundle(
         bundlePath: _selectedFilePath!,
         userPassphrase: _passphraseController.text,
       );
-      
+
       if (validation['valid'] == true) {
         setState(() {
           _bundleInfo = validation;
@@ -89,12 +89,12 @@ class _ImportDialogState extends State<ImportDialog> {
       });
     }
   }
-  
+
   Future<void> _performImport() async {
     if (_selectedFilePath == null || _passphraseController.text.isEmpty) {
       return;
     }
-    
+
     // Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
@@ -118,29 +118,27 @@ class _ImportDialogState extends State<ImportDialog> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
             child: const Text('Import Anyway'),
           ),
         ],
       ),
     );
-    
+
     if (confirmed != true) return;
-    
+
     setState(() {
       _isImporting = true;
       _errorMessage = null;
     });
-    
+
     try {
       final result = await ImportService.importBundle(
         bundlePath: _selectedFilePath!,
         userPassphrase: _passphraseController.text,
         clearExistingData: true,
       );
-      
+
       if (result.success) {
         setState(() {
           _importComplete = true;
@@ -161,11 +159,11 @@ class _ImportDialogState extends State<ImportDialog> {
       });
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return AlertDialog(
       title: const Row(
         children: [
@@ -182,12 +180,10 @@ class _ImportDialogState extends State<ImportDialog> {
               : _buildImportForm(theme),
         ),
       ),
-      actions: _importComplete
-          ? _buildSuccessActions()
-          : _buildImportActions(),
+      actions: _importComplete ? _buildSuccessActions() : _buildImportActions(),
     );
   }
-  
+
   Widget _buildImportForm(ThemeData theme) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -204,36 +200,37 @@ class _ImportDialogState extends State<ImportDialog> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange[700], size: 20),
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.orange[700],
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Importing will replace all your current data. '
                   'Make sure you have the correct backup file.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.orange[900],
-                  ),
+                  style: TextStyle(fontSize: 13, color: Colors.orange[900]),
                 ),
               ),
             ],
           ),
         ),
-        
+
         const SizedBox(height: 20),
-        
+
         // File selection
         OutlinedButton.icon(
           onPressed: _isValidating || _isImporting ? null : _pickFile,
           icon: const Icon(Icons.folder_open_rounded),
-          label: Text(_selectedFilePath == null
-              ? 'Select Backup File'
-              : 'Change File'),
+          label: Text(
+            _selectedFilePath == null ? 'Select Backup File' : 'Change File',
+          ),
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(double.infinity, 48),
           ),
         ),
-        
+
         if (_selectedFilePath != null) ...[
           const SizedBox(height: 8),
           Container(
@@ -260,9 +257,9 @@ class _ImportDialogState extends State<ImportDialog> {
             ),
           ),
         ],
-        
+
         const SizedBox(height: 16),
-        
+
         // Passphrase field
         TextField(
           controller: _passphraseController,
@@ -293,13 +290,16 @@ class _ImportDialogState extends State<ImportDialog> {
           },
           onSubmitted: (_) => _validateBundle(),
         ),
-        
+
         const SizedBox(height: 12),
-        
+
         // Validate button
         if (_selectedFilePath != null && _bundleInfo == null)
           ElevatedButton.icon(
-            onPressed: _isValidating || _isImporting || _passphraseController.text.isEmpty
+            onPressed:
+                _isValidating ||
+                    _isImporting ||
+                    _passphraseController.text.isEmpty
                 ? null
                 : _validateBundle,
             icon: const Icon(Icons.verified_user_rounded, size: 18),
@@ -308,7 +308,7 @@ class _ImportDialogState extends State<ImportDialog> {
               minimumSize: const Size(double.infinity, 40),
             ),
           ),
-        
+
         // Bundle info (after validation)
         if (_bundleInfo != null) ...[
           const SizedBox(height: 16),
@@ -324,7 +324,11 @@ class _ImportDialogState extends State<ImportDialog> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.check_circle_rounded, color: Colors.green[700], size: 20),
+                    Icon(
+                      Icons.check_circle_rounded,
+                      color: Colors.green[700],
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       'Backup Validated',
@@ -336,15 +340,27 @@ class _ImportDialogState extends State<ImportDialog> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                _buildInfoRow('Username', _bundleInfo!['username'] ?? 'Unknown'),
-                _buildInfoRow('Device ID', _bundleInfo!['device_id'] ?? 'Unknown'),
-                _buildInfoRow('Date', _formatTimestamp(_bundleInfo!['timestamp'])),
-                _buildInfoRow('Records', '${_bundleInfo!['total_records'] ?? 0}'),
+                _buildInfoRow(
+                  'Username',
+                  _bundleInfo!['username'] ?? 'Unknown',
+                ),
+                _buildInfoRow(
+                  'Device ID',
+                  _bundleInfo!['device_id'] ?? 'Unknown',
+                ),
+                _buildInfoRow(
+                  'Date',
+                  _formatTimestamp(_bundleInfo!['timestamp']),
+                ),
+                _buildInfoRow(
+                  'Records',
+                  '${_bundleInfo!['total_records'] ?? 0}',
+                ),
               ],
             ),
           ),
         ],
-        
+
         // Error message
         if (_errorMessage != null) ...[
           const SizedBox(height: 16),
@@ -363,17 +379,14 @@ class _ImportDialogState extends State<ImportDialog> {
                 Expanded(
                   child: Text(
                     _errorMessage!,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.red[900],
-                    ),
+                    style: TextStyle(fontSize: 13, color: Colors.red[900]),
                   ),
                 ),
               ],
             ),
           ),
         ],
-        
+
         // Progress indicator
         if (_isValidating || _isImporting) ...[
           const SizedBox(height: 16),
@@ -382,9 +395,9 @@ class _ImportDialogState extends State<ImportDialog> {
               children: [
                 const CircularProgressIndicator(),
                 const SizedBox(height: 12),
-                Text(_isValidating
-                    ? 'Validating backup...'
-                    : 'Importing data...'),
+                Text(
+                  _isValidating ? 'Validating backup...' : 'Importing data...',
+                ),
               ],
             ),
           ),
@@ -392,7 +405,7 @@ class _ImportDialogState extends State<ImportDialog> {
       ],
     );
   }
-  
+
   Widget _buildInfoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -403,34 +416,26 @@ class _ImportDialogState extends State<ImportDialog> {
             width: 80,
             child: Text(
               '$label:',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 12),
-            ),
-          ),
+          Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
         ],
       ),
     );
   }
-  
+
   String _formatTimestamp(dynamic timestamp) {
     if (timestamp == null) return 'Unknown';
     try {
       final date = DateTime.parse(timestamp.toString());
       return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} '
-             '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+          '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
     } catch (e) {
       return timestamp.toString();
     }
   }
-  
+
   Widget _buildSuccessView(ThemeData theme) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -449,9 +454,9 @@ class _ImportDialogState extends State<ImportDialog> {
             size: 40,
           ),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Success message
         Text(
           'Import Successful!',
@@ -460,19 +465,17 @@ class _ImportDialogState extends State<ImportDialog> {
           ),
           textAlign: TextAlign.center,
         ),
-        
+
         const SizedBox(height: 8),
-        
+
         Text(
           'Your data has been restored.',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: Colors.grey[600],
-          ),
+          style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
           textAlign: TextAlign.center,
         ),
-        
+
         const SizedBox(height: 24),
-        
+
         // Stats
         Container(
           padding: const EdgeInsets.all(16),
@@ -493,17 +496,14 @@ class _ImportDialogState extends State<ImportDialog> {
               const SizedBox(height: 4),
               const Text(
                 'Records Restored',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey),
               ),
             ],
           ),
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Info note
         Container(
           padding: const EdgeInsets.all(12),
@@ -520,10 +520,7 @@ class _ImportDialogState extends State<ImportDialog> {
               Expanded(
                 child: Text(
                   'Please restart the app to ensure all data is properly loaded.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.blue[900],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.blue[900]),
                 ),
               ),
             ],
@@ -532,7 +529,7 @@ class _ImportDialogState extends State<ImportDialog> {
       ],
     );
   }
-  
+
   List<Widget> _buildImportActions() {
     return [
       TextButton(
@@ -549,7 +546,7 @@ class _ImportDialogState extends State<ImportDialog> {
       ),
     ];
   }
-  
+
   List<Widget> _buildSuccessActions() {
     return [
       ElevatedButton(

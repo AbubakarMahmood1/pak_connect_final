@@ -1,4 +1,4 @@
-// This file has been removed to prevent conflicts with the comprehensive 
+// This file has been removed to prevent conflicts with the comprehensive
 // OfflineMessageQueue implementation in lib/core/messaging/offline_message_queue.dart
 //
 // All message queue functionality is now unified in the offline_message_queue.dart file

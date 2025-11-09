@@ -9,7 +9,7 @@ import '../../domain/entities/enhanced_message.dart';
 /// Comprehensive demo utilities for mesh networking FYP demonstration
 class MeshDemoUtils {
   static final _logger = Logger('MeshDemoUtils');
-  
+
   /// Generate demo scenario for A→B→C relay
   static DemoScenario generateAToBtoCScenario({
     String? nodeAId,
@@ -20,11 +20,12 @@ class MeshDemoUtils {
     nodeAId ??= _generateDemoNodeId('NodeA');
     nodeBId ??= _generateDemoNodeId('NodeB');
     nodeCId ??= _generateDemoNodeId('NodeC');
-    
+
     final scenario = DemoScenario(
       id: 'a_to_b_to_c_${DateTime.now().millisecondsSinceEpoch}',
       name: 'A→B→C Relay Demonstration',
-      description: 'Demonstrates message relay from Node A to Node C through Node B',
+      description:
+          'Demonstrates message relay from Node A to Node C through Node B',
       type: DemoScenarioType.aToBtoC,
       nodes: [
         DemoNode(
@@ -91,11 +92,13 @@ class MeshDemoUtils {
         'demoComplexity': 'medium',
       },
     );
-    
-    _logger.info('Generated A→B→C demo scenario with nodes: $nodeAId → $nodeBId → $nodeCId');
+
+    _logger.info(
+      'Generated A→B→C demo scenario with nodes: $nodeAId → $nodeBId → $nodeCId',
+    );
     return scenario;
   }
-  
+
   /// Generate queue synchronization demo scenario
   static DemoScenario generateQueueSyncScenario({
     int nodeCount = 3,
@@ -103,41 +106,47 @@ class MeshDemoUtils {
   }) {
     final nodes = <DemoNode>[];
     final steps = <DemoStep>[];
-    
+
     // Generate nodes in a circular layout
     for (int i = 0; i < nodeCount; i++) {
       final angle = (2 * pi * i) / nodeCount;
       final x = 250 + 150 * cos(angle);
       final y = 250 + 150 * sin(angle);
-      
-      nodes.add(DemoNode(
-        id: _generateDemoNodeId('Node${String.fromCharCode(65 + i)}'),
-        name: 'Node ${String.fromCharCode(65 + i)}',
-        role: i == 0 ? DemoNodeRole.sender : DemoNodeRole.relay,
-        position: DemoPosition(x: x, y: y),
-        isCurrentUser: i == 0,
-        metadata: {'messageCount': messagesPerNode},
-      ));
+
+      nodes.add(
+        DemoNode(
+          id: _generateDemoNodeId('Node${String.fromCharCode(65 + i)}'),
+          name: 'Node ${String.fromCharCode(65 + i)}',
+          role: i == 0 ? DemoNodeRole.sender : DemoNodeRole.relay,
+          position: DemoPosition(x: x, y: y),
+          isCurrentUser: i == 0,
+          metadata: {'messageCount': messagesPerNode},
+        ),
+      );
     }
-    
+
     // Generate sync steps
     for (int i = 0; i < nodeCount; i++) {
       for (int j = i + 1; j < nodeCount; j++) {
-        steps.add(DemoStep(
-          id: 'sync_${i}_$j',
-          description: 'Sync queues between ${nodes[i].name} and ${nodes[j].name}',
-          fromNodeId: nodes[i].id,
-          toNodeId: nodes[j].id,
-          action: DemoAction.queueSync,
-          expectedDuration: const Duration(seconds: 3),
-        ));
+        steps.add(
+          DemoStep(
+            id: 'sync_${i}_$j',
+            description:
+                'Sync queues between ${nodes[i].name} and ${nodes[j].name}',
+            fromNodeId: nodes[i].id,
+            toNodeId: nodes[j].id,
+            action: DemoAction.queueSync,
+            expectedDuration: const Duration(seconds: 3),
+          ),
+        );
       }
     }
-    
+
     return DemoScenario(
       id: 'queue_sync_${DateTime.now().millisecondsSinceEpoch}',
       name: 'Queue Synchronization Demo',
-      description: 'Demonstrates queue synchronization between $nodeCount nodes',
+      description:
+          'Demonstrates queue synchronization between $nodeCount nodes',
       type: DemoScenarioType.queueSync,
       nodes: nodes,
       expectedSteps: steps,
@@ -149,7 +158,7 @@ class MeshDemoUtils {
       },
     );
   }
-  
+
   /// Generate spam prevention demo scenario
   static DemoScenario generateSpamPreventionScenario() {
     final attackerNode = DemoNode(
@@ -160,7 +169,7 @@ class MeshDemoUtils {
       isCurrentUser: false,
       metadata: {'isSpammer': true},
     );
-    
+
     final legitimateNode = DemoNode(
       id: _generateDemoNodeId('Legitimate'),
       name: 'Legitimate Node',
@@ -168,7 +177,7 @@ class MeshDemoUtils {
       position: const DemoPosition(x: 100, y: 300),
       isCurrentUser: true,
     );
-    
+
     final relayNode = DemoNode(
       id: _generateDemoNodeId('Relay'),
       name: 'Relay Node (Protected)',
@@ -176,11 +185,12 @@ class MeshDemoUtils {
       position: const DemoPosition(x: 400, y: 200),
       isCurrentUser: false,
     );
-    
+
     return DemoScenario(
       id: 'spam_prevention_${DateTime.now().millisecondsSinceEpoch}',
       name: 'Spam Prevention Demo',
-      description: 'Demonstrates spam prevention mechanisms blocking malicious traffic',
+      description:
+          'Demonstrates spam prevention mechanisms blocking malicious traffic',
       type: DemoScenarioType.spamPrevention,
       nodes: [attackerNode, legitimateNode, relayNode],
       expectedSteps: [
@@ -225,7 +235,7 @@ class MeshDemoUtils {
       },
     );
   }
-  
+
   /// Create demo messages for testing scenarios
   static List<DemoMessage> generateDemoMessages({
     required String senderId,
@@ -244,27 +254,29 @@ class MeshDemoUtils {
       'End-to-end mesh connectivity',
       'Mobile mesh networking demo',
     ];
-    
+
     for (int i = 0; i < count; i++) {
-      messages.add(DemoMessage(
-        id: 'demo_msg_${DateTime.now().millisecondsSinceEpoch}_$i',
-        senderId: senderId,
-        recipientId: recipientId,
-        content: demoTexts[i % demoTexts.length],
-        priority: priority,
-        timestamp: DateTime.now().add(Duration(seconds: i * 2)),
-        size: _calculateMessageSize(demoTexts[i % demoTexts.length]),
-        metadata: {
-          'isDemoMessage': true,
-          'sequenceNumber': i + 1,
-          'totalInBatch': count,
-        },
-      ));
+      messages.add(
+        DemoMessage(
+          id: 'demo_msg_${DateTime.now().millisecondsSinceEpoch}_$i',
+          senderId: senderId,
+          recipientId: recipientId,
+          content: demoTexts[i % demoTexts.length],
+          priority: priority,
+          timestamp: DateTime.now().add(Duration(seconds: i * 2)),
+          size: _calculateMessageSize(demoTexts[i % demoTexts.length]),
+          metadata: {
+            'isDemoMessage': true,
+            'sequenceNumber': i + 1,
+            'totalInBatch': count,
+          },
+        ),
+      );
     }
-    
+
     return messages;
   }
-  
+
   /// Generate performance metrics for demo evaluation
   static DemoPerformanceMetrics generatePerformanceMetrics({
     required DemoScenario scenario,
@@ -274,21 +286,27 @@ class MeshDemoUtils {
     final expectedDuration = scenario.expectedSteps
         .map((step) => step.expectedDuration)
         .fold(Duration.zero, (a, b) => a + b);
-    
+
     final efficiency = expectedDuration.inMilliseconds > 0
-        ? (expectedDuration.inMilliseconds / actualDuration.inMilliseconds).clamp(0.0, 2.0)
+        ? (expectedDuration.inMilliseconds / actualDuration.inMilliseconds)
+              .clamp(0.0, 2.0)
         : 1.0;
-    
+
     final completionRate = actualSteps.length / scenario.expectedSteps.length;
-    
-    final successfulSteps = actualSteps.where((step) =>
-        step.action == 'relay_forwarded' ||
-        step.action == 'message_delivered' ||
-        step.action == 'relay_initiated'
-    ).length;
-    
-    final successRate = actualSteps.isNotEmpty ? successfulSteps / actualSteps.length : 0.0;
-    
+
+    final successfulSteps = actualSteps
+        .where(
+          (step) =>
+              step.action == 'relay_forwarded' ||
+              step.action == 'message_delivered' ||
+              step.action == 'relay_initiated',
+        )
+        .length;
+
+    final successRate = actualSteps.isNotEmpty
+        ? successfulSteps / actualSteps.length
+        : 0.0;
+
     return DemoPerformanceMetrics(
       scenarioId: scenario.id,
       expectedDuration: expectedDuration,
@@ -299,17 +317,24 @@ class MeshDemoUtils {
       totalSteps: actualSteps.length,
       successfulSteps: successfulSteps,
       averageStepDuration: actualSteps.isNotEmpty
-          ? Duration(milliseconds: actualDuration.inMilliseconds ~/ actualSteps.length)
+          ? Duration(
+              milliseconds: actualDuration.inMilliseconds ~/ actualSteps.length,
+            )
           : Duration.zero,
       metrics: {
-        'throughput': '${(successfulSteps / actualDuration.inSeconds).toStringAsFixed(2)} steps/sec',
+        'throughput':
+            '${(successfulSteps / actualDuration.inSeconds).toStringAsFixed(2)} steps/sec',
         'reliability': '${(successRate * 100).toStringAsFixed(1)}%',
         'performance': efficiency > 1.0 ? 'Above Expected' : 'As Expected',
-        'grade': _calculatePerformanceGrade(efficiency, completionRate, successRate),
+        'grade': _calculatePerformanceGrade(
+          efficiency,
+          completionRate,
+          successRate,
+        ),
       },
     );
   }
-  
+
   /// Create visualization data for demo UI
   static DemoVisualization createVisualization({
     required DemoScenario scenario,
@@ -318,34 +343,40 @@ class MeshDemoUtils {
   }) {
     final connections = <DemoConnection>[];
     final animations = <DemoAnimation>[];
-    
+
     // Create connections between nodes
     for (int i = 0; i < scenario.nodes.length - 1; i++) {
-      connections.add(DemoConnection(
-        fromNodeId: scenario.nodes[i].id,
-        toNodeId: scenario.nodes[i + 1].id,
-        connectionType: DemoConnectionType.relay,
-        isActive: activeSteps.any((step) =>
-            step.fromNode == scenario.nodes[i].id &&
-            step.toNode == scenario.nodes[i + 1].id),
-        strength: 0.8,
-      ));
+      connections.add(
+        DemoConnection(
+          fromNodeId: scenario.nodes[i].id,
+          toNodeId: scenario.nodes[i + 1].id,
+          connectionType: DemoConnectionType.relay,
+          isActive: activeSteps.any(
+            (step) =>
+                step.fromNode == scenario.nodes[i].id &&
+                step.toNode == scenario.nodes[i + 1].id,
+          ),
+          strength: 0.8,
+        ),
+      );
     }
-    
+
     // Create animations for active steps
     for (final step in activeSteps) {
       if (step.messageId == activeMessageId) {
-        animations.add(DemoAnimation(
-          id: 'anim_${step.messageId}',
-          fromNodeId: step.fromNode,
-          toNodeId: step.toNode,
-          animationType: DemoAnimationType.messageFlow,
-          duration: const Duration(seconds: 2),
-          progress: 0.5, // Halfway through animation
-        ));
+        animations.add(
+          DemoAnimation(
+            id: 'anim_${step.messageId}',
+            fromNodeId: step.fromNode,
+            toNodeId: step.toNode,
+            animationType: DemoAnimationType.messageFlow,
+            duration: const Duration(seconds: 2),
+            progress: 0.5, // Halfway through animation
+          ),
+        );
       }
     }
-    
+
     return DemoVisualization(
       scenarioId: scenario.id,
       nodes: scenario.nodes,
@@ -355,25 +386,23 @@ class MeshDemoUtils {
       timestamp: DateTime.now(),
     );
   }
-  
+
   /// Generate demo statistics for FYP evaluation
   static DemoStatistics calculateDemoStatistics({
     required List<DemoScenario> completedScenarios,
     required Duration totalDemoTime,
   }) {
     final totalScenarios = completedScenarios.length;
-    final totalSteps = completedScenarios
-        .expand((s) => s.expectedSteps)
-        .length;
-    
+    final totalSteps = completedScenarios.expand((s) => s.expectedSteps).length;
+
     final totalMessages = completedScenarios
         .map((s) => s.metadata['totalMessages'] as int? ?? 0)
         .fold(0, (a, b) => a + b);
-    
+
     final averageScenarioDuration = totalScenarios > 0
         ? Duration(milliseconds: totalDemoTime.inMilliseconds ~/ totalScenarios)
         : Duration.zero;
-    
+
     return DemoStatistics(
       totalScenarios: totalScenarios,
       totalSteps: totalSteps,
@@ -398,20 +427,24 @@ class MeshDemoUtils {
       },
     );
   }
-  
+
   // Private helper methods
-  
+
   static String _generateDemoNodeId(String baseName) {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final random = Random().nextInt(1000);
     return '${baseName.toLowerCase()}_demo_${timestamp}_$random';
   }
-  
+
   static int _calculateMessageSize(String content) {
     return content.length * 2; // Approximate bytes (UTF-16)
   }
-  
-  static String _calculatePerformanceGrade(double efficiency, double completionRate, double successRate) {
+
+  static String _calculatePerformanceGrade(
+    double efficiency,
+    double completionRate,
+    double successRate,
+  ) {
     final score = (efficiency * 0.4 + completionRate * 0.3 + successRate * 0.3);
     if (score >= 0.9) return 'A';
     if (score >= 0.8) return 'B';
@@ -434,7 +467,7 @@ class DemoScenario {
   final List<DemoNode> nodes;
   final List<DemoStep> expectedSteps;
   final Map<String, dynamic> metadata;
-  
+
   const DemoScenario({
     required this.id,
     required this.name,
@@ -444,25 +477,25 @@ class DemoScenario {
     required this.expectedSteps,
     required this.metadata,
   });
-  
+
   Duration get totalExpectedDuration {
     return expectedSteps
         .map((step) => step.expectedDuration)
         .fold(Duration.zero, (a, b) => a + b);
   }
-  
+
   DemoNode? getNodeById(String nodeId) {
     return nodes.where((node) => node.id == nodeId).firstOrNull;
   }
-  
+
   List<DemoNode> get senderNodes {
     return nodes.where((node) => node.role == DemoNodeRole.sender).toList();
   }
-  
+
   List<DemoNode> get relayNodes {
     return nodes.where((node) => node.role == DemoNodeRole.relay).toList();
   }
-  
+
   List<DemoNode> get recipientNodes {
     return nodes.where((node) => node.role == DemoNodeRole.recipient).toList();
   }
@@ -476,7 +509,7 @@ class DemoNode {
   final DemoPosition position;
   final bool isCurrentUser;
   final Map<String, dynamic>? metadata;
-  
+
   const DemoNode({
     required this.id,
     required this.name,
@@ -485,7 +518,7 @@ class DemoNode {
     required this.isCurrentUser,
     this.metadata,
   });
-  
+
   DemoNode copyWith({
     String? id,
     String? name,
@@ -509,7 +542,7 @@ class DemoNode {
 class DemoPosition {
   final double x;
   final double y;
-  
+
   const DemoPosition({required this.x, required this.y});
 }
 
@@ -521,7 +554,7 @@ class DemoStep {
   final String toNodeId;
   final DemoAction action;
   final Duration expectedDuration;
-  
+
   const DemoStep({
     required this.id,
     required this.description,
@@ -542,7 +575,7 @@ class DemoMessage {
   final DateTime timestamp;
   final int size;
   final Map<String, dynamic> metadata;
-  
+
   const DemoMessage({
     required this.id,
     required this.senderId,
@@ -567,7 +600,7 @@ class DemoPerformanceMetrics {
   final int successfulSteps;
   final Duration averageStepDuration;
   final Map<String, String> metrics;
-  
+
   const DemoPerformanceMetrics({
     required this.scenarioId,
     required this.expectedDuration,
@@ -580,8 +613,9 @@ class DemoPerformanceMetrics {
     required this.averageStepDuration,
     required this.metrics,
   });
-  
-  bool get performedWell => efficiency > 0.8 && completionRate > 0.9 && successRate > 0.8;
+
+  bool get performedWell =>
+      efficiency > 0.8 && completionRate > 0.9 && successRate > 0.8;
 }
 
 /// Visualization data for demo UI
@@ -592,7 +626,7 @@ class DemoVisualization {
   final List<DemoAnimation> animations;
   final String? activeMessageId;
   final DateTime timestamp;
-  
+
   const DemoVisualization({
     required this.scenarioId,
     required this.nodes,
@@ -610,7 +644,7 @@ class DemoConnection {
   final DemoConnectionType connectionType;
   final bool isActive;
   final double strength;
-  
+
   const DemoConnection({
     required this.fromNodeId,
     required this.toNodeId,
@@ -628,7 +662,7 @@ class DemoAnimation {
   final DemoAnimationType animationType;
   final Duration duration;
   final double progress;
-  
+
   const DemoAnimation({
     required this.id,
     required this.fromNodeId,
@@ -649,7 +683,7 @@ class DemoStatistics {
   final int scenarioTypes;
   final List<String> capabilities;
   final Map<String, dynamic> achievements;
-  
+
   const DemoStatistics({
     required this.totalScenarios,
     required this.totalSteps,
@@ -664,8 +698,19 @@ class DemoStatistics {
 
 // Enums
 enum DemoNodeRole { sender, relay, recipient, attacker }
-enum DemoAction { sendMessage, relayDecision, relayMessage, deliverMessage, queueSync, spamAttempt, spamBlocked }
+
+enum DemoAction {
+  sendMessage,
+  relayDecision,
+  relayMessage,
+  deliverMessage,
+  queueSync,
+  spamAttempt,
+  spamBlocked,
+}
+
 enum DemoConnectionType { direct, relay, sync }
+
 enum DemoAnimationType { messageFlow, dataSync, spamBlock }
 
 // Extension for null safety

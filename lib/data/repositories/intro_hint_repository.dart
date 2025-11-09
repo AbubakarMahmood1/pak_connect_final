@@ -25,7 +25,9 @@ class IntroHintRepository {
 
     try {
       final List<dynamic> list = jsonDecode(json);
-      final hints = list.map((data) => EphemeralDiscoveryHint.fromMap(data)).toList();
+      final hints = list
+          .map((data) => EphemeralDiscoveryHint.fromMap(data))
+          .toList();
 
       // Filter out expired hints
       final activeHints = hints.where((h) => h.isUsable).toList();
@@ -99,7 +101,9 @@ class IntroHintRepository {
     hints[hint.hintHex] = hint;
 
     await _saveScannedHints(hints);
-    _logger.info('💾 Saved scanned intro hint: ${hint.hintHex} (${hint.displayName})');
+    _logger.info(
+      '💾 Saved scanned intro hint: ${hint.hintHex} (${hint.displayName})',
+    );
   }
 
   /// Remove a scanned hint (after successful pairing)
@@ -119,7 +123,9 @@ class IntroHintRepository {
     final activeMyHints = myHints.where((h) => h.isUsable).toList();
     if (activeMyHints.length != myHints.length) {
       await _saveMyActiveHints(activeMyHints);
-      _logger.info('🧹 Cleaned up ${myHints.length - activeMyHints.length} expired active hints');
+      _logger.info(
+        '🧹 Cleaned up ${myHints.length - activeMyHints.length} expired active hints',
+      );
     }
 
     // Clean up scanned hints
@@ -129,7 +135,9 @@ class IntroHintRepository {
     );
     if (activeScanned.length != scannedHints.length) {
       await _saveScannedHints(activeScanned);
-      _logger.info('🧹 Cleaned up ${scannedHints.length - activeScanned.length} expired scanned hints');
+      _logger.info(
+        '🧹 Cleaned up ${scannedHints.length - activeScanned.length} expired scanned hints',
+      );
     }
   }
 
@@ -155,7 +163,9 @@ class IntroHintRepository {
     await prefs.setString(_myActiveHintsKey, json);
   }
 
-  Future<void> _saveScannedHints(Map<String, EphemeralDiscoveryHint> hints) async {
+  Future<void> _saveScannedHints(
+    Map<String, EphemeralDiscoveryHint> hints,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final map = hints.map((key, hint) => MapEntry(key, hint.toMap()));
     final json = jsonEncode(map);

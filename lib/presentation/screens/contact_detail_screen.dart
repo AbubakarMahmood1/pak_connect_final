@@ -11,17 +11,16 @@ import '../widgets/contact_avatar.dart';
 import '../widgets/security_level_badge.dart' as security_badge;
 import '../widgets/trust_status_badge.dart' as trust_badge;
 import 'chat_screen.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class ContactDetailScreen extends ConsumerStatefulWidget {
   final String publicKey;
 
-  const ContactDetailScreen({
-    super.key,
-    required this.publicKey,
-  });
+  const ContactDetailScreen({super.key, required this.publicKey});
 
   @override
-  ConsumerState<ContactDetailScreen> createState() => _ContactDetailScreenState();
+  ConsumerState<ContactDetailScreen> createState() =>
+      _ContactDetailScreenState();
 }
 
 class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
@@ -54,7 +53,9 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
     if (confirmed != true) return;
 
     // Perform verification
-    final success = await ref.read(verifyContactProvider(widget.publicKey).future);
+    final success = await ref.read(
+      verifyContactProvider(widget.publicKey).future,
+    );
 
     if (!mounted) return;
 
@@ -117,7 +118,9 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
     setState(() => _isDeleting = true);
 
     try {
-      final result = await ref.read(deleteContactProvider(widget.publicKey).future);
+      final result = await ref.read(
+        deleteContactProvider(widget.publicKey).future,
+      );
 
       if (!mounted) return;
 
@@ -125,10 +128,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
         messenger.showSnackBar(
           SnackBar(
             content: Text('${contact.displayName} deleted'),
-            action: SnackBarAction(
-              label: 'OK',
-              onPressed: () {},
-            ),
+            action: SnackBarAction(label: 'OK', onPressed: () {}),
           ),
         );
         navigator.pop(); // Go back to contacts list
@@ -191,9 +191,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
 
       if (success) {
         messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Security reset to low level'),
-          ),
+          const SnackBar(content: Text('Security reset to low level')),
         );
         // Refresh the detail view
         ref.invalidate(contactDetailProvider(widget.publicKey));
@@ -208,10 +206,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -248,72 +243,75 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
         title: const Text('Contact Details'),
         actions: [
           contactAsync.whenOrNull(
-            data: (contact) => contact != null
-                ? PopupMenuButton<String>(
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'verify':
-                          _verifyContact();
-                          break;
-                        case 'reset':
-                          _resetSecurity(contact);
-                          break;
-                        case 'copy':
-                          _copyPublicKey();
-                          break;
-                        case 'delete':
-                          _deleteContact(contact);
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      if (contact.trustStatus != TrustStatus.verified)
-                        const PopupMenuItem(
-                          value: 'verify',
-                          child: Row(
-                            children: [
-                              Icon(Icons.verified),
-                              SizedBox(width: 8),
-                              Text('Verify Contact'),
-                            ],
+                data: (contact) => contact != null
+                    ? PopupMenuButton<String>(
+                        onSelected: (value) {
+                          switch (value) {
+                            case 'verify':
+                              _verifyContact();
+                              break;
+                            case 'reset':
+                              _resetSecurity(contact);
+                              break;
+                            case 'copy':
+                              _copyPublicKey();
+                              break;
+                            case 'delete':
+                              _deleteContact(contact);
+                              break;
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          if (contact.trustStatus != TrustStatus.verified)
+                            const PopupMenuItem(
+                              value: 'verify',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.verified),
+                                  SizedBox(width: 8),
+                                  Text('Verify Contact'),
+                                ],
+                              ),
+                            ),
+                          const PopupMenuItem(
+                            value: 'copy',
+                            child: Row(
+                              children: [
+                                Icon(Icons.copy),
+                                SizedBox(width: 8),
+                                Text('Copy Public Key'),
+                              ],
+                            ),
                           ),
-                        ),
-                      const PopupMenuItem(
-                        value: 'copy',
-                        child: Row(
-                          children: [
-                            Icon(Icons.copy),
-                            SizedBox(width: 8),
-                            Text('Copy Public Key'),
-                          ],
-                        ),
-                      ),
-                      if (contact.securityLevel != SecurityLevel.low)
-                        const PopupMenuItem(
-                          value: 'reset',
-                          child: Row(
-                            children: [
-                              Icon(Icons.security),
-                              SizedBox(width: 8),
-                              Text('Reset Security'),
-                            ],
+                          if (contact.securityLevel != SecurityLevel.low)
+                            const PopupMenuItem(
+                              value: 'reset',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.security),
+                                  SizedBox(width: 8),
+                                  Text('Reset Security'),
+                                ],
+                              ),
+                            ),
+                          const PopupMenuDivider(),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(Icons.delete, color: Colors.red),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Delete Contact',
+                                  style: TextStyle(color: Colors.red),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Delete Contact', style: TextStyle(color: Colors.red)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : null,
-          ) ??
+                        ],
+                      )
+                    : null,
+              ) ??
               const SizedBox.shrink(),
         ],
       ),
@@ -330,10 +328,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                   const SizedBox(height: 16),
-                  Text(
-                    'Contact not found',
-                    style: theme.textTheme.titleLarge,
-                  ),
+                  Text('Contact not found', style: theme.textTheme.titleLarge),
                   const SizedBox(height: 24),
                   FilledButton(
                     onPressed: () => Navigator.pop(context),
@@ -357,10 +352,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
                 color: theme.colorScheme.error,
               ),
               const SizedBox(height: 16),
-              Text(
-                'Failed to load contact',
-                style: theme.textTheme.titleLarge,
-              ),
+              Text('Failed to load contact', style: theme.textTheme.titleLarge),
               const SizedBox(height: 8),
               Text(
                 error.toString(),
@@ -410,7 +402,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
               children: [
                 Flexible(
                   child: Text(
-                    'Key: ${contact.publicKey.substring(0, 32)}...',
+                    'Key: ${contact.publicKey.shortId(32)}...',
                     style: theme.textTheme.labelSmall?.copyWith(
                       fontFamily: 'monospace',
                       color: theme.colorScheme.onSurfaceVariant,
@@ -482,7 +474,9 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.errorContainer.withValues(alpha: 0.3),
+                      color: theme.colorScheme.errorContainer.withValues(
+                        alpha: 0.3,
+                      ),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: theme.colorScheme.error.withValues(alpha: 0.3),
@@ -590,10 +584,12 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: contact.groupMemberships
-                    .map((group) => Chip(
-                          label: Text(group),
-                          avatar: const Icon(Icons.group, size: 16),
-                        ))
+                    .map(
+                      (group) => Chip(
+                        label: Text(group),
+                        avatar: const Icon(Icons.group, size: 16),
+                      ),
+                    )
                     .toList(),
               ),
             ),

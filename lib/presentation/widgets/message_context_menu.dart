@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../domain/entities/message.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class MessageContextMenu extends StatelessWidget {
   final Message message;
@@ -32,11 +33,13 @@ class MessageContextMenu extends StatelessWidget {
             height: 4,
             margin: EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          
+
           // Copy option
           if (onCopy != null)
             ListTile(
@@ -47,7 +50,7 @@ class MessageContextMenu extends StatelessWidget {
                 onCopy?.call();
               },
             ),
-          
+
           // Delete option (only for own messages)
           if (onDelete != null && message.isFromMe)
             ListTile(
@@ -61,7 +64,7 @@ class MessageContextMenu extends StatelessWidget {
                 onDelete?.call();
               },
             ),
-          
+
           // Message info/details
           ListTile(
             leading: Icon(Icons.info_outline),
@@ -71,7 +74,7 @@ class MessageContextMenu extends StatelessWidget {
               _showMessageInfo(context, message);
             },
           ),
-          
+
           // Reply option (future enhancement)
           if (onReply != null)
             ListTile(
@@ -82,14 +85,14 @@ class MessageContextMenu extends StatelessWidget {
                 onReply?.call();
               },
             ),
-          
+
           // Cancel
           ListTile(
             leading: Icon(Icons.close),
             title: Text('Cancel'),
             onTap: () => Navigator.pop(context),
           ),
-          
+
           // Bottom padding for safe area
           SizedBox(height: MediaQuery.of(context).padding.bottom),
         ],
@@ -109,7 +112,7 @@ class MessageContextMenu extends StatelessWidget {
             _buildInfoRow('Sent', message.isFromMe ? 'Yes' : 'No'),
             _buildInfoRow('Status', _getStatusText(message.status)),
             _buildInfoRow('Time', _formatDateTime(message.timestamp)),
-            _buildInfoRow('ID', message.id.substring(0, 8)),
+            _buildInfoRow('ID', message.id.shortId(8)),
             if (message.content.length > 50)
               _buildInfoRow('Length', '${message.content.length} characters'),
           ],
@@ -137,9 +140,7 @@ class MessageContextMenu extends StatelessWidget {
               style: TextStyle(fontWeight: FontWeight.w500),
             ),
           ),
-          Expanded(
-            child: Text(value),
-          ),
+          Expanded(child: Text(value)),
         ],
       ),
     );
@@ -160,7 +161,7 @@ class MessageContextMenu extends StatelessWidget {
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year} '
-           '${dateTime.hour.toString().padLeft(2, '0')}:'
-           '${dateTime.minute.toString().padLeft(2, '0')}';
+        '${dateTime.hour.toString().padLeft(2, '0')}:'
+        '${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }

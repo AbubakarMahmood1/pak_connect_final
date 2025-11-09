@@ -30,6 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  meta: ^1.16.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -39,6 +40,11 @@ dependencies:
   bluetooth_low_energy: ^6.1.0
   logging: ^1.3.0
   crypto: ^3.0.6
+
+  # Noise Protocol crypto primitives
+  pinenacl: ^0.6.0          # X25519 Diffie-Hellman (replaces Curve25519DHState.java)
+  cryptography: ^2.7.0        # ChaCha20-Poly1305 AEAD (replaces ChaChaPolyCipherState.java)
+
   shared_preferences: ^2.5.3
   sqflite_sqlcipher: ^3.2.1
   sqflite_common: ^2.5.4
@@ -54,11 +60,13 @@ dependencies:
   test: ^1.26.2
   share_plus: ^12.0.0
   file_picker: ^10.3.3
-  flutter_markdown: ^0.7.4+1
   battery_plus: ^7.0.0
   flutter_local_notifications: ^19.4.2
   workmanager: ^0.9.0+3
+  intl: ^0.19.0  # Date formatting for group chat
+  flutter_markdown_plus: ^1.0.5
 
+  uuid: any
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -72,6 +80,7 @@ dev_dependencies:
   build_runner: ^2.5.4
   riverpod_generator: ^3.0.0
   sqflite_common_ffi: ^2.3.4
+  sqlite3: ^2.7.6
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

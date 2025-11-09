@@ -1,12 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum ConnectionStatus {
-  connected,
-  connecting,
-  nearby,
-  recent,
-  offline,
-}
+enum ConnectionStatus { connected, connecting, nearby, recent, offline }
 
 extension ConnectionStatusExtension on ConnectionStatus {
   Color get color {
@@ -23,7 +17,7 @@ extension ConnectionStatusExtension on ConnectionStatus {
         return Colors.grey.shade700;
     }
   }
-  
+
   IconData get icon {
     switch (this) {
       case ConnectionStatus.connected:
@@ -38,7 +32,7 @@ extension ConnectionStatusExtension on ConnectionStatus {
         return Icons.circle_outlined;
     }
   }
-  
+
   String get label {
     switch (this) {
       case ConnectionStatus.connected:

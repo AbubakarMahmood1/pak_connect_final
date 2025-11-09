@@ -2,13 +2,13 @@
 enum MessagePriority {
   /// Low priority messages - least urgent, most delay tolerant
   low,
-  
+
   /// Normal priority messages - default level
   normal,
-  
+
   /// High priority messages - important but not urgent
   high,
-  
+
   /// Urgent priority messages - immediate delivery required
   urgent,
 }
@@ -28,7 +28,7 @@ extension MessagePriorityExtension on MessagePriority {
         return 'Urgent';
     }
   }
-  
+
   /// Get color representation for UI
   String get colorHex {
     switch (this) {
@@ -42,7 +42,7 @@ extension MessagePriorityExtension on MessagePriority {
         return '#F44336'; // Red
     }
   }
-  
+
   /// Get retry multiplier for queue management
   double get retryMultiplier {
     switch (this) {

@@ -7,23 +7,26 @@ import 'package:pak_connect/data/services/export_import/export_bundle.dart';
 import 'package:pak_connect/data/services/export_import/selective_backup_service.dart';
 import 'package:pak_connect/data/services/export_import/selective_restore_service.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:io';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Setup FFI for desktop testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment();
   });
 
   setUp(() async {
-    // Use a fresh test database for each test
-    DatabaseHelper.setTestDatabaseName('test_selective_${DateTime.now().millisecondsSinceEpoch}.db');
-    
+    final dbName = 'test_selective_${DateTime.now().millisecondsSinceEpoch}.db';
+    DatabaseHelper.setTestDatabaseName(dbName);
+
+    await TestSetup.fullDatabaseReset();
+    TestSetup.resetSharedPreferences();
+
     // Initialize database
     final db = await DatabaseHelper.database;
-    
+
     // Insert test contacts
     await db.insert('contacts', {
       'public_key': 'contact1_key',
@@ -89,6 +92,7 @@ void main() {
   tearDown(() async {
     await DatabaseHelper.close();
     DatabaseHelper.setTestDatabaseName(null);
+    await TestSetup.completeCleanup();
   });
 
   group('ExportType', () {
@@ -220,11 +224,12 @@ void main() {
       expect(contactsBefore.length, equals(0));
 
       // Restore backup
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: backupResult.backupPath!,
-        exportType: ExportType.contactsOnly,
-        clearExistingData: false,
-      );
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: backupResult.backupPath!,
+            exportType: ExportType.contactsOnly,
+            clearExistingData: false,
+          );
 
       expect(restoreResult.success, isTrue);
       expect(restoreResult.recordsRestored, equals(2));
@@ -259,11 +264,12 @@ void main() {
       expect(messagesBefore.length, equals(0));
 
       // Restore backup
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: backupResult.backupPath!,
-        exportType: ExportType.messagesOnly,
-        clearExistingData: false,
-      );
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: backupResult.backupPath!,
+            exportType: ExportType.messagesOnly,
+            clearExistingData: false,
+          );
 
       expect(restoreResult.success, isTrue);
       expect(restoreResult.recordsRestored, equals(3)); // 1 chat + 2 messages
@@ -300,11 +306,12 @@ void main() {
       });
 
       // Restore with clearExistingData = true
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: backupResult.backupPath!,
-        exportType: ExportType.contactsOnly,
-        clearExistingData: true,
-      );
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: backupResult.backupPath!,
+            exportType: ExportType.contactsOnly,
+            clearExistingData: true,
+          );
 
       expect(restoreResult.success, isTrue);
 
@@ -319,11 +326,12 @@ void main() {
     });
 
     test('handles non-existent backup file gracefully', () async {
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: '/non/existent/path.db',
-        exportType: ExportType.contactsOnly,
-        clearExistingData: false,
-      );
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: '/non/existent/path.db',
+            exportType: ExportType.contactsOnly,
+            clearExistingData: false,
+          );
 
       expect(restoreResult.success, isFalse);
       expect(restoreResult.errorMessage, contains('not found'));

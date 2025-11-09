@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
 import '../../data/services/ble_service.dart';
+import '../../data/services/ble_state_manager.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/scanning/burst_scanning_controller.dart';
 import '../../core/power/adaptive_power_manager.dart';
@@ -11,6 +12,9 @@ import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'mesh_networking_provider.dart';
 import '../../data/repositories/user_preferences.dart';
+import '../../core/messaging/message_router.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initialization check
 
 // =============================================================================
 // REACTIVE USERNAME PROVIDERS (RIVERPOD 3.0 MODERN APPROACH)
@@ -45,7 +49,6 @@ class UsernameNotifier extends AsyncNotifier<String> {
 
       // 4. Update state - this triggers UI rebuild automatically
       state = AsyncValue.data(newUsername);
-
     } catch (e, stackTrace) {
       // Set error state
       state = AsyncValue.error(e, stackTrace);
@@ -54,12 +57,15 @@ class UsernameNotifier extends AsyncNotifier<String> {
   }
 
   /// Trigger identity re-exchange for immediate username propagation
-  Future<void> _triggerIdentityReExchange(BLEService bleService, String newUsername) async {
+  Future<void> _triggerIdentityReExchange(
+    BLEService bleService,
+    String newUsername,
+  ) async {
     try {
       await bleService.triggerIdentityReExchange();
     } catch (e) {
       // Log error but don't fail the username update
-      if(kDebugMode){
+      if (kDebugMode) {
         print('Failed to re-exchange identity: $e');
       }
     }
@@ -107,14 +113,66 @@ class UsernameOperations {
   }
 }
 
-// BLE Service provider
+// BLE Service provider - creates service instance without initializing
+// ✅ FIX #1: Lazy initialization - don't call initialize() immediately
 final bleServiceProvider = Provider<BLEService>((ref) {
   final service = BLEService();
-  service.initialize();
+
+  // ✅ REMOVED: Immediate initialization that caused LateInitializationError
+  // The service will be initialized properly by bleServiceInitializedProvider
+  // after AppCore is fully ready with messageQueue available
 
   ref.onDispose(() {
+    try {
+      MessageRouter.instance.dispose();
+    } catch (e) {
+      // MessageRouter might not be initialized if early error occurred
+    }
     service.dispose();
   });
+
+  return service;
+});
+
+// ✅ NEW: Initialized BLE service provider - waits for AppCore to be ready
+// Use this provider when you need a fully initialized BLE service
+final bleServiceInitializedProvider = FutureProvider<BLEService>((ref) async {
+  final service = ref.watch(bleServiceProvider);
+
+  // Wait for AppCore to be fully initialized (messageQueue must exist)
+  int attempts = 0;
+  while (!AppCore.instance.isInitialized && attempts < 100) {
+    await Future.delayed(Duration(milliseconds: 100));
+    attempts++;
+  }
+
+  if (!AppCore.instance.isInitialized) {
+    throw StateError(
+      'AppCore initialization timeout after ${attempts * 100}ms',
+    );
+  }
+
+  if (kDebugMode) {
+    print('✅ [BLEService] Starting initialization (AppCore is ready)');
+  }
+
+  // Now it's safe to initialize - messageQueue exists
+  try {
+    await service.initialize();
+
+    // Initialize MessageRouter with the BLE service (BitChat pattern)
+    await MessageRouter.initialize(service);
+
+    if (kDebugMode) {
+      print('✅ [BLEService] Initialization complete with MessageRouter');
+    }
+  } catch (e, stackTrace) {
+    if (kDebugMode) {
+      print('❌ CRITICAL: BLEService initialization failed: $e');
+      print('Stack trace: $stackTrace');
+    }
+    // Don't rethrow - let the app continue in degraded mode
+  }
 
   return service;
 });
@@ -122,7 +180,9 @@ final bleServiceProvider = Provider<BLEService>((ref) {
 // BLE State provider
 final bleStateProvider = StreamProvider<BluetoothLowEnergyState>((ref) {
   final service = ref.watch(bleServiceProvider);
-  return Stream.fromFuture(service.initializationComplete).asyncExpand((_) => Stream.periodic(Duration(seconds: 1), (_) => service.state));
+  return Stream.fromFuture(service.initializationComplete).asyncExpand(
+    (_) => Stream.periodic(Duration(seconds: 1), (_) => service.state),
+  );
 });
 
 // Discovered devices provider
@@ -142,40 +202,63 @@ final connectionInfoProvider = StreamProvider<ConnectionInfo>((ref) {
   return service.connectionInfo;
 });
 
+// Spy mode providers
+final spyModeDetectedProvider = StreamProvider<SpyModeInfo>((ref) {
+  final bleService = ref.watch(bleServiceProvider);
+  return bleService.spyModeDetected;
+});
+
+final identityRevealedProvider = StreamProvider<String>((ref) {
+  final bleService = ref.watch(bleServiceProvider);
+  return bleService.identityRevealed;
+});
+
 final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
   return ChatsRepository();
 });
 
 // Discovery data with advertisements provider
-final discoveryDataProvider = StreamProvider<Map<String, DiscoveredEventArgs>>((ref) {
+final discoveryDataProvider = StreamProvider<Map<String, DiscoveredEventArgs>>((
+  ref,
+) {
   final service = ref.watch(bleServiceProvider);
   return service.discoveryData;
 });
+
+// 🆕 Deduplicated discovered devices provider (with contact recognition)
+final deduplicatedDevicesProvider =
+    StreamProvider<Map<String, DiscoveredDevice>>((ref) {
+      return DeviceDeduplicationManager.uniqueDevicesStream;
+    });
 
 // =============================================================================
 // BURST SCANNING INTEGRATION
 // =============================================================================
 
 /// Burst scanning controller provider - manages the integration between power manager and BLE
-final burstScanningControllerProvider = FutureProvider<BurstScanningController>((ref) async {
-  final controller = BurstScanningController();
-  final bleService = ref.watch(bleServiceProvider);
+/// ✅ FIX #1: Now waits for fully initialized BLE service
+final burstScanningControllerProvider = FutureProvider<BurstScanningController>(
+  (ref) async {
+    final controller = BurstScanningController();
+    // ✅ Wait for initialized service (which waits for AppCore)
+    final bleService = await ref.watch(bleServiceInitializedProvider.future);
 
-  try {
-    await controller.initialize(bleService);
+    try {
+      await controller.initialize(bleService);
 
-    // 🔥 AUTO-START: Immediately begin adaptive burst scanning
-    await controller.startBurstScanning();
+      // 🔥 AUTO-START: Immediately begin adaptive burst scanning
+      await controller.startBurstScanning();
 
-    ref.onDispose(() {
+      ref.onDispose(() {
+        controller.dispose();
+      });
+      return controller;
+    } catch (e) {
       controller.dispose();
-    });
-    return controller;
-  } catch (e) {
-    controller.dispose();
-    rethrow;
-  }
-});
+      rethrow;
+    }
+  },
+);
 
 /// Eager burst scanning initializer - forces burst scanning to start during app initialization
 final eagerBurstScanningProvider = FutureProvider<bool>((ref) async {
@@ -191,49 +274,65 @@ final burstScanningStatusProvider = StreamProvider<BurstScanningStatus>((ref) {
 
   return controllerAsync.when(
     data: (controller) => controller.statusStream,
-    loading: () => Stream.value(BurstScanningStatus(
-      isBurstActive: false,
-      currentScanInterval: 60000,
-      powerStats: PowerManagementStats(
+    loading: () => Stream.value(
+      BurstScanningStatus(
+        isBurstActive: false,
         currentScanInterval: 60000,
-        currentHealthCheckInterval: 30000,
-        consecutiveSuccessfulChecks: 0,
-        consecutiveFailedChecks: 0,
-        connectionQualityScore: 0.5,
-        connectionStabilityScore: 0.5,
-        timeSinceLastSuccess: Duration.zero,
-        qualityMeasurementsCount: 0,
-        isBurstMode: false,
+        powerStats: PowerManagementStats(
+          currentScanInterval: 60000,
+          currentHealthCheckInterval: 30000,
+          consecutiveSuccessfulChecks: 0,
+          consecutiveFailedChecks: 0,
+          connectionQualityScore: 0.5,
+          connectionStabilityScore: 0.5,
+          timeSinceLastSuccess: Duration.zero,
+          qualityMeasurementsCount: 0,
+          isBurstMode: false,
+          // Phase 1: Default duty cycle stats (loading state)
+          powerMode: PowerMode.balanced,
+          isDutyCycleScanning: false,
+          batteryLevel: 100,
+          isCharging: false,
+          isAppInBackground: false,
+        ),
       ),
-    )),
-    error: (error, stack) => Stream.value(BurstScanningStatus(
-      isBurstActive: false,
-      currentScanInterval: 60000,
-      powerStats: PowerManagementStats(
+    ),
+    error: (error, stack) => Stream.value(
+      BurstScanningStatus(
+        isBurstActive: false,
         currentScanInterval: 60000,
-        currentHealthCheckInterval: 30000,
-        consecutiveSuccessfulChecks: 0,
-        consecutiveFailedChecks: 0,
-        connectionQualityScore: 0.5,
-        connectionStabilityScore: 0.5,
-        timeSinceLastSuccess: Duration.zero,
-        qualityMeasurementsCount: 0,
-        isBurstMode: false,
+        powerStats: PowerManagementStats(
+          currentScanInterval: 60000,
+          currentHealthCheckInterval: 30000,
+          consecutiveSuccessfulChecks: 0,
+          consecutiveFailedChecks: 0,
+          connectionQualityScore: 0.5,
+          connectionStabilityScore: 0.5,
+          timeSinceLastSuccess: Duration.zero,
+          qualityMeasurementsCount: 0,
+          isBurstMode: false,
+          // Phase 1: Default duty cycle stats (error state)
+          powerMode: PowerMode.balanced,
+          isDutyCycleScanning: false,
+          batteryLevel: 100,
+          isCharging: false,
+          isAppInBackground: false,
+        ),
       ),
-    )),
+    ),
   );
 });
 
 /// Burst scanning operations provider - provides methods to control burst scanning
-final burstScanningOperationsProvider = Provider<BurstScanningOperations?>((ref) {
+final burstScanningOperationsProvider = Provider<BurstScanningOperations?>((
+  ref,
+) {
   final controllerAsync = ref.watch(burstScanningControllerProvider);
   final bleService = ref.watch(bleServiceProvider);
 
   return controllerAsync.when(
-    data: (controller) => BurstScanningOperations(
-      controller: controller,
-      bleService: bleService,
-    ),
+    data: (controller) =>
+        BurstScanningOperations(controller: controller, bleService: bleService),
     loading: () => null,
     error: (error, stack) => null,
   );
@@ -247,7 +346,7 @@ final burstScanningOperationsProvider = Provider<BurstScanningOperations?>((ref)
 final enhancedConnectionInfoProvider = Provider<EnhancedConnectionInfo>((ref) {
   final bleConnection = ref.watch(connectionInfoProvider);
   final meshStatus = ref.watch(meshNetworkStatusProvider);
-  
+
   return EnhancedConnectionInfo(
     bleConnectionInfo: bleConnection,
     meshNetworkStatus: meshStatus,
@@ -259,7 +358,7 @@ final connectivityStatusProvider = Provider<ConnectivityStatus>((ref) {
   final bleConnection = ref.watch(connectionInfoProvider);
   final meshStatus = ref.watch(meshNetworkStatusProvider);
   final bleState = ref.watch(bleStateProvider);
-  
+
   return ConnectivityStatus(
     bleConnectionInfo: bleConnection,
     meshNetworkStatus: meshStatus,
@@ -272,7 +371,7 @@ final meshEnabledBLEProvider = Provider<MeshEnabledBLEOperations>((ref) {
   final bleService = ref.watch(bleServiceProvider);
   final meshController = ref.watch(meshNetworkingControllerProvider);
   final connectivityStatus = ref.watch(connectivityStatusProvider);
-  
+
   return MeshEnabledBLEOperations(
     bleService: bleService,
     meshController: meshController,
@@ -283,9 +382,11 @@ final meshEnabledBLEProvider = Provider<MeshEnabledBLEOperations>((ref) {
 /// Network health provider combining BLE and mesh health
 final networkHealthProvider = Provider<NetworkHealth>((ref) {
   final bleConnection = ref.watch(connectionInfoProvider);
-  final meshHealth = ref.watch(meshNetworkingControllerProvider).getNetworkHealth();
+  final meshHealth = ref
+      .watch(meshNetworkingControllerProvider)
+      .getNetworkHealth();
   final bluetoothState = ref.watch(bleStateProvider);
-  
+
   return NetworkHealth(
     bleConnectionInfo: bleConnection,
     meshHealth: meshHealth,
@@ -297,7 +398,7 @@ final networkHealthProvider = Provider<NetworkHealth>((ref) {
 final unifiedMessagingProvider = Provider<UnifiedMessagingService>((ref) {
   final meshController = ref.watch(meshNetworkingControllerProvider);
   final bleConnection = ref.watch(connectionInfoProvider);
-  
+
   return UnifiedMessagingService(
     meshController: meshController,
     bleConnectionInfo: bleConnection,
@@ -327,9 +428,10 @@ class EnhancedConnectionInfo {
 
   /// Get combined status message
   String get statusMessage {
-    final bleStatus = bleConnectionInfo.asData?.value.statusMessage ?? 'Unknown';
+    final bleStatus =
+        bleConnectionInfo.asData?.value.statusMessage ?? 'Unknown';
     final meshReady = meshNetworkStatus.asData?.value.isInitialized ?? false;
-    
+
     if (meshReady) {
       return '$bleStatus + Mesh Ready';
     } else {
@@ -340,7 +442,8 @@ class EnhancedConnectionInfo {
   /// Check if mesh relay is available
   bool get canUseRelay {
     final bleConnected = bleConnectionInfo.asData?.value.isConnected ?? false;
-    final meshInitialized = meshNetworkStatus.asData?.value.isInitialized ?? false;
+    final meshInitialized =
+        meshNetworkStatus.asData?.value.isInitialized ?? false;
     return bleConnected && meshInitialized;
   }
 }
@@ -360,23 +463,23 @@ class ConnectivityStatus {
   /// Get overall connection health (0.0 - 1.0)
   double get connectionHealth {
     double health = 0.0;
-    
+
     // Bluetooth state health
     final btState = bluetoothState.asData?.value;
     if (btState == BluetoothLowEnergyState.poweredOn) {
       health += 0.3;
     }
-    
+
     // BLE connection health
     if (bleConnectionInfo.asData?.value.isConnected == true) {
       health += 0.4;
     }
-    
+
     // Mesh networking health
     if (meshNetworkStatus.asData?.value.isInitialized == true) {
       health += 0.3;
     }
-    
+
     return health;
   }
 
@@ -392,23 +495,23 @@ class ConnectivityStatus {
   /// Get list of active capabilities
   List<String> get activeCapabilities {
     final capabilities = <String>[];
-    
+
     if (bluetoothState.asData?.value == BluetoothLowEnergyState.poweredOn) {
       capabilities.add('Bluetooth');
     }
-    
+
     if (bleConnectionInfo.asData?.value.isConnected == true) {
       capabilities.add('Direct Messaging');
     }
-    
+
     if (meshNetworkStatus.asData?.value.isInitialized == true) {
       capabilities.add('Mesh Relay');
     }
-    
+
     if (meshNetworkStatus.asData?.value.isDemoMode == true) {
       capabilities.add('Demo Mode');
     }
-    
+
     return capabilities;
   }
 }
@@ -433,10 +536,14 @@ class MeshEnabledBLEOperations {
   }) async {
     try {
       // Check if direct connection is available to recipient
-      final bleConnected = connectivityStatus.bleConnectionInfo.asData?.value.isConnected ?? false;
+      final bleConnected =
+          connectivityStatus.bleConnectionInfo.asData?.value.isConnected ??
+          false;
       final connectedNodeId = bleService.currentSessionId;
-      
-      if (preferDirect && bleConnected && connectedNodeId == recipientPublicKey) {
+
+      if (preferDirect &&
+          bleConnected &&
+          connectedNodeId == recipientPublicKey) {
         // Use direct BLE messaging
         final success = await _sendDirectMessage(content);
         return MessageSendResult(
@@ -449,12 +556,16 @@ class MeshEnabledBLEOperations {
         final result = await meshController.sendMeshMessage(
           content: content,
           recipientPublicKey: recipientPublicKey,
-          isDemo: connectivityStatus.meshNetworkStatus.asData?.value.isDemoMode ?? false,
+          isDemo:
+              connectivityStatus.meshNetworkStatus.asData?.value.isDemoMode ??
+              false,
         );
-        
+
         return MessageSendResult(
           success: result.isSuccess,
-          method: result.isDirect ? MessageSendMethod.direct : MessageSendMethod.mesh,
+          method: result.isDirect
+              ? MessageSendMethod.direct
+              : MessageSendMethod.mesh,
           messageId: result.messageId,
           nextHop: result.nextHop,
           error: result.error,
@@ -484,13 +595,18 @@ class MeshEnabledBLEOperations {
 
   /// Check message sending capabilities
   MessageSendCapabilities get sendCapabilities {
-    final bleConnected = connectivityStatus.bleConnectionInfo.asData?.value.isConnected ?? false;
-    final meshReady = connectivityStatus.meshNetworkStatus.asData?.value.isInitialized ?? false;
-    
+    final bleConnected =
+        connectivityStatus.bleConnectionInfo.asData?.value.isConnected ?? false;
+    final meshReady =
+        connectivityStatus.meshNetworkStatus.asData?.value.isInitialized ??
+        false;
+
     return MessageSendCapabilities(
       canSendDirect: bleConnected,
       canSendMesh: meshReady,
-      preferredMethod: bleConnected ? MessageSendMethod.direct : MessageSendMethod.mesh,
+      preferredMethod: bleConnected
+          ? MessageSendMethod.direct
+          : MessageSendMethod.mesh,
     );
   }
 }
@@ -511,23 +627,23 @@ class NetworkHealth {
   double get overallHealth {
     double totalHealth = 0.0;
     int factors = 0;
-    
+
     // Bluetooth state factor (30%)
     if (bluetoothState.asData?.value == BluetoothLowEnergyState.poweredOn) {
       totalHealth += 0.3;
     }
     factors++;
-    
+
     // BLE connection factor (30%)
     if (bleConnectionInfo.asData?.value.isConnected == true) {
       totalHealth += 0.3;
     }
     factors++;
-    
+
     // Mesh health factor (40%)
     totalHealth += meshHealth.overallHealth * 0.4;
     factors++;
-    
+
     return factors > 0 ? totalHealth : 0.0;
   }
 
@@ -546,20 +662,20 @@ class NetworkHealth {
   /// Get combined issues
   List<String> get allIssues {
     final issues = <String>[];
-    
+
     // Bluetooth issues
     if (bluetoothState.asData?.value != BluetoothLowEnergyState.poweredOn) {
       issues.add('Bluetooth not powered on');
     }
-    
+
     // BLE connection issues
     if (bleConnectionInfo.asData?.value.isConnected != true) {
       issues.add('No BLE connection');
     }
-    
+
     // Mesh issues
     issues.addAll(meshHealth.issues);
-    
+
     return issues;
   }
 }
@@ -587,10 +703,12 @@ class UnifiedMessagingService {
       priority: priority,
       isDemo: isDemo,
     );
-    
+
     return MessageSendResult(
       success: result.isSuccess,
-      method: result.isDirect ? MessageSendMethod.direct : MessageSendMethod.mesh,
+      method: result.isDirect
+          ? MessageSendMethod.direct
+          : MessageSendMethod.mesh,
       messageId: result.messageId,
       nextHop: result.nextHop,
       error: result.error,
@@ -630,7 +748,7 @@ class MessageSendCapabilities {
   });
 
   bool get hasAnyMethod => canSendDirect || canSendMesh;
-  
+
   List<MessageSendMethod> get availableMethods {
     final methods = <MessageSendMethod>[];
     if (canSendDirect) methods.add(MessageSendMethod.direct);

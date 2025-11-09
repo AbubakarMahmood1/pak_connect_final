@@ -11,7 +11,7 @@ class EnhancedContact {
   final int interactionCount;
   final Duration averageResponseTime;
   final List<String> groupMemberships;
-  
+
   const EnhancedContact({
     required this.contact,
     required this.lastSeenAgo,
@@ -20,7 +20,7 @@ class EnhancedContact {
     required this.averageResponseTime,
     required this.groupMemberships,
   });
-  
+
   // Delegate properties to underlying contact
   String get publicKey => contact.publicKey;
   String get displayName => contact.displayName;
@@ -29,7 +29,7 @@ class EnhancedContact {
   DateTime get firstSeen => contact.firstSeen;
   DateTime get lastSeen => contact.lastSeen;
   DateTime? get lastSecuritySync => contact.lastSecuritySync;
-  
+
   /// Get formatted display of last seen time
   String get lastSeenFormatted {
     if (lastSeenAgo.inMinutes < 1) {
@@ -44,7 +44,7 @@ class EnhancedContact {
       return 'Over a week ago';
     }
   }
-  
+
   /// Get formatted response time
   String get responseTimeFormatted {
     if (averageResponseTime.inMinutes < 1) {
@@ -57,7 +57,7 @@ class EnhancedContact {
       return 'Usually responds slowly';
     }
   }
-  
+
   /// Get security status description
   String get securityStatusDescription {
     switch (securityLevel) {
@@ -69,7 +69,7 @@ class EnhancedContact {
         return 'Basic Encryption';
     }
   }
-  
+
   /// Get trust status description
   String get trustStatusDescription {
     switch (trustStatus) {
@@ -81,14 +81,14 @@ class EnhancedContact {
         return 'Security Warning';
     }
   }
-  
+
   /// Check if contact needs attention (security issues, etc.)
   bool get needsAttention {
     return trustStatus == TrustStatus.keyChanged ||
-           (securityLevel == SecurityLevel.low && isRecentlyActive) ||
-           contact.isSecurityStale;
+        (securityLevel == SecurityLevel.low && isRecentlyActive) ||
+        contact.isSecurityStale;
   }
-  
+
   /// Get attention reason
   String? get attentionReason {
     if (trustStatus == TrustStatus.keyChanged) {
@@ -102,7 +102,7 @@ class EnhancedContact {
     }
     return null;
   }
-  
+
   /// Create copy with updated interaction data
   EnhancedContact copyWithInteractionData({
     int? interactionCount,
@@ -118,17 +118,18 @@ class EnhancedContact {
       groupMemberships: groupMemberships ?? this.groupMemberships,
     );
   }
-  
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is EnhancedContact &&
           runtimeType == other.runtimeType &&
           contact.publicKey == other.contact.publicKey;
-  
+
   @override
   int get hashCode => contact.publicKey.hashCode;
-  
+
   @override
-  String toString() => 'EnhancedContact(${contact.displayName}, ${securityLevel.name}, ${trustStatus.name})';
+  String toString() =>
+      'EnhancedContact(${contact.displayName}, ${securityLevel.name}, ${trustStatus.name})';
 }

@@ -5,7 +5,7 @@ import 'dart:typed_data';
 
 /// Type of data to export
 enum ExportType {
-  full,        // Everything: contacts, messages, chats, preferences
+  full, // Everything: contacts, messages, chats, preferences
   contactsOnly, // Only contacts table
   messagesOnly, // Messages + chats (messages need chat context)
 }
@@ -18,17 +18,17 @@ class ExportBundle {
   final String deviceId;
   final String username;
   final ExportType exportType; // Type of export
-  
+
   // Encrypted payloads (base64 encoded)
   final String encryptedMetadata;
   final String encryptedKeys;
   final String encryptedPreferences;
   final String databasePath; // Path to encrypted database file
-  
+
   // Encryption metadata
   final Uint8List salt; // For PBKDF2 key derivation
   final String checksum; // SHA-256 of all encrypted data
-  
+
   const ExportBundle({
     required this.version,
     required this.timestamp,
@@ -42,7 +42,7 @@ class ExportBundle {
     required this.salt,
     required this.checksum,
   });
-  
+
   /// Convert to JSON for serialization
   Map<String, dynamic> toJson() => {
     'version': version,
@@ -57,7 +57,7 @@ class ExportBundle {
     'salt': salt.toList(),
     'checksum': checksum,
   };
-  
+
   /// Create from JSON
   factory ExportBundle.fromJson(Map<String, dynamic> json) {
     return ExportBundle(
@@ -87,22 +87,22 @@ class ExportResult {
   final int? bundleSize;
   final ExportType? exportType;
   final int? recordCount; // Number of records exported
-  
+
   ExportResult.success({
     required this.bundlePath,
     required this.bundleSize,
     this.exportType,
     this.recordCount,
-  })  : success = true,
-        errorMessage = null;
-  
+  }) : success = true,
+       errorMessage = null;
+
   ExportResult.failure(this.errorMessage)
-      : success = false,
-        bundlePath = null,
-        bundleSize = null,
-        exportType = null,
-        recordCount = null;
-  
+    : success = false,
+      bundlePath = null,
+      bundleSize = null,
+      exportType = null,
+      recordCount = null;
+
   @override
   String toString() => success
       ? 'ExportResult(success, type: ${exportType?.name ?? "full"}, records: $recordCount, path: $bundlePath, size: ${bundleSize! / 1024}KB)'
@@ -117,22 +117,22 @@ class ImportResult {
   final String? originalDeviceId;
   final String? originalUsername;
   final DateTime? backupTimestamp;
-  
+
   ImportResult.success({
     required this.recordsRestored,
     this.originalDeviceId,
     this.originalUsername,
     this.backupTimestamp,
-  })  : success = true,
-        errorMessage = null;
-  
+  }) : success = true,
+       errorMessage = null;
+
   ImportResult.failure(this.errorMessage)
-      : success = false,
-        recordsRestored = 0,
-        originalDeviceId = null,
-        originalUsername = null,
-        backupTimestamp = null;
-  
+    : success = false,
+      recordsRestored = 0,
+      originalDeviceId = null,
+      originalUsername = null,
+      backupTimestamp = null;
+
   @override
   String toString() => success
       ? 'ImportResult(success, records: $recordsRestored, from: $originalUsername @ $originalDeviceId)'
@@ -144,13 +144,13 @@ class PassphraseValidation {
   final bool isValid;
   final double strength; // 0.0 to 1.0
   final List<String> warnings;
-  
+
   const PassphraseValidation({
     required this.isValid,
     required this.strength,
     required this.warnings,
   });
-  
+
   bool get isWeak => strength < 0.3;
   bool get isMedium => strength >= 0.3 && strength < 0.7;
   bool get isStrong => strength >= 0.7;

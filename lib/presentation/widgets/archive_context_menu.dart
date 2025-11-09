@@ -13,7 +13,7 @@ class ArchiveContextMenu extends ConsumerWidget {
   final VoidCallback? onViewDetails;
   final VoidCallback? onExport;
   final Widget child;
-  
+
   const ArchiveContextMenu({
     super.key,
     required this.archive,
@@ -23,7 +23,7 @@ class ArchiveContextMenu extends ConsumerWidget {
     this.onExport,
     required this.child,
   });
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return PopupMenuButton<ArchiveAction>(
@@ -44,7 +44,7 @@ class ArchiveContextMenu extends ConsumerWidget {
             ],
           ),
         ),
-        
+
         // Restore
         PopupMenuItem<ArchiveAction>(
           value: ArchiveAction.restore,
@@ -60,7 +60,7 @@ class ArchiveContextMenu extends ConsumerWidget {
             ],
           ),
         ),
-        
+
         // Export (if available)
         if (archive.isSearchable)
           PopupMenuItem<ArchiveAction>(
@@ -77,10 +77,10 @@ class ArchiveContextMenu extends ConsumerWidget {
               ],
             ),
           ),
-        
+
         // Divider before destructive action
         const PopupMenuDivider(),
-        
+
         // Delete permanently
         PopupMenuItem<ArchiveAction>(
           value: ArchiveAction.delete,
@@ -94,9 +94,7 @@ class ArchiveContextMenu extends ConsumerWidget {
               const SizedBox(width: 12),
               Text(
                 'Delete Permanently',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
-                ),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
           ),
@@ -105,7 +103,7 @@ class ArchiveContextMenu extends ConsumerWidget {
       child: child,
     );
   }
-  
+
   void _handleAction(BuildContext context, ArchiveAction action) {
     switch (action) {
       case ArchiveAction.viewDetails:
@@ -122,17 +120,14 @@ class ArchiveContextMenu extends ConsumerWidget {
         break;
     }
   }
-  
+
   void _showRestoreConfirmation(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(
-              Icons.restore,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            Icon(Icons.restore, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 12),
             const Text('Restore Chat'),
           ],
@@ -169,17 +164,14 @@ class ArchiveContextMenu extends ConsumerWidget {
       ),
     );
   }
-  
+
   void _showDeleteConfirmation(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(
-              Icons.warning,
-              color: Theme.of(context).colorScheme.error,
-            ),
+            Icon(Icons.warning, color: Theme.of(context).colorScheme.error),
             const SizedBox(width: 12),
             const Text('Delete Permanently'),
           ],
@@ -210,11 +202,13 @@ class ArchiveContextMenu extends ConsumerWidget {
                         color: Theme.of(context).colorScheme.error,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        'This action cannot be undone!',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                          fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: Text(
+                          'This action cannot be undone!',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
@@ -254,17 +248,14 @@ class ArchiveContextMenu extends ConsumerWidget {
       ),
     );
   }
-  
+
   void _showExportDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(
-              Icons.download,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            Icon(Icons.download, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 12),
             const Text('Export Archive'),
           ],
@@ -302,45 +293,36 @@ class ArchiveContextMenu extends ConsumerWidget {
 }
 
 /// Archive action types for context menu
-enum ArchiveAction {
-  viewDetails,
-  restore,
-  export,
-  delete,
-}
+enum ArchiveAction { viewDetails, restore, export, delete }
 
 /// Simple context menu for inline archive actions
 class SimpleArchiveContextMenu extends ConsumerWidget {
   final ArchivedChatSummary archive;
   final VoidCallback? onRestore;
   final VoidCallback? onDelete;
-  
+
   const SimpleArchiveContextMenu({
     super.key,
     required this.archive,
     this.onRestore,
     this.onDelete,
   });
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         // Restore button
         IconButton(
           onPressed: onRestore,
-          icon: Icon(
-            Icons.restore,
-            size: 18,
-            color: theme.colorScheme.primary,
-          ),
+          icon: Icon(Icons.restore, size: 18, color: theme.colorScheme.primary),
           tooltip: 'Restore chat',
           visualDensity: VisualDensity.compact,
         ),
-        
+
         // Delete button
         IconButton(
           onPressed: () => _showQuickDeleteConfirmation(context),
@@ -355,7 +337,7 @@ class SimpleArchiveContextMenu extends ConsumerWidget {
       ],
     );
   }
-  
+
   void _showQuickDeleteConfirmation(BuildContext context) {
     showDialog(
       context: context,

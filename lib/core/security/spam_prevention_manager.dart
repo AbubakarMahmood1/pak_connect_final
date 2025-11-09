@@ -4,35 +4,39 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/mesh_relay_models.dart';
+import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Comprehensive spam prevention for mesh relay operations
 class SpamPreventionManager {
   static final _logger = Logger('SpamPreventionManager');
-  
+
   // Rate limiting constants
   static const int maxRelaysPerHour = 50;
   static const int maxRelaysPerSenderPerHour = 10;
   static const int maxMessageSizeBytes = 10240; // 10KB
   static const int maxHopCount = 25; // Prevent artificially inflated TTL
   static const double spamScoreThreshold = 0.7;
-  
+
   // Storage keys
   static const String _trustScoreKey = 'spam_prevention_trust_score_v1';
   static const String _messageHashKey = 'spam_prevention_message_hashes_v1';
-  
+
   // In-memory tracking for performance
   final Map<String, List<int>> _hourlyRelayCount = {};
   final Map<String, double> _trustScores = {};
   final Set<String> _processedHashes = {};
   final Map<String, RelayOperation> _recentOperations = {};
-  
+  bool _bypassChecksForTests = false;
+  static bool _globalBypassForTests = false;
+
   // Statistics
   int _totalBlocked = 0;
   int _totalAllowed = 0;
   double _averageSpamScore = 0.0;
-  
+
   // Cleanup timer
   Timer? _cleanupTimer;
 
@@ -49,47 +53,58 @@ class SpamPreventionManager {
     required String fromNodeId,
     required String currentNodeId,
   }) async {
+    if (_bypassChecksForTests || _globalBypassForTests) {
+      return const SpamCheckResult(
+        allowed: true,
+        spamScore: 0,
+        reason: 'Testing bypass enabled',
+        checks: [],
+      );
+    }
     try {
       final checks = <SpamCheck>[];
       double totalSpamScore = 0.0;
-      
+
       // 1. Rate limiting check
       final rateLimitCheck = await _checkRateLimit(fromNodeId);
       checks.add(rateLimitCheck);
       totalSpamScore += rateLimitCheck.spamScore;
-      
+
       // 2. Message size check
       final sizeCheck = _checkMessageSize(relayMessage);
       checks.add(sizeCheck);
       totalSpamScore += sizeCheck.spamScore;
-      
+
       // 3. Hop count validation
       final hopCheck = _checkHopCount(relayMessage.relayMetadata);
       checks.add(hopCheck);
       totalSpamScore += hopCheck.spamScore;
-      
+
       // 4. Duplicate message detection
-      final duplicateCheck = await _checkDuplicate(relayMessage.relayMetadata.messageHash);
+      final duplicateCheck = await _checkDuplicate(
+        relayMessage.relayMetadata.messageHash,
+      );
       checks.add(duplicateCheck);
       totalSpamScore += duplicateCheck.spamScore;
-      
+
       // 5. Trust score evaluation
       final trustCheck = await _checkTrustScore(fromNodeId);
       checks.add(trustCheck);
       totalSpamScore += trustCheck.spamScore;
-      
+
       // 6. Loop detection
       final loopCheck = _checkLoop(relayMessage.relayMetadata, currentNodeId);
       checks.add(loopCheck);
       totalSpamScore += loopCheck.spamScore;
-      
+
       // Calculate average spam score
       final averageScore = totalSpamScore / checks.length;
-      
+
       // Determine if message should be allowed
-      final allowed = averageScore < spamScoreThreshold && 
-                     checks.every((check) => check.passed);
-      
+      final allowed =
+          averageScore < spamScoreThreshold &&
+          checks.every((check) => check.passed);
+
       // Update statistics
       if (allowed) {
         _totalAllowed++;
@@ -98,31 +113,33 @@ class SpamPreventionManager {
         _totalBlocked++;
         await _updateTrustScore(fromNodeId, improve: false);
       }
-      
+
       _averageSpamScore = (_averageSpamScore + averageScore) / 2;
-      
+
       // Record the operation
-      _recentOperations[relayMessage.relayMetadata.messageHash] = RelayOperation(
-        messageHash: relayMessage.relayMetadata.messageHash,
-        fromNodeId: fromNodeId,
-        timestamp: DateTime.now(),
-        allowed: allowed,
-        spamScore: averageScore,
-      );
-      
+      _recentOperations[relayMessage.relayMetadata.messageHash] =
+          RelayOperation(
+            messageHash: relayMessage.relayMetadata.messageHash,
+            fromNodeId: fromNodeId,
+            timestamp: DateTime.now(),
+            allowed: allowed,
+            spamScore: averageScore,
+          );
+
       final result = SpamCheckResult(
         allowed: allowed,
         spamScore: averageScore,
         reason: allowed ? 'Message allowed' : _getBlockReason(checks),
         checks: checks,
       );
-      
+
       if (!allowed) {
-        _logger.warning('Blocked relay from ${fromNodeId.substring(0, 8)}...: ${result.reason} (score: ${averageScore.toStringAsFixed(3)})');
+        _logger.warning(
+          'Blocked relay from ${fromNodeId.shortId(8)}...: ${result.reason} (score: ${averageScore.toStringAsFixed(3)})',
+        );
       }
-      
+
       return result;
-      
     } catch (e) {
       _logger.severe('Error in spam check: $e');
       _totalBlocked++;
@@ -140,30 +157,37 @@ class SpamPreventionManager {
     required String senderNodeId,
     required int messageSize,
   }) async {
+    if (_bypassChecksForTests || _globalBypassForTests) {
+      return const SpamCheckResult(
+        allowed: true,
+        spamScore: 0,
+        reason: 'Testing bypass enabled',
+        checks: [],
+      );
+    }
     try {
       final checks = <SpamCheck>[];
       double totalSpamScore = 0.0;
-      
+
       // 1. Rate limiting check for outgoing
       final rateLimitCheck = await _checkRateLimit(senderNodeId);
       checks.add(rateLimitCheck);
       totalSpamScore += rateLimitCheck.spamScore;
-      
+
       // 2. Message size check
       final sizeCheck = _checkOutgoingMessageSize(messageSize);
       checks.add(sizeCheck);
       totalSpamScore += sizeCheck.spamScore;
-      
+
       final averageScore = totalSpamScore / checks.length;
       final allowed = averageScore < spamScoreThreshold;
-      
+
       return SpamCheckResult(
         allowed: allowed,
         spamScore: averageScore,
         reason: allowed ? 'Outgoing relay allowed' : 'Outgoing relay blocked',
         checks: checks,
       );
-      
     } catch (e) {
       _logger.severe('Error checking outgoing relay: $e');
       return SpamCheckResult(
@@ -173,6 +197,16 @@ class SpamPreventionManager {
         checks: [],
       );
     }
+  }
+
+  @visibleForTesting
+  void bypassAllChecksForTests({bool enable = true}) {
+    _bypassChecksForTests = enable;
+  }
+
+  @visibleForTesting
+  static void bypassAllInstancesForTests({bool enable = true}) {
+    _globalBypassForTests = enable;
   }
 
   /// Record successful relay operation for trust building
@@ -185,16 +219,17 @@ class SpamPreventionManager {
     try {
       // Update rate limiting counters
       await _incrementRelayCount(fromNodeId);
-      
+
       // Mark message hash as processed
       _processedHashes.add(messageHash);
-      
+
       // Update trust score positively for successful relay
       await _updateTrustScore(fromNodeId, improve: true);
       await _updateTrustScore(toNodeId, improve: true);
-      
-      _logger.fine('Recorded relay operation: ${fromNodeId.substring(0, 8)}... -> ${toNodeId.substring(0, 8)}...');
-      
+
+      _logger.fine(
+        'Recorded relay operation: ${fromNodeId.shortId(8)}... -> ${toNodeId.shortId(8)}...',
+      );
     } catch (e) {
       _logger.warning('Failed to record relay operation: $e');
     }
@@ -234,10 +269,11 @@ class SpamPreventionManager {
   /// Check rate limiting for a node
   Future<SpamCheck> _checkRateLimit(String nodeId) async {
     final now = DateTime.now();
-    final hourlyKey = '${nodeId}_${now.hour}_${now.day}_${now.month}_${now.year}';
-    
+    final hourlyKey =
+        '${nodeId}_${now.hour}_${now.day}_${now.month}_${now.year}';
+
     final relayCount = _hourlyRelayCount[hourlyKey]?.length ?? 0;
-    
+
     if (relayCount >= maxRelaysPerSenderPerHour) {
       return SpamCheck(
         type: SpamCheckType.rateLimit,
@@ -246,7 +282,7 @@ class SpamPreventionManager {
         message: 'Rate limit exceeded: $relayCount/$maxRelaysPerSenderPerHour',
       );
     }
-    
+
     final spamScore = relayCount / maxRelaysPerSenderPerHour;
     return SpamCheck(
       type: SpamCheckType.rateLimit,
@@ -259,7 +295,7 @@ class SpamPreventionManager {
   /// Check message size limits
   SpamCheck _checkMessageSize(MeshRelayMessage relayMessage) {
     final size = relayMessage.messageSize;
-    
+
     if (size > maxMessageSizeBytes) {
       return SpamCheck(
         type: SpamCheckType.messageSize,
@@ -268,7 +304,7 @@ class SpamPreventionManager {
         message: 'Message too large: ${size}B > ${maxMessageSizeBytes}B',
       );
     }
-    
+
     final spamScore = size / maxMessageSizeBytes;
     return SpamCheck(
       type: SpamCheckType.messageSize,
@@ -288,7 +324,7 @@ class SpamPreventionManager {
         message: 'Outgoing message too large: ${size}B',
       );
     }
-    
+
     final spamScore = size / maxMessageSizeBytes;
     return SpamCheck(
       type: SpamCheckType.messageSize,
@@ -308,7 +344,7 @@ class SpamPreventionManager {
         message: 'Hop count too high: ${metadata.hopCount}',
       );
     }
-    
+
     if (metadata.hopCount >= metadata.ttl) {
       return SpamCheck(
         type: SpamCheckType.hopCount,
@@ -317,7 +353,7 @@ class SpamPreventionManager {
         message: 'TTL exceeded: ${metadata.hopCount}/${metadata.ttl}',
       );
     }
-    
+
     final spamScore = metadata.hopCount / maxHopCount;
     return SpamCheck(
       type: SpamCheckType.hopCount,
@@ -337,7 +373,7 @@ class SpamPreventionManager {
         message: 'Duplicate message hash',
       );
     }
-    
+
     return SpamCheck(
       type: SpamCheckType.duplicate,
       passed: true,
@@ -349,10 +385,10 @@ class SpamPreventionManager {
   /// Check trust score for node
   Future<SpamCheck> _checkTrustScore(String nodeId) async {
     final trustScore = _trustScores[nodeId] ?? 0.5; // Default neutral trust
-    
+
     // Lower trust score = higher spam score (inverted)
     final spamScore = 1.0 - trustScore;
-    
+
     return SpamCheck(
       type: SpamCheckType.trustScore,
       passed: trustScore > 0.3, // Require minimum trust
@@ -371,7 +407,7 @@ class SpamPreventionManager {
         message: 'Loop detected: node already in path',
       );
     }
-    
+
     return SpamCheck(
       type: SpamCheckType.loop,
       passed: true,
@@ -383,8 +419,9 @@ class SpamPreventionManager {
   /// Increment relay count for rate limiting
   Future<void> _incrementRelayCount(String nodeId) async {
     final now = DateTime.now();
-    final hourlyKey = '${nodeId}_${now.hour}_${now.day}_${now.month}_${now.year}';
-    
+    final hourlyKey =
+        '${nodeId}_${now.hour}_${now.day}_${now.month}_${now.year}';
+
     _hourlyRelayCount.putIfAbsent(hourlyKey, () => []);
     _hourlyRelayCount[hourlyKey]!.add(now.millisecondsSinceEpoch);
   }
@@ -392,13 +429,13 @@ class SpamPreventionManager {
   /// Update trust score for a node
   Future<void> _updateTrustScore(String nodeId, {required bool improve}) async {
     final currentScore = _trustScores[nodeId] ?? 0.5;
-    
+
     // Gradual trust adjustment
     final adjustment = improve ? 0.05 : -0.1;
     final newScore = (currentScore + adjustment).clamp(0.0, 1.0);
-    
+
     _trustScores[nodeId] = newScore;
-    
+
     // Persist periodically (not every update for performance)
     if (DateTime.now().millisecondsSinceEpoch % 10 == 0) {
       await _saveTrustScores();
@@ -409,7 +446,7 @@ class SpamPreventionManager {
   String _getBlockReason(List<SpamCheck> checks) {
     final failed = checks.where((check) => !check.passed).toList();
     if (failed.isEmpty) return 'High spam score';
-    
+
     return failed.map((check) => check.message).join('; ');
   }
 
@@ -472,14 +509,16 @@ class SpamPreventionManager {
   Future<void> _performCleanup() async {
     try {
       final now = DateTime.now();
-      final cutoffTime = now.subtract(Duration(hours: 24)).millisecondsSinceEpoch;
-      
+      final cutoffTime = now
+          .subtract(Duration(hours: 24))
+          .millisecondsSinceEpoch;
+
       // Clean hourly rate limit counters
       _hourlyRelayCount.removeWhere((key, timestamps) {
         timestamps.removeWhere((timestamp) => timestamp < cutoffTime);
         return timestamps.isEmpty;
       });
-      
+
       // Clean processed hashes (keep only recent ones)
       if (_processedHashes.length > 5000) {
         final hashList = _processedHashes.toList();
@@ -487,12 +526,12 @@ class SpamPreventionManager {
         _processedHashes.addAll(hashList.take(2000)); // Keep newest 2000
         await _saveProcessedHashes();
       }
-      
+
       // Clean recent operations
       _recentOperations.removeWhere((hash, operation) {
         return operation.timestamp.isBefore(now.subtract(Duration(hours: 24)));
       });
-      
+
       _logger.info('Performed spam prevention cleanup');
     } catch (e) {
       _logger.warning('Cleanup failed: $e');
@@ -559,7 +598,8 @@ class SpamPreventionStatistics {
   });
 
   @override
-  String toString() => 'SpamStats(blocked: $totalBlocked/$totalAllowed, rate: ${(blockRate * 100).toStringAsFixed(1)}%)';
+  String toString() =>
+      'SpamStats(blocked: $totalBlocked/$totalAllowed, rate: ${(blockRate * 100).toStringAsFixed(1)}%)';
 }
 
 /// Relay operation record

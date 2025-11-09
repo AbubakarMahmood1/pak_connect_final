@@ -36,19 +36,19 @@ class BackgroundCacheService {
       _logger.severe('❌ Background refresh failed: $e');
     }
   }
-  
+
   static void dispose() {
     _refreshTimer?.cancel();
     _refreshTimer = null;
-    
+
     _rotationCheckTimer?.cancel();
     _rotationCheckTimer = null;
-    
+
     if (_observer != null) {
       WidgetsBinding.instance.removeObserver(_observer!);
       _observer = null;
     }
-    
+
     _isInitialized = false;
   }
 }
