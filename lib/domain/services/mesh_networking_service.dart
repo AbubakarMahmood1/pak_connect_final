@@ -1043,24 +1043,24 @@ class MeshNetworkingService {
         return;
       }
 
+      // 🔧 FIX: Check actual connection availability instead of mode flag
+      // This handles collision scenarios where mode flag might be stale
       bool success;
-      if (_bleService.isPeripheralMode) {
-        // Guard: only attempt peripheral send if we actually can notify (central + characteristic ready)
-        if (!_bleService.canSendMessages) {
-          _logger.warning(
-            'Skipping send in PERIPHERAL mode: no central/characteristic (will retry later): $truncatedId...',
-          );
-          success = false;
-        } else {
-          _logger.fine('Sending via PERIPHERAL mode for $truncatedId...');
-          success = await _bleService.sendPeripheralMessage(
-            message.content,
-            messageId: messageId,
-          );
-        }
+      if (!_bleService.canSendMessages) {
+        _logger.warning(
+          'No active connection available (will retry later): $truncatedId...',
+        );
+        success = false;
+      } else if (_bleService.hasPeripheralConnection) {
+        // Have peripheral connection (others connected TO us)
+        _logger.fine('Sending via PERIPHERAL connection for $truncatedId...');
+        success = await _bleService.sendPeripheralMessage(
+          message.content,
+          messageId: messageId,
+        );
       } else {
-        // Central mode: use regular send method with relay support
-        _logger.fine('Sending via CENTRAL mode for $truncatedId...');
+        // Have central connection (we connected TO others)
+        _logger.fine('Sending via CENTRAL connection for $truncatedId...');
         success = await _bleService.sendMessage(
           message.content,
           messageId: messageId,

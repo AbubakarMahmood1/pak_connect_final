@@ -601,7 +601,7 @@ class BLEConnectionManager {
           remoteHint != DeviceDeduplicationManager.noHintValue;
 
       if (hasComparableHints) {
-        final comparison = localHint!.compareTo(remoteHint!);
+        final comparison = localHint.compareTo(remoteHint);
         if (comparison > 0) {
           _logger.info(
             '⚖️ Collision tie-breaker: our hint ($localHint) > remote ($remoteHint) — yielding to inbound link',
@@ -894,6 +894,13 @@ class BLEConnectionManager {
           _logger.info(
             '↔️ Collision policy prefers our client link for ${_formatAddress(address)} — keeping outbound connection',
           );
+          // 🔧 FIX: Remove the redundant server connection to prevent phantom entries in UI
+          final removedConnection = _serverConnections.remove(address);
+          if (removedConnection != null) {
+            _logger.fine(
+              '🧹 Cleaned up redundant server connection for ${_formatAddress(address)}',
+            );
+          }
         }
       }
 

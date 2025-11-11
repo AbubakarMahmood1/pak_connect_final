@@ -58,7 +58,9 @@ class SecurityStateComputer {
     );
 
     final contactRepo = bleService.stateManager.contactRepository;
-    final contact = await contactRepo.getContact(actualKey);
+    // 🔧 FIX: Use comprehensive lookup to handle publicKey, persistentPublicKey, AND currentEphemeralId
+    // This fixes "Contact exists: false" bug when looking up by persistent or ephemeral IDs
+    final contact = await contactRepo.getContactByAnyId(actualKey);
 
     print('🔧 REPO DEBUG: Contact found: ${contact != null}');
     print('🔧 REPO DEBUG: Contact trust status: ${contact?.trustStatus.name}');
@@ -116,7 +118,8 @@ class SecurityStateComputer {
     final contactRepo = bleService.stateManager.contactRepository;
 
     // Check bilateral contact relationship
-    final contact = await contactRepo.getContact(otherPublicKey);
+    // 🔧 FIX: Use comprehensive lookup to handle any identifier type
+    final contact = await contactRepo.getContactByAnyId(otherPublicKey);
     final weHaveThem =
         contact != null && contact.trustStatus == TrustStatus.verified;
     final theyHaveUs = bleService.stateManager.theyHaveUsAsContact;

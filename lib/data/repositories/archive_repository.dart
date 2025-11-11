@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
-import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -331,46 +330,6 @@ class ArchiveRepository {
       _logger.warning('Failed to get archived chats count: $e');
       return 0;
     }
-  }
-
-  Future<void> _ensureChatShellExists({
-    required ArchivedChat archivedChat,
-    required ArchivedChat restoredArchive,
-  }) async {
-    final db = await DatabaseHelper.database;
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    await db.transaction((txn) async {
-      if ((archivedChat.contactPublicKey?.isNotEmpty ?? false)) {
-        await txn.insert('contacts', {
-          'public_key': archivedChat.contactPublicKey,
-          'display_name': archivedChat.contactName,
-          'trust_status': 0,
-          'security_level': 0,
-          'first_seen': now,
-          'last_seen': now,
-          'created_at': now,
-          'updated_at': now,
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      }
-
-      await txn.insert('chats', {
-        'chat_id': archivedChat.originalChatId,
-        'contact_public_key': archivedChat.contactPublicKey,
-        'contact_name': archivedChat.contactName,
-        'last_message': restoredArchive.messages.isNotEmpty
-            ? restoredArchive.messages.last.content
-            : '',
-        'last_message_time':
-            restoredArchive.lastMessageTime?.millisecondsSinceEpoch,
-        'unread_count': 0,
-        'is_archived': 0,
-        'is_muted': 0,
-        'is_pinned': 0,
-        'created_at': now,
-        'updated_at': now,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-    });
   }
 
   Future<List<ArchivedChatSummary>> getArchivedChats({

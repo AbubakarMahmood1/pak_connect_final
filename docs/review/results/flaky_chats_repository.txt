@@ -1,0 +1,36 @@
+00:00 +0: loading /home/abubakar/dev/pak_connect/test/chats_repository_sqlite_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: ChatsRepository SQLite Tests Mark chat as read - new chat
+✅ Database reset complete. Tables: 21
+00:00 +1: ChatsRepository SQLite Tests Mark chat as read - existing chat with unread messages
+✅ Database reset complete. Tables: 21
+00:00 +2: ChatsRepository SQLite Tests Increment unread count - new chat
+✅ Database reset complete. Tables: 21
+00:00 +3: ChatsRepository SQLite Tests Increment unread count - existing chat
+✅ Database reset complete. Tables: 21
+00:01 +4: ChatsRepository SQLite Tests Get total unread count - no chats
+✅ Database reset complete. Tables: 21
+00:01 +5: ChatsRepository SQLite Tests Get total unread count - multiple chats
+✅ Database reset complete. Tables: 21
+00:01 +6: ChatsRepository SQLite Tests Update contact last seen
+✅ Database reset complete. Tables: 21
+00:01 +7: ChatsRepository SQLite Tests Update contact last seen - multiple updates
+✅ Database reset complete. Tables: 21
+00:01 +8: ChatsRepository SQLite Tests Store device mapping
+✅ Database reset complete. Tables: 21
+00:01 +9: ChatsRepository SQLite Tests Store device mapping - null deviceUuid
+✅ Database reset complete. Tables: 21
+00:02 +10: ChatsRepository SQLite Tests Store device mapping - update existing
+✅ Database reset complete. Tables: 21
+00:02 +11: ChatsRepository SQLite Tests Get contacts without chats
+  Skip: Requires UserPreferences setup
+00:02 +11 ~1: ChatsRepository SQLite Tests getAllChats returns empty list when no messages
+  Skip: Requires UserPreferences/FlutterSecureStorage - getPublicKey() has no fallback
+00:02 +11 ~2: ChatsRepository SQLite Tests Multiple chats with different unread counts
+✅ Database reset complete. Tables: 21
+00:02 +12 ~2: ChatsRepository SQLite Tests Last seen data persists across multiple contacts
+✅ Database reset complete. Tables: 21
+00:02 +13 ~2: ChatsRepository SQLite Tests Device mappings support multiple devices
+✅ Database reset complete. Tables: 21
+00:02 +14 ~2: (tearDownAll)
+00:02 +14 ~2: All tests passed!
