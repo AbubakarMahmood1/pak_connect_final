@@ -248,8 +248,36 @@ class ContactRepository {
     return Contact.fromDatabase(results.first);
   }
 
-  /// 🔧 NEW MODEL: Get contact by ANY identifier (publicKey OR persistentPublicKey)
-  /// Useful when you don't know which identifier type you have
+  /// 🔧 NEW MODEL: Get contact by current ephemeral ID (session-specific identifier)
+  /// Used when looking up contacts by their active session ID
+  Future<Contact?> getContactByCurrentEphemeralId(String ephemeralId) async {
+    final db = await _db;
+
+    final results = await db.query(
+      'contacts',
+      where: 'current_ephemeral_id = ?',
+      whereArgs: [ephemeralId],
+      limit: 1,
+    );
+
+    if (results.isEmpty) return null;
+
+    return Contact.fromDatabase(results.first);
+  }
+
+  /// 🔧 ENHANCED: Get contact by ANY identifier (publicKey, persistentPublicKey, OR currentEphemeralId)
+  /// This is the most comprehensive lookup and should be used when identifier type is unknown.
+  ///
+  /// Tries lookups in order of performance:
+  /// 1. publicKey (primary key - fastest, O(1))
+  /// 2. persistentPublicKey (indexed - fast, O(log n))
+  /// 3. currentEphemeralId (indexed - fast, O(log n))
+  ///
+  /// Real-world scenarios handled:
+  /// - First connection: identifier = ephemeralId (matches publicKey)
+  /// - Reconnection with new ephemeral: identifier = new ephemeralId (matches currentEphemeralId)
+  /// - After MEDIUM+ pairing: identifier = persistentKey (matches persistentPublicKey)
+  /// - Repository mode with "repo_" prefix: identifier could be any of the above
   Future<Contact?> getContactByAnyId(String identifier) async {
     // Try by publicKey first (primary key - fastest)
     var contact = await getContact(identifier);
@@ -257,6 +285,10 @@ class ContactRepository {
 
     // Try by persistentPublicKey (indexed - still fast)
     contact = await getContactByPersistentKey(identifier);
+    if (contact != null) return contact;
+
+    // Try by currentEphemeralId (handles reconnections with new ephemeral IDs)
+    contact = await getContactByCurrentEphemeralId(identifier);
     return contact;
   }
 

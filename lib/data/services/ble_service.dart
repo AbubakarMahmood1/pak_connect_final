@@ -230,16 +230,21 @@ class BLEService {
       !_stateManager.isPeripheralMode &&
       _connectionManager.isActivelyReconnecting;
 
+  /// Check if we have an active peripheral connection (others connected TO us)
+  bool get hasPeripheralConnection =>
+      _connectedCentral != null && _connectedCharacteristic != null;
+
+  /// Check if we have an active central connection (we connected TO others)
+  bool get hasCentralConnection =>
+      _connectionManager.hasBleConnection &&
+      _connectionManager.messageCharacteristic != null;
+
   /// Check if we can send messages (works for both central and peripheral modes)
+  /// 🔧 FIX: Check BOTH connection types instead of relying on mode flag
+  /// This handles collision scenarios where mode flag might be stale
   bool get canSendMessages {
-    if (_stateManager.isPeripheralMode) {
-      // Peripheral mode: check if central is connected and characteristic is available
-      return _connectedCentral != null && _connectedCharacteristic != null;
-    } else {
-      // Central mode: check connection manager
-      return _connectionManager.hasBleConnection &&
-          _connectionManager.messageCharacteristic != null;
-    }
+    // Can send if EITHER connection type is available (mode-agnostic)
+    return hasPeripheralConnection || hasCentralConnection;
   }
 
   BLEStateManager get stateManager => _stateManager;
@@ -2432,7 +2437,7 @@ class BLEService {
       final introHint = await _introHintRepo.getMostRecentActiveHint();
       final useIntro = introHint != null && introHint.isUsable;
       final identifier = useIntro
-          ? introHint!.hintHex
+          ? introHint.hintHex
           : await _stateManager.getMyPersistentId();
 
       if (identifier.isEmpty) {

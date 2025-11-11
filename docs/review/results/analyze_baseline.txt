@@ -1,0 +1,223 @@
+Analyzing pak_connect...                                        
+
+   info • Don't invoke 'print' in production code • test/core/protocol_message_compression_test.dart:22:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/core/protocol_message_compression_test.dart:328:11 • avoid_print
+   info • Don't invoke 'print' in production code • test/core/protocol_message_compression_test.dart:335:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/core/protocol_message_compression_test.dart:419:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/core/protocol_message_compression_test.dart:442:9 • avoid_print
+warning • Unused import: 'package:logging/logging.dart' • test/debug_handshake_test.dart:3:8 • unused_import
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:120:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:132:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:139:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:145:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:158:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:165:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:171:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:184:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:185:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:186:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:190:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:191:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:192:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:193:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:194:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_handshake_test.dart:196:5 • avoid_print
+warning • Unused import: 'package:logging/logging.dart' • test/debug_nonce_test.dart:12:8 • unused_import
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:128:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:129:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:130:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:144:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:149:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:167:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:172:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:176:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:177:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:178:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:182:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:183:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:184:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:188:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:189:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:192:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:196:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:197:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:198:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:203:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:208:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:210:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:211:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:212:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:214:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:219:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:223:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:224:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:225:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:230:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:235:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:237:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:238:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:239:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:241:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:246:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:250:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:251:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/debug_nonce_test.dart:252:5 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:40:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:56:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:62:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:74:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:89:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:106:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:115:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:120:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:132:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:143:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:144:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:145:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:157:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:172:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:173:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:174:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:175:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:186:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:203:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:204:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:215:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:229:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:230:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:243:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:249:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:267:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:293:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:296:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:307:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:310:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:313:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:316:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:319:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:330:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:333:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:336:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:339:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:348:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:357:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:368:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:370:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:371:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:372:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:373:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/ephemeral_key_cleanup_verification_test.dart:386:7 • avoid_print
+warning • Unused import: 'package:logging/logging.dart' • test/favorites_integration_test.dart:5:8 • unused_import
+warning • Unused import: 'dart:math' • test/gcs_filter_test.dart:8:8 • unused_import
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:208:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:209:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:225:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:358:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:359:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:360:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:384:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:385:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:386:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:387:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:388:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:389:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:390:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:391:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:392:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:393:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:394:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:395:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:396:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:397:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/gcs_filter_test.dart:398:7 • avoid_print
+warning • The value of the local variable 'peerDisplayName' isn't used • test/handshake_queue_flush_test.dart:22:11 • unused_local_variable
+warning • The value of the local variable 'lowId' isn't used • test/handshake_queue_flush_test.dart:158:13 • unused_local_variable
+warning • The value of the local variable 'normalId' isn't used • test/handshake_queue_flush_test.dart:174:13 • unused_local_variable
+warning • Unused import: 'package:logging/logging.dart' • test/kk_protocol_integration_test.dart:3:8 • unused_import
+warning • The declaration 'tearDown' isn't referenced • test/kk_protocol_integration_test.dart:130:5 • unused_element
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:227:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:230:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:248:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:251:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:277:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:286:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:293:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:296:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:314:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:317:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:324:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:327:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:341:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:371:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:378:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:381:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:399:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:402:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:409:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:412:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:426:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:456:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:463:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:466:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:484:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:488:11 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:522:11 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:537:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:562:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:563:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:568:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:571:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:583:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:607:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:613:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:619:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:644:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:649:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:698:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:706:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:733:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/kk_protocol_integration_test.dart:767:9 • avoid_print
+warning • Unused import: 'package:logging/logging.dart' • test/mesh_relay_flow_test.dart:5:8 • unused_import
+   info • Don't invoke 'print' in production code • test/noise_end_to_end_test.dart:154:13 • avoid_print
+   info • Don't invoke 'print' in production code • test/noise_end_to_end_test.dart:178:13 • avoid_print
+warning • Duplicate import • test/p2p_message_routing_fix_test.dart:2:8 • duplicate_import
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:62:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:63:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:64:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:65:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:66:9 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:112:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:113:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:116:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:129:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:130:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:144:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:145:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:172:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:184:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:197:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:213:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:224:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:237:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:238:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:246:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:253:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:283:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:284:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:302:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:303:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:304:7 • avoid_print
+   info • Don't invoke 'print' in production code • test/power_management_phase1_test.dart:305:7 • avoid_print
+warning • Unused import: 'package:logging/logging.dart' • test/relay_phase3_test.dart:5:8 • unused_import
+   info • The imported package 'bluetooth_low_energy_platform_interface' isn't a dependency of the importing package • test/test_helpers/ble/fake_ble_platform.dart:4:8 • depend_on_referenced_packages
+   info • The import of 'package:bluetooth_low_energy_platform_interface/src/central_manager.dart' is unnecessary because all of the used elements are also provided by the import of 'package:bluetooth_low_energy_platform_interface/bluetooth_low_energy_platform_interface.dart' • test/test_helpers/ble/fake_ble_platform.dart:5:8 • unnecessary_import
+   info • The imported package 'bluetooth_low_energy_platform_interface' isn't a dependency of the importing package • test/test_helpers/ble/fake_ble_platform.dart:5:8 • depend_on_referenced_packages
+   info • The import of 'package:bluetooth_low_energy_platform_interface/src/peripheral_manager.dart' is unnecessary because all of the used elements are also provided by the import of 'package:bluetooth_low_energy_platform_interface/bluetooth_low_energy_platform_interface.dart' • test/test_helpers/ble/fake_ble_platform.dart:6:8 • unnecessary_import
+   info • The imported package 'bluetooth_low_energy_platform_interface' isn't a dependency of the importing package • test/test_helpers/ble/fake_ble_platform.dart:6:8 • depend_on_referenced_packages
+warning • The method doesn't override an inherited method • test/test_helpers/ble/fake_ble_platform.dart:215:16 • override_on_non_overriding_member
+warning • The method doesn't override an inherited method • test/test_helpers/ble/fake_ble_platform.dart:225:16 • override_on_non_overriding_member
+   info • The imported package 'flutter_secure_storage_platform_interface' isn't a dependency of the importing package • test/test_helpers/mocks/in_memory_secure_storage.dart:1:8 • depend_on_referenced_packages
+   info • The imported package 'flutter_secure_storage_platform_interface' isn't a dependency of the importing package • test/test_helpers/test_setup.dart:6:8 • depend_on_referenced_packages
+   info • The local variable '_pumpApp' starts with an underscore • test/widget_test.dart:22:16 • no_leading_underscores_for_local_identifiers
+
+219 issues found. (ran in 11.1s)
