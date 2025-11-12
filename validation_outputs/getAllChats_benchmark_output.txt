@@ -1,0 +1,145 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 85.0.0 (92.0.0 available)
+  analyzer 7.6.0 (9.0.0 available)
+  analyzer_buffer 0.1.10 (0.1.11 available)
+  analyzer_plugin 0.13.4 (0.13.11 available)
+  build 3.1.0 (4.0.2 available)
+  build_daemon 4.1.0 (4.1.1 available)
+  build_resolvers 3.0.3 (3.0.4 available)
+  build_runner 2.7.1 (2.10.1 available)
+  build_runner_core 9.3.1 (9.3.2 available)
+  characters 1.4.0 (1.4.1 available)
+  crypto 3.0.6 (3.0.7 available)
+  custom_lint_core 0.8.0 (0.8.1 available)
+  custom_lint_visitor 1.0.0+7.7.0 (1.0.0+8.1.1 available)
+  dart_style 3.1.1 (3.1.2 available)
+  flutter_secure_storage_linux 1.2.3 (2.0.1 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.0.1 available)
+  flutter_secure_storage_web 1.2.1 (2.0.0 available)
+  flutter_secure_storage_windows 3.1.2 (4.0.0 available)
+  http 1.5.0 (1.6.0 available)
+  intl 0.19.0 (0.20.2 available)
+  js 0.6.7 (0.7.2 available)
+  material_color_utilities 0.11.1 (0.13.0 available)
+  meta 1.16.0 (1.17.0 available)
+  mockito 5.5.0 (5.5.1 available)
+  pointycastle 3.9.1 (4.0.0 available)
+  source_gen 3.1.0 (4.0.2 available)
+  test 1.26.2 (1.26.3 available)
+  test_api 0.7.6 (0.7.8 available)
+  test_core 0.6.11 (0.6.13 available)
+Got dependencies!
+30 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart                                                                                                      00:01 +0: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart                                                                                                      00:02 +0: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart                                                                                                      test/performance_getAllChats_benchmark_test.dart:16:49: Error: Can't find '}' to match '{'.
+  group('getAllChats Performance Benchmark', () {
+                                                ^
+test/performance_getAllChats_benchmark_test.dart:224:4: Error: Expected a declaration, but got ')'.
+  });
+   ^
+test/performance_getAllChats_benchmark_test.dart:224:5: Error: Unexpected token ';'.
+  });
+    ^
+test/performance_getAllChats_benchmark_test.dart:225:1: Error: Expected a declaration, but got '}'.
+}
+^
+test/performance_getAllChats_benchmark_test.dart:11:8: Error: Error when reading 'lib/data/models/contact.dart': No such file or directory
+import 'package:pak_connect/data/models/contact.dart';
+       ^
+test/performance_getAllChats_benchmark_test.dart:12:8: Error: Error when reading 'lib/data/models/enhanced_message.dart': No such file or directory
+import 'package:pak_connect/data/models/enhanced_message.dart';
+       ^
+00:03 +0: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart                                                                                                      test/performance_getAllChats_benchmark_test.dart:40:6: Error: Expected an identifier, but got ')'.
+Try inserting an identifier before ')'.
+    });
+     ^
+test/performance_getAllChats_benchmark_test.dart:40:5: Error: Expected ';' after this.
+    });
+    ^
+test/performance_getAllChats_benchmark_test.dart:40:6: Error: Unexpected token ';'.
+    });
+     ^
+test/performance_getAllChats_benchmark_test.dart:57:15: Error: Undefined name 'contactRepo'.
+        await contactRepo.saveContact(contactKey, contactName);
+              ^^^^^^^^^^^
+test/performance_getAllChats_benchmark_test.dart:71:26: Error: Undefined name 'MessageType'.
+            messageType: MessageType.text,
+                         ^^^^^^^^^^^
+test/performance_getAllChats_benchmark_test.dart:63:27: Error: Method not found: 'EnhancedMessage'.
+          final message = EnhancedMessage(
+                          ^^^^^^^^^^^^^^^
+test/performance_getAllChats_benchmark_test.dart:74:17: Error: Undefined name 'messageRepo'.
+          await messageRepo.saveMessage(message);
+                ^^^^^^^^^^^
+test/performance_getAllChats_benchmark_test.dart:87:27: Error: Undefined name 'chatsRepo'.
+      final chats = await chatsRepo.getAllChats(nearbyDevices: []);
+                          ^^^^^^^^^
+test/performance_getAllChats_benchmark_test.dart:110:27: Error: Undefined name 'chatsRepo'.
+      final chats = await chatsRepo.getAllChats(nearbyDevices: []);
+                          ^^^^^^^^^
+test/performance_getAllChats_benchmark_test.dart:144:27: Error: Undefined name 'chatsRepo'.
+      final chats = await chatsRepo.getAllChats(nearbyDevices: []);
+                          ^^^^^^^^^
+test/performance_getAllChats_benchmark_test.dart:208:29: Error: Undefined name 'chatsRepo'.
+        final chats = await chatsRepo.getAllChats(nearbyDevices: []);
+                            ^^^^^^^^^
+00:03 +0 -1: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart [E]                                                                                               
+  Failed to load "/home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart":
+  Compilation failed for testPath=/home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart: test/performance_getAllChats_benchmark_test.dart:16:49: Error: Can't find '}' to match '{'.
+    group('getAllChats Performance Benchmark', () {
+                                                  ^
+  test/performance_getAllChats_benchmark_test.dart:224:4: Error: Expected a declaration, but got ')'.
+    });
+     ^
+  test/performance_getAllChats_benchmark_test.dart:224:5: Error: Unexpected token ';'.
+    });
+      ^
+  test/performance_getAllChats_benchmark_test.dart:225:1: Error: Expected a declaration, but got '}'.
+  }
+  ^
+  test/performance_getAllChats_benchmark_test.dart:11:8: Error: Error when reading 'lib/data/models/contact.dart': No such file or directory
+  import 'package:pak_connect/data/models/contact.dart';
+         ^
+  test/performance_getAllChats_benchmark_test.dart:12:8: Error: Error when reading 'lib/data/models/enhanced_message.dart': No such file or directory
+  import 'package:pak_connect/data/models/enhanced_message.dart';
+         ^
+  test/performance_getAllChats_benchmark_test.dart:40:6: Error: Expected an identifier, but got ')'.
+  Try inserting an identifier before ')'.
+      });
+       ^
+  test/performance_getAllChats_benchmark_test.dart:40:5: Error: Expected ';' after this.
+      });
+      ^
+  test/performance_getAllChats_benchmark_test.dart:40:6: Error: Unexpected token ';'.
+      });
+       ^
+  test/performance_getAllChats_benchmark_test.dart:57:15: Error: Undefined name 'contactRepo'.
+          await contactRepo.saveContact(contactKey, contactName);
+                ^^^^^^^^^^^
+  test/performance_getAllChats_benchmark_test.dart:71:26: Error: Undefined name 'MessageType'.
+              messageType: MessageType.text,
+                           ^^^^^^^^^^^
+  test/performance_getAllChats_benchmark_test.dart:63:27: Error: Method not found: 'EnhancedMessage'.
+            final message = EnhancedMessage(
+                            ^^^^^^^^^^^^^^^
+  test/performance_getAllChats_benchmark_test.dart:74:17: Error: Undefined name 'messageRepo'.
+            await messageRepo.saveMessage(message);
+                  ^^^^^^^^^^^
+  test/performance_getAllChats_benchmark_test.dart:87:27: Error: Undefined name 'chatsRepo'.
+        final chats = await chatsRepo.getAllChats(nearbyDevices: []);
+                            ^^^^^^^^^
+  test/performance_getAllChats_benchmark_test.dart:110:27: Error: Undefined name 'chatsRepo'.
+        final chats = await chatsRepo.getAllChats(nearbyDevices: []);
+                            ^^^^^^^^^
+  test/performance_getAllChats_benchmark_test.dart:144:27: Error: Undefined name 'chatsRepo'.
+        final chats = await chatsRepo.getAllChats(nearbyDevices: []);
+                            ^^^^^^^^^
+  test/performance_getAllChats_benchmark_test.dart:208:29: Error: Undefined name 'chatsRepo'.
+          final chats = await chatsRepo.getAllChats(nearbyDevices: []);
+                              ^^^^^^^^^
+  .
+
+To run this test again: /home/abubakar/flutter/bin/cache/dart-sdk/bin/dart test /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart -p vm --plain-name 'loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart'
+00:03 +0 -1: Some tests failed.                                                                                                                                                                        

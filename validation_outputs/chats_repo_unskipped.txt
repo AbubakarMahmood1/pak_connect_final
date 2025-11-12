@@ -1,0 +1,82 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 85.0.0 (92.0.0 available)
+  analyzer 7.6.0 (9.0.0 available)
+  analyzer_buffer 0.1.10 (0.1.11 available)
+  analyzer_plugin 0.13.4 (0.13.11 available)
+  build 3.1.0 (4.0.2 available)
+  build_daemon 4.1.0 (4.1.1 available)
+  build_resolvers 3.0.3 (3.0.4 available)
+  build_runner 2.7.1 (2.10.1 available)
+  build_runner_core 9.3.1 (9.3.2 available)
+  characters 1.4.0 (1.4.1 available)
+  crypto 3.0.6 (3.0.7 available)
+  custom_lint_core 0.8.0 (0.8.1 available)
+  custom_lint_visitor 1.0.0+7.7.0 (1.0.0+8.1.1 available)
+  dart_style 3.1.1 (3.1.2 available)
+  flutter_secure_storage_linux 1.2.3 (2.0.1 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.0.1 available)
+  flutter_secure_storage_web 1.2.1 (2.0.0 available)
+  flutter_secure_storage_windows 3.1.2 (4.0.0 available)
+  http 1.5.0 (1.6.0 available)
+  intl 0.19.0 (0.20.2 available)
+  js 0.6.7 (0.7.2 available)
+  material_color_utilities 0.11.1 (0.13.0 available)
+  meta 1.16.0 (1.17.0 available)
+  mockito 5.5.0 (5.5.1 available)
+  pointycastle 3.9.1 (4.0.0 available)
+  source_gen 3.1.0 (4.0.2 available)
+  test 1.26.2 (1.26.3 available)
+  test_api 0.7.6 (0.7.8 available)
+  test_core 0.6.11 (0.6.13 available)
+Got dependencies!
+30 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/abubakar/dev/pak_connect/test/chats_repository_sqlite_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: ChatsRepository SQLite Tests Mark chat as read - new chat
+✅ Database reset complete. Tables: 21
+00:00 +1: ChatsRepository SQLite Tests Mark chat as read - existing chat with unread messages
+✅ Database reset complete. Tables: 21
+00:00 +2: ChatsRepository SQLite Tests Increment unread count - new chat
+✅ Database reset complete. Tables: 21
+00:00 +3: ChatsRepository SQLite Tests Increment unread count - existing chat
+✅ Database reset complete. Tables: 21
+00:01 +4: ChatsRepository SQLite Tests Get total unread count - no chats
+✅ Database reset complete. Tables: 21
+00:01 +5: ChatsRepository SQLite Tests Get total unread count - multiple chats
+✅ Database reset complete. Tables: 21
+00:01 +6: ChatsRepository SQLite Tests Update contact last seen
+✅ Database reset complete. Tables: 21
+00:01 +7: ChatsRepository SQLite Tests Update contact last seen - multiple updates
+✅ Database reset complete. Tables: 21
+00:01 +8: ChatsRepository SQLite Tests Store device mapping
+✅ Database reset complete. Tables: 21
+00:02 +9: ChatsRepository SQLite Tests Store device mapping - null deviceUuid
+✅ Database reset complete. Tables: 21
+00:02 +10: ChatsRepository SQLite Tests Store device mapping - update existing
+✅ Database reset complete. Tables: 21
+00:02 +11: ChatsRepository SQLite Tests Get contacts without chats
+✅ Database reset complete. Tables: 21
+00:02 +11: (setUpAll)
+SEVERE: ❌ Failed to save message: SqfliteFfiException(sqlite_error: 787, , SqliteException(787): while executing statement, FOREIGN KEY constraint failed, constraint failed (code 787)
+  Causing statement: INSERT OR IGNORE INTO chats (chat_id, contact_public_key, contact_name, unread_count, is_archived, is_muted, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?), parameters: persistent_chat_alice_key_mykey, key, Chat persistent_chat_alic..., 0, 0, 0, 0, 1762843338801, 1762843338801}) DatabaseException(SqliteException(787): while executing statement, FOREIGN KEY constraint failed, constraint failed (code 787)
+  Causing statement: INSERT OR IGNORE INTO chats (chat_id, contact_public_key, contact_name, unread_count, is_archived, is_muted, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?), parameters: persistent_chat_alice_key_mykey, key, Chat persistent_chat_alic..., 0, 0, 0, 0, 1762843338801, 1762843338801) sql 'INSERT OR IGNORE INTO chats (chat_id, contact_public_key, contact_name, unread_count, is_archived, is_muted, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)' args [persistent_chat_alice_key_mykey, key, Chat persistent_chat_alic..., 0, 0, 0, 0, 1762843338801, 1762843338801] {details: {database: {path: /home/abubakar/dev/pak_connect/.dart_tool/sqflite_common_ffi/databases/pak_connect_test_1762843336504.db, id: 24, readOnly: false, singleInstance: true}}}
+00:02 +11 -1: ChatsRepository SQLite Tests Get contacts without chats [E]
+  SqfliteFfiException(sqlite_error: 787, , SqliteException(787): while executing statement, FOREIGN KEY constraint failed, constraint failed (code 787)
+    Causing statement: INSERT OR IGNORE INTO chats (chat_id, contact_public_key, contact_name, unread_count, is_archived, is_muted, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?), parameters: persistent_chat_alice_key_mykey, key, Chat persistent_chat_alic..., 0, 0, 0, 0, 1762843338801, 1762843338801}) DatabaseException(SqliteException(787): while executing statement, FOREIGN KEY constraint failed, constraint failed (code 787)
+    Causing statement: INSERT OR IGNORE INTO chats (chat_id, contact_public_key, contact_name, unread_count, is_archived, is_muted, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?), parameters: persistent_chat_alice_key_mykey, key, Chat persistent_chat_alic..., 0, 0, 0, 0, 1762843338801, 1762843338801) sql 'INSERT OR IGNORE INTO chats (chat_id, contact_public_key, contact_name, unread_count, is_archived, is_muted, is_pinned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)' args [persistent_chat_alice_key_mykey, key, Chat persistent_chat_alic..., 0, 0, 0, 0, 1762843338801, 1762843338801] {details: {database: {path: /home/abubakar/dev/pak_connect/.dart_tool/sqflite_common_ffi/databases/pak_connect_test_1762843336504.db, id: 24, readOnly: false, singleInstance: true}}}
+  package:sqflite_common_ffi/src/method_call.dart 125:9  responseToResultOrThrow
+  package:sqflite_common_ffi/src/isolate.dart 35:12      SqfliteIsolate.handle
+  
+00:02 +11 -1: ChatsRepository SQLite Tests getAllChats returns empty list when no messages
+✅ Database reset complete. Tables: 21
+00:02 +12 -1: ChatsRepository SQLite Tests Multiple chats with different unread counts
+✅ Database reset complete. Tables: 21
+00:03 +13 -1: ChatsRepository SQLite Tests Last seen data persists across multiple contacts
+✅ Database reset complete. Tables: 21
+00:03 +14 -1: ChatsRepository SQLite Tests Device mappings support multiple devices
+✅ Database reset complete. Tables: 21
+00:03 +15 -1: (tearDownAll)
+00:03 +15 -1: Some tests failed.

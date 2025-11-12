@@ -8,6 +8,7 @@ library;
 
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
+import '../secure_key.dart';
 import 'models/noise_models.dart';
 import 'noise_session.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
@@ -25,8 +26,9 @@ typedef SessionFailedCallback = void Function(String peerID, Exception error);
 class NoiseSessionManager {
   static final _logger = Logger('NoiseSessionManager');
 
-  /// Our static private key (32 bytes)
-  final Uint8List _localStaticPrivateKey;
+  /// Our static private key (32 bytes) - stored securely with auto-zeroing
+  /// FIX-001: Using SecureKey to prevent memory leak
+  late final SecureKey _localStaticPrivateKey;
 
   /// Our static public key (32 bytes)
   final Uint8List _localStaticPublicKey;
@@ -50,8 +52,10 @@ class NoiseSessionManager {
   NoiseSessionManager({
     required Uint8List localStaticPrivateKey,
     required Uint8List localStaticPublicKey,
-  }) : _localStaticPrivateKey = Uint8List.fromList(localStaticPrivateKey),
-       _localStaticPublicKey = Uint8List.fromList(localStaticPublicKey);
+  }) : _localStaticPublicKey = Uint8List.fromList(localStaticPublicKey) {
+    // FIX-001: SecureKey zeros the original localStaticPrivateKey immediately
+    _localStaticPrivateKey = SecureKey(localStaticPrivateKey);
+  }
 
   // ========== SESSION MANAGEMENT ==========
 
@@ -188,7 +192,7 @@ class NoiseSessionManager {
       peerID: peerID,
       isInitiator: true,
       pattern: pattern,
-      localStaticPrivateKey: _localStaticPrivateKey,
+      localStaticPrivateKey: _localStaticPrivateKey.data,
       localStaticPublicKey: _localStaticPublicKey,
       remoteStaticPublicKey: remoteStaticPublicKey,
     );
@@ -233,7 +237,7 @@ class NoiseSessionManager {
         session = NoiseSession(
           peerID: peerID,
           isInitiator: false,
-          localStaticPrivateKey: _localStaticPrivateKey,
+          localStaticPrivateKey: _localStaticPrivateKey.data,
           localStaticPublicKey: _localStaticPublicKey,
         );
 

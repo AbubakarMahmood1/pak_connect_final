@@ -671,24 +671,31 @@ class HandshakeCoordinator {
     _phase = ConnectionPhase.noiseHandshakeComplete;
     _phaseController.add(_phase);
 
-    // Get peer's static public key from Noise session
+    // FIX-008: Wait for peer's static public key with retry logic
+    // This prevents Phase 2 from starting before Noise session is fully ready
     try {
-      final noiseService = SecurityManager.noiseService;
-      if (noiseService != null) {
-        final peerKey = noiseService.getPeerPublicKeyData(_theirEphemeralId!);
-        if (peerKey != null) {
-          // Store peer's Noise static public key
-          _theirNoisePublicKey = base64.encode(peerKey);
-          _logger.info(
-            '  Peer Noise public key: ${_theirNoisePublicKey!.shortId()}...',
-          );
-        }
+      await _waitForPeerNoiseKey(
+        timeout: const Duration(seconds: 3),
+        maxRetries: 5,
+      );
+
+      if (_theirNoisePublicKey != null) {
+        _logger.info(
+          '  Peer Noise public key: ${_theirNoisePublicKey!.shortId()}...',
+        );
+      } else {
+        // Should never happen after successful wait, but handle defensively
+        throw Exception('Peer Noise key is null after successful wait');
       }
     } catch (e) {
-      _logger.warning('⚠️ Failed to retrieve peer Noise public key: $e');
+      _logger.severe('❌ Failed to retrieve peer Noise public key: $e');
+      await _failHandshake(
+        'Cannot proceed to Phase 2 without peer Noise public key: $e',
+      );
+      return;
     }
 
-    // ✅ FIX: Only initiator (central) sends contactStatus first
+    // ✅ Only initiator (central) sends contactStatus first
     // Responder (peripheral) waits to receive it
     if (_isInitiator) {
       _logger.info('📤 Role: INITIATOR - proceeding to send contact status');
@@ -697,6 +704,74 @@ class HandshakeCoordinator {
       _logger.info('⏸️ Role: RESPONDER - waiting for contact status');
       _startPhaseTimeout('contactStatus');
     }
+  }
+
+  /// Wait for peer's Noise public key with exponential backoff
+  ///
+  /// FIX-008: Ensures Noise session is fully established before Phase 2
+  ///
+  /// [timeout] Maximum total wait time
+  /// [maxRetries] Maximum number of retry attempts
+  ///
+  /// Throws [TimeoutException] if key not available after retries
+  Future<void> _waitForPeerNoiseKey({
+    required Duration timeout,
+    required int maxRetries,
+  }) async {
+    final startTime = DateTime.now();
+    int attempt = 0;
+
+    while (attempt < maxRetries) {
+      attempt++;
+
+      // Check if timeout exceeded
+      final elapsed = DateTime.now().difference(startTime);
+      if (elapsed > timeout) {
+        throw TimeoutException(
+          'Peer Noise key not available after ${timeout.inMilliseconds}ms',
+          timeout,
+        );
+      }
+
+      // Try to get peer key
+      try {
+        final noiseService = SecurityManager.noiseService;
+        if (noiseService == null) {
+          _logger.warning(
+            '⏳ Attempt $attempt/$maxRetries: Noise service not initialized',
+          );
+        } else {
+          final peerKey = noiseService.getPeerPublicKeyData(_theirEphemeralId!);
+
+          if (peerKey != null) {
+            // Success! Store key and return
+            _theirNoisePublicKey = base64.encode(peerKey);
+            _logger.info(
+              '✅ Retrieved peer Noise key on attempt $attempt/$maxRetries',
+            );
+            return;
+          } else {
+            _logger.fine(
+              '⏳ Attempt $attempt/$maxRetries: Peer key not yet available',
+            );
+          }
+        }
+      } catch (e) {
+        _logger.warning(
+          '⏳ Attempt $attempt/$maxRetries: Exception retrieving key: $e',
+        );
+      }
+
+      // Exponential backoff: 50ms, 100ms, 200ms, 400ms, 800ms
+      final delayMs = 50 * (1 << (attempt - 1));
+      await Future.delayed(Duration(milliseconds: delayMs));
+    }
+
+    // Failed after all retries
+    throw TimeoutException(
+      'Peer Noise key not available after $maxRetries retries',
+      timeout,
+    );
   }
 
   // ========== PHASE 2: CONTACT STATUS EXCHANGE ==========

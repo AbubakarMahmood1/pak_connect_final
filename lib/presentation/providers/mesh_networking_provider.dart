@@ -39,18 +39,21 @@ final bluetoothStateMonitorProvider = Provider<BluetoothStateMonitor>((ref) {
 });
 
 /// Stream provider for Bluetooth state information
-final bluetoothStateProvider = StreamProvider<BluetoothStateInfo>((ref) {
+/// FIX-007: Added autoDispose to prevent memory leaks
+final bluetoothStateProvider = StreamProvider.autoDispose<BluetoothStateInfo>((
+  ref,
+) {
   final monitor = ref.watch(bluetoothStateMonitorProvider);
   return monitor.stateStream;
 });
 
 /// Stream provider for Bluetooth status messages
-final bluetoothStatusMessageProvider = StreamProvider<BluetoothStatusMessage>((
-  ref,
-) {
-  final monitor = ref.watch(bluetoothStateMonitorProvider);
-  return monitor.messageStream;
-});
+/// FIX-007: Added autoDispose to prevent memory leaks
+final bluetoothStatusMessageProvider =
+    StreamProvider.autoDispose<BluetoothStatusMessage>((ref) {
+      final monitor = ref.watch(bluetoothStateMonitorProvider);
+      return monitor.messageStream;
+    });
 
 /// Provider for current Bluetooth ready state
 final bluetoothReadyProvider = Provider<bool>((ref) {
@@ -90,37 +93,43 @@ final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
 });
 
 /// Stream provider for mesh network status with fallback
-final meshNetworkStatusProvider = StreamProvider<MeshNetworkStatus>((ref) {
-  final service = ref.watch(meshNetworkingServiceProvider);
+/// FIX-007: Added autoDispose to prevent memory leaks
+final meshNetworkStatusProvider = StreamProvider.autoDispose<MeshNetworkStatus>(
+  (ref) {
+    final service = ref.watch(meshNetworkingServiceProvider);
 
-  return service.meshStatus.handleError((error) {
-    _logger.warning('Mesh status stream error: $error');
-    // Return a default status to prevent infinite loading
-    return MeshNetworkStatus(
-      isInitialized: false,
-      currentNodeId: null,
-      isDemoMode: true,
-      isConnected: false,
-      queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
-      statistics: MeshNetworkStatistics(
-        nodeId: 'error',
+    return service.meshStatus.handleError((error) {
+      _logger.warning('Mesh status stream error: $error');
+      // Return a default status to prevent infinite loading
+      return MeshNetworkStatus(
         isInitialized: false,
+        currentNodeId: null,
         isDemoMode: true,
-        relayStatistics: null,
-        queueStatistics: null,
-        syncStatistics: null,
-        spamStatistics: null,
-        demoStepsCount: 0,
-        trackedMessagesCount: 0,
-        spamPreventionActive: false,
-        queueSyncActive: false,
-      ),
-    );
-  });
-});
+        isConnected: false,
+        queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
+        statistics: MeshNetworkStatistics(
+          nodeId: 'error',
+          isInitialized: false,
+          isDemoMode: true,
+          relayStatistics: null,
+          queueStatistics: null,
+          syncStatistics: null,
+          spamStatistics: null,
+          demoStepsCount: 0,
+          trackedMessagesCount: 0,
+          spamPreventionActive: false,
+          queueSyncActive: false,
+        ),
+      );
+    });
+  },
+);
 
 /// Stream provider for relay statistics with fallback
-final relayStatisticsProvider = StreamProvider<RelayStatistics>((ref) {
+/// FIX-007: Added autoDispose to prevent memory leaks
+final relayStatisticsProvider = StreamProvider.autoDispose<RelayStatistics>((
+  ref,
+) {
   final service = ref.watch(meshNetworkingServiceProvider);
 
   return service.relayStats.handleError((error) {
@@ -130,19 +139,20 @@ final relayStatisticsProvider = StreamProvider<RelayStatistics>((ref) {
 });
 
 /// Stream provider for queue sync statistics with fallback
-final queueSyncStatisticsProvider = StreamProvider<QueueSyncManagerStats>((
-  ref,
-) {
-  final service = ref.watch(meshNetworkingServiceProvider);
+/// FIX-007: Added autoDispose to prevent memory leaks
+final queueSyncStatisticsProvider =
+    StreamProvider.autoDispose<QueueSyncManagerStats>((ref) {
+      final service = ref.watch(meshNetworkingServiceProvider);
 
-  return service.queueStats.handleError((error) {
-    _logger.warning('Queue stats stream error: $error');
-    // Return default stats to prevent stream failure
-  });
-});
+      return service.queueStats.handleError((error) {
+        _logger.warning('Queue stats stream error: $error');
+        // Return default stats to prevent stream failure
+      });
+    });
 
 /// Stream provider for demo events
-final meshDemoEventsProvider = StreamProvider<DemoEvent>((ref) {
+/// FIX-007: Added autoDispose to prevent memory leaks
+final meshDemoEventsProvider = StreamProvider.autoDispose<DemoEvent>((ref) {
   final service = ref.watch(meshNetworkingServiceProvider);
   return service.demoEvents;
 });

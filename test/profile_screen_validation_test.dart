@@ -284,16 +284,8 @@ void main() {
     // ==============================================
     // TEST 8: PUBLIC KEY CACHE INVALIDATION
     // ==============================================
-    test('Public key cache can be invalidated', () async {
-      // Arrange
-      await userPreferences.getOrCreateKeyPair(); // Ensure keys exist
-
-      // Act - This should not throw
-      ChatsRepository.invalidatePublicKeyCache();
-
-      // Assert - Should complete without error
-      expect(true, isTrue); // If we got here, cache invalidation worked
-    });
+    // REMOVED: ChatsRepository no longer caches public keys after FIX-006 optimization
+    // The JOIN query strategy eliminates the need for caching
 
     // ==============================================
     // TEST 9: DATA PERSISTENCE ACROSS RESTARTS

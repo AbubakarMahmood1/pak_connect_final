@@ -17,7 +17,7 @@ class DatabaseHelper {
   static Future<sqlcipher.Database>? _initializingDatabase;
   static const String _databaseName = 'pak_connect.db';
   static const int _databaseVersion =
-      9; // v9: Added contact groups tables for secure multi-unicast messaging
+      10; // v10: Added seen_messages table for mesh deduplication (FIX-005)
   static int get currentVersion => _databaseVersion;
 
   /// Override database name for testing (allows using fresh database files)
@@ -620,8 +620,29 @@ class DatabaseHelper {
       CREATE INDEX idx_delivery_status ON group_message_delivery(message_id, status)
     ''');
 
+    // =========================
+    // 18. SEEN MESSAGES (mesh deduplication)
+    // =========================
+    // FIX-005: Added in v10 for proper mesh relay deduplication
+    await db.execute('''
+      CREATE TABLE seen_messages (
+        message_id TEXT NOT NULL,
+        seen_type TEXT NOT NULL,
+        seen_at INTEGER NOT NULL,
+        PRIMARY KEY (message_id, seen_type)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_seen_messages_type ON seen_messages(seen_type, seen_at DESC)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_seen_messages_time ON seen_messages(seen_at DESC)
+    ''');
+
     _logger.info(
-      '✅ Database schema created successfully with 17 core tables + FTS5',
+      '✅ Database schema created successfully with 18 core tables + FTS5',
     );
   }
 
@@ -948,6 +969,38 @@ class DatabaseHelper {
       _logger.info(
         '✅ contact_groups, group_members, group_messages, group_message_delivery',
       );
+    }
+
+    // Migration from version 9 to 10: Add seen_messages table for mesh deduplication (FIX-005)
+    if (oldVersion < 10) {
+      _logger.info(
+        '🔧 Adding seen_messages table for mesh message deduplication...',
+      );
+
+      // Create seen_messages table (matches SeenMessageStore schema)
+      await db.execute('''
+        CREATE TABLE seen_messages (
+          message_id TEXT NOT NULL,
+          seen_type TEXT NOT NULL,
+          seen_at INTEGER NOT NULL,
+          PRIMARY KEY (message_id, seen_type)
+        )
+      ''');
+
+      // Index for type-based queries and cleanup
+      await db.execute('''
+        CREATE INDEX idx_seen_messages_type ON seen_messages(seen_type, seen_at DESC)
+      ''');
+
+      // Index for time-based cleanup (5-minute TTL)
+      await db.execute('''
+        CREATE INDEX idx_seen_messages_time ON seen_messages(seen_at DESC)
+      ''');
+
+      _logger.info(
+        'Migration to v10 complete: Added seen_messages table with 2 indexes',
+      );
+      _logger.info('✅ seen_messages (message_id, seen_type, seen_at)');
     }
   }
 

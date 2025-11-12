@@ -47,4 +47,93 @@ class ChatUtils {
     }
     return Uint8List.fromList(bytes);
   }
+
+  /// Extract contact public key from chat ID (handles multiple formats)
+  ///
+  /// Supports:
+  /// 1. Production format: `contactKey` (returns as-is)
+  /// 2. Test format: `persistent_chat_{KEY1}_{KEY2}` (extracts non-myKey)
+  /// 3. Temp format: `temp_{deviceId}` (returns null - not a contact)
+  ///
+  /// **Important**: When myPublicKey is provided, searches for it explicitly
+  /// to handle keys with underscores correctly.
+  ///
+  /// Examples:
+  /// - `persistent_chat_testuser0_key_mykey` + myPublicKey='mykey' → `testuser0_key`
+  /// - `persistent_chat_alice_bob_charlie` + myPublicKey='charlie' → `alice_bob`
+  /// - `persistent_chat_alice_bob` + myPublicKey='' → `alice` (backwards compat)
+  ///
+  /// Returns:
+  /// - Contact's public key if found
+  /// - null if chatId is invalid or temp format
+  static String? extractContactKey(String chatId, String myPublicKey) {
+    // Temp chats are not persistent contacts
+    if (chatId.startsWith('temp_')) {
+      return null;
+    }
+
+    // Legacy test format: persistent_chat_{KEY1}_{KEY2}
+    if (chatId.startsWith('persistent_chat_')) {
+      final withoutPrefix = chatId.substring('persistent_chat_'.length);
+
+      // Handle empty or malformed IDs
+      if (withoutPrefix.isEmpty) {
+        return null;
+      }
+
+      // If myPublicKey is provided and found in the string, extract the other part
+      if (myPublicKey.isNotEmpty) {
+        // Try to find myPublicKey as a suffix (most common: contact_mykey)
+        if (withoutPrefix.endsWith('_$myPublicKey')) {
+          final contactKey = withoutPrefix.substring(
+            0,
+            withoutPrefix.length - myPublicKey.length - 1,
+          );
+          return contactKey.isNotEmpty ? contactKey : null;
+        }
+
+        // Try to find myPublicKey as a prefix (less common: mykey_contact)
+        if (withoutPrefix.startsWith('${myPublicKey}_')) {
+          final contactKey = withoutPrefix.substring(myPublicKey.length + 1);
+          return contactKey.isNotEmpty ? contactKey : null;
+        }
+      }
+
+      // Fallback: Use lastIndexOf for backwards compatibility
+      // This handles cases where myPublicKey is empty or not found
+      final lastUnderscoreIndex = withoutPrefix.lastIndexOf('_');
+
+      if (lastUnderscoreIndex != -1) {
+        // Check if underscore is at the end (trailing underscore)
+        if (lastUnderscoreIndex == withoutPrefix.length - 1) {
+          // Strip trailing underscore and return
+          final key = withoutPrefix.substring(0, lastUnderscoreIndex);
+          return key.isNotEmpty ? key : null;
+        }
+
+        // Normal case: underscore in the middle
+        final key1 = withoutPrefix.substring(0, lastUnderscoreIndex);
+        final key2 = withoutPrefix.substring(lastUnderscoreIndex + 1);
+
+        // Return the key that isn't mine (if we can determine it)
+        if (myPublicKey.isNotEmpty) {
+          if (key1 == myPublicKey) {
+            return key2.isNotEmpty ? key2 : null;
+          } else if (key2 == myPublicKey) {
+            return key1.isNotEmpty ? key1 : null;
+          }
+        }
+
+        // If neither matches, assume first key is contact's
+        // (backwards compatibility for tests without myPublicKey)
+        return key1.isNotEmpty ? key1 : null;
+      }
+
+      // No underscore found - return the whole key
+      return withoutPrefix;
+    }
+
+    // Production format: chatId = contactPublicKey (simple)
+    return chatId;
+  }
 }

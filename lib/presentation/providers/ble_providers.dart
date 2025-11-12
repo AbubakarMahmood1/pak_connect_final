@@ -84,8 +84,9 @@ final currentUsernameProvider = FutureProvider<String>((ref) async {
 });
 
 /// Legacy compatibility - redirect to modern provider
+/// FIX-007: Added autoDispose to prevent memory leaks
 @Deprecated('Use usernameProvider instead')
-final usernameStreamProvider = StreamProvider<String>((ref) {
+final usernameStreamProvider = StreamProvider.autoDispose<String>((ref) {
   return ref.watch(usernameProvider.future).asStream();
 });
 
@@ -178,7 +179,10 @@ final bleServiceInitializedProvider = FutureProvider<BLEService>((ref) async {
 });
 
 // BLE State provider
-final bleStateProvider = StreamProvider<BluetoothLowEnergyState>((ref) {
+// FIX-007: Added autoDispose to prevent memory leaks
+final bleStateProvider = StreamProvider.autoDispose<BluetoothLowEnergyState>((
+  ref,
+) {
   final service = ref.watch(bleServiceProvider);
   return Stream.fromFuture(service.initializationComplete).asyncExpand(
     (_) => Stream.periodic(Duration(seconds: 1), (_) => service.state),
@@ -186,29 +190,38 @@ final bleStateProvider = StreamProvider<BluetoothLowEnergyState>((ref) {
 });
 
 // Discovered devices provider
-final discoveredDevicesProvider = StreamProvider<List<Peripheral>>((ref) {
+// FIX-007: Added autoDispose to prevent memory leaks
+final discoveredDevicesProvider = StreamProvider.autoDispose<List<Peripheral>>((
+  ref,
+) {
   final service = ref.watch(bleServiceProvider);
   return service.discoveredDevices;
 });
 
 // Received messages provider
-final receivedMessagesProvider = StreamProvider<String>((ref) {
+// FIX-007: Added autoDispose to prevent memory leaks
+final receivedMessagesProvider = StreamProvider.autoDispose<String>((ref) {
   final service = ref.watch(bleServiceProvider);
   return service.receivedMessages;
 });
 
-final connectionInfoProvider = StreamProvider<ConnectionInfo>((ref) {
+// FIX-007: Added autoDispose to prevent memory leaks
+final connectionInfoProvider = StreamProvider.autoDispose<ConnectionInfo>((
+  ref,
+) {
   final service = ref.watch(bleServiceProvider);
   return service.connectionInfo;
 });
 
 // Spy mode providers
-final spyModeDetectedProvider = StreamProvider<SpyModeInfo>((ref) {
+// FIX-007: Added autoDispose to prevent memory leaks
+final spyModeDetectedProvider = StreamProvider.autoDispose<SpyModeInfo>((ref) {
   final bleService = ref.watch(bleServiceProvider);
   return bleService.spyModeDetected;
 });
 
-final identityRevealedProvider = StreamProvider<String>((ref) {
+// FIX-007: Added autoDispose to prevent memory leaks
+final identityRevealedProvider = StreamProvider.autoDispose<String>((ref) {
   final bleService = ref.watch(bleServiceProvider);
   return bleService.identityRevealed;
 });
@@ -218,16 +231,17 @@ final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
 });
 
 // Discovery data with advertisements provider
-final discoveryDataProvider = StreamProvider<Map<String, DiscoveredEventArgs>>((
-  ref,
-) {
-  final service = ref.watch(bleServiceProvider);
-  return service.discoveryData;
-});
+// FIX-007: Added autoDispose to prevent memory leaks
+final discoveryDataProvider =
+    StreamProvider.autoDispose<Map<String, DiscoveredEventArgs>>((ref) {
+      final service = ref.watch(bleServiceProvider);
+      return service.discoveryData;
+    });
 
 // 🆕 Deduplicated discovered devices provider (with contact recognition)
+// FIX-007: Added autoDispose to prevent memory leaks
 final deduplicatedDevicesProvider =
-    StreamProvider<Map<String, DiscoveredDevice>>((ref) {
+    StreamProvider.autoDispose<Map<String, DiscoveredDevice>>((ref) {
       return DeviceDeduplicationManager.uniqueDevicesStream;
     });
 
@@ -269,59 +283,61 @@ final eagerBurstScanningProvider = FutureProvider<bool>((ref) async {
 });
 
 /// Burst scanning status provider - streams real-time burst scanning status
-final burstScanningStatusProvider = StreamProvider<BurstScanningStatus>((ref) {
-  final controllerAsync = ref.watch(burstScanningControllerProvider);
+/// FIX-007: Added autoDispose to prevent memory leaks
+final burstScanningStatusProvider =
+    StreamProvider.autoDispose<BurstScanningStatus>((ref) {
+      final controllerAsync = ref.watch(burstScanningControllerProvider);
 
-  return controllerAsync.when(
-    data: (controller) => controller.statusStream,
-    loading: () => Stream.value(
-      BurstScanningStatus(
-        isBurstActive: false,
-        currentScanInterval: 60000,
-        powerStats: PowerManagementStats(
-          currentScanInterval: 60000,
-          currentHealthCheckInterval: 30000,
-          consecutiveSuccessfulChecks: 0,
-          consecutiveFailedChecks: 0,
-          connectionQualityScore: 0.5,
-          connectionStabilityScore: 0.5,
-          timeSinceLastSuccess: Duration.zero,
-          qualityMeasurementsCount: 0,
-          isBurstMode: false,
-          // Phase 1: Default duty cycle stats (loading state)
-          powerMode: PowerMode.balanced,
-          isDutyCycleScanning: false,
-          batteryLevel: 100,
-          isCharging: false,
-          isAppInBackground: false,
+      return controllerAsync.when(
+        data: (controller) => controller.statusStream,
+        loading: () => Stream.value(
+          BurstScanningStatus(
+            isBurstActive: false,
+            currentScanInterval: 60000,
+            powerStats: PowerManagementStats(
+              currentScanInterval: 60000,
+              currentHealthCheckInterval: 30000,
+              consecutiveSuccessfulChecks: 0,
+              consecutiveFailedChecks: 0,
+              connectionQualityScore: 0.5,
+              connectionStabilityScore: 0.5,
+              timeSinceLastSuccess: Duration.zero,
+              qualityMeasurementsCount: 0,
+              isBurstMode: false,
+              // Phase 1: Default duty cycle stats (loading state)
+              powerMode: PowerMode.balanced,
+              isDutyCycleScanning: false,
+              batteryLevel: 100,
+              isCharging: false,
+              isAppInBackground: false,
+            ),
+          ),
         ),
-      ),
-    ),
-    error: (error, stack) => Stream.value(
-      BurstScanningStatus(
-        isBurstActive: false,
-        currentScanInterval: 60000,
-        powerStats: PowerManagementStats(
-          currentScanInterval: 60000,
-          currentHealthCheckInterval: 30000,
-          consecutiveSuccessfulChecks: 0,
-          consecutiveFailedChecks: 0,
-          connectionQualityScore: 0.5,
-          connectionStabilityScore: 0.5,
-          timeSinceLastSuccess: Duration.zero,
-          qualityMeasurementsCount: 0,
-          isBurstMode: false,
-          // Phase 1: Default duty cycle stats (error state)
-          powerMode: PowerMode.balanced,
-          isDutyCycleScanning: false,
-          batteryLevel: 100,
-          isCharging: false,
-          isAppInBackground: false,
+        error: (error, stack) => Stream.value(
+          BurstScanningStatus(
+            isBurstActive: false,
+            currentScanInterval: 60000,
+            powerStats: PowerManagementStats(
+              currentScanInterval: 60000,
+              currentHealthCheckInterval: 30000,
+              consecutiveSuccessfulChecks: 0,
+              consecutiveFailedChecks: 0,
+              connectionQualityScore: 0.5,
+              connectionStabilityScore: 0.5,
+              timeSinceLastSuccess: Duration.zero,
+              qualityMeasurementsCount: 0,
+              isBurstMode: false,
+              // Phase 1: Default duty cycle stats (error state)
+              powerMode: PowerMode.balanced,
+              isDutyCycleScanning: false,
+              batteryLevel: 100,
+              isCharging: false,
+              isAppInBackground: false,
+            ),
+          ),
         ),
-      ),
-    ),
-  );
-});
+      );
+    });
 
 /// Burst scanning operations provider - provides methods to control burst scanning
 final burstScanningOperationsProvider = Provider<BurstScanningOperations?>((

@@ -212,35 +212,37 @@ flutter test test/mesh_relay_flow_test.dart --plain-name="Spam Prevention"
 
 ## 🟢 MEDIUM SEVERITY - Need Platform Verification
 
-### 6. **BLE Self-Connection Prevention** (85% → 100%)
+### 6. **BLE Dual-Role Device Appearance** (85% → 100%)
 
-**File**: `lib/data/services/device_deduplication_manager.dart:57-66`
+**File**: Multiple BLE connection management files
 
 **Current Confidence**: **85%**
 
 **What I Know**:
-- ✅ Code uses ephemeral hint matching to prevent self-connection
-- ✅ Mechanism looks correct in code review
-- ✅ Edge case exists (hint collision probability ~1/2^64)
+- ✅ Device A acts as both central (initiates connection) and peripheral (advertises)
+- ✅ Bug: Device A shows Device B on BOTH central AND peripheral sides after connecting
+- ✅ Impact: UI shows "dual role" badge, notification subscriptions missing
 
 **What I Cannot Verify Without Running**:
-- ❌ Does it work on real Android/iOS BLE stack?
-- ❌ Are there platform-specific UUIDs that differ?
-- ❌ Does it prevent ALL self-connection scenarios?
+- ❌ Does the issue occur consistently on real Android/iOS BLE stack?
+- ❌ Is root cause MAC address filtering, connection tracking, or discovered device list?
+- ❌ Does Device B also show Device A incorrectly, or only Device A is affected?
 
 **To Reach 100% Confidence**:
 ```bash
-# Test on 3 real devices:
-1. Start app on Device A
-2. Device A starts advertising
-3. Device A scans for peripherals
-4. Verify Device A does NOT appear in its own scan results
+# Test on 2 real devices (Device A initiates connection to Device B):
+1. Device A: Open app, scan for nearby devices
+2. Device A: Tap Device B in scan results (central initiator)
+3. Wait for handshake completion
+4. Verify Device A's contact list
+5. Verify Device B's contact list
+6. Check logs for duplicate device entries
 
-# If PASS: Self-connection prevention works
-# If FAIL: Platform-specific issue found
+# If PASS: Each device shows peer only once
+# If FAIL: Device A shows Device B on both central AND peripheral sides
 ```
 
-**Status**: ⏳ **Needs real device testing**
+**Status**: ⏳ **Needs real two-device testing**
 
 ---
 
@@ -313,7 +315,7 @@ flutter test test/performance/database_benchmark_test.dart --reporter=json > aft
 **Expected Outcome**: Bump confidence from 98% → 99.5%
 
 ### Phase 3: Device Testing (1 hour)
-8. ✅ Test self-connection on 3 devices - 30 min
+8. ✅ Test dual-role device appearance on 2 devices - 30 min
 9. ✅ Test BLE handshake on real hardware - 30 min
 
 **Expected Outcome**: Bump confidence from 99.5% → 100%

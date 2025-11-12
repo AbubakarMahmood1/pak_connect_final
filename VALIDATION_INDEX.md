@@ -134,7 +134,7 @@ flutter build apk --debug
 
 # Follow procedures for:
 # - CG-004: Handshake timing (15 min)
-# - CG-007: Self-connection (10 min)
+# - CG-007: Dual-role device appearance (10 min)
 ```
 
 ---
@@ -214,7 +214,7 @@ Only if you want 100% confidence:
 
 1. Build debug APK
 2. Test handshake timing (15 min)
-3. Test self-connection (10 min)
+3. Test dual-role device appearance (10 min)
 
 **You can skip this** - 98.2% is sufficient for proceeding with fixes.
 
@@ -234,7 +234,7 @@ Only if you want 100% confidence:
 - MessageFragmenter needs tests (410 LOC untested)
 - BLEService needs tests (3,431 LOC untested)
 - Performance needs benchmarks (N+1 query timing)
-- BLE needs device testing (handshake, self-connection)
+- BLE needs device testing (handshake, dual-role device appearance)
 
 **Bottom Line** 🎯:
 - Review quality: **Excellent** (B grade justified)

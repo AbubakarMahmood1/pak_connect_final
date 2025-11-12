@@ -105,7 +105,7 @@ flutter test test/data/services/ble_service_test.dart
 ```
 1. Setup 2 physical devices with debug builds
 2. Run handshake timing test (15 min)
-3. Run self-connection test (10 min)
+3. Run dual-role device appearance test (10 min)
 4. Collect logs and analyze
 ```
 

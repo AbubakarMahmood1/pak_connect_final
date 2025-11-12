@@ -8,6 +8,8 @@ library;
 
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
+import 'package:synchronized/synchronized.dart';
+import '../secure_key.dart';
 import 'models/noise_models.dart';
 import 'primitives/handshake_state.dart';
 import 'primitives/handshake_state_kk.dart';
@@ -34,9 +36,9 @@ class NoiseSession {
   /// Remote peer's static public key (required for KK pattern)
   final Uint8List? _remoteStaticPublicKeyForKK;
 
-  /// Our static private key (32 bytes)
-  /// Our static private key (32 bytes) - stored for handshake
-  final Uint8List _localStaticPrivateKey;
+  /// Our static private key (32 bytes) - stored securely with auto-zeroing
+  /// FIX-001: Using SecureKey to prevent memory leak (zeros original on construction)
+  late final SecureKey _localStaticPrivateKey;
 
   // Noise Protocol Configuration (matching bitchat-android)
   static const int _rekeyTimeLimit = 3600000; // 1 hour in milliseconds
@@ -86,6 +88,10 @@ class NoiseSession {
   int _highestReceivedNonce = 0;
   final Uint8List _replayWindow = Uint8List(_replayWindowBytes);
 
+  // Thread-safety locks (FIX-004: Prevent nonce race condition)
+  final _encryptLock = Lock();
+  final _decryptLock = Lock();
+
   /// Create a new Noise session
   ///
   /// [peerID] Peer identifier
@@ -102,10 +108,11 @@ class NoiseSession {
     required Uint8List
     localStaticPublicKey, // Parameter kept for API compatibility
     Uint8List? remoteStaticPublicKey,
-  }) : _localStaticPrivateKey = Uint8List.fromList(localStaticPrivateKey),
-       _remoteStaticPublicKeyForKK = remoteStaticPublicKey != null
+  }) : _remoteStaticPublicKeyForKK = remoteStaticPublicKey != null
            ? Uint8List.fromList(remoteStaticPublicKey)
            : null {
+    // FIX-001: SecureKey zeros the original localStaticPrivateKey immediately
+    _localStaticPrivateKey = SecureKey(localStaticPrivateKey);
     // Validate KK pattern requirements
     if (pattern == NoisePattern.kk && remoteStaticPublicKey == null) {
       throw ArgumentError(
@@ -156,7 +163,7 @@ class NoiseSession {
     if (pattern == NoisePattern.kk) {
       // KK pattern handshake
       _handshakeStateKK = HandshakeStateKK(
-        localStaticPrivateKey: _localStaticPrivateKey,
+        localStaticPrivateKey: _localStaticPrivateKey.data,
         remoteStaticPublicKey: _remoteStaticPublicKeyForKK!,
         isInitiator: true,
       );
@@ -169,7 +176,7 @@ class NoiseSession {
     } else {
       // XX pattern handshake (original code)
       _handshakeState = HandshakeState(
-        localStaticPrivateKey: _localStaticPrivateKey,
+        localStaticPrivateKey: _localStaticPrivateKey.data,
         isInitiator: true,
       );
 
@@ -217,7 +224,7 @@ class NoiseSession {
       _state = NoiseSessionState.handshaking;
 
       _handshakeState = HandshakeState(
-        localStaticPrivateKey: _localStaticPrivateKey,
+        localStaticPrivateKey: _localStaticPrivateKey.data,
         isInitiator: false,
       );
     }
@@ -283,7 +290,7 @@ class NoiseSession {
       _state = NoiseSessionState.handshaking;
 
       _handshakeStateKK = HandshakeStateKK(
-        localStaticPrivateKey: _localStaticPrivateKey,
+        localStaticPrivateKey: _localStaticPrivateKey.data,
         remoteStaticPublicKey: _remoteStaticPublicKeyForKK,
         isInitiator: false,
       );
@@ -375,81 +382,96 @@ class NoiseSession {
 
   // ========== TRANSPORT ENCRYPTION METHODS ==========
 
-  /// Encrypt plaintext for transport
+  /// Encrypt plaintext for transport (THREAD-SAFE)
   ///
   /// Prepends 4-byte nonce to ciphertext for replay protection.
+  /// FIX-004: Protected by mutex lock to prevent nonce reuse race condition.
   ///
   /// [data] Plaintext bytes to encrypt
   /// Returns nonce and ciphertext combined payload
   Future<Uint8List> encrypt(Uint8List data) async {
-    if (_state != NoiseSessionState.established) {
-      throw StateError('Session not established');
-    }
-    if (_sendCipher == null) {
-      throw StateError('Send cipher not initialized');
-    }
+    return await _encryptLock.synchronized(() async {
+      if (_state != NoiseSessionState.established) {
+        throw StateError('Session not established');
+      }
+      if (_sendCipher == null) {
+        throw StateError('Send cipher not initialized');
+      }
 
-    // Get current nonce
-    final nonce = _sendCipher!.getNonce();
+      // Check if rekey needed (enforce limits)
+      if (needsRekey()) {
+        throw StateError(
+          'Session requires rekeying. Messages sent: $_messagesSent '
+          '(limit: $_rekeyMessageLimit), Age: ${_getSessionAgeSeconds()}s '
+          '(limit: ${_rekeyTimeLimit ~/ 1000}s)',
+        );
+      }
 
-    // Encrypt with empty AD
-    final ciphertext = await _sendCipher!.encryptWithAd(null, data);
+      // Get current nonce (atomic with encryption via lock)
+      final nonce = _sendCipher!.getNonce();
 
-    // Prepend 4-byte nonce (big-endian)
-    final combined = Uint8List(_nonceSizeBytes + ciphertext.length);
-    _nonceToBytes(nonce, combined);
-    combined.setRange(_nonceSizeBytes, combined.length, ciphertext);
+      // Encrypt with empty AD
+      final ciphertext = await _sendCipher!.encryptWithAd(null, data);
 
-    _messagesSent++;
-    _logger.fine(
-      '[$peerID] Encrypted message (nonce: $nonce, size: ${combined.length})',
-    );
+      // Prepend 4-byte nonce (big-endian)
+      final combined = Uint8List(_nonceSizeBytes + ciphertext.length);
+      _nonceToBytes(nonce, combined);
+      combined.setRange(_nonceSizeBytes, combined.length, ciphertext);
 
-    return combined;
+      _messagesSent++;
+      _logger.fine(
+        '[$peerID] Encrypted message (nonce: $nonce, size: ${combined.length})',
+      );
+
+      return combined;
+    });
   }
 
-  /// Decrypt ciphertext from transport
+  /// Decrypt ciphertext from transport (THREAD-SAFE)
   ///
   /// Extracts and validates 4-byte nonce for replay protection.
+  /// FIX-004: Protected by mutex lock to prevent replay window corruption.
   ///
   /// [combinedPayload] `nonce``ciphertext` combined payload
   /// Returns plaintext bytes
   Future<Uint8List> decrypt(Uint8List combinedPayload) async {
-    if (_state != NoiseSessionState.established) {
-      throw StateError('Session not established');
-    }
-    if (_receiveCipher == null) {
-      throw StateError('Receive cipher not initialized');
-    }
-    if (combinedPayload.length < _nonceSizeBytes) {
-      throw ArgumentError('Payload too small for nonce');
-    }
+    return await _decryptLock.synchronized(() async {
+      if (_state != NoiseSessionState.established) {
+        throw StateError('Session not established');
+      }
+      if (_receiveCipher == null) {
+        throw StateError('Receive cipher not initialized');
+      }
+      if (combinedPayload.length < _nonceSizeBytes) {
+        throw ArgumentError('Payload too small for nonce');
+      }
 
-    // Extract nonce and ciphertext
-    final (receivedNonce, ciphertext) = _extractNonceFromPayload(
-      combinedPayload,
-    );
+      // Extract nonce and ciphertext
+      final (receivedNonce, ciphertext) = _extractNonceFromPayload(
+        combinedPayload,
+      );
 
-    // Validate nonce for replay protection
-    if (!_isValidNonce(receivedNonce)) {
-      throw Exception('Replay attack detected: invalid nonce $receivedNonce');
-    }
+      // Validate nonce for replay protection (atomic with marking as seen)
+      if (!_isValidNonce(receivedNonce)) {
+        throw Exception('Replay attack detected: invalid nonce $receivedNonce');
+      }
 
-    // Set cipher nonce to match received nonce
-    _receiveCipher!.setNonce(receivedNonce);
+      // Set cipher nonce to match received nonce
+      _receiveCipher!.setNonce(receivedNonce);
 
-    // Decrypt
-    final plaintext = await _receiveCipher!.decryptWithAd(null, ciphertext);
+      // Decrypt
+      final plaintext = await _receiveCipher!.decryptWithAd(null, ciphertext);
 
-    // Mark nonce as seen
-    _markNonceAsSeen(receivedNonce);
+      // Mark nonce as seen (atomic with validation via lock)
+      _markNonceAsSeen(receivedNonce);
 
-    _messagesReceived++;
-    _logger.fine(
-      '[$peerID] Decrypted message (nonce: $receivedNonce, size: ${plaintext.length})',
-    );
+      _messagesReceived++;
+      _logger.fine(
+        '[$peerID] Decrypted message (nonce: $receivedNonce, size: ${plaintext.length})',
+      );
 
-    return plaintext;
+      return plaintext;
+    });
   }
 
   // ========== REPLAY PROTECTION METHODS ==========
@@ -586,6 +608,14 @@ class NoiseSession {
     return false;
   }
 
+  /// Get session age in seconds (FIX-004: Helper for rekey enforcement)
+  int _getSessionAgeSeconds() {
+    if (_sessionEstablishedTime == null) {
+      return 0;
+    }
+    return DateTime.now().difference(_sessionEstablishedTime!).inSeconds;
+  }
+
   /// Get session statistics
   Map<String, dynamic> getStats() {
     return {
@@ -614,7 +644,8 @@ class NoiseSession {
     _sendCipher?.destroy();
     _receiveCipher?.destroy();
 
-    _localStaticPrivateKey.fillRange(0, _localStaticPrivateKey.length, 0);
+    // FIX-001: SecureKey.destroy() zeros the key data
+    _localStaticPrivateKey.destroy();
     _remoteStaticPublicKey?.fillRange(0, _remoteStaticPublicKey!.length, 0);
     _remoteStaticPublicKeyForKK?.fillRange(
       0,

@@ -67,6 +67,7 @@ dependencies:
   flutter_markdown_plus: ^1.0.5
 
   uuid: any
+  synchronized: ^3.3.0+3  # Mutex/Lock for thread-safe encryption (FIX-004)
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -360,14 +360,14 @@ $ wc -l lib/core/utils/message_fragmenter.dart
    - Capture logs from both devices
    - Save to `handshake_timing_logs.txt`
 
-3. **Run self-connection test** (10 min):
+3. **Run dual-role device appearance test** (10 min):
    - Follow procedure in CG-007 section above
-   - Capture logs
-   - Save to `self_connection_logs.txt`
+   - Capture logs from both devices
+   - Save to `dual_role_appearance_logs.txt`
 
 **Expected outcome**:
 - Handshake: Phase 1.5 completes before Phase 2 (or errors captured)
-- Self-connection: Device filters own advertisement (or fails to filter)
+- Dual-role: Device A shows Device B only on central side (or incorrectly on both sides)
 
 ---
 
@@ -381,7 +381,7 @@ $ wc -l lib/core/utils/message_fragmenter.dart
 | **CG-004**: Handshake timing | ✅ Code suggests issue (92%) | ❌ Can't mock BLE | ✅ **NEEDS DEVICES** | 92% → 100% after device test |
 | **CG-005**: Flaky tests | ✅ Found 6 skipped (100%) | ⏳ Needs unskip | ❌ Not needed | 80% → 100% after diagnosis |
 | **CG-006**: DB optimization | ✅ Missing indexes (90%) | ⏳ Needs benchmark | ❌ Not needed | 90% → 100% after benchmark |
-| **CG-007**: Self-connection | ✅ Code looks correct (85%) | ❌ Can't mock BLE | ✅ **NEEDS DEVICES** | 85% → 100% after device test |
+| **CG-007**: Dual-role appearance | ✅ Code looks correct (85%) | ❌ Can't mock BLE | ✅ **NEEDS DEVICES** | 85% → 100% after device test |
 | **CG-008**: Provider leaks | ✅ 17 found (100%) | ⏳ Needs lifecycle test | ❌ Not needed | 95% → 100% after test |
 | **CG-009**: Key memory leak | ✅ Code confirmed (100%) | ⏳ Needs test | ❌ Not needed | 98% → 100% after test |
 | **CG-010**: BLEService | ✅ 0 tests (100%) | ⏳ Needs 25 tests | ❌ Not needed | 90% → 100% after tests |
@@ -493,7 +493,7 @@ cat phase1_*.txt > PHASE1_COMPLETE_OUTPUT.txt
 2. Install on both devices
 3. Enable verbose logging (set `Logger.root.level = Level.ALL`)
 4. Run handshake scenario (CG-004)
-5. Run self-connection scenario (CG-007)
+5. Run dual-role device appearance scenario (CG-007)
 6. Capture logs via `adb logcat` or device console
 7. Save to `DEVICE_TEST_LOGS.txt`
 
