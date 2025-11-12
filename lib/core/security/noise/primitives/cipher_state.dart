@@ -3,11 +3,15 @@
 /// Ports the CipherState interface from bitchat-android's noise-java library.
 /// Uses cryptography package for ChaCha20-Poly1305 authenticated encryption.
 ///
+/// Adaptive encryption: Automatically switches to isolate-based encryption
+/// on slow devices based on performance metrics (FIX-013).
+///
 /// Reference: bitchat-android/noise/southernstorm/protocol/CipherState.java
 library;
 
 import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
+import '../adaptive_encryption_strategy.dart';
 
 /// CipherState abstraction for Noise Protocol encryption operations
 ///
@@ -21,6 +25,10 @@ class CipherState {
 
   /// Current nonce value (8 bytes, increments per encryption)
   int _nonce = 0;
+
+  /// Adaptive encryption strategy (singleton)
+  final AdaptiveEncryptionStrategy _adaptiveStrategy =
+      AdaptiveEncryptionStrategy();
 
   /// Algorithm name
   static const String algorithmName = 'ChaChaPoly';
@@ -80,6 +88,8 @@ class CipherState {
   /// Performs ChaCha20-Poly1305 AEAD encryption.
   /// Increments nonce after encryption.
   ///
+  /// Adaptive strategy: Automatically uses isolate on slow devices.
+  ///
   /// [plaintext] Data to encrypt
   /// [associatedData] Additional authenticated data (AAD)
   /// Returns ciphertext with 16-byte MAC appended
@@ -97,6 +107,26 @@ class CipherState {
       throw StateError('Nonce overflow - rekey required');
     }
 
+    // Adaptive encryption: use isolate on slow devices, sync on fast devices
+    final result = await _adaptiveStrategy.encrypt(
+      plaintext: plaintext,
+      key: _key!,
+      nonce: _nonce,
+      associatedData: associatedData,
+      syncEncrypt: () => _encryptSync(associatedData, plaintext),
+    );
+
+    // Increment nonce (MUST be atomic - only after successful encryption)
+    _nonce++;
+
+    return result;
+  }
+
+  /// Synchronous encryption implementation (fallback for fast devices)
+  Future<Uint8List> _encryptSync(
+    Uint8List? associatedData,
+    Uint8List plaintext,
+  ) async {
     // Convert nonce to 12-byte format for ChaCha20-Poly1305
     final nonceBytes = _nonceToBytes(_nonce);
 
@@ -110,9 +140,6 @@ class CipherState {
       nonce: nonceBytes,
       aad: associatedData ?? Uint8List(0),
     );
-
-    // Increment nonce
-    _nonce++;
 
     // Combine ciphertext + MAC
     final result = Uint8List(secretBox.cipherText.length + macLength);
@@ -130,6 +157,8 @@ class CipherState {
   ///
   /// Performs ChaCha20-Poly1305 AEAD decryption and MAC verification.
   /// Increments nonce after successful decryption.
+  ///
+  /// Adaptive strategy: Automatically uses isolate on slow devices.
   ///
   /// [ciphertext] Encrypted data with 16-byte MAC appended
   /// [associatedData] Additional authenticated data (AAD)
@@ -153,6 +182,26 @@ class CipherState {
       throw StateError('Nonce overflow - rekey required');
     }
 
+    // Adaptive decryption: use isolate on slow devices, sync on fast devices
+    final result = await _adaptiveStrategy.decrypt(
+      ciphertext: ciphertext,
+      key: _key!,
+      nonce: _nonce,
+      associatedData: associatedData,
+      syncDecrypt: () => _decryptSync(associatedData, ciphertext),
+    );
+
+    // Increment nonce (MUST be atomic - only after successful decryption)
+    _nonce++;
+
+    return result;
+  }
+
+  /// Synchronous decryption implementation (fallback for fast devices)
+  Future<Uint8List> _decryptSync(
+    Uint8List? associatedData,
+    Uint8List ciphertext,
+  ) async {
     // Split ciphertext and MAC
     final actualCiphertext = ciphertext.sublist(
       0,
@@ -180,9 +229,6 @@ class CipherState {
         secretKey: secretKey,
         aad: associatedData ?? Uint8List(0),
       );
-
-      // Increment nonce only on successful decryption
-      _nonce++;
 
       return Uint8List.fromList(plaintext);
     } catch (e) {
