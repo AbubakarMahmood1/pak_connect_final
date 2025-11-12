@@ -6,6 +6,7 @@ import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../database/database_helper.dart';
 import '../../core/compression/compression_util.dart';
+import '../../core/utils/chat_utils.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class MessageRepository {
@@ -209,14 +210,13 @@ class MessageRepository {
       String contactName = 'Unknown';
 
       // Extract contact info from chat_id
+      // 🔥 FIX: Use ChatUtils.extractContactKey() to handle all formats robustly
+      // Note: We don't have myPublicKey here, so pass empty string for test compatibility
+      // The helper handles this case by returning the first key
+      contactPublicKey = ChatUtils.extractContactKey(chatId, '');
+
       if (chatId.startsWith('persistent_chat_')) {
-        final parts = chatId.substring('persistent_chat_'.length).split('_');
-        if (parts.length >= 2) {
-          // We have both public keys, need to determine which is the other person
-          // This will be updated later when contact is properly identified
-          contactPublicKey = parts[1]; // Tentative
-          contactName = 'Chat ${chatId.shortId(20)}...';
-        }
+        contactName = 'Chat ${chatId.shortId(20)}...';
       } else if (chatId.startsWith('temp_')) {
         contactName = 'Device ${chatId.substring(5, 20)}...';
       }

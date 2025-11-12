@@ -132,7 +132,7 @@ cat docs/review/results/flaky_*.txt
 
 1. Read: `TWO_DEVICE_TESTING_GUIDE.md`
 2. Build debug APK
-3. Run 2 device tests (handshake + self-connection)
+3. Run 2 device tests (handshake + dual-role appearance)
 4. Report results
 
 **You can skip this** - 98.2% confidence is sufficient for proceeding with fixes.
@@ -219,7 +219,7 @@ If you want 100% confidence:
 
 1. Build debug APK
 2. Run handshake timing test (15 min)
-3. Run self-connection test (10 min)
+3. Run dual-role appearance test (10 min)
 
 **Recommendation**: You can proceed with fixing P0 issues now. Device testing can wait.
 

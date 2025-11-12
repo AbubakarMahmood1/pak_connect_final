@@ -35,7 +35,7 @@
 | **CG-004** | Handshake phase timing | P0 🔴 | 1 | ✅ YES | 15 min | Manual procedure (2 devices) |
 | **CG-005** | Flaky tests (11 skipped) | P1 🟡 | 11 | ❌ No | 3 hrs | Fix existing files |
 | **CG-006** | Database optimization | P1 🟡 | 5 | ❌ No | 20 min | `database_benchmarks_test.dart` |
-| **CG-007** | Self-connection prevention | P1 🟡 | 1 | ✅ YES | 10 min | Manual procedure (1 device) |
+| **CG-007** | Dual-role device appearance | P1 🟡 | 1 | ✅ YES | 10 min | Manual procedure (2 devices) |
 | **CG-008** | StreamProvider memory leaks | P0 🔴 | 3 | ❌ No | 5 min | `provider_lifecycle_test.dart` |
 | **CG-009** | Private key memory leak | P0 🔴 | 4 | ❌ No | 5 min | `secure_key_test.dart` |
 | **CG-010** | BLEService untested | P1 🟡 | 25 | ❌ No | 10 min | `ble_service_test.dart` |
@@ -233,13 +233,13 @@ timeout 60 flutter test test/chat_lifecycle_persistence_test.dart          # CG-
 - [ ] Analyze log timestamps
 - [ ] Verify no "Noise session not ready" errors
 
-**CG-007: Self-Connection Prevention (10 minutes)**
-- [ ] Enable dual-role BLE on Device A
-- [ ] Trigger self-connection attempt
-- [ ] Verify own advertisement filtered
-- [ ] Collect logs
-- [ ] Verify no self-connection attempt
-- [ ] Verify contact list excludes "Me"
+**CG-007: Dual-Role Device Appearance (10 minutes)**
+- [ ] Install app on Device A and Device B
+- [ ] Device A: Scan for nearby devices
+- [ ] Device A: Connect to Device B (central initiator)
+- [ ] Collect logs from both devices
+- [ ] Verify Device A shows Device B only in central/chat section
+- [ ] Verify Device A does NOT show Device B on peripheral side
 
 ---
 

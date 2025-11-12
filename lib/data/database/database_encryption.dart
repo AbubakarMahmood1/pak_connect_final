@@ -2,10 +2,18 @@
 // Provides transparent encryption at rest without user friction
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
-import 'dart:convert';
 import 'dart:math';
+
+/// Exception thrown when database encryption setup fails
+/// FIX-002: Custom exception for secure storage failures
+class DatabaseEncryptionException implements Exception {
+  final String message;
+  DatabaseEncryptionException(this.message);
+
+  @override
+  String toString() => 'DatabaseEncryptionException: $message';
+}
 
 class DatabaseEncryption {
   static final _logger = Logger('DatabaseEncryption');
@@ -20,6 +28,8 @@ class DatabaseEncryption {
   /// - Stores in OS keychain (Android Keystore / iOS Keychain)
   /// - Returns same key on subsequent launches
   /// - Caches key in memory to prevent duplicate secure storage reads
+  ///
+  /// FIX-002: Removed weak fallback - fails closed for security
   static Future<String> getOrCreateEncryptionKey() async {
     // 🔧 FIX: Return cached key if available
     if (_cachedEncryptionKey != null) {
@@ -52,12 +62,19 @@ class DatabaseEncryption {
       _logger.info('🔐 Generated and stored new database encryption key');
       _cachedEncryptionKey = key; // Cache it
       return key;
-    } catch (e) {
-      _logger.severe('❌ Failed to get/create encryption key: $e');
-      // Fallback to device-derived key (less secure but better than nothing)
-      final fallbackKey = _generateFallbackKey();
-      _cachedEncryptionKey = fallbackKey; // Cache it
-      return fallbackKey;
+    } catch (e, stackTrace) {
+      _logger.severe('❌ Failed to access secure storage: $e', e, stackTrace);
+
+      // FIX-002: FAIL CLOSED - Do not use weak fallback
+      // Throw exception to force user to enable secure storage
+      throw DatabaseEncryptionException(
+        'Cannot initialize database: Secure storage unavailable.\n\n'
+        'PakConnect requires secure storage for encryption keys.\n'
+        'Please ensure:\n'
+        '  • Android: Device lock screen is set\n'
+        '  • iOS: Passcode is enabled\n\n'
+        'Error details: $e',
+      );
     }
   }
 
@@ -73,22 +90,8 @@ class DatabaseEncryption {
     return key;
   }
 
-  /// Fallback key generation (if secure storage fails)
-  /// Uses device-specific entropy - less ideal but better than no encryption
-  static String _generateFallbackKey() {
-    _logger.warning(
-      '⚠️ Using fallback encryption key (secure storage unavailable)',
-    );
-
-    // Use timestamp + random as fallback
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = Random(timestamp);
-    final entropy = '$timestamp${random.nextInt(1000000)}';
-
-    // Hash for consistent length
-    final hash = sha256.convert(utf8.encode(entropy)).toString();
-    return hash;
-  }
+  // FIX-002: Removed _generateFallbackKey() method
+  // Weak fallback removed for security - fail closed instead
 
   /// Delete encryption key (for testing/reset purposes)
   /// WARNING: This will make existing encrypted database unreadable!

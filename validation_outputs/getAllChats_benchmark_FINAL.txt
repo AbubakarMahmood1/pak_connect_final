@@ -1,0 +1,101 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 85.0.0 (92.0.0 available)
+  analyzer 7.6.0 (9.0.0 available)
+  analyzer_buffer 0.1.10 (0.1.11 available)
+  analyzer_plugin 0.13.4 (0.13.11 available)
+  build 3.1.0 (4.0.2 available)
+  build_daemon 4.1.0 (4.1.1 available)
+  build_resolvers 3.0.3 (3.0.4 available)
+  build_runner 2.7.1 (2.10.1 available)
+  build_runner_core 9.3.1 (9.3.2 available)
+  characters 1.4.0 (1.4.1 available)
+  crypto 3.0.6 (3.0.7 available)
+  custom_lint_core 0.8.0 (0.8.1 available)
+  custom_lint_visitor 1.0.0+7.7.0 (1.0.0+8.1.1 available)
+  dart_style 3.1.1 (3.1.2 available)
+  flutter_secure_storage_linux 1.2.3 (2.0.1 available)
+  flutter_secure_storage_macos 3.1.3 (4.0.0 available)
+  flutter_secure_storage_platform_interface 1.1.2 (2.0.1 available)
+  flutter_secure_storage_web 1.2.1 (2.0.0 available)
+  flutter_secure_storage_windows 3.1.2 (4.0.0 available)
+  http 1.5.0 (1.6.0 available)
+  intl 0.19.0 (0.20.2 available)
+  js 0.6.7 (0.7.2 available)
+  material_color_utilities 0.11.1 (0.13.0 available)
+  meta 1.16.0 (1.17.0 available)
+  mockito 5.5.0 (5.5.1 available)
+  pointycastle 3.9.1 (4.0.0 available)
+  source_gen 3.1.0 (4.0.2 available)
+  test 1.26.2 (1.26.3 available)
+  test_api 0.7.6 (0.7.8 available)
+  test_core 0.6.11 (0.6.13 available)
+Got dependencies!
+30 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart                                                                                                      00:01 +0: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart                                                                                                      00:02 +0: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart                                                                                                      00:03 +0: loading /home/abubakar/dev/pak_connect/test/performance_getAllChats_benchmark_test.dart                                                                                                      00:03 +0: getAllChats Performance Benchmark (setUpAll)                                                                                                                                                 00:04 +0: getAllChats Performance Benchmark (setUpAll)                                                                                                                                                 00:04 +0: getAllChats Performance Benchmark benchmark getAllChats with 10 contacts                                                                                                                     00:04 +0: getAllChats Performance Benchmark benchmark getAllChats with 10 contacts                                                                                                                     
+✅ Database reset complete. Tables: 21
+
+🌱 Seeding database:
+   - 10 contacts
+   - 10 messages per contact
+   - Total messages: 100
+✅ Database seeding complete
+
+⏱️  Starting benchmark: 10 contacts...
+⏱️  getAllChats() completed in 88ms
+   - Chats returned: 10
+   - Avg time per chat: 8.8ms
+
+00:05 +0: getAllChats Performance Benchmark (setUpAll)                                                                                                                                                 
+WARNING: Database deleted
+00:05 +1: getAllChats Performance Benchmark benchmark getAllChats with 10 contacts                                                                                                                     00:05 +1: getAllChats Performance Benchmark benchmark getAllChats with 50 contacts                                                                                                                     00:05 +1: getAllChats Performance Benchmark benchmark getAllChats with 50 contacts                                                                                                                     
+✅ Database reset complete. Tables: 21
+
+🌱 Seeding database:
+   - 50 contacts
+   - 10 messages per contact
+   - Total messages: 500
+✅ Database seeding complete
+
+⏱️  Starting benchmark: 50 contacts...
+⏱️  getAllChats() completed in 210ms
+   - Chats returned: 50
+   - Avg time per chat: 4.2ms
+
+📊 Performance Analysis:
+   ✅ GOOD: 210ms (acceptable performance)
+00:08 +1: getAllChats Performance Benchmark (setUpAll)                                                                                                                                                 
+WARNING: Database deleted
+00:08 +2: getAllChats Performance Benchmark benchmark getAllChats with 50 contacts                                                                                                                     00:08 +2: getAllChats Performance Benchmark benchmark getAllChats with 100 contacts (N+1 query test)                                                                                                   00:08 +2: getAllChats Performance Benchmark benchmark getAllChats with 100 contacts (N+1 query test)                                                                                                   
+✅ Database reset complete. Tables: 21
+
+🌱 Seeding database:
+   - 100 contacts
+   - 10 messages per contact
+   - Total messages: 1000
+✅ Database seeding complete
+
+⏱️  Starting benchmark: 100 contacts...
+⏱️  getAllChats() completed in 355ms
+   - Chats returned: 100
+   - Avg time per chat: 3.5ms
+
+📊 Performance Analysis for 100 contacts:
+   - Total time: 355ms
+   - Per-chat avg: 3.5ms
+   ✅ GOOD: Acceptable performance
+      28.2x faster than worst case
+
+📝 Confidence Gap Update:
+   - Gap #2: N+1 Query Performance
+   - Status: ⚠️  NOT REPRODUCED
+   - Confidence: 95% (N+1 pattern exists, but optimized somehow)
+   - Note: SQLite query planner may be caching/optimizing
+00:12 +2: getAllChats Performance Benchmark (setUpAll)                                                                                                                                                 
+WARNING: Database deleted
+00:12 +3: getAllChats Performance Benchmark benchmark getAllChats with 100 contacts (N+1 query test)                                                                                                   00:12 +3: getAllChats Performance Benchmark stress test getAllChats with 500 contacts                                                                                                                  00:12 +3: getAllChats Performance Benchmark stress test getAllChats with 500 contacts                                                                                                                  
+  Skip: Enable only for stress testing (slow)
+00:12 +3 ~1: getAllChats Performance Benchmark stress test getAllChats with 500 contacts                                                                                                               00:12 +3 ~1: getAllChats Performance Benchmark (tearDownAll)                                                                                                                                           00:12 +3 ~1: getAllChats Performance Benchmark (setUpAll)                                                                                                                                              
+WARNING: Database deleted
+00:12 +3 ~1: getAllChats Performance Benchmark (tearDownAll)                                                                                                                                           00:12 +3 ~1: All tests passed!                                                                                                                                                                         

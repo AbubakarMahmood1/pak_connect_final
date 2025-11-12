@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
 import 'package:crypto/crypto.dart';
 import 'database_helper.dart';
+import '../../core/utils/chat_utils.dart';
 
 /// Migration result with detailed statistics
 class MigrationResult {
@@ -253,27 +254,23 @@ class MigrationService {
     for (final chatId in chatIds) {
       try {
         // Get contact public key from chat ID
-        String? contactPublicKey;
+        // 🔥 FIX: Use ChatUtils.extractContactKey() to handle all formats robustly
+        // Note: Pass empty string for myPublicKey (backwards compat for migration)
+        String? contactPublicKey = ChatUtils.extractContactKey(chatId, '');
         String contactName = 'Unknown';
 
-        if (chatId.startsWith('persistent_chat_')) {
-          final parts = chatId.substring('persistent_chat_'.length).split('_');
-          if (parts.length >= 2) {
-            // Get the second public key (not current user)
-            contactPublicKey = parts[1];
+        if (contactPublicKey != null) {
+          // Try to get contact name from contacts table
+          final contactResult = await db.query(
+            'contacts',
+            columns: ['display_name'],
+            where: 'public_key = ?',
+            whereArgs: [contactPublicKey],
+            limit: 1,
+          );
 
-            // Try to get contact name from contacts table
-            final contactResult = await db.query(
-              'contacts',
-              columns: ['display_name'],
-              where: 'public_key = ?',
-              whereArgs: [contactPublicKey],
-              limit: 1,
-            );
-
-            if (contactResult.isNotEmpty) {
-              contactName = contactResult.first['display_name'] as String;
-            }
+          if (contactResult.isNotEmpty) {
+            contactName = contactResult.first['display_name'] as String;
           }
         } else if (chatId.startsWith('temp_')) {
           contactName =

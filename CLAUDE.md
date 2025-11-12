@@ -662,35 +662,36 @@ Before modifying these systems, run confidence assessment (0.0-1.0):
 
 ### Usage Example:
 
-**User**: "Fix Device A connecting to itself"
+**User**: "Fix Device A showing Device B on both central AND peripheral sides"
 
 **Confidence Check**:
-- [ ] No duplicates? ✅ (connection logic in BLEConnectionManager) = 20%
-- [ ] Architecture compliance? ⚠️ (need to check if this affects peripheral vs central role) = 10%
-- [ ] Official docs? ❌ (haven't checked BLE GATT spec for device filtering) = 0%
-- [ ] Working reference? ❌ (no mesh networking self-connection example found) = 0%
-- [ ] Root cause? ❌ (unclear if MAC address vs ephemeral ID vs advertising data issue) = 0%
+- [ ] No duplicates? ❌ (dual-role BLE issue, not simple self-connection) = 0%
+- [ ] Architecture compliance? ⚠️ (need to check central/peripheral role separation) = 10%
+- [ ] Official docs? ❌ (BLE GATT spec for dual-role connection tracking) = 0%
+- [ ] Working reference? ❌ (no dual-role device appearance example found) = 0%
+- [ ] Root cause? ❌ (could be discovered device list, MAC filtering, or connection tracking) = 0%
 - [ ] Codex opinion? ⏳ (not consulted yet) = 0%
 
-**Score: 20% + 10% + 0% + 0% + 0% + 0% = 30% < 70%**
+**Score: 0% + 10% + 0% + 0% + 0% + 0% = 10% < 70%**
 
 **Action**: ❌ STOP - Consult Codex first, then ask user questions:
 
 **Step 1 - Codex Consultation** (automatic):
 ```
 Me → Codex (medium reasoning):
-"BLE dual-role device (central + peripheral) connecting to itself.
-Possible causes: MAC filtering issue, ephemeral ID collision, advertising data match.
-What are common approaches to prevent self-connection in BLE mesh?"
+"BLE dual-role device issue: Device A initiates central connection to Device B.
+Bug: Device A incorrectly shows Device B on BOTH central side (correct) AND peripheral side (wrong).
+Symptoms: Dual-role UI badge appears, notifications not subscribed on connected device.
+What causes a dual-role BLE device to incorrectly list centrally-connected peers as peripheral discoveries?"
 
-Codex → Returns patterns from BLE mesh implementations
+Codex → Returns patterns from dual-role BLE implementations (connection tracking, deduplication logic)
 ```
 
 **Step 2 - User Questions** (informed by Codex):
-1. "Can you share logs showing Device A's connection attempt to itself?"
-2. "Is this happening during scanning phase or after connection established?"
-3. "What's in the advertising data that Device A is seeing?"
-4. "Codex suggests checking MAC address filtering - should we add device ID to advertising data?"
+1. "Can you share logs showing Device A's connection to Device B and which side(s) it appears?"
+2. "Does Device B also incorrectly show Device A twice, or only Device A is affected?"
+3. "When you tap Device B in Device A's peripheral list, does the same chat open?"
+4. "Are notification subscriptions set up for connections made by each device role?"
 
 ### ROI:
 

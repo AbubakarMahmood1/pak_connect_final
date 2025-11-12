@@ -3,43 +3,19 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/chat_list_item.dart';
-import '../../domain/entities/message.dart';
 import '../../core/utils/chat_utils.dart';
 import '../database/database_helper.dart';
 import 'message_repository.dart';
 import 'contact_repository.dart';
-import 'user_preferences.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 class ChatsRepository {
   static final _logger = Logger('ChatsRepository');
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();
-  final UserPreferences _userPreferences = UserPreferences();
 
-  // Cache for public key to avoid repeated secure storage reads
-  static String? _cachedPublicKey;
-  static DateTime? _cacheTimestamp;
-  static const Duration _cacheValidDuration = Duration(minutes: 5);
-
-  Future<String> _getMyPublicKey() async {
-    final now = DateTime.now();
-    if (_cachedPublicKey != null &&
-        _cacheTimestamp != null &&
-        now.difference(_cacheTimestamp!) < _cacheValidDuration) {
-      return _cachedPublicKey!;
-    }
-
-    _cachedPublicKey = await _userPreferences.getPublicKey();
-    _cacheTimestamp = now;
-    return _cachedPublicKey!;
-  }
-
-  /// Invalidate cached public key (call after key regeneration)
-  static void invalidatePublicKeyCache() {
-    _cachedPublicKey = null;
-    _cacheTimestamp = null;
-  }
+  // Note: UserPreferences removed after FIX-006 optimization
+  // The JOIN query doesn't need myPublicKey since it uses direct contact matching
 
   Future<List<ChatListItem>> getAllChats({
     List<Peripheral>? nearbyDevices,
@@ -47,114 +23,68 @@ class ChatsRepository {
     String? searchQuery,
   }) async {
     final db = await DatabaseHelper.database;
-    final myPublicKey = await _getMyPublicKey();
+
+    // ✅ FIX-006: Single JOIN query replaces N+1 pattern
+    // Before: 1 + 4N queries (get contacts, check messages N times, get messages N times, get unread N times, get last seen N times)
+    // After: 1 query with JOINs
+    final results = await db.rawQuery('''
+      SELECT
+        c.public_key,
+        c.display_name,
+        c.security_level,
+        c.trust_status,
+        ch.chat_id,
+        ch.unread_count,
+        cls.last_seen_at,
+        COUNT(m.id) as message_count,
+        MAX(m.timestamp) as latest_message_timestamp,
+        (SELECT m2.content FROM messages m2 WHERE m2.chat_id = c.public_key ORDER BY m2.timestamp DESC LIMIT 1) as last_message_content,
+        (SELECT m3.status FROM messages m3 WHERE m3.chat_id = c.public_key ORDER BY m3.timestamp DESC LIMIT 1) as last_message_status,
+        (SELECT COUNT(*) FROM messages m4 WHERE m4.chat_id = c.public_key AND m4.is_from_me = 1 AND m4.status = 3) as failed_message_count
+      FROM contacts c
+      LEFT JOIN chats ch ON ch.contact_public_key = c.public_key
+      LEFT JOIN messages m ON m.chat_id = c.public_key
+      LEFT JOIN contact_last_seen cls ON cls.public_key = c.public_key
+      GROUP BY c.public_key
+      HAVING message_count > 0
+      ORDER BY latest_message_timestamp DESC NULLS LAST
+    ''');
 
     final chatItems = <ChatListItem>[];
-    final processedChatIds = <String>{};
 
-    // Get all unique chat IDs that have messages
-    final contacts = await _contactRepository.getAllContacts();
-    final allChatIds = <String>{};
+    for (final row in results) {
+      final contactPublicKey = row['public_key'] as String;
+      final contactName = row['display_name'] as String;
+      final chatId = _generateChatId(contactPublicKey);
 
-    for (final contact in contacts.values) {
-      final chatId = _generateChatId(contact.publicKey);
+      final unreadCount = (row['unread_count'] as int?) ?? 0;
+      final lastSeenAt = row['last_seen_at'] as int?;
+      final lastMessageContent = row['last_message_content'] as String?;
+      final lastMessageTimestamp = row['latest_message_timestamp'] as int?;
+      final failedMessageCount = (row['failed_message_count'] as int?) ?? 0;
 
-      // Check if this chat has any messages
-      final messages = await _messageRepository.getMessages(chatId);
-      if (messages.isNotEmpty) {
-        allChatIds.add(chatId);
-      }
-    }
-
-    // Process each chat that has messages
-    for (final chatId in allChatIds) {
-      if (processedChatIds.contains(chatId)) continue;
-      processedChatIds.add(chatId);
-
-      final messages = await _messageRepository.getMessages(chatId);
-      if (messages.isEmpty) continue;
-
-      final lastMessage = messages.last;
-
-      // Extract contact info
-      String? contactPublicKey;
-      String? contactName;
-
-      if (chatId.startsWith('persistent_chat_')) {
-        final parts = chatId.substring('persistent_chat_'.length).split('_');
-        if (parts.length >= 2) {
-          final key1 = parts[0];
-          final key2 = parts[1];
-          contactPublicKey = (key1 == myPublicKey) ? key2 : key1;
-
-          final contact = await _contactRepository.getContact(contactPublicKey);
-          contactName = contact?.displayName;
-        }
-      } else {
-        // 🔥 FIX: Try to look up contact by chatId (which is theirId - ephemeral or persistent)
-        // This handles ephemeral-only contacts that were saved during handshake
-        contactPublicKey = chatId;
-        final contact = await _contactRepository.getContact(chatId);
-        if (contact != null) {
-          contactName = contact.displayName;
-          _logger.fine('Found contact name for $chatId: $contactName');
-        }
-      }
-
-      if (contactName == null) {
-        if (chatId.startsWith('temp_')) {
-          contactName = 'Device ${chatId.substring(5)}';
-        } else {
-          // Last resort fallback
-          contactName = 'Unknown Contact';
-          _logger.warning('No contact found for chatId: $chatId');
-        }
-      }
-
-      // Get unread count from database
-      int unreadCount = 0;
-      final chatRows = await db.query(
-        'chats',
-        columns: ['unread_count'],
-        where: 'chat_id = ?',
-        whereArgs: [chatId],
-      );
-      if (chatRows.isNotEmpty) {
-        unreadCount = chatRows.first['unread_count'] as int? ?? 0;
-      }
-
-      // Get last seen data
+      // Parse last seen
       DateTime? lastSeen;
-      if (contactPublicKey != null) {
-        final lastSeenRows = await db.query(
-          'contact_last_seen',
-          columns: ['last_seen_at'],
-          where: 'public_key = ?',
-          whereArgs: [contactPublicKey],
-        );
-        if (lastSeenRows.isNotEmpty) {
-          final lastSeenAt = lastSeenRows.first['last_seen_at'] as int?;
-          if (lastSeenAt != null) {
-            lastSeen = DateTime.fromMillisecondsSinceEpoch(lastSeenAt);
-          }
-        }
+      if (lastSeenAt != null) {
+        lastSeen = DateTime.fromMillisecondsSinceEpoch(lastSeenAt);
       }
 
       // Check if online
-      final isOnline = contactPublicKey != null
-          ? _isContactOnline(contactPublicKey, discoveryData)
-          : false;
+      final isOnline = _isContactOnline(contactPublicKey, discoveryData);
 
-      // Check for unsent messages
-      final hasUnsent = messages.any(
-        (m) => m.isFromMe && m.status == MessageStatus.failed,
-      );
+      // Parse last message timestamp
+      DateTime? lastMessageTime;
+      if (lastMessageTimestamp != null) {
+        lastMessageTime = DateTime.fromMillisecondsSinceEpoch(
+          lastMessageTimestamp,
+        );
+      }
 
       // Apply search filter
       if (searchQuery != null && searchQuery.isNotEmpty) {
         final query = searchQuery.toLowerCase();
         if (!contactName.toLowerCase().contains(query) &&
-            !(lastMessage.content.toLowerCase().contains(query))) {
+            !(lastMessageContent?.toLowerCase().contains(query) ?? false)) {
           continue;
         }
       }
@@ -164,17 +94,17 @@ class ChatsRepository {
           chatId: chatId,
           contactName: contactName,
           contactPublicKey: contactPublicKey,
-          lastMessage: lastMessage.content,
-          lastMessageTime: lastMessage.timestamp,
+          lastMessage: lastMessageContent ?? '',
+          lastMessageTime: lastMessageTime,
           unreadCount: unreadCount,
           isOnline: isOnline,
-          hasUnsentMessages: hasUnsent,
+          hasUnsentMessages: failedMessageCount > 0,
           lastSeen: isOnline ? DateTime.now() : lastSeen,
         ),
       );
     }
 
-    // Sort by online status and last message time
+    // Sort by online status first, then by last message time
     chatItems.sort((a, b) {
       if (a.isOnline && !b.isOnline) return -1;
       if (!a.isOnline && b.isOnline) return 1;
@@ -184,6 +114,9 @@ class ChatsRepository {
       return bTime.compareTo(aTime);
     });
 
+    _logger.info(
+      '📊 getAllChats: Returned ${chatItems.length} chats (optimized JOIN query)',
+    );
     return chatItems;
   }
 

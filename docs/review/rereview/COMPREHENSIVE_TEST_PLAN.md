@@ -16,7 +16,7 @@ This plan organizes **107 identified issues** into **testable scenarios** with:
 - Unit tests (70% - pure logic isolation)
 - Integration tests (20% - multi-component flows)
 - Benchmark tests (5% - performance validation)
-- Device tests (5% - BLE handshake, self-connection)
+- Device tests (5% - BLE handshake, dual-role device appearance)
 
 ---
 
@@ -1134,18 +1134,19 @@ grep "Phase 2.*starting" device_a_handshake.log
 
 ---
 
-### CG-007: Self-Connection Prevention Test (P1 - HIGH)
+### CG-007: Dual-Role Device Appearance Test (P1 - HIGH)
 
-**Confidence Gap**: Device A can connect to itself (ephemeral hint collision)
+**Confidence Gap**: Device A shows Device B on both central AND peripheral sides after connection
 
-**Location**: `/home/abubakar/dev/pak_connect/lib/core/bluetooth/peripheral_initializer.dart`
+**Location**: Multiple BLE connection management files (BLEConnectionManager, PeripheralInitializer)
 
-**Test Type**: Single-device BLE test
+**Test Type**: Two-device BLE test
 
 **Test Setup**:
-1. Device A (Pixel 6, Android 13) - acts as both central AND peripheral
-2. BLE enabled, location permissions granted
-3. Debug build with verbose logging
+1. Device A (Pixel 6, Android 13) - initiates central connection to Device B
+2. Device B (Pixel 5, Android 12) - accepts connection as peripheral
+3. BLE enabled, location permissions granted on both
+4. Debug build with verbose logging on both devices
 
 **Test Command** (manual):
 ```bash
@@ -1153,67 +1154,75 @@ grep "Phase 2.*starting" device_a_handshake.log
 flutter build apk --debug
 adb install build/app/outputs/flutter-apk/app-debug.apk
 
-# Enable verbose logs
-adb shell setprop log.tag.PakConnect VERBOSE
+# Enable verbose logs on both devices
+adb -s <device_a_serial> shell setprop log.tag.PakConnect VERBOSE
+adb -s <device_b_serial> shell setprop log.tag.PakConnect VERBOSE
 ```
 
 **Manual Test Procedure** (10 minutes):
 
-**Step 1: Enable Dual-Role BLE** (2 min)
+**Step 1: Prepare Both Devices** (2 min)
 ```
-1. Open PakConnect app on Device A
-2. Navigate to Settings → Developer Mode → Enable Dual-Role BLE
-3. Verify both advertising AND scanning are active
+1. Open PakConnect app on Device A and Device B
+2. Navigate to Contacts screen on both devices
+3. Ensure both devices are discoverable (BLE advertising enabled)
 ```
 
-**Step 2: Trigger Self-Connection Attempt** (5 min)
+**Step 2: Device A Connects to Device B** (5 min)
 ```
-1. Device A starts advertising with ephemeral ID: "ABC123"
-2. Device A starts scanning
-3. OBSERVE: Does Device A discover itself?
+1. Device A: Tap "Scan for Nearby"
+2. Device A: Observe Device B in scan results
+3. Device A: Tap Device B (initiates central connection)
+4. Wait for handshake completion (~5 seconds)
+5. OBSERVE: How does Device A list Device B?
 
-BEFORE FIX:
-❌ Device A sees own advertisement in scan results
-❌ Device A attempts to connect to itself
-❌ Connection succeeds, handshake starts
-❌ Duplicate contact created ("Me" appears in contact list)
+BEFORE FIX (BUG):
+❌ Device A shows Device B in central/chat list ✅
+❌ Device A ALSO shows Device B in peripheral/discovered list ❌
+❌ UI shows "dual role" badge for Device B ❌
+❌ Chat can be opened from either central or peripheral entry ❌
 
 AFTER FIX:
-✅ Device A filters out own advertisement
-✅ Scan results exclude own MAC address / ephemeral ID
-✅ No self-connection attempt
+✅ Device A shows Device B only in central/chat list
+✅ Device B does NOT appear in Device A's peripheral side
+✅ No "dual role" UI badges appear
+✅ Notification subscriptions active on connected device
 ```
 
 **Step 3: Log Analysis** (3 min)
 ```bash
-adb logcat -d | grep -E "ScanResult|Connection|ephemeralId" > self_connection_test.log
+adb -s <device_a_serial> logcat -d | grep -E "discovered|Connection|dual.role" > device_a_appearance.log
+adb -s <device_b_serial> logcat -d | grep -E "discovered|Connection|dual.role" > device_b_appearance.log
 
-# Check for self-filtering
-grep "Ignoring own advertisement" self_connection_test.log
-# Should see: "🚫 Ignoring own advertisement (MAC: XX:XX:XX:XX, ID: ABC123)"
+# Check Device A's peripheral list
+grep "Peripheral.*discovered" device_a_appearance.log
+# Should NOT contain Device B's ID
 
-# Verify no self-connection
-grep "Connecting to.*ABC123" self_connection_test.log
-# Should be EMPTY (no connection to own ID)
+# Check for duplicate connections
+grep "Connection.*Device" device_a_appearance.log
+# Should show only ONE connection path (central)
 ```
 
 **Expected Log Output (AFTER FIX)**:
 ```
-11:30:01.123 INFO BLEScanner: Scan result: MAC=AA:BB:CC:DD, ephemeralId=ABC123
-11:30:01.124 INFO BLEScanner: 🚫 Ignoring own advertisement (matches local ID)
-11:30:01.125 INFO BLEScanner: Scan result: MAC=EE:FF:00:11, ephemeralId=XYZ789
-11:30:01.126 INFO BLEScanner: ✅ Valid peer discovered: XYZ789
+[Device A] 11:30:01.123 INFO BLEScanner: Scan result: Device B (peripheral)
+[Device A] 11:30:01.124 INFO BLEConnectionManager: Connecting to Device B (central initiator)
+[Device B] 11:30:01.125 INFO PeripheralInitializer: Incoming connection from Device A
+[Device A] 11:30:01.150 INFO HandshakeCoordinator: Handshake complete
+[Device A] Contact list shows Device B (chat view only - central side)
+[Device B] Contact list shows Device A (connected contact)
 ```
 
 **Validation Criteria**:
 ```
-✅ PASS: Own advertisement filtered from scan results
-✅ PASS: No self-connection attempt in logs
-✅ PASS: Contact list does not show "Me" as contact
-✅ PASS: Handshake coordinator never invoked for self
+✅ PASS: Device A shows Device B only in central/chat section
+✅ PASS: Device B does NOT appear on Device A's peripheral side
+✅ PASS: No "dual role" badges in UI
+✅ PASS: Notification subscriptions active on both sides
+✅ PASS: Device B shows Device A only once (as connected contact)
 ```
 
-**Execution Time**: ~10 minutes (setup + trigger + log analysis)
+**Execution Time**: ~10 minutes (setup + connection + log analysis)
 
 ---
 

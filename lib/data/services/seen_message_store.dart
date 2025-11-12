@@ -178,6 +178,14 @@ class SeenMessageStore {
   // Private methods
 
   /// Ensure seen_messages table exists
+  ///
+  /// **NOTE (FIX-005)**: As of v10, this table is created by DatabaseHelper._onCreate()
+  /// and DatabaseHelper._onUpgrade(). This method is kept for backward compatibility
+  /// with databases created before v10 (where table was created dynamically).
+  ///
+  /// For new installations: Table created by schema
+  /// For upgrades from v9→v10: Table created by migration
+  /// For older versions: This method creates it (safety net)
   Future<void> _ensureTableExists() async {
     try {
       final db = await DatabaseHelper.database;
@@ -188,7 +196,9 @@ class SeenMessageStore {
       );
 
       if (tables.isEmpty) {
-        _logger.info('Creating seen_messages table...');
+        _logger.info(
+          'Creating seen_messages table (backward compatibility)...',
+        );
 
         await db.execute('''
           CREATE TABLE seen_messages (

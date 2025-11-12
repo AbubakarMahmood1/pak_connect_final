@@ -108,16 +108,18 @@ class EphemeralKeyManager {
   }
 
   // Generate ECDSA keypair for signing
+  // FIX-003: Uses cryptographically secure random seed
   static Future<void> _generateEphemeralSigningKeys() async {
     try {
       final keyGen = ECKeyGenerator();
       final secureRandom = FortunaRandom();
 
-      final seed = List<int>.generate(
-        32,
-        (i) => DateTime.now().millisecondsSinceEpoch ~/ (i + 1),
+      // FIX-003: Use Random.secure() instead of timestamp-based seed
+      final random = Random.secure();
+      final seed = Uint8List.fromList(
+        List<int>.generate(32, (_) => random.nextInt(256)),
       );
-      secureRandom.seed(KeyParameter(Uint8List.fromList(seed)));
+      secureRandom.seed(KeyParameter(seed));
 
       final keyParams = ECKeyGeneratorParameters(ECCurve_secp256r1());
       keyGen.init(ParametersWithRandom(keyParams, secureRandom));
@@ -133,9 +135,13 @@ class EphemeralKeyManager {
           .join();
       _ephemeralSigningPrivateKey = privateKey.d!.toRadixString(16);
 
-      _logger.info('✅ Generated ephemeral signing keys');
-    } catch (e) {
-      _logger.severe('❌ Failed to generate ephemeral signing keys: $e');
+      _logger.info('✅ Generated ephemeral signing keys with secure seed');
+    } catch (e, stackTrace) {
+      _logger.severe(
+        '❌ Failed to generate ephemeral signing keys: $e',
+        e,
+        stackTrace,
+      );
       rethrow;
     }
   }

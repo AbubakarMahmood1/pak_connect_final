@@ -171,55 +171,65 @@ adb -s <device_b_serial> logcat | grep -E "HandshakeCoordinator|NoiseSession" | 
 
 ---
 
-### Test 2: Self-Connection Prevention (CG-007) - 10 minutes
+### Test 2: Dual-Role Device Appearance (CG-007) - 10 minutes
 
-**Goal**: Verify device doesn't connect to itself (BLE dual-role issue)
+**Goal**: Verify Device A doesn't incorrectly show Device B on both central AND peripheral sides
 
 **Setup** (3 min):
-1. Install debug APK on Device A only (single-device test)
-2. Enable verbose logging
-3. Connect Device A to computer via USB
+1. Install debug APK on Device A and Device B
+2. Enable verbose logging on both devices
+3. Connect both devices to computer via USB
 
 **Procedure** (7 min):
 
 ```bash
-# Terminal: Device A logs
-adb logcat | grep -E "DeviceDeduplicationManager|BLEService|PeripheralInitializer" | tee device_a_self_connection.txt
+# Terminal 1: Device A logs
+adb -s <device_a_serial> logcat | grep -E "BLEConnectionManager|PeripheralInitializer|discovered" | tee device_a_dual_role.txt
+
+# Terminal 2: Device B logs
+adb -s <device_b_serial> logcat | grep -E "BLEConnectionManager|PeripheralInitializer|discovered" | tee device_b_dual_role.txt
 ```
 
 **Steps**:
-1. Device A: Open app
-2. Device A: Settings → Enable mesh relay (ensures dual-role BLE)
-3. Device A: Go to Contacts screen
-4. Device A: Tap "Scan for Nearby"
-5. Wait 10 seconds for scan results
-6. Observe scan results and logs
+1. Device A: Open app, go to Contacts screen
+2. Device B: Open app, go to Contacts screen
+3. Device A: Tap "Scan for Nearby"
+4. Device A: Tap Device B in scan results (initiates central connection)
+5. Wait for handshake to complete (~5 seconds)
+6. Verify both devices' contact lists
+7. Check both devices' UI for incorrect "dual role" badges
 
-**Expected logs (CORRECT behavior)**:
+**Expected logs (CORRECT behavior - Device A as central)**:
 ```
-[PeripheralInitializer] Advertising started with ephemeralHint: a1b2c3d4
-[BLEService] Scan started (central mode)
-[BLEService] Scan result: Device X (hint: e5f6g7h8)
-[BLEService] Scan result: Device Y (hint: i9j0k1l2)
-[DeviceDeduplicationManager] Filtering own advertisement (hint: a1b2c3d4 matches)
-[BLEService] Own device filtered from scan results ✅
+[Device A] Scanning for nearby devices (central mode)
+[Device A] Found Device B (peripheral)
+[Device A] Connecting to Device B (central initiator)
+[Device A] Connected to Device B - shows in chat list as contacted peer
+[Device B] Received connection from Device A (peripheral acceptor)
+[Device B] Connected to Device A - shows as connected contact
+[Device B] No "dual role" badge (connected only as peripheral)
 ```
 
 **Success criteria**:
-- ✅ "Filtering own advertisement" appears in logs
-- ✅ Own device NOT in "Nearby Devices" list
-- ✅ No connection attempt to self
+- ✅ Device A shows Device B in chat list (initiator perspective)
+- ✅ Device B shows Device A in chat list (acceptor perspective)
+- ✅ Device A does NOT show Device B on peripheral side (no dual-role badge)
+- ✅ Device B does NOT show Device A twice
+- ✅ No "dual role" UI badges appear
 
 **Expected issue (if bug exists)**:
 ```
-[BLEService] Scan result: Device A (hint: a1b2c3d4)
-❌ No filtering - attempting to connect to self
-[BLEConnectionManager] Connecting to a1b2c3d4...
-[BLEConnectionManager] Connection failed: Invalid target
+[Device A] Scanning for nearby devices (central mode)
+[Device A] Found Device B (peripheral)
+[Device A] Connecting to Device B (central)
+[Device A] Connected to Device B ✅
+[Device A] ALSO shows Device B in peripheral discovered list ❌
+[Device A] Shows "dual role" badge for Device B ❌
+[UI] Can open chat from either central OR peripheral entry ❌
 ```
 
 **If this happens**: Bug confirmed (85% → 100%)
-**If filtering works**: Self-connection prevention works (good news!)
+**If only central entry**: Behavior is correct (good news!)
 
 ---
 
@@ -288,10 +298,11 @@ cat device_*.txt > TWO_DEVICE_TEST_COMPLETE_OUTPUT.txt
 - Add `_waitForRemoteKey()` and `_waitForSessionEstablished()`
 - Re-test
 
-**If self-connection prevention fails**:
-- Review `DeviceDeduplicationManager.dart:57-66`
-- Check ephemeral hint generation uniqueness
-- Add additional filtering (MAC address, UUID)
+**If dual-role device appearance fails**:
+- Review BLE connection tracking in `BLEConnectionManager.dart`
+- Check if centrally-connected devices are added to peripheral discovered list
+- Add deduplication logic for connected vs discovered devices
+- Verify notification subscriptions on both connection sides
 
 ---
 
@@ -379,17 +390,19 @@ adb shell am start -n com.yourapp.pakconnect/.MainActivity
 - Phase 2 starts before session established
 - Encryption failures during handshake
 
-### CG-007: Self-Connection ✅
+### CG-007: Dual-Role Device Appearance ✅
 
 **Pass if**:
-- "Filtering own advertisement" in logs
-- Own device not in scan results
-- No connection attempt to self
+- Device A shows Device B only in central/chat section
+- Device A does NOT show Device B on peripheral side
+- No "dual role" badges appear
+- Device B shows Device A only as connected contact
 
 **Fail if**:
-- Own device in scan results (unfiltered)
-- Connection attempt to self
-- Infinite connection loop
+- Device A shows Device B on both central AND peripheral sides
+- "Dual role" badge appears for Device B
+- Chat can be opened from either central or peripheral entry
+- Missing notification subscription on connected device
 
 ---
 
@@ -458,13 +471,14 @@ After completing device tests, fill out this template:
 
 **Overall CG-004**: ✅ RESOLVED / ❌ CONFIRMED BUG
 
-## CG-007: Self-Connection Prevention
+## CG-007: Dual-Role Device Appearance
 
 **Test**:
 - Result: ✅ PASS / ❌ FAIL
-- Own device in scan results: ✅ YES (filtered) / ❌ NO (unfiltered) / ✅ Not present
-- Connection attempt to self: ✅ NO / ❌ YES
-- Logs: device_a_self_connection.txt
+- Device A shows Device B on peripheral side: ✅ NO / ❌ YES
+- Dual-role badge appears: ✅ NO / ❌ YES
+- Notification subscription on connected device: ✅ YES / ❌ NO
+- Logs: device_a_dual_role.txt, device_b_dual_role.txt
 
 **Overall CG-007**: ✅ RESOLVED / ❌ CONFIRMED BUG
 

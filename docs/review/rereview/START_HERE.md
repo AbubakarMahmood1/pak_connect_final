@@ -103,7 +103,7 @@ echo "✅ Phase 1 complete! Review PHASE1_COMPLETE_OUTPUT.txt"
 
 **Week 2: Device Tests (25 minutes)**:
 - Test handshake timing (15 min)
-- Test self-connection prevention (10 min)
+- Test dual-role device appearance (10 min)
 
 **See**: `TEST_PLAN_SUMMARY.md` for detailed checklist
 

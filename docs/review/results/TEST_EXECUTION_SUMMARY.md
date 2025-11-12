@@ -322,15 +322,15 @@ Runtime: 50 seconds
 
 ---
 
-### CG-007: Self-Connection Prevention (85% → 85%)
+### CG-007: Dual-Role Device Appearance (85% → 85%)
 
 **Status**: ⏳ **REQUIRES DEVICE TESTING**
 
 **What we validated**:
-- ✅ Device deduplication manager logic looks correct
-- ❌ Cannot test BLE advertising/scanning without real device
+- ✅ BLE connection management logic looks correct
+- ❌ Cannot test dual-role device deduplication without real devices
 
-**Next step**: Single-device BLE test (see TWO_DEVICE_TESTING_GUIDE.md)
+**Next step**: Two-device BLE test (see TWO_DEVICE_TESTING_GUIDE.md)
 
 **Current confidence**: 85% (no change - device testing needed)
 
@@ -386,7 +386,7 @@ Runtime: 50 seconds
 | CG-004 (Handshake timing) | 92% | 92% | No change | Need device test |
 | **CG-005 (Flaky tests)** | 80% | **95%** | **+15%** ✅ | Test execution |
 | CG-006 (DB optimization) | 90% | 90% | No change | Need benchmark |
-| CG-007 (Self-connection) | 85% | 85% | No change | Need device test |
+| CG-007 (Dual-role appearance) | 85% | 85% | No change | Need device test |
 | **CG-008 (Provider leaks)** | 95% | **100%** | **+5%** ✅ | Static analysis |
 | **CG-009 (Key leak)** | 98% | **100%** | **+2%** ✅ | Static analysis |
 | CG-010 (BLEService) | 90% | 90% | No change | Need 25 tests |
@@ -454,7 +454,7 @@ Runtime: 50 seconds
 
 6. **Two-device BLE tests**:
    - CG-004: Handshake timing (15 min)
-   - CG-007: Self-connection (10 min)
+   - CG-007: Dual-role device appearance (10 min)
    - See: `docs/review/rereview/TWO_DEVICE_TESTING_GUIDE.md`
 
 ---

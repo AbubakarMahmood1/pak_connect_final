@@ -33,20 +33,20 @@ final contactsProvider = FutureProvider<List<EnhancedContact>>((ref) async {
 
 /// Auto-refresh contacts provider (opt-in for screens that need periodic updates)
 /// Use this sparingly - most screens should use contactsProvider with manual refresh
-final autoRefreshContactsProvider = StreamProvider<List<EnhancedContact>>((
-  ref,
-) async* {
-  final service = ref.watch(contactServiceProvider);
+/// FIX-007: Added autoDispose to prevent memory leaks
+final autoRefreshContactsProvider =
+    StreamProvider.autoDispose<List<EnhancedContact>>((ref) async* {
+      final service = ref.watch(contactServiceProvider);
 
-  // Initial load
-  yield await service.getAllEnhancedContacts();
+      // Initial load
+      yield await service.getAllEnhancedContacts();
 
-  // Refresh every 60 seconds (increased from 30 to reduce load)
-  // Only active when this provider is actively watched
-  await for (final _ in Stream.periodic(const Duration(seconds: 60))) {
-    yield await service.getAllEnhancedContacts();
-  }
-});
+      // Refresh every 60 seconds (increased from 30 to reduce load)
+      // Only active when this provider is actively watched
+      await for (final _ in Stream.periodic(const Duration(seconds: 60))) {
+        yield await service.getAllEnhancedContacts();
+      }
+    });
 
 /// Single contact provider by public key
 final contactDetailProvider = FutureProvider.family<EnhancedContact?, String>((
