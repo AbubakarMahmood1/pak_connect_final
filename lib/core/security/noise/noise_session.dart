@@ -9,6 +9,7 @@ library;
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:synchronized/synchronized.dart';
+import 'package:pak_connect/core/monitoring/performance_metrics.dart';
 import '../secure_key.dart';
 import 'models/noise_models.dart';
 import 'primitives/handshake_state.dart';
@@ -390,41 +391,55 @@ class NoiseSession {
   /// [data] Plaintext bytes to encrypt
   /// Returns nonce and ciphertext combined payload
   Future<Uint8List> encrypt(Uint8List data) async {
-    return await _encryptLock.synchronized(() async {
-      if (_state != NoiseSessionState.established) {
-        throw StateError('Session not established');
-      }
-      if (_sendCipher == null) {
-        throw StateError('Send cipher not initialized');
-      }
+    // Start performance timer
+    final stopwatch = Stopwatch()..start();
 
-      // Check if rekey needed (enforce limits)
-      if (needsRekey()) {
-        throw StateError(
-          'Session requires rekeying. Messages sent: $_messagesSent '
-          '(limit: $_rekeyMessageLimit), Age: ${_getSessionAgeSeconds()}s '
-          '(limit: ${_rekeyTimeLimit ~/ 1000}s)',
+    try {
+      return await _encryptLock.synchronized(() async {
+        if (_state != NoiseSessionState.established) {
+          throw StateError('Session not established');
+        }
+        if (_sendCipher == null) {
+          throw StateError('Send cipher not initialized');
+        }
+
+        // Check if rekey needed (enforce limits)
+        if (needsRekey()) {
+          throw StateError(
+            'Session requires rekeying. Messages sent: $_messagesSent '
+            '(limit: $_rekeyMessageLimit), Age: ${_getSessionAgeSeconds()}s '
+            '(limit: ${_rekeyTimeLimit ~/ 1000}s)',
+          );
+        }
+
+        // Get current nonce (atomic with encryption via lock)
+        final nonce = _sendCipher!.getNonce();
+
+        // Encrypt with empty AD
+        final ciphertext = await _sendCipher!.encryptWithAd(null, data);
+
+        // Prepend 4-byte nonce (big-endian)
+        final combined = Uint8List(_nonceSizeBytes + ciphertext.length);
+        _nonceToBytes(nonce, combined);
+        combined.setRange(_nonceSizeBytes, combined.length, ciphertext);
+
+        _messagesSent++;
+        _logger.fine(
+          '[$peerID] Encrypted message (nonce: $nonce, size: ${combined.length})',
         );
-      }
 
-      // Get current nonce (atomic with encryption via lock)
-      final nonce = _sendCipher!.getNonce();
-
-      // Encrypt with empty AD
-      final ciphertext = await _sendCipher!.encryptWithAd(null, data);
-
-      // Prepend 4-byte nonce (big-endian)
-      final combined = Uint8List(_nonceSizeBytes + ciphertext.length);
-      _nonceToBytes(nonce, combined);
-      combined.setRange(_nonceSizeBytes, combined.length, ciphertext);
-
-      _messagesSent++;
-      _logger.fine(
-        '[$peerID] Encrypted message (nonce: $nonce, size: ${combined.length})',
-      );
-
-      return combined;
-    });
+        return combined;
+      });
+    } finally {
+      // Record performance metrics (async, fire-and-forget)
+      stopwatch.stop();
+      PerformanceMonitor.recordEncryption(
+        durationMs: stopwatch.elapsedMilliseconds,
+        messageSize: data.length,
+      ).catchError((e) {
+        _logger.fine('Failed to record encryption metrics: $e');
+      });
+    }
   }
 
   /// Decrypt ciphertext from transport (THREAD-SAFE)
@@ -435,43 +450,61 @@ class NoiseSession {
   /// [combinedPayload] `nonce``ciphertext` combined payload
   /// Returns plaintext bytes
   Future<Uint8List> decrypt(Uint8List combinedPayload) async {
-    return await _decryptLock.synchronized(() async {
-      if (_state != NoiseSessionState.established) {
-        throw StateError('Session not established');
-      }
-      if (_receiveCipher == null) {
-        throw StateError('Receive cipher not initialized');
-      }
-      if (combinedPayload.length < _nonceSizeBytes) {
-        throw ArgumentError('Payload too small for nonce');
-      }
+    // Start performance timer
+    final stopwatch = Stopwatch()..start();
+    int messageSize = 0;
 
-      // Extract nonce and ciphertext
-      final (receivedNonce, ciphertext) = _extractNonceFromPayload(
-        combinedPayload,
-      );
+    try {
+      return await _decryptLock.synchronized(() async {
+        if (_state != NoiseSessionState.established) {
+          throw StateError('Session not established');
+        }
+        if (_receiveCipher == null) {
+          throw StateError('Receive cipher not initialized');
+        }
+        if (combinedPayload.length < _nonceSizeBytes) {
+          throw ArgumentError('Payload too small for nonce');
+        }
 
-      // Validate nonce for replay protection (atomic with marking as seen)
-      if (!_isValidNonce(receivedNonce)) {
-        throw Exception('Replay attack detected: invalid nonce $receivedNonce');
-      }
+        // Extract nonce and ciphertext
+        final (receivedNonce, ciphertext) = _extractNonceFromPayload(
+          combinedPayload,
+        );
 
-      // Set cipher nonce to match received nonce
-      _receiveCipher!.setNonce(receivedNonce);
+        // Validate nonce for replay protection (atomic with marking as seen)
+        if (!_isValidNonce(receivedNonce)) {
+          throw Exception(
+            'Replay attack detected: invalid nonce $receivedNonce',
+          );
+        }
 
-      // Decrypt
-      final plaintext = await _receiveCipher!.decryptWithAd(null, ciphertext);
+        // Set cipher nonce to match received nonce
+        _receiveCipher!.setNonce(receivedNonce);
 
-      // Mark nonce as seen (atomic with validation via lock)
-      _markNonceAsSeen(receivedNonce);
+        // Decrypt
+        final plaintext = await _receiveCipher!.decryptWithAd(null, ciphertext);
+        messageSize = plaintext.length; // Capture for metrics
 
-      _messagesReceived++;
-      _logger.fine(
-        '[$peerID] Decrypted message (nonce: $receivedNonce, size: ${plaintext.length})',
-      );
+        // Mark nonce as seen (atomic with validation via lock)
+        _markNonceAsSeen(receivedNonce);
 
-      return plaintext;
-    });
+        _messagesReceived++;
+        _logger.fine(
+          '[$peerID] Decrypted message (nonce: $receivedNonce, size: ${plaintext.length})',
+        );
+
+        return plaintext;
+      });
+    } finally {
+      // Record performance metrics (async, fire-and-forget)
+      stopwatch.stop();
+      PerformanceMonitor.recordDecryption(
+        durationMs: stopwatch.elapsedMilliseconds,
+        messageSize: messageSize > 0 ? messageSize : combinedPayload.length,
+      ).catchError((e) {
+        _logger.fine('Failed to record decryption metrics: $e');
+      });
+    }
   }
 
   // ========== REPLAY PROTECTION METHODS ==========

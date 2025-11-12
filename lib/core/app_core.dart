@@ -12,6 +12,7 @@ import 'performance/performance_monitor.dart';
 import 'services/security_manager.dart';
 import 'networking/topology_manager.dart';
 import 'security/ephemeral_key_manager.dart';
+import 'security/noise/adaptive_encryption_strategy.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
@@ -28,6 +29,7 @@ import '../data/repositories/message_repository.dart';
 import '../data/database/database_helper.dart';
 import '../domain/entities/message.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'di/service_locator.dart';
 
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
@@ -93,6 +95,11 @@ class AppCore {
       _logger.info('🗒️ Setting up logging...');
       _setupLogging();
       _logger.info('✅ Logging setup complete');
+
+      // Setup dependency injection container
+      _logger.info('🏗️ Setting up DI container...');
+      await setupServiceLocator();
+      _logger.info('✅ DI container setup complete');
 
       // Initialize repositories first
       _logger.info('🗄️ Initializing repositories...');
@@ -209,6 +216,12 @@ class AppCore {
 
     performanceMonitor.startMonitoring();
     _logger.info('Performance monitoring started');
+
+    // Initialize adaptive encryption strategy (FIX-013)
+    // This checks performance metrics and decides whether to use isolate for encryption
+    final adaptiveStrategy = AdaptiveEncryptionStrategy();
+    await adaptiveStrategy.initialize();
+    _logger.info('Adaptive encryption strategy initialized');
 
     _logger.info('Monitoring systems initialized');
   }

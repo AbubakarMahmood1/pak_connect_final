@@ -10,6 +10,7 @@ import 'package:logging/logging.dart';
 import '../../core/services/security_manager.dart';
 import '../database/database_helper.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/interfaces/i_contact_repository.dart';
 
 enum TrustStatus {
   newContact, // 👤 Identity: Never verified this person
@@ -175,7 +176,7 @@ class Contact {
       DateTime.now().difference(lastSecuritySync!).inHours > 24;
 }
 
-class ContactRepository {
+class ContactRepository implements IContactRepository {
   static final _logger = Logger('ContactRepository');
   static const String _sharedSecretPrefix = 'shared_secret_';
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
