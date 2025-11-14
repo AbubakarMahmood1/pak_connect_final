@@ -151,6 +151,10 @@ class BLEService {
   bool _isDiscoveryActive = false;
   ScanningSource? _currentScanningSource;
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION: Public Getters & Properties
+  // ═══════════════════════════════════════════════════════════════════════════
+
   // Stream getters
   Stream<ConnectionInfo> get connectionInfo =>
       _connectionInfoController!.stream;
@@ -262,6 +266,11 @@ class BLEService {
     );
     await _sendProtocolMessage(protocolMessage);
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION: Initialization & Lifecycle
+  // Responsibilities: Service startup, shutdown, event wiring, stream management
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> initialize() async {
     try {
@@ -1976,6 +1985,12 @@ class BLEService {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION: Advertising Operations (→ Future: BLEAdvertisingService)
+  // Responsibilities: Peripheral mode, advertising lifecycle, GATT server setup
+  // Interface: IBLEAdvertisingService (to be created)
+  // ═══════════════════════════════════════════════════════════════════════════
+
   Future<void> startAsPeripheral() async {
     _logger.info('📡 Starting peripheral advertising (dual-role mode)...');
 
@@ -2157,6 +2172,12 @@ class BLEService {
     _logger.info('Switched to central mode');
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION: Discovery Operations (→ Future: BLEDiscoveryService)
+  // Responsibilities: BLE scanning, device deduplication, discovery events
+  // Interface: IBLEDiscoveryService (already created)
+  // ═══════════════════════════════════════════════════════════════════════════
+
   Future<void> startScanning({
     ScanningSource source = ScanningSource.system,
   }) async {
@@ -2282,6 +2303,12 @@ class BLEService {
       statusMessage: isConnected ? 'Ready to chat' : 'Ready to scan',
     );
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION: Connection Management (→ Future: BLEConnectionService)
+  // Responsibilities: Central/peripheral connections, MTU negotiation, lifecycle
+  // Interface: IBLEConnectionService (to be created)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> connectToDevice(Peripheral device) async {
     try {
@@ -2458,6 +2485,13 @@ class BLEService {
       return null;
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION: Handshake Protocol (→ Future: BLEHandshakeService)
+  // Responsibilities: 4-phase handshake, identity exchange, Noise session setup
+  // Interface: IBLEHandshakeService (to be created)
+  // CRITICAL: Contains FIX-008 retry logic - DO NOT MODIFY BEHAVIOR
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /// Perform handshake protocol for connection initialization
   /// [startAsInitiatorOverride] lets callers specify the role explicitly.
@@ -2785,6 +2819,12 @@ class BLEService {
         type == ProtocolMessageType.noiseHandshake3 ||
         type == ProtocolMessageType.contactStatus;
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION: Messaging Operations (→ Future: BLEMessagingService)
+  // Responsibilities: Message send/receive, fragmentation, ACKs, queue sync
+  // Interface: IBLEMessagingService (to be created)
+  // ═══════════════════════════════════════════════════════════════════════════
 
   Future<bool> sendMessage(
     String message, {
