@@ -31,6 +31,9 @@ import '../../core/security/message_security.dart';
 import '../../domain/services/notification_service.dart';
 import '../../core/messaging/message_router.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../models/chat_ui_state.dart';
+import '../controllers/chat_scrolling_controller.dart' as chat_controller;
+import '../providers/chat_messaging_view_model.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device; // For central mode (live connection)
@@ -112,6 +115,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   // 🔧 FIX: Cache contact public key to avoid accessing ref during dispose
   String? _cachedContactPublicKey;
 
+  // 🎯 Phase 2C: Extracted components
+  late ChatUIState _uiState;
+  late ChatMessagingViewModel _messagingViewModel;
+  late chat_controller.ChatScrollingController _scrollingController;
+
   /// 🔧 FIX: Safe setState that checks mounted before calling
   void _safeSetState(VoidCallback fn) {
     if (mounted) {
@@ -186,6 +194,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     _currentChatId = _calculateInitialChatId();
     print('🐛 NAV DEBUG: - calculated chatId: $_currentChatId');
+
+    // 🎯 Phase 2C: Initialize extracted components
+    _uiState = ChatUIState();
+    _messagingViewModel = ChatMessagingViewModel(
+      chatId: _chatId,
+      contactPublicKey: _contactPublicKey!,
+      messageRepository: _messageRepository,
+      contactRepository: ContactRepository(),
+    );
+    _scrollingController = chat_controller.ChatScrollingController(
+      messageRepository: _messageRepository,
+      onScrollToBottom: () => _safeSetState(
+        () => _uiState = _uiState.copyWith(newMessagesWhileScrolledUp: 0),
+      ),
+      onUnreadCountChanged: (count) => _safeSetState(
+        () => _uiState = _uiState.copyWith(unreadMessageCount: count),
+      ),
+    );
 
     // 💬🔑 COMPREHENSIVE CHAT OPEN LOGGING (search: 💬🔑)
     _logChatOpenState();
@@ -2643,6 +2669,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     _unreadSeparatorTimer?.cancel();
+
+    // 🎯 Phase 2C: Clean up extracted components
+    _scrollingController.dispose();
+    _messagingViewModel.dispose();
 
     super.dispose();
 
