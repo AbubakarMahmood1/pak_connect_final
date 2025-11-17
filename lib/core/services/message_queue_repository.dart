@@ -27,9 +27,9 @@ class MessageQueueRepository implements IMessageQueueRepository {
     List<QueuedMessage>? directMessageQueue,
     List<QueuedMessage>? relayMessageQueue,
     Set<String>? deletedMessageIds,
-  })  : directMessageQueue = directMessageQueue ?? [],
-        relayMessageQueue = relayMessageQueue ?? [],
-        deletedMessageIds = deletedMessageIds ?? {};
+  }) : directMessageQueue = directMessageQueue ?? [],
+       relayMessageQueue = relayMessageQueue ?? [],
+       deletedMessageIds = deletedMessageIds ?? {};
 
   /// Load entire queue from persistent storage
   @override
@@ -79,7 +79,6 @@ class MessageQueueRepository implements IMessageQueueRepository {
         queuedMessageToDb(message),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-
     } catch (e) {
       _logger.warning('Failed to save message ${message.id.shortId()}...: $e');
     }
@@ -114,18 +113,12 @@ class MessageQueueRepository implements IMessageQueueRepository {
 
         // Save direct messages
         for (final message in directMessageQueue) {
-          await txn.insert(
-            'offline_message_queue',
-            queuedMessageToDb(message),
-          );
+          await txn.insert('offline_message_queue', queuedMessageToDb(message));
         }
 
         // Save relay messages
         for (final message in relayMessageQueue) {
-          await txn.insert(
-            'offline_message_queue',
-            queuedMessageToDb(message),
-          );
+          await txn.insert('offline_message_queue', queuedMessageToDb(message));
         }
       });
     } catch (e) {
@@ -226,7 +219,9 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   void insertMessageByPriority(QueuedMessage message) {
     // Determine target queue
-    final targetQueue = message.isRelayMessage ? relayMessageQueue : directMessageQueue;
+    final targetQueue = message.isRelayMessage
+        ? relayMessageQueue
+        : directMessageQueue;
 
     // Find insertion point based on priority
     int insertIndex = 0;

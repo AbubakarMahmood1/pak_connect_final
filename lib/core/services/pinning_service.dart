@@ -1,0 +1,204 @@
+// Pinning service implementation
+// Extracted from ChatManagementService (~250 LOC)
+
+import 'dart:async';
+import 'package:logging/logging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../data/repositories/chats_repository.dart';
+import '../../data/repositories/message_repository.dart';
+import '../../domain/services/chat_management_service.dart';
+import '../../domain/entities/enhanced_message.dart';
+
+/// Service for managing message starring and chat pinning
+class PinningService {
+  static final _logger = Logger('PinningService');
+
+  // Dependencies (optional for DI/testing)
+  final ChatsRepository? _chatsRepositoryOverride;
+  final MessageRepository? _messageRepositoryOverride;
+
+  // Lazy-initialized dependencies
+  late final ChatsRepository _chatsRepository;
+  late final MessageRepository _messageRepository;
+
+  // Storage keys
+  static const String _starredMessagesKey = 'starred_messages';
+  static const String _pinnedChatsKey = 'pinned_chats';
+
+  // In-memory state
+  final Set<String> _starredMessageIds = {};
+  final Set<String> _pinnedChats = {};
+
+  // Event stream
+  final _messageUpdatesController =
+      StreamController<MessageUpdateEvent>.broadcast();
+
+  /// Stream of message updates
+  Stream<MessageUpdateEvent> get messageUpdates =>
+      _messageUpdatesController.stream;
+
+  /// Constructor with optional dependency injection
+  PinningService({
+    ChatsRepository? chatsRepository,
+    MessageRepository? messageRepository,
+  }) : _chatsRepositoryOverride = chatsRepository,
+       _messageRepositoryOverride = messageRepository {
+    _logger.info('✅ PinningService created');
+  }
+
+  /// Initialize the service
+  Future<void> initialize() async {
+    // Initialize dependencies (use overrides if provided, else defaults)
+    _chatsRepository = _chatsRepositoryOverride ?? ChatsRepository();
+    _messageRepository = _messageRepositoryOverride ?? MessageRepository();
+
+    // Load cached data
+    await _loadStarredMessages();
+    await _loadPinnedChats();
+
+    _logger.info('Pinning service initialized');
+  }
+
+  /// Star/unstar message
+  Future<ChatOperationResult> toggleMessageStar(String messageId) async {
+    try {
+      if (_starredMessageIds.contains(messageId)) {
+        _starredMessageIds.remove(messageId);
+        await _saveStarredMessages();
+        _messageUpdatesController.add(MessageUpdateEvent.unstarred(messageId));
+        return ChatOperationResult.success('Message unstarred');
+      } else {
+        _starredMessageIds.add(messageId);
+        await _saveStarredMessages();
+        _messageUpdatesController.add(MessageUpdateEvent.starred(messageId));
+        return ChatOperationResult.success('Message starred');
+      }
+    } catch (e) {
+      _logger.severe('❌ Failed to toggle star: $e');
+      return ChatOperationResult.failure('Failed to update star status: $e');
+    }
+  }
+
+  /// Get all starred messages
+  Future<List<EnhancedMessage>> getStarredMessages() async {
+    try {
+      final allChats = await _chatsRepository.getAllChats();
+      final List<EnhancedMessage> starredMessages = [];
+
+      for (final chat in allChats) {
+        final messages = await _messageRepository.getMessages(chat.chatId);
+        for (final message in messages) {
+          if (_starredMessageIds.contains(message.id)) {
+            final enhanced = EnhancedMessage.fromMessage(
+              message,
+            ).copyWith(isStarred: true);
+            starredMessages.add(enhanced);
+          }
+        }
+      }
+
+      // Sort by timestamp (newest first)
+      starredMessages.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+      return starredMessages;
+    } catch (e) {
+      _logger.severe('❌ Failed to get starred messages: $e');
+      return [];
+    }
+  }
+
+  /// Check if message is starred
+  bool isMessageStarred(String messageId) =>
+      _starredMessageIds.contains(messageId);
+
+  /// Get pinned chats count
+  int get pinnedChatsCount => _pinnedChats.length;
+
+  /// Get starred messages count
+  int get starredMessagesCount => _starredMessageIds.length;
+
+  /// Internal: Add pinned chat (used by ArchiveService via facade)
+  void addPinnedChat(String chatId) {
+    _pinnedChats.add(chatId);
+  }
+
+  /// Internal: Remove pinned chat (used by ArchiveService via facade)
+  void removePinnedChat(String chatId) {
+    _pinnedChats.remove(chatId);
+  }
+
+  /// Internal: Check if chat is pinned (used by ArchiveService via facade)
+  bool isPinnedChat(String chatId) => _pinnedChats.contains(chatId);
+
+  /// Internal: Save pinned chats (used by ArchiveService via facade)
+  Future<void> savePinnedChats() async {
+    await _savePinnedChats();
+  }
+
+  /// Internal: Remove starred message IDs for deleted chat
+  void removeStarredMessagesForChat(List<String> messageIds) {
+    for (final messageId in messageIds) {
+      _starredMessageIds.remove(messageId);
+    }
+  }
+
+  /// Internal: Save starred messages (used by ChatManagementService)
+  Future<void> saveStarredMessages() async {
+    await _saveStarredMessages();
+  }
+
+  // Private helper methods
+
+  /// Save starred messages to storage
+  Future<void> _saveStarredMessages() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        _starredMessagesKey,
+        _starredMessageIds.toList(),
+      );
+    } catch (e) {
+      _logger.warning('⚠️ Failed to save starred messages: $e');
+    }
+  }
+
+  /// Load starred messages from storage
+  Future<void> _loadStarredMessages() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final starredList = prefs.getStringList(_starredMessagesKey) ?? [];
+      _starredMessageIds.clear();
+      _starredMessageIds.addAll(starredList);
+    } catch (e) {
+      _logger.warning('⚠️ Failed to load starred messages: $e');
+    }
+  }
+
+  /// Save pinned chats to storage
+  Future<void> _savePinnedChats() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_pinnedChatsKey, _pinnedChats.toList());
+    } catch (e) {
+      _logger.warning('⚠️ Failed to save pinned chats: $e');
+    }
+  }
+
+  /// Load pinned chats from storage
+  Future<void> _loadPinnedChats() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pinnedList = prefs.getStringList(_pinnedChatsKey) ?? [];
+      _pinnedChats.clear();
+      _pinnedChats.addAll(pinnedList);
+    } catch (e) {
+      _logger.warning('⚠️ Failed to load pinned chats: $e');
+    }
+  }
+
+  /// Dispose of resources
+  Future<void> dispose() async {
+    await _messageUpdatesController.close();
+    _logger.info('Pinning service disposed');
+  }
+}
