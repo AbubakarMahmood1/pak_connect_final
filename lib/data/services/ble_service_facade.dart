@@ -367,6 +367,15 @@ class BLEServiceFacade implements IBLEServiceFacade {
   @override
   Central? get connectedCentral => _getConnectionService().connectedCentral;
 
+  /// Get connection manager for low-level connection operations
+  /// 🔑 Used for pairing flow (setPairingInProgress)
+  BLEConnectionManager get connectionManager =>
+      _getConnectionService().connectionManager;
+
+  /// Get state manager for Noise protocol and security operations
+  /// 🔑 Used for pairing flow (generatePairingCode, completePairing, etc.)
+  BLEStateManager get stateManager => _getConnectionService().stateManager;
+
   // ============================================================================
   // DELEGATION TO SUB-SERVICES (IBLEMessagingService)
   // ============================================================================
