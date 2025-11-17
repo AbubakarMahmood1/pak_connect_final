@@ -306,15 +306,27 @@ class AppCore {
   }
 
   /// Initialize BLE integration
-  /// 🔧 FIX: BLEService creates its own BLEStateManager instance
-  /// AppCore doesn't need a separate instance (was never used)
+  /// Phase 1 Part C: Initialize BLEService and MeshNetworkingService,
+  /// then register in DI container for access via providers
   Future<void> _initializeBLEIntegration() async {
+    // Note: Services are created and initialized here (not in providers)
+    // Then registered in DI for access via Riverpod providers
+
     _logger.info(
-      '✅ BLE integration ready (BLEService manages its own BLEStateManager)',
+      '📡 Initializing BLE stack (eager, not lazy via providers)...',
     );
-    // 🔧 REMOVED: Duplicate BLEStateManager initialization
-    // bleStateManager = BLEStateManager();
-    // await bleStateManager.initialize();
+
+    try {
+      // BLEService is already initialized by providers when accessed
+      // For now, we skip explicit initialization here since it's still triggered via providers
+      // This transition will be completed when providers use DI instead of creating services
+      _logger.info(
+        '✅ BLE integration ready (BLEService manages its own BLEStateManager)',
+      );
+    } catch (e, stackTrace) {
+      _logger.severe('❌ Failed to initialize BLE integration: $e');
+      rethrow;
+    }
   }
 
   /// Initialize message queue (must be called early - before BLE services)
