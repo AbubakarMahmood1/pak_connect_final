@@ -178,7 +178,6 @@ void main() {
         myEphemeralId: aliceId,
         myPublicKey: 'alice_perm_key',
         myDisplayName: 'Alice',
-        contactRepo: aliceRepo,
         sendMessage: (msg) async {
           if (bob != null) {
             await bob.handleReceivedMessage(msg);
@@ -200,7 +199,6 @@ void main() {
         myEphemeralId: bobId,
         myPublicKey: 'bob_perm_key',
         myDisplayName: 'Bob',
-        contactRepo: bobRepo,
         sendMessage: (msg) async {
           if (alice != null) {
             await alice.handleReceivedMessage(msg);

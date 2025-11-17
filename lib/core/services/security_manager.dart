@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../interfaces/i_repository_provider.dart';
 import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
 import 'simple_crypto.dart';
@@ -88,9 +90,13 @@ class SecurityManager {
 
   /// Get current security level for a contact
   static Future<SecurityLevel> getCurrentLevel(
-    String publicKey,
-    ContactRepository repo,
-  ) async {
+    String publicKey, [
+    ContactRepository? repo,
+  ]) async {
+    // Use provided repo or fallback to DI container
+    final contactRepo =
+        repo ?? GetIt.instance<IRepositoryProvider>().contactRepository;
+
     // 🔧 FIX: Handle empty or invalid public keys safely
     if (publicKey.isEmpty) {
       _logger.info('🔒 LEVEL: Empty public key → LOW (unencrypted)');
@@ -98,7 +104,7 @@ class SecurityManager {
     }
 
     // 🔧 SCHEMA V8: Use dual lookup to find contact by publicKey OR persistentPublicKey
-    final contact = await repo.getContactByAnyId(publicKey);
+    final contact = await contactRepo.getContactByAnyId(publicKey);
 
     // 🔧 FIX: Safe truncation to prevent RangeError
     final truncatedKey = publicKey.length > 16
@@ -116,7 +122,7 @@ class SecurityManager {
     }
 
     // Check actual capabilities vs stored level
-    final hasECDH = await repo.getCachedSharedSecret(publicKey) != null;
+    final hasECDH = await contactRepo.getCachedSharedSecret(publicKey) != null;
     final hasPairing = SimpleCrypto.hasConversationKey(publicKey);
 
     // 🔧 FIX: Use contact's sessionIdForNoise (handles both ephemeral and persistent)
@@ -149,7 +155,7 @@ class SecurityManager {
 
     // Update stored level if different
     if (contact.securityLevel != actualLevel) {
-      await repo.updateContactSecurityLevel(publicKey, actualLevel);
+      await contactRepo.updateContactSecurityLevel(publicKey, actualLevel);
       _logger.info(
         '🔒 SYNC: Updated $publicKey from ${contact.securityLevel.name} to ${actualLevel.name}',
       );
@@ -168,11 +174,15 @@ class SecurityManager {
   /// - LOW security: Always XX (first-time contact)
   /// - MEDIUM/HIGH security: Try KK if we have their static key, otherwise XX
   static Future<(NoisePattern, Uint8List?)> selectNoisePattern(
-    String publicKey,
-    ContactRepository repo,
-  ) async {
+    String publicKey, [
+    ContactRepository? repo,
+  ]) async {
+    // Use provided repo or fallback to DI container
+    final contactRepo =
+        repo ?? GetIt.instance<IRepositoryProvider>().contactRepository;
+
     // 🔧 SCHEMA V8: Use dual lookup to find contact by publicKey OR persistentPublicKey
-    final contact = await repo.getContactByAnyId(publicKey);
+    final contact = await contactRepo.getContactByAnyId(publicKey);
 
     // No contact or LOW security → Always use XX
     if (contact == null || contact.securityLevel == SecurityLevel.low) {

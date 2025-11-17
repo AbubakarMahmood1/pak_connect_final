@@ -30,14 +30,13 @@ void main() {
 
       // Initialize queue
       queue = OfflineMessageQueue();
-      await queue.initialize(contactRepository: null);
+      await queue.initialize();
 
       // Setup coordinator (no actual send)
       coordinator = HandshakeCoordinator(
         myEphemeralId: myEphemeralId,
         myPublicKey: myPublicKey,
         myDisplayName: 'Test User',
-        contactRepo: ContactRepository(),
         sendMessage: (message) async {
           // Mock send - do nothing
         },

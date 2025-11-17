@@ -134,7 +134,6 @@ void main() {
       myEphemeralId: 'alice_id',
       myPublicKey: 'alice_perm',
       myDisplayName: 'Alice',
-      contactRepo: aliceContactRepo,
       sendMessage: (msg) async {
         print('>>> ALICE SENDING: ${msg.type}');
         // Simulate async network delay
@@ -160,7 +159,6 @@ void main() {
       myEphemeralId: 'bob_id',
       myPublicKey: 'bob_perm',
       myDisplayName: 'Bob',
-      contactRepo: bobContactRepo,
       sendMessage: (msg) async {
         print('<<< BOB SENDING: ${msg.type}');
         // Simulate async network delay

@@ -147,7 +147,6 @@ void main() {
           myEphemeralId: 'alice_ephemeral_id_12345678',
           myPublicKey: 'alice_permanent_key',
           myDisplayName: 'Alice',
-          contactRepo: aliceContactRepo,
           sendMessage: (msg) async =>
               await bobCoordinator.handleReceivedMessage(msg),
           onHandshakeComplete: (ephemeralId, displayName, noiseKey) async {
@@ -171,7 +170,6 @@ void main() {
           myEphemeralId: 'bob_ephemeral_id_87654321',
           myPublicKey: 'bob_permanent_key',
           myDisplayName: 'Bob',
-          contactRepo: bobContactRepo,
           sendMessage: (msg) async =>
               await aliceCoordinator.handleReceivedMessage(msg),
           onHandshakeComplete: (ephemeralId, displayName, noiseKey) async {
@@ -231,7 +229,6 @@ void main() {
           myEphemeralId: 'alice_id',
           myPublicKey: 'alice_perm',
           myDisplayName: 'Alice',
-          contactRepo: aliceContactRepo,
           sendMessage: (msg) async =>
               await bobCoordinator.handleReceivedMessage(msg),
           onHandshakeComplete: (id, name, noiseKey) async {
@@ -250,7 +247,6 @@ void main() {
           myEphemeralId: 'bob_id',
           myPublicKey: 'bob_perm',
           myDisplayName: 'Bob',
-          contactRepo: bobContactRepo,
           sendMessage: (msg) async =>
               await aliceCoordinator.handleReceivedMessage(msg),
           onHandshakeComplete: (id, name, noiseKey) async {},
@@ -301,7 +297,6 @@ void main() {
         myEphemeralId: 'alice_id',
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
         sendMessage: (msg) async =>
             await bobCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
@@ -321,7 +316,6 @@ void main() {
         myEphemeralId: 'bob_id',
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
         sendMessage: (msg) async =>
             await aliceCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
@@ -356,7 +350,6 @@ void main() {
         myEphemeralId: 'alice_id',
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
         sendMessage: (msg) async =>
             await bobCoordinator1.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
@@ -375,7 +368,6 @@ void main() {
         myEphemeralId: 'bob_id',
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
         sendMessage: (msg) async =>
             await aliceCoordinator1.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
@@ -410,7 +402,6 @@ void main() {
         myEphemeralId: 'alice_id',
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
         sendMessage: (msg) async =>
             await bobCoordinator2.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
@@ -428,7 +419,6 @@ void main() {
         myEphemeralId: 'bob_id',
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
         sendMessage: (msg) async =>
             await aliceCoordinator2.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
@@ -466,7 +456,6 @@ void main() {
         myEphemeralId: 'alice_id',
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
         sendMessage: (msg) async =>
             await bobCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
@@ -485,7 +474,6 @@ void main() {
         myEphemeralId: 'bob_id',
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
         sendMessage: (msg) async =>
             await aliceCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},
@@ -526,7 +514,6 @@ void main() {
         myEphemeralId: 'alice_id',
         myPublicKey: 'alice_perm',
         myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
         sendMessage: (msg) async =>
             await bobCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {
@@ -545,7 +532,6 @@ void main() {
         myEphemeralId: 'bob_id',
         myPublicKey: 'bob_perm',
         myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
         sendMessage: (msg) async =>
             await aliceCoordinator.handleReceivedMessage(msg),
         onHandshakeComplete: (id, name, noiseKey) async {},

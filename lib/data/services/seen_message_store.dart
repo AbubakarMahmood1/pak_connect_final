@@ -9,6 +9,7 @@ import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../database/database_helper.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/interfaces/i_seen_message_store.dart';
 
 /// Persistent store for tracking seen messages (delivered and read)
 ///
@@ -18,7 +19,7 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 /// - Message relay operations
 ///
 /// Based on BitChat Android's SeenMessageStore implementation
-class SeenMessageStore {
+class SeenMessageStore implements ISeenMessageStore {
   static final _logger = Logger('SeenMessageStore');
 
   // Constants

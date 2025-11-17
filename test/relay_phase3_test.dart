@@ -83,7 +83,7 @@ void main() {
       contactRepo = ContactRepository();
 
       messageQueue = OfflineMessageQueue();
-      await messageQueue.initialize(contactRepository: contactRepo);
+      await messageQueue.initialize();
 
       spamPrevention = SpamPreventionManager();
       await spamPrevention.initialize();
@@ -95,7 +95,6 @@ void main() {
       await topologyAnalyzer.initialize();
 
       relayEngine = MeshRelayEngine(
-        contactRepository: contactRepo,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -187,7 +186,7 @@ void main() {
       contactRepo = ContactRepository();
 
       messageQueue = OfflineMessageQueue();
-      await messageQueue.initialize(contactRepository: contactRepo);
+      await messageQueue.initialize();
 
       spamPrevention = SpamPreventionManager();
       await spamPrevention.initialize();
@@ -196,7 +195,6 @@ void main() {
       await topologyAnalyzer.initialize();
 
       relayEngine = MeshRelayEngine(
-        contactRepository: contactRepo,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -369,7 +367,7 @@ void main() {
       contactRepo = ContactRepository();
 
       messageQueue = OfflineMessageQueue();
-      await messageQueue.initialize(contactRepository: contactRepo);
+      await messageQueue.initialize();
 
       spamPrevention = SpamPreventionManager();
       await spamPrevention.initialize();
@@ -378,7 +376,6 @@ void main() {
       await topologyAnalyzer.initialize();
 
       relayEngine = MeshRelayEngine(
-        contactRepository: contactRepo,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -495,7 +492,7 @@ void main() {
       final contactRepo = ContactRepository();
 
       final messageQueue = OfflineMessageQueue();
-      await messageQueue.initialize(contactRepository: contactRepo);
+      await messageQueue.initialize();
 
       final spamPrevention = SpamPreventionManager();
       await spamPrevention.initialize();
@@ -510,7 +507,6 @@ void main() {
       }
 
       final relayEngine = MeshRelayEngine(
-        contactRepository: contactRepo,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -563,7 +559,7 @@ void main() {
         final contactRepo = ContactRepository();
 
         final messageQueue = OfflineMessageQueue();
-        await messageQueue.initialize(contactRepository: contactRepo);
+        await messageQueue.initialize();
 
         final spamPrevention = SpamPreventionManager();
         await spamPrevention.initialize();
@@ -579,7 +575,6 @@ void main() {
 
         final currentNodeId = 'delivery_test_node';
         final relayEngine = MeshRelayEngine(
-          contactRepository: contactRepo,
           messageQueue: messageQueue,
           spamPrevention: spamPrevention,
         );

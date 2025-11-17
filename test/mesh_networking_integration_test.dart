@@ -54,9 +54,8 @@ void main() {
       meshService = MeshNetworkingService(
         bleService: mockBleService,
         messageHandler: messageHandler,
-        contactRepository: contactRepository,
+
         chatManagementService: chatManagementService,
-        messageRepository: messageRepository,
       );
 
       await meshService.initialize(nodeId: nodeA, enableDemo: true);

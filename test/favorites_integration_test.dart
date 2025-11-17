@@ -357,7 +357,7 @@ void main() {
       await repository.markContactFavorite(testFavoriteKey);
 
       queue = OfflineMessageQueue();
-      await queue.initialize(contactRepository: repository);
+      await queue.initialize();
     });
 
     test('auto-boosts priority for favorite contacts', () async {
@@ -540,7 +540,7 @@ void main() {
 
       repository = ContactRepository();
       queue = OfflineMessageQueue();
-      await queue.initialize(contactRepository: repository);
+      await queue.initialize();
     });
 
     test(

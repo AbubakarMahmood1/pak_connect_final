@@ -45,7 +45,6 @@ void main() {
       }
 
       final relayEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );

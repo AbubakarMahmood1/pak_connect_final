@@ -19,7 +19,6 @@ import 'ble_handshake_service.dart';
 import 'ble_state_manager.dart';
 import 'ble_connection_manager.dart';
 import 'ble_message_handler.dart';
-import '../repositories/contact_repository.dart';
 import '../repositories/intro_hint_repository.dart';
 import '../../core/bluetooth/advertising_manager.dart';
 import '../../core/bluetooth/peripheral_initializer.dart';
@@ -85,7 +84,7 @@ class BLEServiceFacade implements IBLEServiceFacade {
     return _discoveryService ??= BLEDiscoveryService(
       centralManager: CentralManager(),
       stateManager: BLEStateManager(),
-      hintScanner: HintScannerService(contactRepository: ContactRepository()),
+      hintScanner: HintScannerService(),
       onUpdateConnectionInfo: _updateConnectionInfo,
       isAdvertising: () => _getAdvertisingService().isAdvertising,
       isConnected: () => _getConnectionService().isConnected,

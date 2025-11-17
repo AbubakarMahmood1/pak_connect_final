@@ -3,9 +3,11 @@
 import 'dart:typed_data';
 import '../../domain/entities/ephemeral_discovery_hint.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../interfaces/i_repository_provider.dart';
 import '../utils/app_logger.dart';
 import 'hint_advertisement_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:get_it/get_it.dart';
 
 /// Result of hint matching
 class HintMatchResult {
@@ -73,11 +75,12 @@ class HintScannerService {
   /// Active intro hints (from QR scans we did)
   final Map<String, EphemeralDiscoveryHint> _activeIntroHints = {};
 
-  /// Repository for accessing contact data
-  final ContactRepository _contactRepository;
+  /// Provider for accessing repositories
+  final IRepositoryProvider _repositoryProvider;
 
-  HintScannerService({required ContactRepository contactRepository})
-    : _contactRepository = contactRepository;
+  HintScannerService({IRepositoryProvider? repositoryProvider})
+    : _repositoryProvider =
+          repositoryProvider ?? GetIt.instance<IRepositoryProvider>();
 
   /// Initialize scanner by precomputing all contact hints
   Future<void> initialize() async {
@@ -91,7 +94,8 @@ class HintScannerService {
   Future<void> _rebuildContactCache() async {
     _contactCache.clear();
 
-    final contacts = await _contactRepository.getAllContacts();
+    final contacts = await _repositoryProvider.contactRepository
+        .getAllContacts();
     for (final entry in contacts.entries) {
       _contactCache[entry.key] = entry.value;
     }
