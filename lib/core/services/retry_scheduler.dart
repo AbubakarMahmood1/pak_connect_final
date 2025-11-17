@@ -30,7 +30,8 @@ class RetryScheduler implements IRetryScheduler {
     );
 
     // Cap at maximum delay
-    final cappedDelay = exponentialDelay.inMilliseconds > _maxDelay.inMilliseconds
+    final cappedDelay =
+        exponentialDelay.inMilliseconds > _maxDelay.inMilliseconds
         ? _maxDelay
         : exponentialDelay;
 

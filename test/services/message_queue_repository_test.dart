@@ -111,7 +111,9 @@ void main() {
       repository.directMessageQueue.addAll([pendingMsg, sentMsg]);
 
       // Act
-      final pending = repository.getMessagesByStatus(QueuedMessageStatus.pending);
+      final pending = repository.getMessagesByStatus(
+        QueuedMessageStatus.pending,
+      );
 
       // Assert
       expect(pending.length, equals(1));
@@ -151,45 +153,51 @@ void main() {
 
       // Assert
       expect(pending.length, equals(2));
-      expect(pending.every((m) => m.status == QueuedMessageStatus.pending), isTrue);
+      expect(
+        pending.every((m) => m.status == QueuedMessageStatus.pending),
+        isTrue,
+      );
     });
 
-    test('insertMessageByPriority maintains priority ordering in direct queue', () {
-      // Arrange
-      final lowPriority = QueuedMessage(
-        id: 'low',
-        chatId: 'chat-1',
-        content: 'Low',
-        recipientPublicKey: 'recipient-key',
-        senderPublicKey: 'sender-key',
-        priority: MessagePriority.low,
-        queuedAt: DateTime.now(),
-        maxRetries: 5,
-        isRelayMessage: false,
-      );
+    test(
+      'insertMessageByPriority maintains priority ordering in direct queue',
+      () {
+        // Arrange
+        final lowPriority = QueuedMessage(
+          id: 'low',
+          chatId: 'chat-1',
+          content: 'Low',
+          recipientPublicKey: 'recipient-key',
+          senderPublicKey: 'sender-key',
+          priority: MessagePriority.low,
+          queuedAt: DateTime.now(),
+          maxRetries: 5,
+          isRelayMessage: false,
+        );
 
-      final urgentPriority = QueuedMessage(
-        id: 'urgent',
-        chatId: 'chat-1',
-        content: 'Urgent',
-        recipientPublicKey: 'recipient-key',
-        senderPublicKey: 'sender-key',
-        priority: MessagePriority.urgent,
-        queuedAt: DateTime.now(),
-        maxRetries: 5,
-        isRelayMessage: false,
-      );
+        final urgentPriority = QueuedMessage(
+          id: 'urgent',
+          chatId: 'chat-1',
+          content: 'Urgent',
+          recipientPublicKey: 'recipient-key',
+          senderPublicKey: 'sender-key',
+          priority: MessagePriority.urgent,
+          queuedAt: DateTime.now(),
+          maxRetries: 5,
+          isRelayMessage: false,
+        );
 
-      repository.insertMessageByPriority(lowPriority);
+        repository.insertMessageByPriority(lowPriority);
 
-      // Act
-      repository.insertMessageByPriority(urgentPriority);
+        // Act
+        repository.insertMessageByPriority(urgentPriority);
 
-      // Assert
-      // Urgent should be first (higher priority index)
-      expect(repository.directMessageQueue.first.id, equals('urgent'));
-      expect(repository.directMessageQueue.last.id, equals('low'));
-    });
+        // Assert
+        // Urgent should be first (higher priority index)
+        expect(repository.directMessageQueue.first.id, equals('urgent'));
+        expect(repository.directMessageQueue.last.id, equals('low'));
+      },
+    );
 
     test('removeMessageFromQueue removes from both queues', () {
       // Arrange
