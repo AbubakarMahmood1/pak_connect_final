@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/presentation/models/chat_ui_state.dart';
 import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.dart';
+import 'package:pak_connect/presentation/providers/chat_messaging_view_model.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 
 // Mock implementations
@@ -313,4 +315,9 @@ void main() {
       expect(searchState.isLoading, isFalse);
     });
   });
+
+  // Note: ChatMessagingViewModel.sendMessage() Phase 2C.1 migration
+  // is validated through integration testing with ChatScreen.
+  // Unit tests for callback structure require AppCore mocking which
+  // is tested in integration/BLE testing scenarios.
 }
