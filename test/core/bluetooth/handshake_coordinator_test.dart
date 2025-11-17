@@ -6,6 +6,7 @@ import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
+import '../../test_helpers/test_setup.dart';
 
 // Mock secure storage for testing
 class MockSecureStorage implements FlutterSecureStorage {
@@ -98,6 +99,9 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
+    // 🏗️ Initialize test environment (Phase 3: sets up DI container)
+    await TestSetup.initializeTestEnvironment();
+
     // Initialize SecurityManager with mock storage
     await SecurityManager.initialize(secureStorage: MockSecureStorage());
   });
@@ -199,7 +203,6 @@ void main() {
         myEphemeralId: 'test_eph',
         myPublicKey: 'test_persistent',
         myDisplayName: 'Test Device',
-        contactRepo: ContactRepository(),
         sendMessage: (msg) async {
           messages.add(msg);
         },
@@ -223,7 +226,6 @@ void main() {
         myEphemeralId: 'test_eph',
         myPublicKey: 'test_persistent',
         myDisplayName: 'Test Device',
-        contactRepo: ContactRepository(),
         sendMessage: (msg) async {
           messages.add(msg);
         },

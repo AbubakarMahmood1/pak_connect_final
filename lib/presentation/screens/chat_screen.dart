@@ -734,7 +734,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final offlineQueue = AppCore.instance.messageQueue;
 
       _retryCoordinator = MessageRetryCoordinator(
-        messageRepository: _messageRepository,
         offlineQueue: offlineQueue,
         meshService: meshService,
       );

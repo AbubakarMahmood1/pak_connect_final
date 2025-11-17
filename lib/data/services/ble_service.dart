@@ -341,7 +341,7 @@ class BLEService {
       _logger.info('✅ Connection cleanup handler initialized');
 
       // Initialize hint scanner service
-      _hintScanner = HintScannerService(contactRepository: _contactRepo);
+      _hintScanner = HintScannerService();
       await _hintScanner.initialize();
       _logger.info('✅ Hint scanner initialized');
 
@@ -2514,7 +2514,6 @@ class BLEService {
         myEphemeralId: myEphemeralId,
         myPublicKey: myPublicKey,
         myDisplayName: myDisplayName,
-        contactRepo: _contactRepo,
         sendMessage: _sendHandshakeMessage,
         onHandshakeComplete: _onHandshakeComplete,
         phaseTimeout: Duration(seconds: 10),

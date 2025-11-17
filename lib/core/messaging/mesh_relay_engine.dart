@@ -7,10 +7,11 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../models/mesh_relay_models.dart';
 import '../models/protocol_message.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/services/seen_message_store.dart';
+import '../interfaces/i_repository_provider.dart';
+import '../interfaces/i_seen_message_store.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../services/security_manager.dart';
 import '../security/ephemeral_key_manager.dart';
@@ -27,7 +28,8 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 class MeshRelayEngine {
   static final _logger = Logger('MeshRelayEngine');
 
-  final ContactRepository _contactRepository;
+  final IRepositoryProvider _repositoryProvider;
+  final ISeenMessageStore _seenMessageStore;
   final OfflineMessageQueue _messageQueue;
   final SpamPreventionManager _spamPrevention;
 
@@ -57,10 +59,14 @@ class MeshRelayEngine {
   Function(RelayStatistics stats)? onStatsUpdated;
 
   MeshRelayEngine({
-    required ContactRepository contactRepository,
+    IRepositoryProvider? repositoryProvider,
+    ISeenMessageStore? seenMessageStore,
     required OfflineMessageQueue messageQueue,
     required SpamPreventionManager spamPrevention,
-  }) : _contactRepository = contactRepository,
+  }) : _repositoryProvider =
+           repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),
+       _seenMessageStore =
+           seenMessageStore ?? GetIt.instance<ISeenMessageStore>(),
        _messageQueue = messageQueue,
        _spamPrevention = spamPrevention;
 
@@ -176,8 +182,7 @@ class MeshRelayEngine {
       }
 
       // Step 0C: Deduplication check (FIRST - before spam prevention)
-      final seenStore = SeenMessageStore.instance;
-      if (seenStore.hasDelivered(relayMessage.originalMessageId)) {
+      if (_seenMessageStore.hasDelivered(relayMessage.originalMessageId)) {
         _totalDropped++;
         _logger.info(
           '⏭️  Duplicate message detected (already delivered): $truncatedMessageId...',
@@ -252,8 +257,7 @@ class MeshRelayEngine {
         _totalDeliveredToSelf++;
 
         // Mark as delivered in persistent store
-        final seenStore = SeenMessageStore.instance;
-        await seenStore.markDelivered(relayMessage.originalMessageId);
+        await _seenMessageStore.markDelivered(relayMessage.originalMessageId);
 
         final decision = RelayDecision.delivered(
           messageId: relayMessage.originalMessageId,
@@ -434,18 +438,16 @@ class MeshRelayEngine {
 
       // Check if we have a relationship with sender that might indicate
       // we could be an intended intermediate recipient
-      final senderContact = await _contactRepository.getContact(
-        originalSenderPublicKey,
-      );
+      final senderContact = await _repositoryProvider.contactRepository
+          .getContact(originalSenderPublicKey);
       if (senderContact != null &&
           senderContact.securityLevel != SecurityLevel.low) {
         return true;
       }
 
       // Check if we have a relationship with final recipient (could be group message)
-      final recipientContact = await _contactRepository.getContact(
-        finalRecipientPublicKey,
-      );
+      final recipientContact = await _repositoryProvider.contactRepository
+          .getContact(finalRecipientPublicKey);
       if (recipientContact != null) {
         return true;
       }

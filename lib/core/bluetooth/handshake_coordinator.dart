@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
+import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/security/noise/models/noise_models.dart';
 import 'package:pak_connect/core/networking/topology_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
@@ -83,7 +84,7 @@ class HandshakeCoordinator {
   final String _myDisplayName;
 
   // Dependencies
-  final ContactRepository _contactRepo;
+  final IRepositoryProvider _repositoryProvider;
 
   // Callbacks for sending messages
   final Future<void> Function(ProtocolMessage) _sendMessage;
@@ -113,7 +114,7 @@ class HandshakeCoordinator {
     required String myEphemeralId,
     required String myPublicKey,
     required String myDisplayName,
-    required ContactRepository contactRepo,
+    IRepositoryProvider? repositoryProvider,
     required Future<void> Function(ProtocolMessage) sendMessage,
     required Future<void> Function(
       String ephemeralId,
@@ -130,7 +131,8 @@ class HandshakeCoordinator {
   }) : _myEphemeralId = myEphemeralId,
        _myPublicKey = myPublicKey,
        _myDisplayName = myDisplayName,
-       _contactRepo = contactRepo,
+       _repositoryProvider =
+           repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),
        _sendMessage = sendMessage,
        _onHandshakeComplete = onHandshakeComplete {
     if (phaseTimeout != null) {
@@ -820,7 +822,8 @@ class HandshakeCoordinator {
 
       if (_theirNoisePublicKey != null) {
         try {
-          final contact = await _contactRepo.getContact(_theirNoisePublicKey!);
+          final contact = await _repositoryProvider.contactRepository
+              .getContact(_theirNoisePublicKey!);
 
           if (contact != null && contact.securityLevel != SecurityLevel.low) {
             _logger.warning(
@@ -829,10 +832,11 @@ class HandshakeCoordinator {
             _logger.warning('   Peer may have reset device or lost data');
 
             // Downgrade contact security level
-            await _contactRepo.downgradeSecurityForDeletedContact(
-              _theirNoisePublicKey!,
-              'pattern_mismatch',
-            );
+            await _repositoryProvider.contactRepository
+                .downgradeSecurityForDeletedContact(
+                  _theirNoisePublicKey!,
+                  'pattern_mismatch',
+                );
 
             // Notify UI about security downgrade
             onSecurityDowngrade?.call(contact.displayName, 'pattern_mismatch');

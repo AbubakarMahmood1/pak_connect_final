@@ -65,7 +65,6 @@ void main() {
 
         // Create relay engine with routing service
         final relayEngine = MeshRelayEngine(
-          contactRepository: contactRepository,
           messageQueue: messageQueue,
           spamPrevention: spamPrevention,
         );
@@ -188,7 +187,6 @@ void main() {
       }
 
       final relayEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -260,7 +258,6 @@ void main() {
 
       // Test from Ali's perspective
       final aliEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -279,7 +276,6 @@ void main() {
 
       // Test from Arshad's perspective (relay node)
       final arshadEngine = MeshRelayEngine(
-        contactRepository: ContactRepository(),
         messageQueue: OfflineMessageQueue(),
         spamPrevention: SpamPreventionManager(),
       );

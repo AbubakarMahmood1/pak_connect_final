@@ -7,7 +7,11 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
+import '../../core/interfaces/i_repository_provider.dart';
+import '../../core/interfaces/i_contact_repository.dart';
+import '../../core/interfaces/i_message_repository.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
@@ -50,10 +54,10 @@ class MeshNetworkingService {
   // which is more complex than using the unified facade. This design is intentional.
   final BLEService _bleService;
   final BLEMessageHandler _messageHandler;
-  final ContactRepository _contactRepository;
+  final IContactRepository _contactRepository;
   // Note: _chatManagementService kept for API compatibility but not currently used
   // May be needed for future chat-related mesh operations (group chats, etc.)
-  final MessageRepository _messageRepository;
+  final IMessageRepository _messageRepository;
 
   // State management
   String? _currentNodeId;
@@ -110,14 +114,17 @@ class MeshNetworkingService {
   MeshNetworkingService({
     required BLEService bleService,
     required BLEMessageHandler messageHandler,
-    required ContactRepository contactRepository,
     required ChatManagementService
     chatManagementService, // Kept for API compatibility
-    required MessageRepository messageRepository,
+    IRepositoryProvider? repositoryProvider,
   }) : _bleService = bleService,
        _messageHandler = messageHandler,
-       _contactRepository = contactRepository,
-       _messageRepository = messageRepository {
+       _contactRepository =
+           (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
+               .contactRepository,
+       _messageRepository =
+           (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
+               .messageRepository {
     // Note: chatManagementService parameter accepted but not stored as it's not currently used
     // 🔧 CRITICAL FIX: Broadcast initial status to prevent null stream
     _logger.info(
@@ -212,7 +219,6 @@ class MeshNetworkingService {
 
     // Initialize relay engine with smart router
     _relayEngine = MeshRelayEngine(
-      contactRepository: _contactRepository,
       messageQueue: _messageQueue!,
       spamPrevention: _spamPrevention!,
     );

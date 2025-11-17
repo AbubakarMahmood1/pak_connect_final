@@ -139,7 +139,6 @@ void main() {
       myEphemeralId: 'alice_id',
       myPublicKey: 'alice_perm',
       myDisplayName: 'Alice',
-      contactRepo: aliceContactRepo,
       sendMessage: (msg) async {
         print('\n>>> ALICE SENDS MESSAGE');
         await Future.delayed(Duration(milliseconds: 1));
@@ -162,7 +161,6 @@ void main() {
       myEphemeralId: 'bob_id',
       myPublicKey: 'bob_perm',
       myDisplayName: 'Bob',
-      contactRepo: bobContactRepo,
       sendMessage: (msg) async {
         print('\n<<< BOB SENDS MESSAGE');
         await Future.delayed(Duration(milliseconds: 1));

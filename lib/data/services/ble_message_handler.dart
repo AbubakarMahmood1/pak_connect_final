@@ -132,7 +132,6 @@ class BLEMessageHandler {
 
       // Initialize relay engine
       _relayEngine = MeshRelayEngine(
-        contactRepository: _contactRepository,
         messageQueue: messageQueue,
         spamPrevention: _spamPrevention!,
       );

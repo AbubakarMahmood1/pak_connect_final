@@ -8,8 +8,9 @@ import '../database/database_helper.dart';
 import '../../core/compression/compression_util.dart';
 import '../../core/utils/chat_utils.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/interfaces/i_message_repository.dart';
 
-class MessageRepository {
+class MessageRepository implements IMessageRepository {
   static final _logger = Logger('MessageRepository');
 
   /// Get all messages for a specific chat, sorted by timestamp

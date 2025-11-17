@@ -1,10 +1,14 @@
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import '../../data/services/ble_service.dart';
+import '../../data/services/seen_message_store.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
+import '../interfaces/i_repository_provider.dart';
+import '../interfaces/i_seen_message_store.dart';
+import 'repository_provider_impl.dart';
 
 /// GetIt service locator instance
 final getIt = GetIt.instance;
@@ -46,6 +50,28 @@ Future<void> setupServiceLocator() async {
     _logger.fine('✅ MessageRepository registered');
 
     // ===========================
+    // REPOSITORY PROVIDER (Phase 3 abstraction)
+    // ===========================
+    // Register IRepositoryProvider singleton for Core layer DI
+    // This allows Core services to depend on repositories through abstraction
+    // instead of direct imports (fixes layer violations)
+    getIt.registerSingleton<IRepositoryProvider>(
+      RepositoryProviderImpl(
+        contactRepository: getIt<ContactRepository>(),
+        messageRepository: getIt<MessageRepository>(),
+      ),
+    );
+    _logger.fine('✅ IRepositoryProvider registered (Phase 3)');
+
+    // ===========================
+    // SEEN MESSAGE STORE (Phase 3 abstraction)
+    // ===========================
+    // Register ISeenMessageStore singleton for Core layer DI
+    // SeenMessageStore.instance is already a singleton, we wrap it
+    getIt.registerSingleton<ISeenMessageStore>(SeenMessageStore.instance);
+    _logger.fine('✅ ISeenMessageStore registered (Phase 3)');
+
+    // ===========================
     // CORE SERVICES (initialized by AppCore, not here)
     // ===========================
     // SecurityManager: Registered as singleton instance (lazy init by AppCore)
@@ -59,7 +85,9 @@ Future<void> setupServiceLocator() async {
     // MeshNetworkingService: Will be registered by AppCore after initialization
     _logger.fine('🌐 MeshNetworkingService will be registered by AppCore');
 
-    _logger.info('✅ Service locator setup complete');
+    _logger.info(
+      '✅ Service locator setup complete (includes Phase 3 abstractions)',
+    );
   } catch (e, stackTrace) {
     _logger.severe('❌ Failed to setup service locator', e, stackTrace);
     rethrow;
@@ -88,7 +116,9 @@ void registerInitializedServices({
     getIt.registerSingleton<MeshNetworkingService>(meshNetworkingService);
     _logger.fine('✅ MeshNetworkingService registered in DI container');
 
-    _logger.info('✅ All initialized services registered');
+    _logger.info(
+      '✅ All initialized services registered (includes Phase 3 interfaces)',
+    );
   } catch (e, stackTrace) {
     _logger.severe('❌ Failed to register initialized services', e, stackTrace);
     rethrow;

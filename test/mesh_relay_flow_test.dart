@@ -52,7 +52,6 @@ void main() {
         await spamPrevention.initialize();
 
         relayEngine = MeshRelayEngine(
-          contactRepository: contactRepository,
           messageQueue: messageQueue,
           spamPrevention: spamPrevention,
         );

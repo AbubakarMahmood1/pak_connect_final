@@ -49,7 +49,6 @@ void main() {
       }
 
       relayEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -341,7 +340,6 @@ void main() {
 
     test('Service handles no routing service gracefully', () async {
       final simpleRelayEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -359,7 +357,6 @@ void main() {
 
     test('Service handles no topology analyzer gracefully', () async {
       final simpleRelayEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );

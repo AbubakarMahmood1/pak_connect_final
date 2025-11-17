@@ -82,9 +82,7 @@ final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
     final service = MeshNetworkingService(
       bleService: bleService,
       messageHandler: messageHandler,
-      contactRepository: contactRepository,
       chatManagementService: chatManagementService,
-      messageRepository: messageRepository,
     );
 
     // Initialize the service asynchronously with error handling

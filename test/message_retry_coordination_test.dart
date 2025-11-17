@@ -31,10 +31,7 @@ void main() {
       // Initialize the offline queue
       await offlineQueue.initialize();
 
-      coordinator = MessageRetryCoordinator(
-        messageRepository: messageRepository,
-        offlineQueue: offlineQueue,
-      );
+      coordinator = MessageRetryCoordinator(offlineQueue: offlineQueue);
     });
 
     tearDown(() async {

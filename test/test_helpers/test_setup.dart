@@ -3,10 +3,13 @@
 // This file provides utilities to properly initialize the test environment
 // with consistent mocking and setup across all test files.
 
+import 'dart:io';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/networking/topology_manager.dart';
+import 'package:pak_connect/core/di/service_locator.dart' as di_service_locator;
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
@@ -59,6 +62,9 @@ class TestSetup {
     // Initialize SharedPreferences with empty state and isolated cache
     SharedPreferences.resetStatic();
     SharedPreferences.setMockInitialValues({});
+
+    // 🏗️ Initialize DI container (Phase 3: required for Core layer tests)
+    await di_service_locator.setupServiceLocator();
 
     // Configure logging to reduce noise and avoid conflicts
     setupTestLogging();
@@ -219,7 +225,24 @@ class TestSetup {
     SharedPreferences.setMockInitialValues({});
   }
 
-  /// Complete cleanup - database + SharedPreferences
+  /// Reset DI service locator (Phase 3: for test isolation)
+  ///
+  /// Call this in `tearDown()` to ensure DI state doesn't leak between tests:
+  /// ```dart
+  /// tearDown(() async {
+  ///   await TestSetup.resetServiceLocator();
+  /// });
+  /// ```
+  static Future<void> resetDIServiceLocator() async {
+    try {
+      await di_service_locator.resetServiceLocator();
+    } catch (e) {
+      // ignore: avoid_print
+      print('Warning: Service locator reset error (may be expected): $e');
+    }
+  }
+
+  /// Complete cleanup - database + SharedPreferences + DI
   ///
   /// Call this in `tearDown()` for comprehensive cleanup:
   /// ```dart
@@ -230,5 +253,31 @@ class TestSetup {
   static Future<void> completeCleanup() async {
     await cleanupDatabase();
     resetSharedPreferences();
+    // Note: DI reset is optional; many tests can share DI state
+    // Only reset if you need test isolation for DI services
+  }
+
+  /// Get a service from the DI container (Phase 3: DI integration tests)
+  ///
+  /// Usage:
+  /// ```dart
+  /// final provider = TestSetup.getService<IRepositoryProvider>();
+  /// ```
+  static T getService<T extends Object>() {
+    return GetIt.instance<T>();
+  }
+
+  /// Read a project file relative to the project root
+  ///
+  /// Usage:
+  /// ```dart
+  /// final content = TestSetup.readProjectFile('lib/core/services/security_manager.dart');
+  /// ```
+  static String readProjectFile(String relativePath) {
+    final file = File(relativePath);
+    if (!file.existsSync()) {
+      throw FileSystemException('File not found', relativePath);
+    }
+    return file.readAsStringSync();
   }
 }

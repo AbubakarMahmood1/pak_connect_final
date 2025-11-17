@@ -159,7 +159,6 @@ class BLEHandshakeService implements IBLEHandshakeService {
         myEphemeralId: myEphemeralId,
         myPublicKey: myPublicKey,
         myDisplayName: myDisplayName,
-        contactRepo: _stateManager.contactRepository,
         sendMessage: _sendHandshakeMessage,
         onHandshakeComplete: _onHandshakeCompleteCallback,
         phaseTimeout: Duration(seconds: 10),
