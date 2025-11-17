@@ -11,6 +11,7 @@ import '../../data/repositories/chats_repository.dart';
 import '../../core/constants/ble_constants.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/models/protocol_message.dart';
+import '../../core/models/spy_mode_info.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../core/utils/message_fragmenter.dart';
 import 'ble_connection_manager.dart';

@@ -2,7 +2,7 @@
 // Shown when user is chatting with a friend anonymously
 
 import 'package:flutter/material.dart';
-import '../../data/services/ble_state_manager.dart';
+import '../../core/models/spy_mode_info.dart';
 
 class SpyModeRevealDialog extends StatelessWidget {
   final SpyModeInfo info;

@@ -1,5 +1,10 @@
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
+import '../../data/services/ble_service.dart';
+import '../../domain/services/mesh_networking_service.dart';
+import '../../core/services/security_manager.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../data/repositories/message_repository.dart';
 
 /// GetIt service locator instance
 final getIt = GetIt.instance;
@@ -18,8 +23,8 @@ final _logger = Logger('ServiceLocator');
 /// - Lazy Singletons: For services that may not be immediately needed
 /// - Factories: For services that should be recreated on each request
 ///
-/// **Phase 1 Note**: Currently empty - services will be registered incrementally
-/// to maintain backward compatibility during migration.
+/// **Phase 1 Part C**: Services are registered as singletons but initialized by AppCore
+/// in correct dependency order (not at registration time).
 Future<void> setupServiceLocator() async {
   _logger.info('🎯 Setting up service locator...');
 
@@ -32,32 +37,60 @@ Future<void> setupServiceLocator() async {
     // ===========================
     // REPOSITORIES
     // ===========================
-    // TODO: Register IContactRepository
-    // getIt.registerSingleton<IContactRepository>(ContactRepositoryImpl());
+    // Register IContactRepository singleton
+    getIt.registerSingleton<ContactRepository>(ContactRepository());
+    _logger.fine('✅ ContactRepository registered');
 
-    // TODO: Register IMessageRepository
-    // getIt.registerSingleton<IMessageRepository>(MessageRepositoryImpl());
-
-    // TODO: Register other repositories
-
-    // ===========================
-    // CORE SERVICES
-    // ===========================
-    // TODO: Register ISecurityManager
-    // getIt.registerLazySingleton<ISecurityManager>(() => SecurityManagerImpl());
-
-    // TODO: Register IMeshNetworkingService
-    // getIt.registerLazySingleton<IMeshNetworkingService>(() => MeshNetworkingServiceImpl());
+    // Register IMessageRepository singleton
+    getIt.registerSingleton<MessageRepository>(MessageRepository());
+    _logger.fine('✅ MessageRepository registered');
 
     // ===========================
-    // DATA SERVICES
+    // CORE SERVICES (initialized by AppCore, not here)
     // ===========================
-    // TODO: Register IBLEService
-    // getIt.registerLazySingleton<IBLEService>(() => BLEServiceImpl());
+    // SecurityManager: Registered as singleton instance (lazy init by AppCore)
+    // Note: SecurityManager is initialized in AppCore._initializeCoreServices()
+    // We access it via SecurityManager.instance to maintain backward compatibility
+    _logger.fine('🔐 SecurityManager will be initialized by AppCore');
+
+    // BLEService: Will be registered by AppCore after initialization
+    _logger.fine('📡 BLEService will be registered by AppCore');
+
+    // MeshNetworkingService: Will be registered by AppCore after initialization
+    _logger.fine('🌐 MeshNetworkingService will be registered by AppCore');
 
     _logger.info('✅ Service locator setup complete');
   } catch (e, stackTrace) {
     _logger.severe('❌ Failed to setup service locator', e, stackTrace);
+    rethrow;
+  }
+}
+
+/// Register services after they're initialized by AppCore
+/// Called by AppCore during initialization sequence
+void registerInitializedServices({
+  required SecurityManager securityManager,
+  required BLEService bleService,
+  required MeshNetworkingService meshNetworkingService,
+}) {
+  _logger.info('📋 Registering initialized services...');
+
+  try {
+    // Register SecurityManager singleton
+    getIt.registerSingleton<SecurityManager>(securityManager);
+    _logger.fine('✅ SecurityManager registered in DI container');
+
+    // Register BLEService singleton
+    getIt.registerSingleton<BLEService>(bleService);
+    _logger.fine('✅ BLEService registered in DI container');
+
+    // Register MeshNetworkingService singleton
+    getIt.registerSingleton<MeshNetworkingService>(meshNetworkingService);
+    _logger.fine('✅ MeshNetworkingService registered in DI container');
+
+    _logger.info('✅ All initialized services registered');
+  } catch (e, stackTrace) {
+    _logger.severe('❌ Failed to register initialized services', e, stackTrace);
     rethrow;
   }
 }

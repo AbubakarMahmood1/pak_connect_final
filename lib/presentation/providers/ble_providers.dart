@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
 import '../../data/services/ble_service.dart';
-import '../../data/services/ble_state_manager.dart';
 import '../../core/models/connection_info.dart';
+import '../../core/models/spy_mode_info.dart';
 import '../../core/scanning/burst_scanning_controller.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../../data/repositories/chats_repository.dart';
@@ -15,6 +15,7 @@ import '../../data/repositories/user_preferences.dart';
 import '../../core/messaging/message_router.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initialization check
+import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
 
 // =============================================================================
 // REACTIVE USERNAME PROVIDERS (RIVERPOD 3.0 MODERN APPROACH)
@@ -117,22 +118,36 @@ class UsernameOperations {
 // BLE Service provider - creates service instance without initializing
 // ✅ FIX #1: Lazy initialization - don't call initialize() immediately
 final bleServiceProvider = Provider<BLEService>((ref) {
-  final service = BLEService();
+  // Phase 1 Part C: Register BLEService in DI container when created
+  // This allows other services and widgets to access it via DI
+  if (!getIt.isRegistered<BLEService>()) {
+    final service = BLEService();
 
-  // ✅ REMOVED: Immediate initialization that caused LateInitializationError
-  // The service will be initialized properly by bleServiceInitializedProvider
-  // after AppCore is fully ready with messageQueue available
+    // ✅ REMOVED: Immediate initialization that caused LateInitializationError
+    // The service will be initialized properly by bleServiceInitializedProvider
+    // after AppCore is fully ready with messageQueue available
 
-  ref.onDispose(() {
+    ref.onDispose(() {
+      try {
+        MessageRouter.instance.dispose();
+      } catch (e) {
+        // MessageRouter might not be initialized if early error occurred
+      }
+      service.dispose();
+    });
+
+    // Register in DI for eager access
     try {
-      MessageRouter.instance.dispose();
+      getIt.registerSingleton<BLEService>(service);
     } catch (e) {
-      // MessageRouter might not be initialized if early error occurred
+      // Service already registered (idempotent)
     }
-    service.dispose();
-  });
 
-  return service;
+    return service;
+  } else {
+    // Already registered - return from DI
+    return getIt<BLEService>();
+  }
 });
 
 // ✅ NEW: Initialized BLE service provider - waits for AppCore to be ready

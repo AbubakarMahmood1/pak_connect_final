@@ -16,8 +16,8 @@ import '../services/security_manager.dart';
 import '../security/ephemeral_key_manager.dart';
 import 'offline_message_queue.dart';
 import '../security/spam_prevention_manager.dart';
-import '../routing/smart_mesh_router.dart';
 import '../routing/network_topology_analyzer.dart';
+import '../interfaces/i_mesh_routing_service.dart';
 import 'relay_config_manager.dart';
 import 'relay_policy.dart';
 import '../constants/special_recipients.dart';
@@ -31,8 +31,8 @@ class MeshRelayEngine {
   final OfflineMessageQueue _messageQueue;
   final SpamPreventionManager _spamPrevention;
 
-  // Smart routing integration
-  SmartMeshRouter? _smartRouter;
+  // Smart routing integration (via IMeshRoutingService interface)
+  IMeshRoutingService? _routingService;
 
   // Phase 3: Network topology integration for adaptive relay
   NetworkTopologyAnalyzer? _topologyAnalyzer;
@@ -80,7 +80,7 @@ class MeshRelayEngine {
   /// Phase 3 (Network-Size Adaptive): Added topology analyzer integration
   Future<void> initialize({
     required String currentNodeId,
-    SmartMeshRouter? smartRouter,
+    IMeshRoutingService? routingService,
     NetworkTopologyAnalyzer?
     topologyAnalyzer, // Phase 3: Added topology analyzer
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
@@ -107,7 +107,7 @@ class MeshRelayEngine {
     }
 
     _currentNodeId = currentNodeId;
-    _smartRouter = smartRouter;
+    _routingService = routingService;
     _topologyAnalyzer = topologyAnalyzer; // Phase 3: Store topology analyzer
     this.onRelayMessage = onRelayMessage;
     this.onDeliverToSelf = onDeliverToSelf;
@@ -129,7 +129,7 @@ class MeshRelayEngine {
     );
     // ignore: avoid_print
     print(
-      '📡 RELAY ENGINE: Node ID set to $truncatedNodeId... (EPHEMERAL) | Smart Routing: ${_smartRouter != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes',
+      '📡 RELAY ENGINE: Node ID set to $truncatedNodeId... (EPHEMERAL) | Smart Routing: ${_routingService != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes',
     );
   }
 
@@ -621,12 +621,12 @@ class MeshRelayEngine {
         return null;
       }
 
-      // Use smart router if available
-      if (_smartRouter != null) {
+      // Use routing service if available
+      if (_routingService != null) {
         try {
-          _logger.info('🧠 Using smart router for next hop selection');
+          _logger.info('🧠 Using routing service for next hop selection');
 
-          final routingDecision = await _smartRouter!.determineOptimalRoute(
+          final routingDecision = await _routingService!.determineOptimalRoute(
             finalRecipient: relayMessage.relayMetadata.finalRecipient,
             availableHops: validHops,
             priority: relayMessage.relayMetadata.priority,
@@ -637,12 +637,12 @@ class MeshRelayEngine {
                 ? routingDecision.nextHop!.shortId(8)
                 : routingDecision.nextHop!;
             _logger.info(
-              '✅ Smart router chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})',
+              '✅ Routing service chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})',
             );
             return routingDecision.nextHop;
           } else {
             _logger.warning(
-              '⚠️ Smart router failed: ${routingDecision.reason}',
+              '⚠️ Routing service failed: ${routingDecision.reason}',
             );
           }
         } catch (e) {

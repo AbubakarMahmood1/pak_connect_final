@@ -16,6 +16,7 @@ import '../../core/services/security_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'chat_migration_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/models/spy_mode_info.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -2287,14 +2288,3 @@ class BLEStateManager {
 // ========== SPY MODE DATA CLASSES ==========
 
 /// Information about detected spy mode session
-class SpyModeInfo {
-  final String contactName;
-  final String ephemeralID;
-  final String? persistentKey;
-
-  SpyModeInfo({
-    required this.contactName,
-    required this.ephemeralID,
-    this.persistentKey,
-  });
-}
