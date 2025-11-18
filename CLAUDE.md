@@ -699,6 +699,272 @@ Spending 200 tokens on confidence check prevents 20,000 tokens debugging wrong l
 
 **Think of it like unit tests**: You wouldn't skip tests for PakConnect - don't skip confidence checks either.
 
+## Codex MCP Configuration & Usage Guide
+
+**Codex** is a Claude 3.7 Sonnet MCP (Model Context Protocol) server configured to provide deep analysis, code reviews, and architectural guidance.
+
+### What is Codex?
+
+Codex is an external reasoning service that I (Claude Haiku) can call for:
+- **Fresh perspectives** on architectural decisions
+- **Security audits** of cryptographic implementations
+- **Code reviews** with specialized expertise
+- **Debugging guidance** for complex multi-day issues
+- **Alternative approaches** when confidence is low
+
+Think of it as a "second opinion from a smarter Claude" - it has access to newer models and extended reasoning capabilities.
+
+### How to Invoke Codex (For Users)
+
+**You can explicitly request Codex in any message:**
+
+```
+"Have Codex review this approach for security vulnerabilities"
+"Ask Codex about the best pattern for [problem]"
+"Get a second opinion on [my proposal] from Codex"
+"Use Codex to analyze why [this is failing]"
+```
+
+### How I Use Codex (Automatic Triggers)
+
+I automatically invoke Codex in these situations:
+
+1. **Low Confidence** (`<70%`): When my confidence assessment on critical work is below 70%, I call Codex BEFORE asking you for clarification
+2. **Critical Areas**: BLE handshake, Noise Protocol, mesh relay routing, security operations
+3. **Stuck Debugging** (>2 hours): If I've been investigating an issue without resolution, I escalate to Codex
+4. **Architecture Changes**: Before proposing significant refactoring, I get Codex's unbiased perspective
+
+### MCP Server Details
+
+**Server Name**: `mcp__codex__codex` (or `mcp__codex__codex-reply` for follow-ups)
+
+**Configuration Status**:
+- ✅ Configured in your environment
+- ✅ Accessible to me (Claude Haiku)
+- ⚠️ Requires proper parameter formatting to work correctly
+
+**Parameters I Must Provide**:
+
+```
+{
+  "prompt": "The actual question/request for Codex",
+  "model": "opus" or "sonnet" (optional, defaults to sonnet),
+  "sandbox": "read-only" or "workspace-write" (optional),
+  "base-instructions": "Custom system prompt" (optional),
+  "cwd": "Working directory" (optional)
+}
+```
+
+### Common Mistakes I Make (and how to fix them)
+
+**❌ MISTAKE #1: Wrong Parameter Names**
+```
+WRONG: mcp__codex__codex with "question" field
+WRONG: mcp__codex__codex with "query" field
+WRONG: mcp__codex__codex with "text" field
+
+✅ CORRECT: mcp__codex__codex with "prompt" field
+```
+
+**❌ MISTAKE #2: Calling the Wrong Tool**
+```
+WRONG: mcp__codex__codex for follow-up messages
+✅ CORRECT: mcp__codex__codex-reply for follow-ups (requires conversationId)
+```
+
+**❌ MISTAKE #3: Vague Prompts**
+```
+WRONG: "Is this architecture good?"
+WRONG: "Review this code"
+WRONG: "Fix the bug"
+
+✅ CORRECT: "Review this Noise Protocol implementation for:
+  1. Correct nonce sequencing (should be strictly increasing per session)
+  2. AEAD authentication tag verification (no silent failures)
+  3. Forward secrecy guarantees (rekeying after message count)
+  4. Thread safety (concurrent access to shared state)"
+```
+
+**❌ MISTAKE #4: Not Specifying Reasoning Effort**
+The "reasoning" effort is controlled implicitly by prompt complexity. Let me be more explicit:
+
+```
+For HIGH reasoning (security-critical):
+  - Use detailed prompts with context
+  - Ask for multiple perspectives
+  - Explicitly ask for edge case analysis
+
+For MEDIUM reasoning (standard):
+  - Ask for code review or architecture feedback
+  - Include specific requirements/constraints
+
+For LOW reasoning (lookups):
+  - Don't use Codex for simple questions (I can handle these)
+  - Use Codex only when you need deep analysis
+```
+
+**❌ MISTAKE #5: Not Including Enough Context**
+```
+WRONG: "Why is this failing?"
+✅ CORRECT: "BLE handshake is failing at Phase 1.5 (Noise XX pattern).
+  - Device A sends message 1 (e + s)
+  - Device B should respond with (e + dhee + s + dhse + payload)
+  - Actual: Device B logs NoiseException('Invalid nonce')
+  - Database shows currentEphemeralId matches, so identity is correct
+  - Error occurs 3/5 connection attempts (intermittent)
+
+  What causes intermittent Noise handshake failures with valid identities?
+  Is this nonce sequencing, timestamp synchronization, or session state?"
+```
+
+**❌ MISTAKE #6: Ignoring Codex Response Format**
+Codex returns structured responses:
+```
+{
+  "type": "text" or "error",
+  "content": "The actual analysis or error message",
+  "metadata": {...}
+}
+```
+
+I need to extract and interpret the `content` field, not treat the whole response as the answer.
+
+### When to Use Codex
+
+✅ **USE CODEX FOR**:
+- Security audits (Noise, ChaCha20, key derivation)
+- Architecture reviews (dual-role BLE, state management)
+- Complex debugging (multi-day stuck issues)
+- Alternative approaches (when <70% confidence)
+- Performance optimization decisions
+- Edge case analysis
+
+❌ **DON'T USE CODEX FOR**:
+- Simple API lookups (check docs instead)
+- Quick syntax questions (I can answer these)
+- File reading/writing (I have tools for this)
+- Test execution (I can run Flutter tests)
+- Basic debugging (grep logs, read code first)
+- Quick explanations (I can explain code)
+
+### Response Patterns to Expect
+
+**Pattern 1: Confirmatory Response**
+```
+Codex: "Your approach is sound. Here's why:
+  1. [Confirms your understanding]
+  2. [Identifies what you got right]
+  3. [Suggests one improvement]"
+
+→ I proceed with implementation immediately
+```
+
+**Pattern 2: Alternative Approaches**
+```
+Codex: "Your approach works, but consider these alternatives:
+  Approach A: [Pros/cons] (Better for X)
+  Approach B: [Pros/cons] (Better for Y)
+  Recommended: Approach B because [reasoning]"
+
+→ I present options to you with pros/cons
+```
+
+**Pattern 3: Critical Issue Found**
+```
+Codex: "Your approach has a flaw:
+  [Description of the problem]
+  Likely cause: [Root cause]
+  Fix: [Recommended solution]"
+
+→ I STOP implementation, ask clarifying questions, pivot approach
+```
+
+**Pattern 4: Needs More Context**
+```
+Codex: "Can you clarify:
+  1. [Question A]
+  2. [Question B]"
+
+→ I ask YOU these clarifying questions
+```
+
+### Example: Proper Codex Usage
+
+**User Says**: "Fix the Noise handshake intermittent failures"
+
+**My Confidence Check**: ~45% (intermittent + cryptography = high complexity)
+
+**My Action**: Call Codex BEFORE asking you questions
+
+**Codex Prompt I Send**:
+```
+"BLE Noise XX handshake intermittently fails (3/5 attempts).
+Logs show:
+  - Phase 0: CONNECTION_READY ✅
+  - Phase 1: IDENTITY_EXCHANGE ✅
+  - Phase 1.5: NoiseException('Invalid nonce') ❌
+
+Context:
+  - Nonce is stored in CipherState._n (should be u64, strictly increasing)
+  - Session created fresh per connection (no reuse)
+  - Same two devices, random failure pattern
+  - No clock skew visible in logs
+
+What causes intermittent nonce errors in Noise XX handshake?
+Options to investigate:
+  A) Nonce not incrementing (threading issue)?
+  B) AEAD authentication failure (key derivation)?
+  C) State machine race condition (Phase 1 not complete before Phase 1.5)?
+  D) Device role confusion (central vs peripheral)?
+
+Which is most likely and how do I verify?"
+```
+
+**Codex Response** (hypothetical):
+```
+"Most likely: Option C - race condition in state machine.
+
+Why:
+  1. Intermittent = timing-dependent
+  2. Nonce error during Phase 1.5 = state not ready
+  3. Same devices = rule out key derivation
+  4. Random 3/5 = connection timing variance
+
+Verification:
+  1. Add mutex lock to Phase 1→1.5 transition
+  2. Log state transitions with timestamps
+  3. Check for concurrent noiseSessionManager.getSession() calls
+  4. Verify Phase 1 callback fires before Phase 1.5 starts
+
+Secondary check:
+  - Ensure ephemeralId rotation doesn't race with nonce initialization
+  - Verify MTU negotiation completes before Phase 1 message"
+```
+
+**Then I Ask You**:
+1. "Can you share logs from 3 failed handshake attempts?"
+2. "Are multiple threads calling getSession() simultaneously?"
+3. "Does adding a 100ms delay between Phase 1→1.5 help?"
+
+---
+
+### Troubleshooting Codex Integration
+
+**If Codex doesn't respond**:
+1. Check MCP server status: Is Codex running?
+2. Check my prompt: Did I include "prompt" field?
+3. Check token budget: Is Codex request too long?
+4. Check conversationId: For replies, is it valid?
+
+**If Codex gives wrong answer**:
+1. Ask me to call Codex again with better prompt
+2. Provide more context directly in message
+3. Request specific analysis (security, performance, etc.)
+
+**If I'm not calling Codex when you expect it**:
+1. Explicitly request: "Have Codex review this"
+2. This overrides my confidence threshold
+
 ---
 
 ## Critical Invariants
