@@ -766,24 +766,37 @@ WRONG: mcp__codex__codex with "text" field
 ✅ CORRECT: mcp__codex__codex with "prompt" field
 ```
 
-**❌ MISTAKE #2: Calling the Wrong Tool**
+**❌ MISTAKE #2: Calling the Wrong Tool or Wrong conversationId Format**
 ```
 WRONG: mcp__codex__codex for follow-up messages
-✅ CORRECT: mcp__codex__codex-reply for follow-ups (requires conversationId)
+✅ CORRECT: mcp__codex__codex-reply for follow-ups (requires valid conversationId)
+
+WRONG: conversationId = "test-123" (arbitrary string)
+✅ CORRECT: conversationId must be UUID format
+  Example: "550e8400-e29b-41d4-a716-446655440000"
+  Error if format wrong: "Failed to parse conversation_id: invalid character"
 ```
 
-**❌ MISTAKE #3: Vague Prompts**
+**❌ MISTAKE #3: Overly Vague Prompts (Less Effective)**
 ```
-WRONG: "Is this architecture good?"
-WRONG: "Review this code"
-WRONG: "Fix the bug"
+Less effective: "Why is my BLE code failing?"
+  → Codex will still answer, but may make broad assumptions
 
-✅ CORRECT: "Review this Noise Protocol implementation for:
-  1. Correct nonce sequencing (should be strictly increasing per session)
-  2. AEAD authentication tag verification (no silent failures)
-  3. Forward secrecy guarantees (rekeying after message count)
-  4. Thread safety (concurrent access to shared state)"
+Better: "Why is my BLE code failing?
+  Context: Handshake with ephemeralId, then discover persistentKey,
+  then try to decrypt with persistentKey but NoiseSessionManager
+  throws 'No session found' because it's keyed by ephemeralId not persistentKey."
+  → Codex gives precise root cause + exact file/line references
+
+Best: "Review this identity resolution pattern for race conditions:
+  1. Ephemeral session during handshake
+  2. Discover persistent key
+  3. Switch to persistent key for decryption
+  Is this a race or architectural issue? What's the fix?"
+  → Codex explains the architecture + provides exact solutions
 ```
+
+**Note**: Codex CAN handle vague prompts (it has your codebase context), but specific prompts get more detailed answers with file paths and line numbers.
 
 **❌ MISTAKE #4: Not Specifying Reasoning Effort**
 The "reasoning" effort is controlled implicitly by prompt complexity. Let me be more explicit:
@@ -817,17 +830,21 @@ WRONG: "Why is this failing?"
   Is this nonce sequencing, timestamp synchronization, or session state?"
 ```
 
-**❌ MISTAKE #6: Ignoring Codex Response Format**
-Codex returns structured responses:
+**❌ MISTAKE #6: Wrong Response Format Assumption**
+Codex returns **plain text directly**, NOT JSON structures:
 ```
+✅ ACTUAL FORMAT:
+Codex: "Root cause sits in the identity resolution...
+[detailed analysis with file paths and line numbers]"
+
+❌ NOT JSON:
 {
-  "type": "text" or "error",
-  "content": "The actual analysis or error message",
-  "metadata": {...}
+  "type": "text",
+  "content": "..."
 }
 ```
 
-I need to extract and interpret the `content` field, not treat the whole response as the answer.
+The response is immediately usable plain text - no parsing needed.
 
 ### When to Use Codex
 
@@ -948,22 +965,47 @@ Secondary check:
 
 ---
 
+### Testing & Verification (Real Results - Nov 18, 2025)
+
+**Tests Performed**:
+
+| Test | Command | Result | Notes |
+|------|---------|--------|-------|
+| Basic prompt | `mcp__codex__codex` with `prompt` field | ✅ PASS | Codex responded with detailed analysis |
+| Response format | Checked response structure | ✅ Plain text (not JSON) | Returns unstructured text directly |
+| Vague prompts | `"Why is my BLE code failing?"` | ✅ PASS | Works fine, gives broad context analysis |
+| Specific prompts | `"Review identity resolution for race conditions"` | ✅ PASS | More detailed, includes file:line references |
+| UUID conversationId | Tested `conversationId: "test-123"` | ❌ FAIL | Error: "invalid character, expected UUID format" |
+| Model parameter | Added `model: "sonnet"` | ✅ Accepted | No errors, unsure if it changed behavior |
+| Sandbox parameter | Added `sandbox: "read-only"` | ✅ Accepted | No errors, may not affect Codex |
+| Codebase context | Asked about PakConnect specifics | ✅ Yes | Codex knows file structure, gives exact line numbers |
+
+**Key Findings**:
+1. **Codex has full codebase access** - Knows PakConnect architecture deeply
+2. **Plain text responses** - No JSON parsing needed, responses are immediately usable
+3. **Works with vague prompts** - But specific prompts get better file/line references
+4. **conversationId is strict** - Must be UUID format for follow-up conversations
+5. **Reasoning is implicit** - Don't worry about specifying "high/medium/low" effort
+
+---
+
 ### Troubleshooting Codex Integration
 
 **If Codex doesn't respond**:
 1. Check MCP server status: Is Codex running?
 2. Check my prompt: Did I include "prompt" field?
 3. Check token budget: Is Codex request too long?
-4. Check conversationId: For replies, is it valid?
+4. Check conversationId: For replies, must be valid UUID format (not arbitrary string)
 
 **If Codex gives wrong answer**:
-1. Ask me to call Codex again with better prompt
-2. Provide more context directly in message
-3. Request specific analysis (security, performance, etc.)
+1. Ask me to call Codex again with more context
+2. Provide specific details (file paths, error messages, expected behavior)
+3. Request analysis of specific area (security, performance, architecture, etc.)
 
 **If I'm not calling Codex when you expect it**:
 1. Explicitly request: "Have Codex review this"
 2. This overrides my confidence threshold
+3. Codex will respond even if I think I have high confidence
 
 ---
 
