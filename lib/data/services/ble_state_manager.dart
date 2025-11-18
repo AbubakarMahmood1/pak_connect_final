@@ -901,6 +901,18 @@ class BLEStateManager {
     // 🔧 NEW MODEL: Session ID is always the ephemeral ID
     _currentSessionId = _theirEphemeralId!;
 
+    // 🔒 FIX: Register Noise identity mapping immediately
+    // This prevents race condition during manual pairing when peer's persistent key
+    // arrives before our _performVerification() completes. Without this, _processMessage()
+    // would switch to persistentKey but NoiseSessionManager would fail to find the session
+    // (keyed by ephemeralId). Now the mapping exists before any decryption attempt.
+    SecurityManager.registerIdentityMapping(
+      persistentPublicKey: theirPersistentKey,
+      ephemeralID: _theirEphemeralId!,
+    );
+    _logger.info(
+        '🔐 Persistent key identity mapping registered: ${_truncateId(_theirEphemeralId!)} ↔ ${_truncateId(theirPersistentKey)}');
+
     // 🔧 NEW MODEL: Create contact with immutable publicKey (first ephemeral ID)
     // persistent_public_key will be NULL at LOW security
     await _contactRepository.saveContactWithSecurity(
