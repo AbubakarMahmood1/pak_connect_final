@@ -85,6 +85,7 @@ class BatteryOptimizer {
   static final _logger = Logger('BatteryOptimizer');
   static const String _prefsKey = 'battery_optimizer_enabled';
   static const String _lastModeKey = 'battery_last_power_mode';
+  static bool _skipInitializationForTests = false;
 
   final Battery _battery = Battery();
   Timer? _batteryMonitor;
@@ -113,6 +114,20 @@ class BatteryOptimizer {
 
   BatteryOptimizer._internal();
 
+  /// Skip all plugin calls while running in the test harness.
+  ///
+  /// Integration suites that spin up [AppCore] can invoke this before calling
+  /// `BatteryOptimizer()` (see `TestSetup.initializeTestEnvironment`) so the
+  /// `battery_plus` MethodChannel is never touched inside `flutter test`.
+  static void disableForTests() {
+    _skipInitializationForTests = true;
+  }
+
+  /// Re-enable normal plugin-backed initialization. Intended for real builds.
+  static void enableForRuntime() {
+    _skipInitializationForTests = false;
+  }
+
   /// Initialize battery monitoring and optimization
   Future<void> initialize({
     Function(BatteryInfo)? onBatteryUpdate,
@@ -123,6 +138,14 @@ class BatteryOptimizer {
 
     // Load saved preferences
     await _loadPreferences();
+
+    if (_skipInitializationForTests) {
+      _logger.info(
+        '🔋 Battery Optimizer test mode enabled - skipping BatteryPlus calls',
+      );
+      _isEnabled = false;
+      return;
+    }
 
     if (!_isEnabled) {
       _logger.info('🔋 Battery Optimizer disabled by user preference');

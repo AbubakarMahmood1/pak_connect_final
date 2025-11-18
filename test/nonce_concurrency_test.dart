@@ -126,7 +126,7 @@ void main() {
   final logger = Logger('NonceTest');
 
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'nonce_concurrency');
     mockStorage = MockSecureStorage();
     await SecurityManager.initialize(secureStorage: mockStorage);
 
@@ -172,7 +172,6 @@ void main() {
         myEphemeralId: 'alice_ephemeral',
         myPublicKey: 'alice_persistent',
         myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
         sendMessage: (msg) async {
           logger.fine('Alice → Bob: ${msg.type}');
           await Future.delayed(Duration(milliseconds: 1));
@@ -195,7 +194,6 @@ void main() {
         myEphemeralId: 'bob_ephemeral',
         myPublicKey: 'bob_persistent',
         myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
         sendMessage: (msg) async {
           logger.fine('Bob → Alice: ${msg.type}');
           await Future.delayed(Duration(milliseconds: 1));
@@ -420,7 +418,6 @@ void main() {
         myEphemeralId: 'alice_ephemeral',
         myPublicKey: 'alice_persistent',
         myDisplayName: 'Alice',
-        contactRepo: aliceContactRepo,
         sendMessage: (msg) async {
           await Future.delayed(Duration(milliseconds: 1));
           await bobCoordinator.handleReceivedMessage(msg);
@@ -441,7 +438,6 @@ void main() {
         myEphemeralId: 'bob_ephemeral',
         myPublicKey: 'bob_persistent',
         myDisplayName: 'Bob',
-        contactRepo: bobContactRepo,
         sendMessage: (msg) async {
           await Future.delayed(Duration(milliseconds: 1));
           await aliceCoordinator.handleReceivedMessage(msg);

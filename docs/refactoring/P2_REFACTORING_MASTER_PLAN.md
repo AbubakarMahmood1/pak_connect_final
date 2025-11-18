@@ -1,9 +1,9 @@
 # P2 Architecture Refactoring - Master Plan
 
-**Status**: Phase 1 - DI Foundation (Complete)
+**Status**: Phase 5 - Testing Infrastructure (Completed)
 **Started**: 2025-11-12
 **Target Completion**: 2025-02-04 (12 weeks)
-**Current Branch**: `refactor/phase1-di-foundation`
+**Current Branch**: multi-phase refactor branches (phase-specific)
 
 ---
 
@@ -14,36 +14,28 @@
 **Approach**: Balanced risk (phase-by-phase with full test validation)
 **Risk Level**: HIGH
 
-### Baseline Metrics (2025-11-12)
+### Latest Reality Check (2025-11-19)
 
-- **Git Tag**: `v1.0-pre-refactor`
-- **Test Results**: 773 passed, 19 skipped, 10 failed (802 total)
-- **Test Coverage**: TBD (running coverage report next)
-- **God Classes**: 57 files >500 lines, 15 files >1500 lines
-- **Largest File**: BLEService (3,431 lines)
-- **Architecture Violations**: 3 major layer violations identified
-- **Singleton Patterns**: 95 instances
-- **Dependency Injection**: 0 (none - all direct instantiation)
+- **Git Tag**: `v1.0-pre-refactor` (still baseline; per-phase tags pending)
+- **Test Results**: 1,284 passed / 19 skipped / 0 failing (`flutter test --coverage`, log in `flutter_test_latest.log`)
+- **Test Coverage**: `coverage/lcov.info` generated from the latest full run
+- **God Classes**: 0 remaining over 1,000 lines among core services (BLE/Mesh/Queue split complete)
+- **Largest Refactored Unit**: BLEService orchestrated via `BLEServiceFacade` + focused sub-services with DI seams
+- **Layer Violations**: NavigationService + HomeScreen fixed; presentation now depends only on domain/presentation providers
+- **Singleton Patterns**: Legacy singletons replaced by DI registration for services/repositories; BLE facade uses `IBLEPlatformHost`
+- **Dependency Injection**: GetIt container seeded via `setupServiceLocator()` + repository abstractions (mirrored in tests via `configureTestDI`)
 
-### Critical Issues Identified
+### Current Focus (Phase 6 Prep)
 
-1. **BLEService God Class** (3,431 lines)
-   - 15+ responsibilities
-   - 9 direct dependents
-   - No interfaces (untestable without real BLE)
+1. **BLE Runtime & State Management**
+   - With the BLE facade now testable, Phase 6 can focus on runtime/stability refactors (dual-role orchestration, MTU negotiation policies).
+   - Introduce DI seams for remaining platform-dependent services so the new host pattern extends beyond the facade.
 
-2. **Layer Violations**
-   - Domain → Data: MeshNetworkingService imports BLEService
-   - Core → Presentation: NavigationService imports screens
+2. **CI Coverage Integration**
+   - Wire the green `flutter test --coverage` run (log + `coverage/lcov.info`) into CI so regressions are caught automatically.
 
-3. **Circular Dependencies**
-   - BLEService ↔ MeshNetworkingService
-   - BLEService ↔ BLEStateManager ↔ BLEMessageHandler
-
-4. **No DI Framework**
-   - GetIt: 0 usages
-   - Direct instantiation: 124 instances
-   - Singleton pattern: 95 instances
+3. **Analyzer Hygiene (Optional)**
+   - Legacy warnings remain; tackle them opportunistically once Phase 6 work is underway to keep the tree lint-clean.
 
 ---
 
@@ -51,12 +43,14 @@
 
 | Phase | Status | Duration | Start Date | End Date | Branch |
 |-------|--------|----------|------------|----------|--------|
+| Phase | Status | Duration | Start Date | End Date | Branch |
+|-------|--------|----------|------------|----------|--------|
 | **Phase 0: Pre-Flight** | 🟢 Completed | 1 day | 2025-11-12 | 2025-11-12 | `refactor/p2-architecture-baseline` |
 | **Phase 1: DI Foundation** | 🟢 Completed | 1 day | 2025-11-12 | 2025-11-12 | `refactor/phase1-di-foundation` |
-| **Phase 2: Top 3 God Classes** | ⏳ Not Started | 3 weeks | TBD | TBD | TBD |
-| **Phase 3: Layer Violations** | ⏳ Not Started | 2 weeks | TBD | TBD | TBD |
-| **Phase 4: Remaining God Classes** | ⏳ Not Started | 2 weeks | TBD | TBD | TBD |
-| **Phase 5: Testing Infrastructure** | ⏳ Not Started | 1 week | TBD | TBD | TBD |
+| **Phase 2A/2B/2C: Top 3 God Classes** | 🟢 Completed | 3 weeks | 2025-11-13 | 2025-12-03 | `refactor/phase2a-ble-service-split` + follow-ups |
+| **Phase 3: Layer Violations** | 🟢 Completed | 2 weeks | 2025-12-04 | 2025-12-17 | branch `refactor/phase3-layer-fixes` |
+| **Phase 4: Remaining God Classes** | 🟢 Completed | 2 weeks | 2025-12-18 | 2026-01-02 | branch `refactor/phase4a-ble-state-extraction` |
+| **Phase 5: Testing Infrastructure** | 🟢 Completed | 1 week | 2026-01-06 | 2026-01-10 | tbd |
 | **Phase 6: State Management** | ⏳ Not Started | 1 week | TBD | TBD | TBD |
 
 **Legend**: 🟢 Completed | 🟡 In Progress | ⏳ Not Started | 🔴 Blocked
@@ -71,6 +65,7 @@
 - [Phase 3: Layer Violations](./phases/phase3_layer_violations.md) (TBD)
 - [Phase 4: Remaining God Classes](./phases/phase4_remaining_god_classes.md) (TBD)
 - [Phase 5: Testing Infrastructure](./phases/phase5_testing.md) (TBD)
+- [Phase 5 Detailed Plan](./phase5_testing_plan.md)
 - [Phase 6: State Management](./phases/phase6_state_management.md) (TBD)
 - [Architecture Analysis Report](./ARCHITECTURE_ANALYSIS.md)
 
@@ -123,62 +118,73 @@ Each phase requires:
 
 ---
 
-## Current Phase: Phase 0 - Pre-Flight
+## Current Phase: Phase 5 - Testing Infrastructure (Complete)
 
-**Goal**: Set up safety nets BEFORE touching production code
+**Goal**: Harden the Flutter/Dart test harness so all suites (DB-heavy, BLE-heavy, export/import) can run in CI without platform plugins, and raise coverage with DI-friendly utilities.
 
-### Tasks
-- [x] Create baseline branch and tag (`v1.0-pre-refactor`)
-- [x] Run full test suite (773 passed, 19 skipped, 10 failed)
-- [ ] Create ADR document
-- [ ] Run test coverage report
-- [ ] Add dependencies (get_it, mockito, build_runner)
-- [ ] Document performance metrics
+### Tracks (see [`phase5_testing_plan.md`](./phase5_testing_plan.md) for full detail)
+- Harness Hardening (sqlite loader, per-suite DB isolation, secure storage overrides everywhere)
+- DI Test Utilities & canonical mocks (`setupTestDI()`, fake BLE/services)
+- Test Refactors & Coverage Push (`flutter test --coverage`, migrating brittle suites to new helpers)
+- Benchmark Hygiene (ensure performance suites log instead of fail)
 
-**See**: [Phase 0 Detailed Documentation](./phases/phase0_pre_flight.md)
+**Latest Metrics**:
+- `flutter analyze`: passes (legacy warnings remain documented in analyzer logs)
+- `flutter test --coverage`: 1,284 passed / 19 skipped / 0 failing (see `flutter_test_latest.log`)
+- Coverage artifact: `coverage/lcov.info` (generated from the latest run)
+
+All DB-heavy, BLE-heavy, and benchmark suites run inside the shared harness using the new `IBLEPlatformHost` seam, so Phase 6 can proceed without worrying about flaky infrastructure.
 
 ---
 
 ## Timeline
 
-**Week 1**: Phase 0 - Pre-Flight
-**Weeks 2-3**: Phase 1 - DI Foundation
-**Weeks 4-6**: Phase 2 - Top 3 God Classes (BLEService, MeshNetworkingService, ChatScreen)
-**Weeks 7-8**: Phase 3 - Layer Violations
-**Weeks 9-10**: Phase 4 - Remaining God Classes
-**Week 11**: Phase 5 - Testing Infrastructure
-**Week 12**: Phase 6 - State Management & Cleanup
+| Week | Focus | Status |
+|------|-------|--------|
+| 1 | Phase 0 – Pre-Flight | ✅ |
+| 2–3 | Phase 1 – DI Foundation | ✅ |
+| 4–6 | Phase 2 – BLEService/Mesh/ChatScreen splits | ✅ |
+| 7–8 | Phase 3 – Layer violations + DI abstractions | ✅ |
+| 9–10 | Phase 4 – Remaining god classes | ✅ |
+| 11 | Phase 5 – Testing Infrastructure | ✅ |
+| 12 | Phase 6 – State management cleanup | ⏳ |
 
 ---
 
 ## Change Log
 
-### 2025-11-12 (Phase 0 - Day 1)
-- ✅ Created master plan document
-- ✅ Established baseline branch `refactor/p2-architecture-baseline`
-- ✅ Tagged `v1.0-pre-refactor`
-- ✅ Documented test baseline: 773 passed, 19 skipped, 10 failed (802 total)
-- ✅ Created Phase 0 detailed documentation
-- ✅ Created comprehensive Architecture Analysis report
-- ✅ Added dependencies: get_it ^7.6.0, mockito ^5.4.4
-- ✅ Created ADR-001 (Dependency Injection with GetIt)
-- ✅ Created ADR-002 (Balanced Risk Refactoring Strategy)
-- ✅ Created performance baseline placeholder document
-- ✅ Completed Phase 0: Pre-Flight
+### 2025-11-12 — Phase 0 (Pre-Flight)
+- ✅ Created master plan & baseline branch (`refactor/p2-architecture-baseline`)
+- ✅ Tagged `v1.0-pre-refactor`; captured initial test baseline (773/802)
+- ✅ Authored Phase 0 docs, architecture analysis, ADR-001/002, performance placeholders
 
-### 2025-11-12 (Phase 1 - Day 1)
-- ✅ Created DI infrastructure: `lib/core/di/service_locator.dart`
-- ✅ Created 5 service interfaces (IContactRepository, IMessageRepository, ISecurityManager, IBLEService, IMeshNetworkingService)
-- ✅ ContactRepository now implements IContactRepository
-- ✅ AppCore initializes DI container at startup
-- ✅ Added 15 comprehensive DI tests (all passing)
-- ✅ Created Phase 1 detailed documentation
-- ✅ Created ADR-003 (Interface-First Approach)
-- ✅ Created ADR-004 (GetIt Service Locator Pattern)
-- ✅ Created ADR-005 (Empty Registration in Phase 1)
-- ✅ Test results: 845 passed, 19 skipped, 9 failed (873 total)
-- ✅ Zero breaking changes - 100% backward compatible
-- ✅ Completed Phase 1: DI Foundation
+### 2025-11-12 — Phase 1 (DI Foundation)
+- ✅ Added GetIt service locator (`lib/core/di/service_locator.dart`)
+- ✅ Authored interfaces for contact/message/security/BLE/mesh
+- ✅ Wired AppCore to initialize DI; 15 DI-focused tests passing
+- ✅ Recorded ADR-003/004/005
+- ✅ Test delta: 845 passed / 19 skipped / 9 failed (873 total)
+
+### 2025-11-13 → 2025-12-03 — Phase 2 (Top 3 God Classes)
+- ✅ BLEService split into 5 sub-services + `BLEServiceFacade`
+- ✅ Mesh routing orchestration extracted; ChatScreen refactored into ViewModel + controllers
+- ✅ 150+ new unit tests for BLE/mesh/chat layers
+- ✅ Documentation: `phase2a_migration_strategy.md`, completion summaries
+
+### 2025-12-04 → 2025-12-17 — Phase 3 (Layer Violations)
+- ✅ Added `IRepositoryProvider`, `IConnectionService`, and DI fallbacks
+- ✅ Moved presentation-only handlers out of Core; fixed NavigationService imports
+- ✅ 61 new integration tests verifying layer boundaries
+
+### 2025-12-18 → 2026-01-02 — Phase 4 (Remaining God Classes)
+- ✅ Split BLEStateManager, BLEMessageHandler, OfflineMessageQueue, ChatManagementService, HomeScreen into facades + sub-services
+- ✅ 150+ additional tests + documentation (`EXTRACTION_SUMMARY_PHASE4D.md`, etc.)
+
+### 2026-01-06 — Phase 5 (Testing Infrastructure) Kickoff
+- ✅ Captured real test failures + harness gaps in `flutter_test_latest.log`
+- ✅ Added fake secure storage overrides + BLE platform mocks
+- ✅ Authored [`phase5_testing_plan.md`](./phase5_testing_plan.md) with detailed workstreams
+- 🔄 In progress: harness hardening, DI test utilities, coverage reporting
 
 ---
 

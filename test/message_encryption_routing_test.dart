@@ -27,7 +27,9 @@ class StubContactRepository extends ContactRepository {
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'message_encryption_routing',
+    );
   });
 
   group('Message Encryption and Routing Tests', () {
@@ -41,7 +43,9 @@ void main() {
         'abubakar_public_key_12345678901234567890123456789012';
 
     setUp(() async {
-      await TestSetup.cleanupDatabase();
+      await TestSetup.configureTestDatabase(
+        label: 'message_encryption_routing',
+      );
       TestSetup.resetSharedPreferences();
       await EphemeralKeyManager.initialize('test_private_key_1234567890');
       await seedTestUserPublicKey(arshadNodeId);
@@ -51,7 +55,7 @@ void main() {
 
     tearDown(() async {
       messageHandler.dispose();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     group('1. Direct Messaging Tests (Ali → Arshad)', () {

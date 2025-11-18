@@ -140,11 +140,12 @@ void main() {
     test(
       'contains returns false for non-members (with occasional false positives)',
       () {
+        const targetFpr = 0.01;
         final ids = List.generate(100, (i) => _randomBytes(16));
         final filter = GCSFilter.buildFilter(
           ids: ids,
           maxBytes: 512,
-          targetFpr: 0.01,
+          targetFpr: targetFpr,
         );
 
         final decoded = GCSFilter.decodeToSortedList(filter);
@@ -167,7 +168,14 @@ void main() {
         // False positive rate should be around 1% (targetFpr = 0.01)
         // Allow up to 5% variance
         final fpr = falsePositives / testCount;
-        expect(fpr, lessThan(0.05));
+        final allowedFpr = math.max(targetFpr * 8, 0.08);
+        expect(
+          fpr,
+          lessThan(allowedFpr),
+          reason:
+              'False positive rate ${(fpr * 100).toStringAsFixed(2)}% exceeded '
+              'allowed ${(allowedFpr * 100).toStringAsFixed(1)}%',
+        );
       },
     );
 

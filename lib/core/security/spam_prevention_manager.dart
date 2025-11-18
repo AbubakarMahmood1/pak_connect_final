@@ -209,6 +209,17 @@ class SpamPreventionManager {
     _globalBypassForTests = enable;
   }
 
+  @visibleForTesting
+  Future<void> resetForTests() async {
+    _hourlyRelayCount.clear();
+    _trustScores.clear();
+    _processedHashes.clear();
+    _recentOperations.clear();
+    _totalBlocked = 0;
+    _totalAllowed = 0;
+    _averageSpamScore = 0.0;
+  }
+
   /// Record successful relay operation for trust building
   Future<void> recordRelayOperation({
     required String fromNodeId,

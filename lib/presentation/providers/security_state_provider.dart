@@ -3,7 +3,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/security_state.dart';
-import '../../domain/services/security_state_computer.dart';
+import '../../data/services/security_state_computer.dart';
 import 'ble_providers.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 

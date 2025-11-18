@@ -7,17 +7,18 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../models/mesh_relay_models.dart';
 import '../models/protocol_message.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/services/seen_message_store.dart';
+import '../interfaces/i_repository_provider.dart';
+import '../interfaces/i_seen_message_store.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../services/security_manager.dart';
 import '../security/ephemeral_key_manager.dart';
 import 'offline_message_queue.dart';
 import '../security/spam_prevention_manager.dart';
-import '../routing/smart_mesh_router.dart';
 import '../routing/network_topology_analyzer.dart';
+import '../interfaces/i_mesh_routing_service.dart';
 import 'relay_config_manager.dart';
 import 'relay_policy.dart';
 import '../constants/special_recipients.dart';
@@ -27,12 +28,13 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 class MeshRelayEngine {
   static final _logger = Logger('MeshRelayEngine');
 
-  final ContactRepository _contactRepository;
+  final IRepositoryProvider? _repositoryProvider;
+  final ISeenMessageStore _seenMessageStore;
   final OfflineMessageQueue _messageQueue;
   final SpamPreventionManager _spamPrevention;
 
-  // Smart routing integration
-  SmartMeshRouter? _smartRouter;
+  // Smart routing integration (via IMeshRoutingService interface)
+  IMeshRoutingService? _routingService;
 
   // Phase 3: Network topology integration for adaptive relay
   NetworkTopologyAnalyzer? _topologyAnalyzer;
@@ -57,10 +59,20 @@ class MeshRelayEngine {
   Function(RelayStatistics stats)? onStatsUpdated;
 
   MeshRelayEngine({
-    required ContactRepository contactRepository,
+    IRepositoryProvider? repositoryProvider,
+    ISeenMessageStore? seenMessageStore,
     required OfflineMessageQueue messageQueue,
     required SpamPreventionManager spamPrevention,
-  }) : _contactRepository = contactRepository,
+  }) : _repositoryProvider =
+           repositoryProvider ??
+           (GetIt.instance.isRegistered<IRepositoryProvider>()
+               ? GetIt.instance<IRepositoryProvider>()
+               : null),
+       _seenMessageStore =
+           seenMessageStore ??
+           (GetIt.instance.isRegistered<ISeenMessageStore>()
+               ? GetIt.instance<ISeenMessageStore>()
+               : _InMemorySeenMessageStore()),
        _messageQueue = messageQueue,
        _spamPrevention = spamPrevention;
 
@@ -80,7 +92,7 @@ class MeshRelayEngine {
   /// Phase 3 (Network-Size Adaptive): Added topology analyzer integration
   Future<void> initialize({
     required String currentNodeId,
-    SmartMeshRouter? smartRouter,
+    IMeshRoutingService? routingService,
     NetworkTopologyAnalyzer?
     topologyAnalyzer, // Phase 3: Added topology analyzer
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
@@ -107,7 +119,7 @@ class MeshRelayEngine {
     }
 
     _currentNodeId = currentNodeId;
-    _smartRouter = smartRouter;
+    _routingService = routingService;
     _topologyAnalyzer = topologyAnalyzer; // Phase 3: Store topology analyzer
     this.onRelayMessage = onRelayMessage;
     this.onDeliverToSelf = onDeliverToSelf;
@@ -129,7 +141,7 @@ class MeshRelayEngine {
     );
     // ignore: avoid_print
     print(
-      '📡 RELAY ENGINE: Node ID set to $truncatedNodeId... (EPHEMERAL) | Smart Routing: ${_smartRouter != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes',
+      '📡 RELAY ENGINE: Node ID set to $truncatedNodeId... (EPHEMERAL) | Smart Routing: ${_routingService != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes',
     );
   }
 
@@ -176,8 +188,7 @@ class MeshRelayEngine {
       }
 
       // Step 0C: Deduplication check (FIRST - before spam prevention)
-      final seenStore = SeenMessageStore.instance;
-      if (seenStore.hasDelivered(relayMessage.originalMessageId)) {
+      if (_seenMessageStore.hasDelivered(relayMessage.originalMessageId)) {
         _totalDropped++;
         _logger.info(
           '⏭️  Duplicate message detected (already delivered): $truncatedMessageId...',
@@ -252,8 +263,7 @@ class MeshRelayEngine {
         _totalDeliveredToSelf++;
 
         // Mark as delivered in persistent store
-        final seenStore = SeenMessageStore.instance;
-        await seenStore.markDelivered(relayMessage.originalMessageId);
+        await _seenMessageStore.markDelivered(relayMessage.originalMessageId);
 
         final decision = RelayDecision.delivered(
           messageId: relayMessage.originalMessageId,
@@ -434,20 +444,20 @@ class MeshRelayEngine {
 
       // Check if we have a relationship with sender that might indicate
       // we could be an intended intermediate recipient
-      final senderContact = await _contactRepository.getContact(
-        originalSenderPublicKey,
-      );
-      if (senderContact != null &&
-          senderContact.securityLevel != SecurityLevel.low) {
-        return true;
-      }
+      if (_repositoryProvider != null) {
+        final senderContact = await _repositoryProvider!.contactRepository
+            .getContact(originalSenderPublicKey);
+        if (senderContact != null &&
+            senderContact.securityLevel != SecurityLevel.low) {
+          return true;
+        }
 
-      // Check if we have a relationship with final recipient (could be group message)
-      final recipientContact = await _contactRepository.getContact(
-        finalRecipientPublicKey,
-      );
-      if (recipientContact != null) {
-        return true;
+        // Check if we have a relationship with final recipient (could be group message)
+        final recipientContact = await _repositoryProvider!.contactRepository
+            .getContact(finalRecipientPublicKey);
+        if (recipientContact != null) {
+          return true;
+        }
       }
 
       // Default: don't waste resources on decryption attempts
@@ -621,12 +631,12 @@ class MeshRelayEngine {
         return null;
       }
 
-      // Use smart router if available
-      if (_smartRouter != null) {
+      // Use routing service if available
+      if (_routingService != null) {
         try {
-          _logger.info('🧠 Using smart router for next hop selection');
+          _logger.info('🧠 Using routing service for next hop selection');
 
-          final routingDecision = await _smartRouter!.determineOptimalRoute(
+          final routingDecision = await _routingService!.determineOptimalRoute(
             finalRecipient: relayMessage.relayMetadata.finalRecipient,
             availableHops: validHops,
             priority: relayMessage.relayMetadata.priority,
@@ -637,12 +647,12 @@ class MeshRelayEngine {
                 ? routingDecision.nextHop!.shortId(8)
                 : routingDecision.nextHop!;
             _logger.info(
-              '✅ Smart router chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})',
+              '✅ Routing service chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})',
             );
             return routingDecision.nextHop;
           } else {
             _logger.warning(
-              '⚠️ Smart router failed: ${routingDecision.reason}',
+              '⚠️ Routing service failed: ${routingDecision.reason}',
             );
           }
         } catch (e) {
@@ -1002,4 +1012,43 @@ class RelayStatistics {
       'network: $networkSize nodes, '
       'relayProb: ${(currentRelayProbability * 100).toStringAsFixed(0)}%'
       ')';
+}
+
+/// Lightweight fallback seen-message store used when DI isn't configured (tests)
+class _InMemorySeenMessageStore implements ISeenMessageStore {
+  final Set<String> _delivered = <String>{};
+  final Set<String> _read = <String>{};
+
+  @override
+  bool hasDelivered(String messageId) => _delivered.contains(messageId);
+
+  @override
+  bool hasRead(String messageId) => _read.contains(messageId);
+
+  @override
+  Future<void> markDelivered(String messageId) async {
+    _delivered.add(messageId);
+  }
+
+  @override
+  Future<void> markRead(String messageId) async {
+    _read.add(messageId);
+  }
+
+  @override
+  Map<String, dynamic> getStatistics() => {
+    'delivered': _delivered.length,
+    'read': _read.length,
+  };
+
+  @override
+  Future<void> clear() async {
+    _delivered.clear();
+    _read.clear();
+  }
+
+  @override
+  Future<void> performMaintenance() async {
+    // No persistent state to maintain
+  }
 }

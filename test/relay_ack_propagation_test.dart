@@ -3,7 +3,6 @@ import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'test_helpers/test_setup.dart';
@@ -11,18 +10,16 @@ import 'test_helpers/test_setup.dart';
 /// Test ACK propagation through relay chain
 /// Validates: Ali → Arshad → Abubakar → ACK back → Arshad → ACK back → Ali
 void main() {
-  // Initialize test environment
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'relay_ack');
   });
 
   setUp(() async {
-    // Clean database before each test
-    await TestSetup.fullDatabaseReset();
+    await TestSetup.configureTestDatabase(label: 'relay_ack');
   });
 
-  tearDownAll(() async {
-    await DatabaseHelper.deleteDatabase();
+  tearDown(() async {
+    await TestSetup.nukeDatabase();
   });
 
   group('ACK Propagation Tests', () {
@@ -45,7 +42,6 @@ void main() {
       }
 
       final relayEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );

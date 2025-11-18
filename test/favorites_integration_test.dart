@@ -12,32 +12,27 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'favorites');
   });
 
   setUp(() async {
-    await TestSetup.cleanupDatabase();
+    await TestSetup.configureTestDatabase(label: 'favorites');
     TestSetup.resetSharedPreferences();
   });
 
   tearDown(() async {
-    await TestSetup.completeCleanup();
+    await TestSetup.nukeDatabase();
   });
 
   // logging handled by TestSetup
 
   group('Database Migration v5→v6', () {
     setUp(() async {
-      await TestSetup.cleanupDatabase();
-      // Use unique database name for each test
-      final testDbName =
-          'test_favorites_migration_${DateTime.now().millisecondsSinceEpoch}.db';
-      DatabaseHelper.setTestDatabaseName(testDbName);
-      await DatabaseHelper.deleteDatabase();
+      await TestSetup.configureTestDatabase(label: 'favorites_migration');
     });
 
     tearDown(() async {
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     test('creates is_favorite column in new databases', () async {
@@ -101,11 +96,11 @@ void main() {
 
   group('Contact Model with isFavorite', () {
     setUp(() async {
-      await TestSetup.cleanupDatabase();
+      await TestSetup.configureTestDatabase(label: 'favorites_contact_model');
     });
 
     tearDown(() async {
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
     test('creates contact with isFavorite=false by default', () {
       final contact = Contact(
@@ -220,10 +215,7 @@ void main() {
     late ContactRepository repository;
 
     setUp(() async {
-      final testDbName =
-          'test_favorites_repo_${DateTime.now().millisecondsSinceEpoch}.db';
-      DatabaseHelper.setTestDatabaseName(testDbName);
-      await DatabaseHelper.deleteDatabase();
+      await TestSetup.configureTestDatabase(label: 'favorites_repo');
       repository = ContactRepository();
     });
 
@@ -346,10 +338,7 @@ void main() {
     const testFavoriteKey = 'favorite_public_key_789';
 
     setUp(() async {
-      final testDbName =
-          'test_queue_favorites_${DateTime.now().millisecondsSinceEpoch}.db';
-      DatabaseHelper.setTestDatabaseName(testDbName);
-      await DatabaseHelper.deleteDatabase();
+      await TestSetup.configureTestDatabase(label: 'favorites_queue');
 
       repository = ContactRepository();
       await repository.saveContact(testRecipientKey, 'Regular Contact');
@@ -357,7 +346,7 @@ void main() {
       await repository.markContactFavorite(testFavoriteKey);
 
       queue = OfflineMessageQueue();
-      await queue.initialize(contactRepository: repository);
+      await queue.initialize();
     });
 
     test('auto-boosts priority for favorite contacts', () async {
@@ -533,14 +522,11 @@ void main() {
     late OfflineMessageQueue queue;
 
     setUp(() async {
-      final testDbName =
-          'test_e2e_favorites_${DateTime.now().millisecondsSinceEpoch}.db';
-      DatabaseHelper.setTestDatabaseName(testDbName);
-      await DatabaseHelper.deleteDatabase();
+      await TestSetup.configureTestDatabase(label: 'favorites_e2e');
 
       repository = ContactRepository();
       queue = OfflineMessageQueue();
-      await queue.initialize(contactRepository: repository);
+      await queue.initialize();
     });
 
     test(

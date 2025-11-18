@@ -30,7 +30,13 @@ import '../../core/app_core.dart';
 import '../../core/security/message_security.dart';
 import '../../domain/services/notification_service.dart';
 import '../../core/messaging/message_router.dart';
+import '../../data/services/ble_state_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../models/chat_ui_state.dart';
+import '../controllers/chat_scrolling_controller.dart' as chat_controller;
+import '../providers/chat_messaging_view_model.dart';
+import '../controllers/chat_search_controller.dart';
+import '../controllers/chat_pairing_dialog_controller.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device; // For central mode (live connection)
@@ -75,7 +81,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   List<Message> _messages = [];
   bool _isLoading = true;
-  bool _pairingDialogShown = false;
   bool _contactRequestInProgress = false;
   StreamSubscription<String>? _messageSubscription;
   StreamSubscription<String>?
@@ -98,10 +103,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _hasScrolledAwayFromBottom =
       false; // Track if user intentionally scrolled up
 
-  // Search state
-  bool _isSearchMode = false;
-  String _searchQuery = '';
-
   // Smart routing demo state
   bool _demoModeEnabled = true; // Auto-enable demo mode
   StreamSubscription? _meshEventSubscription;
@@ -111,6 +112,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   // 🔧 FIX: Cache contact public key to avoid accessing ref during dispose
   String? _cachedContactPublicKey;
+
+  // 🎯 Phase 2C: Extracted components
+  late ChatUIState _uiState;
+  late ChatMessagingViewModel _messagingViewModel;
+  late chat_controller.ChatScrollingController _scrollingController;
+  late ChatSearchController _searchController;
+  late ChatPairingDialogController _pairingDialogController;
 
   /// 🔧 FIX: Safe setState that checks mounted before calling
   void _safeSetState(VoidCallback fn) {
@@ -186,6 +194,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     _currentChatId = _calculateInitialChatId();
     print('🐛 NAV DEBUG: - calculated chatId: $_currentChatId');
+
+    // 🎯 Phase 2C: Initialize extracted components
+    _uiState = ChatUIState();
+    _messagingViewModel = ChatMessagingViewModel(
+      chatId: _chatId,
+      contactPublicKey: _contactPublicKey!,
+      messageRepository: _messageRepository,
+      contactRepository: ContactRepository(),
+    );
+    _scrollingController = chat_controller.ChatScrollingController(
+      messageRepository: _messageRepository,
+      onScrollToBottom: () => _safeSetState(
+        () => _uiState = _uiState.copyWith(newMessagesWhileScrolledUp: 0),
+      ),
+      onUnreadCountChanged: (count) => _safeSetState(
+        () => _uiState = _uiState.copyWith(unreadMessageCount: count),
+      ),
+    );
+
+    // Initialize search controller
+    _searchController = ChatSearchController(
+      onSearchModeToggled: (isSearchMode) => _safeSetState(() {}),
+      onSearchResultsChanged: _onSearch,
+      onNavigateToResult: _navigateToSearchResult,
+      scrollController: _scrollController,
+    );
+
+    // Initialize pairing dialog controller
+    final bleService = ref.read(bleServiceProvider);
+    _pairingDialogController = ChatPairingDialogController(
+      stateManager: BLEStateManager(),
+      connectionManager: bleService.connectionManager,
+      contactRepository: ContactRepository(),
+      context: context,
+      navigator: Navigator.of(context),
+      getTheirPersistentKey: () => bleService.theirPersistentKey,
+      onPairingCompleted: (success) {
+        if (success) {
+          _showSuccess('Pairing successful');
+        }
+      },
+      onPairingError: _showError,
+      onPairingSuccess: _showSuccess,
+    );
 
     // 💬🔑 COMPREHENSIVE CHAT OPEN LOGGING (search: 💬🔑)
     _logChatOpenState();
@@ -540,8 +592,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _userRequestedPairing() async {
-    if (_pairingDialogShown) return;
-
     final connectionInfo = ref.read(connectionInfoProvider).value;
     if (!(connectionInfo?.isConnected ?? false)) {
       _showError('Not connected - cannot pair');
@@ -549,123 +599,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     print('🔑 USER: User requested pairing dialog');
-    _pairingDialogShown = true;
-    _showPairingDialog();
-  }
-
-  void _showPairingDialog() async {
-    final bleService = ref.read(bleServiceProvider);
-    bleService.connectionManager.setPairingInProgress(true);
-    bleService.stateManager.clearPairing();
-
-    final myCode = bleService.stateManager.generatePairingCode();
-
-    // Capture context before async
-    final navigator = Navigator.of(context);
-
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => PairingDialog(
-        myCode: myCode,
-        onCodeEntered: (theirCode) async {
-          final success = await bleService.stateManager.completePairing(
-            theirCode,
-          );
-          if (mounted) navigator.pop(success);
-        },
-        onCancel: () {
-          if (mounted) navigator.pop(false);
-        },
-      ),
-    );
-
-    // Resume health checks after pairing
-    bleService.connectionManager.setPairingInProgress(false);
-
-    if (result == true) {
-      print('🛠 DEBUG: Pairing completed successfully in chat screen');
-
-      final otherKey = bleService.theirPersistentKey;
-      if (otherKey != null) {
-        print('🛠 DEBUG: Attempting security upgrade for: $otherKey');
-        final upgradeResult = await bleService.stateManager
-            .confirmSecurityUpgrade(otherKey, SecurityLevel.medium);
-        print('🛠 DEBUG: Security upgrade result: $upgradeResult');
-      }
-
-      _logger.info('Pairing successful - keeping session active');
-    } else {
-      print('🛠 DEBUG: Pairing failed or cancelled');
-      bleService.stateManager.clearPairing();
-    }
-
-    _pairingDialogShown = false;
+    await _pairingDialogController.userRequestedPairing();
   }
 
   void _handleAsymmetricContact(String publicKey, String displayName) {
     // Only show if we're not already handling this
     if (_contactRequestInProgress) return;
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.sync_problem, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Contact Sync'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '$displayName has you as a verified contact, but you haven\'t added them back yet.',
-            ),
-            SizedBox(height: 12),
-            Text('Add them to enable secure ECDH encryption?'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Not Now'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _addAsVerifiedContact(publicKey, displayName);
-            },
-            child: Text('Add Contact'),
-          ),
-        ],
-      ),
-    );
+    _pairingDialogController.handleAsymmetricContact(publicKey, displayName);
   }
 
   Future<void> _addAsVerifiedContact(
     String publicKey,
     String displayName,
   ) async {
-    try {
-      final contactRepo = ContactRepository();
-      await contactRepo.saveContact(publicKey, displayName);
-      await contactRepo.markContactVerified(publicKey);
-
-      // Compute and cache ECDH shared secret
-      final sharedSecret = SimpleCrypto.computeSharedSecret(publicKey);
-      if (sharedSecret != null) {
-        await contactRepo.cacheSharedSecret(publicKey, sharedSecret);
-
-        // Also restore it in SimpleCrypto for immediate use
-        await SimpleCrypto.restoreConversationKey(publicKey, sharedSecret);
-      }
-
-      _logger.info('Added asymmetric contact as verified: $displayName');
-    } catch (e) {
-      _logger.severe('Failed to add verified contact: $e');
-    }
+    await _pairingDialogController.addAsVerifiedContact(publicKey, displayName);
   }
 
   Future<void> _manualReconnection() async {
@@ -740,77 +688,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _loadMessages() async {
-    // 🔧 OPTION B: Load from BOTH queue (in-flight) and repository (delivered)
+    try {
+      // Delegate to ViewModel with UI callbacks and mesh service integration
+      final meshService = ref.read(meshNetworkingServiceProvider);
 
-    // 1. Load delivered messages from repository (permanent history)
-    final deliveredMessages = await _messageRepository.getMessages(_chatId);
+      final allMessages = await _messagingViewModel.loadMessages(
+        onLoadingStateChanged: (isLoading) {
+          _safeSetState(() {
+            _isLoading = isLoading;
+          });
+        },
+        onGetQueuedMessages: () =>
+            meshService.getQueuedMessagesForChat(_chatId),
+        onScrollToBottom: _scrollToBottom,
+        onError: _showError,
+      );
 
-    // 2. Load in-flight messages from queue (pending delivery)
-    final meshService = ref.read(meshNetworkingServiceProvider);
-    final queuedMessages = meshService.getQueuedMessagesForChat(_chatId);
+      // Update UI with loaded messages
+      _safeSetState(() {
+        _messages = allMessages;
+      });
 
-    // 3. Convert queued messages to Message objects for UI display
-    final pendingMessages = queuedMessages
-        .map(
-          (qm) => Message(
-            id: qm.id,
-            chatId: qm.chatId,
-            content: qm.content,
-            timestamp: qm.queuedAt,
-            isFromMe: true, // Queued messages are always outgoing
-            status: _mapQueuedStatus(qm.status),
-          ),
-        )
-        .toList();
+      // Process any buffered messages from previous lifecycle
+      await _processBufferedMessages();
 
-    // 4. 🔧 FIX: Deduplicate by message ID (delivered messages take precedence)
-    // When a message is delivered, it's in BOTH repository and queue temporarily
-    final deliveredIds = deliveredMessages.map((m) => m.id).toSet();
-    final uniquePending = pendingMessages
-        .where((m) => !deliveredIds.contains(m.id))
-        .toList();
-
-    // 5. Merge both lists and sort by timestamp
-    final allMessages = [...deliveredMessages, ...uniquePending];
-    allMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-    setState(() {
-      _messages = allMessages;
-      _isLoading = false;
-    });
-    _scrollToBottom();
-
-    _logger.info(
-      '📋 Loaded ${deliveredMessages.length} delivered + ${uniquePending.length} pending = ${allMessages.length} total messages (${pendingMessages.length - uniquePending.length} duplicates removed)',
-    );
-
-    // Process any buffered messages from previous lifecycle
-    await _processBufferedMessages();
-
-    // Auto-retry failed messages after a short delay
-    Future.delayed(Duration(milliseconds: 1000), () {
-      if (mounted) {
-        _autoRetryFailedMessages();
-      }
-    });
-  }
-
-  /// Map queue status to UI status
-  MessageStatus _mapQueuedStatus(QueuedMessageStatus queueStatus) {
-    switch (queueStatus) {
-      case QueuedMessageStatus.pending:
-        return MessageStatus.sending;
-      case QueuedMessageStatus.sending:
-        return MessageStatus.sending;
-      case QueuedMessageStatus.retrying:
-        return MessageStatus
-            .sending; // Show as sending (or could add MessageStatus.retrying)
-      case QueuedMessageStatus.failed:
-        return MessageStatus.failed;
-      case QueuedMessageStatus.delivered:
-        return MessageStatus.delivered;
-      default:
-        return MessageStatus.sent;
+      // Auto-retry failed messages after a short delay
+      Future.delayed(Duration(milliseconds: 1000), () {
+        if (mounted) {
+          _autoRetryFailedMessages();
+        }
+      });
+    } catch (e) {
+      _logger.severe('Error in _loadMessages: $e');
+      _showError('Failed to load messages: $e');
     }
   }
 
@@ -824,7 +734,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final offlineQueue = AppCore.instance.messageQueue;
 
       _retryCoordinator = MessageRetryCoordinator(
-        messageRepository: _messageRepository,
         offlineQueue: offlineQueue,
         meshService: meshService,
       );
@@ -1522,9 +1431,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           actions: [
             // Search button
             IconButton(
-              icon: Icon(_isSearchMode ? Icons.close : Icons.search),
+              icon: Icon(
+                _searchController.isSearchMode ? Icons.close : Icons.search,
+              ),
               onPressed: _toggleSearchMode,
-              tooltip: _isSearchMode ? 'Exit search' : 'Search messages',
+              tooltip: _searchController.isSearchMode
+                  ? 'Exit search'
+                  : 'Search messages',
             ),
             // Only show relevant action button
             securityStateAsync.when(
@@ -1546,7 +1459,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               if (_meshInitializing) _buildInitializationStatusPanel(),
 
               // Search bar (when in search mode)
-              if (_isSearchMode)
+              if (_searchController.isSearchMode)
                 ChatSearchBar(
                   messages: _messages,
                   onSearch: _onSearch,
@@ -1570,15 +1483,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           }
 
                           // ✅ NEW: Create the message widget
+                          // 🎯 Architecture note: Manual per-message retry has been removed in favor of:
+                          // 1. Automatic retry via MessageRetryCoordinator (triggered on chat load + connection changes)
+                          // 2. Global "Retry failed messages" button at top of chat
+                          // This ensures central queue-based retry with gossip sync propagation
                           Widget messageWidget = MessageBubble(
                             message: _messages[index],
                             showAvatar: true,
                             showStatus: true,
-                            searchQuery: _isSearchMode ? _searchQuery : null,
-                            onRetry:
-                                _messages[index].status == MessageStatus.failed
-                                ? () => _retryMessage(_messages[index])
+                            searchQuery: _searchController.isSearchMode
+                                ? _searchController.searchQuery
                                 : null,
+                            onRetry:
+                                null, // Manual retry removed - use global "Retry failed messages" button instead
                             onDelete: (messageId, deleteForEveryone) =>
                                 _deleteMessage(messageId, deleteForEveryone),
                           );
@@ -2123,102 +2040,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         };
   }
 
+  // 🎯 PHASE 2C.1 MIGRATION: _sendMessage() delegates to ViewModel
+  // This method now acts as a thin UI wrapper around ChatMessagingViewModel.sendMessage()
+  // The ViewModel handles: AppCore queue integration, logging, temporary message creation, callbacks
+  // ChatScreen handles: Text input/output, state updates via setState()
   void _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
     _messageController.clear();
 
-    print('🔧 SEND DEBUG: Attempting to send message: "$text"');
-
+    // Delegate to ViewModel with UI callbacks
     try {
-      // Get the current contact key (ephemeral or persistent)
-      final recipientKey = _contactPublicKey;
-
-      // 📤🔑 COMPREHENSIVE SEND LOGGING (search: 📤🔑)
-      await _logMessageSendState(recipientKey, text);
-
-      print(
-        '🔧 SEND DEBUG: Using AppCore.sendSecureMessage() for unified routing',
-      );
-      print(
-        '🔧 SEND DEBUG: Recipient key: ${recipientKey != null && recipientKey.length > 16 ? "${recipientKey.shortId()}..." : recipientKey ?? "NULL"}',
-      );
-
-      // Check if we have recipient key (ephemeral or persistent)
-      if (recipientKey == null || recipientKey.isEmpty) {
-        print(
-          '🔧 SEND DEBUG: No recipient key available (handshake may not be complete)',
-        );
-        _showError(
-          'Connection not ready - please wait for handshake to complete',
-        );
-        return;
-      }
-
-      // 🔧 FIX: Get secure messageId FIRST from queue system
-      // This ensures MessageRepository and OfflineMessageQueue use the SAME ID
-      final secureMessageId = await AppCore.instance.sendSecureMessage(
-        chatId: _chatId,
+      await _messagingViewModel.sendMessage(
         content: text,
-        recipientPublicKey: recipientKey,
+        onMessageAdded: (message) {
+          _safeSetState(() {
+            _messages.add(message);
+          });
+        },
+        onShowSuccess: _showSuccess,
+        onShowError: _showError,
+        onScrollToBottom: _scrollToBottom,
       );
-
-      // Message queued successfully - already logged in _logMessageSendState above
-      print(
-        '🔧 SEND DEBUG: Message queued with secure ID: ${secureMessageId.length > 16 ? '${secureMessageId.shortId()}...' : secureMessageId}',
-      );
-
-      // 🎯 OPTION B: Queue owns the message until delivery
-      // Create temporary UI message to show immediately (will be replaced by queue data on reload)
-      final tempMessage = Message(
-        id: secureMessageId,
-        chatId: _chatId,
-        content: text,
-        timestamp: DateTime.now(),
-        isFromMe: true,
-        status: MessageStatus.sending, // Show as sending immediately
-      );
-
-      // ✅ NO REPOSITORY SAVE! Queue will save to repository on delivery
-      // Just update UI to show message immediately
-      setState(() {
-        _messages.add(tempMessage);
-      });
-
-      _showSuccess('✅ Message queued for delivery');
-      print(
-        '🔧 OPTION B: Message in queue (not saved to repository yet) - will save on delivery',
-      );
-      _scrollToBottom();
     } catch (e) {
-      print('🔧 SEND DEBUG: Exception caught: $e');
-      _logger.severe('📤🔑 MESSAGE SEND FAILED: $e');
-      // 🔧 FIX: If queueing fails, show error to user
-      // Don't create a failed message in repository since queue failed
-      _showError('Failed to send message: $e');
+      // ViewModel already logged the error and called onShowError
+      // This catch is for any other unexpected errors
+      _logger.severe('Unexpected error in _sendMessage: $e');
     }
-  }
-
-  Future<void> _logMessageSendState(
-    String? recipientKey,
-    String messageContent,
-  ) async {
-    if (recipientKey == null) return;
-
-    final contactRepo = ContactRepository();
-    final contact = await contactRepo.getContact(recipientKey);
-    final encryptionMethod = await SecurityManager.getEncryptionMethod(
-      recipientKey,
-      contactRepo,
-    );
-
-    final preview = messageContent.length > 30
-        ? "${messageContent.shortId(30)}..."
-        : messageContent;
-    _logger.info(
-      '📤🔑 SEND: "$preview" | To=${recipientKey.shortId()}... | Encryption=${encryptionMethod.type.name} | NoiseSession=${contact?.sessionIdForNoise?.shortId() ?? "NULL"}...',
-    );
   }
 
   Future<void> _logMessageReceiveState(
@@ -2243,128 +2092,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Future<void> _retryMessage(Message failedMessage) async {
-    final bleService = ref.read(bleServiceProvider);
-
-    final connectionInfo = ref.read(connectionInfoProvider).value;
-    if (!(connectionInfo?.isConnected ?? false)) {
-      _showError('Not connected. Please reconnect to the device first.');
-      return;
-    }
-
-    _showSuccess('Retrying message...');
-
-    // Update to sending status
-    final retryMessage = failedMessage.copyWith(status: MessageStatus.sending);
-    await _messageRepository.updateMessage(retryMessage);
-    setState(() {
-      final index = _messages.indexWhere((m) => m.id == failedMessage.id);
-      if (index != -1) {
-        _messages[index] = retryMessage;
-      }
-    });
-
-    // Retry sending
-    try {
-      final success = await bleService.sendMessage(
-        failedMessage.content,
-        messageId: failedMessage.id,
-      );
-
-      final newStatus = success
-          ? MessageStatus.delivered
-          : MessageStatus.failed;
-      final updatedMessage = retryMessage.copyWith(status: newStatus);
-      await _messageRepository.updateMessage(updatedMessage);
-      setState(() {
-        final index = _messages.indexWhere((m) => m.id == failedMessage.id);
-        if (index != -1) {
-          _messages[index] = updatedMessage;
-        }
-      });
-
-      if (success) {
-        _showSuccess('Message delivered!');
-      } else {
-        _showError('Retry failed - message timeout');
-      }
-    } catch (e) {
-      final failedAgain = retryMessage.copyWith(status: MessageStatus.failed);
-      await _messageRepository.updateMessage(failedAgain);
-      setState(() {
-        final index = _messages.indexWhere((m) => m.id == failedMessage.id);
-        if (index != -1) {
-          _messages[index] = failedAgain;
-        }
-      });
-      _showError('Retry failed: ${e.toString().split(':').last}');
-    }
-  }
-
   Future<void> _deleteMessage(String messageId, bool deleteForEveryone) async {
     try {
-      // Delete from local repository
-      final success = await _messageRepository.deleteMessage(messageId);
-
-      if (success) {
-        // Remove from UI immediately (optimistic update)
-        setState(() {
-          _messages.removeWhere((message) => message.id == messageId);
-        });
-
-        // If deleteForEveryone is true, send deletion request (using MessageRouter for offline reliability)
-        if (deleteForEveryone) {
-          try {
-            // Send deletion request using MessageRouter (BitChat pattern)
-            // MessageRouter will queue if peer offline and auto-send when online
-            final deletionMessage = 'DELETE_MESSAGE:$messageId';
-            final router = MessageRouter.instance;
-
-            final result = await router.sendMessage(
-              content: deletionMessage,
-              recipientId: _contactPublicKey ?? _chatId,
-              recipientName: _displayContactName,
-            );
-
-            if (result.isSentDirectly) {
-              _showSuccess('Message deleted for everyone');
-            } else if (result.isQueued) {
-              _showSuccess(
-                'Message deleted - deletion request queued (will send when peer online)',
-              );
-            } else {
-              _showSuccess('Message deleted locally (remote deletion queued)');
-            }
-          } catch (e) {
-            _logger.warning('Failed to send deletion request: $e');
-            _showSuccess('Message deleted locally (remote deletion failed)');
-          }
-        } else {
-          _showSuccess('Message deleted');
-        }
-      } else {
-        _showError('Failed to delete message');
-      }
+      // Delegate to ViewModel with UI callbacks
+      await _messagingViewModel.deleteMessage(
+        messageId: messageId,
+        deleteForEveryone: deleteForEveryone,
+        onMessageRemoved: (id) {
+          _safeSetState(() {
+            _messages.removeWhere((message) => message.id == id);
+          });
+        },
+        onShowSuccess: _showSuccess,
+        onShowError: _showError,
+      );
     } catch (e) {
-      _logger.severe('Error deleting message: $e');
-      _showError('Failed to delete message: $e');
+      _logger.severe('Unexpected error in _deleteMessage: $e');
     }
   }
 
   void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients && mounted) {
-        Future.delayed(Duration(milliseconds: 50), () {
-          if (_scrollController.hasClients && mounted) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-            );
-          }
-        });
-      }
-    });
+    // 🎯 PHASE 2C.4 MIGRATION: Delegate to ChatScrollingController
+    // The controller has a more robust scrollToBottom() implementation with proper
+    // error handling and logging. This method acts as a thin wrapper for backward compatibility.
+    _scrollingController.scrollToBottom(); // Fire and forget async operation
   }
 
   String _getMessageHintText() {
@@ -2517,38 +2268,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Toggle search mode
   void _toggleSearchMode() {
-    setState(() {
-      if (_isSearchMode) {
-        // Exit search mode
-        _isSearchMode = false;
-        _searchQuery = '';
-      } else {
-        // Enter search mode
-        _isSearchMode = true;
-      }
-    });
-
-    _logger.info('Search mode toggled: $_isSearchMode');
+    _searchController.toggleSearchMode();
+    // Trigger UI rebuild to reflect search mode change
+    _safeSetState(() {});
   }
 
   /// Handle search query changes
   void _onSearch(String query, List<SearchResult> results) {
-    setState(() {
-      _searchQuery = query;
-      // Search results are handled by the search widget directly
-    });
+    // Trigger UI rebuild to reflect search results
+    _safeSetState(() {});
   }
 
   /// Navigate to a specific search result
   void _navigateToSearchResult(int messageIndex) {
-    if (messageIndex >= 0 && messageIndex < _messages.length) {
-      _scrollController.animateTo(
-        // Calculate approximate position - this is a simple estimation
-        messageIndex * 120.0, // Rough estimate of message height
-        duration: Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    }
+    _searchController.navigateToSearchResult(messageIndex, _messages.length);
   }
 
   /// Build initialization status panel
@@ -2643,6 +2376,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     _unreadSeparatorTimer?.cancel();
+
+    // 🎯 Phase 2C: Clean up extracted components
+    _scrollingController.dispose();
+    _messagingViewModel.dispose();
+    _searchController.clear();
+    _pairingDialogController.clear();
 
     super.dispose();
 
