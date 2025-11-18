@@ -605,6 +605,13 @@ class BLEStateManager {
     } catch (e) {
       _logger.severe('Verification failed: $e');
       _currentPairing = _currentPairing!.copyWith(state: PairingState.failed);
+
+      // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
+      if (_theirPersistentKey != null) {
+        SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+        _logger.info('🔐 Unregistered identity mapping due to verification failure');
+      }
+
       return false;
     }
   }
@@ -812,6 +819,12 @@ class BLEStateManager {
       '❌ STEP 3: Pairing cancelled by other device${reason != null ? ": $reason" : ""}',
     );
 
+    // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
+    if (_theirPersistentKey != null) {
+      SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+      _logger.info('🔐 Unregistered identity mapping due to pairing cancellation');
+    }
+
     // Close any open dialogs/states
     _currentPairing = _currentPairing?.copyWith(state: PairingState.cancelled);
     _pairingTimeout?.cancel();
@@ -835,6 +848,12 @@ class BLEStateManager {
     _logger.info(
       '🚫 STEP 3: Cancelling pairing${reason != null ? ": $reason" : ""}',
     );
+
+    // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
+    if (_theirPersistentKey != null) {
+      SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+      _logger.info('🔐 Unregistered identity mapping due to user cancellation');
+    }
 
     // Send cancel message to other device
     final message = ProtocolMessage.pairingCancel(
