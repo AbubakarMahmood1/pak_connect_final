@@ -10,7 +10,9 @@ import '../test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'mesh_routing_integration',
+    );
   });
 
   group('Mesh Routing Integration', () {

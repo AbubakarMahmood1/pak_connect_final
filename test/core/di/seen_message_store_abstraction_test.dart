@@ -9,7 +9,9 @@ void main() {
 
     setUpAll(() async {
       // Only initialize once for the entire group
-      await TestSetup.initializeTestEnvironment();
+      await TestSetup.initializeTestEnvironment(
+        dbLabel: 'seen_message_store_abstraction',
+      );
     });
 
     setUp(() async {

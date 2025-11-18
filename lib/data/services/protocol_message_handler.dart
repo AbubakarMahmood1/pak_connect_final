@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_protocol_message_handler.dart';
+import '../../core/models/mesh_relay_models.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/security/signing_manager.dart';
 import '../../core/services/security_manager.dart';
@@ -39,7 +41,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   /// Sets current node ID for routing and identity checks
   void setCurrentNodeId(String nodeId) {
     _currentNodeId = nodeId;
-    _logger.fine('📍 Current node ID set: ${nodeId.substring(0, 8)}...');
+    final previewLength = nodeId.length >= 8 ? 8 : nodeId.length;
+    final preview = nodeId.substring(0, previewLength);
+    _logger.fine('📍 Current node ID set: $preview...');
   }
 
   /// Processes a received protocol message
@@ -67,7 +71,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   }) async {
     try {
       final protocolMessage = ProtocolMessage.fromBytes(
-        content.codeUnits.cast<int>().toList() as List<int>,
+        Uint8List.fromList(content.codeUnits),
       );
       return await _processProtocolMessage(protocolMessage, fromNodeId);
     } catch (e) {
@@ -250,8 +254,8 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   /// Handles crypto verification request
   Future<String?> _handleCryptoVerification(ProtocolMessage message) async {
     try {
-      final verificationId = message.cryptoVerificationId;
-      final contactKey = message.cryptoVerificationContactKey;
+      final verificationId = message.payload['verificationId'] as String?;
+      final contactKey = message.payload['contactKey'] as String?;
 
       if (verificationId != null && contactKey != null) {
         _logger.info('🔐 Crypto verification requested');
@@ -269,9 +273,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     ProtocolMessage message,
   ) async {
     try {
-      final verificationId = message.cryptoVerificationResponseId;
-      final contactKey = message.cryptoVerificationResponseContactKey;
-      final isVerified = message.cryptoVerificationResponseIsVerified;
+      final verificationId = message.payload['verificationId'] as String?;
+      final contactKey = message.payload['contactKey'] as String?;
+      final isVerified = (message.payload['isVerified'] as bool?) ?? false;
 
       if (verificationId != null && contactKey != null) {
         _logger.info(
@@ -280,7 +284,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         _onCryptoVerificationResponseReceived?.call(
           verificationId,
           contactKey,
-          isVerified ?? false,
+          isVerified,
           message.payload,
         );
       }
@@ -297,17 +301,12 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     String fromNodeId,
   ) async {
     try {
-      final queueHash = message.payload['queueHash'] as String?;
-      final messageIds = (message.payload['messageIds'] as List<dynamic>?)
-          ?.cast<String>();
-
-      if (queueHash != null && messageIds != null) {
-        final syncMessage = QueueSyncMessage.createRequest(
-          messageIds: messageIds,
-          nodeId: fromNodeId,
-        );
-        _onQueueSyncReceived?.call(syncMessage, fromNodeId);
+      final queueMessage = message.queueSyncMessage;
+      if (queueMessage != null) {
+        _onQueueSyncReceived?.call(queueMessage, fromNodeId);
         _logger.info('📦 Queue sync received');
+      } else {
+        _logger.warning('⚠️ Queue sync payload missing expected fields');
       }
       return null;
     } catch (e) {
@@ -319,7 +318,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   /// Handles friend reveal (spy mode identity disclosure)
   Future<String?> _handleFriendReveal(ProtocolMessage message) async {
     try {
-      final contactName = message.friendRevealContactName;
+      final contactName =
+          message.payload['contactName'] as String? ??
+          message.payload['myPersistentKey'] as String?;
       if (contactName != null) {
         _logger.warning('👁️ Friend reveal: $contactName');
         _onIdentityRevealed?.call(contactName);

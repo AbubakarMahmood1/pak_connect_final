@@ -68,6 +68,12 @@ flutter test test/database_migration_test.dart
 flutter test test/contact_repository_sqlite_test.dart
 ```
 
+## Harness Checklist
+- Every suite that touches the database or DI graph must call `TestSetup.initializeTestEnvironment(dbLabel: ...)` and, inside `setUp`, use `configureTestDatabase` + `setupTestDI` so sqlite files remain isolated.
+- Prefer the canonical helpers in `test/test_helpers/test_setup.dart` over ad-hoc `cleanupDatabase` calls; they already disable `BatteryOptimizer` and plugin-backed singletons for Flutter tests.
+- BLE tests must rely on the new `IBLEPlatformHost` seam (`lib/core/interfaces/i_ble_platform_host.dart`). When exercising `BLEServiceFacade`, inject `_FakeBlePlatformHost` plus stub sub-services (see `test/services/ble_service_facade_test.dart`) instead of instantiating `CentralManager()`/`PeripheralManager()` directly.
+- Long-form harness runs should export logs by running `set -o pipefail; flutter test --coverage | tee flutter_test_latest.log`; CI depends on the log + `coverage/lcov.info`, so keep that command stable.
+
 ## Architecture Overview
 
 ### Layered Architecture Pattern

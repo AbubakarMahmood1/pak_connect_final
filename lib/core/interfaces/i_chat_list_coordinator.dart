@@ -1,3 +1,4 @@
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../../domain/entities/chat_list_item.dart';
 
 /// Interface for managing chat list operations

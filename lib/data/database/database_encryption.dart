@@ -1,6 +1,7 @@
 // Database encryption key management using FlutterSecureStorage
 // Provides transparent encryption at rest without user friction
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
 import 'dart:math';
@@ -18,7 +19,7 @@ class DatabaseEncryptionException implements Exception {
 class DatabaseEncryption {
   static final _logger = Logger('DatabaseEncryption');
   static const String _encryptionKeyStorageKey = 'db_encryption_key_v1';
-  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
+  static FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
   // 🔧 FIX: Cache encryption key to prevent duplicate secure storage reads
   static String? _cachedEncryptionKey;
@@ -114,5 +115,22 @@ class DatabaseEncryption {
       _logger.warning('Failed to check encryption key existence: $e');
       return false;
     }
+  }
+
+  /// Allow tests to override secure storage with an in-memory implementation.
+  @visibleForTesting
+  static void overrideSecureStorage(FlutterSecureStorage storage) {
+    _secureStorage = storage;
+    _cachedEncryptionKey = null;
+    _logger.warning(
+      '⚠️ DatabaseEncryption secure storage overridden for tests',
+    );
+  }
+
+  /// Reset secure storage override (restores real plugin usage).
+  @visibleForTesting
+  static void resetSecureStorageOverride() {
+    _secureStorage = const FlutterSecureStorage();
+    _cachedEncryptionKey = null;
   }
 }

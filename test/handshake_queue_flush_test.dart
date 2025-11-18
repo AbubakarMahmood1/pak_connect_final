@@ -4,13 +4,12 @@ import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'test_helpers/test_setup.dart';
 
 void main() {
-  // Initialize sqflite_ffi for testing
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment(dbLabel: 'handshake_queue_flush');
   });
 
   group('Handshake Queue Flush Integration', () {
@@ -22,11 +21,7 @@ void main() {
     final peerDisplayName = 'Test Peer';
 
     setUp(() async {
-      // Setup database
-      final testDbName =
-          'test_handshake_flush_${DateTime.now().millisecondsSinceEpoch}.db';
-      DatabaseHelper.setTestDatabaseName(testDbName);
-      await DatabaseHelper.deleteDatabase();
+      await TestSetup.configureTestDatabase(label: 'handshake_queue_flush');
 
       // Initialize queue
       queue = OfflineMessageQueue();
@@ -50,7 +45,7 @@ void main() {
       queue.dispose();
       coordinator.dispose();
       await DatabaseHelper.close();
-      await DatabaseHelper.deleteDatabase();
+      await TestSetup.nukeDatabase();
     });
 
     test('handshake success triggers queue flush', () async {

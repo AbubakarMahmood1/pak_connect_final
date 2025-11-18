@@ -7,7 +7,7 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'message_sending_fixes');
     await SecurityManager.initialize();
   });
 
@@ -16,12 +16,12 @@ void main() {
   });
 
   setUp(() async {
-    await TestSetup.cleanupDatabase();
+    await TestSetup.configureTestDatabase(label: 'message_sending_fixes');
     TestSetup.resetSharedPreferences();
   });
 
   tearDown(() async {
-    await TestSetup.completeCleanup();
+    await TestSetup.nukeDatabase();
   });
 
   group('SecurityManager Empty String Handling', () {

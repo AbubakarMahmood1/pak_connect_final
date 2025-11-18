@@ -9,12 +9,13 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'relay_phase1');
   });
 
   group('Phase 1: Relay Config Manager', () {
     // Reset config before each test
     setUp(() async {
+      await TestSetup.configureTestDatabase(label: 'relay_phase1');
       TestSetup.resetSharedPreferences();
       final config = RelayConfigManager.instance;
       await config.resetToDefaults();
@@ -44,6 +45,10 @@ void main() {
       // Re-enable
       await config.enableRelay();
       expect(config.isRelayEnabled(), isTrue);
+    });
+
+    tearDown(() async {
+      await TestSetup.nukeDatabase();
     });
 
     test('Should validate battery threshold', () async {

@@ -6,7 +6,7 @@ import '../test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'mesh_routing_service');
   });
 
   group('MeshRoutingService', () {
@@ -19,6 +19,7 @@ void main() {
     const String nodeD = 'node_d_fghij';
 
     setUp(() async {
+      await TestSetup.configureTestDatabase(label: 'mesh_routing_service');
       topologyAnalyzer = NetworkTopologyAnalyzer();
       await topologyAnalyzer.initialize();
 

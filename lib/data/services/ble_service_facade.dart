@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_ble_service_facade.dart';
+import '../../core/interfaces/i_ble_platform_host.dart';
 import '../../core/interfaces/i_ble_connection_service.dart';
 import '../../core/interfaces/i_ble_messaging_service.dart';
 import '../../core/interfaces/i_ble_discovery_service.dart';
@@ -24,7 +25,7 @@ import '../../core/bluetooth/advertising_manager.dart';
 import '../../core/bluetooth/peripheral_initializer.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/services/hint_scanner_service.dart';
-import '../../core/security/ephemeral_key_manager.dart';
+import '../../core/bluetooth/ble_platform_host.dart';
 
 /// Main orchestrator for the entire BLE stack.
 ///
@@ -40,13 +41,14 @@ import '../../core/security/ephemeral_key_manager.dart';
 /// - Handle graceful shutdown and resource cleanup
 class BLEServiceFacade implements IBLEServiceFacade {
   final _logger = Logger('BLEServiceFacade');
+  final IBLEPlatformHost _platformHost;
 
   // Sub-services (lazy-initialized)
   BLEConnectionService? _connectionService;
-  BLEMessagingService? _messagingService;
-  BLEDiscoveryService? _discoveryService;
-  BLEAdvertisingService? _advertisingService;
-  BLEHandshakeService? _handshakeService;
+  IBLEMessagingService? _messagingService;
+  IBLEDiscoveryService? _discoveryService;
+  IBLEAdvertisingService? _advertisingService;
+  IBLEHandshakeService? _handshakeService;
 
   // State
   ConnectionInfo _currentConnectionInfo = ConnectionInfo(
@@ -60,7 +62,19 @@ class BLEServiceFacade implements IBLEServiceFacade {
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
 
-  BLEServiceFacade() {
+  BLEServiceFacade({
+    IBLEPlatformHost? platformHost,
+    BLEConnectionService? connectionService,
+    IBLEMessagingService? messagingService,
+    IBLEDiscoveryService? discoveryService,
+    IBLEAdvertisingService? advertisingService,
+    IBLEHandshakeService? handshakeService,
+  }) : _platformHost = platformHost ?? BlePlatformHost(),
+       _connectionService = connectionService,
+       _messagingService = messagingService,
+       _discoveryService = discoveryService,
+       _advertisingService = advertisingService,
+       _handshakeService = handshakeService {
     // Immediate completion - actual initialization is deferred
     _initializationCompleter.complete();
   }
@@ -70,19 +84,19 @@ class BLEServiceFacade implements IBLEServiceFacade {
     return _connectionService ??= BLEConnectionService(
       stateManager: BLEStateManager(),
       connectionManager: BLEConnectionManager(
-        centralManager: CentralManager(),
-        peripheralManager: PeripheralManager(),
+        centralManager: _platformHost.centralManager,
+        peripheralManager: _platformHost.peripheralManager,
       ),
-      centralManager: CentralManager(),
+      centralManager: _platformHost.centralManager,
       bluetoothStateMonitor: BluetoothStateMonitor.instance,
       onUpdateConnectionInfo: _updateConnectionInfo,
     );
   }
 
   /// Get or create discovery service (lazy singleton)
-  BLEDiscoveryService _getDiscoveryService() {
+  IBLEDiscoveryService _getDiscoveryService() {
     return _discoveryService ??= BLEDiscoveryService(
-      centralManager: CentralManager(),
+      centralManager: _platformHost.centralManager,
       stateManager: BLEStateManager(),
       hintScanner: HintScannerService(),
       onUpdateConnectionInfo: _updateConnectionInfo,
@@ -92,35 +106,39 @@ class BLEServiceFacade implements IBLEServiceFacade {
   }
 
   /// Get or create advertising service (lazy singleton)
-  BLEAdvertisingService _getAdvertisingService() {
+  IBLEAdvertisingService _getAdvertisingService() {
     return _advertisingService ??= BLEAdvertisingService(
       stateManager: BLEStateManager(),
       connectionManager: BLEConnectionManager(
-        centralManager: CentralManager(),
-        peripheralManager: PeripheralManager(),
+        centralManager: _platformHost.centralManager,
+        peripheralManager: _platformHost.peripheralManager,
       ),
       advertisingManager: AdvertisingManager(
-        peripheralInitializer: PeripheralInitializer(PeripheralManager()),
-        peripheralManager: PeripheralManager(),
+        peripheralInitializer: PeripheralInitializer(
+          _platformHost.peripheralManager,
+        ),
+        peripheralManager: _platformHost.peripheralManager,
         introHintRepo: IntroHintRepository(),
       ),
-      peripheralInitializer: PeripheralInitializer(PeripheralManager()),
-      peripheralManager: PeripheralManager(),
+      peripheralInitializer: PeripheralInitializer(
+        _platformHost.peripheralManager,
+      ),
+      peripheralManager: _platformHost.peripheralManager,
       onUpdateConnectionInfo: _updateConnectionInfo,
     );
   }
 
   /// Get or create messaging service (lazy singleton)
-  BLEMessagingService _getMessagingService() {
+  IBLEMessagingService _getMessagingService() {
     return _messagingService ??= BLEMessagingService(
       messageHandler: BLEMessageHandler(),
       connectionManager: BLEConnectionManager(
-        centralManager: CentralManager(),
-        peripheralManager: PeripheralManager(),
+        centralManager: _platformHost.centralManager,
+        peripheralManager: _platformHost.peripheralManager,
       ),
       stateManager: BLEStateManager(),
-      getCentralManager: () => CentralManager(),
-      getPeripheralManager: () => PeripheralManager(),
+      getCentralManager: () => _platformHost.centralManager,
+      getPeripheralManager: () => _platformHost.peripheralManager,
       messagesController: StreamController<String>.broadcast(),
       getConnectedCentral: () => null,
       getPeripheralMessageCharacteristic: () => null,
@@ -130,7 +148,7 @@ class BLEServiceFacade implements IBLEServiceFacade {
   }
 
   /// Get or create handshake service (lazy singleton)
-  BLEHandshakeService _getHandshakeService() {
+  IBLEHandshakeService _getHandshakeService() {
     return _handshakeService ??= BLEHandshakeService(
       stateManager: BLEStateManager(),
       onIdentityExchangeSent: (ephemeralId, displayName) {},
@@ -157,6 +175,15 @@ class BLEServiceFacade implements IBLEServiceFacade {
   @override
   Future<void> initialize() async {
     _logger.info('🏗️ Initializing BLEServiceFacade (lazy initialization)...');
+    try {
+      await _platformHost.ensureEphemeralKeysInitialized();
+    } catch (e, stack) {
+      _logger.warning(
+        'Failed to ensure ephemeral keys are initialized',
+        e,
+        stack,
+      );
+    }
     // Note: Sub-services are created on-demand (lazy singleton pattern)
     // This ensures proper initialization order and dependency resolution
     _logger.info('✅ BLEServiceFacade ready');
@@ -204,9 +231,9 @@ class BLEServiceFacade implements IBLEServiceFacade {
   @override
   Future<String> getMyEphemeralId() async {
     try {
-      return EphemeralKeyManager.generateMyEphemeralKey();
-    } catch (e) {
-      _logger.warning('EphemeralKeyManager not available', e);
+      return _platformHost.getCurrentEphemeralId();
+    } catch (e, stack) {
+      _logger.warning('Ephemeral key provider not available', e, stack);
       return 'temp_ephemeral_id';
     }
   }

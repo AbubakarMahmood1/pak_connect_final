@@ -107,9 +107,34 @@ class PinningService {
     }
   }
 
+  /// Pin or unpin a chat (max 3 pinned chats)
+  Future<ChatOperationResult> toggleChatPin(String chatId) async {
+    try {
+      if (_pinnedChats.contains(chatId)) {
+        _pinnedChats.remove(chatId);
+        await _savePinnedChats();
+        return ChatOperationResult.success('Chat unpinned');
+      }
+
+      if (_pinnedChats.length >= 3) {
+        return ChatOperationResult.failure('Maximum 3 chats can be pinned');
+      }
+
+      _pinnedChats.add(chatId);
+      await _savePinnedChats();
+      return ChatOperationResult.success('Chat pinned');
+    } catch (e) {
+      _logger.severe('❌ Failed to toggle chat pin: $e');
+      return ChatOperationResult.failure('Failed to toggle pin: $e');
+    }
+  }
+
   /// Check if message is starred
   bool isMessageStarred(String messageId) =>
       _starredMessageIds.contains(messageId);
+
+  /// Check if chat is pinned
+  bool isChatPinned(String chatId) => _pinnedChats.contains(chatId);
 
   /// Get pinned chats count
   int get pinnedChatsCount => _pinnedChats.length;

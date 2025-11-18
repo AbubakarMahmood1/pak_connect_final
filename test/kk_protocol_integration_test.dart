@@ -99,7 +99,9 @@ void main() {
   late MockSecureStorage mockStorage;
 
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'kk_protocol_integration',
+    );
     mockStorage = MockSecureStorage();
     await SecurityManager.initialize(secureStorage: mockStorage);
   });

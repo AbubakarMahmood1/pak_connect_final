@@ -31,7 +31,7 @@ class ChatListCoordinator implements IChatListCoordinator {
   String _searchQuery = '';
   Timer? _refreshTimer;
   StreamSubscription? _globalMessageSubscription;
-  Map<String, dynamic>? _lastDiscoveryData;
+  Map<String, DiscoveredEventArgs>? _lastDiscoveryData;
 
   // Unread count stream controller
   final StreamController<int> _unreadCountController =
@@ -71,7 +71,7 @@ class ChatListCoordinator implements IChatListCoordinator {
 
       final chats = await _chatsRepository!.getAllChats(
         nearbyDevices: nearbyDevices,
-        discoveryData: _lastDiscoveryData ?? <String, dynamic>{},
+        discoveryData: _lastDiscoveryData ?? <String, DiscoveredEventArgs>{},
         searchQuery: searchQuery?.isEmpty ?? true ? null : searchQuery,
       );
 
@@ -104,7 +104,7 @@ class ChatListCoordinator implements IChatListCoordinator {
       // Get fresh list to find the updated chat
       final updatedChats = await _chatsRepository!.getAllChats(
         nearbyDevices: nearbyDevices,
-        discoveryData: _lastDiscoveryData ?? <String, dynamic>{},
+        discoveryData: _lastDiscoveryData ?? <String, DiscoveredEventArgs>{},
         searchQuery: _searchQuery.isEmpty ? null : _searchQuery,
       );
 

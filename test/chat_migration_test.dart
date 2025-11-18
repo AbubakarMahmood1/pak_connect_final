@@ -9,7 +9,7 @@ import 'test_helpers/test_setup.dart';
 void main() {
   // Initialize test environment
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'chat_migration');
   });
 
   // Reset database before each test

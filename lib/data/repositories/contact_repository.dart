@@ -341,6 +341,15 @@ class ContactRepository implements IContactRepository {
   }) async {
     final contact = await getContact(publicKey);
     if (contact != null) {
+      final now = DateTime.now();
+      final existingHandshake = contact.lastHandshakeTime;
+      final shouldRefreshTimestamp = sessionState == 'established';
+      final resolvedHandshakeTime = shouldRefreshTimestamp
+          ? (existingHandshake == null || now.isAfter(existingHandshake)
+                ? now
+                : existingHandshake)
+          : existingHandshake;
+
       final updated = Contact(
         publicKey: contact.publicKey,
         displayName: contact.displayName,
@@ -351,7 +360,7 @@ class ContactRepository implements IContactRepository {
         lastSecuritySync: contact.lastSecuritySync,
         noisePublicKey: noisePublicKey,
         noiseSessionState: sessionState,
-        lastHandshakeTime: DateTime.now(),
+        lastHandshakeTime: resolvedHandshakeTime,
         isFavorite: contact.isFavorite,
       );
       await _storeContact(updated);

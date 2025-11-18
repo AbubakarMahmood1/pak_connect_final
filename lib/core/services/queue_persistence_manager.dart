@@ -220,8 +220,11 @@ class QueuePersistenceManager implements IQueuePersistenceManager {
 
       // Check for orphaned rows (messages with no corresponding chat)
       final orphanedResult = await db.rawQuery('''
-        SELECT COUNT(*) as count FROM $_offlineQueueTable q
-        WHERE NOT EXISTS (SELECT 1 FROM chats WHERE id = q.chat_id)
+        SELECT COUNT(*) as count FROM $_offlineQueueTable
+        WHERE NOT EXISTS (
+          SELECT 1 FROM chats
+          WHERE chats.chat_id = $_offlineQueueTable.chat_id
+        )
       ''');
       final orphanedCount = (orphanedResult.first['count'] as int?) ?? 0;
 
@@ -266,8 +269,11 @@ class QueuePersistenceManager implements IQueuePersistenceManager {
       await db.transaction((txn) async {
         // Remove orphaned messages (where chat was deleted)
         final orphanedResult = await txn.rawDelete('''
-          DELETE FROM $_offlineQueueTable q
-          WHERE NOT EXISTS (SELECT 1 FROM chats WHERE id = q.chat_id)
+          DELETE FROM $_offlineQueueTable
+          WHERE NOT EXISTS (
+            SELECT 1 FROM chats
+            WHERE chats.chat_id = $_offlineQueueTable.chat_id
+          )
         ''');
         rowsFixed += orphanedResult;
 

@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
+import 'package:mockito/annotations.dart';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
 
 import 'package:pak_connect/data/services/ble_messaging_service.dart';
@@ -7,17 +9,17 @@ import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart' as relay_models;
+import 'ble_messaging_service_test.mocks.dart';
 
-// Simplified mocks that avoid Bluetooth type constraints
-class MockBLEMessageHandler extends Mock implements BLEMessageHandler {}
+@GenerateNiceMocks([
+  MockSpec<BLEMessageHandler>(),
+  MockSpec<BLEConnectionManager>(),
+  MockSpec<BLEStateManager>(),
+])
+// Simplified BLE platform manager mocks (no plugin dependency)
+class MockCentralManager extends Mock implements CentralManager {}
 
-class MockBLEConnectionManager extends Mock implements BLEConnectionManager {}
-
-class MockBLEStateManager extends Mock implements BLEStateManager {}
-
-class MockCentralManager extends Mock {}
-
-class MockPeripheralManager extends Mock {}
+class MockPeripheralManager extends Mock implements PeripheralManager {}
 
 void main() {
   group('BLEMessagingService', () {
