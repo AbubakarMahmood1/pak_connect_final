@@ -5,7 +5,7 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'username_propagation');
   });
 
   group('Username Propagation Tests', () {

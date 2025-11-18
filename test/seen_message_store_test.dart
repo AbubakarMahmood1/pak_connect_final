@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/services/seen_message_store.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 import 'test_helpers/test_setup.dart';
 
@@ -8,20 +9,21 @@ const _testLimit = 200;
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'seen_message_store');
   });
 
   group('SeenMessageStore', () {
     late SeenMessageStore store;
 
     setUp(() async {
-      // Use a unique test database for each test
-      final testDbName =
-          'test_seen_${DateTime.now().millisecondsSinceEpoch}.db';
-      DatabaseHelper.setTestDatabaseName(testDbName);
+      await TestSetup.configureTestDatabase(label: 'seen_message_store');
 
-      // Delete any existing test database
-      await DatabaseHelper.deleteDatabase();
+      // Seed a placeholder contact to satisfy chat/contact FK constraints
+      final contactRepository = ContactRepository();
+      await contactRepository.saveContact(
+        'seen_store_contact',
+        'Seen Store Contact',
+      );
 
       store = SeenMessageStore.instance;
       await store.initialize();
@@ -31,7 +33,7 @@ void main() {
     tearDown(() async {
       await store.clear();
       store.resetForTests();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     test('initializes correctly', () async {

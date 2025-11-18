@@ -10,7 +10,7 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'message_routing_fix');
   });
 
   group('Message Routing Fix Tests', () {
@@ -21,13 +21,17 @@ void main() {
     const String arshadPublicKey = 'arshad_public_key_67890';
 
     setUp(() async {
-      await TestSetup.cleanupDatabase();
+      await TestSetup.configureTestDatabase(label: 'message_routing_fix');
       TestSetup.resetSharedPreferences();
       await EphemeralKeyManager.initialize('test_private_key_1234567890');
       await seedTestUserPublicKey(aliPublicKey);
       messageHandler = BLEMessageHandler();
       contactRepository = ContactRepository();
       messageHandler.setCurrentNodeId(aliPublicKey);
+    });
+
+    tearDown(() async {
+      await TestSetup.nukeDatabase();
     });
 
     test('Should block own messages from appearing as incoming', () async {

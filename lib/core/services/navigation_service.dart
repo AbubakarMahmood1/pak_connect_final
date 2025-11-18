@@ -3,24 +3,43 @@
 
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import '../../presentation/screens/chat_screen.dart';
-import '../../presentation/screens/contacts_screen.dart';
+
+/// Type definitions for screen builders
+/// These allow the presentation layer to register screen implementations
+/// without the core layer importing from presentation
+typedef ChatScreenBuilder =
+    Widget Function({
+      required String chatId,
+      required String contactName,
+      required String contactPublicKey,
+    });
+
+typedef ContactsScreenBuilder = Widget Function();
 
 /// Global navigation service for background operations
 ///
 /// Allows navigation from anywhere in the app, including notification handlers
 /// that don't have access to BuildContext.
 ///
+/// Uses callback-based registration to avoid Core → Presentation layer violations.
+///
 /// USAGE:
 /// ```dart
-/// // In main.dart MaterialApp:
+/// // In presentation layer (e.g., main.dart):
+/// NavigationService.setChatScreenBuilder(
+///   ({required chatId, required contactName, required contactPublicKey}) =>
+///     ChatScreen.fromChatData(chatId: chatId, contactName: contactName, contactPublicKey: contactPublicKey),
+/// );
+/// NavigationService.setContactsScreenBuilder(() => const ContactsScreen());
+///
+/// // In MaterialApp:
 /// MaterialApp(
 ///   navigatorKey: NavigationService.navigatorKey,
 ///   ...
 /// )
 ///
 /// // From anywhere (e.g., notification handler):
-/// NavigationService.instance.navigateToChat(chatId: '123', contactName: 'Ali');
+/// NavigationService.instance.navigateToChatById(chatId: '123', contactName: 'Ali');
 /// ```
 class NavigationService {
   static final _logger = Logger('NavigationService');
@@ -33,7 +52,25 @@ class NavigationService {
   static final GlobalKey<NavigatorState> navigatorKey =
       GlobalKey<NavigatorState>();
 
+  // Screen builders - registered by presentation layer
+  static ChatScreenBuilder? _chatScreenBuilder;
+  static ContactsScreenBuilder? _contactsScreenBuilder;
+
   NavigationService._internal();
+
+  /// Register the ChatScreen builder
+  /// Called from presentation layer during initialization
+  static void setChatScreenBuilder(ChatScreenBuilder builder) {
+    _chatScreenBuilder = builder;
+    _logger.info('✅ ChatScreen builder registered');
+  }
+
+  /// Register the ContactsScreen builder
+  /// Called from presentation layer during initialization
+  static void setContactsScreenBuilder(ContactsScreenBuilder builder) {
+    _contactsScreenBuilder = builder;
+    _logger.info('✅ ContactsScreen builder registered');
+  }
 
   /// Get the navigator context
   BuildContext? get context => navigatorKey.currentContext;
@@ -54,12 +91,20 @@ class NavigationService {
       return;
     }
 
+    if (_chatScreenBuilder == null) {
+      _logger.severe(
+        'Cannot navigate to chat: ChatScreen builder not registered. '
+        'Call NavigationService.setChatScreenBuilder() during app initialization.',
+      );
+      return;
+    }
+
     try {
-      _logger.info('Navigating to chat: $chatId ($contactName)');
+      _logger.info('📱 Navigating to chat: $chatId ($contactName)');
 
       await navigator!.push(
         MaterialPageRoute(
-          builder: (context) => ChatScreen.fromChatData(
+          builder: (context) => _chatScreenBuilder!(
             chatId: chatId,
             contactName: contactName,
             contactPublicKey: contactPublicKey ?? '',
@@ -83,13 +128,21 @@ class NavigationService {
       return;
     }
 
+    if (_contactsScreenBuilder == null) {
+      _logger.severe(
+        'Cannot navigate to contacts: ContactsScreen builder not registered. '
+        'Call NavigationService.setContactsScreenBuilder() during app initialization.',
+      );
+      return;
+    }
+
     try {
-      _logger.info('Navigating to contact request: $contactName');
+      _logger.info('📋 Navigating to contact request: $contactName');
 
       // Navigate to contacts screen
       // The contact request will be visible there
       await navigator!.push(
-        MaterialPageRoute(builder: (context) => const ContactsScreen()),
+        MaterialPageRoute(builder: (context) => _contactsScreenBuilder!()),
       );
     } catch (e, stackTrace) {
       _logger.severe('Failed to navigate to contact request', e, stackTrace);
@@ -106,7 +159,7 @@ class NavigationService {
     }
 
     try {
-      _logger.info('Navigating to home screen');
+      _logger.info('🏠 Navigating to home screen');
 
       // Pop to root
       navigator!.popUntil((route) => route.isFirst);

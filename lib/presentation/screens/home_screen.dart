@@ -23,7 +23,9 @@ import 'profile_screen.dart';
 import 'settings_screen.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/services/home_screen_facade.dart';
 import '../../domain/services/chat_management_service.dart';
+import '../services/chat_interaction_handler.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Menu actions for home screen
@@ -41,6 +43,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _logger = Logger('HomeScreen');
   final ChatsRepository _chatsRepository = ChatsRepository();
   final ChatManagementService _chatManagementService = ChatManagementService();
+  late final HomeScreenFacade _homeScreenFacade;
   final TextEditingController _searchController = TextEditingController();
 
   // Tab controller for Chats and Relay Queue
@@ -69,6 +72,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _tabController.addListener(
       _onTabChanged,
     ); // Listen for tab changes to update FAB
+    _homeScreenFacade = HomeScreenFacade(
+      chatsRepository: _chatsRepository,
+      bleService: ref.read(bleServiceProvider),
+      chatManagementService: _chatManagementService,
+      context: context,
+      ref: ref,
+      interactionHandlerBuilder:
+          ({context, ref, chatsRepository, chatManagementService}) {
+            return ChatInteractionHandler(
+              context: context,
+              ref: ref,
+              chatsRepository: chatsRepository,
+              chatManagementService: chatManagementService,
+            );
+          },
+    );
+    unawaited(_homeScreenFacade.initialize());
     _initializeServices();
     _loadChats();
     _setupPeriodicRefresh();
@@ -997,30 +1017,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _openChat(ChatListItem chat) async {
-    if (!mounted) return;
-
-    await _chatsRepository.markChatAsRead(chat.chatId);
-
-    if (!mounted) return;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen.fromChatData(
-          chatId: chat.chatId,
-          contactName: chat.contactName,
-          contactPublicKey: chat.contactPublicKey ?? '',
-        ),
-      ),
-    ).then((_) {
-      if (mounted) _loadChats();
-    });
+    await _homeScreenFacade.openChat(chat);
+    if (mounted) {
+      _loadChats();
+    }
   }
 
   void _showSearch() {
     setState(() {
       if (_searchQuery.isEmpty) {
         _searchQuery = ' '; // Show search bar
+        _homeScreenFacade.showSearch();
       } else {
         _clearSearch();
       }
@@ -1030,21 +1037,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _clearSearch() {
     _searchController.clear();
     setState(() => _searchQuery = '');
+    _homeScreenFacade.clearSearch();
     _loadChats();
   }
 
   void _showSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const SettingsScreen()),
-    );
+    _homeScreenFacade.openSettings();
   }
 
   void _openProfile() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ProfileScreen()),
-    );
+    _homeScreenFacade.openProfile();
   }
 
   void _editDisplayName() async {
@@ -1054,90 +1056,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Check mounted after async
     if (!mounted) return;
 
-    final controller = TextEditingController(text: currentName);
-
-    // Use bottom sheet for modern inline editing experience
-    final newName = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-          left: 16,
-          right: 16,
-          top: 16,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Edit Display Name',
-                    style: Theme.of(sheetContext).textTheme.titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.close),
-                  onPressed: () => Navigator.pop(sheetContext),
-                ),
-              ],
-            ),
-            SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: 'Enter your display name',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-              ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (value) {
-                if (value.trim().isNotEmpty) {
-                  Navigator.pop(sheetContext, value.trim());
-                }
-              },
-            ),
-            SizedBox(height: 16),
-            FilledButton(
-              onPressed: () {
-                final value = controller.text.trim();
-                if (value.isNotEmpty) {
-                  Navigator.pop(sheetContext, value);
-                }
-              },
-              style: FilledButton.styleFrom(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: Text('Save'),
-            ),
-            SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-
-    if (newName != null && newName.isNotEmpty && newName != currentName) {
-      try {
-        await ref.read(usernameProvider.notifier).updateUsername(newName);
-        _logger.info('Display name updated to: $newName');
-      } catch (e) {
-        _logger.warning('Failed to update display name: $e');
-      }
-    }
+    await _homeScreenFacade.editDisplayName(currentName);
   }
 
   String _formatTime(DateTime time) {
@@ -1188,204 +1107,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  void _openContacts() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ContactsScreen()),
-    );
-  }
+  void _openContacts() => _homeScreenFacade.openContacts();
 
-  void _openArchives() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => ArchiveScreen()),
-    );
-  }
+  void _openArchives() => _homeScreenFacade.openArchives();
 
-  Future<bool> _showArchiveConfirmation(ChatListItem chat) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Row(
-              children: [
-                Icon(
-                  Icons.archive,
-                  color: Theme.of(context).colorScheme.tertiary,
-                ),
-                SizedBox(width: 8),
-                Text('Archive Chat'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Archive chat with ${chat.contactName}?'),
-                SizedBox(height: 8),
-                Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '• Chat will be moved to archives',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        '• You can restore it later',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        '• Messages will be preserved',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.tertiary,
-                  foregroundColor: Theme.of(context).colorScheme.onTertiary,
-                ),
-                child: Text('Archive'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
+  Future<bool> _showArchiveConfirmation(ChatListItem chat) =>
+      _homeScreenFacade.showArchiveConfirmation(chat);
 
   Future<void> _archiveChat(ChatListItem chat) async {
-    try {
-      final result = await ref
-          .read(archiveOperationsProvider.notifier)
-          .archiveChat(
-            chatId: chat.chatId,
-            reason: 'User archived from chat list',
-            metadata: {
-              'contactName': chat.contactName,
-              'lastMessage': chat.lastMessage,
-              'unreadCount': chat.unreadCount,
-            },
-          );
-
-      if (mounted) {
-        if (result.success) {
-          _logger.info('Chat archived: ${chat.contactName}');
-          _loadChats();
-
-          // 🔧 FIX: Invalidate archive providers so Archive screen updates
-          ref.invalidate(archiveListProvider);
-          ref.invalidate(archiveStatisticsProvider);
-        } else {
-          _logger.warning('Failed to archive chat: ${result.message}');
-        }
-      }
-    } catch (e) {
-      _logger.severe('Error archiving chat: $e');
+    await _homeScreenFacade.archiveChat(chat);
+    if (mounted) {
+      _loadChats();
     }
   }
 
-  Future<bool> _showDeleteConfirmation(ChatListItem chat) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Row(
-              children: [
-                Icon(
-                  Icons.delete_forever,
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                SizedBox(width: 8),
-                Text('Delete Chat'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Delete chat with ${chat.contactName}?'),
-                SizedBox(height: 8),
-                Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '• This action cannot be undone',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onErrorContainer,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      Text(
-                        '• All messages will be permanently deleted',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onErrorContainer,
-                        ),
-                      ),
-                      Text(
-                        '• Chat history cannot be recovered',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onErrorContainer,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.error,
-                  foregroundColor: Theme.of(context).colorScheme.onError,
-                ),
-                child: Text('Delete'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
+  Future<bool> _showDeleteConfirmation(ChatListItem chat) =>
+      _homeScreenFacade.showDeleteConfirmation(chat);
 
   Future<void> _deleteChat(ChatListItem chat) async {
-    try {
-      final result = await _chatManagementService.deleteChat(chat.chatId);
-
-      if (mounted) {
-        if (result.success) {
-          _logger.info('Chat deleted: ${chat.contactName}');
-          _loadChats();
-        } else {
-          _logger.warning('Failed to delete chat: ${result.message}');
-        }
-      }
-    } catch (e) {
-      _logger.severe('Error deleting chat: $e');
+    await _homeScreenFacade.deleteChat(chat);
+    if (mounted) {
+      _loadChats();
     }
   }
 
@@ -1488,19 +1230,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _toggleChatPin(ChatListItem chat) async {
-    try {
-      final result = await _chatManagementService.toggleChatPin(chat.chatId);
-
-      if (mounted) {
-        if (result.success) {
-          _logger.info('Chat pin toggled: ${result.message}');
-          _loadChats();
-        } else {
-          _logger.warning('Failed to toggle pin: ${result.message}');
-        }
-      }
-    } catch (e) {
-      _logger.severe('Error toggling pin: $e');
+    await _homeScreenFacade.toggleChatPin(chat);
+    if (mounted) {
+      _loadChats();
     }
   }
 
@@ -1516,6 +1248,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _searchController.dispose();
     _peripheralConnectionSubscription?.cancel();
     _chatManagementService.dispose();
+    unawaited(_homeScreenFacade.dispose());
     super.dispose();
   }
 }

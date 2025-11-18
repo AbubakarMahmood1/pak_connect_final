@@ -9,7 +9,9 @@ import 'test_helpers/test_setup.dart';
 void main() {
   // Initialize test environment and clean database from previous runs
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'archive_repository_sqlite',
+    );
     await TestSetup.fullDatabaseReset(); // Clean corrupted DB from previous runs
   });
 

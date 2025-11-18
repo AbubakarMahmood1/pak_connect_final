@@ -15,7 +15,7 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'queue_sync');
   });
 
   group('Queue Hash Synchronization System Tests', () {
@@ -30,6 +30,7 @@ void main() {
     const String testRecipientKey = 'recipient_public_key_12345678901234567890';
 
     setUp(() async {
+      await TestSetup.configureTestDatabase(label: 'queue_sync');
       await TestSetup.fullDatabaseReset();
       TestSetup.resetSharedPreferences();
 
@@ -60,7 +61,7 @@ void main() {
       queue2.dispose();
       syncManager1.dispose();
       syncManager2.dispose();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     group('OfflineMessageQueue Hash Calculation Tests', () {
@@ -639,7 +640,7 @@ void main() {
     late OfflineMessageQueue largeQueue;
 
     setUp(() async {
-      await TestSetup.cleanupDatabase();
+      await TestSetup.configureTestDatabase(label: 'queue_sync_perf');
       TestSetup.resetSharedPreferences();
       largeQueue = OfflineMessageQueue();
       await largeQueue.initialize();
@@ -647,7 +648,7 @@ void main() {
 
     tearDown(() async {
       largeQueue.dispose();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     test('should handle large queue hash calculation efficiently', () async {

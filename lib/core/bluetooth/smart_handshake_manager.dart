@@ -9,7 +9,8 @@ library;
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
-import '../../data/repositories/contact_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../interfaces/i_repository_provider.dart';
 import '../services/security_manager.dart';
 import '../security/noise/noise.dart';
 
@@ -30,7 +31,7 @@ class HandshakeInitiationResult {
 class SmartHandshakeManager {
   static final _logger = Logger('SmartHandshakeManager');
 
-  final ContactRepository _contactRepo;
+  final IRepositoryProvider _repositoryProvider;
   final NoiseEncryptionService _noiseService;
 
   /// Track KK failures for each peer (don't retry KK immediately)
@@ -46,9 +47,10 @@ class SmartHandshakeManager {
   static const Duration _kkRetryDelay = Duration(hours: 1);
 
   SmartHandshakeManager({
-    required ContactRepository contactRepo,
+    IRepositoryProvider? repositoryProvider,
     required NoiseEncryptionService noiseService,
-  }) : _contactRepo = contactRepo,
+  }) : _repositoryProvider =
+           repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),
        _noiseService = noiseService;
 
   /// Initiate handshake with peer (smart pattern selection)
@@ -68,7 +70,6 @@ class SmartHandshakeManager {
     // Get pattern selection from SecurityManager
     final (pattern, remoteStaticKey) = await SecurityManager.selectNoisePattern(
       peerID,
-      _contactRepo,
     );
 
     // Check if we should skip KK due to previous failures
@@ -196,7 +197,9 @@ class SmartHandshakeManager {
 
   /// Consider downgrading contact security level after repeated KK failures
   Future<void> _considerDowngrade(String peerID) async {
-    final contact = await _contactRepo.getContact(peerID);
+    final contact = await _repositoryProvider.contactRepository.getContact(
+      peerID,
+    );
     if (contact == null) return;
 
     // Only downgrade MEDIUM/HIGH to LOW (they may have reset device)
@@ -208,11 +211,14 @@ class SmartHandshakeManager {
         '   Reason: Repeated KK handshake failures suggest peer reset device',
       );
 
-      await _contactRepo.updateContactSecurityLevel(peerID, SecurityLevel.low);
+      await _repositoryProvider.contactRepository.updateContactSecurityLevel(
+        peerID,
+        SecurityLevel.low,
+      );
 
       // Clear their static key (it's invalid)
       // Note: This would require a method in ContactRepository
-      // await _contactRepo.clearNoiseStaticKey(peerID);
+      // await _repositoryProvider.contactRepository.clearNoiseStaticKey(peerID);
     }
   }
 

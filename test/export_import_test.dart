@@ -6,8 +6,13 @@ import 'package:pak_connect/data/services/export_import/encryption_utils.dart';
 import 'package:pak_connect/data/services/export_import/export_bundle.dart';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'test_helpers/test_setup.dart';
 
 void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment(dbLabel: 'export_import');
+  });
+
   group('EncryptionUtils', () {
     test('generateSalt creates 32-byte random salt', () {
       final salt1 = EncryptionUtils.generateSalt();

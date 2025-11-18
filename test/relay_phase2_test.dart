@@ -227,12 +227,11 @@ void main() {
     setUp(() async {
       contactRepo = ContactRepository();
       messageQueue = OfflineMessageQueue();
-      await messageQueue.initialize(contactRepository: contactRepo);
+      await messageQueue.initialize();
       spamPrevention = SpamPreventionManager();
       await spamPrevention.initialize();
 
       relayEngine = MeshRelayEngine(
-        contactRepository: contactRepo,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -394,13 +393,12 @@ void main() {
       () async {
         final contactRepo = ContactRepository();
         final messageQueue = OfflineMessageQueue();
-        await messageQueue.initialize(contactRepository: contactRepo);
+        await messageQueue.initialize();
         final spamPrevention = SpamPreventionManager();
         await spamPrevention.initialize();
 
         // Create relay engine for node A
         final engineA = MeshRelayEngine(
-          contactRepository: contactRepo,
           messageQueue: messageQueue,
           spamPrevention: spamPrevention,
         );
@@ -472,12 +470,11 @@ void main() {
     test('Non-eligible types should be rejected at relay engine', () async {
       final contactRepo = ContactRepository();
       final messageQueue = OfflineMessageQueue();
-      await messageQueue.initialize(contactRepository: contactRepo);
+      await messageQueue.initialize();
       final spamPrevention = SpamPreventionManager();
       await spamPrevention.initialize();
 
       final engine = MeshRelayEngine(
-        contactRepository: contactRepo,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );

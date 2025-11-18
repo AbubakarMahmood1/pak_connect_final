@@ -9,11 +9,12 @@ import 'package:pak_connect/core/routing/smart_mesh_router.dart';
 import 'package:pak_connect/core/routing/route_calculator.dart';
 import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/core/routing/connection_quality_monitor.dart';
+import 'package:pak_connect/data/services/mesh_routing_service.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'mesh_system_analysis');
   });
 
   group('Mesh System Analysis Tests', () {
@@ -54,16 +55,24 @@ void main() {
 
         await smartRouter.initialize(enableDemo: true);
 
-        // Create relay engine with smart router
+        // Create routing service wrapping the smart router
+        final routingService = MeshRoutingService();
+        await routingService.initialize(
+          currentNodeId: arshad,
+          topologyAnalyzer: topologyAnalyzer,
+          enableDemo: true,
+        );
+
+        // Create relay engine with routing service
         final relayEngine = MeshRelayEngine(
-          contactRepository: contactRepository,
           messageQueue: messageQueue,
           spamPrevention: spamPrevention,
         );
 
         await relayEngine.initialize(
           currentNodeId: arshad,
-          smartRouter: smartRouter,
+          routingService: routingService,
+          topologyAnalyzer: topologyAnalyzer,
         );
 
         // Test 1: Verify system status reporting
@@ -155,6 +164,7 @@ void main() {
         );
 
         // Cleanup
+        routingService.dispose();
         smartRouter.dispose();
         topologyAnalyzer.dispose();
         qualityMonitor.dispose();
@@ -177,7 +187,6 @@ void main() {
       }
 
       final relayEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -249,7 +258,6 @@ void main() {
 
       // Test from Ali's perspective
       final aliEngine = MeshRelayEngine(
-        contactRepository: contactRepository,
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
       );
@@ -268,7 +276,6 @@ void main() {
 
       // Test from Arshad's perspective (relay node)
       final arshadEngine = MeshRelayEngine(
-        contactRepository: ContactRepository(),
         messageQueue: OfflineMessageQueue(),
         spamPrevention: SpamPreventionManager(),
       );
