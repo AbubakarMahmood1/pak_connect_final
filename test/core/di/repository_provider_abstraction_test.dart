@@ -8,7 +8,9 @@ import '../../test_helpers/test_setup.dart';
 void main() {
   group('IRepositoryProvider Abstraction Contract', () {
     setUpAll(() async {
-      await TestSetup.initializeTestEnvironment();
+      await TestSetup.initializeTestEnvironment(
+        dbLabel: 'repository_provider_abstraction',
+      );
     });
 
     tearDownAll(() {

@@ -23,16 +23,16 @@ Future<void> _resetSeenStore() async {
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'relay_phase3');
     SpamPreventionManager.bypassAllInstancesForTests();
   });
 
   setUp(() async {
-    await TestSetup.cleanupDatabase();
+    await TestSetup.configureTestDatabase(label: 'relay_phase3');
   });
 
   tearDown(() async {
-    await TestSetup.completeCleanup();
+    await TestSetup.nukeDatabase();
   });
 
   group('Phase 3: Network Size Tracking', () {

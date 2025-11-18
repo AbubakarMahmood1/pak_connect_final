@@ -2,17 +2,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
-import '../interfaces/i_chat_interaction_handler.dart';
+import '../../core/interfaces/i_chat_interaction_handler.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
-import '../../presentation/providers/archive_provider.dart';
-import '../../presentation/providers/ble_providers.dart';
-import '../../presentation/screens/chat_screen.dart';
-import '../../presentation/screens/contacts_screen.dart';
-import '../../presentation/screens/archive_screen.dart';
-import '../../presentation/screens/profile_screen.dart';
-import '../../presentation/screens/settings_screen.dart';
+import '../providers/archive_provider.dart';
+import '../providers/ble_providers.dart';
+import '../screens/chat_screen.dart';
+import '../screens/contacts_screen.dart';
+import '../screens/archive_screen.dart';
+import '../screens/profile_screen.dart';
+import '../screens/settings_screen.dart';
 
 /// Enumeration for home screen menu actions
 enum HomeMenuAction { openProfile, openContacts, openArchives, settings }

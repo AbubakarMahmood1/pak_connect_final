@@ -7,20 +7,17 @@ import 'package:pak_connect/data/services/export_import/export_bundle.dart';
 import 'package:pak_connect/data/services/export_import/selective_backup_service.dart';
 import 'package:pak_connect/data/services/export_import/selective_restore_service.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'dart:io';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-
 import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'selective_export');
   });
 
   setUp(() async {
-    final dbName = 'test_selective_${DateTime.now().millisecondsSinceEpoch}.db';
-    DatabaseHelper.setTestDatabaseName(dbName);
-
+    await TestSetup.configureTestDatabase(label: 'selective_export');
     await TestSetup.fullDatabaseReset();
     TestSetup.resetSharedPreferences();
 
@@ -91,8 +88,7 @@ void main() {
 
   tearDown(() async {
     await DatabaseHelper.close();
-    DatabaseHelper.setTestDatabaseName(null);
-    await TestSetup.completeCleanup();
+    await TestSetup.nukeDatabase();
   });
 
   group('ExportType', () {
@@ -160,9 +156,9 @@ void main() {
       expect(result.success, isTrue);
 
       // Open backup and verify schema
-      final backupDb = await databaseFactory.openDatabase(
+      final backupDb = await sqflite_ffi.databaseFactoryFfi.openDatabase(
         result.backupPath!,
-        options: OpenDatabaseOptions(readOnly: true),
+        options: sqflite_ffi.OpenDatabaseOptions(readOnly: true),
       );
 
       // Check that contacts table exists
@@ -186,9 +182,9 @@ void main() {
       expect(result.success, isTrue);
 
       // Open backup and verify schema
-      final backupDb = await databaseFactory.openDatabase(
+      final backupDb = await sqflite_ffi.databaseFactoryFfi.openDatabase(
         result.backupPath!,
-        options: OpenDatabaseOptions(readOnly: true),
+        options: sqflite_ffi.OpenDatabaseOptions(readOnly: true),
       );
 
       // Check that chats table exists

@@ -222,6 +222,20 @@ class MessageRepository implements IMessageRepository {
         contactName = 'Device ${chatId.substring(5, 20)}...';
       }
 
+      if (contactPublicKey != null) {
+        final contactExists = await db.query(
+          'contacts',
+          columns: ['public_key'],
+          where: 'public_key = ?',
+          whereArgs: [contactPublicKey],
+          limit: 1,
+        );
+
+        if (contactExists.isEmpty) {
+          contactPublicKey = null;
+        }
+      }
+
       await db.insert(
         'chats',
         {

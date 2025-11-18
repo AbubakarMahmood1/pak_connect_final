@@ -84,8 +84,16 @@ class OfflineMessageQueue {
     this.onStatsUpdated = onStatsUpdated;
     this.onSendMessage = onSendMessage;
     this.onConnectivityCheck = onConnectivityCheck;
-    _repositoryProvider =
-        repositoryProvider ?? GetIt.instance<IRepositoryProvider>();
+    if (repositoryProvider != null) {
+      _repositoryProvider = repositoryProvider;
+    } else if (GetIt.instance.isRegistered<IRepositoryProvider>()) {
+      _repositoryProvider = GetIt.instance<IRepositoryProvider>();
+    } else {
+      _logger.warning(
+        'ℹ️ IRepositoryProvider not registered - favorites-based limits disabled',
+      );
+      _repositoryProvider = null;
+    }
 
     await _loadQueueFromStorage();
     await _loadDeletedMessageIds();

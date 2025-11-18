@@ -8,7 +8,9 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'chat_lifecycle_persistence',
+    );
   });
 
   group('ChatScreen Lifecycle Persistence Tests', () {
@@ -28,17 +30,67 @@ void main() {
       mockMessageStreamController.close();
     });
 
-    testWidgets(
-      'Messages survive ChatScreen dispose/recreate cycles',
-      (WidgetTester tester) async {},
-      skip: true,
-    ); // Requires full BLE infrastructure
+    testWidgets('Messages survive ChatScreen dispose/recreate cycles', (
+      WidgetTester tester,
+    ) async {
+      const chatId = 'persistent_chat_survival';
+      final streamController = StreamController<String>.broadcast();
+      final received = <String>[];
+
+      persistentManager.setupPersistentListener(
+        chatId,
+        streamController.stream,
+      );
+
+      persistentManager.registerChatScreen(chatId, received.add);
+      streamController.add('live message');
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(received, contains('live message'));
+
+      persistentManager.unregisterChatScreen(chatId);
+      streamController.add('buffered message');
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(persistentManager.getBufferedMessageCount(chatId), equals(1));
+
+      persistentManager.registerChatScreen(chatId, received.add);
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(received, contains('buffered message'));
+      expect(persistentManager.getBufferedMessageCount(chatId), equals(0));
+
+      streamController.close();
+    });
 
     testWidgets(
       'SecurityStateProvider caching prevents excessive recreations',
-      (WidgetTester tester) async {},
-      skip: true,
-    ); // Requires full BLE infrastructure
+      (WidgetTester tester) async {
+        const chatId = 'security_state_chat';
+        final streamController = StreamController<String>.broadcast();
+
+        // Multiple setup calls should not recreate listeners
+        persistentManager.setupPersistentListener(
+          chatId,
+          streamController.stream,
+        );
+        persistentManager.setupPersistentListener(
+          chatId,
+          streamController.stream,
+        );
+
+        final debugInfo = persistentManager.getDebugInfo();
+        expect(debugInfo['activeListeners'], contains(chatId));
+
+        persistentManager.unregisterChatScreen(chatId);
+        streamController.add('cached message');
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(persistentManager.getBufferedMessageCount(chatId), equals(1));
+
+        persistentManager.registerChatScreen(chatId, (_) {});
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(persistentManager.getBufferedMessageCount(chatId), equals(0));
+
+        streamController.close();
+      },
+    );
 
     test(
       'PersistentChatStateManager handles multiple chats correctly',
@@ -117,11 +169,33 @@ void main() {
       },
     );
 
-    test(
-      'Debug info provides accurate state information',
-      () {},
-      skip: true,
-    ); // Database persistence not fully mocked
+    test('Debug info provides accurate state information', () async {
+      const testChatId = 'debug_chat_db';
+      final streamController = StreamController<String>.broadcast();
+      final buffered = <String>[];
+
+      persistentManager.setupPersistentListener(
+        testChatId,
+        streamController.stream,
+      );
+      persistentManager.registerChatScreen(testChatId, buffered.add);
+      persistentManager.unregisterChatScreen(testChatId);
+
+      streamController.add('buffer-for-debug');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final debugInfo = persistentManager.getDebugInfo();
+      expect(debugInfo['activeListeners'], contains(testChatId));
+      expect(debugInfo['activeChatIds'], isNot(contains(testChatId)));
+      expect(debugInfo['bufferedMessages'][testChatId], equals(1));
+
+      persistentManager.registerChatScreen(testChatId, buffered.add);
+      await Future.delayed(const Duration(milliseconds: 50));
+      final updatedInfo = persistentManager.getDebugInfo();
+      expect(updatedInfo['activeHandlers'], contains(testChatId));
+
+      streamController.close();
+    });
 
     test('Debug info provides accurate state information - NO DB VERSION', () {
       const testChatId = 'debug_chat_no_db';

@@ -11,7 +11,9 @@ import 'test_helpers/test_setup.dart';
 /// This addresses the "retry all" bug by testing coordination between persistence systems
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'message_retry_coordination',
+    );
   });
 
   group('Message Retry Coordination Tests', () {

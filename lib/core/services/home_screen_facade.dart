@@ -7,11 +7,19 @@ import '../interfaces/i_chat_interaction_handler.dart';
 import '../../core/models/connection_status.dart';
 import 'chat_list_coordinator.dart';
 import 'chat_connection_manager.dart';
-import 'chat_interaction_handler.dart';
+import '../../presentation/services/chat_interaction_handler.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../data/services/ble_service.dart';
 import '../../domain/services/chat_management_service.dart';
+
+typedef ChatInteractionHandlerBuilder =
+    IChatInteractionHandler Function({
+      BuildContext? context,
+      WidgetRef? ref,
+      ChatsRepository? chatsRepository,
+      ChatManagementService? chatManagementService,
+    });
 
 /// Facade for HomeScreen state and operations
 ///
@@ -39,11 +47,12 @@ class HomeScreenFacade implements IHomeScreenFacade {
   final ChatManagementService? _chatManagementService;
   final BuildContext? _context;
   final WidgetRef? _ref;
+  final ChatInteractionHandlerBuilder? _interactionHandlerBuilder;
 
   // Lazy-initialized services
   late final ChatConnectionManager _connectionManager;
   late final ChatListCoordinator _listCoordinator;
-  late final ChatInteractionHandler _interactionHandler;
+  late final IChatInteractionHandler _interactionHandler;
 
   bool _initialized = false;
   StreamSubscription? _intentSubscription;
@@ -54,11 +63,13 @@ class HomeScreenFacade implements IHomeScreenFacade {
     ChatManagementService? chatManagementService,
     BuildContext? context,
     WidgetRef? ref,
+    ChatInteractionHandlerBuilder? interactionHandlerBuilder,
   }) : _chatsRepository = chatsRepository,
        _bleService = bleService,
        _chatManagementService = chatManagementService,
        _context = context,
-       _ref = ref {
+       _ref = ref,
+       _interactionHandlerBuilder = interactionHandlerBuilder {
     _initializeLazyServices();
   }
 
@@ -70,12 +81,14 @@ class HomeScreenFacade implements IHomeScreenFacade {
       bleService: _bleService,
     );
 
-    _interactionHandler = ChatInteractionHandler(
-      context: _context,
-      ref: _ref,
-      chatsRepository: _chatsRepository,
-      chatManagementService: _chatManagementService,
-    );
+    _interactionHandler = _interactionHandlerBuilder != null
+        ? _interactionHandlerBuilder!(
+            context: _context,
+            ref: _ref,
+            chatsRepository: _chatsRepository,
+            chatManagementService: _chatManagementService,
+          )
+        : _NullChatInteractionHandler();
 
     // Listen to interaction intents and refresh chat list when needed
     _intentSubscription = _interactionHandler.interactionIntentStream.listen((
@@ -249,4 +262,72 @@ class HomeScreenFacade implements IHomeScreenFacade {
       _logger.warning('⚠️ Error disposing HomeScreenFacade: $e');
     }
   }
+}
+
+class _NullChatInteractionHandler implements IChatInteractionHandler {
+  final StreamController<ChatInteractionIntent> _controller =
+      StreamController.broadcast();
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Stream<ChatInteractionIntent> get interactionIntentStream =>
+      _controller.stream;
+
+  @override
+  Future<void> dispose() async {
+    await _controller.close();
+  }
+
+  @override
+  Future<void> openChat(ChatListItem chat) async {}
+
+  @override
+  void toggleSearch() {}
+
+  @override
+  void showSearch() {}
+
+  @override
+  void clearSearch() {}
+
+  @override
+  void openSettings() {}
+
+  @override
+  void openProfile() {}
+
+  @override
+  Future<String?> editDisplayName(String currentName) async => null;
+
+  @override
+  void handleMenuAction(String action) {}
+
+  @override
+  void openContacts() {}
+
+  @override
+  void openArchives() {}
+
+  @override
+  Future<bool> showArchiveConfirmation(ChatListItem chat) async => false;
+
+  @override
+  Future<void> archiveChat(ChatListItem chat) async {}
+
+  @override
+  Future<bool> showDeleteConfirmation(ChatListItem chat) async => false;
+
+  @override
+  Future<void> deleteChat(ChatListItem chat) async {}
+
+  @override
+  void showChatContextMenu(ChatListItem chat) {}
+
+  @override
+  Future<void> toggleChatPin(ChatListItem chat) async {}
+
+  @override
+  Future<void> markChatAsRead(String chatId) async {}
 }

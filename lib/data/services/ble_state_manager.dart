@@ -609,7 +609,9 @@ class BLEStateManager {
       // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
       if (_theirPersistentKey != null) {
         SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
-        _logger.info('🔐 Unregistered identity mapping due to verification failure');
+        _logger.info(
+          '🔐 Unregistered identity mapping due to verification failure',
+        );
       }
 
       return false;
@@ -822,7 +824,9 @@ class BLEStateManager {
     // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
     if (_theirPersistentKey != null) {
       SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
-      _logger.info('🔐 Unregistered identity mapping due to pairing cancellation');
+      _logger.info(
+        '🔐 Unregistered identity mapping due to pairing cancellation',
+      );
     }
 
     // Close any open dialogs/states
@@ -930,7 +934,8 @@ class BLEStateManager {
       ephemeralID: _theirEphemeralId!,
     );
     _logger.info(
-        '🔐 Persistent key identity mapping registered: ${_truncateId(_theirEphemeralId!)} ↔ ${_truncateId(theirPersistentKey)}');
+      '🔐 Persistent key identity mapping registered: ${_truncateId(_theirEphemeralId!)} ↔ ${_truncateId(theirPersistentKey)}',
+    );
 
     // 🔧 NEW MODEL: Create contact with immutable publicKey (first ephemeral ID)
     // persistent_public_key will be NULL at LOW security

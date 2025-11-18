@@ -1,17 +1,18 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
+import 'package:mockito/annotations.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/services/ble_discovery_service.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/core/services/hint_scanner_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
+import 'ble_discovery_service_test.mocks.dart';
 
-class MockCentralManager extends Mock implements CentralManager {}
-
-class MockBLEStateManager extends Mock implements BLEStateManager {}
-
-class MockHintScannerService extends Mock implements HintScannerService {}
-
+@GenerateNiceMocks([
+  MockSpec<CentralManager>(),
+  MockSpec<BLEStateManager>(),
+  MockSpec<HintScannerService>(),
+])
 void main() {
   late BLEDiscoveryService service;
   late MockCentralManager mockCentralManager;

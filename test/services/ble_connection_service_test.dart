@@ -1,20 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
+import 'package:mockito/annotations.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/services/ble_connection_service.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
+import 'ble_connection_service_test.mocks.dart';
 
-// Generate mocks for dependencies
-class MockBLEStateManager extends Mock implements BLEStateManager {}
-
-class MockBLEConnectionManager extends Mock implements BLEConnectionManager {}
-
-class MockCentralManager extends Mock implements CentralManager {}
-
-class MockBluetoothStateMonitor extends Mock implements BluetoothStateMonitor {}
-
+@GenerateNiceMocks([
+  MockSpec<BLEStateManager>(),
+  MockSpec<BLEConnectionManager>(),
+  MockSpec<CentralManager>(),
+  MockSpec<BluetoothStateMonitor>(),
+])
 void main() {
   late BLEConnectionService service;
   late MockBLEStateManager mockStateManager;

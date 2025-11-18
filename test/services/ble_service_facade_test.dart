@@ -1,7 +1,11 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:bluetooth_low_energy_platform_interface/bluetooth_low_energy_platform_interface.dart';
 import 'package:mockito/mockito.dart';
+import 'package:pak_connect/core/interfaces/i_ble_platform_host.dart';
 import 'package:pak_connect/core/interfaces/i_ble_service_facade.dart';
 import 'package:pak_connect/core/interfaces/i_ble_connection_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
@@ -10,18 +14,45 @@ import 'package:pak_connect/core/interfaces/i_ble_advertising_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_handshake_service.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
+import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/core/power/battery_optimizer.dart';
+import 'package:pak_connect/core/models/spy_mode_info.dart';
 import 'package:pak_connect/data/services/ble_service_facade.dart';
+import '../test_helpers/test_setup.dart';
 
 void main() {
   group('BLEServiceFacade', () {
     late BLEServiceFacade facade;
+    late _FakeBlePlatformHost platformHost;
+    late _StubMessagingService messagingStub;
+    late _StubAdvertisingService advertisingStub;
+    late _StubHandshakeService handshakeStub;
+
+    setUpAll(() async {
+      await TestSetup.initializeTestEnvironment(dbLabel: 'ble_service_facade');
+      platformHost = _FakeBlePlatformHost();
+    });
+
+    tearDownAll(() async {
+      await platformHost.dispose();
+    });
 
     setUp(() {
-      facade = BLEServiceFacade();
+      messagingStub = _StubMessagingService();
+      advertisingStub = _StubAdvertisingService();
+      handshakeStub = _StubHandshakeService();
+      facade = BLEServiceFacade(
+        platformHost: platformHost,
+        messagingService: messagingStub,
+        advertisingService: advertisingStub,
+        handshakeService: handshakeStub,
+      );
     });
 
     tearDown(() {
       facade.dispose();
+      messagingStub.dispose();
+      handshakeStub.dispose();
     });
 
     // ========================================================================
@@ -907,6 +938,452 @@ void main() {
       });
     });
   });
+}
+
+final class _StubMessagingService implements IBLEMessagingService {
+  final _messagesController = StreamController<String>.broadcast();
+  String? _lastMessageId;
+
+  @override
+  Future<bool> sendMessage(
+    String message, {
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) async {
+    _lastMessageId = messageId ?? 'stub-${message.hashCode}';
+    return true;
+  }
+
+  @override
+  Future<bool> sendPeripheralMessage(
+    String message, {
+    String? messageId,
+  }) async {
+    _lastMessageId = messageId ?? 'stub-peripheral-${message.hashCode}';
+    return true;
+  }
+
+  @override
+  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {}
+
+  @override
+  Future<void> sendIdentityExchange() async {}
+
+  @override
+  Future<void> sendPeripheralIdentityExchange() async {}
+
+  @override
+  Future<void> sendHandshakeMessage(ProtocolMessage message) async {}
+
+  @override
+  Future<void> requestIdentityExchange() async {}
+
+  @override
+  Future<void> triggerIdentityReExchange() async {}
+
+  @override
+  Stream<String> get receivedMessagesStream => _messagesController.stream;
+
+  @override
+  String? get lastExtractedMessageId => _lastMessageId;
+
+  @override
+  void registerQueueSyncMessageHandler(
+    Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
+  ) {}
+
+  void dispose() {
+    _messagesController.close();
+  }
+}
+
+final class _StubAdvertisingService implements IBLEAdvertisingService {
+  bool _isAdvertising = false;
+  bool _isPeripheral = false;
+  bool _mtuReady = false;
+  int? _mtu = 128;
+
+  @override
+  Future<void> startAsPeripheral() async {
+    _isPeripheral = true;
+    _isAdvertising = true;
+    _mtuReady = true;
+  }
+
+  @override
+  Future<void> startAsPeripheralWithValidation() => startAsPeripheral();
+
+  @override
+  Future<void> startAsCentral() async {
+    _isPeripheral = false;
+    _isAdvertising = false;
+    _mtuReady = false;
+    _mtu = null;
+  }
+
+  @override
+  Future<void> refreshAdvertising({bool? showOnlineStatus}) async {}
+
+  @override
+  bool get isAdvertising => _isAdvertising;
+
+  @override
+  bool get isPeripheralMode => _isPeripheral;
+
+  @override
+  int? get peripheralNegotiatedMTU => _mtu;
+
+  @override
+  bool get isPeripheralMTUReady => _mtuReady;
+}
+
+final class _StubHandshakeService implements IBLEHandshakeService {
+  final _spyModeController = StreamController<SpyModeInfo>.broadcast();
+  final _identityController = StreamController<String>.broadcast();
+  final List<dynamic> _bufferedMessages = [];
+  bool _isInProgress = false;
+  bool _hasCompleted = false;
+  String? _phase;
+
+  @override
+  Future<void> performHandshake({bool? startAsInitiatorOverride}) async {
+    _isInProgress = true;
+    _phase = 'NOISE_HANDSHAKE';
+  }
+
+  @override
+  Future<void> onHandshakeComplete() async {
+    _hasCompleted = true;
+    _isInProgress = false;
+    _phase = 'CONTACT_STATUS_SYNC';
+  }
+
+  @override
+  void disposeHandshakeCoordinator() {
+    _isInProgress = false;
+    _phase = null;
+  }
+
+  @override
+  Future<void> requestIdentityExchange() async {}
+
+  @override
+  Future<void> triggerIdentityReExchange() async {}
+
+  @override
+  Future<String?> buildLocalCollisionHint() async => 'stub-hint';
+
+  @override
+  Future<void> handleMutualConsentRequired() async {}
+
+  @override
+  Future<void> handleAsymmetricContact(String contactKey) async {}
+
+  @override
+  Stream<SpyModeInfo> get spyModeDetectedStream => _spyModeController.stream;
+
+  @override
+  Stream<String> get identityRevealedStream => _identityController.stream;
+
+  @override
+  String getPhaseMessage(String phase) => 'Phase: $phase';
+
+  @override
+  bool isHandshakeMessage(String messageType) =>
+      messageType.contains('HANDSHAKE') || messageType.contains('IDENTITY');
+
+  @override
+  List<dynamic> getBufferedMessages() => _bufferedMessages;
+
+  @override
+  bool get isHandshakeInProgress => _isInProgress;
+
+  @override
+  bool get hasHandshakeCompleted => _hasCompleted;
+
+  @override
+  String? get currentHandshakePhase => _phase;
+
+  void dispose() {
+    _spyModeController.close();
+    _identityController.close();
+  }
+}
+
+final class _FakeBlePlatformHost implements IBLEPlatformHost {
+  _FakeBlePlatformHost()
+    : _centralManager = _FakeCentralManager(),
+      _peripheralManager = _FakePeripheralManager() {
+    PlatformCentralManager.instance = _centralManager;
+    PlatformPeripheralManager.instance = _peripheralManager;
+  }
+
+  final _FakeCentralManager _centralManager;
+  final _FakePeripheralManager _peripheralManager;
+
+  @override
+  CentralManager get centralManager => _centralManager;
+
+  @override
+  PeripheralManager get peripheralManager => _peripheralManager;
+
+  @override
+  BatteryOptimizer get batteryOptimizer => BatteryOptimizer();
+
+  @override
+  Future<void> ensureEphemeralKeysInitialized() async {}
+
+  @override
+  String getCurrentEphemeralId() => 'fake-ephemeral-id';
+
+  Future<void> dispose() async {
+    await _centralManager.dispose();
+    await _peripheralManager.dispose();
+  }
+}
+
+final class _FakeCentralManager extends PlatformCentralManager {
+  final _discovered = StreamController<DiscoveredEventArgs>.broadcast();
+  final _connectionState =
+      StreamController<PeripheralConnectionStateChangedEventArgs>.broadcast();
+  final _mtuChanged =
+      StreamController<PeripheralMTUChangedEventArgs>.broadcast();
+  final _characteristicNotified =
+      StreamController<GATTCharacteristicNotifiedEventArgs>.broadcast();
+  final _stateChanged =
+      StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
+
+  BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
+
+  @override
+  void initialize() {
+    // No-op for tests
+  }
+
+  Future<void> dispose() async {
+    await _discovered.close();
+    await _connectionState.close();
+    await _mtuChanged.close();
+    await _characteristicNotified.close();
+    await _stateChanged.close();
+  }
+
+  @override
+  BluetoothLowEnergyState get state => _state;
+
+  @override
+  Stream<BluetoothLowEnergyStateChangedEventArgs> get stateChanged =>
+      _stateChanged.stream;
+
+  @override
+  Future<bool> authorize() async => true;
+
+  @override
+  Future<void> showAppSettings() async {}
+
+  @override
+  Stream<DiscoveredEventArgs> get discovered => _discovered.stream;
+
+  @override
+  Stream<PeripheralConnectionStateChangedEventArgs>
+  get connectionStateChanged => _connectionState.stream;
+
+  @override
+  Stream<PeripheralMTUChangedEventArgs> get mtuChanged => _mtuChanged.stream;
+
+  @override
+  Stream<GATTCharacteristicNotifiedEventArgs> get characteristicNotified =>
+      _characteristicNotified.stream;
+
+  @override
+  Future<void> startDiscovery({List<UUID>? serviceUUIDs}) async {}
+
+  @override
+  Future<void> stopDiscovery() async {}
+
+  @override
+  Future<List<Peripheral>> retrieveConnectedPeripherals() async => [];
+
+  @override
+  Future<void> connect(Peripheral peripheral) async {}
+
+  @override
+  Future<void> disconnect(Peripheral peripheral) async {}
+
+  @override
+  Future<int> requestMTU(Peripheral peripheral, {required int mtu}) async =>
+      mtu;
+
+  @override
+  Future<int> getMaximumWriteLength(
+    Peripheral peripheral, {
+    required GATTCharacteristicWriteType type,
+  }) async => 20;
+
+  @override
+  Future<int> readRSSI(Peripheral peripheral) async => -40;
+
+  @override
+  Future<List<GATTService>> discoverGATT(Peripheral peripheral) async => [];
+
+  @override
+  Future<Uint8List> readCharacteristic(
+    Peripheral peripheral,
+    GATTCharacteristic characteristic,
+  ) async => Uint8List(0);
+
+  @override
+  Future<void> writeCharacteristic(
+    Peripheral peripheral,
+    GATTCharacteristic characteristic, {
+    required Uint8List value,
+    required GATTCharacteristicWriteType type,
+  }) async {}
+
+  @override
+  Future<void> setCharacteristicNotifyState(
+    Peripheral peripheral,
+    GATTCharacteristic characteristic, {
+    required bool state,
+  }) async {}
+
+  @override
+  Future<Uint8List> readDescriptor(
+    Peripheral peripheral,
+    GATTDescriptor descriptor,
+  ) async => Uint8List(0);
+
+  @override
+  Future<void> writeDescriptor(
+    Peripheral peripheral,
+    GATTDescriptor descriptor, {
+    required Uint8List value,
+  }) async {}
+}
+
+final class _FakePeripheralManager extends PlatformPeripheralManager {
+  final _connectionState =
+      StreamController<CentralConnectionStateChangedEventArgs>.broadcast();
+  final _mtuChanged = StreamController<CentralMTUChangedEventArgs>.broadcast();
+  final _characteristicReadRequested =
+      StreamController<GATTCharacteristicReadRequestedEventArgs>.broadcast();
+  final _characteristicWriteRequested =
+      StreamController<GATTCharacteristicWriteRequestedEventArgs>.broadcast();
+  final _characteristicNotifyStateChanged =
+      StreamController<
+        GATTCharacteristicNotifyStateChangedEventArgs
+      >.broadcast();
+  final _descriptorReadRequested =
+      StreamController<GATTDescriptorReadRequestedEventArgs>.broadcast();
+  final _descriptorWriteRequested =
+      StreamController<GATTDescriptorWriteRequestedEventArgs>.broadcast();
+  final _stateChanged =
+      StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
+
+  BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
+
+  @override
+  void initialize() {
+    // No-op for tests
+  }
+
+  Future<void> dispose() async {
+    await _connectionState.close();
+    await _mtuChanged.close();
+    await _characteristicReadRequested.close();
+    await _characteristicWriteRequested.close();
+    await _characteristicNotifyStateChanged.close();
+    await _descriptorReadRequested.close();
+    await _descriptorWriteRequested.close();
+    await _stateChanged.close();
+  }
+
+  @override
+  BluetoothLowEnergyState get state => _state;
+
+  @override
+  Stream<BluetoothLowEnergyStateChangedEventArgs> get stateChanged =>
+      _stateChanged.stream;
+
+  @override
+  Future<bool> authorize() async => true;
+
+  @override
+  Future<void> showAppSettings() async {}
+
+  @override
+  Stream<CentralConnectionStateChangedEventArgs> get connectionStateChanged =>
+      _connectionState.stream;
+
+  @override
+  Stream<CentralMTUChangedEventArgs> get mtuChanged => _mtuChanged.stream;
+
+  @override
+  Stream<GATTCharacteristicReadRequestedEventArgs>
+  get characteristicReadRequested => _characteristicReadRequested.stream;
+
+  @override
+  Stream<GATTCharacteristicWriteRequestedEventArgs>
+  get characteristicWriteRequested => _characteristicWriteRequested.stream;
+
+  @override
+  Stream<GATTCharacteristicNotifyStateChangedEventArgs>
+  get characteristicNotifyStateChanged =>
+      _characteristicNotifyStateChanged.stream;
+
+  @override
+  Stream<GATTDescriptorReadRequestedEventArgs> get descriptorReadRequested =>
+      _descriptorReadRequested.stream;
+
+  @override
+  Stream<GATTDescriptorWriteRequestedEventArgs> get descriptorWriteRequested =>
+      _descriptorWriteRequested.stream;
+
+  @override
+  Future<void> addService(GATTService service) async {}
+
+  @override
+  Future<void> removeService(GATTService service) async {}
+
+  @override
+  Future<void> removeAllServices() async {}
+
+  @override
+  Future<void> startAdvertising(Advertisement advertisement) async {}
+
+  @override
+  Future<void> stopAdvertising() async {}
+
+  @override
+  Future<int> getMaximumNotifyLength(Central central) async => 20;
+
+  @override
+  Future<void> respondReadRequestWithValue(
+    GATTReadRequest request, {
+    required Uint8List value,
+  }) async {}
+
+  @override
+  Future<void> respondReadRequestWithError(
+    GATTReadRequest request, {
+    required GATTError error,
+  }) async {}
+
+  @override
+  Future<void> respondWriteRequest(GATTWriteRequest request) async {}
+
+  @override
+  Future<void> respondWriteRequestWithError(
+    GATTWriteRequest request, {
+    required GATTError error,
+  }) async {}
+
+  @override
+  Future<void> notifyCharacteristic(
+    Central central,
+    GATTCharacteristic characteristic, {
+    required Uint8List value,
+  }) async {}
 }
 
 // No additional mock helpers needed - all tests use facade directly

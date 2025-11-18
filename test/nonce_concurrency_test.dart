@@ -126,7 +126,7 @@ void main() {
   final logger = Logger('NonceTest');
 
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'nonce_concurrency');
     mockStorage = MockSecureStorage();
     await SecurityManager.initialize(secureStorage: mockStorage);
 

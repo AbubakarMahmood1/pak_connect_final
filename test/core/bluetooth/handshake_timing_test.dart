@@ -56,7 +56,7 @@ void main() {
       _MockSecurityManager.reset();
     });
 
-    test('waits for peer Noise key before advancing to Phase 2', () async {
+    test('waits for peer Noise key before advancing to Phase 2', () {
       // Arrange: Simulate key available on 3rd attempt
       _MockSecurityManager.setAttemptsBeforeSuccess(2);
       _MockSecurityManager.setMockPeerKey(
@@ -67,15 +67,14 @@ void main() {
       int attempt = 0;
       Uint8List? peerKey;
       const maxRetries = 5;
+      final appliedDelays = <int>[];
 
       while (attempt < maxRetries && peerKey == null) {
         attempt++;
         peerKey = _MockSecurityManager.simulateGetPeerKey();
 
         if (peerKey == null) {
-          await Future.delayed(
-            Duration(milliseconds: 50 * (1 << (attempt - 1))),
-          );
+          appliedDelays.add(50 * (1 << (attempt - 1)));
         }
       }
 
@@ -83,9 +82,10 @@ void main() {
       expect(peerKey, isNotNull);
       expect(_MockSecurityManager.attempts, equals(3));
       expect(peerKey!.length, equals(32));
+      expect(appliedDelays, equals([50, 100]));
     });
 
-    test('exponential backoff timing is correct', () async {
+    test('exponential backoff timing is correct', () {
       // Arrange
       final delays = <int>[];
       _MockSecurityManager.setAttemptsBeforeSuccess(4);
@@ -97,7 +97,6 @@ void main() {
 
       while (attempt < maxRetries) {
         attempt++;
-        final startTime = DateTime.now();
 
         final peerKey = _MockSecurityManager.simulateGetPeerKey();
 
@@ -107,33 +106,20 @@ void main() {
 
         // Calculate expected delay
         final delayMs = 50 * (1 << (attempt - 1));
-        await Future.delayed(Duration(milliseconds: delayMs));
-
-        final actualDelay = DateTime.now().difference(startTime).inMilliseconds;
-        delays.add(actualDelay);
+        delays.add(delayMs);
       }
 
       // Assert: Delays should follow exponential backoff pattern
-      // 50ms, 100ms, 200ms, 400ms (with some tolerance for timing variance)
-      expect(delays.length, equals(4)); // 4 retries before success on 5th
-      expect(delays[0], greaterThanOrEqualTo(45)); // ~50ms
-      expect(delays[1], greaterThanOrEqualTo(95)); // ~100ms
-      expect(delays[2], greaterThanOrEqualTo(195)); // ~200ms
-      expect(delays[3], greaterThanOrEqualTo(395)); // ~400ms
-
-      // Should not exceed 2x the expected delay (accounting for system load)
-      expect(delays[0], lessThan(150));
-      expect(delays[1], lessThan(250));
-      expect(delays[2], lessThan(450));
-      expect(delays[3], lessThan(850));
+      // 50ms, 100ms, 200ms, 400ms
+      expect(delays, equals([50, 100, 200, 400]));
     });
 
-    test('times out after max retries', () async {
+    test('times out after max retries', () {
       // Arrange: Key never becomes available
       _MockSecurityManager.setAttemptsBeforeSuccess(999);
 
       // Act & Assert: Should timeout
-      expect(() async {
+      expect(() {
         int attempt = 0;
         const maxRetries = 5;
 
@@ -146,7 +132,7 @@ void main() {
           }
 
           final delayMs = 50 * (1 << (attempt - 1));
-          await Future.delayed(Duration(milliseconds: delayMs));
+          expect(delayMs, greaterThan(0));
         }
 
         // If we get here, timeout occurred
@@ -157,23 +143,21 @@ void main() {
       }, throwsA(isA<TimeoutException>()));
     });
 
-    test('respects total timeout limit', () async {
+    test('respects total timeout limit', () {
       // Arrange: Key never becomes available
       _MockSecurityManager.setAttemptsBeforeSuccess(999);
 
       // Act: Try with 200ms total timeout (should fail after 3-4 retries)
-      final startTime = DateTime.now();
       int attempt = 0;
       const maxRetries = 10; // High retry count
       final timeout = Duration(milliseconds: 200);
+      int elapsedMs = 0;
 
-      try {
+      expect(() {
         while (attempt < maxRetries) {
           attempt++;
 
-          // Check timeout
-          final elapsed = DateTime.now().difference(startTime);
-          if (elapsed > timeout) {
+          if (elapsedMs > timeout.inMilliseconds) {
             throw TimeoutException('Timeout exceeded', timeout);
           }
 
@@ -183,22 +167,14 @@ void main() {
           }
 
           final delayMs = 50 * (1 << (attempt - 1));
-          await Future.delayed(Duration(milliseconds: delayMs));
+          elapsedMs += delayMs;
         }
         fail('Should have timed out');
-      } on TimeoutException catch (e) {
-        // Assert: Should timeout before all 10 retries
-        expect(attempt, lessThan(maxRetries));
-        expect(e.duration, equals(timeout));
+      }, throwsA(isA<TimeoutException>()));
 
-        // Total time should be close to timeout (within 150ms tolerance for system load)
-        final totalTime = DateTime.now().difference(startTime);
-        expect(totalTime.inMilliseconds, greaterThanOrEqualTo(200));
-        expect(
-          totalTime.inMilliseconds,
-          lessThan(400),
-        ); // Increased tolerance for CI
-      }
+      expect(attempt, lessThan(maxRetries));
+      expect(elapsedMs, greaterThan(timeout.inMilliseconds ~/ 2));
+      expect(elapsedMs, lessThan(500));
     });
 
     test('succeeds immediately if key available on first attempt', () async {

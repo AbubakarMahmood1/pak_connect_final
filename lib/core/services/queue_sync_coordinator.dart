@@ -174,7 +174,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     await _repository?.saveMessageToStorage(message);
     invalidateHashCache();
 
-    _logger.info('🔄 Synced new message: ${message.id.substring(0, 8)}...');
+    _logger.info('🔄 Synced new message: ${_previewId(message.id)}...');
   }
 
   @override
@@ -216,7 +216,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     _deletedMessageIds.add(messageId);
     invalidateHashCache();
 
-    _logger.info('Message marked deleted: ${messageId.substring(0, 8)}...');
+    _logger.info('Message marked deleted: ${_previewId(messageId)}...');
   }
 
   @override
@@ -262,6 +262,11 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
 
   @override
   SyncCoordinatorStats getSyncStatistics() {
+    final cacheValid =
+        _cachedQueueHash != null &&
+        _lastHashCalculation != null &&
+        DateTime.now().difference(_lastHashCalculation!) < _cacheExpiry;
+
     final allMessages = _repository?.getAllMessages() ?? [];
     final activeCount = allMessages
         .where(
@@ -271,13 +276,15 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
         )
         .length;
 
+    final currentHash = calculateQueueHash();
+
     return SyncCoordinatorStats(
       activeMessageCount: activeCount,
       deletedMessageCount: _deletedMessageIds.length,
       deletedIdSetSize: _deletedMessageIds.length,
-      currentHash: calculateQueueHash(),
+      currentHash: currentHash,
       lastHashTime: _lastHashCalculation,
-      isCachValid: _cachedQueueHash != null,
+      isCachValid: cacheValid,
       syncRequestsCount: _syncRequestsCount,
     );
   }
@@ -290,5 +297,12 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     _syncRequestsCount = 0;
 
     _logger.warning('🔄 Sync state reset - may require re-synchronization');
+  }
+
+  String _previewId(String value, [int length = 8]) {
+    if (value.length <= length) {
+      return value;
+    }
+    return value.substring(0, length);
   }
 }

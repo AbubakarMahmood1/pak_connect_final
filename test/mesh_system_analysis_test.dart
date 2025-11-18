@@ -14,7 +14,7 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'mesh_system_analysis');
   });
 
   group('Mesh System Analysis Tests', () {

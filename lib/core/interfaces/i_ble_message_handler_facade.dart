@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
+import '../../core/messaging/offline_message_queue.dart' show QueuedMessage;
 import '../../core/messaging/queue_sync_manager.dart';
 
 /// Public API interface for BLE message handling

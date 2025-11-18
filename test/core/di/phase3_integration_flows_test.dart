@@ -8,7 +8,10 @@ import '../../test_helpers/test_setup.dart';
 void main() {
   group('Phase 3: End-to-End Integration Flows', () {
     setUpAll(() async {
-      await TestSetup.initializeTestEnvironment();
+      await TestSetup.initializeTestEnvironment(
+        dbLabel: 'phase3_integration_flows',
+      );
+      await TestSetup.configureTestDI();
     });
 
     tearDownAll(() {

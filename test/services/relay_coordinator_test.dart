@@ -131,10 +131,11 @@ void main() {
     test('gets relay statistics', () async {
       final stats = await coordinator.getRelayStatistics();
 
-      expect(stats.messagesRelayed, equals(0));
-      expect(stats.messagesDelivered, equals(0));
-      expect(stats.duplicatesDropped, equals(0));
-      expect(stats.relaysFailed, equals(0));
+      expect(stats.totalRelayed, equals(0));
+      expect(stats.totalDeliveredToSelf, equals(0));
+      expect(stats.totalProbabilisticSkip, equals(0));
+      expect(stats.totalBlocked, equals(0));
+      expect(stats.totalDropped, equals(0));
     });
 
     test('creates outgoing relay message', () async {
@@ -149,10 +150,10 @@ void main() {
       expect(relayMsg, isNotNull);
       if (relayMsg != null) {
         expect(relayMsg.originalMessageId, equals('original-msg-123'));
-        expect(relayMsg.content, equals('Test content'));
-        expect(relayMsg.originalSender, equals('sender-node'));
-        expect(relayMsg.intendedRecipient, equals('recipient-node'));
-        expect(relayMsg.currentHopCount, equals(2)); // incremented
+        expect(relayMsg.originalContent, equals('Test content'));
+        expect(relayMsg.relayMetadata.originalSender, equals('sender-node'));
+        expect(relayMsg.relayMetadata.finalRecipient, equals('recipient-node'));
+        expect(relayMsg.relayMetadata.hopCount, equals(1)); // initial hop
       }
     });
 

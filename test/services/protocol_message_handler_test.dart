@@ -50,7 +50,7 @@ void main() {
     test('resolves message identities', () async {
       final identities = await handler.resolveMessageIdentities(
         encryptionSenderKey: 'sender-key',
-        meshSenderKey: 'mesh-key',
+        meshSenderKey: 'sender-key',
         intendedRecipient: 'recipient-key',
       );
 

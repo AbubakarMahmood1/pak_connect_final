@@ -6,7 +6,9 @@ import 'test_helpers/test_setup.dart';
 void main() {
   // Initialize test environment
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'offline_message_queue_sqlite',
+    );
   });
 
   setUp(() async {

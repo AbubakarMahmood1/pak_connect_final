@@ -38,16 +38,35 @@ Future<void> setupServiceLocator() async {
   }
 
   try {
+    // If repositories are already registered, assume setup already ran.
+    if (getIt.isRegistered<ContactRepository>() &&
+        getIt.isRegistered<MessageRepository>() &&
+        getIt.isRegistered<IRepositoryProvider>() &&
+        getIt.isRegistered<ISeenMessageStore>()) {
+      _logger.info(
+        'ℹ️ Service locator already initialized — skipping re-registration',
+      );
+      return;
+    }
+
     // ===========================
     // REPOSITORIES
     // ===========================
     // Register IContactRepository singleton
-    getIt.registerSingleton<ContactRepository>(ContactRepository());
-    _logger.fine('✅ ContactRepository registered');
+    if (!getIt.isRegistered<ContactRepository>()) {
+      getIt.registerSingleton<ContactRepository>(ContactRepository());
+      _logger.fine('✅ ContactRepository registered');
+    } else {
+      _logger.fine('ℹ️ ContactRepository already registered');
+    }
 
     // Register IMessageRepository singleton
-    getIt.registerSingleton<MessageRepository>(MessageRepository());
-    _logger.fine('✅ MessageRepository registered');
+    if (!getIt.isRegistered<MessageRepository>()) {
+      getIt.registerSingleton<MessageRepository>(MessageRepository());
+      _logger.fine('✅ MessageRepository registered');
+    } else {
+      _logger.fine('ℹ️ MessageRepository already registered');
+    }
 
     // ===========================
     // REPOSITORY PROVIDER (Phase 3 abstraction)
@@ -55,21 +74,29 @@ Future<void> setupServiceLocator() async {
     // Register IRepositoryProvider singleton for Core layer DI
     // This allows Core services to depend on repositories through abstraction
     // instead of direct imports (fixes layer violations)
-    getIt.registerSingleton<IRepositoryProvider>(
-      RepositoryProviderImpl(
-        contactRepository: getIt<ContactRepository>(),
-        messageRepository: getIt<MessageRepository>(),
-      ),
-    );
-    _logger.fine('✅ IRepositoryProvider registered (Phase 3)');
+    if (!getIt.isRegistered<IRepositoryProvider>()) {
+      getIt.registerSingleton<IRepositoryProvider>(
+        RepositoryProviderImpl(
+          contactRepository: getIt<ContactRepository>(),
+          messageRepository: getIt<MessageRepository>(),
+        ),
+      );
+      _logger.fine('✅ IRepositoryProvider registered (Phase 3)');
+    } else {
+      _logger.fine('ℹ️ IRepositoryProvider already registered');
+    }
 
     // ===========================
     // SEEN MESSAGE STORE (Phase 3 abstraction)
     // ===========================
     // Register ISeenMessageStore singleton for Core layer DI
     // SeenMessageStore.instance is already a singleton, we wrap it
-    getIt.registerSingleton<ISeenMessageStore>(SeenMessageStore.instance);
-    _logger.fine('✅ ISeenMessageStore registered (Phase 3)');
+    if (!getIt.isRegistered<ISeenMessageStore>()) {
+      getIt.registerSingleton<ISeenMessageStore>(SeenMessageStore.instance);
+      _logger.fine('✅ ISeenMessageStore registered (Phase 3)');
+    } else {
+      _logger.fine('ℹ️ ISeenMessageStore already registered');
+    }
 
     // ===========================
     // CORE SERVICES (initialized by AppCore, not here)

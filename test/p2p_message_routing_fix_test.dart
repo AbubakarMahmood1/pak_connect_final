@@ -11,7 +11,9 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'p2p_message_routing_fix',
+    );
   });
 
   group('P2P Message Routing Fix Tests', () {
@@ -19,7 +21,7 @@ void main() {
     late ContactRepository mockContactRepository;
 
     setUp(() async {
-      await TestSetup.cleanupDatabase();
+      await TestSetup.configureTestDatabase(label: 'p2p_message_routing_fix');
       TestSetup.resetSharedPreferences();
       await EphemeralKeyManager.initialize('test_private_key_1234567890');
       await seedTestUserPublicKey('our_node_123');
@@ -30,7 +32,7 @@ void main() {
 
     tearDown(() async {
       handler.dispose();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     test(
@@ -202,7 +204,9 @@ void main() {
     late ContactRepository mockContactRepository;
 
     setUp(() async {
-      await TestSetup.cleanupDatabase();
+      await TestSetup.configureTestDatabase(
+        label: 'p2p_message_routing_fix_edge',
+      );
       TestSetup.resetSharedPreferences();
       await EphemeralKeyManager.initialize('test_private_key_1234567890');
       await seedTestUserPublicKey('our_node_123');
@@ -212,7 +216,7 @@ void main() {
 
     tearDown(() async {
       handler.dispose();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     test('Message processing without node ID set should work', () async {

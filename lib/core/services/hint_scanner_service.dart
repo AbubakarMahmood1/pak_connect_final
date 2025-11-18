@@ -76,11 +76,14 @@ class HintScannerService {
   final Map<String, EphemeralDiscoveryHint> _activeIntroHints = {};
 
   /// Provider for accessing repositories
-  final IRepositoryProvider _repositoryProvider;
+  final IRepositoryProvider? _repositoryProvider;
 
   HintScannerService({IRepositoryProvider? repositoryProvider})
     : _repositoryProvider =
-          repositoryProvider ?? GetIt.instance<IRepositoryProvider>();
+          repositoryProvider ??
+          (GetIt.instance.isRegistered<IRepositoryProvider>()
+              ? GetIt.instance<IRepositoryProvider>()
+              : null);
 
   /// Initialize scanner by precomputing all contact hints
   Future<void> initialize() async {
@@ -94,8 +97,15 @@ class HintScannerService {
   Future<void> _rebuildContactCache() async {
     _contactCache.clear();
 
-    final contacts = await _repositoryProvider.contactRepository
-        .getAllContacts();
+    final provider = _repositoryProvider;
+    if (provider == null) {
+      _logger.warning(
+        '⚠️ HintScannerService: IRepositoryProvider not available - contact cache empty',
+      );
+      return;
+    }
+
+    final contacts = await provider.contactRepository.getAllContacts();
     for (final entry in contacts.entries) {
       _contactCache[entry.key] = entry.value;
     }

@@ -100,7 +100,7 @@ void main() {
 
   setUpAll(() async {
     // 🏗️ Initialize test environment (Phase 3: sets up DI container)
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'handshake_coordinator');
 
     // Initialize SecurityManager with mock storage
     await SecurityManager.initialize(secureStorage: MockSecureStorage());

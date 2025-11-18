@@ -84,7 +84,7 @@ class HandshakeCoordinator {
   final String _myDisplayName;
 
   // Dependencies
-  final IRepositoryProvider _repositoryProvider;
+  final IRepositoryProvider? _repositoryProvider;
 
   // Callbacks for sending messages
   final Future<void> Function(ProtocolMessage) _sendMessage;
@@ -132,7 +132,10 @@ class HandshakeCoordinator {
        _myPublicKey = myPublicKey,
        _myDisplayName = myDisplayName,
        _repositoryProvider =
-           repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),
+           repositoryProvider ??
+           (GetIt.instance.isRegistered<IRepositoryProvider>()
+               ? GetIt.instance<IRepositoryProvider>()
+               : null),
        _sendMessage = sendMessage,
        _onHandshakeComplete = onHandshakeComplete {
     if (phaseTimeout != null) {
@@ -815,14 +818,14 @@ class HandshakeCoordinator {
     );
 
     // NEW: Check for pattern mismatch (desync detection)
-    if (_patternMismatchDetected) {
+    if (_patternMismatchDetected && _repositoryProvider != null) {
       _logger.warning(
         '⚠️ DESYNC DETECTED: Pattern mismatch indicates data loss',
       );
 
       if (_theirNoisePublicKey != null) {
         try {
-          final contact = await _repositoryProvider.contactRepository
+          final contact = await _repositoryProvider!.contactRepository
               .getContact(_theirNoisePublicKey!);
 
           if (contact != null && contact.securityLevel != SecurityLevel.low) {
@@ -832,7 +835,7 @@ class HandshakeCoordinator {
             _logger.warning('   Peer may have reset device or lost data');
 
             // Downgrade contact security level
-            await _repositoryProvider.contactRepository
+            await _repositoryProvider!.contactRepository
                 .downgradeSecurityForDeletedContact(
                   _theirNoisePublicKey!,
                   'pattern_mismatch',

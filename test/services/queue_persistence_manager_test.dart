@@ -1,27 +1,24 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/queue_persistence_manager.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 
+import '../test_helpers/test_setup.dart';
+
 void main() {
-  // Initialize FFI for testing
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment(dbLabel: 'queue_persistence');
+  });
 
   group('QueuePersistenceManager', () {
     late QueuePersistenceManager manager;
-    late Database testDb;
 
     setUp(() async {
-      // Create in-memory test database
-      testDb = await databaseFactory.openDatabase(inMemoryDatabasePath);
-
-      // Mock DatabaseHelper.database
+      await TestSetup.fullDatabaseReset();
       manager = QueuePersistenceManager();
     });
 
     tearDown(() async {
-      await testDb.close();
+      await TestSetup.completeCleanup();
     });
 
     group('createQueueTablesIfNotExist', () {
@@ -30,7 +27,8 @@ void main() {
         expect(result, isTrue);
 
         // Verify tables exist
-        final tables = await testDb.rawQuery(
+        final db = await DatabaseHelper.database;
+        final tables = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table'",
         );
         final tableNames = tables.map((t) => t['name'] as String).toList();
@@ -50,7 +48,8 @@ void main() {
       test('creates required indexes', () async {
         await manager.createQueueTablesIfNotExist();
 
-        final indexes = await testDb.rawQuery(
+        final db = await DatabaseHelper.database;
+        final indexes = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='offline_message_queue'",
         );
         final indexNames = indexes.map((i) => i['name'] as String).toList();
@@ -65,7 +64,8 @@ void main() {
         await manager.migrateQueueSchema(oldVersion: 0, newVersion: 1);
 
         // Verify tables exist
-        final tables = await testDb.rawQuery(
+        final db = await DatabaseHelper.database;
+        final tables = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table'",
         );
         final tableNames = tables.map((t) => t['name'] as String).toList();
@@ -80,7 +80,8 @@ void main() {
         await manager.migrateQueueSchema(oldVersion: 1, newVersion: 1);
 
         // Tables should still exist
-        final tables = await testDb.rawQuery(
+        final db = await DatabaseHelper.database;
+        final tables = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table'",
         );
         final tableNames = tables.map((t) => t['name'] as String).toList();
@@ -102,13 +103,17 @@ void main() {
         await manager.createQueueTablesIfNotExist();
 
         // Insert test rows
-        await testDb.insert('offline_message_queue', {
+        final db = await DatabaseHelper.database;
+        await db.insert('offline_message_queue', {
           'message_id': 'msg1',
           'chat_id': 'chat1',
           'content': 'test',
           'recipient_public_key': 'key1',
           'sender_public_key': 'key2',
           'queued_at': DateTime.now().millisecondsSinceEpoch,
+          'status': 0,
+          'priority': 0,
+          'attempts': 0,
           'created_at': DateTime.now().millisecondsSinceEpoch,
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });
@@ -194,13 +199,17 @@ void main() {
         await manager.createQueueTablesIfNotExist();
 
         // Insert message with non-existent chat_id
-        await testDb.insert('offline_message_queue', {
+        final db = await DatabaseHelper.database;
+        await db.insert('offline_message_queue', {
           'message_id': 'orphan_msg',
           'chat_id': 'non_existent_chat',
           'content': 'test',
           'recipient_public_key': 'key1',
           'sender_public_key': 'key2',
           'queued_at': DateTime.now().millisecondsSinceEpoch,
+          'status': 0,
+          'priority': 0,
+          'attempts': 0,
           'created_at': DateTime.now().millisecondsSinceEpoch,
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });

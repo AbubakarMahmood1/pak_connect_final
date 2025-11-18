@@ -16,7 +16,7 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'widget');
   });
 
   Future<void> _pumpApp(WidgetTester tester) async {

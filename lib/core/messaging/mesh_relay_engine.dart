@@ -28,7 +28,7 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 class MeshRelayEngine {
   static final _logger = Logger('MeshRelayEngine');
 
-  final IRepositoryProvider _repositoryProvider;
+  final IRepositoryProvider? _repositoryProvider;
   final ISeenMessageStore _seenMessageStore;
   final OfflineMessageQueue _messageQueue;
   final SpamPreventionManager _spamPrevention;
@@ -64,9 +64,15 @@ class MeshRelayEngine {
     required OfflineMessageQueue messageQueue,
     required SpamPreventionManager spamPrevention,
   }) : _repositoryProvider =
-           repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),
+           repositoryProvider ??
+           (GetIt.instance.isRegistered<IRepositoryProvider>()
+               ? GetIt.instance<IRepositoryProvider>()
+               : null),
        _seenMessageStore =
-           seenMessageStore ?? GetIt.instance<ISeenMessageStore>(),
+           seenMessageStore ??
+           (GetIt.instance.isRegistered<ISeenMessageStore>()
+               ? GetIt.instance<ISeenMessageStore>()
+               : _InMemorySeenMessageStore()),
        _messageQueue = messageQueue,
        _spamPrevention = spamPrevention;
 
@@ -438,18 +444,20 @@ class MeshRelayEngine {
 
       // Check if we have a relationship with sender that might indicate
       // we could be an intended intermediate recipient
-      final senderContact = await _repositoryProvider.contactRepository
-          .getContact(originalSenderPublicKey);
-      if (senderContact != null &&
-          senderContact.securityLevel != SecurityLevel.low) {
-        return true;
-      }
+      if (_repositoryProvider != null) {
+        final senderContact = await _repositoryProvider!.contactRepository
+            .getContact(originalSenderPublicKey);
+        if (senderContact != null &&
+            senderContact.securityLevel != SecurityLevel.low) {
+          return true;
+        }
 
-      // Check if we have a relationship with final recipient (could be group message)
-      final recipientContact = await _repositoryProvider.contactRepository
-          .getContact(finalRecipientPublicKey);
-      if (recipientContact != null) {
-        return true;
+        // Check if we have a relationship with final recipient (could be group message)
+        final recipientContact = await _repositoryProvider!.contactRepository
+            .getContact(finalRecipientPublicKey);
+        if (recipientContact != null) {
+          return true;
+        }
       }
 
       // Default: don't waste resources on decryption attempts
@@ -1004,4 +1012,43 @@ class RelayStatistics {
       'network: $networkSize nodes, '
       'relayProb: ${(currentRelayProbability * 100).toStringAsFixed(0)}%'
       ')';
+}
+
+/// Lightweight fallback seen-message store used when DI isn't configured (tests)
+class _InMemorySeenMessageStore implements ISeenMessageStore {
+  final Set<String> _delivered = <String>{};
+  final Set<String> _read = <String>{};
+
+  @override
+  bool hasDelivered(String messageId) => _delivered.contains(messageId);
+
+  @override
+  bool hasRead(String messageId) => _read.contains(messageId);
+
+  @override
+  Future<void> markDelivered(String messageId) async {
+    _delivered.add(messageId);
+  }
+
+  @override
+  Future<void> markRead(String messageId) async {
+    _read.add(messageId);
+  }
+
+  @override
+  Map<String, dynamic> getStatistics() => {
+    'delivered': _delivered.length,
+    'read': _read.length,
+  };
+
+  @override
+  Future<void> clear() async {
+    _delivered.clear();
+    _read.clear();
+  }
+
+  @override
+  Future<void> performMaintenance() async {
+    // No persistent state to maintain
+  }
 }

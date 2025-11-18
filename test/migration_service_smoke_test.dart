@@ -11,11 +11,18 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'migration_service_smoke',
+    );
+  });
+
+  setUp(() async {
+    await TestSetup.configureTestDatabase(label: 'migration_service_smoke');
+    TestSetup.resetSharedPreferences();
   });
 
   tearDown(() async {
-    await TestSetup.cleanupDatabase();
+    await TestSetup.nukeDatabase();
   });
 
   test('MigrationService migrates legacy SharedPreferences data', () async {

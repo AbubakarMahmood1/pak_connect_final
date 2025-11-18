@@ -97,7 +97,7 @@ void main() {
   late MockSecureStorage mockStorage;
 
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'debug_handshake');
     mockStorage = MockSecureStorage();
     await SecurityManager.initialize(secureStorage: mockStorage);
   });
