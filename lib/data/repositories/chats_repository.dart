@@ -10,7 +10,7 @@ import 'message_repository.dart';
 import 'contact_repository.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
-class ChatsRepository {
+class ChatsRepository implements IChatsRepository {
   static final _logger = Logger('ChatsRepository');
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();
