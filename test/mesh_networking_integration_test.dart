@@ -60,7 +60,7 @@ void main() {
 
       // Initialize mesh networking service
       meshService = MeshNetworkingService(
-        bleService: mockBleService as IBLEServiceFacade,
+        bleService: mockBleService,
         messageHandler: messageHandler as IBLEMessageHandlerFacade,
 
         chatManagementService: chatManagementService,
