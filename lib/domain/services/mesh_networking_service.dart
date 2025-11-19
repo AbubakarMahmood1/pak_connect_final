@@ -111,8 +111,8 @@ class MeshNetworkingService {
 
   MeshNetworkingService({
     required IBLEServiceFacade bleService,
-    required dynamic messageHandler,
-    // TODO Phase 3B: Change to IBLEMessageHandlerFacade once BLEMessageHandler interface refactoring is complete
+    required IBLEMessageHandlerFacade messageHandler,
+    // ✅ Phase 3A: Now properly typed via BLEMessageHandlerFacadeImpl adapter
     required ChatManagementService
     chatManagementService, // Kept for API compatibility
     IRepositoryProvider? repositoryProvider,
