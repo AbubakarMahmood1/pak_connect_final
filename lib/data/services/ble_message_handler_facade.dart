@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
+import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
@@ -55,6 +56,12 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   Future<void> initializeRelaySystem({required String currentNodeId}) async {
     _ensureInitialized();
     await _relayCoordinator.initializeRelaySystem(currentNodeId: currentNodeId);
+  }
+
+  /// Sets the SeenMessageStore for relay deduplication
+  void setSeenMessageStore(ISeenMessageStore seenMessageStore) {
+    _ensureInitialized();
+    _relayCoordinator.setSeenMessageStore(seenMessageStore);
   }
 
   /// Gets available next hop devices for relay
