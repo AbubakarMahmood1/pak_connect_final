@@ -4,13 +4,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../../domain/entities/ephemeral_discovery_hint.dart';
 import '../../core/utils/app_logger.dart';
+import '../../core/interfaces/i_intro_hint_repository.dart';
 
 /// Repository for managing intro hints (Level 1 - QR-based discovery)
 ///
 /// Stores:
 /// - Our own active intro hints (from generated QR codes)
 /// - Scanned intro hints (from other people's QR codes)
-class IntroHintRepository {
+class IntroHintRepository implements IIntroHintRepository {
   final _logger = AppLogger.getLogger(LoggerNames.hintSystem);
 
   static const String _myActiveHintsKey = 'my_active_intro_hints';
@@ -95,15 +96,13 @@ class IntroHintRepository {
   }
 
   /// Save a scanned intro hint (from someone's QR code)
-  Future<void> saveScannedHint(EphemeralDiscoveryHint hint) async {
+  Future<void> saveScannedHint(String key, EphemeralDiscoveryHint hint) async {
     final hints = await getScannedHints();
 
-    hints[hint.hintHex] = hint;
+    hints[key] = hint;
 
     await _saveScannedHints(hints);
-    _logger.info(
-      '💾 Saved scanned intro hint: ${hint.hintHex} (${hint.displayName})',
-    );
+    _logger.info('💾 Saved scanned intro hint: $key (${hint.displayName})');
   }
 
   /// Remove a scanned hint (after successful pairing)

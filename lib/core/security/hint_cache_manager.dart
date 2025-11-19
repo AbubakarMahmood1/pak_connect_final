@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../../data/repositories/contact_repository.dart';
+import '../interfaces/i_contact_repository.dart';
+import 'package:get_it/get_it.dart';
 import '../../domain/entities/enhanced_contact.dart';
 import '../services/hint_advertisement_service.dart';
 
@@ -19,7 +20,7 @@ class HintCacheManager {
     }
 
     _contactCache.clear();
-    final contactRepo = ContactRepository();
+    final contactRepo = GetIt.instance<IContactRepository>();
     final contacts = await contactRepo.getAllContacts();
 
     for (final contact in contacts.values) {

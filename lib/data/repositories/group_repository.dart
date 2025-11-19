@@ -3,6 +3,7 @@
 
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
+import '../../core/interfaces/i_group_repository.dart';
 import '../database/database_helper.dart';
 import '../../core/models/contact_group.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
@@ -14,7 +15,7 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 /// - Member management
 /// - Message storage with per-member delivery tracking
 /// - Transaction safety for multi-table operations
-class GroupRepository {
+class GroupRepository implements IGroupRepository {
   static final _logger = Logger('GroupRepository');
 
   /// Create a new contact group

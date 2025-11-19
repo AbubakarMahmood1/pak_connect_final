@@ -10,8 +10,9 @@ import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import 'chat_list_coordinator.dart';
 import 'chat_connection_manager.dart';
-import '../../data/repositories/chats_repository.dart';
+import '../interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
+import '../interfaces/i_ble_service.dart';
 import '../../data/services/ble_service.dart';
 import '../../domain/services/chat_management_service.dart';
 
@@ -19,7 +20,7 @@ typedef ChatInteractionHandlerBuilder =
     IChatInteractionHandler Function({
       BuildContext? context,
       WidgetRef? ref,
-      ChatsRepository? chatsRepository,
+      IChatsRepository? chatsRepository,
       ChatManagementService? chatManagementService,
     });
 
@@ -44,7 +45,7 @@ typedef ChatInteractionHandlerBuilder =
 class HomeScreenFacade implements IHomeScreenFacade {
   final _logger = Logger('HomeScreenFacade');
 
-  final ChatsRepository? _chatsRepository;
+  final IChatsRepository? _chatsRepository;
   final BLEService? _bleService;
   final ChatManagementService? _chatManagementService;
   final BuildContext? _context;
@@ -60,7 +61,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
   StreamSubscription? _intentSubscription;
 
   HomeScreenFacade({
-    ChatsRepository? chatsRepository,
+    IChatsRepository? chatsRepository,
     BLEService? bleService,
     ChatManagementService? chatManagementService,
     BuildContext? context,

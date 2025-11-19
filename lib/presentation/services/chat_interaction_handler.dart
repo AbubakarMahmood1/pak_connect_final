@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_chat_interaction_handler.dart';
-import '../../data/repositories/chats_repository.dart';
+import '../../core/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../providers/archive_provider.dart';
@@ -37,13 +37,13 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
   final BuildContext? _context;
   final WidgetRef? _ref;
-  final ChatsRepository? _chatsRepository;
+  final IChatsRepository? _chatsRepository;
   final ChatManagementService? _chatManagementService;
 
   ChatInteractionHandler({
     BuildContext? context,
     WidgetRef? ref,
-    ChatsRepository? chatsRepository,
+    IChatsRepository? chatsRepository,
     ChatManagementService? chatManagementService,
   }) : _context = context,
        _ref = ref,

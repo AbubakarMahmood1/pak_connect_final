@@ -4,7 +4,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/repositories/archive_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../../core/interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../core/models/archive_models.dart';
 
@@ -24,8 +25,9 @@ class ArchiveManagementService {
   }
 
   /// Private constructor for singleton
-  ArchiveManagementService._internal({ArchiveRepository? archiveRepository})
-    : _archiveRepository = archiveRepository ?? ArchiveRepository.instance {
+  ArchiveManagementService._internal({IArchiveRepository? archiveRepository})
+    : _archiveRepository =
+          archiveRepository ?? GetIt.instance<IArchiveRepository>() {
     _logger.info('✅ ArchiveManagementService singleton instance created');
   }
 
@@ -33,7 +35,7 @@ class ArchiveManagementService {
   factory ArchiveManagementService() => instance;
 
   // Dependencies (injected for testability)
-  final ArchiveRepository _archiveRepository;
+  final IArchiveRepository _archiveRepository;
   // Note: ChatsRepository and MessageRepository would be used for business context gathering
   // when those features are implemented (currently stubs). All archive operations
   // are delegated to _archiveRepository which handles its own data access.
@@ -450,7 +452,9 @@ class ArchiveManagementService {
     ArchiveAnalyticsScope scope = ArchiveAnalyticsScope.all,
   }) async {
     try {
-      final statistics = await _archiveRepository.getArchiveStatistics();
+      final statistics =
+          await _archiveRepository.getArchiveStatistics() ??
+          ArchiveStatistics.empty();
 
       // Get business metrics
       final businessMetrics = await _calculateBusinessMetrics(since, scope);
@@ -546,15 +550,16 @@ class ArchiveManagementService {
 
       // Check repository health
       final stats = await _archiveRepository.getArchiveStatistics();
+      if (stats != null) {
+        // Check storage capacity
+        if (stats.totalSizeBytes > _config.maxStorageSizeBytes) {
+          issues.add(ArchiveHealthIssue.storageOverLimit());
+        }
 
-      // Check storage capacity
-      if (stats.totalSizeBytes > _config.maxStorageSizeBytes) {
-        issues.add(ArchiveHealthIssue.storageOverLimit());
-      }
-
-      // Check performance
-      if (!stats.performanceStats.isPerformanceAcceptable) {
-        issues.add(ArchiveHealthIssue.performanceDegraded());
+        // Check performance
+        if (!stats.performanceStats.isPerformanceAcceptable) {
+          issues.add(ArchiveHealthIssue.performanceDegraded());
+        }
       }
 
       // Check policy health
@@ -735,7 +740,9 @@ class ArchiveManagementService {
   }
 
   Future<StorageCapacityCheck> _checkStorageLimits() async {
-    final stats = await _archiveRepository.getArchiveStatistics();
+    final stats =
+        await _archiveRepository.getArchiveStatistics() ??
+        ArchiveStatistics.empty();
     final hasCapacity = stats.totalSizeBytes < _config.maxStorageSizeBytes;
     return StorageCapacityCheck(
       hasCapacity,

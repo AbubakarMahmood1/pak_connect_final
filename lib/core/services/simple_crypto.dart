@@ -6,7 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:pointycastle/export.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../interfaces/i_contact_repository.dart';
+import 'package:get_it/get_it.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// 🔧 UTILITY: Safe string truncation to prevent RangeError
@@ -286,7 +287,7 @@ class SimpleCrypto {
   static Future<String?> encryptForContact(
     String plaintext,
     String contactPublicKey,
-    ContactRepository contactRepo,
+    IContactRepository contactRepo,
   ) async {
     // Mandatory key state synchronization before encryption
     await ensureConversationKeySync(contactPublicKey, contactRepo);
@@ -359,7 +360,7 @@ class SimpleCrypto {
   static Future<String?> decryptFromContact(
     String encryptedBase64,
     String contactPublicKey,
-    ContactRepository contactRepo,
+    IContactRepository contactRepo,
   ) async {
     // Mandatory key state synchronization before decryption
     await ensureConversationKeySync(contactPublicKey, contactRepo);
@@ -484,7 +485,7 @@ class SimpleCrypto {
 
   static Future<String?> getCachedOrComputeSharedSecret(
     String contactPublicKey,
-    ContactRepository contactRepo,
+    IContactRepository contactRepo,
   ) async {
     // Check memory cache first (fastest)
     if (_sharedSecretCache.containsKey(contactPublicKey)) {
@@ -516,7 +517,7 @@ class SimpleCrypto {
   /// Ensure conversation key synchronization to prevent race conditions
   static Future<void> ensureConversationKeySync(
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   ) async {
     if (!hasConversationKey(publicKey)) {
       final cachedSecret = await repo.getCachedSharedSecret(publicKey);
@@ -560,7 +561,7 @@ class SimpleCrypto {
   /// Comprehensive crypto standards verification
   static Future<Map<String, dynamic>> verifyCryptoStandards(
     String? contactPublicKey,
-    ContactRepository? repo,
+    IContactRepository? repo,
   ) async {
     final results = <String, dynamic>{
       'timestamp': DateTime.now().toIso8601String(),
@@ -814,7 +815,7 @@ class SimpleCrypto {
   /// Test key storage and retrieval
   static Future<Map<String, dynamic>> _testKeyStorage(
     String contactPublicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   ) async {
     try {
       print('🔍 TEST: Key Storage/Retrieval');
@@ -937,7 +938,7 @@ class SimpleCrypto {
   /// Test bidirectional encryption with a contact
   static Future<Map<String, dynamic>> testBidirectionalEncryption(
     String contactPublicKey,
-    ContactRepository repo,
+    IContactRepository repo,
     String testMessage,
   ) async {
     try {

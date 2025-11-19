@@ -16,19 +16,17 @@ import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/app_core.dart';
-import '../../data/services/ble_service.dart';
-import '../../data/services/ble_message_handler.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../core/interfaces/i_ble_service_facade.dart';
+import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../core/utils/mesh_debug_logger.dart';
-import '../../data/repositories/message_repository.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../core/routing/network_topology_analyzer.dart';
-import '../../core/interfaces/i_mesh_routing_service.dart';
 import '../../data/services/mesh_routing_service.dart';
+import '../../data/services/ble_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main orchestrator service for mesh networking functionality
@@ -43,17 +41,17 @@ class MeshNetworkingService {
   OfflineMessageQueue? _messageQueue;
 
   // Smart routing service (replaces individual routing components)
-  IMeshRoutingService? _routingService;
+  MeshRoutingService? _routingService;
   NetworkTopologyAnalyzer? _topologyAnalyzer;
 
   // Integration services
-  // 🎯 NOTE: MeshNetworkingService uses BLEService (facade) instead of individual sub-services
-  // because it requires access to multiple BLE concerns: connection state, messaging,
-  // session management, and mode detection. Splitting into individual services would
-  // require injecting BLEMessagingService, BLEConnectionService, and BLEStateManager,
-  // which is more complex than using the unified facade. This design is intentional.
+  // 🎯 NOTE: MeshNetworkingService uses BLEService directly because it requires access
+  // to multiple BLE concerns: connection state, messaging, session management, and mode
+  // detection. BLEService provides a unified interface to the complete BLE stack.
+  // This design is intentional and future-proof - changes to BLE implementation
+  // can be made in BLEService without affecting the mesh networking layer.
   final BLEService _bleService;
-  final BLEMessageHandler _messageHandler;
+  final IBLEMessageHandlerFacade _messageHandler;
   final IContactRepository _contactRepository;
   // Note: _chatManagementService kept for API compatibility but not currently used
   // May be needed for future chat-related mesh operations (group chats, etc.)
@@ -113,7 +111,8 @@ class MeshNetworkingService {
 
   MeshNetworkingService({
     required BLEService bleService,
-    required BLEMessageHandler messageHandler,
+    required IBLEMessageHandlerFacade messageHandler,
+    // ✅ Phase 3A: Now properly typed via BLEMessageHandlerFacadeImpl adapter
     required ChatManagementService
     chatManagementService, // Kept for API compatibility
     IRepositoryProvider? repositoryProvider,
@@ -276,16 +275,16 @@ class MeshNetworkingService {
   /// Set up integration with BLE layer
   Future<void> _setupBLEIntegration() async {
     // Initialize relay system in message handler
-    await _messageHandler.initializeRelaySystem(
-      currentNodeId: _currentNodeId!,
-      messageQueue: _messageQueue!,
-      onRelayMessageReceived: _handleIncomingRelayMessage,
-      onRelayDecisionMade: _handleRelayDecision,
-      onRelayStatsUpdated: _handleRelayStatsUpdated,
-    );
+    await _messageHandler.initializeRelaySystem(currentNodeId: _currentNodeId!);
+
+    // Set relay callbacks after initialization
+    _messageHandler.onRelayMessageReceived = _handleIncomingRelayMessage;
+    _messageHandler.onRelayDecisionMade = _handleRelayDecision;
+    _messageHandler.onRelayStatsUpdated = _handleRelayStatsUpdated;
 
     // Monitor BLE connection status for mesh networking
-    _bleService.connectionInfo.listen(_handleConnectionChange);
+    final connectionInfoStream = _bleService.connectionInfo;
+    connectionInfoStream.listen(_handleConnectionChange);
 
     // Intercept queue sync messages before GossipSyncManager processes them
     _bleService.registerQueueSyncHandler(_handleIncomingQueueSync);
@@ -381,7 +380,8 @@ class MeshNetworkingService {
   void _setupMinimalBLEIntegration() {
     try {
       // Monitor BLE connection status with error handling
-      _bleService.connectionInfo.listen(
+      final connectionStream = _bleService.connectionInfo;
+      connectionStream.listen(
         _handleConnectionChange,
         onError: (error) {
           _logger.warning('BLE connection stream error: $error');
@@ -648,7 +648,9 @@ class MeshNetworkingService {
   Future<bool> _canDeliverDirectly(String recipientPublicKey) async {
     // Check if we're connected and the other user is the recipient
     final connectionInfo = _bleService.currentConnectionInfo;
-    if (!connectionInfo.isConnected || !connectionInfo.isReady) {
+    if (connectionInfo == null ||
+        !connectionInfo.isConnected ||
+        !connectionInfo.isReady) {
       return false;
     }
 
@@ -662,7 +664,9 @@ class MeshNetworkingService {
 
     // Check BLE connection
     final connectionInfo = _bleService.currentConnectionInfo;
-    if (connectionInfo.isConnected && connectionInfo.isReady) {
+    if (connectionInfo != null &&
+        connectionInfo.isConnected &&
+        connectionInfo.isReady) {
       final connectedNodeId = _bleService.currentSessionId;
       if (connectedNodeId != null && connectedNodeId.isNotEmpty) {
         nextHops.add(connectedNodeId);

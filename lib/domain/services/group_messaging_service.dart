@@ -4,8 +4,8 @@
 import 'package:logging/logging.dart';
 import '../../core/models/contact_group.dart';
 import '../../domain/entities/enhanced_message.dart'; // For MessagePriority
-import '../../data/repositories/group_repository.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../core/interfaces/i_group_repository.dart';
+import '../../core/interfaces/i_contact_repository.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
@@ -25,13 +25,13 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 class GroupMessagingService {
   static final _logger = Logger('GroupMessagingService');
 
-  final GroupRepository _groupRepo;
-  final ContactRepository _contactRepo;
+  final IGroupRepository _groupRepo;
+  final IContactRepository _contactRepo;
   final OfflineMessageQueue _messageQueue;
 
   GroupMessagingService({
-    required GroupRepository groupRepo,
-    required ContactRepository contactRepo,
+    required IGroupRepository groupRepo,
+    required IContactRepository contactRepo,
     required OfflineMessageQueue messageQueue,
   }) : _groupRepo = groupRepo,
        _contactRepo = contactRepo,

@@ -3,6 +3,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../../core/models/contact_group.dart';
+import '../../core/interfaces/i_group_repository.dart';
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/services/group_messaging_service.dart';
@@ -26,7 +27,7 @@ final groupMessagingServiceProvider = Provider<GroupMessagingService>((ref) {
   final messageQueue = OfflineMessageQueue();
 
   return GroupMessagingService(
-    groupRepo: groupRepo,
+    groupRepo: groupRepo as IGroupRepository,
     contactRepo: contactRepo,
     messageQueue: messageQueue,
   );
