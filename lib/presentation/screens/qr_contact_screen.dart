@@ -355,7 +355,10 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
 
     try {
       // Save to repository
-      await _introHintRepo.saveScannedHint(_scannedHint!);
+      await _introHintRepo.saveScannedHint(
+        _scannedHint!.hintHex,
+        _scannedHint!,
+      );
 
       if (mounted) {
         Navigator.pop(context, true);

@@ -25,7 +25,6 @@ import '../../core/utils/mesh_debug_logger.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../core/routing/network_topology_analyzer.dart';
-import '../../core/interfaces/i_mesh_routing_service.dart';
 import '../../data/services/mesh_routing_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
@@ -41,7 +40,7 @@ class MeshNetworkingService {
   OfflineMessageQueue? _messageQueue;
 
   // Smart routing service (replaces individual routing components)
-  IMeshRoutingService? _routingService;
+  MeshRoutingService? _routingService;
   NetworkTopologyAnalyzer? _topologyAnalyzer;
 
   // Integration services

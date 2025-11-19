@@ -5,7 +5,8 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
 import '../interfaces/i_chat_list_coordinator.dart';
 import '../../core/models/connection_status.dart';
 import '../../domain/entities/chat_list_item.dart';
-import '../../data/repositories/chats_repository.dart';
+import '../interfaces/i_chats_repository.dart';
+import '../interfaces/i_ble_service.dart';
 import '../../data/services/ble_service.dart';
 
 /// Service for managing chat list operations
@@ -24,7 +25,7 @@ import '../../data/services/ble_service.dart';
 class ChatListCoordinator implements IChatListCoordinator {
   final _logger = Logger('ChatListCoordinator');
 
-  final ChatsRepository? _chatsRepository;
+  final IChatsRepository? _chatsRepository;
   final BLEService? _bleService;
 
   List<ChatListItem> _currentChats = [];
@@ -46,7 +47,7 @@ class ChatListCoordinator implements IChatListCoordinator {
   final Stream<ConnectionStatus>? _connectionStatusStream;
 
   ChatListCoordinator({
-    ChatsRepository? chatsRepository,
+    IChatsRepository? chatsRepository,
     BLEService? bleService,
     Stream<ConnectionStatus>? connectionStatusStream,
   }) : _chatsRepository = chatsRepository,
@@ -219,7 +220,7 @@ class ChatListCoordinator implements IChatListCoordinator {
   }
 
   /// 📡 Listen to discovery data changes and cache them
-  /// ChatsRepository needs the raw DiscoveredEventArgs for hash-based online detection
+  /// IChatsRepository needs the raw DiscoveredEventArgs for hash-based online detection
   void setupDiscoveryDataListener() {
     try {
       final bleService = _bleService;

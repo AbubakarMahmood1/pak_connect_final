@@ -8,6 +8,7 @@ import '../interfaces/i_chat_connection_manager.dart';
 import '../../core/models/connection_status.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
+import '../interfaces/i_ble_service.dart';
 import '../../data/services/ble_service.dart';
 
 /// Service for managing chat connection status determination

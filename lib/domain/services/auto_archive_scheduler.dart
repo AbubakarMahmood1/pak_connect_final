@@ -6,7 +6,8 @@ import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_preferences_repository.dart';
 import '../../core/interfaces/i_chats_repository.dart';
-import '../../data/repositories/preferences_repository.dart';
+import '../../data/repositories/preferences_repository.dart'
+    show PreferenceKeys;
 import 'archive_management_service.dart';
 
 /// Auto-archive scheduler service

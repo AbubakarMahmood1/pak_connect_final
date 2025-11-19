@@ -25,7 +25,7 @@ import 'i_ble_handshake_service.dart';
 /// - Handle graceful shutdown and resource cleanup
 ///
 /// Consumers: All 18 files (primary public API)
-abstract class IBLEServiceFacade
+abstract interface class IBLEServiceFacade
     implements
         IBLEConnectionService,
         IBLEMessagingService,
