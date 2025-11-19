@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
@@ -56,12 +57,28 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   Future<void> initializeRelaySystem({required String currentNodeId}) async {
     _ensureInitialized();
     await _relayCoordinator.initializeRelaySystem(currentNodeId: currentNodeId);
+
+    // Auto-inject SeenMessageStore from DI for duplicate detection
+    // This ensures production code automatically gets the dependency
+    try {
+      if (GetIt.instance.isRegistered<ISeenMessageStore>()) {
+        final seenMessageStore = GetIt.instance<ISeenMessageStore>();
+        setSeenMessageStore(seenMessageStore);
+        _logger.fine(
+          '✅ SeenMessageStore auto-injected from DI for duplicate detection',
+        );
+      }
+    } catch (e) {
+      _logger.warning('⚠️ SeenMessageStore not available in DI: $e');
+    }
   }
 
   /// Sets the SeenMessageStore for relay deduplication
+  @override
   void setSeenMessageStore(ISeenMessageStore seenMessageStore) {
     _ensureInitialized();
     _relayCoordinator.setSeenMessageStore(seenMessageStore);
+    _logger.fine('🔐 SeenMessageStore injected into RelayCoordinator');
   }
 
   /// Gets available next hop devices for relay
