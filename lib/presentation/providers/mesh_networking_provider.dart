@@ -8,6 +8,8 @@ import '../../domain/services/chat_management_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/services/ble_message_handler.dart';
+import '../../core/interfaces/i_ble_service_facade.dart';
+import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -69,8 +71,9 @@ final bluetoothReadyProvider = Provider<bool>((ref) {
 final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
   // Check if already registered in DI
   if (!getIt.isRegistered<MeshNetworkingService>()) {
-    final bleService = ref.watch(bleServiceProvider);
-    final messageHandler = ref.watch(_messageHandlerProvider);
+    final bleService = ref.watch(bleServiceProvider) as IBLEServiceFacade;
+    final messageHandler =
+        ref.watch(_messageHandlerProvider) as IBLEMessageHandlerFacade;
     final contactRepository = ref.watch(_contactRepositoryProvider);
     final chatManagementService = ref.watch(_chatManagementServiceProvider);
     final messageRepository = ref.watch(_messageRepositoryProvider);

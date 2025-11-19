@@ -41,6 +41,34 @@ abstract class IBLEDiscoveryService {
   /// Stop BLE scanning
   Future<void> stopScanning();
 
+  /// Start scanning with validation (Bluetooth state check)
+  /// Delegates to startScanning but ensures BLE is ready
+  Future<void> startScanningWithValidation({
+    ScanningSource source = ScanningSource.manual,
+  });
+
+  /// Scan for a specific device by ID
+  /// Returns the peripheral if found, null otherwise
+  Future<Peripheral?> scanForSpecificDevice({Duration? timeout});
+
+  /// Stream of discovered devices (alternative getter)
+  Stream<List<Peripheral>> get discoveredDevicesStream;
+
+  /// Get current list of discovered devices
+  List<Peripheral> get currentDiscoveredDevices;
+
+  /// Stream of raw discovery event data (alternative getter)
+  Stream<Map<String, DiscoveredEventArgs>> get discoveryDataStream;
+
+  /// Get current scanning source (manual, burst, or system)
+  ScanningSource? get currentScanningSource;
+
+  /// Stream of hint scanner matches for collision detection
+  Stream<String> get hintMatchesStream;
+
+  /// Build local collision hint for device identification
+  Future<String?> buildLocalCollisionHint();
+
   /// Initialize discovery service
   /// Sets up device deduplication listeners
   Future<void> initialize();

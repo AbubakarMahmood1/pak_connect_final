@@ -191,17 +191,17 @@ class BLEServiceFacade implements IBLEServiceFacade {
   }
 
   @override
-  void dispose() {
+  Future<void> dispose() async {
     _logger.info('🧹 Disposing BLEServiceFacade...');
 
     try {
       // Stop all active operations (only if services were created)
       if (_discoveryService != null) {
-        _discoveryService!.stopScanning().catchError((_) {});
+        await _discoveryService!.stopScanning().catchError((_) {});
       }
       if (_connectionService != null) {
         _connectionService!.stopConnectionMonitoring();
-        _connectionService!.disconnect().catchError((_) {});
+        await _connectionService!.disconnect().catchError((_) {});
         _connectionService!.disposeConnection();
       }
       if (_handshakeService != null) {
@@ -472,6 +472,14 @@ class BLEServiceFacade implements IBLEServiceFacade {
   @override
   Future<Peripheral?> scanForSpecificDevice({Duration? timeout}) =>
       _getDiscoveryService().scanForSpecificDevice(timeout: timeout);
+
+  @override
+  Stream<List<Peripheral>> get discoveredDevices =>
+      _getDiscoveryService().discoveredDevices;
+
+  @override
+  Stream<Map<String, DiscoveredEventArgs>> get discoveryData =>
+      _getDiscoveryService().discoveryData;
 
   @override
   Stream<List<Peripheral>> get discoveredDevicesStream =>

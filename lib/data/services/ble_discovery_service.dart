@@ -95,6 +95,21 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
     _staleDeviceTimer?.cancel();
   }
 
+  @override
+  Future<void> initialize() async {
+    _logger.info('🔧 Initializing BLEDiscoveryService');
+    setupDeduplicationListener();
+  }
+
+  @override
+  Future<void> dispose() async {
+    _logger.info('🧹 Disposing BLEDiscoveryService');
+    await stopScanning();
+    disposeDeduplicationListener();
+    devicesController?.close();
+    hintMatchController?.close();
+  }
+
   // ============================================================================
   // IMPLEMENTATION: Extracted from BLEService (lines 2160-2284)
   // ============================================================================
@@ -242,6 +257,17 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
     // TODO(phase2a): Extract from BLEConnectionManager.scanForSpecificDevice()
     // For now, returning null - connection service will delegate to connection manager
     return null;
+  }
+
+  @override
+  Stream<List<Peripheral>> get discoveredDevices {
+    return devicesController?.stream ?? Stream.empty();
+  }
+
+  @override
+  Stream<Map<String, DiscoveredEventArgs>> get discoveryData {
+    // TODO(phase2a): Extract raw discovery event stream from CentralManager
+    return Stream.empty();
   }
 
   @override
