@@ -49,7 +49,7 @@ class PreferenceDefaults {
 /// Value types for type-safe storage
 enum PreferenceValueType { string, boolean, integer, double }
 
-class PreferencesRepository {
+class PreferencesRepository implements IPreferencesRepository {
   static final _logger = Logger('PreferencesRepository');
 
   /// Get string preference

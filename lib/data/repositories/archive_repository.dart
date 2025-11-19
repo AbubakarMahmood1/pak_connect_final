@@ -18,7 +18,7 @@ import '../../core/compression/compression_config.dart';
 
 /// Repository for managing archived chats with SQLite and FTS5 search
 /// Singleton pattern to prevent multiple instances and redundant initialization
-class ArchiveRepository {
+class ArchiveRepository implements IArchiveRepository {
   static final _logger = Logger('ArchiveRepository');
 
   // Singleton instance with lazy initialization
@@ -458,11 +458,14 @@ class ArchiveRepository {
   }
 
   /// Search archived messages using FTS5 (BIG WIN - replaces 300+ lines!)
+  @override
   Future<ArchiveSearchResult> searchArchives({
     required String query,
     ArchiveSearchFilter? filter,
-    int limit = 50,
+    int? limit,
+    String? afterCursor,
   }) async {
+    final effectiveLimit = limit ?? 50;
     final startTime = DateTime.now();
 
     try {
@@ -486,7 +489,10 @@ class ArchiveRepository {
         LIMIT ?
       ''';
 
-      final results = await db.rawQuery(searchQuery, [query, limit * 2]);
+      final results = await db.rawQuery(searchQuery, [
+        query,
+        effectiveLimit * 2,
+      ]);
 
       final matchingMessages = results
           .map((row) => _mapToArchivedMessage(row))
@@ -518,7 +524,7 @@ class ArchiveRepository {
       }
 
       // Limit results
-      final limitedMessages = filteredMessages.take(limit).toList();
+      final limitedMessages = filteredMessages.take(effectiveLimit).toList();
 
       final searchTime = DateTime.now().difference(startTime);
       _recordOperationTime('search', searchTime);
@@ -529,7 +535,7 @@ class ArchiveRepository {
         query: query,
         filter: filter,
         searchTime: searchTime,
-        hasMore: filteredMessages.length > limit,
+        hasMore: filteredMessages.length > effectiveLimit,
         searchStats: {
           'ftsResults': results.length,
           'archivesSearched': archiveIds.length,
@@ -717,7 +723,8 @@ class ArchiveRepository {
   }
 
   /// Dispose and cleanup
-  void dispose() {
+  @override
+  Future<void> dispose() async {
     _logger.info('Archive repository disposed');
   }
 

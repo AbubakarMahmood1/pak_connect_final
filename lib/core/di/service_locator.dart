@@ -112,36 +112,28 @@ Future<void> setupServiceLocator() async {
     // REPOSITORY INTERFACES (Phase 3 abstraction)
     // ===========================
     // Register IArchiveRepository for dependency injection
-    // Note: Using casting since concrete repos don't explicitly implement interfaces yet
-    // This will be refined when Codex reviews the interface design
     if (!getIt.isRegistered<IArchiveRepository>()) {
-      getIt.registerSingleton<IArchiveRepository>(
-        getIt<ArchiveRepository>() as IArchiveRepository,
-      );
+      getIt.registerSingleton<IArchiveRepository>(getIt<ArchiveRepository>());
       _logger.fine('✅ IArchiveRepository registered (Phase 3)');
     }
 
     // Register IChatsRepository for dependency injection
     if (!getIt.isRegistered<IChatsRepository>()) {
-      getIt.registerSingleton<IChatsRepository>(
-        getIt<ChatsRepository>() as IChatsRepository,
-      );
+      getIt.registerSingleton<IChatsRepository>(getIt<ChatsRepository>());
       _logger.fine('✅ IChatsRepository registered (Phase 3)');
     }
 
     // Register IPreferencesRepository for dependency injection
     if (!getIt.isRegistered<IPreferencesRepository>()) {
       getIt.registerSingleton<IPreferencesRepository>(
-        getIt<PreferencesRepository>() as IPreferencesRepository,
+        getIt<PreferencesRepository>(),
       );
       _logger.fine('✅ IPreferencesRepository registered (Phase 3)');
     }
 
     // Register IGroupRepository for dependency injection
     if (!getIt.isRegistered<IGroupRepository>()) {
-      getIt.registerSingleton<IGroupRepository>(
-        getIt<GroupRepository>() as IGroupRepository,
-      );
+      getIt.registerSingleton<IGroupRepository>(getIt<GroupRepository>());
       _logger.fine('✅ IGroupRepository registered (Phase 3)');
     }
 
