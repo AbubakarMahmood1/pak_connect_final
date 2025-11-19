@@ -452,7 +452,7 @@ class ArchiveManagementService {
     ArchiveAnalyticsScope scope = ArchiveAnalyticsScope.all,
   }) async {
     try {
-      final statistics = await _archiveRepository.getArchiveStatistics();
+      final statistics = await _archiveRepository.getArchiveStatistics() ?? ArchiveStatistics.empty();
 
       // Get business metrics
       final businessMetrics = await _calculateBusinessMetrics(since, scope);
@@ -548,15 +548,16 @@ class ArchiveManagementService {
 
       // Check repository health
       final stats = await _archiveRepository.getArchiveStatistics();
+      if (stats != null) {
+        // Check storage capacity
+        if (stats.totalSizeBytes > _config.maxStorageSizeBytes) {
+          issues.add(ArchiveHealthIssue.storageOverLimit());
+        }
 
-      // Check storage capacity
-      if (stats.totalSizeBytes > _config.maxStorageSizeBytes) {
-        issues.add(ArchiveHealthIssue.storageOverLimit());
-      }
-
-      // Check performance
-      if (!stats.performanceStats.isPerformanceAcceptable) {
-        issues.add(ArchiveHealthIssue.performanceDegraded());
+        // Check performance
+        if (!stats.performanceStats.isPerformanceAcceptable) {
+          issues.add(ArchiveHealthIssue.performanceDegraded());
+        }
       }
 
       // Check policy health
@@ -737,7 +738,7 @@ class ArchiveManagementService {
   }
 
   Future<StorageCapacityCheck> _checkStorageLimits() async {
-    final stats = await _archiveRepository.getArchiveStatistics();
+    final stats = await _archiveRepository.getArchiveStatistics() ?? ArchiveStatistics.empty();
     final hasCapacity = stats.totalSizeBytes < _config.maxStorageSizeBytes;
     return StorageCapacityCheck(
       hasCapacity,

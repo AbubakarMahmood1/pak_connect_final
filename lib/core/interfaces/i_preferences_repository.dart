@@ -5,26 +5,26 @@
 /// - Test mocking
 /// - Alternative implementations
 abstract class IPreferencesRepository {
-  /// Get string preference
-  Future<String?> getString(String key, {String? defaultValue});
+  /// Get string preference (returns defaultValue or type default if not found)
+  Future<String> getString(String key, {String? defaultValue});
 
   /// Set string preference
   Future<void> setString(String key, String value);
 
-  /// Get boolean preference
-  Future<bool?> getBool(String key, {bool? defaultValue});
+  /// Get boolean preference (returns defaultValue or type default if not found)
+  Future<bool> getBool(String key, {bool? defaultValue});
 
   /// Set boolean preference
   Future<void> setBool(String key, bool value);
 
-  /// Get integer preference
-  Future<int?> getInt(String key, {int? defaultValue});
+  /// Get integer preference (returns defaultValue or type default if not found)
+  Future<int> getInt(String key, {int? defaultValue});
 
   /// Set integer preference
   Future<void> setInt(String key, int value);
 
-  /// Get double preference
-  Future<double?> getDouble(String key, {double? defaultValue});
+  /// Get double preference (returns defaultValue or 0.0 if not found)
+  Future<double> getDouble(String key, {double? defaultValue});
 
   /// Set double preference
   Future<void> setDouble(String key, double value);
