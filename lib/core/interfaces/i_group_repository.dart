@@ -1,3 +1,5 @@
+import '../../core/models/contact_group.dart';
+
 /// Interface for group repository operations
 ///
 /// Abstracts group storage, retrieval, and management to enable:
@@ -6,43 +8,42 @@
 /// - Alternative implementations
 abstract class IGroupRepository {
   /// Create a new group
-  Future<String> createGroup(Map<String, dynamic> groupData);
+  Future<ContactGroup> createGroup(ContactGroup group);
 
   /// Get a specific group
-  Future<Map<String, dynamic>?> getGroup(String groupId);
+  Future<ContactGroup?> getGroup(String groupId);
 
   /// Get all groups
-  Future<List<Map<String, dynamic>>> getAllGroups();
+  Future<List<ContactGroup>> getAllGroups();
 
   /// Update a group
-  Future<void> updateGroup(String groupId, Map<String, dynamic> updates);
+  Future<void> updateGroup(ContactGroup group);
 
   /// Delete a group
   Future<void> deleteGroup(String groupId);
 
   /// Save a group message
-  Future<void> saveGroupMessage(String groupId, Map<String, dynamic> message);
+  Future<void> saveGroupMessage(GroupMessage message);
 
   /// Update delivery status for a message
   Future<void> updateDeliveryStatus(
-    String groupId,
     String messageId,
-    String status,
+    String memberKey,
+    MessageDeliveryStatus status,
   );
 
   /// Get messages in a group
-  Future<List<Map<String, dynamic>>> getGroupMessages(
+  Future<List<GroupMessage>> getGroupMessages(
     String groupId, {
-    int offset = 0,
     int limit = 50,
   });
 
   /// Get a specific message
-  Future<Map<String, dynamic>?> getMessage(String groupId, String messageId);
+  Future<GroupMessage?> getMessage(String messageId);
 
   /// Get all groups for a member
-  Future<List<Map<String, dynamic>>> getGroupsForMember(String memberId);
+  Future<List<ContactGroup>> getGroupsForMember(String memberKey);
 
   /// Get group statistics
-  Future<Map<String, dynamic>> getStatistics(String groupId);
+  Future<Map<String, int>> getStatistics();
 }
