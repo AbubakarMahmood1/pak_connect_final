@@ -3,6 +3,7 @@
 
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
+import '../../core/interfaces/i_preferences_repository.dart';
 import '../database/database_helper.dart';
 
 /// App preference keys

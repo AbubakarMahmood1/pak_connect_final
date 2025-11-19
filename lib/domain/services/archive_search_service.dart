@@ -5,7 +5,8 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/repositories/archive_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../../core/interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../core/models/archive_models.dart';
@@ -25,8 +26,9 @@ class ArchiveSearchService {
   }
 
   /// Private constructor for singleton
-  ArchiveSearchService._internal({ArchiveRepository? archiveRepository})
-    : _archiveRepository = archiveRepository ?? ArchiveRepository.instance {
+  ArchiveSearchService._internal({IArchiveRepository? archiveRepository})
+    : _archiveRepository =
+          archiveRepository ?? GetIt.instance<IArchiveRepository>() {
     _logger.info('✅ ArchiveSearchService singleton instance created');
   }
 
@@ -34,7 +36,7 @@ class ArchiveSearchService {
   factory ArchiveSearchService() => instance;
 
   // Dependencies (injected for testability)
-  final ArchiveRepository _archiveRepository;
+  final IArchiveRepository _archiveRepository;
 
   // Storage keys
   static const String _searchHistoryKey = 'archive_search_history_v2';

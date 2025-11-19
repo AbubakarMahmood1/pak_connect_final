@@ -6,8 +6,16 @@ import '../../domain/services/mesh_networking_service.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
+import '../../data/repositories/archive_repository.dart';
+import '../../data/repositories/chats_repository.dart';
+import '../../data/repositories/preferences_repository.dart';
+import '../../data/repositories/group_repository.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_seen_message_store.dart';
+import '../interfaces/i_archive_repository.dart';
+import '../interfaces/i_chats_repository.dart';
+import '../interfaces/i_preferences_repository.dart';
+import '../interfaces/i_group_repository.dart';
 import 'repository_provider_impl.dart';
 
 /// GetIt service locator instance
@@ -66,6 +74,75 @@ Future<void> setupServiceLocator() async {
       _logger.fine('✅ MessageRepository registered');
     } else {
       _logger.fine('ℹ️ MessageRepository already registered');
+    }
+
+    // Register ArchiveRepository singleton
+    if (!getIt.isRegistered<ArchiveRepository>()) {
+      getIt.registerSingleton<ArchiveRepository>(ArchiveRepository.instance);
+      _logger.fine('✅ ArchiveRepository registered');
+    } else {
+      _logger.fine('ℹ️ ArchiveRepository already registered');
+    }
+
+    // Register ChatsRepository singleton
+    if (!getIt.isRegistered<ChatsRepository>()) {
+      getIt.registerSingleton<ChatsRepository>(ChatsRepository());
+      _logger.fine('✅ ChatsRepository registered');
+    } else {
+      _logger.fine('ℹ️ ChatsRepository already registered');
+    }
+
+    // Register PreferencesRepository singleton
+    if (!getIt.isRegistered<PreferencesRepository>()) {
+      getIt.registerSingleton<PreferencesRepository>(PreferencesRepository());
+      _logger.fine('✅ PreferencesRepository registered');
+    } else {
+      _logger.fine('ℹ️ PreferencesRepository already registered');
+    }
+
+    // Register GroupRepository singleton
+    if (!getIt.isRegistered<GroupRepository>()) {
+      getIt.registerSingleton<GroupRepository>(GroupRepository());
+      _logger.fine('✅ GroupRepository registered');
+    } else {
+      _logger.fine('ℹ️ GroupRepository already registered');
+    }
+
+    // ===========================
+    // REPOSITORY INTERFACES (Phase 3 abstraction)
+    // ===========================
+    // Register IArchiveRepository for dependency injection
+    // Note: Using casting since concrete repos don't explicitly implement interfaces yet
+    // This will be refined when Codex reviews the interface design
+    if (!getIt.isRegistered<IArchiveRepository>()) {
+      getIt.registerSingleton<IArchiveRepository>(
+        getIt<ArchiveRepository>() as IArchiveRepository,
+      );
+      _logger.fine('✅ IArchiveRepository registered (Phase 3)');
+    }
+
+    // Register IChatsRepository for dependency injection
+    if (!getIt.isRegistered<IChatsRepository>()) {
+      getIt.registerSingleton<IChatsRepository>(
+        getIt<ChatsRepository>() as IChatsRepository,
+      );
+      _logger.fine('✅ IChatsRepository registered (Phase 3)');
+    }
+
+    // Register IPreferencesRepository for dependency injection
+    if (!getIt.isRegistered<IPreferencesRepository>()) {
+      getIt.registerSingleton<IPreferencesRepository>(
+        getIt<PreferencesRepository>() as IPreferencesRepository,
+      );
+      _logger.fine('✅ IPreferencesRepository registered (Phase 3)');
+    }
+
+    // Register IGroupRepository for dependency injection
+    if (!getIt.isRegistered<IGroupRepository>()) {
+      getIt.registerSingleton<IGroupRepository>(
+        getIt<GroupRepository>() as IGroupRepository,
+      );
+      _logger.fine('✅ IGroupRepository registered (Phase 3)');
     }
 
     // ===========================

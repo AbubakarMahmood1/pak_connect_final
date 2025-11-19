@@ -5,7 +5,8 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
-import '../../data/repositories/preferences_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../../core/interfaces/i_preferences_repository.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/interfaces/i_notification_handler.dart';
 
@@ -14,6 +15,13 @@ import '../../domain/interfaces/i_notification_handler.dart';
 class ForegroundNotificationHandler implements INotificationHandler {
   static final _logger = Logger('ForegroundNotificationHandler');
   bool _isInitialized = false;
+
+  // Injected dependency for preference settings
+  final IPreferencesRepository _preferencesRepository;
+
+  ForegroundNotificationHandler({IPreferencesRepository? preferencesRepository})
+    : _preferencesRepository =
+          preferencesRepository ?? GetIt.instance<IPreferencesRepository>();
 
   @override
   Future<void> initialize() async {
@@ -119,8 +127,9 @@ class ForegroundNotificationHandler implements INotificationHandler {
 
   @override
   Future<bool> areNotificationsEnabled() async {
-    final prefs = PreferencesRepository();
-    return await prefs.getBool(PreferenceKeys.notificationsEnabled);
+    return await _preferencesRepository.getBool(
+      PreferenceKeys.notificationsEnabled,
+    );
   }
 
   @override
@@ -138,8 +147,9 @@ class ForegroundNotificationHandler implements INotificationHandler {
   // Private helper methods
   Future<void> _playSound() async {
     try {
-      final prefs = PreferencesRepository();
-      final soundEnabled = await prefs.getBool(PreferenceKeys.soundEnabled);
+      final soundEnabled = await _preferencesRepository.getBool(
+        PreferenceKeys.soundEnabled,
+      );
 
       if (!soundEnabled) return;
 
@@ -152,8 +162,7 @@ class ForegroundNotificationHandler implements INotificationHandler {
 
   Future<void> _vibrate() async {
     try {
-      final prefs = PreferencesRepository();
-      final vibrationEnabled = await prefs.getBool(
+      final vibrationEnabled = await _preferencesRepository.getBool(
         PreferenceKeys.vibrationEnabled,
       );
 

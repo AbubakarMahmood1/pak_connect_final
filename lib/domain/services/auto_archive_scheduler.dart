@@ -3,8 +3,9 @@
 
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../data/repositories/preferences_repository.dart';
-import '../../data/repositories/chats_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../../core/interfaces/i_preferences_repository.dart';
+import '../../core/interfaces/i_chats_repository.dart';
 import 'archive_management_service.dart';
 
 /// Auto-archive scheduler service
@@ -24,7 +25,7 @@ class AutoArchiveScheduler {
     }
 
     try {
-      final prefs = PreferencesRepository();
+      final prefs = GetIt.instance<IPreferencesRepository>();
       final enabled = await prefs.getBool(PreferenceKeys.autoArchiveOldChats);
 
       if (!enabled) {
@@ -85,7 +86,7 @@ class AutoArchiveScheduler {
       _lastCheckTime = DateTime.now();
 
       // Get user settings
-      final prefs = PreferencesRepository();
+      final prefs = GetIt.instance<IPreferencesRepository>();
       final enabled = await prefs.getBool(PreferenceKeys.autoArchiveOldChats);
 
       if (!enabled) {
@@ -105,7 +106,7 @@ class AutoArchiveScheduler {
       );
 
       // Get all chats
-      final chatsRepo = ChatsRepository();
+      final chatsRepo = GetIt.instance<IChatsRepository>();
       final allChats = await chatsRepo.getAllChats();
 
       int archivedCount = 0;

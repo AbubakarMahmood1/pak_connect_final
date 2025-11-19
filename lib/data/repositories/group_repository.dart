@@ -3,6 +3,7 @@
 
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
+import '../../core/interfaces/i_group_repository.dart';
 import '../database/database_helper.dart';
 import '../../core/models/contact_group.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';

@@ -3,8 +3,9 @@
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/repositories/message_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../../core/interfaces/i_contact_repository.dart';
+import '../../core/interfaces/i_message_repository.dart';
 import '../../core/services/security_manager.dart';
 import '../entities/enhanced_contact.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
@@ -25,10 +26,12 @@ class ContactManagementService {
 
   /// Private constructor for singleton
   ContactManagementService._internal({
-    ContactRepository? contactRepository,
-    MessageRepository? messageRepository,
-  }) : _contactRepository = contactRepository ?? ContactRepository(),
-       _messageRepository = messageRepository ?? MessageRepository() {
+    IContactRepository? contactRepository,
+    IMessageRepository? messageRepository,
+  }) : _contactRepository =
+           contactRepository ?? GetIt.instance<IContactRepository>(),
+       _messageRepository =
+           messageRepository ?? GetIt.instance<IMessageRepository>() {
     _logger.info('✅ ContactManagementService singleton instance created');
   }
 
@@ -36,8 +39,8 @@ class ContactManagementService {
   factory ContactManagementService() => instance;
 
   // Dependencies (injected for testability)
-  final ContactRepository _contactRepository;
-  final MessageRepository _messageRepository;
+  final IContactRepository _contactRepository;
+  final IMessageRepository _messageRepository;
 
   static const String _settingsPrefix = 'contact_mgmt_';
   static const String _searchHistoryKey = 'contact_search_history';

@@ -1,6 +1,9 @@
 // Enhanced contact entity with additional metadata and analytics
 
-import '../../data/repositories/contact_repository.dart';
+// NOTE: Contact type is imported from repository (type-only import, not for functionality)
+// This is acceptable as it's a data model, not using repository behavior
+import '../../data/repositories/contact_repository.dart'
+    show Contact, TrustStatus;
 import '../../core/services/security_manager.dart';
 
 /// Enhanced contact with additional metadata and interaction statistics
