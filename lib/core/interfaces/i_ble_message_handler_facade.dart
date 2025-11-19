@@ -19,11 +19,17 @@ abstract interface class IBLEMessageHandlerFacade {
   /// Sets current node ID for this device in mesh routing
   void setCurrentNodeId(String nodeId);
 
-  /// Initializes relay system with dependencies
+  /// Initializes relay system with dependencies and callback wiring.
   ///
-  /// Called once at app startup after all services are initialized
-  /// Automatically injects ISeenMessageStore for duplicate detection
-  Future<void> initializeRelaySystem({required String currentNodeId});
+  /// Called once at app startup after all services are initialized.
+  /// Automatically injects ISeenMessageStore for duplicate detection.
+  Future<void> initializeRelaySystem({
+    required String currentNodeId,
+    Function(String originalMessageId, String content, String originalSender)?
+    onRelayMessageReceived,
+    Function(RelayDecision decision)? onRelayDecisionMade,
+    Function(RelayStatistics stats)? onRelayStatsUpdated,
+  });
 
   /// Sets the SeenMessageStore for relay deduplication
   ///

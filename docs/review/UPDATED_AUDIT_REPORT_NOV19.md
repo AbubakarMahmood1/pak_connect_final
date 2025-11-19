@@ -190,7 +190,7 @@ final BLEService _bleService;
    final IBLEService? _bleService;  ✅ Interface type
    ```
 
-   **Action needed**: Change type declarations (2-3 line change per file)
+**Action needed**: Change type declarations (2-3 line change per file)
 
 3. **Update DI Injection Calls**
 
@@ -560,6 +560,14 @@ ls: cannot access 'test/services/ble_handshake_service_test.dart': No such file 
 $ git log --oneline --since="2 days ago" | wc -l
 20  # (active development)
 ```
+
+## 2025-11-20 Follow-up
+
+- ✅ **Domain clean-up**: `MeshNetworkingService` now depends on `IMeshBleService` and `IMeshRoutingService`, eliminating the last Domain→Data imports. The contact and preference key entities live inside `lib/domain/entities/`, so interfaces no longer import repository implementations.
+- ✅ **DI fixes**: `service_locator.dart` registers `IContactRepository` and `IMessageRepository`, so GetIt lookups succeed inside `ContactManagementService`, `SecurityManager`, and the integration tests.
+- ✅ **Regression verification**: `flutter test test/core/di/layer_boundary_compliance_test.dart`, `flutter test test/mesh_networking_integration_test.dart`, and the full `flutter test` suite all pass after the refactor.
+- ⚠️ **Core layer work outstanding**: Burst scanning, message routing, and several core services still import `BLEService` and `DatabaseHelper` directly. These need the same abstraction/DI treatment applied to MeshNetworkingService before we can call Phase 3 DONE.
+- ⚠️ **Test backfill still open**: `ble_advertising_service_test.dart` and `ble_handshake_service_test.dart` remain missing; the next checkpoint should include the new suites.
 
 ---
 

@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
+import '../../domain/entities/contact.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 
 /// Interface for contact repository operations

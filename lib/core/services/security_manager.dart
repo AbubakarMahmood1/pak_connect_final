@@ -7,7 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_contact_repository.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../domain/entities/contact.dart';
 import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
 import 'simple_crypto.dart';

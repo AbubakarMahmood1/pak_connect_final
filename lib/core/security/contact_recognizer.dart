@@ -1,6 +1,6 @@
 // File: lib/core/security/contact_recognizer.dart
 import '../interfaces/i_contact_repository.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../domain/entities/contact.dart';
 import 'package:get_it/get_it.dart';
 import 'ephemeral_key_manager.dart';
 
