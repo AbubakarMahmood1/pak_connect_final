@@ -31,7 +31,7 @@ final _logger = Logger('MeshNetworkingProvider');
 /// Provider for IBLEMessageHandlerFacade implementation
 /// ✅ Phase 3A: Wraps BLEMessageHandler with simplified facade interface
 final _messageHandlerProvider = Provider<IBLEMessageHandlerFacade>((ref) {
-  final seenMessageStore = _SimpleInMemorySeenMessageStore();
+  final seenMessageStore = getIt<ISeenMessageStore>();
   return BLEMessageHandlerFacadeImpl(BLEMessageHandler(), seenMessageStore);
 });
 final _contactRepositoryProvider = Provider<ContactRepository>(
@@ -653,64 +653,3 @@ Future<void> _initializeServiceAsync(
 
 /// Simple in-memory implementation of ISeenMessageStore for Phase 3A
 /// Phase 3B should replace with persistent SQLite-backed implementation
-class _SimpleInMemorySeenMessageStore implements ISeenMessageStore {
-  final Map<String, int> _deliveredMessages = {};
-  final Map<String, int> _readMessages = {};
-  final Duration _expiryDuration = Duration(minutes: 5);
-
-  @override
-  bool hasDelivered(String messageId) {
-    final ts = _deliveredMessages[messageId];
-    if (ts == null) return false;
-    if (DateTime.now().millisecondsSinceEpoch - ts >
-        _expiryDuration.inMilliseconds) {
-      _deliveredMessages.remove(messageId);
-      return false;
-    }
-    return true;
-  }
-
-  @override
-  bool hasRead(String messageId) {
-    final ts = _readMessages[messageId];
-    if (ts == null) return false;
-    if (DateTime.now().millisecondsSinceEpoch - ts >
-        _expiryDuration.inMilliseconds) {
-      _readMessages.remove(messageId);
-      return false;
-    }
-    return true;
-  }
-
-  @override
-  Future<void> markDelivered(String messageId) async =>
-      _deliveredMessages[messageId] = DateTime.now().millisecondsSinceEpoch;
-
-  @override
-  Future<void> markRead(String messageId) async =>
-      _readMessages[messageId] = DateTime.now().millisecondsSinceEpoch;
-
-  @override
-  Map<String, dynamic> getStatistics() => {
-    'deliveredCount': _deliveredMessages.length,
-    'readCount': _readMessages.length,
-    'totalTracked': _deliveredMessages.length + _readMessages.length,
-  };
-
-  @override
-  Future<void> clear() async {
-    _deliveredMessages.clear();
-    _readMessages.clear();
-  }
-
-  @override
-  Future<void> performMaintenance() async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    _deliveredMessages.removeWhere(
-      (_, ts) => now - ts > _expiryDuration.inMilliseconds,
-    );
-    _readMessages.removeWhere(
-      (_, ts) => now - ts > _expiryDuration.inMilliseconds,
-    );
-  }
-}

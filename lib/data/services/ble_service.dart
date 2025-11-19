@@ -38,6 +38,7 @@ import '../../core/messaging/offline_message_queue.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../../core/app_core.dart';
 import '../../core/models/mesh_relay_models.dart';
+import '../../core/interfaces/i_mesh_ble_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Enum to track the source of scanning requests for better coordination
@@ -64,7 +65,7 @@ class _BufferedMessage {
   });
 }
 
-class BLEService {
+class BLEService implements IMeshBleService {
   final _logger = Logger('BLEService');
 
   // Initialization completer for timing fix

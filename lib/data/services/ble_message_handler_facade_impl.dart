@@ -40,7 +40,13 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   }
 
   @override
-  Future<void> initializeRelaySystem({required String currentNodeId}) async {
+  Future<void> initializeRelaySystem({
+    required String currentNodeId,
+    Function(String originalMessageId, String content, String originalSender)?
+    onRelayMessageReceived,
+    Function(RelayDecision decision)? onRelayDecisionMade,
+    Function(RelayStatistics stats)? onRelayStatsUpdated,
+  }) async {
     try {
       _logger.info('🚀 Initializing relay system...');
       _currentNodeId = currentNodeId;
@@ -56,9 +62,9 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       await _handler.initializeRelaySystem(
         currentNodeId: currentNodeId,
         messageQueue: messageQueue,
-        onRelayMessageReceived: null,
-        onRelayDecisionMade: null,
-        onRelayStatsUpdated: null,
+        onRelayMessageReceived: onRelayMessageReceived,
+        onRelayDecisionMade: onRelayDecisionMade,
+        onRelayStatsUpdated: onRelayStatsUpdated,
       );
 
       _initialized = true;

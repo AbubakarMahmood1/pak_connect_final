@@ -28,6 +28,7 @@ import '../data/repositories/preferences_repository.dart';
 import '../data/repositories/message_repository.dart';
 import '../data/database/database_helper.dart';
 import '../domain/entities/message.dart';
+import '../domain/entities/preference_keys.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'di/service_locator.dart';
 

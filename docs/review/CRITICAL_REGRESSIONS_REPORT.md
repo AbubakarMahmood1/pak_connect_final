@@ -311,6 +311,14 @@ Modify `BLEMessageHandler` to support re-registering callbacks after initializat
 
 ---
 
+## 2025-11-20 Status Update
+
+- ✅ **Interface imports**: `Contact`/`TrustStatus` now live under `lib/domain/entities/contact.dart`, eliminating the `lib/data/repositories/contact_repository.dart` dependency from `i_chats_repository.dart`, `i_contact_repository.dart`, `EnhancedContact`, and `SecurityManager`.
+- ✅ **DI registrations**: `service_locator.dart` registers both `IContactRepository` and `IMessageRepository`, so `GetIt.instance<IMessageRepository>()` works in `ContactManagementService`, `ChatManagementService`, and the mesh integration harness.
+- ✅ **Relay callbacks**: `IBLEMessageHandlerFacade.initializeRelaySystem` accepts relay callbacks and `MeshNetworkingService` wires them before initialization. `BLEMessageHandlerFacadeImpl` forwards the callbacks to the concrete handler, so UI streams update again.
+- ✅ **Regression coverage**: `flutter test test/core/di/layer_boundary_compliance_test.dart`, `flutter test test/mesh_networking_integration_test.dart`, and the full `flutter test` suite now pass.
+- ⚠️ **Remaining work**: Multiple core services (`burst_scanning_controller.dart`, `message_router.dart`, `home_screen_facade.dart`, etc.) still import `lib/data/services/ble_service.dart`. These need the same abstraction/DI treatment applied to `MeshNetworkingService`, and the documentation in `docs/review/UPDATED_AUDIT_REPORT_NOV19.md` should be refreshed once those fixes land.
+
 ## Immediate Action Plan
 
 ### Priority 1: Fix Test Failures (2 hours)

@@ -2,6 +2,7 @@ import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import '../../data/services/ble_service.dart';
 import '../../data/services/seen_message_store.dart';
+import '../../data/services/mesh_routing_service.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
@@ -12,6 +13,9 @@ import '../../data/repositories/preferences_repository.dart';
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import '../interfaces/i_repository_provider.dart';
+import '../interfaces/i_contact_repository.dart';
+import '../interfaces/i_message_repository.dart';
+import '../interfaces/i_mesh_routing_service.dart';
 import '../interfaces/i_seen_message_store.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../interfaces/i_chats_repository.dart';
@@ -70,12 +74,22 @@ Future<void> setupServiceLocator() async {
       _logger.fine('ℹ️ ContactRepository already registered');
     }
 
+    if (!getIt.isRegistered<IContactRepository>()) {
+      getIt.registerSingleton<IContactRepository>(getIt<ContactRepository>());
+      _logger.fine('✅ IContactRepository registered (Phase 3)');
+    }
+
     // Register IMessageRepository singleton
     if (!getIt.isRegistered<MessageRepository>()) {
       getIt.registerSingleton<MessageRepository>(MessageRepository());
       _logger.fine('✅ MessageRepository registered');
     } else {
       _logger.fine('ℹ️ MessageRepository already registered');
+    }
+
+    if (!getIt.isRegistered<IMessageRepository>()) {
+      getIt.registerSingleton<IMessageRepository>(getIt<MessageRepository>());
+      _logger.fine('✅ IMessageRepository registered (Phase 3)');
     }
 
     // Register ArchiveRepository singleton
@@ -116,6 +130,18 @@ Future<void> setupServiceLocator() async {
       _logger.fine('✅ IntroHintRepository registered');
     } else {
       _logger.fine('ℹ️ IntroHintRepository already registered');
+    }
+
+    if (!getIt.isRegistered<MeshRoutingService>()) {
+      getIt.registerSingleton<MeshRoutingService>(MeshRoutingService());
+      _logger.fine('✅ MeshRoutingService registered');
+    } else {
+      _logger.fine('ℹ️ MeshRoutingService already registered');
+    }
+
+    if (!getIt.isRegistered<IMeshRoutingService>()) {
+      getIt.registerSingleton<IMeshRoutingService>(getIt<MeshRoutingService>());
+      _logger.fine('✅ IMeshRoutingService registered (Phase 3)');
     }
 
     // ===========================

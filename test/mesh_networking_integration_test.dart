@@ -9,8 +9,10 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
+import 'package:pak_connect/data/services/ble_message_handler_facade_impl.dart';
 import 'package:pak_connect/core/interfaces/i_ble_service_facade.dart';
 import 'package:pak_connect/core/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/demo/mesh_demo_utils.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
@@ -27,7 +29,7 @@ void main() {
   group('Mesh Networking Integration Tests', () {
     late MeshNetworkingService meshService;
     late FakeBleService mockBleService;
-    late BLEMessageHandler messageHandler;
+    late IBLEMessageHandlerFacade messageHandler;
     late ContactRepository contactRepository;
     late ChatManagementService chatManagementService;
     late MessageRepository messageRepository;
@@ -43,7 +45,10 @@ void main() {
       contactRepository = ContactRepository();
       chatManagementService = ChatManagementService();
       messageRepository = MessageRepository();
-      messageHandler = BLEMessageHandler();
+      messageHandler = BLEMessageHandlerFacadeImpl(
+        BLEMessageHandler(),
+        _InMemorySeenMessageStore(),
+      );
 
       // Create mock BLE service (simplified for testing)
       mockBleService = FakeBleService();
@@ -61,8 +66,7 @@ void main() {
       // Initialize mesh networking service
       meshService = MeshNetworkingService(
         bleService: mockBleService,
-        messageHandler: messageHandler as IBLEMessageHandlerFacade,
-
+        messageHandler: messageHandler,
         chatManagementService: chatManagementService,
       );
 
@@ -369,6 +373,43 @@ void main() {
       expect(metrics.metrics['reliability'], contains('%'));
     });
   });
+}
+
+class _InMemorySeenMessageStore implements ISeenMessageStore {
+  final Map<String, int> _delivered = {};
+  final Map<String, int> _read = {};
+
+  @override
+  bool hasDelivered(String messageId) => _delivered.containsKey(messageId);
+
+  @override
+  bool hasRead(String messageId) => _read.containsKey(messageId);
+
+  @override
+  Future<void> markDelivered(String messageId) async {
+    _delivered[messageId] = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  @override
+  Future<void> markRead(String messageId) async {
+    _read[messageId] = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  @override
+  Map<String, dynamic> getStatistics() => {
+    'deliveredCount': _delivered.length,
+    'readCount': _read.length,
+    'totalTracked': _delivered.length + _read.length,
+  };
+
+  @override
+  Future<void> clear() async {
+    _delivered.clear();
+    _read.clear();
+  }
+
+  @override
+  Future<void> performMaintenance() async {}
 }
 
 void _mockDirectConnection(FakeBleService bleService, String nodeId) {

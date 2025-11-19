@@ -2,8 +2,8 @@ import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pak_connect/core/security/noise/noise_encryption_service.dart';
 import 'package:pak_connect/core/security/noise/models/noise_models.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
+import 'i_contact_repository.dart';
 
 /// Interface for security manager operations
 ///
@@ -46,19 +46,19 @@ abstract class ISecurityManager {
   /// Get current security level for a contact
   Future<SecurityLevel> getCurrentLevel(
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   );
 
   /// Select appropriate Noise pattern for handshake with contact
   Future<(NoisePattern, Uint8List?)> selectNoisePattern(
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   );
 
   /// Get encryption method for current security level
   Future<EncryptionMethod> getEncryptionMethod(
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   );
 
   // =========================
@@ -69,13 +69,13 @@ abstract class ISecurityManager {
   Future<String> encryptMessage(
     String message,
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   );
 
   /// Decrypt message trying methods in order
   Future<String> decryptMessage(
     String encryptedMessage,
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   );
 }

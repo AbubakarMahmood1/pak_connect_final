@@ -16,8 +16,8 @@ import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/app_core.dart';
-import '../../core/interfaces/i_ble_service_facade.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
+import '../../core/interfaces/i_mesh_ble_service.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../core/utils/chat_utils.dart';
@@ -25,8 +25,7 @@ import '../../core/utils/mesh_debug_logger.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../core/routing/network_topology_analyzer.dart';
-import '../../data/services/mesh_routing_service.dart';
-import '../../data/services/ble_service.dart';
+import '../../core/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main orchestrator service for mesh networking functionality
@@ -41,16 +40,14 @@ class MeshNetworkingService {
   OfflineMessageQueue? _messageQueue;
 
   // Smart routing service (replaces individual routing components)
-  MeshRoutingService? _routingService;
+  IMeshRoutingService? _routingService;
   NetworkTopologyAnalyzer? _topologyAnalyzer;
 
   // Integration services
-  // 🎯 NOTE: MeshNetworkingService uses BLEService directly because it requires access
-  // to multiple BLE concerns: connection state, messaging, session management, and mode
-  // detection. BLEService provides a unified interface to the complete BLE stack.
-  // This design is intentional and future-proof - changes to BLE implementation
-  // can be made in BLEService without affecting the mesh networking layer.
-  final BLEService _bleService;
+  // 🎯 NOTE: MeshNetworkingService now depends on IMeshBleService abstraction which
+  // is implemented by BLEService. This preserves access to the complex BLE
+  // lifecycle while keeping the domain layer decoupled from data implementations.
+  final IMeshBleService _bleService;
   final IBLEMessageHandlerFacade _messageHandler;
   final IContactRepository _contactRepository;
   // Note: _chatManagementService kept for API compatibility but not currently used
@@ -110,7 +107,7 @@ class MeshNetworkingService {
   final Map<String, String> _demoMessageTracking = {};
 
   MeshNetworkingService({
-    required BLEService bleService,
+    required IMeshBleService bleService,
     required IBLEMessageHandlerFacade messageHandler,
     // ✅ Phase 3A: Now properly typed via BLEMessageHandlerFacadeImpl adapter
     required ChatManagementService
@@ -254,8 +251,8 @@ class MeshNetworkingService {
       // Initialize topology analyzer
       _topologyAnalyzer = NetworkTopologyAnalyzer();
 
-      // Create and initialize mesh routing service
-      _routingService = MeshRoutingService();
+      // Resolve and initialize mesh routing service via DI
+      _routingService ??= GetIt.instance<IMeshRoutingService>();
 
       await _routingService!.initialize(
         currentNodeId: _currentNodeId!,
@@ -275,7 +272,12 @@ class MeshNetworkingService {
   /// Set up integration with BLE layer
   Future<void> _setupBLEIntegration() async {
     // Initialize relay system in message handler
-    await _messageHandler.initializeRelaySystem(currentNodeId: _currentNodeId!);
+    await _messageHandler.initializeRelaySystem(
+      currentNodeId: _currentNodeId!,
+      onRelayMessageReceived: _handleIncomingRelayMessage,
+      onRelayDecisionMade: _handleRelayDecision,
+      onRelayStatsUpdated: _handleRelayStatsUpdated,
+    );
 
     // Set relay callbacks after initialization
     _messageHandler.onRelayMessageReceived = _handleIncomingRelayMessage;
