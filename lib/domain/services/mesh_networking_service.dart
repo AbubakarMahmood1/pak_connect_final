@@ -16,19 +16,17 @@ import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/app_core.dart';
-import '../../data/services/ble_service.dart';
-import '../../data/services/ble_message_handler.dart';
-import '../../data/repositories/contact_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../../core/interfaces/i_ble_service_facade.dart';
+import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../core/utils/mesh_debug_logger.dart';
-import '../../data/repositories/message_repository.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../core/routing/network_topology_analyzer.dart';
 import '../../core/interfaces/i_mesh_routing_service.dart';
-import '../../data/services/mesh_routing_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main orchestrator service for mesh networking functionality
@@ -47,13 +45,13 @@ class MeshNetworkingService {
   NetworkTopologyAnalyzer? _topologyAnalyzer;
 
   // Integration services
-  // 🎯 NOTE: MeshNetworkingService uses BLEService (facade) instead of individual sub-services
+  // 🎯 NOTE: MeshNetworkingService uses IBLEServiceFacade instead of individual sub-services
   // because it requires access to multiple BLE concerns: connection state, messaging,
   // session management, and mode detection. Splitting into individual services would
   // require injecting BLEMessagingService, BLEConnectionService, and BLEStateManager,
   // which is more complex than using the unified facade. This design is intentional.
-  final BLEService _bleService;
-  final BLEMessageHandler _messageHandler;
+  final IBLEServiceFacade _bleService;
+  final IBLEMessageHandlerFacade _messageHandler;
   final IContactRepository _contactRepository;
   // Note: _chatManagementService kept for API compatibility but not currently used
   // May be needed for future chat-related mesh operations (group chats, etc.)
@@ -112,8 +110,8 @@ class MeshNetworkingService {
   final Map<String, String> _demoMessageTracking = {};
 
   MeshNetworkingService({
-    required BLEService bleService,
-    required BLEMessageHandler messageHandler,
+    required IBLEServiceFacade bleService,
+    required IBLEMessageHandlerFacade messageHandler,
     required ChatManagementService
     chatManagementService, // Kept for API compatibility
     IRepositoryProvider? repositoryProvider,

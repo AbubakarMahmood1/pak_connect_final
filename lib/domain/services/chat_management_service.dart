@@ -4,9 +4,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/message_repository.dart';
-import '../../data/repositories/archive_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../../core/interfaces/i_chats_repository.dart';
+import '../../core/interfaces/i_message_repository.dart';
+import '../../core/interfaces/i_archive_repository.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/chat_list_item.dart';
@@ -32,9 +33,9 @@ class ChatManagementService {
 
   /// Private constructor for singleton
   ChatManagementService._internal()
-    : _chatsRepository = ChatsRepository(),
-      _messageRepository = MessageRepository(),
-      _archiveRepository = ArchiveRepository.instance,
+    : _chatsRepository = GetIt.instance<IChatsRepository>(),
+      _messageRepository = GetIt.instance<IMessageRepository>(),
+      _archiveRepository = GetIt.instance<IArchiveRepository>(),
       _archiveManagementService = ArchiveManagementService.instance,
       _archiveSearchService = ArchiveSearchService.instance {
     _logger.info('✅ ChatManagementService singleton instance created');
@@ -44,9 +45,9 @@ class ChatManagementService {
   factory ChatManagementService() => instance;
 
   // Dependencies - use singleton instances where available
-  final ChatsRepository _chatsRepository;
-  final MessageRepository _messageRepository;
-  final ArchiveRepository _archiveRepository;
+  final IChatsRepository _chatsRepository;
+  final IMessageRepository _messageRepository;
+  final IArchiveRepository _archiveRepository;
   final ArchiveManagementService _archiveManagementService;
   final ArchiveSearchService _archiveSearchService;
 
