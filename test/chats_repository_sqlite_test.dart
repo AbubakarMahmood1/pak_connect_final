@@ -9,7 +9,9 @@ import 'test_helpers/test_setup.dart';
 void main() {
   // Initialize test environment
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'chats_repository_sqlite',
+    );
   });
 
   // Reset database before each test
@@ -254,34 +256,29 @@ void main() {
     });
 
     test('Get contacts without chats', () async {
+      final repo = ChatsRepository();
       final contactRepo = ContactRepository();
       final messageRepo = MessageRepository();
 
-      // Create contacts
       await contactRepo.saveContact('alice_key', 'Alice');
       await contactRepo.saveContact('bob_key', 'Bob');
       await contactRepo.saveContact('charlie_key', 'Charlie');
 
-      // Add messages for Alice and Bob
       final now = DateTime.now();
-
-      // Save message for Alice (creates chat)
       await messageRepo.saveMessage(
         Message(
           id: 'msg1',
-          chatId: 'persistent_chat_alice_key_mykey',
+          chatId: 'alice_key',
           content: 'Hello from Alice',
           timestamp: now,
           isFromMe: false,
           status: MessageStatus.delivered,
         ),
       );
-
-      // Save message for Bob (creates chat)
       await messageRepo.saveMessage(
         Message(
           id: 'msg2',
-          chatId: 'persistent_chat_bob_key_mykey',
+          chatId: 'bob_key',
           content: 'Hello from Bob',
           timestamp: now,
           isFromMe: false,
@@ -289,24 +286,20 @@ void main() {
         ),
       );
 
-      // Charlie has no messages, so no chat
+      final contactsWithoutChats = await repo.getContactsWithoutChats();
+      final publicKeys = contactsWithoutChats.map((c) => c.publicKey).toList();
 
-      // Get contacts without chats
-      // Note: This test will fail because we need to set up user preferences
-      // Skip for now as it requires additional setup
-    }, skip: 'Requires UserPreferences setup');
+      expect(publicKeys, contains('charlie_key'));
+      expect(publicKeys, isNot(contains('alice_key')));
+      expect(publicKeys, isNot(contains('bob_key')));
+    });
 
-    test(
-      'getAllChats returns empty list when no messages',
-      () async {
-        final repo = ChatsRepository();
+    test('getAllChats returns empty list when no messages', () async {
+      final repo = ChatsRepository();
 
-        final chats = await repo.getAllChats();
-        expect(chats, isEmpty);
-      },
-      skip:
-          'Requires UserPreferences/FlutterSecureStorage - getPublicKey() has no fallback',
-    );
+      final chats = await repo.getAllChats();
+      expect(chats, isEmpty);
+    });
 
     test('Multiple chats with different unread counts', () async {
       final repo = ChatsRepository();

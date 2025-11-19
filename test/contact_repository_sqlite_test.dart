@@ -9,7 +9,9 @@ import 'test_helpers/test_setup.dart';
 void main() {
   // Initialize test environment
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'contact_repository_sqlite',
+    );
   });
 
   setUp(() async {
@@ -146,45 +148,34 @@ void main() {
       expect(contact.trustStatus, equals(TrustStatus.newContact));
     });
 
-    // Test is skipped due to FlutterSecureStorage mocking limitations in test environment
-    // The delete functionality itself works correctly and is verified by checking the result
-    test(
-      'Delete contact',
-      () async {
-        final repo = ContactRepository();
+    test('Delete contact', () async {
+      final repo = ContactRepository();
 
-        await repo.saveContact('delete_test', 'User');
+      await repo.saveContact('delete_test', 'User');
 
-        // Verify contact was saved
-        final savedContact = await repo.getContact('delete_test');
-        expect(
-          savedContact,
-          isNotNull,
-          reason: 'Contact should exist before delete',
-        );
+      // Verify contact was saved
+      final savedContact = await repo.getContact('delete_test');
+      expect(
+        savedContact,
+        isNotNull,
+        reason: 'Contact should exist before delete',
+      );
 
-        // Test that contact can be deleted via verification it's gone after
-        final beforeCount = (await repo.getAllContacts()).length;
-        await repo.deleteContact('delete_test');
+      // Test that contact can be deleted via verification it's gone after
+      final beforeCount = (await repo.getAllContacts()).length;
+      await repo.deleteContact('delete_test');
 
-        // Verify contact is gone (this works even if return value is wrong)
-        final contact = await repo.getContact('delete_test');
-        final afterCount = (await repo.getAllContacts()).length;
+      // Verify contact is gone (this works even if return value is wrong)
+      final contact = await repo.getContact('delete_test');
+      final afterCount = (await repo.getAllContacts()).length;
 
-        expect(
-          contact,
-          isNull,
-          reason: 'Contact should not exist after delete',
-        );
-        expect(
-          afterCount,
-          equals(beforeCount - 1),
-          reason: 'Contact count should decrease',
-        );
-      },
-      skip:
-          'FlutterSecureStorage mocking issue - functionality verified by other means',
-    );
+      expect(contact, isNull, reason: 'Contact should not exist after delete');
+      expect(
+        afterCount,
+        equals(beforeCount - 1),
+        reason: 'Contact count should decrease',
+      );
+    });
 
     test('Get contact name by public key', () async {
       final repo = ContactRepository();

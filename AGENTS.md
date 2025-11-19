@@ -61,6 +61,12 @@ lib/
 - Reset shared state between tests (e.g., close mock databases) and use fakes for networking (`lib/core/messaging`).
 - Record failing cases in `flutter_test_output.log` and update or disable only with justification.
 
+## Test Harness & BLE Host Expectations
+- All DB-heavy or service-level tests must boot through `TestSetup.initializeTestEnvironment(dbLabel: …)` plus `configureTestDatabase`/`setupTestDI` so each suite has its own SQLCipher file and DI graph.
+- Never talk to `CentralManager()`/`PeripheralManager()` directly in tests—route BLE access through the `IBLEPlatformHost` seam (`lib/core/interfaces/i_ble_platform_host.dart`) and, when testing the facade, inject `_FakeBlePlatformHost` (`test/services/ble_service_facade_test.dart`).
+- Battery/ephemeral-key plugins are disabled automatically inside the harness; do not re-enable them from tests unless you are running on real hardware.
+- BLEServiceFacade and related suites should pass stub sub-services (messaging, advertising, handshake) so no platform channels or timers leak into unit tests.
+
 ## Commit & Pull Request Guidelines
 - Git history mixes free-form and Conventional Commits; prefer the structured format (`feat: add archive sync`, `fix: resolve logger recursion`).
 - Write focused commits with passing tests; reference related docs or issues in the body.

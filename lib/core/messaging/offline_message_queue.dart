@@ -4,9 +4,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../data/database/database_helper.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../interfaces/i_repository_provider.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../security/message_security.dart';
 import '../models/mesh_relay_models.dart';
@@ -42,8 +43,8 @@ class OfflineMessageQueue {
   static const double _directBandwidthRatio =
       0.8; // 80% for direct, 20% for relay
 
-  // Contact repository for favorites support
-  ContactRepository? _contactRepository;
+  // Repository provider for favorites support
+  IRepositoryProvider? _repositoryProvider;
 
   // Queue hash synchronization
   final Set<String> _deletedMessageIds = {};
@@ -75,7 +76,7 @@ class OfflineMessageQueue {
     Function(QueueStatistics stats)? onStatsUpdated,
     Function(String messageId)? onSendMessage,
     Function()? onConnectivityCheck,
-    ContactRepository? contactRepository,
+    IRepositoryProvider? repositoryProvider,
   }) async {
     this.onMessageQueued = onMessageQueued;
     this.onMessageDelivered = onMessageDelivered;
@@ -83,7 +84,16 @@ class OfflineMessageQueue {
     this.onStatsUpdated = onStatsUpdated;
     this.onSendMessage = onSendMessage;
     this.onConnectivityCheck = onConnectivityCheck;
-    _contactRepository = contactRepository;
+    if (repositoryProvider != null) {
+      _repositoryProvider = repositoryProvider;
+    } else if (GetIt.instance.isRegistered<IRepositoryProvider>()) {
+      _repositoryProvider = GetIt.instance<IRepositoryProvider>();
+    } else {
+      _logger.warning(
+        'ℹ️ IRepositoryProvider not registered - favorites-based limits disabled',
+      );
+      _repositoryProvider = null;
+    }
 
     await _loadQueueFromStorage();
     await _loadDeletedMessageIds();
@@ -94,7 +104,7 @@ class OfflineMessageQueue {
     final totalMessages =
         _directMessageQueue.length + _relayMessageQueue.length;
     _logger.info(
-      'Offline message queue initialized with $totalMessages pending messages (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})${_contactRepository != null ? ' (favorites support enabled)' : ''}',
+      'Offline message queue initialized with $totalMessages pending messages (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})${_repositoryProvider != null ? ' (favorites support enabled)' : ''}',
     );
   }
 
@@ -114,11 +124,10 @@ class OfflineMessageQueue {
       int peerLimit =
           _maxMessagesPerRegular; // Default limit for regular contacts
 
-      if (_contactRepository != null) {
+      if (_repositoryProvider != null) {
         try {
-          isFavorite = await _contactRepository!.isContactFavorite(
-            recipientPublicKey,
-          );
+          isFavorite = await _repositoryProvider!.contactRepository
+              .isContactFavorite(recipientPublicKey);
           if (isFavorite) {
             peerLimit = _maxMessagesPerFavorite;
 

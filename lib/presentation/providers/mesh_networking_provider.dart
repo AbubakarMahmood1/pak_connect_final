@@ -11,9 +11,12 @@ import '../../data/services/ble_message_handler.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../data/services/mesh_routing_service.dart';
+import '../../core/interfaces/i_mesh_routing_service.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import 'ble_providers.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
 
 /// Logger for mesh networking providers
 final _logger = Logger('MeshNetworkingProvider');
@@ -62,34 +65,57 @@ final bluetoothReadyProvider = Provider<bool>((ref) {
 });
 
 /// Provider for MeshNetworkingService (Singleton to prevent multiple instances)
+/// Phase 1 Part C: Register in DI container when created
 final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
-  final bleService = ref.watch(bleServiceProvider);
-  final messageHandler = ref.watch(_messageHandlerProvider);
-  final contactRepository = ref.watch(_contactRepositoryProvider);
-  final chatManagementService = ref.watch(_chatManagementServiceProvider);
-  final messageRepository = ref.watch(_messageRepositoryProvider);
+  // Check if already registered in DI
+  if (!getIt.isRegistered<MeshNetworkingService>()) {
+    final bleService = ref.watch(bleServiceProvider);
+    final messageHandler = ref.watch(_messageHandlerProvider);
+    final contactRepository = ref.watch(_contactRepositoryProvider);
+    final chatManagementService = ref.watch(_chatManagementServiceProvider);
+    final messageRepository = ref.watch(_messageRepositoryProvider);
 
-  _logger.info(
-    '🔧 Creating MeshNetworkingService instance (should happen only once)',
-  );
+    _logger.info(
+      '🔧 Creating MeshNetworkingService instance (should happen only once)',
+    );
 
-  final service = MeshNetworkingService(
-    bleService: bleService,
-    messageHandler: messageHandler,
-    contactRepository: contactRepository,
-    chatManagementService: chatManagementService,
-    messageRepository: messageRepository,
-  );
+    final service = MeshNetworkingService(
+      bleService: bleService,
+      messageHandler: messageHandler,
+      chatManagementService: chatManagementService,
+    );
 
-  // Initialize the service asynchronously with error handling
-  _initializeServiceAsync(service, ref);
+    // Initialize the service asynchronously with error handling
+    _initializeServiceAsync(service, ref);
 
-  ref.onDispose(() {
-    _logger.info('🔧 Disposing MeshNetworkingService');
-    service.dispose();
-  });
+    ref.onDispose(() {
+      _logger.info('🔧 Disposing MeshNetworkingService');
+      service.dispose();
+    });
 
-  return service;
+    // Register in DI for eager access
+    try {
+      getIt.registerSingleton<MeshNetworkingService>(service);
+    } catch (e) {
+      // Service already registered (idempotent)
+    }
+
+    return service;
+  } else {
+    // Already registered - return from DI
+    return getIt<MeshNetworkingService>();
+  }
+});
+
+/// Provider for MeshRoutingService (optional, for routing-specific monitoring)
+/// This service is created and managed by MeshNetworkingService, but can be
+/// exposed here for testing or direct routing statistics access
+final meshRoutingServiceProvider = Provider<IMeshRoutingService?>((ref) {
+  _logger.fine('🧠 Mesh routing service provider accessed');
+  // Note: Routing service is internally managed by MeshNetworkingService
+  // This provider would return the service if it were exposed via a getter
+  // For now, return null as the service is not directly exposed
+  return null;
 });
 
 /// Stream provider for mesh network status with fallback

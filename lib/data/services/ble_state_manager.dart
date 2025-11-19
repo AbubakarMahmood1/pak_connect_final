@@ -16,6 +16,7 @@ import '../../core/services/security_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'chat_migration_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/models/spy_mode_info.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -604,6 +605,15 @@ class BLEStateManager {
     } catch (e) {
       _logger.severe('Verification failed: $e');
       _currentPairing = _currentPairing!.copyWith(state: PairingState.failed);
+
+      // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
+      if (_theirPersistentKey != null) {
+        SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+        _logger.info(
+          '🔐 Unregistered identity mapping due to verification failure',
+        );
+      }
+
       return false;
     }
   }
@@ -811,6 +821,14 @@ class BLEStateManager {
       '❌ STEP 3: Pairing cancelled by other device${reason != null ? ": $reason" : ""}',
     );
 
+    // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
+    if (_theirPersistentKey != null) {
+      SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+      _logger.info(
+        '🔐 Unregistered identity mapping due to pairing cancellation',
+      );
+    }
+
     // Close any open dialogs/states
     _currentPairing = _currentPairing?.copyWith(state: PairingState.cancelled);
     _pairingTimeout?.cancel();
@@ -834,6 +852,12 @@ class BLEStateManager {
     _logger.info(
       '🚫 STEP 3: Cancelling pairing${reason != null ? ": $reason" : ""}',
     );
+
+    // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
+    if (_theirPersistentKey != null) {
+      SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+      _logger.info('🔐 Unregistered identity mapping due to user cancellation');
+    }
 
     // Send cancel message to other device
     final message = ProtocolMessage.pairingCancel(
@@ -899,6 +923,19 @@ class BLEStateManager {
 
     // 🔧 NEW MODEL: Session ID is always the ephemeral ID
     _currentSessionId = _theirEphemeralId!;
+
+    // 🔒 FIX: Register Noise identity mapping immediately
+    // This prevents race condition during manual pairing when peer's persistent key
+    // arrives before our _performVerification() completes. Without this, _processMessage()
+    // would switch to persistentKey but NoiseSessionManager would fail to find the session
+    // (keyed by ephemeralId). Now the mapping exists before any decryption attempt.
+    SecurityManager.registerIdentityMapping(
+      persistentPublicKey: theirPersistentKey,
+      ephemeralID: _theirEphemeralId!,
+    );
+    _logger.info(
+      '🔐 Persistent key identity mapping registered: ${_truncateId(_theirEphemeralId!)} ↔ ${_truncateId(theirPersistentKey)}',
+    );
 
     // 🔧 NEW MODEL: Create contact with immutable publicKey (first ephemeral ID)
     // persistent_public_key will be NULL at LOW security
@@ -2287,14 +2324,3 @@ class BLEStateManager {
 // ========== SPY MODE DATA CLASSES ==========
 
 /// Information about detected spy mode session
-class SpyModeInfo {
-  final String contactName;
-  final String ephemeralID;
-  final String? persistentKey;
-
-  SpyModeInfo({
-    required this.contactName,
-    required this.ephemeralID,
-    this.persistentKey,
-  });
-}

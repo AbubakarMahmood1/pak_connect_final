@@ -12,11 +12,13 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'profile_screen_validation',
+    );
   });
 
   setUp(() async {
-    await TestSetup.cleanupDatabase();
+    await TestSetup.configureTestDatabase(label: 'profile_screen_validation');
     TestSetup.resetSharedPreferences();
   });
 
@@ -33,7 +35,7 @@ void main() {
 
     tearDown(() async {
       UserPreferences.dispose();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     // ==============================================
