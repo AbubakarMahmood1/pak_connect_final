@@ -16,7 +16,6 @@ import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/app_core.dart';
-import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_ble_service_facade.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/models/mesh_relay_models.dart';
