@@ -1,5 +1,43 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/data/services/relay_coordinator.dart';
+import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
+
+/// Mock SeenMessageStore for testing deduplication
+class MockSeenMessageStore implements ISeenMessageStore {
+  final Set<String> deliveredIds = {};
+  final Set<String> readIds = {};
+
+  @override
+  bool hasDelivered(String messageId) => deliveredIds.contains(messageId);
+
+  @override
+  bool hasRead(String messageId) => readIds.contains(messageId);
+
+  @override
+  Future<void> markDelivered(String messageId) async {
+    deliveredIds.add(messageId);
+  }
+
+  @override
+  Future<void> markRead(String messageId) async {
+    readIds.add(messageId);
+  }
+
+  @override
+  Map<String, dynamic> getStatistics() => {
+    'deliveredCount': deliveredIds.length,
+    'readCount': readIds.length,
+  };
+
+  @override
+  Future<void> clear() async {
+    deliveredIds.clear();
+    readIds.clear();
+  }
+
+  @override
+  Future<void> performMaintenance() async {}
+}
 
 void main() {
   group('RelayCoordinator', () {
@@ -51,6 +89,59 @@ void main() {
         coordinator.shouldAttemptRelay(messageId: 'msg3', currentHopCount: 3),
         isFalse,
       );
+    });
+
+    test(
+      'should attempt relay detects duplicates when SeenMessageStore set',
+      () async {
+        final seenStore = MockSeenMessageStore();
+        coordinator.setSeenMessageStore(seenStore);
+
+        // First message should relay (not seen)
+        expect(
+          coordinator.shouldAttemptRelay(messageId: 'dup1', currentHopCount: 0),
+          isTrue,
+        );
+
+        // Mark it as delivered
+        await seenStore.markDelivered('dup1');
+
+        // Second attempt should NOT relay (duplicate detected)
+        expect(
+          coordinator.shouldAttemptRelay(messageId: 'dup1', currentHopCount: 0),
+          isFalse,
+        );
+
+        // Different message should still relay
+        expect(
+          coordinator.shouldAttemptRelay(messageId: 'dup2', currentHopCount: 0),
+          isTrue,
+        );
+      },
+    );
+
+    test('handleMeshRelay marks message as delivered', () async {
+      final seenStore = MockSeenMessageStore();
+      coordinator.setSeenMessageStore(seenStore);
+
+      // Initially not delivered
+      expect(seenStore.hasDelivered('msg-relay-test'), isFalse);
+
+      // Handle relay
+      final result = await coordinator.handleMeshRelay(
+        originalMessageId: 'msg-relay-test',
+        content: 'Test message',
+        originalSender: 'sender-node',
+        intendedRecipient: null,
+        messageData: null,
+        currentHopCount: 0,
+      );
+
+      // Should succeed
+      expect(result, isTrue);
+
+      // Now should be marked as delivered (dedup window active)
+      expect(seenStore.hasDelivered('msg-relay-test'), isTrue);
     });
 
     test('should attempt decryption returns false for relay', () async {
