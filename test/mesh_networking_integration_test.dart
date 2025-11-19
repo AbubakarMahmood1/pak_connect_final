@@ -9,6 +9,8 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
+import 'package:pak_connect/core/interfaces/i_ble_service_facade.dart';
+import 'package:pak_connect/core/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/core/demo/mesh_demo_utils.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
@@ -59,7 +61,7 @@ void main() {
       // Initialize mesh networking service
       meshService = MeshNetworkingService(
         bleService: mockBleService,
-        messageHandler: messageHandler,
+        messageHandler: messageHandler as IBLEMessageHandlerFacade,
 
         chatManagementService: chatManagementService,
       );

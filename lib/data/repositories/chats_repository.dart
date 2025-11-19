@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
+import '../../core/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../core/utils/chat_utils.dart';
 import '../database/database_helper.dart';
@@ -9,7 +10,7 @@ import 'message_repository.dart';
 import 'contact_repository.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
-class ChatsRepository {
+class ChatsRepository implements IChatsRepository {
   static final _logger = Logger('ChatsRepository');
   final MessageRepository _messageRepository = MessageRepository();
   final ContactRepository _contactRepository = ContactRepository();

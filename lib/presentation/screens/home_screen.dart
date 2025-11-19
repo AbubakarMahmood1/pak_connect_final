@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import '../providers/ble_providers.dart';
 import '../providers/archive_provider.dart';
 import '../providers/mesh_networking_provider.dart';
-import '../../data/repositories/chats_repository.dart';
+import '../../core/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../core/models/connection_status.dart';
 import '../../data/services/ble_service.dart';
@@ -41,7 +42,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
   final _logger = Logger('HomeScreen');
-  final ChatsRepository _chatsRepository = ChatsRepository();
+  late final IChatsRepository _chatsRepository;
   final ChatManagementService _chatManagementService = ChatManagementService();
   late final HomeScreenFacade _homeScreenFacade;
   final TextEditingController _searchController = TextEditingController();
@@ -68,6 +69,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
+    _chatsRepository = GetIt.instance<IChatsRepository>();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(
       _onTabChanged,

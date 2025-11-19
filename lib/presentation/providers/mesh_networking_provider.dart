@@ -8,6 +8,10 @@ import '../../domain/services/chat_management_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/services/ble_message_handler.dart';
+import '../../data/services/ble_message_handler_facade_impl.dart';
+import '../../core/interfaces/i_ble_service_facade.dart';
+import '../../core/interfaces/i_ble_message_handler_facade.dart';
+import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -23,9 +27,13 @@ final _logger = Logger('MeshNetworkingProvider');
 
 /// Singleton providers for service dependencies
 /// ✅ FIXED: Services now use singleton pattern to prevent re-initialization
-final _messageHandlerProvider = Provider<BLEMessageHandler>(
-  (ref) => BLEMessageHandler(),
-);
+
+/// Provider for IBLEMessageHandlerFacade implementation
+/// ✅ Phase 3A: Wraps BLEMessageHandler with simplified facade interface
+final _messageHandlerProvider = Provider<IBLEMessageHandlerFacade>((ref) {
+  final seenMessageStore = _SimpleInMemorySeenMessageStore();
+  return BLEMessageHandlerFacadeImpl(BLEMessageHandler(), seenMessageStore);
+});
 final _contactRepositoryProvider = Provider<ContactRepository>(
   (ref) => ContactRepository(),
 );
@@ -69,7 +77,9 @@ final bluetoothReadyProvider = Provider<bool>((ref) {
 final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
   // Check if already registered in DI
   if (!getIt.isRegistered<MeshNetworkingService>()) {
-    final bleService = ref.watch(bleServiceProvider);
+    final bleService = ref.watch(
+      bleServiceProvider,
+    ); // BLEService now implements IBLEServiceFacade
     final messageHandler = ref.watch(_messageHandlerProvider);
     final contactRepository = ref.watch(_contactRepositoryProvider);
     final chatManagementService = ref.watch(_chatManagementServiceProvider);
@@ -638,5 +648,69 @@ Future<void> _initializeServiceAsync(
   } catch (e) {
     _logger.severe('❌ Failed to initialize mesh networking service: $e');
     // Don't rethrow - let the service handle fallback status broadcasting
+  }
+}
+
+/// Simple in-memory implementation of ISeenMessageStore for Phase 3A
+/// Phase 3B should replace with persistent SQLite-backed implementation
+class _SimpleInMemorySeenMessageStore implements ISeenMessageStore {
+  final Map<String, int> _deliveredMessages = {};
+  final Map<String, int> _readMessages = {};
+  final Duration _expiryDuration = Duration(minutes: 5);
+
+  @override
+  bool hasDelivered(String messageId) {
+    final ts = _deliveredMessages[messageId];
+    if (ts == null) return false;
+    if (DateTime.now().millisecondsSinceEpoch - ts >
+        _expiryDuration.inMilliseconds) {
+      _deliveredMessages.remove(messageId);
+      return false;
+    }
+    return true;
+  }
+
+  @override
+  bool hasRead(String messageId) {
+    final ts = _readMessages[messageId];
+    if (ts == null) return false;
+    if (DateTime.now().millisecondsSinceEpoch - ts >
+        _expiryDuration.inMilliseconds) {
+      _readMessages.remove(messageId);
+      return false;
+    }
+    return true;
+  }
+
+  @override
+  Future<void> markDelivered(String messageId) async =>
+      _deliveredMessages[messageId] = DateTime.now().millisecondsSinceEpoch;
+
+  @override
+  Future<void> markRead(String messageId) async =>
+      _readMessages[messageId] = DateTime.now().millisecondsSinceEpoch;
+
+  @override
+  Map<String, dynamic> getStatistics() => {
+    'deliveredCount': _deliveredMessages.length,
+    'readCount': _readMessages.length,
+    'totalTracked': _deliveredMessages.length + _readMessages.length,
+  };
+
+  @override
+  Future<void> clear() async {
+    _deliveredMessages.clear();
+    _readMessages.clear();
+  }
+
+  @override
+  Future<void> performMaintenance() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _deliveredMessages.removeWhere(
+      (_, ts) => now - ts > _expiryDuration.inMilliseconds,
+    );
+    _readMessages.removeWhere(
+      (_, ts) => now - ts > _expiryDuration.inMilliseconds,
+    );
   }
 }

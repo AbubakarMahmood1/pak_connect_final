@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:logging/logging.dart';
 import 'routing_models.dart';
+import '../interfaces/i_ble_service.dart';
 import '../../data/services/ble_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 

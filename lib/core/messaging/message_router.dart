@@ -3,11 +3,13 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
+import 'package:get_it/get_it.dart';
+import '../interfaces/i_ble_service.dart';
 import '../../data/services/ble_service.dart';
 import '../../core/app_core.dart';
 import '../../domain/entities/enhanced_message.dart';
 import './offline_message_queue.dart';
-import '../../data/repositories/user_preferences.dart';
+import '../interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Routes messages with offline queue support (based on BitChat's MessageRouter)
@@ -85,8 +87,8 @@ class MessageRouter {
       );
 
       // Get sender's public key
-      final prefs = UserPreferences();
-      final senderKey = await prefs.getPublicKey();
+      final prefs = GetIt.instance<IPreferencesRepository>();
+      final senderKey = await prefs.getString('public_key') ?? '';
 
       if (senderKey.isEmpty) {
         _logger.severe('❌ No sender public key available');

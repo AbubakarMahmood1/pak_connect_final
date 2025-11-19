@@ -6,7 +6,8 @@ import 'package:logging/logging.dart';
 import '../security/hint_cache_manager.dart';
 import '../../domain/entities/enhanced_contact.dart';
 import '../../domain/entities/ephemeral_discovery_hint.dart';
-import '../../data/repositories/intro_hint_repository.dart';
+import '../interfaces/i_intro_hint_repository.dart';
+import 'package:get_it/get_it.dart';
 
 import '../security/ephemeral_key_manager.dart';
 import '../services/hint_advertisement_service.dart';
@@ -330,7 +331,7 @@ class DeviceDeduplicationManager {
   static Future<EphemeralDiscoveryHint?> _findMatchingIntro(
     ParsedHint parsed,
   ) async {
-    final introHintRepo = IntroHintRepository();
+    final introHintRepo = GetIt.instance<IIntroHintRepository>();
     final scannedHints = await introHintRepo.getScannedHints();
 
     _logger.info(

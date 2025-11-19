@@ -5,7 +5,8 @@ import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/ble_constants.dart';
-import '../../data/repositories/intro_hint_repository.dart';
+import '../interfaces/i_intro_hint_repository.dart';
+import 'package:get_it/get_it.dart';
 import '../services/hint_advertisement_service.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'peripheral_initializer.dart';
@@ -26,7 +27,7 @@ class AdvertisingManager {
   final Logger _logger = Logger('AdvertisingManager');
   final PeripheralInitializer _peripheralInitializer;
   final PeripheralManager _peripheralManager;
-  final IntroHintRepository _introHintRepo;
+  final IIntroHintRepository _introHintRepo;
 
   /// Track advertising state
   bool _isAdvertising = false;
@@ -38,7 +39,7 @@ class AdvertisingManager {
   AdvertisingManager({
     required PeripheralInitializer peripheralInitializer,
     required PeripheralManager peripheralManager,
-    required IntroHintRepository introHintRepo,
+    required IIntroHintRepository introHintRepo,
   }) : _peripheralInitializer = peripheralInitializer,
        _peripheralManager = peripheralManager,
        _introHintRepo = introHintRepo;

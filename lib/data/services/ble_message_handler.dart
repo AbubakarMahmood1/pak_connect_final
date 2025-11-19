@@ -22,6 +22,9 @@ import '../../data/repositories/user_preferences.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
+/// BLE Message Handler for processing incoming/outgoing messages
+/// TODO Phase 3B: Implement IBLEMessageHandlerFacade adapter wrapper
+/// Current implementation has incompatible method signatures that need refactoring
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
   final ContactRepository _contactRepository = ContactRepository();

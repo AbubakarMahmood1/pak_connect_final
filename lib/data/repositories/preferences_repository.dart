@@ -3,6 +3,7 @@
 
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
+import '../../core/interfaces/i_preferences_repository.dart';
 import '../database/database_helper.dart';
 
 /// App preference keys
@@ -48,7 +49,7 @@ class PreferenceDefaults {
 /// Value types for type-safe storage
 enum PreferenceValueType { string, boolean, integer, double }
 
-class PreferencesRepository {
+class PreferencesRepository implements IPreferencesRepository {
   static final _logger = Logger('PreferencesRepository');
 
   /// Get string preference

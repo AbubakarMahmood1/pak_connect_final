@@ -25,7 +25,7 @@ import 'i_ble_handshake_service.dart';
 /// - Handle graceful shutdown and resource cleanup
 ///
 /// Consumers: All 18 files (primary public API)
-abstract class IBLEServiceFacade
+abstract interface class IBLEServiceFacade
     implements
         IBLEConnectionService,
         IBLEMessagingService,
@@ -63,7 +63,7 @@ abstract class IBLEServiceFacade
   /// 5. Cleanup gossip sync manager
   /// 6. Cleanup hint scanner
   /// 7. Shutdown external managers
-  void dispose();
+  Future<void> dispose();
 
   /// Future that completes when initialization is done
   /// Used by consumers to wait for full BLE readiness
