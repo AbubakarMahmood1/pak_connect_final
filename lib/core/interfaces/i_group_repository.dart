@@ -33,10 +33,7 @@ abstract class IGroupRepository {
   );
 
   /// Get messages in a group
-  Future<List<GroupMessage>> getGroupMessages(
-    String groupId, {
-    int limit = 50,
-  });
+  Future<List<GroupMessage>> getGroupMessages(String groupId, {int limit = 50});
 
   /// Get a specific message
   Future<GroupMessage?> getMessage(String messageId);

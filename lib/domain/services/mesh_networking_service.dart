@@ -27,6 +27,7 @@ import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../core/routing/network_topology_analyzer.dart';
 import '../../core/interfaces/i_mesh_routing_service.dart';
+import '../../data/services/mesh_routing_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main orchestrator service for mesh networking functionality
@@ -274,16 +275,16 @@ class MeshNetworkingService {
   /// Set up integration with BLE layer
   Future<void> _setupBLEIntegration() async {
     // Initialize relay system in message handler
-    await _messageHandler.initializeRelaySystem(
-      currentNodeId: _currentNodeId!,
-      messageQueue: _messageQueue!,
-      onRelayMessageReceived: _handleIncomingRelayMessage,
-      onRelayDecisionMade: _handleRelayDecision,
-      onRelayStatsUpdated: _handleRelayStatsUpdated,
-    );
+    await _messageHandler.initializeRelaySystem(currentNodeId: _currentNodeId!);
+
+    // Set relay callbacks after initialization
+    _messageHandler.onRelayMessageReceived = _handleIncomingRelayMessage;
+    _messageHandler.onRelayDecisionMade = _handleRelayDecision;
+    _messageHandler.onRelayStatsUpdated = _handleRelayStatsUpdated;
 
     // Monitor BLE connection status for mesh networking
-    _bleService.connectionInfo.listen(_handleConnectionChange);
+    final connectionInfoStream = _bleService.connectionInfoStream;
+    connectionInfoStream.listen(_handleConnectionChange);
 
     // Intercept queue sync messages before GossipSyncManager processes them
     _bleService.registerQueueSyncHandler(_handleIncomingQueueSync);
@@ -379,7 +380,8 @@ class MeshNetworkingService {
   void _setupMinimalBLEIntegration() {
     try {
       // Monitor BLE connection status with error handling
-      _bleService.connectionInfo.listen(
+      final connectionStream = _bleService.connectionInfoStream;
+      connectionStream.listen(
         _handleConnectionChange,
         onError: (error) {
           _logger.warning('BLE connection stream error: $error');
@@ -646,7 +648,9 @@ class MeshNetworkingService {
   Future<bool> _canDeliverDirectly(String recipientPublicKey) async {
     // Check if we're connected and the other user is the recipient
     final connectionInfo = _bleService.currentConnectionInfo;
-    if (!connectionInfo.isConnected || !connectionInfo.isReady) {
+    if (connectionInfo == null ||
+        !connectionInfo.isConnected ||
+        !connectionInfo.isReady) {
       return false;
     }
 
@@ -660,7 +664,9 @@ class MeshNetworkingService {
 
     // Check BLE connection
     final connectionInfo = _bleService.currentConnectionInfo;
-    if (connectionInfo.isConnected && connectionInfo.isReady) {
+    if (connectionInfo != null &&
+        connectionInfo.isConnected &&
+        connectionInfo.isReady) {
       final connectedNodeId = _bleService.currentSessionId;
       if (connectedNodeId != null && connectedNodeId.isNotEmpty) {
         nextHops.add(connectedNodeId);

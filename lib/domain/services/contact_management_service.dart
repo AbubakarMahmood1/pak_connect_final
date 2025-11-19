@@ -7,6 +7,7 @@ import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_contact_repository.dart';
 import '../../core/interfaces/i_message_repository.dart';
 import '../../core/services/security_manager.dart';
+import '../../data/repositories/contact_repository.dart';
 import '../entities/enhanced_contact.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 

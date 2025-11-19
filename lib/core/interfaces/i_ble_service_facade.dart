@@ -63,7 +63,7 @@ abstract class IBLEServiceFacade
   /// 5. Cleanup gossip sync manager
   /// 6. Cleanup hint scanner
   /// 7. Shutdown external managers
-  void dispose();
+  Future<void> dispose();
 
   /// Future that completes when initialization is done
   /// Used by consumers to wait for full BLE readiness
