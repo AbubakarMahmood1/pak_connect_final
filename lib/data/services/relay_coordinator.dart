@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_relay_coordinator.dart';
+import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -28,6 +29,7 @@ class RelayCoordinator implements IRelayCoordinator {
   MeshRelayEngine? _relayEngine;
   SpamPreventionManager? _spamPrevention;
   OfflineMessageQueue? _messageQueue;
+  ISeenMessageStore? _seenMessageStore;
 
   String? _currentNodeId;
 
@@ -60,6 +62,12 @@ class RelayCoordinator implements IRelayCoordinator {
     _logger.fine('📍 Relay coordinator node ID: ${nodeId.substring(0, 8)}...');
   }
 
+  /// Sets the SeenMessageStore for deduplication
+  void setSeenMessageStore(ISeenMessageStore seenMessageStore) {
+    _seenMessageStore = seenMessageStore;
+    _logger.fine('🔐 SeenMessageStore injected for relay deduplication');
+  }
+
   /// Processes incoming message through relay decision engine
   @override
   Future<bool> handleMeshRelay({
@@ -80,6 +88,19 @@ class RelayCoordinator implements IRelayCoordinator {
       )) {
         _logger.fine('🚫 Message relay rejected (policy or dedup)');
         return false;
+      }
+
+      // Mark as delivered to prevent future duplicate relays
+      // This must happen AFTER we decide to relay but BEFORE any forwarding
+      // Prevents: same message received twice → forwarded twice → loops
+      if (_seenMessageStore != null) {
+        await _seenMessageStore!.markDelivered(originalMessageId);
+        final shortId = originalMessageId.length > 8
+            ? originalMessageId.substring(0, 8)
+            : originalMessageId;
+        _logger.fine(
+          '✅ Relay marked as delivered for dedup window: $shortId...',
+        );
       }
 
       // Check if message is for us first
@@ -232,8 +253,17 @@ class RelayCoordinator implements IRelayCoordinator {
     }
 
     // Check if we've seen this message (deduplication)
-    // This would be checked via SeenMessageStore in full implementation
-    // For now, assume unique messages
+    // Prevents loops and traffic amplification from duplicate relay paths
+    if (_seenMessageStore != null &&
+        _seenMessageStore!.hasDelivered(messageId)) {
+      final shortId = messageId.length > 8
+          ? messageId.substring(0, 8)
+          : messageId;
+      _logger.fine(
+        '🔄 Duplicate relay suppressed (already processed): $shortId...',
+      );
+      return false;
+    }
 
     return true;
   }
