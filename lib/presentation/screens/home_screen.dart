@@ -504,33 +504,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget _buildChatTile(ChatListItem chat) {
     // Get live connection status
     final connectionInfo = ref.watch(connectionInfoProvider).value;
-    final bleService = ref.read(bleServiceProvider);
     final discoveredDevices = ref.watch(discoveredDevicesProvider).value ?? [];
-    final discoveryData = ref.watch(discoveryDataProvider).value ?? {};
+    final deduplicatedDevices =
+        ref.watch(deduplicatedDevicesProvider).value ?? {};
 
-    ConnectionStatus connectionStatus = _determineConnectionStatus(
-      chat,
-      connectionInfo,
-      bleService,
-      discoveredDevices,
-      discoveryData,
+    // 🎯 Use facade method for single source of truth on connection status
+    final connectionStatus = _homeScreenFacade.determineConnectionStatus(
+      contactPublicKey: chat.contactPublicKey,
+      contactName: chat.contactName,
+      currentConnectionInfo: connectionInfo,
+      discoveredDevices: discoveredDevices,
+      discoveryData: deduplicatedDevices,
+      lastSeenTime: chat.lastSeen,
     );
-
-    // Determine real-time status
-    if (connectionInfo != null &&
-        connectionInfo.isConnected &&
-        connectionInfo.otherUserName == chat.contactName) {
-      connectionStatus = ConnectionStatus.connected;
-    } else if (discoveredDevices.any(
-      (device) =>
-          chat.contactPublicKey?.contains(device.uuid.toString()) ?? false,
-    )) {
-      connectionStatus = ConnectionStatus.nearby;
-    } else if (chat.isOnline) {
-      connectionStatus = ConnectionStatus.nearby;
-    } else {
-      connectionStatus = ConnectionStatus.offline;
-    }
 
     // Modern UI: Use subtle visual cues instead of colored dots
     return Card(
@@ -857,98 +843,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         },
       ),
     );
-  }
-
-  ConnectionStatus _determineConnectionStatus(
-    ChatListItem chat,
-    ConnectionInfo? connectionInfo,
-    BLEService bleService,
-    List<Peripheral> discoveredDevices,
-    Map<String, DiscoveredEventArgs> discoveryData,
-  ) {
-    // Check if this is the currently connected device
-    if (connectionInfo != null &&
-        connectionInfo.isConnected &&
-        connectionInfo.isReady &&
-        connectionInfo.otherUserName == chat.contactName) {
-      return ConnectionStatus.connected;
-    }
-
-    // Check if currently connecting to this device
-    if (connectionInfo != null &&
-        connectionInfo.isConnected &&
-        !connectionInfo.isReady &&
-        bleService.theirPersistentKey == chat.contactPublicKey) {
-      return ConnectionStatus.connecting;
-    }
-
-    // Check if device is nearby (discovered via BLE scan)
-    if (chat.contactPublicKey != null) {
-      // Method 1: Check via manufacturer data hash
-      final isOnlineViaHash = _isContactOnlineViaHash(
-        chat.contactPublicKey!,
-        discoveryData.cast<String, DiscoveredDevice>(),
-      );
-      if (isOnlineViaHash) {
-        return ConnectionStatus.nearby;
-      }
-
-      // Method 2: Check via device UUID mapping (fallback)
-      final isNearbyViaUUID = discoveredDevices.any(
-        (device) => chat.contactPublicKey!.contains(device.uuid.toString()),
-      );
-      if (isNearbyViaUUID) {
-        return ConnectionStatus.nearby;
-      }
-    }
-
-    // Check if recently seen (within last 5 minutes)
-    if (chat.lastSeen != null) {
-      final timeSinceLastSeen = DateTime.now().difference(chat.lastSeen!);
-      if (timeSinceLastSeen.inMinutes <= 5) {
-        return ConnectionStatus.recent;
-      }
-    }
-
-    return ConnectionStatus.offline;
-  }
-
-  bool _isContactOnlineViaHash(
-    String contactPublicKey,
-    Map<String, DiscoveredDevice> discoveryData,
-  ) {
-    if (discoveryData.isEmpty) return false;
-
-    for (final device in discoveryData.values) {
-      if (device.isKnownContact && device.contactInfo != null) {
-        final contact = device.contactInfo!.contact;
-
-        // 🔐 PRIVACY FIX: Only match current active session
-        // This prevents identity linkage across ephemeral sessions for LOW security contacts
-
-        // Match 1: Current ephemeral ID (active session)
-        if (contact.currentEphemeralId == contactPublicKey) {
-          _logger.fine(
-            '🟢 ONLINE: Current session match for ${contact.displayName} (ephemeral)',
-          );
-          return true;
-        }
-
-        // Match 2: Persistent public key (MEDIUM+ security only)
-        if (contact.persistentPublicKey != null &&
-            contact.persistentPublicKey == contactPublicKey) {
-          _logger.fine(
-            '🟢 ONLINE: Persistent identity match for ${contact.displayName} (paired)',
-          );
-          return true;
-        }
-
-        // NO MATCH: Don't match by first publicKey - that would link old sessions
-        // This is intentional for privacy - only current session shows online
-      }
-    }
-
-    return false;
   }
 
   void _setupPeripheralConnectionListener() {
