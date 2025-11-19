@@ -77,7 +77,9 @@ final bluetoothReadyProvider = Provider<bool>((ref) {
 final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
   // Check if already registered in DI
   if (!getIt.isRegistered<MeshNetworkingService>()) {
-    final bleService = ref.watch(bleServiceProvider) as IBLEServiceFacade;
+    final bleService = ref.watch(
+      bleServiceProvider,
+    ); // BLEService now implements IBLEServiceFacade
     final messageHandler = ref.watch(_messageHandlerProvider);
     final contactRepository = ref.watch(_contactRepositoryProvider);
     final chatManagementService = ref.watch(_chatManagementServiceProvider);

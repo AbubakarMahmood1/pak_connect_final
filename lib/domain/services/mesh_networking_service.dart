@@ -26,6 +26,7 @@ import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../core/routing/network_topology_analyzer.dart';
 import '../../data/services/mesh_routing_service.dart';
+import '../../data/services/ble_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main orchestrator service for mesh networking functionality
@@ -44,12 +45,12 @@ class MeshNetworkingService {
   NetworkTopologyAnalyzer? _topologyAnalyzer;
 
   // Integration services
-  // 🎯 NOTE: MeshNetworkingService uses IBLEServiceFacade instead of individual sub-services
-  // because it requires access to multiple BLE concerns: connection state, messaging,
-  // session management, and mode detection. Splitting into individual services would
-  // require injecting BLEMessagingService, BLEConnectionService, and BLEStateManager,
-  // which is more complex than using the unified facade. This design is intentional.
-  final IBLEServiceFacade _bleService;
+  // 🎯 NOTE: MeshNetworkingService uses BLEService directly because it requires access
+  // to multiple BLE concerns: connection state, messaging, session management, and mode
+  // detection. BLEService provides a unified interface to the complete BLE stack.
+  // This design is intentional and future-proof - changes to BLE implementation
+  // can be made in BLEService without affecting the mesh networking layer.
+  final BLEService _bleService;
   final IBLEMessageHandlerFacade _messageHandler;
   final IContactRepository _contactRepository;
   // Note: _chatManagementService kept for API compatibility but not currently used
@@ -109,7 +110,7 @@ class MeshNetworkingService {
   final Map<String, String> _demoMessageTracking = {};
 
   MeshNetworkingService({
-    required IBLEServiceFacade bleService,
+    required BLEService bleService,
     required IBLEMessageHandlerFacade messageHandler,
     // ✅ Phase 3A: Now properly typed via BLEMessageHandlerFacadeImpl adapter
     required ChatManagementService
@@ -282,7 +283,7 @@ class MeshNetworkingService {
     _messageHandler.onRelayStatsUpdated = _handleRelayStatsUpdated;
 
     // Monitor BLE connection status for mesh networking
-    final connectionInfoStream = _bleService.connectionInfoStream;
+    final connectionInfoStream = _bleService.connectionInfo;
     connectionInfoStream.listen(_handleConnectionChange);
 
     // Intercept queue sync messages before GossipSyncManager processes them
@@ -379,7 +380,7 @@ class MeshNetworkingService {
   void _setupMinimalBLEIntegration() {
     try {
       // Monitor BLE connection status with error handling
-      final connectionStream = _bleService.connectionInfoStream;
+      final connectionStream = _bleService.connectionInfo;
       connectionStream.listen(
         _handleConnectionChange,
         onError: (error) {
