@@ -8,8 +8,9 @@ import '../database/database_helper.dart';
 import '../../core/compression/compression_util.dart';
 import '../../core/utils/chat_utils.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/interfaces/i_message_repository.dart';
 
-class MessageRepository {
+class MessageRepository implements IMessageRepository {
   static final _logger = Logger('MessageRepository');
 
   /// Get all messages for a specific chat, sorted by timestamp
@@ -219,6 +220,20 @@ class MessageRepository {
         contactName = 'Chat ${chatId.shortId(20)}...';
       } else if (chatId.startsWith('temp_')) {
         contactName = 'Device ${chatId.substring(5, 20)}...';
+      }
+
+      if (contactPublicKey != null) {
+        final contactExists = await db.query(
+          'contacts',
+          columns: ['public_key'],
+          where: 'public_key = ?',
+          whereArgs: [contactPublicKey],
+          limit: 1,
+        );
+
+        if (contactExists.isEmpty) {
+          contactPublicKey = null;
+        }
       }
 
       await db.insert(

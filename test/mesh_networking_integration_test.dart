@@ -18,7 +18,8 @@ import 'test_helpers/ble/fake_ble_service.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(dbLabel: 'mesh_networking');
+    await TestSetup.configureTestDatabase(label: 'mesh_networking');
   });
 
   group('Mesh Networking Integration Tests', () {
@@ -33,7 +34,7 @@ void main() {
     late String nodeA, nodeB, nodeC;
 
     setUp(() async {
-      await TestSetup.cleanupDatabase();
+      await TestSetup.nukeDatabase();
       TestSetup.resetSharedPreferences();
 
       // Initialize test dependencies
@@ -50,13 +51,17 @@ void main() {
       nodeB = 'test_node_b_${DateTime.now().millisecondsSinceEpoch}';
       nodeC = 'test_node_c_${DateTime.now().millisecondsSinceEpoch}';
 
+      // Seed contacts to satisfy chat/message foreign keys during tests
+      await contactRepository.saveContact(nodeA, 'Test Node A');
+      await contactRepository.saveContact(nodeB, 'Test Node B');
+      await contactRepository.saveContact(nodeC, 'Test Node C');
+
       // Initialize mesh networking service
       meshService = MeshNetworkingService(
         bleService: mockBleService,
         messageHandler: messageHandler,
-        contactRepository: contactRepository,
+
         chatManagementService: chatManagementService,
-        messageRepository: messageRepository,
       );
 
       await meshService.initialize(nodeId: nodeA, enableDemo: true);
@@ -66,7 +71,7 @@ void main() {
       mockBleService.dispose();
       messageHandler.dispose();
       meshService.dispose();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     group('Service Initialization', () {
@@ -178,6 +183,7 @@ void main() {
 
       test('should integrate with MessageRepository', () async {
         // Save test message
+        await contactRepository.saveContact('test_chat', 'Integration Chat');
         final testMessage = Message(
           id: 'test_integration_msg',
           chatId: 'test_chat',

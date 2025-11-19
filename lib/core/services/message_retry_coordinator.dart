@@ -5,31 +5,34 @@ library;
 import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart';
-import '../../data/repositories/message_repository.dart';
+import '../interfaces/i_repository_provider.dart';
 import '../messaging/offline_message_queue.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:get_it/get_it.dart';
 
 /// Coordinates retry operations between different message persistence systems
 class MessageRetryCoordinator {
   static final _logger = Logger('MessageRetryCoordinator');
 
-  final MessageRepository _messageRepository;
+  final IRepositoryProvider _repositoryProvider;
   final OfflineMessageQueue _offlineQueue;
 
   MessageRetryCoordinator({
-    required MessageRepository messageRepository,
+    IRepositoryProvider? repositoryProvider,
     required OfflineMessageQueue offlineQueue,
     MeshNetworkingService?
     meshService, // Kept for API compatibility but not used
-  }) : _messageRepository = messageRepository,
+  }) : _repositoryProvider =
+           repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),
        _offlineQueue = offlineQueue;
 
   /// Get unified failed message count from both persistence systems
   Future<MessageRetryStatus> getFailedMessageStatus(String chatId) async {
     try {
       // Get failed messages from repository (UI messages)
-      final repositoryMessages = await _messageRepository.getMessages(chatId);
+      final repositoryMessages = await _repositoryProvider.messageRepository
+          .getMessages(chatId);
       final repositoryFailedMessages = repositoryMessages
           .where((m) => m.isFromMe && m.status == MessageStatus.failed)
           .toList();
@@ -183,7 +186,8 @@ class MessageRetryCoordinator {
   Future<MessageSystemHealth> getSystemHealth() async {
     try {
       final queueStats = _offlineQueue.getStatistics();
-      final repoMessages = await _messageRepository.getAllMessages();
+      final repoMessages = await _repositoryProvider.messageRepository
+          .getAllMessages();
 
       final totalRepoMessages = repoMessages.length;
       final failedRepoMessages = repoMessages

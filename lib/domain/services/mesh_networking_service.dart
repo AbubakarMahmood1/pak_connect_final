@@ -7,7 +7,11 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
+import '../../core/interfaces/i_repository_provider.dart';
+import '../../core/interfaces/i_contact_repository.dart';
+import '../../core/interfaces/i_message_repository.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
@@ -22,10 +26,9 @@ import '../../core/utils/mesh_debug_logger.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
-import '../../core/routing/smart_mesh_router.dart';
-import '../../core/routing/route_calculator.dart';
 import '../../core/routing/network_topology_analyzer.dart';
-import '../../core/routing/connection_quality_monitor.dart';
+import '../../core/interfaces/i_mesh_routing_service.dart';
+import '../../data/services/mesh_routing_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main orchestrator service for mesh networking functionality
@@ -39,19 +42,22 @@ class MeshNetworkingService {
   SpamPreventionManager? _spamPrevention;
   OfflineMessageQueue? _messageQueue;
 
-  // Smart routing components
-  SmartMeshRouter? _smartRouter;
-  RouteCalculator? _routeCalculator;
+  // Smart routing service (replaces individual routing components)
+  IMeshRoutingService? _routingService;
   NetworkTopologyAnalyzer? _topologyAnalyzer;
-  ConnectionQualityMonitor? _qualityMonitor;
 
   // Integration services
+  // 🎯 NOTE: MeshNetworkingService uses BLEService (facade) instead of individual sub-services
+  // because it requires access to multiple BLE concerns: connection state, messaging,
+  // session management, and mode detection. Splitting into individual services would
+  // require injecting BLEMessagingService, BLEConnectionService, and BLEStateManager,
+  // which is more complex than using the unified facade. This design is intentional.
   final BLEService _bleService;
   final BLEMessageHandler _messageHandler;
-  final ContactRepository _contactRepository;
+  final IContactRepository _contactRepository;
   // Note: _chatManagementService kept for API compatibility but not currently used
   // May be needed for future chat-related mesh operations (group chats, etc.)
-  final MessageRepository _messageRepository;
+  final IMessageRepository _messageRepository;
 
   // State management
   String? _currentNodeId;
@@ -108,14 +114,17 @@ class MeshNetworkingService {
   MeshNetworkingService({
     required BLEService bleService,
     required BLEMessageHandler messageHandler,
-    required ContactRepository contactRepository,
     required ChatManagementService
     chatManagementService, // Kept for API compatibility
-    required MessageRepository messageRepository,
+    IRepositoryProvider? repositoryProvider,
   }) : _bleService = bleService,
        _messageHandler = messageHandler,
-       _contactRepository = contactRepository,
-       _messageRepository = messageRepository {
+       _contactRepository =
+           (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
+               .contactRepository,
+       _messageRepository =
+           (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
+               .messageRepository {
     // Note: chatManagementService parameter accepted but not stored as it's not currently used
     // 🔧 CRITICAL FIX: Broadcast initial status to prevent null stream
     _logger.info(
@@ -210,14 +219,14 @@ class MeshNetworkingService {
 
     // Initialize relay engine with smart router
     _relayEngine = MeshRelayEngine(
-      contactRepository: _contactRepository,
       messageQueue: _messageQueue!,
       spamPrevention: _spamPrevention!,
     );
 
     await _relayEngine!.initialize(
       currentNodeId: _currentNodeId!,
-      smartRouter: _smartRouter,
+      routingService: _routingService,
+      topologyAnalyzer: _topologyAnalyzer,
       onRelayMessage: _handleRelayMessage,
       onDeliverToSelf: _handleDeliverToSelf,
       onRelayDecision: _handleRelayDecision,
@@ -243,26 +252,24 @@ class MeshNetworkingService {
   /// Initialize smart routing components
   Future<void> _initializeSmartRouting() async {
     try {
-      // Initialize routing components
-      _routeCalculator = RouteCalculator();
+      // Initialize topology analyzer
       _topologyAnalyzer = NetworkTopologyAnalyzer();
-      _qualityMonitor = ConnectionQualityMonitor();
 
-      // Initialize smart router
-      _smartRouter = SmartMeshRouter(
-        routeCalculator: _routeCalculator!,
-        topologyAnalyzer: _topologyAnalyzer!,
-        qualityMonitor: _qualityMonitor!,
+      // Create and initialize mesh routing service
+      _routingService = MeshRoutingService();
+
+      await _routingService!.initialize(
         currentNodeId: _currentNodeId!,
+        topologyAnalyzer: _topologyAnalyzer!,
+        enableDemo: _isDemoMode,
       );
-
-      await _smartRouter!.initialize(enableDemo: _isDemoMode);
 
       _logger.info('✅ Smart routing components initialized');
     } catch (e) {
       _logger.severe('❌ Failed to initialize smart routing: $e');
       // Continue without smart routing
-      _smartRouter = null;
+      _routingService = null;
+      _topologyAnalyzer = null;
     }
   }
 
@@ -537,11 +544,11 @@ class MeshNetworkingService {
       String selectedNextHop = nextHops.first; // Default fallback
       double routeScore = 0.5; // Default score
 
-      if (_smartRouter != null) {
+      if (_routingService != null) {
         try {
-          _logger.info('🧠 Using smart router for message routing');
+          _logger.info('🧠 Using routing service for message routing');
 
-          final routingDecision = await _smartRouter!.determineOptimalRoute(
+          final routingDecision = await _routingService!.determineOptimalRoute(
             finalRecipient: recipientPublicKey,
             availableHops: nextHops,
             priority: priority,
@@ -595,10 +602,8 @@ class MeshNetworkingService {
         priority: priority,
       );
 
-      // Update connection quality monitor
-      if (_qualityMonitor != null) {
-        _qualityMonitor!.recordMessageSent(selectedNextHop, originalMessageId);
-      }
+      // Note: Connection quality monitoring is now handled by MeshRoutingService
+      // This was previously done via _qualityMonitor but is now integrated in routing service
 
       if (isDemo) {
         _trackDemoMessage(originalMessageId, 'smart_relay');
@@ -1120,11 +1125,11 @@ class MeshNetworkingService {
         }
       }
 
-      // Use smart router if available for intelligent routing decisions
-      if (_smartRouter != null) {
+      // Use routing service if available for intelligent routing decisions
+      if (_routingService != null) {
         try {
-          // Use smart router to determine if this device should be used as relay
-          final routingDecision = await _smartRouter!.determineOptimalRoute(
+          // Use routing service to determine if this device should be used as relay
+          final routingDecision = await _routingService!.determineOptimalRoute(
             finalRecipient: finalRecipient,
             availableHops: [deviceId],
             priority: message.priority,
@@ -1132,10 +1137,10 @@ class MeshNetworkingService {
 
           if (routingDecision.isSuccessful &&
               routingDecision.nextHop == deviceId) {
-            return true; // Smart router selected this device as next hop
+            return true; // Routing service selected this device as next hop
           }
         } catch (e) {
-          _logger.fine('Smart routing check failed, using fallback: $e');
+          _logger.fine('Routing service check failed, using fallback: $e');
           // Continue to fallback heuristic
         }
       }
@@ -1745,14 +1750,11 @@ class MeshNetworkingService {
     _messageQueue?.dispose();
     _messageQueue = null;
 
-    // Dispose smart routing components
-    _smartRouter?.dispose();
-    _smartRouter = null;
+    // Dispose routing service and topology analyzer
+    _routingService?.dispose();
+    _routingService = null;
     _topologyAnalyzer?.dispose();
     _topologyAnalyzer = null;
-    _qualityMonitor?.dispose();
-    _qualityMonitor = null;
-    _routeCalculator = null;
 
     _meshStatusController.close();
     _relayStatsController.close();

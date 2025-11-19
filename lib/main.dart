@@ -15,6 +15,8 @@ import 'presentation/screens/home_screen.dart';
 import 'presentation/screens/group_list_screen.dart';
 import 'presentation/screens/create_group_screen.dart';
 import 'presentation/screens/group_chat_screen.dart';
+import 'presentation/screens/chat_screen.dart';
+import 'presentation/screens/contacts_screen.dart';
 import 'presentation/providers/ble_providers.dart';
 import 'presentation/providers/theme_provider.dart';
 import 'presentation/widgets/spy_mode_listener.dart';
@@ -109,6 +111,24 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
       try {
         await AppCore.instance.initialize();
         _logger.info('✅ App core initialized successfully from AppWrapper');
+
+        // 🧭 Register navigation callbacks (fix Core → Presentation layer violation)
+        NavigationService.setChatScreenBuilder(
+          ({
+            required String chatId,
+            required String contactName,
+            required String contactPublicKey,
+          }) => ChatScreen.fromChatData(
+            chatId: chatId,
+            contactName: contactName,
+            contactPublicKey: contactPublicKey,
+          ),
+        );
+
+        NavigationService.setContactsScreenBuilder(
+          () => const ContactsScreen(),
+        );
+        _logger.info('✅ Navigation callbacks registered');
       } catch (e) {
         _logger.severe('❌ Failed to initialize app core from AppWrapper: $e');
       }

@@ -35,7 +35,9 @@ Future<void> _configureNodeIdentity(
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment();
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'message_routing_validation',
+    );
   });
 
   group('Message Routing Validation Tests', () {
@@ -49,7 +51,9 @@ void main() {
         'abubakar_public_key_12345678901234567890123456789012';
 
     setUp(() async {
-      await TestSetup.cleanupDatabase();
+      await TestSetup.configureTestDatabase(
+        label: 'message_routing_validation',
+      );
       TestSetup.resetSharedPreferences();
       await EphemeralKeyManager.initialize('test_private_key_1234567890');
       messageHandler = BLEMessageHandler();
@@ -58,7 +62,7 @@ void main() {
 
     tearDown(() async {
       messageHandler.dispose();
-      await TestSetup.completeCleanup();
+      await TestSetup.nukeDatabase();
     });
 
     group('Core Routing Logic Tests', () {

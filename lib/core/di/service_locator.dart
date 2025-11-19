@@ -1,5 +1,14 @@
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
+import '../../data/services/ble_service.dart';
+import '../../data/services/seen_message_store.dart';
+import '../../domain/services/mesh_networking_service.dart';
+import '../../core/services/security_manager.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../data/repositories/message_repository.dart';
+import '../interfaces/i_repository_provider.dart';
+import '../interfaces/i_seen_message_store.dart';
+import 'repository_provider_impl.dart';
 
 /// GetIt service locator instance
 final getIt = GetIt.instance;
@@ -18,8 +27,8 @@ final _logger = Logger('ServiceLocator');
 /// - Lazy Singletons: For services that may not be immediately needed
 /// - Factories: For services that should be recreated on each request
 ///
-/// **Phase 1 Note**: Currently empty - services will be registered incrementally
-/// to maintain backward compatibility during migration.
+/// **Phase 1 Part C**: Services are registered as singletons but initialized by AppCore
+/// in correct dependency order (not at registration time).
 Future<void> setupServiceLocator() async {
   _logger.info('🎯 Setting up service locator...');
 
@@ -29,35 +38,116 @@ Future<void> setupServiceLocator() async {
   }
 
   try {
+    // If repositories are already registered, assume setup already ran.
+    if (getIt.isRegistered<ContactRepository>() &&
+        getIt.isRegistered<MessageRepository>() &&
+        getIt.isRegistered<IRepositoryProvider>() &&
+        getIt.isRegistered<ISeenMessageStore>()) {
+      _logger.info(
+        'ℹ️ Service locator already initialized — skipping re-registration',
+      );
+      return;
+    }
+
     // ===========================
     // REPOSITORIES
     // ===========================
-    // TODO: Register IContactRepository
-    // getIt.registerSingleton<IContactRepository>(ContactRepositoryImpl());
+    // Register IContactRepository singleton
+    if (!getIt.isRegistered<ContactRepository>()) {
+      getIt.registerSingleton<ContactRepository>(ContactRepository());
+      _logger.fine('✅ ContactRepository registered');
+    } else {
+      _logger.fine('ℹ️ ContactRepository already registered');
+    }
 
-    // TODO: Register IMessageRepository
-    // getIt.registerSingleton<IMessageRepository>(MessageRepositoryImpl());
-
-    // TODO: Register other repositories
+    // Register IMessageRepository singleton
+    if (!getIt.isRegistered<MessageRepository>()) {
+      getIt.registerSingleton<MessageRepository>(MessageRepository());
+      _logger.fine('✅ MessageRepository registered');
+    } else {
+      _logger.fine('ℹ️ MessageRepository already registered');
+    }
 
     // ===========================
-    // CORE SERVICES
+    // REPOSITORY PROVIDER (Phase 3 abstraction)
     // ===========================
-    // TODO: Register ISecurityManager
-    // getIt.registerLazySingleton<ISecurityManager>(() => SecurityManagerImpl());
-
-    // TODO: Register IMeshNetworkingService
-    // getIt.registerLazySingleton<IMeshNetworkingService>(() => MeshNetworkingServiceImpl());
+    // Register IRepositoryProvider singleton for Core layer DI
+    // This allows Core services to depend on repositories through abstraction
+    // instead of direct imports (fixes layer violations)
+    if (!getIt.isRegistered<IRepositoryProvider>()) {
+      getIt.registerSingleton<IRepositoryProvider>(
+        RepositoryProviderImpl(
+          contactRepository: getIt<ContactRepository>(),
+          messageRepository: getIt<MessageRepository>(),
+        ),
+      );
+      _logger.fine('✅ IRepositoryProvider registered (Phase 3)');
+    } else {
+      _logger.fine('ℹ️ IRepositoryProvider already registered');
+    }
 
     // ===========================
-    // DATA SERVICES
+    // SEEN MESSAGE STORE (Phase 3 abstraction)
     // ===========================
-    // TODO: Register IBLEService
-    // getIt.registerLazySingleton<IBLEService>(() => BLEServiceImpl());
+    // Register ISeenMessageStore singleton for Core layer DI
+    // SeenMessageStore.instance is already a singleton, we wrap it
+    if (!getIt.isRegistered<ISeenMessageStore>()) {
+      getIt.registerSingleton<ISeenMessageStore>(SeenMessageStore.instance);
+      _logger.fine('✅ ISeenMessageStore registered (Phase 3)');
+    } else {
+      _logger.fine('ℹ️ ISeenMessageStore already registered');
+    }
 
-    _logger.info('✅ Service locator setup complete');
+    // ===========================
+    // CORE SERVICES (initialized by AppCore, not here)
+    // ===========================
+    // SecurityManager: Registered as singleton instance (lazy init by AppCore)
+    // Note: SecurityManager is initialized in AppCore._initializeCoreServices()
+    // We access it via SecurityManager.instance to maintain backward compatibility
+    _logger.fine('🔐 SecurityManager will be initialized by AppCore');
+
+    // BLEService: Will be registered by AppCore after initialization
+    _logger.fine('📡 BLEService will be registered by AppCore');
+
+    // MeshNetworkingService: Will be registered by AppCore after initialization
+    _logger.fine('🌐 MeshNetworkingService will be registered by AppCore');
+
+    _logger.info(
+      '✅ Service locator setup complete (includes Phase 3 abstractions)',
+    );
   } catch (e, stackTrace) {
     _logger.severe('❌ Failed to setup service locator', e, stackTrace);
+    rethrow;
+  }
+}
+
+/// Register services after they're initialized by AppCore
+/// Called by AppCore during initialization sequence
+void registerInitializedServices({
+  required SecurityManager securityManager,
+  required BLEService bleService,
+  required MeshNetworkingService meshNetworkingService,
+}) {
+  _logger.info('📋 Registering initialized services...');
+
+  try {
+    // Register SecurityManager singleton
+    getIt.registerSingleton<SecurityManager>(securityManager);
+    _logger.fine('✅ SecurityManager registered in DI container');
+
+    // Register BLEService singleton
+    getIt.registerSingleton<BLEService>(bleService);
+    _logger.fine('✅ BLEService registered in DI container');
+
+    // Register MeshNetworkingService singleton
+    getIt.registerSingleton<MeshNetworkingService>(meshNetworkingService);
+    _logger.fine('✅ MeshNetworkingService registered in DI container');
+
+    _logger.info(
+      '✅ All initialized services registered (includes Phase 3 interfaces)',
+    );
+  } catch (e, stackTrace) {
+    _logger.severe('❌ Failed to register initialized services', e, stackTrace);
     rethrow;
   }
 }
