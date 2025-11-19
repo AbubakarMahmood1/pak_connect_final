@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
@@ -21,7 +22,14 @@ abstract interface class IBLEMessageHandlerFacade {
   /// Initializes relay system with dependencies
   ///
   /// Called once at app startup after all services are initialized
+  /// Automatically injects ISeenMessageStore for duplicate detection
   Future<void> initializeRelaySystem({required String currentNodeId});
+
+  /// Sets the SeenMessageStore for relay deduplication
+  ///
+  /// **Note**: Normally called automatically by initializeRelaySystem() during production startup.
+  /// Provided as public method for test overrides.
+  void setSeenMessageStore(ISeenMessageStore seenMessageStore);
 
   /// Gets available next hop devices for relay
   List<String> getAvailableNextHops();
