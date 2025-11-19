@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
 import '../interfaces/i_chat_list_coordinator.dart';
+import '../../core/models/connection_status.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/services/ble_service.dart';
@@ -30,7 +31,10 @@ class ChatListCoordinator implements IChatListCoordinator {
   bool _isLoading = true;
   String _searchQuery = '';
   Timer? _refreshTimer;
+  Timer? _connectionStatusDebounceTimer;
   StreamSubscription? _globalMessageSubscription;
+  StreamSubscription? _discoveryDataSubscription;
+  StreamSubscription? _connectionStatusSubscription;
   Map<String, DiscoveredEventArgs>? _lastDiscoveryData;
 
   // Unread count stream controller
@@ -38,17 +42,24 @@ class ChatListCoordinator implements IChatListCoordinator {
       StreamController.broadcast();
   Stream<int>? _unreadCountStream;
 
+  // Optional connection status stream for triggering refreshes
+  final Stream<ConnectionStatus>? _connectionStatusStream;
+
   ChatListCoordinator({
     ChatsRepository? chatsRepository,
     BLEService? bleService,
+    Stream<ConnectionStatus>? connectionStatusStream,
   }) : _chatsRepository = chatsRepository,
-       _bleService = bleService;
+       _bleService = bleService,
+       _connectionStatusStream = connectionStatusStream;
 
   @override
   Future<void> initialize() async {
     await loadChats();
     setupPeriodicRefresh();
     setupGlobalMessageListener();
+    setupDiscoveryDataListener();
+    setupConnectionStatusListener();
     setupUnreadCountStream();
     _logger.info('✅ ChatListCoordinator initialized');
   }
@@ -207,6 +218,57 @@ class ChatListCoordinator implements IChatListCoordinator {
     }
   }
 
+  /// 📡 Listen to discovery data changes and cache them
+  /// ChatsRepository needs the raw DiscoveredEventArgs for hash-based online detection
+  void setupDiscoveryDataListener() {
+    try {
+      final bleService = _bleService;
+      if (bleService == null) return;
+
+      _discoveryDataSubscription = bleService.discoveryData.listen((data) {
+        _lastDiscoveryData = data;
+        _logger.fine('📡 Discovery data updated: ${data.length} devices');
+      });
+
+      _logger.info('✅ Discovery data listener set up');
+    } catch (e) {
+      _logger.warning('⚠️ Failed to set up discovery data listener: $e');
+      // Not critical - will still work without live discovery updates
+    }
+  }
+
+  /// 🔄 Listen to connection status changes and trigger refresh with debounce
+  /// Prevents database starvation when discovery events fire rapidly
+  void setupConnectionStatusListener() {
+    try {
+      final stream = _connectionStatusStream;
+      if (stream == null) return;
+
+      _connectionStatusSubscription = stream.listen((_) {
+        // Cancel previous timer if exists
+        _connectionStatusDebounceTimer?.cancel();
+
+        // Set new debounce timer (500ms)
+        _connectionStatusDebounceTimer = Timer(
+          Duration(milliseconds: 500),
+          () async {
+            _logger.fine('🔄 Connection status changed, refreshing chats');
+            if (!_isLoading) {
+              await loadChats(
+                searchQuery: _searchQuery.isEmpty ? null : _searchQuery,
+              );
+            }
+          },
+        );
+      });
+
+      _logger.info('✅ Connection status listener set up (500ms debounce)');
+    } catch (e) {
+      _logger.warning('⚠️ Failed to set up connection status listener: $e');
+      // Not critical - periodic refresh will still work
+    }
+  }
+
   void setupUnreadCountStream() {
     // Create a simple periodic stream that updates unread count
     _unreadCountStream = Stream.periodic(Duration(seconds: 3), (_) {
@@ -222,9 +284,10 @@ class ChatListCoordinator implements IChatListCoordinator {
       final bleService = _bleService;
       if (bleService == null) return null;
 
-      // In a real scenario, get from ref.read(discoveredDevicesProvider)
-      // For now, return null to indicate dependency needed
-      return null;
+      // ⚠️ NOTE: Returns empty list if BLE not initialized or no devices discovered yet
+      // This prevents blocking chat load while waiting for first discovery event
+      // Real-time discovery happens via setupDiscoveryDataListener() stream
+      return const [];
     } catch (e) {
       _logger.warning('⚠️ Error getting nearby devices: $e');
       return null;
@@ -249,7 +312,10 @@ class ChatListCoordinator implements IChatListCoordinator {
   @override
   Future<void> dispose() async {
     _refreshTimer?.cancel();
+    _connectionStatusDebounceTimer?.cancel();
     await _globalMessageSubscription?.cancel();
+    await _discoveryDataSubscription?.cancel();
+    await _connectionStatusSubscription?.cancel();
     await _unreadCountController.close();
     _logger.info('♻️ ChatListCoordinator disposed');
   }

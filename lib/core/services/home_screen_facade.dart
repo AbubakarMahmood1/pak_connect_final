@@ -2,12 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../interfaces/i_home_screen_facade.dart';
 import '../interfaces/i_chat_interaction_handler.dart';
 import '../../core/models/connection_status.dart';
+import '../../core/models/connection_info.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
 import 'chat_list_coordinator.dart';
 import 'chat_connection_manager.dart';
-import '../../presentation/services/chat_interaction_handler.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../data/services/ble_service.dart';
@@ -79,6 +81,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
     _listCoordinator = ChatListCoordinator(
       chatsRepository: _chatsRepository,
       bleService: _bleService,
+      connectionStatusStream: _connectionManager.connectionStatusStream,
     );
 
     _interactionHandler = _interactionHandlerBuilder != null
@@ -163,24 +166,35 @@ class HomeScreenFacade implements IHomeScreenFacade {
   ConnectionStatus determineConnectionStatus({
     required String? contactPublicKey,
     required String contactName,
-    required List<dynamic> discoveredDevices,
-    required Map<String, dynamic> discoveryData,
+    required ConnectionInfo? currentConnectionInfo,
+    required List<Peripheral> discoveredDevices,
+    required Map<String, DiscoveredDevice> discoveryData,
     required DateTime? lastSeenTime,
   }) {
-    // Delegate to connection manager with proper parameters
+    // Diagnostic logging: log when we have no discovery signals for this contact
+    if (discoveredDevices.isEmpty &&
+        discoveryData.isEmpty &&
+        lastSeenTime == null) {
+      _logger.fine(
+        '⚠️ No discovery signals for $contactName (no nearby devices, no lastSeen)',
+      );
+    }
+
+    // Delegate to connection manager with actual discovery parameters and connection info
     return _connectionManager.determineConnectionStatus(
       contactPublicKey: contactPublicKey,
       contactName: contactName,
-      currentConnectionInfo: null,
-      discoveredDevices: const [],
-      discoveryData: const {},
+      currentConnectionInfo: currentConnectionInfo,
+      discoveredDevices: discoveredDevices,
+      discoveryData: discoveryData,
       lastSeenTime: lastSeenTime,
     );
   }
 
   @override
   Stream<ConnectionStatus> get connectionStatusStream {
-    return Stream.value(ConnectionStatus.offline).asBroadcastStream();
+    // 🔄 Proxy connection manager's stream so UI can react to BLE discovery changes
+    return _connectionManager.connectionStatusStream;
   }
 
   // ============================================================
@@ -255,6 +269,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
     try {
       await _intentSubscription?.cancel();
       await _listCoordinator.dispose();
+      await _connectionManager.dispose();
       await _interactionHandler.dispose();
       _initialized = false;
       _logger.info('♻️ HomeScreenFacade disposed');
