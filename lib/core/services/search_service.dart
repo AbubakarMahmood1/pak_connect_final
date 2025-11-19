@@ -4,8 +4,9 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/message_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../interfaces/i_chats_repository.dart';
+import '../interfaces/i_message_repository.dart';
 import '../../domain/services/archive_search_service.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -17,13 +18,13 @@ class SearchService {
   static final _logger = Logger('SearchService');
 
   // Dependencies (optional for DI/testing)
-  final ChatsRepository? _chatsRepositoryOverride;
-  final MessageRepository? _messageRepositoryOverride;
+  final IChatsRepository? _chatsRepositoryOverride;
+  final IMessageRepository? _messageRepositoryOverride;
   final ArchiveSearchService? _archiveSearchServiceOverride;
 
   // Lazy-initialized dependencies
-  late final ChatsRepository _chatsRepository;
-  late final MessageRepository _messageRepository;
+  late final IChatsRepository _chatsRepository;
+  late final IMessageRepository _messageRepository;
   late final ArchiveSearchService _archiveSearchService;
 
   // Storage keys
@@ -34,8 +35,8 @@ class SearchService {
 
   /// Constructor with optional dependency injection
   SearchService({
-    ChatsRepository? chatsRepository,
-    MessageRepository? messageRepository,
+    IChatsRepository? chatsRepository,
+    IMessageRepository? messageRepository,
     ArchiveSearchService? archiveSearchService,
   }) : _chatsRepositoryOverride = chatsRepository,
        _messageRepositoryOverride = messageRepository,
@@ -46,8 +47,10 @@ class SearchService {
   /// Initialize the service
   Future<void> initialize() async {
     // Initialize dependencies (use overrides if provided, else defaults)
-    _chatsRepository = _chatsRepositoryOverride ?? ChatsRepository();
-    _messageRepository = _messageRepositoryOverride ?? MessageRepository();
+    _chatsRepository =
+        _chatsRepositoryOverride ?? GetIt.instance<IChatsRepository>();
+    _messageRepository =
+        _messageRepositoryOverride ?? GetIt.instance<IMessageRepository>();
     _archiveSearchService =
         _archiveSearchServiceOverride ?? ArchiveSearchService.instance;
 

@@ -4,8 +4,9 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/message_repository.dart';
+import 'package:get_it/get_it.dart';
+import '../interfaces/i_chats_repository.dart';
+import '../interfaces/i_message_repository.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/entities/enhanced_message.dart';
 
@@ -14,12 +15,12 @@ class PinningService {
   static final _logger = Logger('PinningService');
 
   // Dependencies (optional for DI/testing)
-  final ChatsRepository? _chatsRepositoryOverride;
-  final MessageRepository? _messageRepositoryOverride;
+  final IChatsRepository? _chatsRepositoryOverride;
+  final IMessageRepository? _messageRepositoryOverride;
 
   // Lazy-initialized dependencies
-  late final ChatsRepository _chatsRepository;
-  late final MessageRepository _messageRepository;
+  late final IChatsRepository _chatsRepository;
+  late final IMessageRepository _messageRepository;
 
   // Storage keys
   static const String _starredMessagesKey = 'starred_messages';
@@ -39,8 +40,8 @@ class PinningService {
 
   /// Constructor with optional dependency injection
   PinningService({
-    ChatsRepository? chatsRepository,
-    MessageRepository? messageRepository,
+    IChatsRepository? chatsRepository,
+    IMessageRepository? messageRepository,
   }) : _chatsRepositoryOverride = chatsRepository,
        _messageRepositoryOverride = messageRepository {
     _logger.info('✅ PinningService created');
@@ -49,8 +50,10 @@ class PinningService {
   /// Initialize the service
   Future<void> initialize() async {
     // Initialize dependencies (use overrides if provided, else defaults)
-    _chatsRepository = _chatsRepositoryOverride ?? ChatsRepository();
-    _messageRepository = _messageRepositoryOverride ?? MessageRepository();
+    _chatsRepository =
+        _chatsRepositoryOverride ?? GetIt.instance<IChatsRepository>();
+    _messageRepository =
+        _messageRepositoryOverride ?? GetIt.instance<IMessageRepository>();
 
     // Load cached data
     await _loadStarredMessages();

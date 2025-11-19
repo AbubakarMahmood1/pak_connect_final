@@ -10,12 +10,14 @@ import '../../data/repositories/archive_repository.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/preferences_repository.dart';
 import '../../data/repositories/group_repository.dart';
+import '../../data/repositories/intro_hint_repository.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_seen_message_store.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_preferences_repository.dart';
 import '../interfaces/i_group_repository.dart';
+import '../interfaces/i_intro_hint_repository.dart';
 import 'repository_provider_impl.dart';
 
 /// GetIt service locator instance
@@ -108,6 +110,14 @@ Future<void> setupServiceLocator() async {
       _logger.fine('ℹ️ GroupRepository already registered');
     }
 
+    // Register IntroHintRepository singleton
+    if (!getIt.isRegistered<IntroHintRepository>()) {
+      getIt.registerSingleton<IntroHintRepository>(IntroHintRepository());
+      _logger.fine('✅ IntroHintRepository registered');
+    } else {
+      _logger.fine('ℹ️ IntroHintRepository already registered');
+    }
+
     // ===========================
     // REPOSITORY INTERFACES (Phase 3 abstraction)
     // ===========================
@@ -135,6 +145,14 @@ Future<void> setupServiceLocator() async {
     if (!getIt.isRegistered<IGroupRepository>()) {
       getIt.registerSingleton<IGroupRepository>(getIt<GroupRepository>());
       _logger.fine('✅ IGroupRepository registered (Phase 3)');
+    }
+
+    // Register IIntroHintRepository for dependency injection
+    if (!getIt.isRegistered<IIntroHintRepository>()) {
+      getIt.registerSingleton<IIntroHintRepository>(
+        getIt<IntroHintRepository>(),
+      );
+      _logger.fine('✅ IIntroHintRepository registered (Phase 3)');
     }
 
     // ===========================

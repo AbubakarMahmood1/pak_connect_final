@@ -5,8 +5,9 @@ import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import '../../data/repositories/contact_repository.dart';
 import '../interfaces/i_repository_provider.dart';
+import '../interfaces/i_contact_repository.dart';
+import '../../data/repositories/contact_repository.dart';
 import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
 import 'simple_crypto.dart';
@@ -91,7 +92,7 @@ class SecurityManager {
   /// Get current security level for a contact
   static Future<SecurityLevel> getCurrentLevel(
     String publicKey, [
-    ContactRepository? repo,
+    IContactRepository? repo,
   ]) async {
     // Use provided repo or fallback to DI container
     final contactRepo =
@@ -175,7 +176,7 @@ class SecurityManager {
   /// - MEDIUM/HIGH security: Try KK if we have their static key, otherwise XX
   static Future<(NoisePattern, Uint8List?)> selectNoisePattern(
     String publicKey, [
-    ContactRepository? repo,
+    IContactRepository? repo,
   ]) async {
     // Use provided repo or fallback to DI container
     final contactRepo =
@@ -217,7 +218,7 @@ class SecurityManager {
   /// Get encryption key for current security level
   static Future<EncryptionMethod> getEncryptionMethod(
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   ) async {
     final level = await getCurrentLevel(publicKey, repo);
 
@@ -270,7 +271,7 @@ class SecurityManager {
   static Future<String> encryptMessage(
     String message,
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   ) async {
     final method = await getEncryptionMethod(publicKey, repo);
 
@@ -332,7 +333,7 @@ class SecurityManager {
   static Future<String> decryptMessage(
     String encryptedMessage,
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   ) async {
     final level = await getCurrentLevel(publicKey, repo);
 
@@ -411,7 +412,7 @@ class SecurityManager {
   /// Request security level resync instead of immediate downgrade
   static Future<void> _requestSecurityResync(
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   ) async {
     try {
       // Mark that we need to resync with this contact
@@ -439,7 +440,7 @@ class SecurityManager {
   // Helper methods
   static Future<bool> _verifyECDHKey(
     String publicKey,
-    ContactRepository repo,
+    IContactRepository repo,
   ) async {
     return await repo.getCachedSharedSecret(publicKey) != null;
   }
@@ -451,7 +452,7 @@ class SecurityManager {
   static Future<void> _downgrade(
     String publicKey,
     SecurityLevel newLevel,
-    ContactRepository repo,
+    IContactRepository repo,
   ) async {
     await repo.updateContactSecurityLevel(publicKey, newLevel);
     _logger.warning('🔒 DOWNGRADE: $publicKey → ${newLevel.name}');

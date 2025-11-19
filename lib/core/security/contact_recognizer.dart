@@ -1,10 +1,12 @@
 // File: lib/core/security/contact_recognizer.dart
+import '../interfaces/i_contact_repository.dart';
 import '../../data/repositories/contact_repository.dart';
+import 'package:get_it/get_it.dart';
 import 'ephemeral_key_manager.dart';
 
 class ContactRecognizer {
   static Future<bool> isKnownContact(String ephemeralHint) async {
-    final contactRepo = ContactRepository();
+    final contactRepo = GetIt.instance<IContactRepository>();
     final contacts = await contactRepo.getAllContacts();
 
     // Check against all contacts (Phase 2 will optimize this)
@@ -27,7 +29,7 @@ class ContactRecognizer {
 
   // Get contact info from ephemeral hint
   static Future<Contact?> getContactFromHint(String ephemeralHint) async {
-    final contactRepo = ContactRepository();
+    final contactRepo = GetIt.instance<IContactRepository>();
     final contacts = await contactRepo.getAllContacts();
 
     for (final contact in contacts.values) {
