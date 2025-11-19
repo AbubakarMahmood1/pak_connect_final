@@ -1,5 +1,8 @@
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../core/models/connection_status.dart';
+import '../../core/models/connection_info.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
 
 /// Facade interface for HomeScreen presentation layer
 ///
@@ -88,11 +91,22 @@ abstract class IHomeScreenFacade {
   // ============ Connection Status ============
 
   /// Get connection status for a specific contact
+  ///
+  /// Parameters:
+  /// - contactPublicKey: Public key of the contact
+  /// - contactName: Display name of the contact
+  /// - currentConnectionInfo: Current BLE connection info (nullable)
+  /// - discoveredDevices: List of discovered peripherals from BLE scan
+  /// - discoveryData: Map of deduplicated discovered devices (keyed by device ID)
+  ///   ⚠️ NOTE: Must use DiscoveredDevice objects (from DeviceDeduplicationManager),
+  ///   not raw DiscoveredEventArgs. This provides contact info matching.
+  /// - lastSeenTime: When this contact was last seen (from database)
   ConnectionStatus determineConnectionStatus({
     required String? contactPublicKey,
     required String contactName,
-    required List<dynamic> discoveredDevices,
-    required Map<String, dynamic> discoveryData,
+    required ConnectionInfo? currentConnectionInfo,
+    required List<Peripheral> discoveredDevices,
+    required Map<String, DiscoveredDevice> discoveryData,
     required DateTime? lastSeenTime,
   });
 
