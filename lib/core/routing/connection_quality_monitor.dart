@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:logging/logging.dart';
 import 'routing_models.dart';
-import '../interfaces/i_ble_service.dart';
-import '../../data/services/ble_service.dart';
+import '../interfaces/i_mesh_ble_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Monitors connection quality and provides scoring for routing decisions
@@ -86,7 +85,7 @@ class ConnectionQualityMonitor {
   /// Measure connection quality with BLE service
   Future<void> measureConnectionQuality(
     String nodeId,
-    BLEService bleService,
+    IMeshBleService bleService,
   ) async {
     try {
       if (!bleService.isConnected) {
@@ -245,7 +244,7 @@ class ConnectionQualityMonitor {
   }
 
   /// Measure signal strength (simulated for BLE)
-  double _measureSignalStrength(BLEService bleService) {
+  double _measureSignalStrength(IMeshBleService bleService) {
     try {
       final connectionInfo = bleService.currentConnectionInfo;
 

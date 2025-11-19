@@ -38,15 +38,9 @@ import '../../core/messaging/offline_message_queue.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../../core/app_core.dart';
 import '../../core/models/mesh_relay_models.dart';
+import '../../core/interfaces/i_ble_discovery_service.dart';
 import '../../core/interfaces/i_mesh_ble_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
-
-/// Enum to track the source of scanning requests for better coordination
-enum ScanningSource {
-  manual, // User-initiated scanning (DiscoveryOverlay)
-  burst, // Adaptive power manager burst scanning
-  system, // Other system-initiated scanning
-}
 
 // Helper class to buffer messages until identity exchange completes
 class _BufferedMessage {
@@ -158,17 +152,24 @@ class BLEService implements IMeshBleService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   // Stream getters
+  @override
   Stream<ConnectionInfo> get connectionInfo =>
       _connectionInfoController!.stream;
+  @override
   ConnectionInfo get currentConnectionInfo => _currentConnectionInfo;
   Stream<List<Peripheral>> get discoveredDevices => _devicesController!.stream;
+  @override
   Stream<String> get receivedMessages => _messagesController!.stream;
+  @override
   Stream<Map<String, DiscoveredEventArgs>> get discoveryData =>
       _discoveryDataController!.stream;
   Stream<String> get hintMatches => _hintMatchController!.stream;
   Stream<SpyModeInfo> get spyModeDetected => _spyModeDetectedController!.stream;
   Stream<String> get identityRevealed => _identityRevealedController!.stream;
   Central? get connectedCentral => _connectedCentral;
+  @override
+  Stream<CentralConnectionStateChangedEventArgs>
+  get peripheralConnectionChanges => peripheralManager.connectionStateChanged;
 
   // Bluetooth state monitoring getters
   Stream<BluetoothStateInfo> get bluetoothStateStream =>
@@ -187,6 +188,7 @@ class BLEService implements IMeshBleService {
 
   // State getters (deleginitializeated)
   BluetoothLowEnergyState get state => centralManager.state;
+  @override
   bool get isConnected {
     final bleConnected = !_stateManager.isPeripheralMode
         ? _connectionManager.connectedDevice != null
@@ -216,6 +218,7 @@ class BLEService implements IMeshBleService {
     return result;
   }
 
+  @override
   bool get isPeripheralMode => _stateManager.isPeripheralMode;
   bool get isMonitoring => _connectionManager.isMonitoring;
   Peripheral? get connectedDevice => _connectionManager.connectedDevice;
@@ -223,6 +226,7 @@ class BLEService implements IMeshBleService {
   String? get otherUserName => _stateManager.otherUserName;
 
   /// The currently active session ID (ephemeral pre-pairing, persistent post-pairing)
+  @override
   String? get currentSessionId => _stateManager.currentSessionId;
 
   /// Get their ephemeral session ID (8 chars, changes per session)
@@ -230,6 +234,8 @@ class BLEService implements IMeshBleService {
 
   /// Get their persistent public key (64 chars, only available after pairing)
   String? get theirPersistentKey => _stateManager.theirPersistentKey;
+  @override
+  String? get theirPersistentPublicKey => _stateManager.theirPersistentKey;
 
   String? get myPersistentId => _stateManager.myPersistentId;
   bool get isActivelyReconnecting =>
@@ -237,6 +243,7 @@ class BLEService implements IMeshBleService {
       _connectionManager.isActivelyReconnecting;
 
   /// Check if we have an active peripheral connection (others connected TO us)
+  @override
   bool get hasPeripheralConnection =>
       _connectedCentral != null && _connectedCharacteristic != null;
 
@@ -248,6 +255,7 @@ class BLEService implements IMeshBleService {
   /// Check if we can send messages (works for both central and peripheral modes)
   /// 🔧 FIX: Check BOTH connection types instead of relying on mode flag
   /// This handles collision scenarios where mode flag might be stale
+  @override
   bool get canSendMessages {
     // Can send if EITHER connection type is available (mode-agnostic)
     return hasPeripheralConnection || hasCentralConnection;
@@ -255,6 +263,18 @@ class BLEService implements IMeshBleService {
 
   BLEStateManager get stateManager => _stateManager;
   BLEConnectionManager get connectionManager => _connectionManager;
+  @override
+  bool get canAcceptMoreConnections =>
+      _connectionManager.canAcceptMoreConnections;
+  @override
+  int get activeConnectionCount => _connectionManager.activeConnectionCount;
+  @override
+  int get maxCentralConnections => _connectionManager.maxClientConnections;
+  @override
+  List<String> get activeConnectionDeviceIds => _connectionManager
+      .activeConnections
+      .map((peripheral) => peripheral.uuid.toString())
+      .toList();
 
   void registerQueueSyncHandler(
     Future<bool> Function(QueueSyncMessage, String) handler,
@@ -1485,6 +1505,7 @@ class BLEService implements IMeshBleService {
     _logger.info('🔄 BUFFER: All buffered messages processed');
   }
 
+  @override
   Future<String> getMyPublicKey() async {
     return await _stateManager.getMyPersistentId();
   }
@@ -1495,6 +1516,7 @@ class BLEService implements IMeshBleService {
   /// - Used in: MeshNetworkingService, TopologyManager, SmartMeshRouter, MeshRelayEngine
   /// - Rotates per app session - prevents long-term tracking
   /// - DO NOT use persistent key for mesh routing!
+  @override
   Future<String> getMyEphemeralId() async {
     return _stateManager.myEphemeralId ?? '';
   }
@@ -2180,6 +2202,7 @@ class BLEService implements IMeshBleService {
   // Interface: IBLEDiscoveryService (already created)
   // ═══════════════════════════════════════════════════════════════════════════
 
+  @override
   Future<void> startScanning({
     ScanningSource source = ScanningSource.system,
   }) async {
@@ -2282,6 +2305,7 @@ class BLEService implements IMeshBleService {
     }
   }
 
+  @override
   Future<void> stopScanning() async {
     final currentSource = _currentScanningSource?.name ?? 'unknown';
     _logger.info('🔍 Stopping $currentSource BLE scan...');

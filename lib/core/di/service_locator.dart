@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import '../../data/services/ble_service.dart';
 import '../../data/services/seen_message_store.dart';
 import '../../data/services/mesh_routing_service.dart';
+import '../../data/database/database_provider.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
@@ -22,6 +23,7 @@ import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_preferences_repository.dart';
 import '../interfaces/i_group_repository.dart';
 import '../interfaces/i_intro_hint_repository.dart';
+import '../interfaces/i_database_provider.dart';
 import 'repository_provider_impl.dart';
 
 /// GetIt service locator instance
@@ -209,6 +211,16 @@ Future<void> setupServiceLocator() async {
       _logger.fine('✅ ISeenMessageStore registered (Phase 3)');
     } else {
       _logger.fine('ℹ️ ISeenMessageStore already registered');
+    }
+
+    // ===========================
+    // DATABASE PROVIDER
+    // ===========================
+    if (!getIt.isRegistered<IDatabaseProvider>()) {
+      getIt.registerSingleton<IDatabaseProvider>(DatabaseProvider());
+      _logger.fine('✅ IDatabaseProvider registered');
+    } else {
+      _logger.fine('ℹ️ IDatabaseProvider already registered');
     }
 
     // ===========================

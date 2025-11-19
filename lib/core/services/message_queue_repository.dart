@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
-import '../../data/database/database_helper.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../interfaces/i_message_queue_repository.dart';
+import '../interfaces/i_database_provider.dart';
 import '../messaging/offline_message_queue.dart';
 import '../models/mesh_relay_models.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
@@ -22,20 +23,37 @@ class MessageQueueRepository implements IMessageQueueRepository {
   final List<QueuedMessage> directMessageQueue;
   final List<QueuedMessage> relayMessageQueue;
   final Set<String> deletedMessageIds;
+  final IDatabaseProvider? _databaseProvider;
+  IDatabaseProvider? _resolvedDatabaseProvider;
 
   MessageQueueRepository({
     List<QueuedMessage>? directMessageQueue,
     List<QueuedMessage>? relayMessageQueue,
     Set<String>? deletedMessageIds,
+    IDatabaseProvider? databaseProvider,
   }) : directMessageQueue = directMessageQueue ?? [],
        relayMessageQueue = relayMessageQueue ?? [],
-       deletedMessageIds = deletedMessageIds ?? {};
+       deletedMessageIds = deletedMessageIds ?? {},
+       _databaseProvider = databaseProvider;
+
+  Future<Database> _getDatabase() async {
+    _resolvedDatabaseProvider ??=
+        _databaseProvider ??
+        (GetIt.instance.isRegistered<IDatabaseProvider>()
+            ? GetIt.instance<IDatabaseProvider>()
+            : null);
+    final provider = _resolvedDatabaseProvider;
+    if (provider == null) {
+      throw StateError('IDatabaseProvider not available');
+    }
+    return await provider.database;
+  }
 
   /// Load entire queue from persistent storage
   @override
   Future<void> loadQueueFromStorage() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
       final List<Map<String, dynamic>> results = await db.query(
         'offline_message_queue',
         orderBy: 'priority DESC, queued_at ASC',
@@ -71,7 +89,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   Future<void> saveMessageToStorage(QueuedMessage message) async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       // Use INSERT OR REPLACE for efficiency - updates if exists, inserts if not
       await db.insert(
@@ -88,7 +106,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   Future<void> deleteMessageFromStorage(String messageId) async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       await db.delete(
         'offline_message_queue',
@@ -104,7 +122,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   Future<void> saveQueueToStorage() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       // Use transaction for atomic operations
       await db.transaction((txn) async {
@@ -130,7 +148,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   Future<void> loadDeletedMessageIds() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
       final List<Map<String, dynamic>> results = await db.query(
         'deleted_message_ids',
       );
@@ -150,7 +168,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   Future<void> saveDeletedMessageIds() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       await db.transaction((txn) async {
         // Clear and reinsert all deleted IDs

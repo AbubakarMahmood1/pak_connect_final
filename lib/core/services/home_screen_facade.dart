@@ -12,8 +12,7 @@ import 'chat_list_coordinator.dart';
 import 'chat_connection_manager.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
-import '../interfaces/i_ble_service.dart';
-import '../../data/services/ble_service.dart';
+import '../interfaces/i_mesh_ble_service.dart';
 import '../../domain/services/chat_management_service.dart';
 
 typedef ChatInteractionHandlerBuilder =
@@ -46,7 +45,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
   final _logger = Logger('HomeScreenFacade');
 
   final IChatsRepository? _chatsRepository;
-  final BLEService? _bleService;
+  final IMeshBleService? _bleService;
   final ChatManagementService? _chatManagementService;
   final BuildContext? _context;
   final WidgetRef? _ref;
@@ -62,7 +61,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
 
   HomeScreenFacade({
     IChatsRepository? chatsRepository,
-    BLEService? bleService,
+    IMeshBleService? bleService,
     ChatManagementService? chatManagementService,
     BuildContext? context,
     WidgetRef? ref,

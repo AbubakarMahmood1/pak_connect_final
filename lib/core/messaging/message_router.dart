@@ -4,8 +4,7 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 import 'package:get_it/get_it.dart';
-import '../interfaces/i_ble_service.dart';
-import '../../data/services/ble_service.dart';
+import '../interfaces/i_mesh_ble_service.dart';
 import '../../core/app_core.dart';
 import '../../domain/entities/enhanced_message.dart';
 import './offline_message_queue.dart';
@@ -43,13 +42,13 @@ class MessageRouter {
   }
 
   // Dependencies
-  late final BLEService _bleService; // ignore: unused_field
+  late final IMeshBleService _bleService; // ignore: unused_field
   late final OfflineMessageQueue _offlineQueue;
 
   MessageRouter._();
 
   /// Initialize the message router
-  static Future<void> initialize(BLEService bleService) async {
+  static Future<void> initialize(IMeshBleService bleService) async {
     if (_instance != null) {
       _logger.warning('MessageRouter already initialized');
       return;
