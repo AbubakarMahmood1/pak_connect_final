@@ -8,15 +8,16 @@ import '../../core/models/spy_mode_info.dart';
 import '../../core/scanning/burst_scanning_controller.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../../data/repositories/chats_repository.dart';
-import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/entities/enhanced_message.dart';
-import 'mesh_networking_provider.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/messaging/message_router.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initialization check
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
+import '../../core/interfaces/i_mesh_ble_service.dart';
+import '../../core/interfaces/i_connection_service.dart';
+import 'mesh_networking_provider.dart';
 
 // =============================================================================
 // REACTIVE USERNAME PROVIDERS (RIVERPOD 3.0 MODERN APPROACH)
@@ -32,7 +33,7 @@ class UsernameNotifier extends AsyncNotifier<String> {
 
   /// Update username with full BLE integration and real-time UI updates
   Future<void> updateUsername(String newUsername) async {
-    final bleService = ref.read(bleServiceProvider);
+    final connectionService = ref.read(connectionServiceProvider);
 
     // Set loading state
     state = const AsyncValue.loading();
@@ -42,11 +43,11 @@ class UsernameNotifier extends AsyncNotifier<String> {
       await UserPreferences().setUserName(newUsername);
 
       // 2. Update BLE state manager cache
-      await bleService.stateManager.setMyUserName(newUsername);
+      await connectionService.setMyUserName(newUsername);
 
       // 3. Trigger identity re-exchange if connected
-      if (bleService.isConnected) {
-        await _triggerIdentityReExchange(bleService, newUsername);
+      if (connectionService.isConnected) {
+        await _triggerIdentityReExchange(connectionService);
       }
 
       // 4. Update state - this triggers UI rebuild automatically
@@ -60,11 +61,10 @@ class UsernameNotifier extends AsyncNotifier<String> {
 
   /// Trigger identity re-exchange for immediate username propagation
   Future<void> _triggerIdentityReExchange(
-    BLEService bleService,
-    String newUsername,
+    IConnectionService connectionService,
   ) async {
     try {
-      await bleService.triggerIdentityReExchange();
+      await connectionService.triggerIdentityReExchange();
     } catch (e) {
       // Log error but don't fail the username update
       if (kDebugMode) {
@@ -116,39 +116,70 @@ class UsernameOperations {
   }
 }
 
-// BLE Service provider - creates service instance without initializing
-// ✅ FIX #1: Lazy initialization - don't call initialize() immediately
+// BLE Service provider - fetches DI-registered instance or creates fallback
 final bleServiceProvider = Provider<BLEService>((ref) {
-  // Phase 1 Part C: Register BLEService in DI container when created
-  // This allows other services and widgets to access it via DI
-  if (!getIt.isRegistered<BLEService>()) {
-    final service = BLEService();
-
-    // ✅ REMOVED: Immediate initialization that caused LateInitializationError
-    // The service will be initialized properly by bleServiceInitializedProvider
-    // after AppCore is fully ready with messageQueue available
-
-    ref.onDispose(() {
-      try {
-        MessageRouter.instance.dispose();
-      } catch (e) {
-        // MessageRouter might not be initialized if early error occurred
-      }
-      service.dispose();
-    });
-
-    // Register in DI for eager access
-    try {
-      getIt.registerSingleton<BLEService>(service);
-    } catch (e) {
-      // Service already registered (idempotent)
-    }
-
-    return service;
-  } else {
-    // Already registered - return from DI
+  if (getIt.isRegistered<BLEService>()) {
     return getIt<BLEService>();
   }
+
+  final service = BLEService();
+  bool registered = false;
+
+  try {
+    getIt.registerSingleton<BLEService>(service);
+    registered = true;
+  } catch (_) {
+    // Already registered elsewhere (tests may double-register)
+  }
+
+  if (!getIt.isRegistered<IMeshBleService>()) {
+    try {
+      getIt.registerSingleton<IMeshBleService>(service);
+    } catch (_) {
+      // Ignore duplicate registration failures
+    }
+  }
+  if (!getIt.isRegistered<IConnectionService>()) {
+    try {
+      getIt.registerSingleton<IConnectionService>(service);
+    } catch (_) {
+      // Ignore duplicate registration failures
+    }
+  }
+
+  ref.onDispose(() {
+    if (registered) {
+      try {
+        MessageRouter.instance.dispose();
+      } catch (_) {
+        // Router may not be initialized in fallback contexts
+      }
+      service.dispose();
+      try {
+        getIt.unregister<BLEService>();
+      } catch (_) {}
+      try {
+        getIt.unregister<IMeshBleService>();
+      } catch (_) {}
+      try {
+        getIt.unregister<IConnectionService>();
+      } catch (_) {}
+    }
+  });
+
+  return service;
+});
+
+/// Preferred seam for new features - resolves the abstract connection service.
+/// Falls back to the legacy [BLEService] provider when AppCore has not
+/// registered the interface yet (e.g., widget tests).
+final connectionServiceProvider = Provider<IConnectionService>((ref) {
+  if (getIt.isRegistered<IConnectionService>()) {
+    return getIt<IConnectionService>();
+  }
+
+  // Fallback to the legacy provider so existing tests keep working.
+  return ref.watch(bleServiceProvider);
 });
 
 // ✅ NEW: Initialized BLE service provider - waits for AppCore to be ready
@@ -169,26 +200,27 @@ final bleServiceInitializedProvider = FutureProvider<BLEService>((ref) async {
     );
   }
 
-  if (kDebugMode) {
-    print('✅ [BLEService] Starting initialization (AppCore is ready)');
-  }
-
-  // Now it's safe to initialize - messageQueue exists
-  try {
-    await service.initialize();
-
-    // Initialize MessageRouter with the BLE service (BitChat pattern)
-    await MessageRouter.initialize(service);
-
+  if (!service.isInitialized) {
     if (kDebugMode) {
-      print('✅ [BLEService] Initialization complete with MessageRouter');
+      print('✅ [BLEService] Starting initialization (AppCore is ready)');
     }
-  } catch (e, stackTrace) {
-    if (kDebugMode) {
-      print('❌ CRITICAL: BLEService initialization failed: $e');
-      print('Stack trace: $stackTrace');
+
+    try {
+      await service.initialize();
+      await MessageRouter.initialize(service);
+
+      if (kDebugMode) {
+        print('✅ [BLEService] Initialization complete with MessageRouter');
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        print('❌ CRITICAL: BLEService initialization failed: $e');
+        print('Stack trace: $stackTrace');
+      }
+      // Don't rethrow - let the app continue in degraded mode
     }
-    // Don't rethrow - let the app continue in degraded mode
+  } else if (kDebugMode) {
+    print('ℹ️ [BLEService] Already initialized via AppCore');
   }
 
   return service;
@@ -210,14 +242,14 @@ final bleStateProvider = StreamProvider.autoDispose<BluetoothLowEnergyState>((
 final discoveredDevicesProvider = StreamProvider.autoDispose<List<Peripheral>>((
   ref,
 ) {
-  final service = ref.watch(bleServiceProvider);
+  final service = ref.watch(connectionServiceProvider);
   return service.discoveredDevices;
 });
 
 // Received messages provider
 // FIX-007: Added autoDispose to prevent memory leaks
 final receivedMessagesProvider = StreamProvider.autoDispose<String>((ref) {
-  final service = ref.watch(bleServiceProvider);
+  final service = ref.watch(connectionServiceProvider);
   return service.receivedMessages;
 });
 
@@ -225,21 +257,21 @@ final receivedMessagesProvider = StreamProvider.autoDispose<String>((ref) {
 final connectionInfoProvider = StreamProvider.autoDispose<ConnectionInfo>((
   ref,
 ) {
-  final service = ref.watch(bleServiceProvider);
+  final service = ref.watch(connectionServiceProvider);
   return service.connectionInfo;
 });
 
 // Spy mode providers
 // FIX-007: Added autoDispose to prevent memory leaks
 final spyModeDetectedProvider = StreamProvider.autoDispose<SpyModeInfo>((ref) {
-  final bleService = ref.watch(bleServiceProvider);
-  return bleService.spyModeDetected;
+  final connectionService = ref.watch(connectionServiceProvider);
+  return connectionService.spyModeDetected;
 });
 
 // FIX-007: Added autoDispose to prevent memory leaks
 final identityRevealedProvider = StreamProvider.autoDispose<String>((ref) {
-  final bleService = ref.watch(bleServiceProvider);
-  return bleService.identityRevealed;
+  final connectionService = ref.watch(connectionServiceProvider);
+  return connectionService.identityRevealed;
 });
 
 final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
@@ -250,7 +282,7 @@ final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
 // FIX-007: Added autoDispose to prevent memory leaks
 final discoveryDataProvider =
     StreamProvider.autoDispose<Map<String, DiscoveredEventArgs>>((ref) {
-      final service = ref.watch(bleServiceProvider);
+      final service = ref.watch(connectionServiceProvider);
       return service.discoveryData;
     });
 
@@ -360,11 +392,13 @@ final burstScanningOperationsProvider = Provider<BurstScanningOperations?>((
   ref,
 ) {
   final controllerAsync = ref.watch(burstScanningControllerProvider);
-  final bleService = ref.watch(bleServiceProvider);
+  final connectionService = ref.watch(connectionServiceProvider);
 
   return controllerAsync.when(
-    data: (controller) =>
-        BurstScanningOperations(controller: controller, bleService: bleService),
+    data: (controller) => BurstScanningOperations(
+      controller: controller,
+      connectionService: connectionService,
+    ),
     loading: () => null,
     error: (error, stack) => null,
   );
@@ -400,12 +434,12 @@ final connectivityStatusProvider = Provider<ConnectivityStatus>((ref) {
 
 /// Mesh-enabled BLE operations provider
 final meshEnabledBLEProvider = Provider<MeshEnabledBLEOperations>((ref) {
-  final bleService = ref.watch(bleServiceProvider);
+  final connectionService = ref.watch(connectionServiceProvider);
   final meshController = ref.watch(meshNetworkingControllerProvider);
   final connectivityStatus = ref.watch(connectivityStatusProvider);
 
   return MeshEnabledBLEOperations(
-    bleService: bleService,
+    connectionService: connectionService,
     meshController: meshController,
     connectivityStatus: connectivityStatus,
   );
@@ -546,12 +580,12 @@ class ConnectivityStatus {
 
 /// Mesh-enabled BLE operations
 class MeshEnabledBLEOperations {
-  final BLEService bleService;
+  final IConnectionService connectionService;
   final MeshNetworkingController meshController;
   final ConnectivityStatus connectivityStatus;
 
   const MeshEnabledBLEOperations({
-    required this.bleService,
+    required this.connectionService,
     required this.meshController,
     required this.connectivityStatus,
   });
@@ -567,7 +601,7 @@ class MeshEnabledBLEOperations {
       final bleConnected =
           connectivityStatus.bleConnectionInfo.asData?.value.isConnected ??
           false;
-      final connectedNodeId = bleService.currentSessionId;
+      final connectedNodeId = connectionService.currentSessionId;
 
       if (preferDirect &&
           bleConnected &&
@@ -608,10 +642,10 @@ class MeshEnabledBLEOperations {
   /// Send direct BLE message
   Future<bool> _sendDirectMessage(String content) async {
     try {
-      if (bleService.isPeripheralMode) {
-        return await bleService.sendPeripheralMessage(content);
+      if (connectionService.isPeripheralMode) {
+        return await connectionService.sendPeripheralMessage(content);
       } else {
-        return await bleService.sendMessage(content);
+        return await connectionService.sendMessage(content);
       }
     } catch (e) {
       return false;
@@ -783,11 +817,11 @@ class MessageSendCapabilities {
 /// Burst scanning operations class for UI control
 class BurstScanningOperations {
   final BurstScanningController controller;
-  final BLEService bleService;
+  final IConnectionService connectionService;
 
   const BurstScanningOperations({
     required this.controller,
-    required this.bleService,
+    required this.connectionService,
   });
 
   /// Start burst scanning
@@ -837,10 +871,10 @@ class BurstScanningOperations {
   }
 
   /// Check if device is in peripheral mode (can't do burst scanning)
-  bool get canPerformBurstScanning => !bleService.isPeripheralMode;
+  bool get canPerformBurstScanning => !connectionService.isPeripheralMode;
 
   /// Check if burst scanning is available
   bool get isBurstScanningAvailable {
-    return canPerformBurstScanning && bleService.isBluetoothReady;
+    return canPerformBurstScanning && connectionService.isBluetoothReady;
   }
 }

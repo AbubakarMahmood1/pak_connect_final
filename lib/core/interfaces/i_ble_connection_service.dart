@@ -39,6 +39,10 @@ abstract class IBLEConnectionService {
   /// Used to prevent premature message sending during handshake
   void setHandshakeInProgress(bool isInProgress);
 
+  /// Set/unset flag indicating pairing workflow is in progress
+  /// Used to pause health checks and prevent reconnection churn
+  void setPairingInProgress(bool isInProgress);
+
   // ============================================================================
   // CONNECTION STATE QUERIES
   // ============================================================================

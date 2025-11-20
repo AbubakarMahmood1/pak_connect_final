@@ -8,7 +8,7 @@ import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/models/connection_state.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../models/ble_client_connection.dart';
-import '../models/ble_server_connection.dart';
+import '../../core/models/ble_server_connection.dart';
 import '../models/connection_limit_config.dart';
 import '../exceptions/connection_exceptions.dart';
 import '../repositories/contact_repository.dart';

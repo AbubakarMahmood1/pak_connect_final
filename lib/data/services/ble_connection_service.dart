@@ -162,6 +162,10 @@ class BLEConnectionService implements IBLEConnectionService {
       connectionManager.setHandshakeInProgress(isInProgress);
 
   @override
+  void setPairingInProgress(bool isInProgress) =>
+      connectionManager.setPairingInProgress(isInProgress);
+
+  @override
   Future<ConnectionInfo?> getConnectionInfoWithFallback() async {
     if (!isConnected) return null;
 

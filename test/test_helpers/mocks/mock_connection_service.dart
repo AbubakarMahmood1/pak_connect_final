@@ -1,104 +1,147 @@
 import 'dart:async';
 
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+
+import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/core/models/connection_info.dart';
+import 'package:pak_connect/core/models/mesh_relay_models.dart';
+import 'package:pak_connect/core/models/spy_mode_info.dart';
+import 'package:pak_connect/core/models/ble_server_connection.dart';
+import 'package:pak_connect/core/models/protocol_message.dart';
 
-/// Lightweight mock for [IConnectionService] used in Phase 5 test harnesses.
+/// Lightweight mock for [IConnectionService] used by the Phase 5 harness.
 ///
-/// The implementation keeps track of the most recent calls while exposing
-/// broadcast streams so suites can verify emitted events without needing to
-/// spin up the real BLE stack.
+/// The mock keeps simple in-memory state so tests can verify high-level
+/// interactions without spinning up the full BLE stack. All streams are
+/// broadcast to allow multiple listeners, and helper methods exist to emit
+/// synthetic events (connection info, discovery updates, etc.).
 class MockConnectionService implements IConnectionService {
-  final StreamController<EnhancedMessage> _receivedMessagesController =
-      StreamController<EnhancedMessage>.broadcast();
-  final StreamController<dynamic> _discoveredDevicesController =
-      StreamController<dynamic>.broadcast();
-  final StreamController<String> _connectionInfoController =
+  final StreamController<ConnectionInfo> _connectionInfoController =
+      StreamController<ConnectionInfo>.broadcast();
+  final StreamController<List<Peripheral>> _discoveredDevicesController =
+      StreamController<List<Peripheral>>.broadcast();
+  final StreamController<Map<String, DiscoveredEventArgs>>
+  _discoveryDataController =
+      StreamController<Map<String, DiscoveredEventArgs>>.broadcast();
+  final StreamController<String> _receivedMessagesController =
       StreamController<String>.broadcast();
-  final StreamController<bool> _bluetoothStateController =
-      StreamController<bool>.broadcast();
-
-  final List<Function(bool success)> _handshakeCallbacks = [];
+  final StreamController<SpyModeInfo> _spyModeController =
+      StreamController<SpyModeInfo>.broadcast();
+  final StreamController<String> _identityController =
+      StreamController<String>.broadcast();
+  final StreamController<CentralConnectionStateChangedEventArgs>
+  _peripheralConnectionController =
+      StreamController<CentralConnectionStateChangedEventArgs>.broadcast();
+  final StreamController<BluetoothStateInfo> _bluetoothStateController =
+      StreamController<BluetoothStateInfo>.broadcast();
+  final StreamController<BluetoothStatusMessage> _bluetoothMessageController =
+      StreamController<BluetoothStatusMessage>.broadcast();
+  final StreamController<String> _hintMatchesController =
+      StreamController<String>.broadcast();
+  final List<BLEServerConnection> _serverConnections = [];
+  bool _pairingInProgress = false;
+  bool _isActivelyReconnecting = false;
+  String _myUserName = 'Mock User';
+  Peripheral? _connectedDevice;
+  void Function(bool success)? _contactRequestCompletedListener;
+  void Function(String publicKey, String displayName)?
+  _contactRequestReceivedListener;
+  void Function(String publicKey, String displayName)?
+  _asymmetricContactListener;
 
   final List<Map<String, Object?>> sentMessages = [];
   final List<Map<String, Object?>> sentPeripheralMessages = [];
-  final List<Map<String, Object?>> queueSyncMessages = [];
-  final List<dynamic> _currentDiscoveredDevices = [];
+  final List<QueueSyncMessage> queueSyncMessages = [];
+  Future<bool> Function(QueueSyncMessage message, String fromNodeId)?
+  _queueSyncHandler;
 
   bool _isDiscoveryActive = false;
   bool _isAdvertising = false;
-  bool _isConnected = false;
+  bool _isPeripheralMTUReady = false;
+  int? _peripheralNegotiatedMTU;
   bool _isBluetoothReady = true;
-  bool _isHandshakeInProgress = false;
-  bool _hasHandshakeCompleted = false;
-
-  String? _currentConnectionInfo;
-  String? _connectedDevice;
-  String? _otherUserName;
-  String? _myUserName;
+  BluetoothLowEnergyState _bluetoothState = BluetoothLowEnergyState.poweredOn;
+  bool _isConnected = false;
+  bool _hasPeripheralConnection = false;
+  bool _isPeripheralMode = false;
+  bool _canAcceptMoreConnections = true;
+  int _activeConnectionCount = 0;
+  int _maxCentralConnections = 1;
+  final List<String> _activeConnectionDeviceIds = [];
   String? _currentSessionId;
-  String? _theirEphemeralId;
-  String? _theirPersistentKey;
   String _myPublicKey = 'mock_public_key';
   String _myEphemeralId = 'mock_ephemeral';
-
+  String? _theirPersistentKey;
+  Central? _connectedCentral;
   bool identityExchangeRequested = false;
 
+  ConnectionInfo _currentConnectionInfo = ConnectionInfo(
+    isConnected: false,
+    isReady: false,
+    statusMessage: 'Idle',
+  );
+
   Future<void> dispose() async {
-    await _receivedMessagesController.close();
-    await _discoveredDevicesController.close();
     await _connectionInfoController.close();
+    await _discoveredDevicesController.close();
+    await _discoveryDataController.close();
+    await _receivedMessagesController.close();
+    await _spyModeController.close();
+    await _identityController.close();
+    await _peripheralConnectionController.close();
     await _bluetoothStateController.close();
+    await _bluetoothMessageController.close();
+    await _hintMatchesController.close();
   }
 
+  // ===== Messaging =====
+
   @override
-  Future<bool> sendMessage({
-    required String recipient,
-    required String content,
+  Future<bool> sendMessage(
+    String message, {
     String? messageId,
+    String? originalIntendedRecipient,
   }) async {
     sentMessages.add({
-      'recipient': recipient,
-      'content': content,
+      'content': message,
       'messageId': messageId,
+      'recipient': originalIntendedRecipient,
     });
     return true;
   }
 
   @override
-  Future<bool> sendPeripheralMessage({
-    required String recipientAddress,
-    required String content,
+  Future<bool> sendPeripheralMessage(
+    String message, {
+    String? messageId,
   }) async {
-    sentPeripheralMessages.add({
-      'recipientAddress': recipientAddress,
-      'content': content,
-    });
+    sentPeripheralMessages.add({'content': message, 'messageId': messageId});
     return true;
   }
 
   @override
-  Future<bool> sendQueueSyncMessage({
-    required String recipientId,
-    required List<EnhancedMessage> pendingMessages,
+  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {
+    queueSyncMessages.add(queueMessage);
+    if (_queueSyncHandler != null) {
+      await _queueSyncHandler!(queueMessage, 'mock_node');
+    }
+  }
+
+  @override
+  Stream<String> get receivedMessages => _receivedMessagesController.stream;
+
+  void emitIncomingMessage(String payload) {
+    _receivedMessagesController.add(payload);
+  }
+
+  // ===== Discovery =====
+
+  @override
+  Future<void> startScanning({
+    ScanningSource source = ScanningSource.system,
   }) async {
-    queueSyncMessages.add({
-      'recipientId': recipientId,
-      'pendingMessages': pendingMessages,
-    });
-    return true;
-  }
-
-  @override
-  Stream<EnhancedMessage> get receivedMessagesStream =>
-      _receivedMessagesController.stream;
-
-  void emitIncomingMessage(EnhancedMessage message) {
-    _receivedMessagesController.add(message);
-  }
-
-  @override
-  Future<void> startScanning() async {
     _isDiscoveryActive = true;
   }
 
@@ -108,98 +151,203 @@ class MockConnectionService implements IConnectionService {
   }
 
   @override
-  Stream<dynamic> get discoveredDevicesStream =>
+  Stream<List<Peripheral>> get discoveredDevices =>
       _discoveredDevicesController.stream;
 
-  void emitDiscoveredDevice(dynamic device) {
-    _discoveredDevicesController.add(device);
+  void emitDiscoveredDevices(List<Peripheral> devices) {
+    _discoveredDevicesController.add(devices);
   }
 
   @override
-  List<dynamic> get currentDiscoveredDevices =>
-      List<dynamic>.unmodifiable(_currentDiscoveredDevices);
+  Future<Peripheral?> scanForSpecificDevice({Duration? timeout}) async {
+    final completer = Completer<Peripheral?>();
+    Peripheral? match;
+    late StreamSubscription<List<Peripheral>> sub;
+    sub = discoveredDevices.listen((devices) {
+      match = devices.isNotEmpty ? devices.first : null;
+      completer.complete(match);
+      sub.cancel();
+    });
 
-  void setCurrentDiscoveredDevices(List<dynamic> devices) {
-    _currentDiscoveredDevices
-      ..clear()
-      ..addAll(devices);
+    if (timeout != null) {
+      Future.delayed(timeout).then((_) {
+        if (!completer.isCompleted) {
+          completer.complete(match);
+          sub.cancel();
+        }
+      });
+    }
+
+    return completer.future;
   }
 
   @override
+  Stream<Map<String, DiscoveredEventArgs>> get discoveryData =>
+      _discoveryDataController.stream;
+
+  void emitDiscoveryData(Map<String, DiscoveredEventArgs> data) {
+    _discoveryDataController.add(data);
+  }
+
+  @override
+  Stream<String> get hintMatches => _hintMatchesController.stream;
+
+  void emitHintMatch(String value) => _hintMatchesController.add(value);
+
   bool get isDiscoveryActive => _isDiscoveryActive;
+
+  // ===== Advertising / role management =====
 
   @override
   Future<void> startAsPeripheral() async {
     _isAdvertising = true;
+    _isPeripheralMode = true;
+  }
+
+  @override
+  Future<void> startAsCentral() async {
+    _isPeripheralMode = false;
+  }
+
+  @override
+  Future<void> refreshAdvertising({bool? showOnlineStatus}) async {
+    // no-op for mock
   }
 
   @override
   bool get isAdvertising => _isAdvertising;
 
   @override
-  Future<void> connectToDevice(String deviceAddress) async {
-    _connectedDevice = deviceAddress;
+  bool get isPeripheralMTUReady => _isPeripheralMTUReady;
+
+  set isPeripheralMTUReady(bool value) => _isPeripheralMTUReady = value;
+
+  @override
+  int? get peripheralNegotiatedMTU => _peripheralNegotiatedMTU;
+
+  set peripheralNegotiatedMTU(int? value) => _peripheralNegotiatedMTU = value;
+
+  // ===== Connection management =====
+
+  @override
+  Future<void> connectToDevice(Peripheral device) async {
     _isConnected = true;
+    final deviceId = device.uuid.toString();
+    _connectedDevice = device;
+    _activeConnectionCount = 1;
+    _currentSessionId = deviceId;
+    _currentConnectionInfo = _currentConnectionInfo.copyWith(
+      isConnected: true,
+      statusMessage: 'Connected to $deviceId',
+      otherUserName: _connectedCentral?.uuid.toString(),
+    );
+    _connectionInfoController.add(_currentConnectionInfo);
   }
 
   @override
   Future<void> disconnect() async {
-    _connectedDevice = null;
     _isConnected = false;
+    _connectedDevice = null;
+    _activeConnectionCount = 0;
+    _activeConnectionDeviceIds.clear();
+    _currentConnectionInfo = _currentConnectionInfo.copyWith(
+      isConnected: false,
+      statusMessage: 'Disconnected',
+    );
+    _connectionInfoController.add(_currentConnectionInfo);
   }
 
   @override
-  Stream<String> get connectionInfoStream => _connectionInfoController.stream;
+  void startConnectionMonitoring() {
+    // no-op for mock
+  }
 
-  void emitConnectionInfo(String info) {
+  @override
+  void stopConnectionMonitoring() {
+    // no-op for mock
+  }
+
+  @override
+  Stream<ConnectionInfo> get connectionInfo => _connectionInfoController.stream;
+
+  @override
+  ConnectionInfo get currentConnectionInfo => _currentConnectionInfo;
+
+  void emitConnectionInfo(ConnectionInfo info) {
     _currentConnectionInfo = info;
     _connectionInfoController.add(info);
   }
 
   @override
-  String? get currentConnectionInfo => _currentConnectionInfo;
-
-  @override
   bool get isConnected => _isConnected;
 
   @override
-  String? get connectedDevice => _connectedDevice;
+  bool get isActivelyReconnecting => _isActivelyReconnecting;
 
   @override
-  Stream<bool> get bluetoothStateStream => _bluetoothStateController.stream;
+  Central? get connectedCentral => _connectedCentral;
 
-  void emitBluetoothState(bool ready) {
-    _isBluetoothReady = ready;
-    _bluetoothStateController.add(ready);
-  }
+  set connectedCentral(Central? value) => _connectedCentral = value;
+
+  @override
+  Peripheral? get connectedDevice => _connectedDevice;
+
+  // ===== Bluetooth state =====
+
+  @override
+  Stream<BluetoothStateInfo> get bluetoothStateStream =>
+      _bluetoothStateController.stream;
+
+  @override
+  Stream<BluetoothStatusMessage> get bluetoothMessageStream =>
+      _bluetoothMessageController.stream;
 
   @override
   bool get isBluetoothReady => _isBluetoothReady;
 
-  @override
-  dynamic get state => 'mock_state';
-
-  @override
-  String getMyPublicKey() => _myPublicKey;
-
-  set myPublicKey(String value) => _myPublicKey = value;
-
-  @override
-  String getMyEphemeralId() => _myEphemeralId;
-
-  set myEphemeralId(String value) => _myEphemeralId = value;
-
-  @override
-  String? get otherUserName => _otherUserName;
-
-  set otherUserName(String? value) => _otherUserName = value;
-
-  @override
-  Future<void> setMyUserName(String userName) async {
-    _myUserName = userName;
+  void emitBluetoothReady(bool ready) {
+    _isBluetoothReady = ready;
+    _bluetoothStateController.add(
+      BluetoothStateInfo(
+        state: _bluetoothState,
+        isReady: ready,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
-  String? get myUserName => _myUserName;
+  @override
+  BluetoothLowEnergyState get state => _bluetoothState;
+
+  set bluetoothState(BluetoothLowEnergyState value) {
+    _bluetoothState = value;
+    _bluetoothStateController.add(
+      BluetoothStateInfo(
+        state: value,
+        isReady: _isBluetoothReady,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  // ===== Identity / handshake =====
+
+  @override
+  Future<void> requestIdentityExchange() async {
+    identityExchangeRequested = true;
+  }
+
+  @override
+  Stream<SpyModeInfo> get spyModeDetected => _spyModeController.stream;
+
+  void emitSpyMode(SpyModeInfo info) => _spyModeController.add(info);
+
+  @override
+  Stream<String> get identityRevealed => _identityController.stream;
+
+  void emitIdentity(String identity) => _identityController.add(identity);
+
+  // ===== IMeshBleService members =====
 
   @override
   String? get currentSessionId => _currentSessionId;
@@ -207,45 +355,136 @@ class MockConnectionService implements IConnectionService {
   set currentSessionId(String? value) => _currentSessionId = value;
 
   @override
-  String? get theirEphemeralId => _theirEphemeralId;
+  Future<String> getMyPublicKey() async => _myPublicKey;
 
-  set theirEphemeralId(String? value) => _theirEphemeralId = value;
-
-  @override
-  String? get theirPersistentKey => _theirPersistentKey;
-
-  set theirPersistentKey(String? value) => _theirPersistentKey = value;
+  set myPublicKey(String value) => _myPublicKey = value;
 
   @override
-  bool get isHandshakeInProgress => _isHandshakeInProgress;
+  Future<String> getMyEphemeralId() async => _myEphemeralId;
+
+  set myEphemeralId(String value) => _myEphemeralId = value;
 
   @override
-  bool get hasHandshakeCompleted => _hasHandshakeCompleted;
+  String? get theirPersistentPublicKey => _theirPersistentKey;
+
+  set theirPersistentPublicKey(String? value) => _theirPersistentKey = value;
 
   @override
-  Future<bool> performHandshake({
-    required String deviceAddress,
-    required bool isInitiator,
-  }) async {
-    _isHandshakeInProgress = true;
-    await Future<void>.delayed(Duration.zero);
-    _isHandshakeInProgress = false;
-    _hasHandshakeCompleted = true;
-    _connectedDevice = deviceAddress;
-    _currentSessionId = 'session-$deviceAddress';
-    for (final callback in _handshakeCallbacks) {
-      callback(true);
-    }
-    return true;
+  bool get canSendMessages => _isConnected;
+
+  @override
+  bool get hasPeripheralConnection => _hasPeripheralConnection;
+
+  set hasPeripheralConnection(bool value) => _hasPeripheralConnection = value;
+
+  @override
+  bool get isPeripheralMode => _isPeripheralMode;
+
+  set isPeripheralMode(bool value) => _isPeripheralMode = value;
+
+  @override
+  bool get canAcceptMoreConnections => _canAcceptMoreConnections;
+
+  set canAcceptMoreConnections(bool value) => _canAcceptMoreConnections = value;
+
+  @override
+  int get activeConnectionCount => _activeConnectionCount;
+
+  set activeConnectionCount(int value) => _activeConnectionCount = value;
+
+  @override
+  int get maxCentralConnections => _maxCentralConnections;
+
+  set maxCentralConnections(int value) => _maxCentralConnections = value;
+
+  @override
+  List<String> get activeConnectionDeviceIds =>
+      List.unmodifiable(_activeConnectionDeviceIds);
+
+  void setActiveConnectionDeviceIds(List<String> ids) {
+    _activeConnectionDeviceIds
+      ..clear()
+      ..addAll(ids);
   }
 
   @override
-  void onHandshakeComplete(Function(bool success) callback) {
-    _handshakeCallbacks.add(callback);
+  List<BLEServerConnection> get serverConnections =>
+      List.unmodifiable(_serverConnections);
+
+  @override
+  int get clientConnectionCount => _activeConnectionCount;
+
+  @override
+  Stream<CentralConnectionStateChangedEventArgs>
+  get peripheralConnectionChanges => _peripheralConnectionController.stream;
+
+  void emitPeripheralConnectionChange(
+    CentralConnectionStateChangedEventArgs args,
+  ) => _peripheralConnectionController.add(args);
+
+  @override
+  void registerQueueSyncHandler(
+    Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
+  ) {
+    _queueSyncHandler = handler;
+  }
+
+  void emitContactRequest(String publicKey, String displayName) {
+    _contactRequestReceivedListener?.call(publicKey, displayName);
+  }
+
+  void emitAsymmetricContact(String publicKey, String displayName) {
+    _asymmetricContactListener?.call(publicKey, displayName);
   }
 
   @override
-  Future<void> requestIdentityExchange() async {
+  Future<void> triggerIdentityReExchange() async {
     identityExchangeRequested = true;
+  }
+
+  @override
+  Future<void> setMyUserName(String name) async {
+    _myUserName = name;
+  }
+
+  @override
+  Future<ProtocolMessage?> revealIdentityToFriend() async {
+    return null;
+  }
+
+  @override
+  Future<void> acceptContactRequest() async {
+    _contactRequestCompletedListener?.call(true);
+  }
+
+  @override
+  void rejectContactRequest() {
+    _contactRequestCompletedListener?.call(false);
+  }
+
+  @override
+  void setContactRequestCompletedListener(
+    void Function(bool success) listener,
+  ) {
+    _contactRequestCompletedListener = listener;
+  }
+
+  @override
+  void setContactRequestReceivedListener(
+    void Function(String publicKey, String displayName) listener,
+  ) {
+    _contactRequestReceivedListener = listener;
+  }
+
+  @override
+  void setAsymmetricContactListener(
+    void Function(String publicKey, String displayName) listener,
+  ) {
+    _asymmetricContactListener = listener;
+  }
+
+  @override
+  void setPairingInProgress(bool isInProgress) {
+    _pairingInProgress = isInProgress;
   }
 }

@@ -16,12 +16,14 @@ import 'security/noise/adaptive_encryption_strategy.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
+import '../domain/services/mesh_networking_service.dart';
 import '../domain/services/auto_archive_scheduler.dart';
 import '../domain/services/notification_service.dart';
 import '../domain/services/notification_handler_factory.dart';
+import '../data/services/ble_service.dart';
+import '../data/services/ble_message_handler.dart';
+import '../data/services/ble_message_handler_facade_impl.dart';
 import '../data/services/seen_message_store.dart';
-// 🔧 REMOVED: BLEStateManager import - not used by AppCore
-// import '../data/services/ble_state_manager.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
 import '../data/repositories/archive_repository.dart';
@@ -31,7 +33,9 @@ import '../data/database/database_helper.dart';
 import '../domain/entities/message.dart';
 import '../domain/entities/preference_keys.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../core/messaging/message_router.dart';
 import 'di/service_locator.dart';
+import 'interfaces/i_connection_service.dart';
 
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
@@ -47,6 +51,8 @@ class AppCore {
   // 🔧 REMOVED: BLEStateManager - BLEService creates its own instance
   // late final BLEStateManager bleStateManager;
   late final BatteryOptimizer batteryOptimizer;
+  late final IConnectionService bleService;
+  late final MeshNetworkingService meshNetworkingService;
 
   // Repositories
   late final ContactRepository contactRepository;
@@ -317,22 +323,37 @@ class AppCore {
   /// Phase 1 Part C: Initialize BLEService and MeshNetworkingService,
   /// then register in DI container for access via providers
   Future<void> _initializeBLEIntegration() async {
-    // Note: Services are created and initialized here (not in providers)
-    // Then registered in DI for access via Riverpod providers
-
-    _logger.info(
-      '📡 Initializing BLE stack (eager, not lazy via providers)...',
-    );
+    _logger.info('📡 Initializing BLE + mesh stack via AppCore...');
 
     try {
-      // BLEService is already initialized by providers when accessed
-      // For now, we skip explicit initialization here since it's still triggered via providers
-      // This transition will be completed when providers use DI instead of creating services
-      _logger.info(
-        '✅ BLE integration ready (BLEService manages its own BLEStateManager)',
+      final legacyBleService = BLEService();
+      await legacyBleService.initialize();
+      await MessageRouter.initialize(legacyBleService);
+      bleService = legacyBleService;
+      _logger.info('✅ BLEService initialized via AppCore');
+
+      final messageHandlerFacade = BLEMessageHandlerFacadeImpl(
+        BLEMessageHandler(),
+        SeenMessageStore.instance,
       );
+
+      meshNetworkingService = MeshNetworkingService(
+        bleService: bleService,
+        messageHandler: messageHandlerFacade,
+        chatManagementService: chatService,
+      );
+      await meshNetworkingService.initialize();
+      _logger.info('🌐 MeshNetworkingService initialized successfully');
+
+      registerInitializedServices(
+        securityManager: SecurityManager.instance,
+        connectionService: bleService,
+        meshNetworkingService: meshNetworkingService,
+      );
+      _logger.info('📦 BLE + mesh services registered with GetIt');
     } catch (e, stackTrace) {
       _logger.severe('❌ Failed to initialize BLE integration: $e');
+      _logger.severe('Stack trace: $stackTrace');
       rethrow;
     }
   }

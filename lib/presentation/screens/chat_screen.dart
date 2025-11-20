@@ -156,8 +156,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Live connection: Use BLE service's currentSessionId
     // This is ephemeral ID initially, then becomes persistent key after pairing
-    final bleService = ref.read(bleServiceProvider);
-    final currentKey = bleService.currentSessionId;
+    final connectionService = ref.read(connectionServiceProvider);
+    final currentKey = connectionService.currentSessionId;
 
     // Cache the value for safe access during dispose
     _cachedContactPublicKey = currentKey;
@@ -174,8 +174,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     // Only use live mode for truly unknown connections
-    final bleService = ref.read(bleServiceProvider);
-    return bleService.currentSessionId;
+    final connectionService = ref.read(connectionServiceProvider);
+    return connectionService.currentSessionId;
   }
 
   @override
@@ -220,14 +220,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
 
     // Initialize pairing dialog controller
-    final bleService = ref.read(bleServiceProvider);
+    final connectionService = ref.read(connectionServiceProvider);
     _pairingDialogController = ChatPairingDialogController(
       stateManager: BLEStateManager(),
-      connectionManager: bleService.connectionManager,
+      connectionService: connectionService,
       contactRepository: ContactRepository(),
       context: context,
       navigator: Navigator.of(context),
-      getTheirPersistentKey: () => bleService.theirPersistentKey,
+      getTheirPersistentKey: () => connectionService.theirPersistentPublicKey,
       onPairingCompleted: (success) {
         if (success) {
           _showSuccess('Pairing successful');
@@ -553,9 +553,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _setupSecurityStateListener() {
-    final bleService = ref.read(bleServiceProvider);
+    final connectionService = ref.read(connectionServiceProvider);
 
-    bleService.stateManager.onContactRequestCompleted = (success) {
+    connectionService.setContactRequestCompletedListener((success) {
       if (!mounted) return;
       _logger.info(
         'Contact operation completed: $success - refreshing UI state',
@@ -568,7 +568,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           }
         });
       }
-    };
+    });
   }
 
   void _userRequestedPairing() async {
@@ -597,10 +597,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _manualReconnection() async {
-    final bleService = ref.read(bleServiceProvider);
+    final connectionService = ref.read(connectionServiceProvider);
 
     // Check if already connected
-    if (bleService.isConnected) {
+    if (connectionService.isConnected) {
       _showSuccess('Already connected');
       return;
     }
@@ -608,18 +608,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _showSuccess('Manually searching for device...');
 
     try {
-      final foundDevice = await bleService.scanForSpecificDevice(
+      final foundDevice = await connectionService.scanForSpecificDevice(
         timeout: Duration(seconds: 10),
       );
 
       if (foundDevice != null) {
         // Check if this is the same device we're already connected to
-        if (bleService.connectedDevice?.uuid == foundDevice.uuid) {
+        if (connectionService.connectedDevice?.uuid == foundDevice.uuid) {
           _showSuccess('Already connected to this device');
           return;
         }
 
-        await bleService.connectToDevice(foundDevice);
+        await connectionService.connectToDevice(foundDevice);
         _showSuccess('Manual reconnection successful!');
       } else {
         _showError(
@@ -865,15 +865,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
         // Fallback to direct BLE if MessageRouter unavailable
         if (isConnected && isReady) {
-          final bleService = ref.read(bleServiceProvider);
+          final connectionService = ref.read(connectionServiceProvider);
 
           if (_isCentralMode) {
-            success = await bleService.sendMessage(
+            success = await connectionService.sendMessage(
               message.content,
               messageId: message.id,
             );
           } else {
-            success = await bleService.sendPeripheralMessage(
+            success = await connectionService.sendPeripheralMessage(
               message.content,
               messageId: message.id,
             );
@@ -1014,7 +1014,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     _messageListenerActive = true;
 
-    final bleService = ref.read(bleServiceProvider);
+    final connectionService = ref.read(connectionServiceProvider);
 
     // Use persistent manager if available, otherwise fall back to direct subscription
     if (_persistentChatManager != null &&
@@ -1022,7 +1022,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       print('� ✅ Setting up persistent listener through manager');
       _persistentChatManager!.setupPersistentListener(
         _chatId,
-        bleService.receivedMessages,
+        connectionService.receivedMessages,
       );
     } else if (_persistentChatManager != null &&
         _persistentChatManager!.hasActiveListener(_chatId)) {
@@ -1031,7 +1031,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       print(
         '🔵 ⚠️ Using direct message subscription (FALLBACK - POTENTIAL DOUBLE SUBSCRIPTION!)',
       );
-      _messageSubscription = bleService.receivedMessages.listen((content) {
+      _messageSubscription = connectionService.receivedMessages.listen((
+        content,
+      ) {
         print('🔵 📨 Direct subscription received message');
         if (mounted && _messageListenerActive) {
           _addReceivedMessage(content);
@@ -1340,8 +1342,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       } else {
         _showError('Device disconnected');
 
-        final bleService = ref.read(bleServiceProvider);
-        if (!bleService.isPeripheralMode) {
+        final connectionService = ref.read(connectionServiceProvider);
+        if (!connectionService.isPeripheralMode) {
           // 🎯 RELAY-AWARE FIX: Check if we have messages queued for relay before triggering reconnection
           if (_hasMessagesQueuedForRelay()) {
             _logger.info(
@@ -1349,14 +1351,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             );
             _showInfo('Messages queued for relay - maintaining connection');
           } else {
-            bleService.startConnectionMonitoring();
+            connectionService.startConnectionMonitoring();
           }
         }
       }
     });
 
     try {
-      final bleService = ref.watch(bleServiceProvider);
+      final bleService = ref.watch(connectionServiceProvider);
       final connectionInfoAsync = ref.watch(connectionInfoProvider);
 
       // Use the stabilized security state key getter
@@ -1676,7 +1678,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildReconnectionBanner() {
-    final bleService = ref.read(bleServiceProvider);
+    final bleService = ref.read(connectionServiceProvider);
 
     // Check BT state for both modes first
     if (bleService.state != BluetoothLowEnergyState.poweredOn) {
@@ -1877,9 +1879,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _sendContactRequest() async {
     setState(() => _contactRequestInProgress = true);
 
-    final bleService = ref.read(bleServiceProvider);
-    final otherPublicKey = bleService.theirPersistentKey;
-    final otherName = bleService.otherUserName;
+    final connectionService = ref.read(connectionServiceProvider);
+    final otherPublicKey = connectionService.theirPersistentPublicKey;
+    final otherName = connectionService.currentConnectionInfo.otherUserName;
 
     if (otherPublicKey == null || otherName == null) {
       _showError('Cannot add contact - missing identity');
@@ -1967,18 +1969,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   // Listen for incoming contact requests
   void _setupContactRequestListener() {
-    final bleService = ref.read(bleServiceProvider);
+    final connectionService = ref.read(connectionServiceProvider);
 
-    bleService.stateManager.onContactRequestCompleted = (success) {
+    connectionService.setContactRequestCompletedListener((success) {
       if (!mounted) return;
       _logger.info(
         'Contact operation completed: $success - refreshing UI state',
       );
-    };
+    });
 
-    bleService
-        .stateManager
-        .onContactRequestReceived = (publicKey, displayName) {
+    connectionService.setContactRequestReceivedListener((
+      publicKey,
+      displayName,
+    ) {
       if (!mounted) return;
 
       showDialog(
@@ -1992,7 +1995,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           actions: [
             TextButton(
               onPressed: () {
-                bleService.stateManager.rejectContactRequest();
+                connectionService.rejectContactRequest();
                 Navigator.pop(context);
               },
               child: Text('Decline'),
@@ -2000,23 +2003,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             FilledButton(
               onPressed: () async {
                 Navigator.pop(context);
-                await bleService.stateManager.acceptContactRequest();
+                await connectionService.acceptContactRequest();
               },
               child: Text('Accept'),
             ),
           ],
         ),
       );
-    };
+    });
 
-    // Handle asymmetric contact detection
-    bleService.stateManager.onAsymmetricContactDetected =
-        (publicKey, displayName) {
-          if (!mounted) return;
+    connectionService.setAsymmetricContactListener((publicKey, displayName) {
+      if (!mounted) return;
 
-          _logger.info('🔄 Asymmetric contact detected: $displayName');
-          _handleAsymmetricContact(publicKey, displayName);
-        };
+      _logger.info('🔄 Asymmetric contact detected: $displayName');
+      _handleAsymmetricContact(publicKey, displayName);
+    });
   }
 
   // 🎯 PHASE 2C.1 MIGRATION: _sendMessage() delegates to ViewModel
@@ -2121,8 +2122,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     // Live connection mode: generate from BLE service
-    final bleService = ref.read(bleServiceProvider);
-    final otherPersistentId = bleService.currentSessionId;
+    final connectionService = ref.read(connectionServiceProvider);
+    final otherPersistentId = connectionService.currentSessionId;
 
     if (otherPersistentId != null) {
       return ChatUtils.generateChatId(otherPersistentId);
@@ -2137,8 +2138,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _handleIdentityReceived() async {
-    final bleService = ref.read(bleServiceProvider);
-    final otherPersistentId = bleService.theirPersistentKey;
+    final connectionService = ref.read(connectionServiceProvider);
+    final otherPersistentId = connectionService.theirPersistentPublicKey;
 
     // Note: No need to cache the persistent key anymore - we reactively read it
     // via _contactPublicKey getter which gets it from bleService.currentSessionId

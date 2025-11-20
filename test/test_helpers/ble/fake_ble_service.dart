@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
+import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/data/services/ble_service.dart';
 
 /// Lightweight BLE service implementation for tests.
@@ -13,7 +14,8 @@ import 'package:pak_connect/data/services/ble_service.dart';
 /// that [`MeshNetworkingService`] depends on.
 class FakeBleService extends BLEService {
   FakeBleService({String nodeIdPrefix = 'fake-node'})
-    : _ephemeralId = '$nodeIdPrefix-ephemeral' {
+    : _ephemeralId = '$nodeIdPrefix-ephemeral',
+      super(messageHandler: BLEMessageHandler(enableCleanupTimer: false)) {
     _emitConnectionInfo();
   }
 
@@ -135,7 +137,8 @@ class FakeBleService extends BLEService {
   Future<String> getMyPublicKey() async => 'fake-public-key';
 
   @override
-  void dispose() {
-    _connectionInfoController.close();
+  Future<void> dispose() async {
+    await super.dispose();
+    await _connectionInfoController.close();
   }
 }
