@@ -4,9 +4,9 @@ import '../../data/repositories/contact_repository.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/models/security_state.dart';
 import '../../data/services/ble_state_manager.dart';
-import '../../data/services/ble_connection_manager.dart';
 import '../../core/services/security_manager.dart';
 import '../widgets/pairing_dialog.dart';
+import '../../core/interfaces/i_connection_service.dart';
 
 /// Callback when pairing is requested
 typedef OnPairingRequestedCallback = void Function();
@@ -42,7 +42,7 @@ class ChatPairingDialogController {
 
   // Dependencies
   final BLEStateManager stateManager;
-  final BLEConnectionManager connectionManager;
+  final IConnectionService connectionService;
   final ContactRepository contactRepository;
   final BuildContext context;
   final NavigatorState navigator;
@@ -59,7 +59,7 @@ class ChatPairingDialogController {
 
   ChatPairingDialogController({
     required this.stateManager,
-    required this.connectionManager,
+    required this.connectionService,
     required this.contactRepository,
     required this.context,
     required this.navigator,
@@ -108,7 +108,7 @@ class ChatPairingDialogController {
   Future<void> _showPairingDialog() async {
     try {
       // Pause health checks during pairing
-      connectionManager.setPairingInProgress(true);
+      connectionService.setPairingInProgress(true);
       stateManager.clearPairing();
 
       // Generate our pairing code
@@ -132,7 +132,7 @@ class ChatPairingDialogController {
       );
 
       // Resume health checks
-      connectionManager.setPairingInProgress(false);
+      connectionService.setPairingInProgress(false);
 
       if (result == true) {
         _logger.info('✅ Pairing completed successfully');
@@ -159,7 +159,7 @@ class ChatPairingDialogController {
       }
     } catch (e, st) {
       _logger.severe('❌ Error during pairing: $e', e, st);
-      connectionManager.setPairingInProgress(false);
+      connectionService.setPairingInProgress(false);
       onPairingError?.call('Pairing error: $e');
       onPairingCompleted?.call(false);
     } finally {

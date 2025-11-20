@@ -7,7 +7,6 @@ import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../data/services/ble_message_handler.dart';
 import '../../data/services/ble_message_handler_facade_impl.dart';
-import '../../core/interfaces/i_ble_service_facade.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/interfaces/i_mesh_networking_service.dart';
@@ -69,50 +68,46 @@ final bluetoothReadyProvider = Provider<bool>((ref) {
 /// Provider for MeshNetworkingService (Singleton to prevent multiple instances)
 /// Phase 1 Part C: Register in DI container when created
 final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
-  // Check if already registered in DI
-  if (!getIt.isRegistered<IMeshNetworkingService>()) {
-    final bleService = ref.watch(
-      bleServiceProvider,
-    ); // BLEService now implements IBLEServiceFacade
-    final messageHandler = ref.watch(_messageHandlerProvider);
-    final chatManagementService = ref.watch(_chatManagementServiceProvider);
-
-    _logger.info(
-      '🔧 Creating MeshNetworkingService instance (should happen only once)',
-    );
-
-    final service = MeshNetworkingService(
-      bleService: bleService,
-      messageHandler: messageHandler,
-      chatManagementService: chatManagementService,
-    );
-
-    // Initialize the service asynchronously with error handling
-    _initializeServiceAsync(service, ref);
-
-    ref.onDispose(() {
-      _logger.info('🔧 Disposing MeshNetworkingService');
-      service.dispose();
-    });
-
-    // Register in DI for eager access
-    try {
-      getIt.registerSingleton<MeshNetworkingService>(service);
-    } catch (_) {
-      // Already registered under concrete type
-    }
-
-    try {
-      getIt.registerSingleton<IMeshNetworkingService>(service);
-    } catch (_) {
-      // Already registered under interface
-    }
-
-    return service;
-  } else {
-    // Already registered - return from DI
+  if (getIt.isRegistered<IMeshNetworkingService>()) {
     return getIt<IMeshNetworkingService>();
   }
+
+  final connectionService = ref.watch(connectionServiceProvider);
+  final messageHandler = ref.watch(_messageHandlerProvider);
+  final chatManagementService = ref.watch(_chatManagementServiceProvider);
+
+  _logger.info(
+    '🔧 Creating MeshNetworkingService instance (fallback for tests)',
+  );
+
+  final service = MeshNetworkingService(
+    bleService: connectionService,
+    messageHandler: messageHandler,
+    chatManagementService: chatManagementService,
+  );
+
+  _initializeServiceAsync(service, ref);
+
+  ref.onDispose(() {
+    _logger.info('🔧 Disposing fallback MeshNetworkingService');
+    service.dispose();
+    try {
+      getIt.unregister<MeshNetworkingService>();
+    } catch (_) {}
+    try {
+      getIt.unregister<IMeshNetworkingService>();
+    } catch (_) {}
+  });
+
+  try {
+    getIt.registerSingleton<MeshNetworkingService>(service);
+  } catch (_) {}
+
+  try {
+    getIt.registerSingleton<IMeshNetworkingService>(service);
+  } catch (_) {}
+
+  return service;
 });
 
 /// Provider for MeshRoutingService (optional, for routing-specific monitoring)

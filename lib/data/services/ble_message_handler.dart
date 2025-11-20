@@ -88,11 +88,13 @@ class BLEMessageHandler {
   _messageQueue; // Reference to message queue for ACK handling
   String? _currentNodeId;
 
-  BLEMessageHandler() {
-    // Setup periodic cleanup of old partial messages
-    _cleanupTimer = Timer.periodic(Duration(minutes: 2), (timer) {
-      _messageReassembler.cleanupOldMessages();
-    });
+  BLEMessageHandler({bool enableCleanupTimer = true}) {
+    if (enableCleanupTimer) {
+      // Setup periodic cleanup of old partial messages
+      _cleanupTimer = Timer.periodic(Duration(minutes: 2), (timer) {
+        _messageReassembler.cleanupOldMessages();
+      });
+    }
   }
 
   /// Set current node ID for routing validation

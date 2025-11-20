@@ -19,7 +19,7 @@ import 'package:pak_connect/core/models/spy_mode_info.dart' as _i20;
 import 'package:pak_connect/core/power/adaptive_power_manager.dart' as _i19;
 import 'package:pak_connect/core/services/security_manager.dart' as _i21;
 import 'package:pak_connect/data/models/ble_client_connection.dart' as _i17;
-import 'package:pak_connect/data/models/ble_server_connection.dart' as _i18;
+import 'package:pak_connect/core/models/ble_server_connection.dart' as _i18;
 import 'package:pak_connect/data/repositories/contact_repository.dart' as _i3;
 import 'package:pak_connect/data/services/ble_connection_manager.dart' as _i15;
 import 'package:pak_connect/data/services/ble_message_handler.dart' as _i4;

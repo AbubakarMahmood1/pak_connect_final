@@ -16,10 +16,12 @@ import '../../data/repositories/intro_hint_repository.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_contact_repository.dart';
 import '../interfaces/i_message_repository.dart';
+import '../interfaces/i_mesh_ble_service.dart';
 import '../interfaces/i_mesh_routing_service.dart';
 import '../interfaces/i_seen_message_store.dart';
 import '../interfaces/i_mesh_networking_service.dart';
 import '../interfaces/i_security_manager.dart';
+import '../interfaces/i_connection_service.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_preferences_repository.dart';
@@ -252,7 +254,7 @@ Future<void> setupServiceLocator() async {
 /// Called by AppCore during initialization sequence
 void registerInitializedServices({
   required SecurityManager securityManager,
-  required BLEService bleService,
+  required IConnectionService connectionService,
   required MeshNetworkingService meshNetworkingService,
 }) {
   _logger.info('📋 Registering initialized services...');
@@ -268,9 +270,28 @@ void registerInitializedServices({
       _logger.fine('✅ ISecurityManager registered in DI container');
     }
 
-    // Register BLEService singleton
-    getIt.registerSingleton<BLEService>(bleService);
-    _logger.fine('✅ BLEService registered in DI container');
+    // Register BLE/IConnectionService singletons
+    if (connectionService is BLEService) {
+      if (!getIt.isRegistered<BLEService>()) {
+        getIt.registerSingleton<BLEService>(connectionService);
+        _logger.fine('✅ BLEService registered in DI container');
+      } else {
+        _logger.fine('ℹ️ BLEService already registered');
+      }
+    } else {
+      _logger.info(
+        'ℹ️ Connection service is ${connectionService.runtimeType}; BLEService alias not registered',
+      );
+    }
+
+    if (!getIt.isRegistered<IMeshBleService>()) {
+      getIt.registerSingleton<IMeshBleService>(connectionService);
+      _logger.fine('✅ IMeshBleService registered in DI container');
+    }
+    if (!getIt.isRegistered<IConnectionService>()) {
+      getIt.registerSingleton<IConnectionService>(connectionService);
+      _logger.fine('✅ IConnectionService registered in DI container');
+    }
 
     // Register MeshNetworkingService singleton + interface
     if (!getIt.isRegistered<MeshNetworkingService>()) {

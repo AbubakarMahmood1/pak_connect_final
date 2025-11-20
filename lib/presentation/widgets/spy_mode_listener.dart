@@ -51,9 +51,8 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
 
     if (result == true && context.mounted) {
       // User chose to reveal identity
-      final bleService = ref.read(bleServiceProvider);
-      final revealMessage = await bleService.stateManager
-          .revealIdentityToFriend();
+      final connectionService = ref.read(connectionServiceProvider);
+      final revealMessage = await connectionService.revealIdentityToFriend();
 
       if (revealMessage != null) {
         // Send the reveal message

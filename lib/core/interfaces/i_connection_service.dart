@@ -1,152 +1,141 @@
-import '../../domain/entities/enhanced_message.dart';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 
-/// Interface for connection service (BLE messaging and device management)
+import '../bluetooth/bluetooth_state_monitor.dart';
+import '../interfaces/i_mesh_ble_service.dart';
+import '../models/spy_mode_info.dart';
+import '../models/connection_info.dart';
+import '../models/ble_server_connection.dart';
+import '../models/protocol_message.dart';
+
+/// Abstraction for the BLE connection layer exposed to Core/Presentation.
 ///
-/// Abstracts BLE layer from Core services that need to send/receive messages.
-/// Implemented by BLEServiceFacade (or other BLE implementations in the future).
-///
-/// **Separation of Concerns**:
-/// - Core services depend on IConnectionService (abstraction)
-/// - Core services do NOT import BLEService (concrete implementation)
-/// - Data layer BLEServiceFacade implements IConnectionService
-/// - DI container wires them together at runtime
-///
-/// **Critical Invariants Preserved**:
-/// ✅ Message routing (deterministic IDs, duplicate detection)
-/// ✅ Session security (Noise handshake before encryption)
-/// ✅ Identity management (publicKey immutable, ephemeralId per-session)
-abstract class IConnectionService {
-  // ============ MESSAGING OPERATIONS ============
+/// This builds on top of [IMeshBleService] (used by the mesh domain) and
+/// exposes the additional operations that the UI/Core layers need such as
+/// discovery streams, Bluetooth state monitoring, and advertising controls.
+/// The concrete `BLEService` currently implements this until the dedicated
+/// facade replaces it in later phases.
+abstract interface class IConnectionService implements IMeshBleService {
+  // ===== Discovery / UI streams =====
 
-  /// Send message to recipient via BLE
-  ///
-  /// Returns true if sent/queued successfully, false if critical error.
-  /// Messages are automatically encrypted using Noise session.
-  Future<bool> sendMessage({
-    required String recipient,
-    required String content,
-    String? messageId,
-  });
+  /// Stream of discovered peripherals (used by scanning overlays).
+  Stream<List<Peripheral>> get discoveredDevices;
 
-  /// Send message as peripheral (for inbound connections)
-  ///
-  /// Used when local device is in peripheral mode and needs to respond
-  /// to a central device that initiated connection.
-  Future<bool> sendPeripheralMessage({
-    required String recipientAddress,
-    required String content,
-  });
+  /// Hint matches produced by the discovery hint scanner.
+  Stream<String> get hintMatches;
 
-  /// Send queue sync message (for offline queue synchronization)
-  ///
-  /// Synchronizes pending messages with reconnected peers.
-  Future<bool> sendQueueSyncMessage({
-    required String recipientId,
-    required List<EnhancedMessage> pendingMessages,
-  });
+  /// Discovery metadata stream (deduplicated devices with advertisement data).
+  Stream<Map<String, DiscoveredEventArgs>> get discoveryData;
 
-  /// Stream of received messages
-  Stream<EnhancedMessage> get receivedMessagesStream;
+  /// Scan for a specific device, optionally with a timeout.
+  Future<Peripheral?> scanForSpecificDevice({Duration? timeout});
 
-  // ============ DEVICE DISCOVERY ============
+  /// Spy-mode detection events (surfaced in pairing UI).
+  Stream<SpyModeInfo> get spyModeDetected;
 
-  /// Start BLE scanning for nearby devices
-  Future<void> startScanning();
+  /// Identity reveal notifications once a peer discloses their name/key.
+  Stream<String> get identityRevealed;
 
-  /// Stop BLE scanning
-  Future<void> stopScanning();
+  /// Currently connected central when acting as a peripheral.
+  Central? get connectedCentral;
 
-  /// Stream of discovered devices (Peripheral objects)
-  Stream<dynamic>
-  get discoveredDevicesStream; // Peripheral type from BLE package
+  /// Currently connected peripheral when acting as a central.
+  Peripheral? get connectedDevice;
 
-  /// Current list of discovered devices
-  List<dynamic> get currentDiscoveredDevices; // List<Peripheral>
+  // ===== Bluetooth state =====
 
-  /// Check if discovery/scanning is active
-  bool get isDiscoveryActive;
+  /// Stream of adapter state changes (powered on/off etc.).
+  Stream<BluetoothStateInfo> get bluetoothStateStream;
 
-  // ============ ADVERTISING (PERIPHERAL MODE) ============
+  /// Stream of human-readable Bluetooth status messages.
+  Stream<BluetoothStatusMessage> get bluetoothMessageStream;
 
-  /// Start advertising (peripheral mode)
-  ///
-  /// Allows remote devices to discover and connect to this device.
-  Future<void> startAsPeripheral();
-
-  /// Check if currently advertising
-  bool get isAdvertising;
-
-  // ============ CONNECTION MANAGEMENT ============
-
-  /// Connect to a specific device by address
-  Future<void> connectToDevice(String deviceAddress);
-
-  /// Disconnect from currently connected device
-  Future<void> disconnect();
-
-  /// Stream of connection info updates
-  Stream<String> get connectionInfoStream;
-
-  /// Get current connection information
-  String? get currentConnectionInfo;
-
-  /// Check if currently connected to a peer
-  bool get isConnected;
-
-  /// Get address of connected device (if connected)
-  String? get connectedDevice;
-
-  // ============ BLUETOOTH STATE ============
-
-  /// Stream of Bluetooth state changes
-  Stream<bool> get bluetoothStateStream;
-
-  /// Check if Bluetooth is ready for use
+  /// Whether the Bluetooth adapter is ready for use.
   bool get isBluetoothReady;
 
-  /// Get current Bluetooth state (BluetoothLowEnergyState enum)
-  dynamic get state; // BluetoothLowEnergyState from BLE package
+  /// Current adapter state reported by the BLE plugin.
+  BluetoothLowEnergyState get state;
 
-  // ============ IDENTITY ============
+  /// Last-known connection information.
+  ConnectionInfo get currentConnectionInfo;
 
-  /// Get this device's public key
-  String getMyPublicKey();
+  /// Stream of connection information updates.
+  Stream<ConnectionInfo> get connectionInfo;
 
-  /// Get this device's ephemeral session ID
-  String getMyEphemeralId();
+  // ===== Advertising / role management =====
 
-  /// Get remote device's user name (if connected)
-  String? get otherUserName;
+  /// Start advertising so other devices can discover this node.
+  Future<void> startAsPeripheral();
 
-  /// Set this device's user name for others to see
-  Future<void> setMyUserName(String userName);
+  /// Start central mode scanning/connection flows.
+  Future<void> startAsCentral();
 
-  // ============ SESSION & HANDSHAKE ============
+  /// Refresh advertising payload (display name, status flags, etc.).
+  Future<void> refreshAdvertising({bool? showOnlineStatus});
 
-  /// Get current Noise session ID for active connection
-  String? get currentSessionId;
+  /// Whether advertising is currently active.
+  bool get isAdvertising;
 
-  /// Get remote device's ephemeral ID
-  String? get theirEphemeralId;
+  /// Whether the negotiated MTU for peripheral mode is ready.
+  bool get isPeripheralMTUReady;
 
-  /// Get remote device's persistent key
-  String? get theirPersistentKey;
+  /// The MTU negotiated while acting as a peripheral (null if unknown).
+  int? get peripheralNegotiatedMTU;
 
-  /// Check if handshake is in progress
-  bool get isHandshakeInProgress;
+  // ===== Connection management =====
 
-  /// Check if handshake has completed
-  bool get hasHandshakeCompleted;
+  /// Connect to a discovered peripheral (central role).
+  Future<void> connectToDevice(Peripheral device);
 
-  /// Perform full 4-phase BLE handshake
-  Future<bool> performHandshake({
-    required String deviceAddress,
-    required bool isInitiator,
-  });
+  /// Disconnect from the active peer (both roles).
+  Future<void> disconnect();
 
-  /// Called when handshake completes (for relay engine coordination)
-  void onHandshakeComplete(Function(bool success) callback);
+  /// Start background connection-state monitoring (RSSI/MTU health checks).
+  void startConnectionMonitoring();
 
-  /// Request identity exchange with connected peer
+  /// Stop background connection-state monitoring.
+  void stopConnectionMonitoring();
+
+  /// Whether the connection manager is actively attempting to reconnect.
+  bool get isActivelyReconnecting;
+
+  // ===== Identity / handshake helpers =====
+
+  /// Request identity exchange with the connected peer.
   Future<void> requestIdentityExchange();
+
+  /// Trigger identity re-exchange after updating profile data.
+  Future<void> triggerIdentityReExchange();
+
+  /// Reveal identity in spy-mode flows.
+  Future<ProtocolMessage?> revealIdentityToFriend();
+
+  /// Update the cached username.
+  Future<void> setMyUserName(String name);
+
+  /// Accept a pending contact request.
+  Future<void> acceptContactRequest();
+
+  /// Reject a pending contact request.
+  void rejectContactRequest();
+
+  /// Set listener for contact request completion events.
+  void setContactRequestCompletedListener(void Function(bool success) listener);
+
+  /// Set listener for incoming contact request events.
+  void setContactRequestReceivedListener(
+    void Function(String publicKey, String displayName) listener,
+  );
+
+  /// Set listener for asymmetric contact detection events.
+  void setAsymmetricContactListener(
+    void Function(String publicKey, String displayName) listener,
+  );
+
+  /// Mark pairing as in-progress to pause health checks.
+  void setPairingInProgress(bool isInProgress);
+
+  /// Connection slots and server connection metadata.
+  List<BLEServerConnection> get serverConnections;
+  int get clientConnectionCount;
+  int get maxCentralConnections;
 }
