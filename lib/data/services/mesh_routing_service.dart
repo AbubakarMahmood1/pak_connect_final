@@ -17,7 +17,7 @@ import '../../domain/entities/enhanced_message.dart';
 /// - Initialize routing components (router, topology, quality monitoring)
 /// - Make optimal routing decisions for relay messages
 /// - Update network topology as connections change
-/// - Expose routing statistics and demo events
+/// - Expose routing statistics for diagnostics
 /// - Coordinate with BLE service for actual message sending
 class MeshRoutingService implements IMeshRoutingService {
   static final _logger = Logger('MeshRoutingService');
@@ -37,7 +37,6 @@ class MeshRoutingService implements IMeshRoutingService {
   Future<void> initialize({
     required String currentNodeId,
     required NetworkTopologyAnalyzer topologyAnalyzer,
-    bool enableDemo = false,
   }) async {
     try {
       _currentNodeId = currentNodeId;
@@ -56,7 +55,7 @@ class MeshRoutingService implements IMeshRoutingService {
       );
 
       // Initialize router
-      await _smartRouter!.initialize(enableDemo: enableDemo);
+      await _smartRouter!.initialize();
 
       _isInitialized = true;
       _logger.info('✅ MeshRoutingService initialized');
@@ -149,25 +148,6 @@ class MeshRoutingService implements IMeshRoutingService {
     } catch (e) {
       _logger.warning('⚠️ Failed to clear routing state: $e');
     }
-  }
-
-  @override
-  void setDemoMode(bool enabled) {
-    try {
-      _logger.info('${enabled ? '🎬' : '⏹️'} Demo mode: $enabled');
-      _smartRouter?.setDemoMode(enabled);
-    } catch (e) {
-      _logger.warning('⚠️ Failed to set demo mode: $e');
-    }
-  }
-
-  @override
-  Stream<RoutingDecision> get demoDecisions {
-    if (_smartRouter != null) {
-      return _smartRouter!.demoDecisions;
-    }
-    // Return empty stream if router not initialized
-    return const Stream.empty();
   }
 
   @override

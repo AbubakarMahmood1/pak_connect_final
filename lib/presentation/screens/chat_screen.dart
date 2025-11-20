@@ -10,6 +10,7 @@ import '../providers/ble_providers.dart';
 import '../providers/security_state_provider.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../../domain/services/mesh_networking_service.dart';
+import '../../domain/models/mesh_network_models.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../data/repositories/message_repository.dart';
@@ -103,9 +104,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _hasScrolledAwayFromBottom =
       false; // Track if user intentionally scrolled up
 
-  // Smart routing demo state
-  bool _demoModeEnabled = true; // Auto-enable demo mode
-  StreamSubscription? _meshEventSubscription;
   bool _meshInitializing = false; // 🔧 FIX: Start false, check actual state
   String _initializationStatus = 'Checking...';
   Timer? _initializationTimeoutTimer;
@@ -266,11 +264,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     final contact = await contactRepo.getContact(publicKey);
-    final securityLevel = await SecurityManager.getCurrentLevel(
+    final securityLevel = await SecurityManager.instance.getCurrentLevel(
       publicKey,
       contactRepo,
     );
-    final encryptionMethod = await SecurityManager.getEncryptionMethod(
+    final encryptionMethod = await SecurityManager.instance.getEncryptionMethod(
       publicKey,
       contactRepo,
     );
@@ -306,12 +304,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  /// Set up mesh networking integration with auto demo mode
+  /// Set up mesh networking integration
   void _setupMeshNetworking() {
     try {
-      _logger.info(
-        'Setting up mesh networking for chat screen with auto demo mode',
-      );
+      _logger.info('Setting up mesh networking for chat screen');
 
       // 🔧 FIX: Check current mesh state before showing banner
       final meshStatusAsync = ref.read(meshNetworkStatusProvider);
@@ -321,8 +317,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             // Mesh already initialized - no banner needed
             setState(() {
               _meshInitializing = false;
-              _demoModeEnabled = true;
-              _initializationStatus = 'Ready - Demo Mode Active';
+              _initializationStatus = 'Ready';
             });
             _logger.info('✅ Mesh already initialized - skipping banner');
           } else {
@@ -358,17 +353,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         },
       );
 
-      // Listen to mesh demo events for UI feedback
-      final meshService = ref.read(meshNetworkingServiceProvider);
-      _meshEventSubscription = meshService.demoEvents.listen((event) {
-        if (!mounted) return;
-
-        // Handle different demo event types
-        _handleMeshDemoEvent(event);
-      });
-
       // Note: Mesh initialization monitoring moved to build() method to comply with Riverpod rules
-      _logger.info('Mesh networking integration set up with auto demo mode');
+      _logger.info('Mesh networking integration set up');
     } catch (e) {
       _logger.warning('Failed to set up mesh networking: $e');
       setState(() {
@@ -518,7 +504,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         setState(() {
           _meshInitializing = false;
           _initializationStatus = 'Ready (timeout fallback)';
-          _demoModeEnabled = true; // Enable demo mode as fallback
         });
         _showSuccess('Mesh networking ready (fallback mode)');
       }
@@ -539,18 +524,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           _initializationTimeoutTimer?.cancel();
           setState(() {
             _meshInitializing = false;
-            _demoModeEnabled = true;
-            _initializationStatus = 'Ready - Demo Mode Active';
+            _initializationStatus = 'Ready';
           });
-          _logger.info(
-            '✅ Mesh networking initialized - Demo mode automatically enabled',
-          );
-          _showSuccess('🎓 Smart routing demo mode activated');
+          _logger.info('✅ Mesh networking initialized');
+          _showSuccess('Mesh networking ready');
         } else if (!status.isInitialized && !_meshInitializing) {
           setState(() {
-            _initializationStatus = status.isDemoMode
-                ? 'Demo Mode Ready'
-                : 'Initializing...';
+            _initializationStatus = 'Initializing...';
           });
         }
       },
@@ -903,14 +883,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
       }
 
-      // If direct delivery failed or not connected, try smart routing (if demo enabled)
-      if (!success && _demoModeEnabled && _contactPublicKey != null) {
+      // If direct delivery failed or not connected, try smart routing fallback
+      if (!success && _contactPublicKey != null) {
         try {
           final meshController = ref.read(meshNetworkingControllerProvider);
           final meshResult = await meshController.sendMeshMessage(
             content: message.content,
             recipientPublicKey: _contactPublicKey!,
-            isDemo: _demoModeEnabled,
           );
 
           if (meshResult.isSuccess) {
@@ -2079,7 +2058,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final contactRepo = ContactRepository();
     final contact = await contactRepo.getContact(senderKey);
-    final encryptionMethod = await SecurityManager.getEncryptionMethod(
+    final encryptionMethod = await SecurityManager.instance.getEncryptionMethod(
       senderKey,
       contactRepo,
     );
@@ -2250,22 +2229,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _logger.info('Success: $message');
   }
 
-  /// Handle mesh demo events for UI feedback
-  void _handleMeshDemoEvent(DemoEvent event) {
-    // This is a simplified handler since we can't access private classes
-    final eventString = event.toString();
-
-    if (eventString.contains('MessageDelivered')) {
-      _showSuccess('✅ Mesh message delivered!');
-    } else if (eventString.contains('MessageFailed')) {
-      _showError('❌ Mesh delivery failed');
-    } else if (eventString.contains('MessageRelayed')) {
-      _showSuccess('🔀 Message relayed through mesh');
-    } else if (eventString.contains('RelayDecisionMade')) {
-      _showSuccess('🤔 Relay decision processed');
-    }
-  }
-
   /// Toggle search mode
   void _toggleSearchMode() {
     _searchController.toggleSearchMode();
@@ -2327,7 +2290,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ],
             ),
           ),
-          // 🔧 REMOVED: FYP Demo label for cleaner UX
         ],
       ),
     );
@@ -2363,7 +2325,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _messageSubscription = null;
     }
 
-    _meshEventSubscription?.cancel();
     _deliverySubscription?.cancel();
     _initializationTimeoutTimer?.cancel();
 

@@ -99,7 +99,7 @@ void main() {
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'debug_handshake');
     mockStorage = MockSecureStorage();
-    await SecurityManager.initialize(secureStorage: mockStorage);
+    await SecurityManager.instance.initialize(secureStorage: mockStorage);
   });
 
   setUp(() async {
@@ -113,7 +113,7 @@ void main() {
   });
 
   tearDownAll(() {
-    SecurityManager.shutdown();
+    SecurityManager.instance.shutdown();
   });
 
   test('DEBUG: Trace handshake coordinator flow step by step', () async {

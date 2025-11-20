@@ -1,4 +1,9 @@
-import 'package:pak_connect/domain/services/mesh_networking_service.dart';
+import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
+import 'package:pak_connect/core/messaging/offline_message_queue.dart';
+import 'package:pak_connect/core/messaging/queue_sync_manager.dart'
+    show QueueSyncManagerStats, QueueSyncResult;
+import 'package:pak_connect/domain/models/mesh_network_models.dart';
+import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 /// Interface for mesh networking service operations
 ///
@@ -14,7 +19,7 @@ abstract class IMeshNetworkingService {
   // =========================
 
   /// Initialize mesh networking service
-  Future<void> initialize();
+  Future<void> initialize({String? nodeId});
 
   /// Dispose resources
   void dispose();
@@ -27,16 +32,13 @@ abstract class IMeshNetworkingService {
   Stream<MeshNetworkStatus> get meshStatus;
 
   /// Relay statistics stream
-  Stream<dynamic> get relayStats;
+  Stream<RelayStatistics> get relayStats;
 
   /// Queue statistics stream
-  Stream<dynamic> get queueStats;
-
-  /// Demo events stream
-  Stream<DemoEvent> get demoEvents;
+  Stream<QueueSyncManagerStats> get queueStats;
 
   /// Message delivery stream
-  Stream<Map<String, dynamic>> get messageDeliveryStream;
+  Stream<String> get messageDeliveryStream;
 
   // =========================
   // MESSAGING OPERATIONS
@@ -44,9 +46,9 @@ abstract class IMeshNetworkingService {
 
   /// Send message through mesh network
   Future<MeshSendResult> sendMeshMessage({
-    required String recipientId,
-    required String message,
-    required String messageId,
+    required String content,
+    required String recipientPublicKey,
+    MessagePriority priority = MessagePriority.normal,
   });
 
   // =========================
@@ -54,43 +56,30 @@ abstract class IMeshNetworkingService {
   // =========================
 
   /// Sync queues with peers
-  Future<void> syncQueuesWithPeers();
+  Future<Map<String, QueueSyncResult>> syncQueuesWithPeers();
 
   /// Retry a specific message
-  Future<void> retryMessage(String messageId);
+  Future<bool> retryMessage(String messageId);
 
   /// Remove message from queue
-  Future<void> removeMessage(String messageId);
+  Future<bool> removeMessage(String messageId);
 
   /// Set message priority
-  Future<void> setPriority(String messageId, int priority);
+  Future<bool> setPriority(String messageId, MessagePriority priority);
 
   /// Retry all queued messages
-  Future<void> retryAllMessages();
+  Future<int> retryAllMessages();
 
   /// Get queued messages for a specific chat
-  Future<List<dynamic>> getQueuedMessagesForChat(String chatId);
+  List<QueuedMessage> getQueuedMessagesForChat(String chatId);
 
   // =========================
   // NETWORK STATISTICS
   // =========================
 
   /// Get network statistics
-  Future<MeshNetworkStatistics> getNetworkStatistics();
+  MeshNetworkStatistics getNetworkStatistics();
 
   /// Refresh mesh status
-  Future<void> refreshMeshStatus();
-
-  // =========================
-  // DEMO MODE OPERATIONS
-  // =========================
-
-  /// Initialize demo scenario
-  Future<DemoScenarioResult> initializeDemoScenario(DemoScenarioType scenario);
-
-  /// Get demo steps
-  List<dynamic> getDemoSteps();
-
-  /// Clear demo data
-  Future<void> clearDemoData();
+  void refreshMeshStatus();
 }

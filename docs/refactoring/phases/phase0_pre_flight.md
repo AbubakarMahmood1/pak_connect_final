@@ -3,7 +3,9 @@
 **Status**: 🟡 In Progress
 **Duration**: 1 week (5 days)
 **Started**: 2025-11-12
-**Branch**: `refactor/p2-architecture-baseline`
+**Branch**: `phase-6-critical-refactoring`
+
+> _Note_: The original snapshot branch `refactor/p2-architecture-baseline` was merged and deleted after the initial handoff, so all Phase 0 artifacts now live on `phase-6-critical-refactoring`.
 
 ---
 
@@ -19,27 +21,28 @@
 ## Tasks Checklist
 
 ### Baseline Creation
-- [x] Create branch `refactor/p2-architecture-baseline`
 - [x] Tag current commit as `v1.0-pre-refactor`
 - [x] Run full test suite and document results
+
+_Retired deliverable_: The temporary snapshot branch `refactor/p2-architecture-baseline` was merged and deleted during the Phase 0 handoff, so this requirement no longer applies.
 
 ### Documentation
 - [x] Create master plan document
 - [x] Create phase 0 documentation
-- [ ] Create Architecture Decision Record (ADR)
-- [ ] Create architecture analysis report
+- [x] Create Architecture Decision Record (ADR)
+- [x] Create architecture analysis report _(see `docs/refactoring/ARCHITECTURE_ANALYSIS.md`)_
 
 ### Metrics Collection
 - [x] Document test pass rate
-- [ ] Run test coverage report
-- [ ] Document performance baseline (startup time, BLE connection, memory)
-- [ ] Count God classes and architectural violations
+- [x] Run test coverage report (`flutter test --coverage` ⇒ `coverage/lcov.info`)
+- [ ] Document performance baseline (startup time, BLE connection, memory) _(blocked on real-device instrumentation; interim host benchmarks captured below)_
+- [x] Count God classes and architectural violations
 
 ### Dependencies
-- [ ] Add `get_it: ^7.6.0` to pubspec.yaml
-- [ ] Add `mockito: ^5.4.0` to pubspec.yaml
-- [ ] Add `build_runner: ^2.4.0` to pubspec.yaml
-- [ ] Run `flutter pub get`
+- [x] Add `get_it: ^7.6.0` to pubspec.yaml (see `pubspec.yaml:73`)
+- [x] Add `mockito: ^5.4.0` to pubspec.yaml (`dev_dependencies`)
+- [x] Add `build_runner: ^2.4.0` to pubspec.yaml (`dev_dependencies`)
+- [x] Run `flutter pub get` (`pubspec.lock` present)
 
 ---
 
@@ -86,19 +89,30 @@ Total Tests: 802
 
 ### Test Coverage
 
-**Status**: Pending
+**Status**: Captured (2025-11-19 run)
 **Command**: `flutter test --coverage`
-**Target**: Document baseline for comparison after refactoring
+**Artifacts**: `coverage/lcov.info`, `flutter_test_latest.log`
+
+```
+Lines covered: 9,046
+Lines found: 32,924
+Line coverage: 27.48%
+```
+
+Numbers computed from `coverage/lcov.info` and tracked for comparison after the refactor.
 
 ### Performance Baseline
 
-**Status**: Pending
-**Metrics to Collect**:
-- App cold start time
-- BLE adapter initialization time
-- First connection time
-- Message send latency
-- Memory footprint (heap size)
+**Status**: Blocked (requires instrumented Android/iOS BLE devices and release builds)
+
+**Next Action**: Run the field measurements defined in `docs/refactoring/PERFORMANCE_BASELINE.md` once hardware access is available.
+
+**Interim Repository Benchmarks (host run via `flutter test`)**
+- getAllChats × 10 contacts × 10 messages: 12 ms total (1.2 ms/chat) — source `flutter_test_latest.log` lines 7475-7525
+- getAllChats × 50 contacts × 10 messages: 5 ms total (0.1 ms/chat) — source `flutter_test_latest.log` lines 7845-7890
+- getAllChats × 100 contacts × 10 messages: 5 ms total (0.1 ms/chat) — source `flutter_test_latest.log` lines 8074-8088
+
+These interim numbers come from `test/performance_getAllChats_benchmark_test.dart` and provide a baseline for database-heavy flows while device-level metrics remain pending.
 
 ---
 

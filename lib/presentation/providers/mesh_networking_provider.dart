@@ -5,19 +5,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/services/chat_management_service.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/repositories/message_repository.dart';
 import '../../data/services/ble_message_handler.dart';
 import '../../data/services/ble_message_handler_facade_impl.dart';
 import '../../core/interfaces/i_ble_service_facade.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/interfaces/i_seen_message_store.dart';
-import '../../core/messaging/queue_sync_manager.dart';
+import '../../core/interfaces/i_mesh_networking_service.dart';
+import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
-import '../../domain/entities/enhanced_message.dart';
-import '../../data/services/mesh_routing_service.dart';
+import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/interfaces/i_mesh_routing_service.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
+import '../../domain/models/mesh_network_models.dart';
+import '../../domain/entities/enhanced_message.dart';
 import 'ble_providers.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
@@ -34,14 +34,8 @@ final _messageHandlerProvider = Provider<IBLEMessageHandlerFacade>((ref) {
   final seenMessageStore = getIt<ISeenMessageStore>();
   return BLEMessageHandlerFacadeImpl(BLEMessageHandler(), seenMessageStore);
 });
-final _contactRepositoryProvider = Provider<ContactRepository>(
-  (ref) => ContactRepository(),
-);
 final _chatManagementServiceProvider = Provider<ChatManagementService>(
   (ref) => ChatManagementService.instance,
-);
-final _messageRepositoryProvider = Provider<MessageRepository>(
-  (ref) => MessageRepository(),
 );
 
 /// Provider for Bluetooth state monitor
@@ -74,16 +68,14 @@ final bluetoothReadyProvider = Provider<bool>((ref) {
 
 /// Provider for MeshNetworkingService (Singleton to prevent multiple instances)
 /// Phase 1 Part C: Register in DI container when created
-final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
+final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
   // Check if already registered in DI
-  if (!getIt.isRegistered<MeshNetworkingService>()) {
+  if (!getIt.isRegistered<IMeshNetworkingService>()) {
     final bleService = ref.watch(
       bleServiceProvider,
     ); // BLEService now implements IBLEServiceFacade
     final messageHandler = ref.watch(_messageHandlerProvider);
-    final contactRepository = ref.watch(_contactRepositoryProvider);
     final chatManagementService = ref.watch(_chatManagementServiceProvider);
-    final messageRepository = ref.watch(_messageRepositoryProvider);
 
     _logger.info(
       '🔧 Creating MeshNetworkingService instance (should happen only once)',
@@ -106,14 +98,20 @@ final meshNetworkingServiceProvider = Provider<MeshNetworkingService>((ref) {
     // Register in DI for eager access
     try {
       getIt.registerSingleton<MeshNetworkingService>(service);
-    } catch (e) {
-      // Service already registered (idempotent)
+    } catch (_) {
+      // Already registered under concrete type
+    }
+
+    try {
+      getIt.registerSingleton<IMeshNetworkingService>(service);
+    } catch (_) {
+      // Already registered under interface
     }
 
     return service;
   } else {
     // Already registered - return from DI
-    return getIt<MeshNetworkingService>();
+    return getIt<IMeshNetworkingService>();
   }
 });
 
@@ -140,19 +138,15 @@ final meshNetworkStatusProvider = StreamProvider.autoDispose<MeshNetworkStatus>(
       return MeshNetworkStatus(
         isInitialized: false,
         currentNodeId: null,
-        isDemoMode: true,
         isConnected: false,
         queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
         statistics: MeshNetworkStatistics(
           nodeId: 'error',
           isInitialized: false,
-          isDemoMode: true,
           relayStatistics: null,
           queueStatistics: null,
           syncStatistics: null,
           spamStatistics: null,
-          demoStepsCount: 0,
-          trackedMessagesCount: 0,
           spamPreventionActive: false,
           queueSyncActive: false,
         ),
@@ -186,47 +180,22 @@ final queueSyncStatisticsProvider =
       });
     });
 
-/// Stream provider for demo events
-/// FIX-007: Added autoDispose to prevent memory leaks
-final meshDemoEventsProvider = StreamProvider.autoDispose<DemoEvent>((ref) {
-  final service = ref.watch(meshNetworkingServiceProvider);
-  return service.demoEvents;
-});
-
 /// Provider for current mesh network statistics
 final meshNetworkStatisticsProvider = Provider<MeshNetworkStatistics>((ref) {
   final service = ref.watch(meshNetworkingServiceProvider);
   return service.getNetworkStatistics();
 });
 
-/// Provider for demo steps list
-final meshDemoStepsProvider = Provider<List<DemoRelayStep>>((ref) {
-  final service = ref.watch(meshNetworkingServiceProvider);
-  return service.getDemoSteps();
-});
-
-/// State provider for currently selected demo scenario
-final selectedDemoScenarioProvider = Provider<DemoScenarioType?>((ref) => null);
-
-/// State provider for demo mode enabled/disabled
-final isDemoModeEnabledProvider = Provider<bool>((ref) => true);
-
 /// Provider for mesh networking UI state
 final meshNetworkingUIStateProvider = Provider<MeshNetworkingUIState>((ref) {
   final networkStatus = ref.watch(meshNetworkStatusProvider);
   final relayStats = ref.watch(relayStatisticsProvider);
   final queueStats = ref.watch(queueSyncStatisticsProvider);
-  final demoSteps = ref.watch(meshDemoStepsProvider);
-  final selectedScenario = ref.watch(selectedDemoScenarioProvider);
-  final isDemoMode = ref.watch(isDemoModeEnabledProvider);
 
   return MeshNetworkingUIState(
     networkStatus: networkStatus,
     relayStats: relayStats,
     queueStats: queueStats,
-    demoSteps: demoSteps,
-    selectedScenario: selectedScenario,
-    isDemoModeEnabled: isDemoMode,
   );
 });
 
@@ -240,7 +209,7 @@ final meshNetworkingControllerProvider = Provider<MeshNetworkingController>((
 
 /// Controller class for mesh networking actions
 class MeshNetworkingController {
-  final MeshNetworkingService _service;
+  final IMeshNetworkingService _service;
 
   MeshNetworkingController(this._service);
 
@@ -249,7 +218,6 @@ class MeshNetworkingController {
     required String content,
     required String recipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
-    bool isDemo = false,
   }) async {
     try {
       _logger.info(
@@ -260,7 +228,6 @@ class MeshNetworkingController {
         content: content,
         recipientPublicKey: recipientPublicKey,
         priority: priority,
-        isDemo: isDemo,
       );
 
       _logger.info('UI: Mesh send result: ${result.type.name}');
@@ -269,33 +236,6 @@ class MeshNetworkingController {
       _logger.severe('UI: Failed to send mesh message: $e');
       return MeshSendResult.error('Send failed: $e');
     }
-  }
-
-  /// Initialize demo scenario
-  Future<DemoScenarioResult> initializeDemoScenario(
-    DemoScenarioType type,
-  ) async {
-    try {
-      _logger.info('UI: Initializing demo scenario: ${type.name}');
-
-      final result = await _service.initializeDemoScenario(type);
-
-      if (result.success) {
-        // Note: Selected scenario state updated (would need StateNotifier for persistence)
-      }
-
-      return result;
-    } catch (e) {
-      _logger.severe('UI: Failed to initialize demo scenario: $e');
-      return DemoScenarioResult.error('Demo initialization failed: $e');
-    }
-  }
-
-  /// Clear demo data
-  void clearDemoData() {
-    _logger.info('UI: Clearing demo data');
-    _service.clearDemoData();
-    // Note: Selected scenario cleared (would need StateNotifier for persistence)
   }
 
   /// Sync queues with connected peers
@@ -307,13 +247,6 @@ class MeshNetworkingController {
       _logger.severe('UI: Queue sync failed: $e');
       return {'error': QueueSyncResult.error('Sync failed: $e')};
     }
-  }
-
-  /// Toggle demo mode
-  void toggleDemoMode() {
-    // For now, just log the toggle request
-    _logger.info('UI: Demo mode toggle requested');
-    // Note: State management would need a proper StateNotifier implementation
   }
 
   /// Get network health status
@@ -410,17 +343,11 @@ class MeshNetworkingUIState {
   final AsyncValue<MeshNetworkStatus> networkStatus;
   final AsyncValue<RelayStatistics> relayStats;
   final AsyncValue<QueueSyncManagerStats> queueStats;
-  final List<DemoRelayStep> demoSteps;
-  final DemoScenarioType? selectedScenario;
-  final bool isDemoModeEnabled;
 
   const MeshNetworkingUIState({
     required this.networkStatus,
     required this.relayStats,
     required this.queueStats,
-    required this.demoSteps,
-    this.selectedScenario,
-    required this.isDemoModeEnabled,
   });
 
   /// Check if mesh networking is ready for use
@@ -436,11 +363,6 @@ class MeshNetworkingUIState {
   /// Get current node ID
   String? get currentNodeId {
     return networkStatus.asData?.value.currentNodeId;
-  }
-
-  /// Check if demo mode is active
-  bool get isDemoMode {
-    return networkStatus.asData?.value.isDemoMode ?? false;
   }
 
   /// Get relay efficiency percentage
@@ -519,77 +441,6 @@ class MeshNetworkHealth {
   }
 }
 
-/// Provider for A->B->C demo scenario state
-final aToBtoCDemoProvider = Provider<AToBtoCDemoState>((ref) {
-  return const AToBtoCDemoState();
-});
-
-/// State for A->B->C demo scenario
-class AToBtoCDemoState {
-  final List<DemoNode> nodes;
-  final String? activeMessageId;
-  final int currentStep;
-  final bool isRunning;
-
-  const AToBtoCDemoState({
-    this.nodes = const [],
-    this.activeMessageId,
-    this.currentStep = 0,
-    this.isRunning = false,
-  });
-
-  AToBtoCDemoState copyWith({
-    List<DemoNode>? nodes,
-    String? activeMessageId,
-    int? currentStep,
-    bool? isRunning,
-  }) {
-    return AToBtoCDemoState(
-      nodes: nodes ?? this.nodes,
-      activeMessageId: activeMessageId ?? this.activeMessageId,
-      currentStep: currentStep ?? this.currentStep,
-      isRunning: isRunning ?? this.isRunning,
-    );
-  }
-}
-
-/// Demo node representation for visualization
-class DemoNode {
-  final String id;
-  final String name;
-  final bool isActive;
-  final bool isCurrentUser;
-  final double x; // Position for visualization
-  final double y;
-
-  const DemoNode({
-    required this.id,
-    required this.name,
-    required this.isActive,
-    required this.isCurrentUser,
-    required this.x,
-    required this.y,
-  });
-
-  DemoNode copyWith({
-    String? id,
-    String? name,
-    bool? isActive,
-    bool? isCurrentUser,
-    double? x,
-    double? y,
-  }) {
-    return DemoNode(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      isActive: isActive ?? this.isActive,
-      isCurrentUser: isCurrentUser ?? this.isCurrentUser,
-      x: x ?? this.x,
-      y: y ?? this.y,
-    );
-  }
-}
-
 /// Utility provider extensions
 extension MeshNetworkingProviderExtensions on WidgetRef {
   /// Send mesh message with error handling
@@ -597,23 +448,14 @@ extension MeshNetworkingProviderExtensions on WidgetRef {
     required String content,
     required String recipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
-    bool isDemo = false,
   }) async {
     final controller = read(meshNetworkingControllerProvider);
     final result = await controller.sendMeshMessage(
       content: content,
       recipientPublicKey: recipientPublicKey,
       priority: priority,
-      isDemo: isDemo,
     );
     return result.isSuccess;
-  }
-
-  /// Initialize demo scenario with state update
-  Future<bool> initializeDemoScenario(DemoScenarioType type) async {
-    final controller = read(meshNetworkingControllerProvider);
-    final result = await controller.initializeDemoScenario(type);
-    return result.success;
   }
 
   /// Get current mesh network health
@@ -629,10 +471,8 @@ Future<void> _initializeServiceAsync(
   Ref ref,
 ) async {
   try {
-    _logger.info('Initializing mesh networking service with auto demo mode...');
-
-    // Initialize with demo mode enabled by default
-    await service.initialize(enableDemo: true);
+    _logger.info('Initializing mesh networking service...');
+    await service.initialize();
 
     _logger.info('✅ Mesh networking service initialized successfully');
 

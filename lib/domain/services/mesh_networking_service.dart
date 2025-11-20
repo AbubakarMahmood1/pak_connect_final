@@ -1,6 +1,6 @@
 // Main orchestrator service for mesh networking functionality
 // Integrates MeshRelayEngine, QueueSyncManager, SpamPreventionManager with BLE services
-// Provides clean APIs and integration points for FYP demonstration
+// Provides clean APIs and integration points for mesh-enabled messaging
 
 // ignore_for_file: unnecessary_null_comparison, dead_code
 
@@ -18,19 +18,21 @@ import '../../core/messaging/offline_message_queue.dart';
 import '../../core/app_core.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/interfaces/i_mesh_ble_service.dart';
+import '../../core/interfaces/i_mesh_networking_service.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../core/utils/mesh_debug_logger.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../models/mesh_network_models.dart';
 import '../../core/routing/network_topology_analyzer.dart';
 import '../../core/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Main orchestrator service for mesh networking functionality
-/// Coordinates all mesh components and provides clean APIs for FYP demonstration
-class MeshNetworkingService {
+/// Coordinates all mesh components behind a clean application-facing API
+class MeshNetworkingService implements IMeshNetworkingService {
   static final _logger = Logger('MeshNetworkingService');
 
   // Core mesh components
@@ -57,14 +59,12 @@ class MeshNetworkingService {
   // State management
   String? _currentNodeId;
   bool _isInitialized = false;
-  bool _isDemoMode = false;
 
   // Stream controllers for UI updates
   final _meshStatusController = StreamController<MeshNetworkStatus>.broadcast();
   final _relayStatsController = StreamController<RelayStatistics>.broadcast();
   final _queueStatsController =
       StreamController<QueueSyncManagerStats>.broadcast();
-  final _demoEventController = StreamController<DemoEvent>.broadcast();
   final _messageDeliveryController =
       StreamController<String>.broadcast(); // Message ID stream
 
@@ -96,15 +96,10 @@ class MeshNetworkingService {
 
   Stream<RelayStatistics> get relayStats => _relayStatsController.stream;
   Stream<QueueSyncManagerStats> get queueStats => _queueStatsController.stream;
-  Stream<DemoEvent> get demoEvents => _demoEventController.stream;
 
   /// Stream that emits message IDs when they are successfully delivered
   /// Use this for real-time UI updates without full message list refresh
   Stream<String> get messageDeliveryStream => _messageDeliveryController.stream;
-
-  // Demo tracking
-  final List<DemoRelayStep> _demoSteps = [];
-  final Map<String, String> _demoMessageTracking = {};
 
   MeshNetworkingService({
     required IMeshBleService bleService,
@@ -133,7 +128,7 @@ class MeshNetworkingService {
   }
 
   /// Initialize the mesh networking service
-  Future<void> initialize({String? nodeId, bool enableDemo = false}) async {
+  Future<void> initialize({String? nodeId}) async {
     if (_isInitialized) {
       _logger.warning('Mesh networking service already initialized');
       return;
@@ -144,23 +139,16 @@ class MeshNetworkingService {
 
       // Determine node ID with timeout and fallback
       _currentNodeId = nodeId ?? await _getNodeIdWithFallback();
-      _isDemoMode = enableDemo;
-
       final truncatedNodeId = _currentNodeId!.length > 16
           ? _currentNodeId!.shortId()
           : _currentNodeId!;
-      _logger.info('Node ID: $truncatedNodeId..., Demo mode: $_isDemoMode');
+      _logger.info('Node ID: $truncatedNodeId...');
 
       // Initialize core components
       await _initializeCoreComponents();
 
       // Set up integration with BLE layer (with error handling)
       await _setupBLEIntegrationWithFallback();
-
-      // Set up demo capabilities if enabled
-      if (_isDemoMode) {
-        _setupDemoCapabilities();
-      }
 
       _isInitialized = true;
 
@@ -257,7 +245,6 @@ class MeshNetworkingService {
       await _routingService!.initialize(
         currentNodeId: _currentNodeId!,
         topologyAnalyzer: _topologyAnalyzer!,
-        enableDemo: _isDemoMode,
       );
 
       _logger.info('✅ Smart routing components initialized');
@@ -404,15 +391,25 @@ class MeshNetworkingService {
       final fallbackStatus = MeshNetworkStatus(
         isInitialized: false,
         currentNodeId: _currentNodeId,
-        isDemoMode: _isDemoMode,
         isConnected: false,
         queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
         statistics: MeshNetworkStatistics(
           nodeId: _currentNodeId ?? 'unknown',
           isInitialized: false,
-          isDemoMode: _isDemoMode,
-          demoStepsCount: 0,
-          trackedMessagesCount: 0,
+          relayStatistics: null,
+          queueStatistics: QueueStatistics(
+            totalQueued: 0,
+            totalDelivered: 0,
+            totalFailed: 0,
+            pendingMessages: 0,
+            sendingMessages: 0,
+            retryingMessages: 0,
+            failedMessages: 0,
+            isOnline: false,
+            averageDeliveryTime: Duration.zero,
+          ),
+          syncStatistics: null,
+          spamStatistics: null,
           spamPreventionActive: false,
           queueSyncActive: false,
         ),
@@ -428,23 +425,11 @@ class MeshNetworkingService {
     }
   }
 
-  /// Set up demo-specific capabilities
-  void _setupDemoCapabilities() {
-    _logger.info('Setting up demo capabilities for FYP demonstration');
-
-    // Clear any previous demo state
-    _demoSteps.clear();
-    _demoMessageTracking.clear();
-
-    _demoEventController.add(DemoEvent.initialized());
-  }
-
   /// Send message through mesh network (main API for UI)
   Future<MeshSendResult> sendMeshMessage({
     required String content,
     required String recipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
-    bool isDemo = false,
   }) async {
     if (!_isInitialized || _currentNodeId == null) {
       return MeshSendResult.error('Mesh networking not initialized');
@@ -454,9 +439,7 @@ class MeshNetworkingService {
       final truncatedRecipient = recipientPublicKey.length > 8
           ? recipientPublicKey.shortId(8)
           : recipientPublicKey;
-      _logger.info(
-        'Sending mesh message to $truncatedRecipient... (demo: $isDemo)',
-      );
+      _logger.info('Sending mesh message to $truncatedRecipient...');
 
       // Generate chat ID (using recipient's ID)
       final chatId = ChatUtils.generateChatId(recipientPublicKey);
@@ -466,12 +449,7 @@ class MeshNetworkingService {
 
       if (canDeliverDirectly) {
         // Direct delivery
-        return await _sendDirectMessage(
-          content,
-          recipientPublicKey,
-          chatId,
-          isDemo,
-        );
+        return await _sendDirectMessage(content, recipientPublicKey, chatId);
       } else {
         // Mesh relay required
         return await _sendMeshRelayMessage(
@@ -479,7 +457,6 @@ class MeshNetworkingService {
           recipientPublicKey,
           chatId,
           priority,
-          isDemo,
         );
       }
     } catch (e) {
@@ -493,7 +470,6 @@ class MeshNetworkingService {
     String content,
     String recipientPublicKey,
     String chatId,
-    bool isDemo,
   ) async {
     try {
       // Queue message for direct delivery
@@ -503,13 +479,6 @@ class MeshNetworkingService {
         recipientPublicKey: recipientPublicKey,
         senderPublicKey: _currentNodeId!,
       );
-
-      if (isDemo) {
-        _trackDemoMessage(messageId, 'direct');
-        _demoEventController.add(
-          DemoEvent.directMessageSent(messageId, recipientPublicKey),
-        );
-      }
 
       final truncatedMessageId = messageId.length > 16
           ? messageId.shortId()
@@ -529,7 +498,6 @@ class MeshNetworkingService {
     String recipientPublicKey,
     String chatId,
     MessagePriority priority,
-    bool isDemo,
   ) async {
     try {
       // Generate message ID for relay
@@ -607,30 +575,6 @@ class MeshNetworkingService {
       // Note: Connection quality monitoring is now handled by MeshRoutingService
       // This was previously done via _qualityMonitor but is now integrated in routing service
 
-      if (isDemo) {
-        _trackDemoMessage(originalMessageId, 'smart_relay');
-        _addDemoStep(
-          DemoRelayStep(
-            messageId: originalMessageId,
-            fromNode: _currentNodeId!,
-            toNode: selectedNextHop,
-            finalRecipient: recipientPublicKey,
-            hopCount: 1,
-            action: 'smart_relay_initiated',
-            timestamp: DateTime.now(),
-          ),
-        );
-
-        _demoEventController.add(
-          DemoEvent.relayMessageSent(
-            originalMessageId,
-            selectedNextHop,
-            recipientPublicKey,
-            1, // hop count
-          ),
-        );
-      }
-
       final truncatedMessageId = originalMessageId.length > 16
           ? originalMessageId.shortId()
           : originalMessageId;
@@ -678,92 +622,7 @@ class MeshNetworkingService {
     return nextHops;
   }
 
-  /// Initialize demo scenario for FYP evaluation
-  Future<DemoScenarioResult> initializeDemoScenario(
-    DemoScenarioType type,
-  ) async {
-    if (!_isInitialized) {
-      return DemoScenarioResult.error('Service not initialized');
-    }
-
-    try {
-      _logger.info('Initializing demo scenario: ${type.name}');
-
-      // Clear previous demo state
-      _demoSteps.clear();
-      _demoMessageTracking.clear();
-
-      switch (type) {
-        case DemoScenarioType.aToBtoC:
-          return await _initializeAToBtoCScenario();
-        case DemoScenarioType.queueSync:
-          return await _initializeQueueSyncScenario();
-        case DemoScenarioType.spamPrevention:
-          return await _initializeSpamPreventionScenario();
-      }
-    } catch (e) {
-      _logger.severe('Failed to initialize demo scenario: $e');
-      return DemoScenarioResult.error('Scenario initialization failed: $e');
-    }
-  }
-
-  /// Initialize A→B→C relay demonstration
-  Future<DemoScenarioResult> _initializeAToBtoCScenario() async {
-    _demoEventController.add(
-      DemoEvent.scenarioStarted('A→B→C Relay Demonstration'),
-    );
-
-    final stats = getNetworkStatistics();
-    return DemoScenarioResult.success(
-      'A→B→C relay scenario ready',
-      metadata: {
-        'scenario': 'a_to_b_to_c',
-        'currentNode': _currentNodeId!.length > 16
-            ? _currentNodeId!.shortId()
-            : _currentNodeId!,
-        'relayEngineReady': _relayEngine != null,
-        'spamPreventionActive': stats.spamPreventionActive,
-        'availableHops': await _getAvailableNextHops(),
-      },
-    );
-  }
-
-  /// Initialize queue synchronization demonstration
-  Future<DemoScenarioResult> _initializeQueueSyncScenario() async {
-    _demoEventController.add(
-      DemoEvent.scenarioStarted('Queue Synchronization Demonstration'),
-    );
-
-    final queueStats = _queueSyncManager?.getStats();
-    return DemoScenarioResult.success(
-      'Queue sync scenario ready',
-      metadata: {
-        'scenario': 'queue_sync',
-        'queueStats': queueStats?.toString() ?? 'unavailable',
-        'pendingMessages': _messageQueue?.getStatistics().pendingMessages ?? 0,
-      },
-    );
-  }
-
-  /// Initialize spam prevention demonstration
-  Future<DemoScenarioResult> _initializeSpamPreventionScenario() async {
-    _demoEventController.add(
-      DemoEvent.scenarioStarted('Spam Prevention Demonstration'),
-    );
-
-    final spamStats = _spamPrevention?.getStatistics();
-    return DemoScenarioResult.success(
-      'Spam prevention scenario ready',
-      metadata: {
-        'scenario': 'spam_prevention',
-        'spamStats': spamStats?.toString() ?? 'unavailable',
-        'totalBlocked': spamStats?.totalBlocked ?? 0,
-        'blockRate': spamStats?.blockRate ?? 0.0,
-      },
-    );
-  }
-
-  /// Get comprehensive network statistics for demo UI
+  /// Get comprehensive network statistics
   MeshNetworkStatistics getNetworkStatistics() {
     final relayStats = _relayEngine?.getStatistics();
     final queueStats = _messageQueue?.getStatistics();
@@ -773,27 +632,13 @@ class MeshNetworkingService {
     return MeshNetworkStatistics(
       nodeId: _currentNodeId ?? 'unknown',
       isInitialized: _isInitialized,
-      isDemoMode: _isDemoMode,
       relayStatistics: relayStats,
       queueStatistics: queueStats,
       syncStatistics: syncStats,
       spamStatistics: spamStats,
-      demoStepsCount: _demoSteps.length,
-      trackedMessagesCount: _demoMessageTracking.length,
       spamPreventionActive: _spamPrevention != null,
       queueSyncActive: _queueSyncManager != null,
     );
-  }
-
-  /// Get demo steps for visualization
-  List<DemoRelayStep> getDemoSteps() => List.from(_demoSteps);
-
-  /// Clear demo data
-  void clearDemoData() {
-    _demoSteps.clear();
-    _demoMessageTracking.clear();
-    _demoEventController.add(DemoEvent.demoCleared());
-    _logger.info('Demo data cleared');
   }
 
   /// Force refresh mesh status broadcast (for provider initialization)
@@ -991,10 +836,6 @@ class MeshNetworkingService {
     // 🎯 Emit message ID for real-time UI updates
     _messageDeliveryController.add(message.id);
 
-    if (_isDemoMode && _demoMessageTracking.containsKey(message.id)) {
-      _demoEventController.add(DemoEvent.messageDelivered(message.id));
-    }
-
     _broadcastMeshStatus();
   }
 
@@ -1003,10 +844,6 @@ class MeshNetworkingService {
         ? message.id.shortId()
         : message.id;
     _logger.warning('Message failed: $truncatedId... - $reason');
-
-    if (_isDemoMode && _demoMessageTracking.containsKey(message.id)) {
-      _demoEventController.add(DemoEvent.messageFailed(message.id, reason));
-    }
 
     _broadcastMeshStatus();
   }
@@ -1195,28 +1032,6 @@ class MeshNetworkingService {
     _logger.info(
       'Relay message to next hop: $truncatedMessageId... -> $truncatedNextHop...',
     );
-
-    if (_isDemoMode) {
-      _addDemoStep(
-        DemoRelayStep(
-          messageId: message.originalMessageId,
-          fromNode: _currentNodeId!,
-          toNode: nextHopNodeId,
-          finalRecipient: message.relayMetadata.finalRecipient,
-          hopCount: message.relayMetadata.hopCount + 1,
-          action: 'relay_forwarded',
-          timestamp: DateTime.now(),
-        ),
-      );
-
-      _demoEventController.add(
-        DemoEvent.messageRelayed(
-          message.originalMessageId,
-          nextHopNodeId,
-          message.relayMetadata.hopCount + 1,
-        ),
-      );
-    }
   }
 
   void _handleDeliverToSelf(
@@ -1263,13 +1078,6 @@ class MeshNetworkingService {
         '✅ MESH DELIVERY SUCCESS: Message stored in chat with original sender $truncatedSender...',
       );
 
-      // Update demo tracking
-      if (_isDemoMode) {
-        _demoEventController.add(
-          DemoEvent.messageDeliveredToSelf(originalMessageId, originalSender),
-        );
-      }
-
       // Broadcast mesh status update
       _broadcastMeshStatus();
     } catch (e) {
@@ -1289,16 +1097,6 @@ class MeshNetworkingService {
     _logger.info(
       'Relay decision: ${decision.type.name} for $truncatedMessageId... - ${decision.reason}',
     );
-
-    if (_isDemoMode) {
-      _demoEventController.add(
-        DemoEvent.relayDecisionMade(
-          decision.messageId,
-          decision.type.name,
-          decision.reason,
-        ),
-      );
-    }
   }
 
   void _handleRelayStatsUpdated(RelayStatistics stats) {
@@ -1331,10 +1129,6 @@ class MeshNetworkingService {
       '🔄 Sending queue sync to $truncatedNodeId... (${message.messageIds.length} ids)',
     );
 
-    if (_isDemoMode) {
-      _demoEventController.add(DemoEvent.queueSyncRequested(fromNodeId));
-    }
-
     unawaited(_bleService.sendQueueSyncMessage(message));
   }
 
@@ -1362,22 +1156,12 @@ class MeshNetworkingService {
       'Sync completed with ${nodeId.shortId(8)}...: ${result.success ? "success" : "failed"}',
     );
 
-    if (_isDemoMode) {
-      _demoEventController.add(
-        DemoEvent.queueSyncCompleted(nodeId, result.success),
-      );
-    }
-
     final stats = _queueSyncManager!.getStats();
     _queueStatsController.add(stats);
   }
 
   void _handleSyncFailed(String nodeId, String error) {
     _logger.warning('Sync failed with ${nodeId.shortId(8)}...: $error');
-
-    if (_isDemoMode) {
-      _demoEventController.add(DemoEvent.queueSyncFailed(nodeId, error));
-    }
   }
 
   Future<bool> _handleIncomingQueueSync(
@@ -1598,38 +1382,18 @@ class MeshNetworkingService {
     }
   }
 
-  // Demo helper methods
-
-  void _trackDemoMessage(String messageId, String type) {
-    _demoMessageTracking[messageId] = type;
-  }
-
-  void _addDemoStep(DemoRelayStep step) {
-    _demoSteps.add(step);
-
-    // Keep only last 50 steps for performance
-    if (_demoSteps.length > 50) {
-      _demoSteps.removeAt(0);
-    }
-  }
-
   /// Broadcast initial status immediately in constructor to prevent null stream
   void _broadcastInitialStatus() {
     try {
       final initialStatus = MeshNetworkStatus(
         isInitialized: false, // Not yet initialized
         currentNodeId: null, // Not yet determined
-        isDemoMode: false, // Default
         isConnected: false, // Default until BLE connection is checked
         queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
         statistics: MeshNetworkStatistics(
           nodeId: 'initializing',
           isInitialized: false,
-          isDemoMode: false,
-          demoStepsCount: 0,
-          trackedMessagesCount: 0,
-          spamPreventionActive: false,
-          queueSyncActive: false,
+          relayStatistics: null,
           queueStatistics: QueueStatistics(
             totalQueued: 0,
             totalDelivered: 0,
@@ -1641,6 +1405,10 @@ class MeshNetworkingService {
             isOnline: false,
             averageDeliveryTime: Duration.zero,
           ),
+          syncStatistics: null,
+          spamStatistics: null,
+          spamPreventionActive: false,
+          queueSyncActive: false,
         ),
       );
 
@@ -1677,33 +1445,11 @@ class MeshNetworkingService {
       final inProgressStatus = MeshNetworkStatus(
         isInitialized: false,
         currentNodeId: _currentNodeId,
-        isDemoMode: _isDemoMode,
         isConnected: _bleService.isConnected,
         queueMessages:
             _messageQueue?.getMessagesByStatus(QueuedMessageStatus.pending) ??
             [], // CRITICAL FIX
-        statistics: MeshNetworkStatistics(
-          nodeId: _currentNodeId ?? 'initializing',
-          isInitialized: false,
-          isDemoMode: _isDemoMode,
-          demoStepsCount: _demoSteps.length,
-          trackedMessagesCount: _demoMessageTracking.length,
-          spamPreventionActive: _spamPrevention != null,
-          queueSyncActive: _queueSyncManager != null,
-          queueStatistics:
-              _messageQueue?.getStatistics() ??
-              QueueStatistics(
-                totalQueued: 0,
-                totalDelivered: 0,
-                totalFailed: 0,
-                pendingMessages: 0,
-                sendingMessages: 0,
-                retryingMessages: 0,
-                failedMessages: 0,
-                isOnline: false,
-                averageDeliveryTime: Duration.zero,
-              ),
-        ),
+        statistics: getNetworkStatistics(),
       );
 
       _lastMeshStatus = inProgressStatus;
@@ -1737,7 +1483,6 @@ class MeshNetworkingService {
     final status = MeshNetworkStatus(
       isInitialized: _isInitialized,
       currentNodeId: _currentNodeId,
-      isDemoMode: _isDemoMode,
       isConnected: _bleService.isConnected,
       statistics: getNetworkStatistics(),
       queueMessages: queueMessages,
@@ -1765,245 +1510,8 @@ class MeshNetworkingService {
     _meshStatusController.close();
     _relayStatsController.close();
     _queueStatsController.close();
-    _demoEventController.close();
     _messageDeliveryController.close();
 
     _logger.info('Mesh networking service disposed');
   }
 }
-
-// Data classes for mesh networking service
-
-/// Result of sending a mesh message
-class MeshSendResult {
-  final MeshSendType type;
-  final String? messageId;
-  final String? nextHop;
-  final String? error;
-
-  const MeshSendResult._(this.type, this.messageId, this.nextHop, this.error);
-
-  factory MeshSendResult.direct(String messageId) =>
-      MeshSendResult._(MeshSendType.direct, messageId, null, null);
-
-  factory MeshSendResult.relay(String messageId, String nextHop) =>
-      MeshSendResult._(MeshSendType.relay, messageId, nextHop, null);
-
-  factory MeshSendResult.error(String error) =>
-      MeshSendResult._(MeshSendType.error, null, null, error);
-
-  bool get isSuccess => type != MeshSendType.error;
-  bool get isDirect => type == MeshSendType.direct;
-  bool get isRelay => type == MeshSendType.relay;
-}
-
-enum MeshSendType { direct, relay, error }
-
-/// Current status of mesh network
-class MeshNetworkStatus {
-  final bool isInitialized;
-  final String? currentNodeId;
-  final bool isDemoMode;
-  final bool isConnected;
-  final MeshNetworkStatistics statistics;
-  final List<QueuedMessage>? queueMessages;
-
-  const MeshNetworkStatus({
-    required this.isInitialized,
-    this.currentNodeId,
-    required this.isDemoMode,
-    required this.isConnected,
-    required this.statistics,
-    this.queueMessages,
-  });
-}
-
-/// Comprehensive network statistics
-class MeshNetworkStatistics {
-  final String nodeId;
-  final bool isInitialized;
-  final bool isDemoMode;
-  final RelayStatistics? relayStatistics;
-  final QueueStatistics? queueStatistics;
-  final QueueSyncManagerStats? syncStatistics;
-  final SpamPreventionStatistics? spamStatistics;
-  final int demoStepsCount;
-  final int trackedMessagesCount;
-  final bool spamPreventionActive;
-  final bool queueSyncActive;
-
-  const MeshNetworkStatistics({
-    required this.nodeId,
-    required this.isInitialized,
-    required this.isDemoMode,
-    this.relayStatistics,
-    this.queueStatistics,
-    this.syncStatistics,
-    this.spamStatistics,
-    required this.demoStepsCount,
-    required this.trackedMessagesCount,
-    required this.spamPreventionActive,
-    required this.queueSyncActive,
-  });
-}
-
-/// Demo scenario types
-enum DemoScenarioType { aToBtoC, queueSync, spamPrevention }
-
-/// Result of demo scenario initialization
-class DemoScenarioResult {
-  final bool success;
-  final String message;
-  final Map<String, dynamic>? metadata;
-
-  const DemoScenarioResult._(this.success, this.message, this.metadata);
-
-  factory DemoScenarioResult.success(
-    String message, {
-    Map<String, dynamic>? metadata,
-  }) => DemoScenarioResult._(true, message, metadata);
-
-  factory DemoScenarioResult.error(String message) =>
-      DemoScenarioResult._(false, message, null);
-}
-
-/// Demo relay step for visualization
-class DemoRelayStep {
-  final String messageId;
-  final String fromNode;
-  final String toNode;
-  final String finalRecipient;
-  final int hopCount;
-  final String action;
-  final DateTime timestamp;
-
-  const DemoRelayStep({
-    required this.messageId,
-    required this.fromNode,
-    required this.toNode,
-    required this.finalRecipient,
-    required this.hopCount,
-    required this.action,
-    required this.timestamp,
-  });
-}
-
-/// Demo events for UI updates
-abstract class DemoEvent {
-  final DateTime timestamp;
-
-  DemoEvent() : timestamp = DateTime.now();
-
-  factory DemoEvent.initialized() => _DemoInitialized();
-  factory DemoEvent.scenarioStarted(String scenario) =>
-      _ScenarioStarted(scenario);
-  factory DemoEvent.directMessageSent(String messageId, String recipient) =>
-      _DirectMessageSent(messageId, recipient);
-  factory DemoEvent.relayMessageSent(
-    String messageId,
-    String nextHop,
-    String finalRecipient,
-    int hopCount,
-  ) => _RelayMessageSent(messageId, nextHop, finalRecipient, hopCount);
-  factory DemoEvent.messageRelayed(
-    String messageId,
-    String nextHop,
-    int hopCount,
-  ) => _MessageRelayed(messageId, nextHop, hopCount);
-  factory DemoEvent.messageDelivered(String messageId) =>
-      _MessageDelivered(messageId);
-  factory DemoEvent.messageDeliveredToSelf(
-    String messageId,
-    String originalSender,
-  ) => _MessageDeliveredToSelf(messageId, originalSender);
-  factory DemoEvent.messageFailed(String messageId, String reason) =>
-      _MessageFailed(messageId, reason);
-  factory DemoEvent.relayDecisionMade(
-    String messageId,
-    String decision,
-    String reason,
-  ) => _RelayDecisionMade(messageId, decision, reason);
-  factory DemoEvent.queueSyncRequested(String fromNode) =>
-      _QueueSyncRequested(fromNode);
-  factory DemoEvent.queueSyncCompleted(String nodeId, bool success) =>
-      _QueueSyncCompleted(nodeId, success);
-  factory DemoEvent.queueSyncFailed(String nodeId, String error) =>
-      _QueueSyncFailed(nodeId, error);
-  factory DemoEvent.demoCleared() => _DemoCleared();
-}
-
-class _DemoInitialized extends DemoEvent {}
-
-class _ScenarioStarted extends DemoEvent {
-  final String scenario;
-  _ScenarioStarted(this.scenario);
-}
-
-class _DirectMessageSent extends DemoEvent {
-  final String messageId;
-  final String recipient;
-  _DirectMessageSent(this.messageId, this.recipient);
-}
-
-class _RelayMessageSent extends DemoEvent {
-  final String messageId;
-  final String nextHop;
-  final String finalRecipient;
-  final int hopCount;
-  _RelayMessageSent(
-    this.messageId,
-    this.nextHop,
-    this.finalRecipient,
-    this.hopCount,
-  );
-}
-
-class _MessageRelayed extends DemoEvent {
-  final String messageId;
-  final String nextHop;
-  final int hopCount;
-  _MessageRelayed(this.messageId, this.nextHop, this.hopCount);
-}
-
-class _MessageDelivered extends DemoEvent {
-  final String messageId;
-  _MessageDelivered(this.messageId);
-}
-
-class _MessageDeliveredToSelf extends DemoEvent {
-  final String messageId;
-  final String originalSender;
-  _MessageDeliveredToSelf(this.messageId, this.originalSender);
-}
-
-class _MessageFailed extends DemoEvent {
-  final String messageId;
-  final String reason;
-  _MessageFailed(this.messageId, this.reason);
-}
-
-class _RelayDecisionMade extends DemoEvent {
-  final String messageId;
-  final String decision;
-  final String reason;
-  _RelayDecisionMade(this.messageId, this.decision, this.reason);
-}
-
-class _QueueSyncRequested extends DemoEvent {
-  final String fromNode;
-  _QueueSyncRequested(this.fromNode);
-}
-
-class _QueueSyncCompleted extends DemoEvent {
-  final String nodeId;
-  final bool success;
-  _QueueSyncCompleted(this.nodeId, this.success);
-}
-
-class _QueueSyncFailed extends DemoEvent {
-  final String nodeId;
-  final String error;
-  _QueueSyncFailed(this.nodeId, this.error);
-}
-
-class _DemoCleared extends DemoEvent {}
