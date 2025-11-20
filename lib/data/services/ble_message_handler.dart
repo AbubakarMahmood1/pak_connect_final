@@ -231,7 +231,7 @@ class BLEMessageHandler {
 
       if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
         try {
-          payload = await SecurityManager.encryptMessage(
+          payload = await SecurityManager.instance.encryptMessage(
             message,
             contactPublicKey,
             contactRepository,
@@ -257,7 +257,7 @@ class BLEMessageHandler {
       // 🔧 FIX: Get trust level safely with fallback
       SecurityLevel trustLevel;
       try {
-        trustLevel = await SecurityManager.getCurrentLevel(
+        trustLevel = await SecurityManager.instance.getCurrentLevel(
           contactPublicKey ?? '',
           contactRepository,
         );
@@ -443,7 +443,7 @@ class BLEMessageHandler {
 
       if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
         try {
-          payload = await SecurityManager.encryptMessage(
+          payload = await SecurityManager.instance.encryptMessage(
             message,
             contactPublicKey,
             contactRepository,
@@ -471,7 +471,7 @@ class BLEMessageHandler {
       // 🔧 FIX: Get trust level safely with fallback
       SecurityLevel trustLevel;
       try {
-        trustLevel = await SecurityManager.getCurrentLevel(
+        trustLevel = await SecurityManager.instance.getCurrentLevel(
           contactPublicKey ?? '',
           contactRepository,
         );
@@ -995,7 +995,7 @@ class BLEMessageHandler {
               senderPublicKey != null &&
               senderPublicKey.isNotEmpty) {
             try {
-              decryptedContent = await SecurityManager.decryptMessage(
+              decryptedContent = await SecurityManager.instance.decryptMessage(
                 content,
                 senderPublicKey,
                 _contactRepository,
@@ -1218,7 +1218,7 @@ class BLEMessageHandler {
       return 'global';
     }
 
-    final level = await SecurityManager.getCurrentLevel(
+    final level = await SecurityManager.instance.getCurrentLevel(
       contactPublicKey,
       contactRepository,
     );
@@ -1327,7 +1327,7 @@ class BLEMessageHandler {
 
         // Register mapping for Noise session lookup
         if (senderPublicKey != null) {
-          SecurityManager.registerIdentityMapping(
+          SecurityManager.instance.registerIdentityMapping(
             persistentPublicKey: theirPersistentKey,
             ephemeralID: senderPublicKey,
           );
@@ -1801,7 +1801,7 @@ class BLEMessageHandler {
     // Check if Noise session exists
     final noiseSessionExists =
         contact?.currentEphemeralId != null &&
-        SecurityManager.noiseService?.hasEstablishedSession(
+        SecurityManager.instance.noiseService?.hasEstablishedSession(
               contact!.currentEphemeralId!,
             ) ==
             true;

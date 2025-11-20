@@ -19,6 +19,7 @@ import '../domain/services/chat_management_service.dart';
 import '../domain/services/auto_archive_scheduler.dart';
 import '../domain/services/notification_service.dart';
 import '../domain/services/notification_handler_factory.dart';
+import '../data/services/seen_message_store.dart';
 // 🔧 REMOVED: BLEStateManager import - not used by AppCore
 // import '../data/services/ble_state_manager.dart';
 import '../data/repositories/contact_repository.dart';
@@ -109,6 +110,11 @@ class AppCore {
       _logger.info(
         '✅ Repositories initialized in ${DateTime.now().difference(repoStart).inMilliseconds}ms',
       );
+
+      // Initialize seen message store after database setup
+      _logger.info('👀 Initializing SeenMessageStore...');
+      await SeenMessageStore.instance.initialize();
+      _logger.info('✅ SeenMessageStore initialized');
 
       // 🔧 FIX P0: Initialize message queue FIRST before any BLE components can access it
       _logger.info(
@@ -263,7 +269,8 @@ class AppCore {
 
     // Initialize SecurityManager with Noise Protocol
     _logger.info('🔒 Initializing SecurityManager with Noise Protocol...');
-    await SecurityManager.initialize();
+    final securityManager = SecurityManager.instance;
+    await securityManager.initialize();
     _logger.info('✅ SecurityManager initialized successfully');
 
     // 🔧 FIX P1: Initialize EphemeralKeyManager ONCE here before any component uses it

@@ -103,61 +103,60 @@ void main() {
   setUpAll(() async {
     // Initialize SecurityManager with mock storage
     mockStorage = MockSecureStorage();
-    await SecurityManager.initialize(secureStorage: mockStorage);
+    await SecurityManager.instance.initialize(secureStorage: mockStorage);
   });
 
   tearDownAll(() {
     // Shutdown SecurityManager
-    SecurityManager.shutdown();
+    SecurityManager.instance.shutdown();
   });
 
   group('SecurityManager with Noise Integration', () {
     test('initializes with Noise service', () {
-      expect(SecurityManager.noiseService, isNotNull);
+      expect(SecurityManager.instance.noiseService, isNotNull);
       expect(
-        SecurityManager.noiseService!.getStaticPublicKeyData().length,
+        SecurityManager.instance.noiseService!.getStaticPublicKeyData().length,
         equals(32),
       );
     });
 
     test('getIdentityFingerprint returns valid fingerprint', () {
-      final fingerprint = SecurityManager.noiseService!
+      final fingerprint = SecurityManager.instance.noiseService!
           .getIdentityFingerprint();
       expect(fingerprint.length, equals(64)); // SHA-256 hex
       expect(fingerprint, matches(RegExp(r'^[0-9a-f]{64}$')));
     });
 
     test('can initialize twice (idempotent)', () async {
-      final fingerprint1 = SecurityManager.noiseService!
+      final fingerprint1 = SecurityManager.instance.noiseService!
           .getIdentityFingerprint();
 
-      await SecurityManager.initialize(
+      await SecurityManager.instance.initialize(
         secureStorage: mockStorage,
       ); // Second init
 
-      final fingerprint2 = SecurityManager.noiseService!
+      final fingerprint2 = SecurityManager.instance.noiseService!
           .getIdentityFingerprint();
       expect(fingerprint1, equals(fingerprint2));
     });
 
     test('Noise service is available for encryption', () async {
       // Verify Noise service is ready
-      expect(SecurityManager.noiseService, isNotNull);
+      expect(SecurityManager.instance.noiseService, isNotNull);
 
       // Verify it can initiate handshakes
-      final msg1 = await SecurityManager.noiseService!.initiateHandshake(
-        'test_peer',
-      );
+      final msg1 = await SecurityManager.instance.noiseService!
+          .initiateHandshake('test_peer');
       expect(msg1, isNotNull);
       expect(msg1!.length, equals(32)); // First message in XX handshake
     });
 
     test('shutdown clears Noise service', () {
-      SecurityManager.shutdown();
-      expect(SecurityManager.noiseService, isNull);
+      SecurityManager.instance.shutdown();
+      expect(SecurityManager.instance.noiseService, isNull);
 
       // Re-initialize for other tests
-      SecurityManager.initialize(secureStorage: mockStorage);
+      SecurityManager.instance.initialize(secureStorage: mockStorage);
     });
 
     test('EncryptionMethod factories create correct types', () {

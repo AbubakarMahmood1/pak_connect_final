@@ -9,6 +9,7 @@ import '../../core/scanning/burst_scanning_controller.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../domain/services/mesh_networking_service.dart';
+import '../../domain/models/mesh_network_models.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'mesh_networking_provider.dart';
 import '../../data/repositories/user_preferences.dart';
@@ -539,10 +540,6 @@ class ConnectivityStatus {
       capabilities.add('Mesh Relay');
     }
 
-    if (meshNetworkStatus.asData?.value.isDemoMode == true) {
-      capabilities.add('Demo Mode');
-    }
-
     return capabilities;
   }
 }
@@ -587,9 +584,6 @@ class MeshEnabledBLEOperations {
         final result = await meshController.sendMeshMessage(
           content: content,
           recipientPublicKey: recipientPublicKey,
-          isDemo:
-              connectivityStatus.meshNetworkStatus.asData?.value.isDemoMode ??
-              false,
         );
 
         return MessageSendResult(
@@ -726,13 +720,11 @@ class UnifiedMessagingService {
     required String content,
     required String recipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
-    bool isDemo = false,
   }) async {
     final result = await meshController.sendMeshMessage(
       content: content,
       recipientPublicKey: recipientPublicKey,
       priority: priority,
-      isDemo: isDemo,
     );
 
     return MessageSendResult(

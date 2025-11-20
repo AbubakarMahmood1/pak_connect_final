@@ -36,7 +36,6 @@ void main() {
       await routingService.initialize(
         currentNodeId: nodeA,
         topologyAnalyzer: topologyAnalyzer,
-        enableDemo: false,
       );
 
       contactRepository = ContactRepository();

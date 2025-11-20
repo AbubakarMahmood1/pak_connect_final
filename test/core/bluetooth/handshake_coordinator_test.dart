@@ -103,11 +103,13 @@ void main() {
     await TestSetup.initializeTestEnvironment(dbLabel: 'handshake_coordinator');
 
     // Initialize SecurityManager with mock storage
-    await SecurityManager.initialize(secureStorage: MockSecureStorage());
+    await SecurityManager.instance.initialize(
+      secureStorage: MockSecureStorage(),
+    );
   });
 
   tearDownAll(() {
-    SecurityManager.shutdown();
+    SecurityManager.instance.shutdown();
   });
 
   group('HandshakeCoordinator with Noise Protocol', () {
@@ -243,13 +245,13 @@ void main() {
     });
 
     test('SecurityManager Noise service is available', () {
-      final noiseService = SecurityManager.noiseService;
+      final noiseService = SecurityManager.instance.noiseService;
       expect(noiseService, isNotNull);
       expect(noiseService!.getStaticPublicKeyData().length, equals(32));
     });
 
     test('Noise handshake messages have expected sizes', () async {
-      final noiseService = SecurityManager.noiseService!;
+      final noiseService = SecurityManager.instance.noiseService!;
 
       // Message 1: -> e (ephemeral key)
       final msg1 = await noiseService.initiateHandshake('peer1');

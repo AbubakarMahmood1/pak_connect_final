@@ -18,6 +18,8 @@ import '../interfaces/i_contact_repository.dart';
 import '../interfaces/i_message_repository.dart';
 import '../interfaces/i_mesh_routing_service.dart';
 import '../interfaces/i_seen_message_store.dart';
+import '../interfaces/i_mesh_networking_service.dart';
+import '../interfaces/i_security_manager.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_preferences_repository.dart';
@@ -256,17 +258,29 @@ void registerInitializedServices({
   _logger.info('📋 Registering initialized services...');
 
   try {
-    // Register SecurityManager singleton
-    getIt.registerSingleton<SecurityManager>(securityManager);
-    _logger.fine('✅ SecurityManager registered in DI container');
+    // Register SecurityManager singleton + interface
+    if (!getIt.isRegistered<SecurityManager>()) {
+      getIt.registerSingleton<SecurityManager>(securityManager);
+      _logger.fine('✅ SecurityManager registered in DI container');
+    }
+    if (!getIt.isRegistered<ISecurityManager>()) {
+      getIt.registerSingleton<ISecurityManager>(securityManager);
+      _logger.fine('✅ ISecurityManager registered in DI container');
+    }
 
     // Register BLEService singleton
     getIt.registerSingleton<BLEService>(bleService);
     _logger.fine('✅ BLEService registered in DI container');
 
-    // Register MeshNetworkingService singleton
-    getIt.registerSingleton<MeshNetworkingService>(meshNetworkingService);
-    _logger.fine('✅ MeshNetworkingService registered in DI container');
+    // Register MeshNetworkingService singleton + interface
+    if (!getIt.isRegistered<MeshNetworkingService>()) {
+      getIt.registerSingleton<MeshNetworkingService>(meshNetworkingService);
+      _logger.fine('✅ MeshNetworkingService registered in DI container');
+    }
+    if (!getIt.isRegistered<IMeshNetworkingService>()) {
+      getIt.registerSingleton<IMeshNetworkingService>(meshNetworkingService);
+      _logger.fine('✅ IMeshNetworkingService registered in DI container');
+    }
 
     _logger.info(
       '✅ All initialized services registered (includes Phase 3 interfaces)',

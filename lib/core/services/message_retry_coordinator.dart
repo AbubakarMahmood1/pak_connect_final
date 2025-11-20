@@ -7,7 +7,7 @@ import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../messaging/offline_message_queue.dart';
-import '../../domain/services/mesh_networking_service.dart';
+import '../interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:get_it/get_it.dart';
 
@@ -21,7 +21,7 @@ class MessageRetryCoordinator {
   MessageRetryCoordinator({
     IRepositoryProvider? repositoryProvider,
     required OfflineMessageQueue offlineQueue,
-    MeshNetworkingService?
+    IMeshNetworkingService?
     meshService, // Kept for API compatibility but not used
   }) : _repositoryProvider =
            repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),

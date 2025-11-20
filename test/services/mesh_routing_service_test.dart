@@ -27,7 +27,6 @@ void main() {
       await routingService.initialize(
         currentNodeId: nodeA,
         topologyAnalyzer: topologyAnalyzer,
-        enableDemo: false,
       );
     });
 
@@ -55,15 +54,14 @@ void main() {
       service.dispose();
     });
 
-    test('Service can be initialized with demo mode enabled', () async {
-      final demoService = MeshRoutingService();
-      await demoService.initialize(
+    test('Service initializes with alternate node IDs', () async {
+      final otherService = MeshRoutingService();
+      await otherService.initialize(
         currentNodeId: nodeC,
         topologyAnalyzer: topologyAnalyzer,
-        enableDemo: true,
       );
-      expect(demoService, isNotNull);
-      demoService.dispose();
+      expect(otherService, isNotNull);
+      otherService.dispose();
     });
 
     // ============================================================================
@@ -204,29 +202,6 @@ void main() {
     });
 
     // ============================================================================
-    // DEMO MODE TESTS
-    // ============================================================================
-
-    test('Demo mode can be toggled', () async {
-      routingService.setDemoMode(true);
-      routingService.setDemoMode(false);
-      expect(routingService, isNotNull);
-    });
-
-    test('Demo mode toggle multiple times', () async {
-      for (int i = 0; i < 3; i++) {
-        routingService.setDemoMode(true);
-        routingService.setDemoMode(false);
-      }
-      expect(routingService, isNotNull);
-    });
-
-    test('Demo decisions stream is accessible', () async {
-      final stream = routingService.demoDecisions;
-      expect(stream, isNotNull);
-    });
-
-    // ============================================================================
     // EDGE CASE TESTS
     // ============================================================================
 
@@ -355,8 +330,6 @@ void main() {
       expect(routingService.removeConnection, isNotNull);
       expect(routingService.getStatistics, isNotNull);
       expect(routingService.clearAll, isNotNull);
-      expect(routingService.setDemoMode, isNotNull);
-      expect(routingService.demoDecisions, isNotNull);
       expect(routingService.dispose, isNotNull);
     });
 

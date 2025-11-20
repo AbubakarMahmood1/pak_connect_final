@@ -53,14 +53,13 @@ void main() {
           currentNodeId: arshad,
         );
 
-        await smartRouter.initialize(enableDemo: true);
+        await smartRouter.initialize();
 
         // Create routing service wrapping the smart router
         final routingService = MeshRoutingService();
         await routingService.initialize(
           currentNodeId: arshad,
           topologyAnalyzer: topologyAnalyzer,
-          enableDemo: true,
         );
 
         // Create relay engine with routing service
@@ -87,7 +86,6 @@ void main() {
         final routerStats = smartRouter.getStatistics();
         expect(routerStats, isNotNull);
         expect(routerStats.nodeId, equals(arshad));
-        expect(routerStats.demoModeEnabled, isTrue);
 
         // Test 3: Verify topology analysis works
         await topologyAnalyzer.addConnection(arshad, abubakar);

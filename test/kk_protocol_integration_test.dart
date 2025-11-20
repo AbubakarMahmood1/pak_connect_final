@@ -103,7 +103,7 @@ void main() {
       dbLabel: 'kk_protocol_integration',
     );
     mockStorage = MockSecureStorage();
-    await SecurityManager.initialize(secureStorage: mockStorage);
+    await SecurityManager.instance.initialize(secureStorage: mockStorage);
   });
 
   group('KK Protocol Integration Tests', () {
@@ -115,7 +115,7 @@ void main() {
       bobContactRepo = ContactRepository();
 
       // Clear all Noise sessions to prevent pollution between tests
-      SecurityManager.clearAllNoiseSessions();
+      SecurityManager.instance.clearAllNoiseSessions();
 
       // Clear all contacts
       final aliceContacts = await aliceContactRepo.getAllContacts();
@@ -320,7 +320,7 @@ void main() {
           await aliceContactRepo.deleteContact(key);
         }
         // Also clear Alice's Noise session (simulates app restart after data loss)
-        SecurityManager.noiseService?.removeSession('bob_eph_1');
+        SecurityManager.instance.noiseService?.removeSession('bob_eph_1');
         print('✅ Central data cleared');
 
         // Step 3: Create new coordinators for reconnection
@@ -405,7 +405,7 @@ void main() {
           await bobContactRepo.deleteContact(key);
         }
         // Also clear Bob's Noise session (simulates app restart after data loss)
-        SecurityManager.noiseService?.removeSession('alice_eph_1');
+        SecurityManager.instance.noiseService?.removeSession('alice_eph_1');
         print('✅ Peripheral data cleared');
 
         // Step 3: Create new coordinators for reconnection

@@ -8,11 +8,11 @@ import 'test_helpers/test_setup.dart';
 void main() {
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'message_sending_fixes');
-    await SecurityManager.initialize();
+    await SecurityManager.instance.initialize();
   });
 
   tearDownAll(() {
-    SecurityManager.shutdown();
+    SecurityManager.instance.shutdown();
   });
 
   setUp(() async {
@@ -33,14 +33,17 @@ void main() {
 
     test('getCurrentLevel handles empty string gracefully', () async {
       // This should NOT throw RangeError
-      final level = await SecurityManager.getCurrentLevel('', contactRepo);
+      final level = await SecurityManager.instance.getCurrentLevel(
+        '',
+        contactRepo,
+      );
 
       expect(level, SecurityLevel.low);
     });
 
     test('getCurrentLevel handles short strings without error', () async {
       // Test with string shorter than 16 characters
-      final level = await SecurityManager.getCurrentLevel(
+      final level = await SecurityManager.instance.getCurrentLevel(
         'abc123',
         contactRepo,
       );
@@ -53,7 +56,10 @@ void main() {
       final longKey = 'a' * 130; // Typical public key length
 
       // Should not crash
-      final level = await SecurityManager.getCurrentLevel(longKey, contactRepo);
+      final level = await SecurityManager.instance.getCurrentLevel(
+        longKey,
+        contactRepo,
+      );
 
       expect(level, SecurityLevel.low);
     });
@@ -63,7 +69,10 @@ void main() {
       String? nullKey;
       final key = nullKey ?? '';
 
-      final level = await SecurityManager.getCurrentLevel(key, contactRepo);
+      final level = await SecurityManager.instance.getCurrentLevel(
+        key,
+        contactRepo,
+      );
 
       expect(level, SecurityLevel.low);
     });

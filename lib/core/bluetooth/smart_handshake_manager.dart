@@ -68,7 +68,8 @@ class SmartHandshakeManager {
     _logger.info('🤝 Initiating handshake with $peerID');
 
     // Get pattern selection from SecurityManager
-    final (pattern, remoteStaticKey) = await SecurityManager.selectNoisePattern(
+    final securityManager = SecurityManager.instance;
+    final (pattern, remoteStaticKey) = await securityManager.selectNoisePattern(
       peerID,
     );
 

@@ -1,4 +1,3 @@
-import 'dart:async';
 import '../routing/routing_models.dart';
 import '../routing/network_topology_analyzer.dart';
 import '../routing/smart_mesh_router.dart';
@@ -15,7 +14,6 @@ abstract class IMeshRoutingService {
   Future<void> initialize({
     required String currentNodeId,
     required NetworkTopologyAnalyzer topologyAnalyzer,
-    bool enableDemo = false,
   });
 
   /// Determine the optimal route for a message to reach a final recipient
@@ -52,12 +50,6 @@ abstract class IMeshRoutingService {
 
   /// Clear all routing state (topology, cache, connections)
   void clearAll();
-
-  /// Enable/disable demo mode for visualization
-  void setDemoMode(bool enabled);
-
-  /// Stream of routing decisions (for demo/monitoring)
-  Stream<RoutingDecision> get demoDecisions;
 
   /// Clean up resources (timers, controllers)
   void dispose();

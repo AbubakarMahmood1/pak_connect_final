@@ -4,25 +4,21 @@ import '../../core/routing/network_topology_analyzer.dart';
 import '../../core/routing/connection_quality_monitor.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
-/// Widget that displays routing status and decisions for demo purposes
+/// Widget that displays routing status and decisions for monitoring purposes
 class RoutingStatusIndicator extends StatelessWidget {
   final RoutingDecision? lastDecision;
-  final bool demoMode;
   final NetworkTopologyStats? topologyStats;
   final QualityMonitoringStats? qualityStats;
 
   const RoutingStatusIndicator({
     super.key,
     this.lastDecision,
-    required this.demoMode,
     this.topologyStats,
     this.qualityStats,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (!demoMode) return const SizedBox.shrink();
-
     return Container(
       padding: const EdgeInsets.all(12),
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -45,21 +41,6 @@ class RoutingStatusIndicator extends StatelessWidget {
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: _getStatusColor(context),
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  'DEMO',
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
                   ),
                 ),
               ),

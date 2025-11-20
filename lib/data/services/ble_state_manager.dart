@@ -579,7 +579,7 @@ class BLEStateManager {
           // 🔑 CRITICAL: Register identity mapping for Noise session lookup
           // This enables encryption/decryption with persistent keys while Noise session
           // remains keyed by ephemeral ID
-          SecurityManager.registerIdentityMapping(
+          SecurityManager.instance.registerIdentityMapping(
             persistentPublicKey: _theirPersistentKey!,
             ephemeralID: _theirEphemeralId!,
           );
@@ -608,7 +608,9 @@ class BLEStateManager {
 
       // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
       if (_theirPersistentKey != null) {
-        SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+        SecurityManager.instance.unregisterIdentityMapping(
+          _theirPersistentKey!,
+        );
         _logger.info(
           '🔐 Unregistered identity mapping due to verification failure',
         );
@@ -823,7 +825,7 @@ class BLEStateManager {
 
     // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
     if (_theirPersistentKey != null) {
-      SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+      SecurityManager.instance.unregisterIdentityMapping(_theirPersistentKey!);
       _logger.info(
         '🔐 Unregistered identity mapping due to pairing cancellation',
       );
@@ -855,7 +857,7 @@ class BLEStateManager {
 
     // 🔒 Cleanup: Unregister identity mapping if persistent key was exchanged
     if (_theirPersistentKey != null) {
-      SecurityManager.unregisterIdentityMapping(_theirPersistentKey!);
+      SecurityManager.instance.unregisterIdentityMapping(_theirPersistentKey!);
       _logger.info('🔐 Unregistered identity mapping due to user cancellation');
     }
 
@@ -929,7 +931,7 @@ class BLEStateManager {
     // arrives before our _performVerification() completes. Without this, _processMessage()
     // would switch to persistentKey but NoiseSessionManager would fail to find the session
     // (keyed by ephemeralId). Now the mapping exists before any decryption attempt.
-    SecurityManager.registerIdentityMapping(
+    SecurityManager.instance.registerIdentityMapping(
       persistentPublicKey: theirPersistentKey,
       ephemeralID: _theirEphemeralId!,
     );
