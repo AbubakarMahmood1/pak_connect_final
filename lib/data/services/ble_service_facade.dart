@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import '../../core/interfaces/i_ble_service_facade.dart';
 import '../../core/interfaces/i_connection_service.dart';
 import '../../core/interfaces/i_ble_platform_host.dart';
@@ -74,6 +75,11 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       StreamController<String>.broadcast();
   Future<bool> Function(QueueSyncMessage message, String fromNodeId)?
   _queueSyncHandler;
+  final List<dynamic> _handshakeMessageBuffer = [];
+  final StreamController<SpyModeInfo> _handshakeSpyModeController =
+      StreamController<SpyModeInfo>.broadcast();
+  final StreamController<String> _handshakeIdentityController =
+      StreamController<String>.broadcast();
 
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
@@ -195,20 +201,19 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   IBLEHandshakeService _getHandshakeService() {
     return _handshakeService ??= BLEHandshakeService(
       stateManager: _stateManager,
-      onIdentityExchangeSent: (ephemeralId, displayName) {},
+      onIdentityExchangeSent: _handleIdentityExchangeSent,
       updateConnectionInfo: _updateConnectionInfo,
-      setHandshakeInProgress: (val) {},
-      handleSpyModeDetected: (info) {},
-      handleIdentityRevealed: (identity) {},
-      sendProtocolMessage: (msg) async {},
-      processPendingMessages: () async {},
-      startGossipSync: () async {},
-      onHandshakeCompleteCallback:
-          (ephemeralId, displayName, noiseKey) async {},
-      spyModeDetectedController: StreamController<SpyModeInfo>.broadcast(),
-      identityRevealedController: StreamController<String>.broadcast(),
+      setHandshakeInProgress: _getConnectionService().setHandshakeInProgress,
+      handleSpyModeDetected: _handleSpyModeDetected,
+      handleIdentityRevealed: _handleIdentityRevealed,
+      sendProtocolMessage: _sendHandshakeProtocolMessage,
+      processPendingMessages: _processPendingHandshakeMessages,
+      startGossipSync: _startGossipSync,
+      onHandshakeCompleteCallback: _handleHandshakeComplete,
+      spyModeDetectedController: _handshakeSpyModeController,
+      identityRevealedController: _handshakeIdentityController,
       introHintRepo: _introHintRepository,
-      messageBuffer: [],
+      messageBuffer: _handshakeMessageBuffer,
     );
   }
 
@@ -268,6 +273,12 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       }
       if (!_hintMatchesController.isClosed) {
         await _hintMatchesController.close();
+      }
+      if (!_handshakeSpyModeController.isClosed) {
+        await _handshakeSpyModeController.close();
+      }
+      if (!_handshakeIdentityController.isClosed) {
+        await _handshakeIdentityController.close();
       }
     }
   }
@@ -337,6 +348,13 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   ) {
     _logger.info('📡 Registering queue sync handler for mesh networking');
     _queueSyncHandler = handler;
+    _messageHandler.onQueueSyncReceived = (message, fromNodeId) {
+      final registeredHandler = _queueSyncHandler;
+      if (registeredHandler != null) {
+        unawaited(registeredHandler(message, fromNodeId));
+      }
+    };
+    _getMessagingService().registerQueueSyncMessageHandler(handler);
   }
 
   @override
@@ -833,15 +851,89 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     _logger.info('🔄 Retrying Bluetooth initialization...');
   }
 
+  void _handleIdentityExchangeSent(String publicKey, String displayName) {
+    final truncatedKey = publicKey.length > 16
+        ? '${publicKey.substring(0, 8)}...'
+        : publicKey;
+    _logger.fine(
+      '🪪 Identity exchange sent (pubKey: $truncatedKey, displayName: $displayName)',
+    );
+  }
+
+  Future<void> _sendHandshakeProtocolMessage(ProtocolMessage message) =>
+      _getMessagingService().sendHandshakeMessage(message);
+
+  Future<void> _processPendingHandshakeMessages() async {
+    if (_handshakeMessageBuffer.isNotEmpty) {
+      _logger.fine(
+        '📦 Flushing ${_handshakeMessageBuffer.length} buffered handshake message(s)',
+      );
+      _handshakeMessageBuffer.clear();
+    }
+  }
+
+  Future<void> _startGossipSync() async {
+    // Placeholder hook for full gossip sync integration once wired
+    _logger.finer('🕸️ Gossip sync start hook invoked');
+  }
+
+  Future<void> _handleHandshakeComplete(
+    String ephemeralId,
+    String displayName,
+    String? noiseKey,
+  ) async {
+    final truncatedId = ephemeralId.length > 8
+        ? '${ephemeralId.substring(0, 8)}...'
+        : ephemeralId;
+    _logger.info('🤝 Handshake complete with $displayName ($truncatedId)');
+    _stateManager.setOtherUserName(displayName);
+    _stateManager.setTheirEphemeralId(ephemeralId, displayName);
+    _updateConnectionInfo(
+      isConnected: true,
+      isReady: true,
+      otherUserName: displayName,
+      statusMessage: 'Ready to chat',
+    );
+    await _processPendingHandshakeMessages();
+    await _startGossipSync();
+  }
+
   void _handleSpyModeDetected(SpyModeInfo info) {
-    // Will be fully implemented in Phase 2A.3
+    _logger.warning(
+      '🕵️ Spy mode detected with ${info.contactName ?? 'unknown contact'}',
+    );
+    // Notify state manager + any registered listeners
+    _stateManager.onSpyModeDetected?.call(info);
+    if (!_handshakeSpyModeController.isClosed) {
+      _handshakeSpyModeController.add(info);
+    }
   }
 
   void _handleIdentityRevealed(String contactId) {
-    // Will be fully implemented in Phase 2A.3
+    _logger.info('🪪 Identity revealed to contact: $contactId');
+    _stateManager.onIdentityRevealed?.call(contactId);
+    if (!_handshakeIdentityController.isClosed) {
+      _handshakeIdentityController.add(contactId);
+    }
   }
 
-  Future<void> _onHandshakeComplete() async {
-    // Will be fully implemented in Phase 2A.3
+  // ============================================================================
+  // TEST SUPPORT
+  // ============================================================================
+
+  @visibleForTesting
+  void debugEmitSpyModeDetected(SpyModeInfo info) =>
+      _handleSpyModeDetected(info);
+
+  @visibleForTesting
+  void debugEmitIdentityRevealed(String contactId) =>
+      _handleIdentityRevealed(contactId);
+
+  @visibleForTesting
+  void debugHandleQueueSync(QueueSyncMessage message, String fromNodeId) {
+    final callback = _messageHandler.onQueueSyncReceived;
+    if (callback != null) {
+      callback(message, fromNodeId);
+    }
   }
 }

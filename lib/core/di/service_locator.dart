@@ -5,6 +5,9 @@ import '../../data/services/seen_message_store.dart';
 import '../../data/services/mesh_routing_service.dart';
 import '../../data/database/database_provider.dart';
 import '../../domain/services/mesh_networking_service.dart';
+import '../../domain/services/mesh/mesh_network_health_monitor.dart';
+import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
+import '../../domain/services/mesh/mesh_relay_coordinator.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
@@ -22,6 +25,7 @@ import '../interfaces/i_seen_message_store.dart';
 import '../interfaces/i_mesh_networking_service.dart';
 import '../interfaces/i_security_manager.dart';
 import '../interfaces/i_connection_service.dart';
+import '../interfaces/i_ble_service_facade.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_preferences_repository.dart';
@@ -256,6 +260,9 @@ void registerInitializedServices({
   required SecurityManager securityManager,
   required IConnectionService connectionService,
   required MeshNetworkingService meshNetworkingService,
+  MeshRelayCoordinator? meshRelayCoordinator,
+  MeshQueueSyncCoordinator? meshQueueSyncCoordinator,
+  MeshNetworkHealthMonitor? meshHealthMonitor,
 }) {
   _logger.info('📋 Registering initialized services...');
 
@@ -292,6 +299,13 @@ void registerInitializedServices({
       getIt.registerSingleton<IConnectionService>(connectionService);
       _logger.fine('✅ IConnectionService registered in DI container');
     }
+    if (connectionService is IBLEServiceFacade &&
+        !getIt.isRegistered<IBLEServiceFacade>()) {
+      getIt.registerSingleton<IBLEServiceFacade>(
+        connectionService as IBLEServiceFacade,
+      );
+      _logger.fine('✅ IBLEServiceFacade registered in DI container');
+    }
 
     // Register MeshNetworkingService singleton + interface
     if (!getIt.isRegistered<MeshNetworkingService>()) {
@@ -301,6 +315,24 @@ void registerInitializedServices({
     if (!getIt.isRegistered<IMeshNetworkingService>()) {
       getIt.registerSingleton<IMeshNetworkingService>(meshNetworkingService);
       _logger.fine('✅ IMeshNetworkingService registered in DI container');
+    }
+
+    if (meshRelayCoordinator != null &&
+        !getIt.isRegistered<MeshRelayCoordinator>()) {
+      getIt.registerSingleton<MeshRelayCoordinator>(meshRelayCoordinator);
+      _logger.fine('✅ MeshRelayCoordinator registered in DI container');
+    }
+    if (meshQueueSyncCoordinator != null &&
+        !getIt.isRegistered<MeshQueueSyncCoordinator>()) {
+      getIt.registerSingleton<MeshQueueSyncCoordinator>(
+        meshQueueSyncCoordinator,
+      );
+      _logger.fine('✅ MeshQueueSyncCoordinator registered in DI container');
+    }
+    if (meshHealthMonitor != null &&
+        !getIt.isRegistered<MeshNetworkHealthMonitor>()) {
+      getIt.registerSingleton<MeshNetworkHealthMonitor>(meshHealthMonitor);
+      _logger.fine('✅ MeshNetworkHealthMonitor registered in DI container');
     }
 
     _logger.info(

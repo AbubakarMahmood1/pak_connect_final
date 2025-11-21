@@ -1,9 +1,11 @@
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pak_connect/core/interfaces/i_chats_repository.dart';
+import 'package:pak_connect/domain/entities/chat_list_item.dart';
+import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/presentation/models/chat_ui_state.dart';
 import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.dart';
-import 'package:pak_connect/presentation/providers/chat_messaging_view_model.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 
 // Mock implementations
@@ -76,6 +78,69 @@ class MockMessageRepository implements MessageRepository {
   @override
   Future<List<Message>> getMessagesForContact(String publicKey) async =>
       _messages;
+}
+
+class MockChatsRepository implements IChatsRepository {
+  List<ChatListItem> chats = [];
+  final Map<String, int> _unreadByChat = {};
+
+  @override
+  Future<int> cleanupOrphanedEphemeralContacts() async => 0;
+
+  @override
+  Future<int> getArchivedChatCount() async => 0;
+
+  @override
+  Future<int> getChatCount() async => chats.length;
+
+  @override
+  Future<List<ChatListItem>> getAllChats({
+    List<Peripheral>? nearbyDevices,
+    Map<String, DiscoveredEventArgs>? discoveryData,
+    String? searchQuery,
+  }) async {
+    return chats
+        .map(
+          (chat) => ChatListItem(
+            chatId: chat.chatId,
+            contactName: chat.contactName,
+            contactPublicKey: chat.contactPublicKey,
+            lastMessage: chat.lastMessage,
+            lastMessageTime: chat.lastMessageTime,
+            unreadCount: _unreadByChat[chat.chatId] ?? chat.unreadCount,
+            isOnline: chat.isOnline,
+            hasUnsentMessages: chat.hasUnsentMessages,
+            lastSeen: chat.lastSeen,
+          ),
+        )
+        .toList();
+  }
+
+  @override
+  Future<List<Contact>> getContactsWithoutChats() async => [];
+
+  @override
+  Future<int> getTotalMessageCount() async => 0;
+
+  @override
+  Future<int> getTotalUnreadCount() async =>
+      _unreadByChat.values.fold<int>(0, (total, count) => total + count);
+
+  @override
+  Future<void> incrementUnreadCount(String chatId) async {
+    _unreadByChat.update(chatId, (value) => value + 1, ifAbsent: () => 1);
+  }
+
+  @override
+  Future<void> markChatAsRead(String chatId) async {
+    _unreadByChat[chatId] = 0;
+  }
+
+  @override
+  Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {}
+
+  @override
+  Future<void> updateContactLastSeen(String publicKey) async {}
 }
 
 void main() {
@@ -152,14 +217,16 @@ void main() {
 
   group('ChatScrollingController', () {
     late ChatScrollingController controller;
-    late MockMessageRepository mockRepository;
+    late MockChatsRepository mockChatsRepository;
 
     setUp(() {
-      mockRepository = MockMessageRepository();
+      mockChatsRepository = MockChatsRepository();
       controller = ChatScrollingController(
-        messageRepository: mockRepository,
+        chatsRepository: mockChatsRepository,
+        chatId: 'chat-1',
         onScrollToBottom: () {},
         onUnreadCountChanged: (_) {},
+        onStateChanged: () {},
       );
     });
 
@@ -170,12 +237,57 @@ void main() {
     test('should initialize with correct defaults', () {
       expect(controller.isUserAtBottom, isTrue);
       expect(controller.unreadMessageCount, equals(0));
-      expect(controller.shouldShowScrollDownButton(), isFalse);
+      expect(controller.shouldShowScrollDownButton(0), isFalse);
     });
 
     test('should set unread count', () {
       controller.setUnreadCount(5);
       expect(controller.unreadMessageCount, equals(5));
+    });
+
+    test('should sync unread state from repository data', () async {
+      mockChatsRepository.chats = const [
+        ChatListItem(
+          chatId: 'chat-1',
+          contactName: 'Alice',
+          unreadCount: 2,
+          isOnline: false,
+          hasUnsentMessages: false,
+        ),
+      ];
+
+      final messages = [
+        Message(
+          id: '1',
+          chatId: 'chat-1',
+          content: 'Hello',
+          isFromMe: false,
+          timestamp: DateTime.now(),
+          status: MessageStatus.delivered,
+        ),
+        Message(
+          id: '2',
+          chatId: 'chat-1',
+          content: 'Again',
+          isFromMe: true,
+          timestamp: DateTime.now(),
+          status: MessageStatus.delivered,
+        ),
+        Message(
+          id: '3',
+          chatId: 'chat-1',
+          content: 'More',
+          isFromMe: false,
+          timestamp: DateTime.now(),
+          status: MessageStatus.delivered,
+        ),
+      ];
+
+      await controller.syncUnreadCount(messages: messages);
+
+      expect(controller.unreadMessageCount, equals(2));
+      expect(controller.showUnreadSeparator, isTrue);
+      expect(controller.lastReadMessageIndex, equals(0));
     });
 
     test('should decrement unread count', () {
@@ -188,7 +300,7 @@ void main() {
 
     test('should track scroll position changes', () {
       expect(controller.isUserAtBottom, isTrue);
-      expect(controller.shouldShowScrollDownButton(), isFalse);
+      expect(controller.shouldShowScrollDownButton(0), isFalse);
     });
 
     test('should reset scroll state', () {
@@ -211,19 +323,23 @@ void main() {
   group('ChatScrollingController Integration', () {
     late ChatScrollingController controller1;
     late ChatScrollingController controller2;
-    late MockMessageRepository mockRepository;
+    late MockChatsRepository mockChatsRepository;
 
     setUp(() {
-      mockRepository = MockMessageRepository();
+      mockChatsRepository = MockChatsRepository();
       controller1 = ChatScrollingController(
-        messageRepository: mockRepository,
+        chatsRepository: mockChatsRepository,
+        chatId: 'chat-1',
         onScrollToBottom: () {},
         onUnreadCountChanged: (_) {},
+        onStateChanged: () {},
       );
       controller2 = ChatScrollingController(
-        messageRepository: mockRepository,
+        chatsRepository: mockChatsRepository,
+        chatId: 'chat-2',
         onScrollToBottom: () {},
         onUnreadCountChanged: (_) {},
+        onStateChanged: () {},
       );
     });
 
@@ -262,14 +378,25 @@ void main() {
 
   group('Integration: ChatUIState + ChatScrollingController', () {
     late ChatScrollingController scrollController;
-    late MockMessageRepository mockRepository;
+    late MockChatsRepository mockChatsRepository;
 
     setUp(() {
-      mockRepository = MockMessageRepository();
+      mockChatsRepository = MockChatsRepository()
+        ..chats = [
+          const ChatListItem(
+            chatId: 'chat-1',
+            contactName: 'User',
+            unreadCount: 0,
+            isOnline: false,
+            hasUnsentMessages: false,
+          ),
+        ];
       scrollController = ChatScrollingController(
-        messageRepository: mockRepository,
+        chatsRepository: mockChatsRepository,
+        chatId: 'chat-1',
         onScrollToBottom: () {},
         onUnreadCountChanged: (_) {},
+        onStateChanged: () {},
       );
     });
 

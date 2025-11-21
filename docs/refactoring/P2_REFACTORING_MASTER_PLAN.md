@@ -9,40 +9,39 @@ the team can see what is actually done and what must happen next.
 
 ## Current Status Summary
 
-- **Phase 0 – Pre-Flight (~60 %)**: Baseline test log and `docs/refactoring/ARCHITECTURE_ANALYSIS.md`
-  exist, but the checklist in `docs/refactoring/phases/phase0_pre_flight.md:21-42`
-  still marks the ADR, dependency, and performance work as pending. Snapshot
-  branches such as `refactor/p2-architecture-baseline` were intentionally retired
-  once the work moved to the main local branch, so we no longer track them here.
-- **Phase 1 – DI Foundation (✅ 100 %)**: SecurityManager implements
+- **Phase 0 – Pre-Flight (✅)**: Checklist updated; ADR + architecture analysis +
+  dependencies all marked complete; performance baseline explicitly deferred to
+  the upcoming device pass with host benchmarks captured
+  (`docs/refactoring/phases/phase0_pre_flight.md`). Snapshot branch requirement
+  retired; work tracks on `phase-6-critical-refactoring`.
+- **Phase 1 – DI Foundation (✅)**: SecurityManager implements
   `ISecurityManager` (`lib/core/services/security_manager.dart:16`),
   MeshNetworkingService implements `IMeshNetworkingService`
-  (`lib/domain/services/mesh_networking_service.dart:33`), and BLEService fulfills
-  `IConnectionService` plus `IMeshBleService`
-  (`lib/data/services/ble_service.dart:18-54`). AppCore registers everything via
-  `registerInitializedServices` before Riverpod reads from GetIt
-  (`lib/core/app_core.dart:324-353`, `lib/core/di/service_locator.dart:253-304`).
-- **Phase 2 – Top 3 God Classes (~35 %)**: The BLE split is live
-  (`lib/data/services/ble_service_facade.dart:32-840`) and UI/providers now depend
-  on `IConnectionService` (`lib/presentation/providers/ble_providers.dart:16-227`,
-  `lib/presentation/screens/chat_screen.dart:150-2144`), but
-  `MeshNetworkingService` (1,517 lines) and `ChatScreen` (2,357 lines) remain
-  monoliths with no extracted coordinators or view models wired up.
-- **Phase 3 – Layer Violations (~70 %)**: Most consumers resolve interfaces such
-  as `IMeshBleService`/`IRepositoryProvider` and navigation is callback-driven, but
-  there is still no production `IConnectionService` implementation used by the
-  domain layer, and `MeshNetworkingService` talks directly to BLE instead of via a
-  dedicated connection abstraction.
-- **Phase 4 – Remaining God Classes (~20 %)**: Stubs like
-  `OfflineQueueFacade` exist, yet the targeted files are still >1,000 lines:
-  `ble_state_manager.dart` (2,326), `ble_message_handler.dart` (1,889),
-  `offline_message_queue.dart` (1,777), `chat_management_service.dart` (1,739),
-  `home_screen.dart` (1,150).
-- **Phase 5 – Testing Infrastructure (~85 %)**: Harness plumbing, fake BLE
-  platform, and CI coverage workflow are live, and `flutter_test_latest.log`
-  records **1,303 passing tests** (`flutter_test_latest.log:11540`), but the doc
-  still claims 1,284 tests, and log noise such as repeated
-  `InvalidCipherTextException` warnings has not been resolved.
+  (`lib/domain/services/mesh_networking_service.dart:37`), and BLEServiceFacade
+  fulfills `IConnectionService`/`IMeshBleService`
+  (`lib/data/services/ble_service.dart:18-53`,
+  `lib/data/services/ble_service_facade.dart:45`). AppCore registers everything
+  via `registerInitializedServices` before Riverpod reads from GetIt
+  (`lib/core/app_core.dart:324-359`, `lib/core/di/service_locator.dart:259-337`).
+- **Phase 2 – Top 3 God Classes (✅)**: BLE monolith replaced by the facade +
+  sub-services; providers and UI resolve `IConnectionService`. MeshNetworking
+  sits at 572 lines (`lib/domain/services/mesh_networking_service.dart`) and
+  ChatScreen at 442 lines (`lib/presentation/screens/chat_screen.dart`) with the
+  controller/view-model in place.
+- **Phase 3 – Layer Violations (ready)**: Most consumers already resolve
+  interfaces (`IConnectionService`, `IRepositoryProvider`, `IMeshBleService`).
+  Next actions are wiring remaining coordinators through the abstractions and
+  tightening DI seams for mesh/queue flows.
+- **Phase 4 – Remaining God Classes (~20 %)**: >1,000-line targets remain:
+  `ble_state_manager.dart` (2,328), `ble_message_handler.dart` (1,891),
+  `discovery_overlay.dart` (1,866), `offline_message_queue.dart` (1,778),
+  `settings_screen.dart` (1,748), `chat_management_service.dart` (1,739),
+  `home_screen.dart` (1,147).
+- **Phase 5 – Testing Infrastructure (~85 %)**: Harness/fakes/coverage workflow
+  live; latest run shows **1,325 passing tests**
+  (`flutter_test_latest.log:3766`). Remaining tasks: reduce
+  `InvalidCipherTextException`/SQLCipher “Database deleted” noise and refresh
+  docs with the current test count.
 
 ---
 
@@ -51,16 +50,15 @@ the team can see what is actually done and what must happen next.
 - **Branches**: No branch named `refactor/p2-architecture-baseline` in `git branch
   -a`; snapshot work must be documented another way.
 - **Tests**: `flutter test --coverage` last produced `flutter_test_latest.log`
-  with 1,303 passes and warnings about SQLCipher cleanup. Coverage data exists at
+  with 1,325 passes and warnings about SQLCipher cleanup. Coverage data exists at
   `coverage/lcov.info`.
 - **Dependencies**: `pubspec.yaml:30-91` already includes `get_it`, `mockito`,
   and the updated `build_runner`, matching the dependency task even though docs
   say otherwise.
 - **Performance Baseline**:
   `docs/refactoring/PERFORMANCE_BASELINE.md:9-60` remains “Status: Pending” on
-  purpose—real-device performance validation is deferred until after the current
-  refactor finishes, so the doc should capture that deferral instead of implying
-  work is blocked.
+  purpose—real-device performance validation is deferred until the device pass;
+  host benchmarks are recorded so the phase is not blocking.
 
 ---
 
@@ -68,44 +66,33 @@ the team can see what is actually done and what must happen next.
 
 | Deliverable | Status | Evidence |
 |-------------|--------|----------|
-| BLE split into facade + sub-services registered via DI | ✅ Complete | `lib/data/services/ble_service_facade.dart:32-840`, `lib/data/services/ble_service.dart:18-53`, `lib/core/di/service_locator.dart:253-304` |
-| App runtime and UI consume `IConnectionService` instead of the monolith | ✅ Complete | `lib/presentation/providers/ble_providers.dart:16-227`, `lib/presentation/screens/chat_screen.dart:150-2144`, `lib/presentation/widgets/discovery_overlay.dart:300-680` |
-| MeshNetworkingService reduced below 1,000 lines with relay/queue coordinators | ❌ Not started | `lib/domain/services/mesh_networking_service.dart` is still 1,517 lines and no `MeshRelayCoordinator`/`MeshQueueSyncService` files exist |
-| ChatScreen reduced below 500 lines with view model/controllers wired through DI | ❌ Not started | `lib/presentation/screens/chat_screen.dart` remains 2,357 lines even though helper types live under `lib/presentation/providers` and `lib/presentation/controllers` |
+| BLE split into facade + sub-services registered via DI | ✅ Complete | `lib/data/services/ble_service_facade.dart`, `lib/data/services/ble_service.dart:18-53`, `lib/core/di/service_locator.dart:259-337` |
+| App runtime and UI consume `IConnectionService` instead of the monolith | ✅ Complete | `lib/presentation/providers/ble_providers.dart:118-213`, `lib/presentation/screens/chat_screen.dart:1-442`, `lib/presentation/widgets/discovery_overlay.dart` |
+| MeshNetworkingService reduced below 1,000 lines with relay/queue coordinators | ✅ Complete | `lib/domain/services/mesh_networking_service.dart:1-572`, `lib/domain/services/mesh/mesh_relay_coordinator.dart`, `lib/domain/services/mesh/mesh_queue_sync_coordinator.dart` |
+| ChatScreen reduced below 500 lines with view model/controllers wired through DI | ✅ Complete | `lib/presentation/screens/chat_screen.dart:1-442` |
 
-**Phase 2 completion estimate**: roughly **35 %** (BLE stack done, Mesh +
-Chat refactors outstanding).
+**Phase 2 completion**: ✅ Done; remaining >1,000-line classes are tracked for Phase 4.
 
 ---
 
 ## Action Plan
 
-1. **Document Phase 0 reality**: update `phase0_pre_flight.md` with the finished
-   ADR/architecture/dependency ticks, record the missing branch decision, and fill
-   in the `PERFORMANCE_BASELINE.md` numbers (or state why they are blocked).
-2. **Finalize BLE seam adoption**: keep `IConnectionService` as the single
-   runtime seam and register the facade as such everywhere; remove any remaining
-   direct `BLEService` references once backwards compatibility is no longer
-   required.
-3. **Resume Phase 2 refactors**:
-   - Split `MeshNetworkingService` into the planned
-     `MeshRelayCoordinator`/`MeshQueueSyncService`/`MeshNetworkHealthMonitor`
-     pieces and wire them via DI.
-   - Move ChatScreen logic (retry wiring, mesh setup, pairing flows) into
-     `ChatMessagingViewModel`, controllers, and Riverpod providers so the widget
-     drops below the 500-line goal.
-4. **Phase 3 follow-through**: make `MeshNetworkingService` and other domain/core
-   services depend on `IConnectionService` (or another connection abstraction)
-   instead of `IMeshBleService`, then update `phase3` docs once the seam is live.
-5. **Phase 4 extractions**: execute the queued splits for
-   `ble_state_manager.dart`, `ble_message_handler.dart`,
-   `offline_message_queue.dart`, `chat_management_service.dart`, and
-   `home_screen.dart`, deleting unused facades/factories afterward.
-6. **Phase 5 hardening**: adopt `MockConnectionService`
-   (`test/test_helpers/mocks/mock_connection_service.dart`) inside suites,
-   eliminate the SQLCipher warnings, and refresh `phase5_testing_plan.md` with the
-   real 1,303 test count and coverage artifacts.
+1. **Phase 0/1/2 documentation refresh (done)**: phase0 checklist now reflects
+   completed ADR/dependency work and defers perf metrics explicitly; Phase 2
+   marked complete.
+2. **Begin Phase 3**: tighten layer boundaries by driving mesh/queue flows
+   through `IConnectionService`/`IRepositoryProvider` seams in production wiring
+   and providers; prune any legacy direct imports that remain.
+3. **Phase 4 prep**: plan splits for the current >1,000-line files
+   (`ble_state_manager.dart`, `ble_message_handler.dart`,
+   `offline_message_queue.dart`, `settings_screen.dart`,
+   `chat_management_service.dart`, `home_screen.dart`,
+   `discovery_overlay.dart`), sequencing lowest-risk first.
+4. **Phase 5 hardening**: wire `MockConnectionService`
+   (`test/test_helpers/mocks/mock_connection_service.dart`) into suites to reduce
+   SQLCipher noise; update `phase5_testing_plan.md` with the 1,325-test reality
+   and coverage artifacts; continue chasing the `InvalidCipherTextException`
+   warnings.
 
-Staying disciplined on the action plan ensures the later phases build on an
-accurate foundation instead of the outdated assumptions that were previously
-recorded here.
+Proceeding with Phase 3 on this updated baseline keeps later refactors aligned
+with the current code shape.

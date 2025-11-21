@@ -56,6 +56,7 @@ class AppCore {
 
   // Repositories
   late final ContactRepository contactRepository;
+  late final MessageRepository messageRepository;
   late final UserPreferences userPreferences;
   late final ArchiveRepository archiveRepository;
 
@@ -209,7 +210,8 @@ class AppCore {
     _logger.info('Database initialized successfully');
 
     // Initialize repositories
-    contactRepository = ContactRepository();
+    contactRepository = getIt<ContactRepository>();
+    messageRepository = getIt<MessageRepository>();
     userPreferences = UserPreferences();
     archiveRepository = ArchiveRepository();
 
@@ -349,6 +351,9 @@ class AppCore {
         securityManager: SecurityManager.instance,
         connectionService: bleService,
         meshNetworkingService: meshNetworkingService,
+        meshRelayCoordinator: meshNetworkingService.relayCoordinator,
+        meshQueueSyncCoordinator: meshNetworkingService.queueCoordinator,
+        meshHealthMonitor: meshNetworkingService.healthMonitor,
       );
       _logger.info('📦 BLE + mesh services registered with GetIt');
     } catch (e, stackTrace) {
@@ -469,8 +474,6 @@ class AppCore {
     QueuedMessage queuedMessage,
   ) async {
     try {
-      final messageRepo = MessageRepository();
-
       // Create repository message with delivered status
       final repoMessage = Message(
         id: queuedMessage.id, // Same ID as queue (secure ID)
@@ -483,7 +486,7 @@ class AppCore {
 
       // 🎯 OPTION B: Message should NOT exist in repository yet
       // Queue owns it until delivery, then moves it to repository
-      await messageRepo.saveMessage(repoMessage);
+      await messageRepository.saveMessage(repoMessage);
       _logger.info(
         '✅ OPTION B: Moved message ${queuedMessage.id.shortId()}... from queue → repository (delivered)',
       );

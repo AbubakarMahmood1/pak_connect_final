@@ -17,6 +17,9 @@ import '../../core/interfaces/i_mesh_routing_service.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/services/mesh/mesh_relay_coordinator.dart';
+import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
+import '../../domain/services/mesh/mesh_network_health_monitor.dart';
 import 'ble_providers.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
@@ -97,6 +100,15 @@ final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
     try {
       getIt.unregister<IMeshNetworkingService>();
     } catch (_) {}
+    try {
+      getIt.unregister<MeshRelayCoordinator>();
+    } catch (_) {}
+    try {
+      getIt.unregister<MeshQueueSyncCoordinator>();
+    } catch (_) {}
+    try {
+      getIt.unregister<MeshNetworkHealthMonitor>();
+    } catch (_) {}
   });
 
   try {
@@ -105,6 +117,18 @@ final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
 
   try {
     getIt.registerSingleton<IMeshNetworkingService>(service);
+  } catch (_) {}
+
+  try {
+    getIt.registerSingleton<MeshRelayCoordinator>(service.relayCoordinator);
+  } catch (_) {}
+
+  try {
+    getIt.registerSingleton<MeshQueueSyncCoordinator>(service.queueCoordinator);
+  } catch (_) {}
+
+  try {
+    getIt.registerSingleton<MeshNetworkHealthMonitor>(service.healthMonitor);
   } catch (_) {}
 
   return service;
