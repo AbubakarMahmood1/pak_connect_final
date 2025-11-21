@@ -345,17 +345,6 @@ class MeshQueueSyncCoordinator {
         return;
       }
 
-      final intendedRecipient = message.recipientPublicKey;
-      final connectedPeerId = _bleService.currentSessionId;
-
-      if (intendedRecipient.isNotEmpty &&
-          connectedPeerId != null &&
-          connectedPeerId.isNotEmpty &&
-          intendedRecipient != connectedPeerId) {
-        await queue.markMessageFailed(messageId, 'Peer mismatch');
-        return;
-      }
-
       bool success;
       if (!_bleService.canSendMessages) {
         _logger.warning(
