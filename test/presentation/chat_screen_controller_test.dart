@@ -484,6 +484,7 @@ void main() {
       connectionService.currentSessionId = 'chat-1';
       final fakeMessageRepo = _FakeMessageRepository();
       final fakeContactRepo = _FakeContactRepository();
+      final sharedStateManager = BLEStateManager();
       final repoProvider = _FakeRepositoryProvider(
         fakeContactRepo,
         fakeMessageRepo,
@@ -525,7 +526,7 @@ void main() {
             child: Builder(
               builder: (context) {
                 recorder = _RecordingPairingController(
-                  stateManager: BLEStateManager(),
+                  stateManager: sharedStateManager,
                   connectionService: connectionService,
                   contactRepository: fakeContactRepo,
                   context: context,
@@ -578,6 +579,10 @@ void main() {
 
       expect(recorder.pairingRequested, isTrue);
       expect(recorder.asymmetricHandled, isTrue);
+      expect(
+        controller.pairingDialogController.stateManager,
+        same(sharedStateManager),
+      );
       controller.dispose();
       expect(recorder.cleared, isTrue);
     });

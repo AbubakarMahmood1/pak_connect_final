@@ -10,6 +10,7 @@ import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/models/spy_mode_info.dart';
 import 'package:pak_connect/core/models/ble_server_connection.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/data/services/ble_state_manager.dart';
 
 /// Lightweight mock for [IConnectionService] used by the Phase 5 harness.
 ///
@@ -75,6 +76,7 @@ class MockConnectionService implements IConnectionService {
   String _myEphemeralId = 'mock_ephemeral';
   String? _theirPersistentKey;
   Central? _connectedCentral;
+  BLEStateManager? _stateManager;
   bool identityExchangeRequested = false;
 
   ConnectionInfo _currentConnectionInfo = ConnectionInfo(
@@ -446,6 +448,10 @@ class MockConnectionService implements IConnectionService {
   Future<void> setMyUserName(String name) async {
     _myUserName = name;
   }
+
+  // Expose the shared BLE state manager when tests need it.
+  set stateManager(BLEStateManager manager) => _stateManager = manager;
+  BLEStateManager get stateManager => _stateManager ?? BLEStateManager();
 
   @override
   Future<ProtocolMessage?> revealIdentityToFriend() async {

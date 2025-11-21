@@ -20,6 +20,7 @@ import '../../data/services/ble_state_manager.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/services/notification_service.dart';
+import '../../core/interfaces/i_connection_service.dart';
 import '../../presentation/controllers/chat_scrolling_controller.dart'
     as chat_controller;
 import '../../presentation/controllers/chat_search_controller.dart';
@@ -192,7 +193,7 @@ class ChatScreenController extends ChangeNotifier {
     _pairingDialogController =
         _injectedPairingController ??
         ChatPairingDialogController(
-          stateManager: BLEStateManager(),
+          stateManager: _resolvePairingStateManager(connectionService),
           connectionService: connectionService,
           contactRepository: contactRepository,
           context: context,
@@ -207,6 +208,29 @@ class ChatScreenController extends ChangeNotifier {
           onPairingError: _showError,
           onPairingSuccess: _showSuccess,
         );
+  }
+
+  BLEStateManager _resolvePairingStateManager(
+    IConnectionService connectionService,
+  ) {
+    if (_injectedPairingController != null) {
+      return _injectedPairingController!.stateManager;
+    }
+
+    try {
+      final dynamic maybeWithManager = connectionService;
+      final manager = maybeWithManager.stateManager;
+      if (manager is BLEStateManager) {
+        return manager;
+      }
+    } catch (_) {
+      // Fall back below when the connection service doesn't expose stateManager.
+    }
+
+    _logger.warning(
+      'BLEStateManager not exposed by connection service; using fallback instance',
+    );
+    return BLEStateManager();
   }
 
   Future<void> initialize({bool logChatOpen = true}) async {
