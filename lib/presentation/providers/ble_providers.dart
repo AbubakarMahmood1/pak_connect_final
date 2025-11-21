@@ -17,6 +17,7 @@ import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initializat
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
 import '../../core/interfaces/i_mesh_ble_service.dart';
 import '../../core/interfaces/i_connection_service.dart';
+import '../../core/interfaces/i_ble_service_facade.dart';
 import 'mesh_networking_provider.dart';
 
 // =============================================================================
@@ -146,6 +147,13 @@ final bleServiceProvider = Provider<BLEService>((ref) {
       // Ignore duplicate registration failures
     }
   }
+  if (!getIt.isRegistered<IBLEServiceFacade>()) {
+    try {
+      getIt.registerSingleton<IBLEServiceFacade>(service);
+    } catch (_) {
+      // Ignore duplicate registration failures
+    }
+  }
 
   ref.onDispose(() {
     if (registered) {
@@ -163,6 +171,9 @@ final bleServiceProvider = Provider<BLEService>((ref) {
       } catch (_) {}
       try {
         getIt.unregister<IConnectionService>();
+      } catch (_) {}
+      try {
+        getIt.unregister<IBLEServiceFacade>();
       } catch (_) {}
     }
   });

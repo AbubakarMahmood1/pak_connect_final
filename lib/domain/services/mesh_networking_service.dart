@@ -14,7 +14,7 @@ import '../../core/app_core.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/interfaces/i_contact_repository.dart';
 import '../../core/interfaces/i_message_repository.dart';
-import '../../core/interfaces/i_mesh_ble_service.dart';
+import '../../core/interfaces/i_connection_service.dart';
 import '../../core/interfaces/i_mesh_networking_service.dart';
 import '../../core/interfaces/i_repository_provider.dart';
 import '../../core/messaging/offline_message_queue.dart' show QueuedMessage;
@@ -47,7 +47,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   // 🎯 NOTE: MeshNetworkingService now depends on IMeshBleService abstraction which
   // is implemented by BLEService. This preserves access to the complex BLE
   // lifecycle while keeping the domain layer decoupled from data implementations.
-  final IMeshBleService _bleService;
+  final IConnectionService _bleService;
   final IBLEMessageHandlerFacade _messageHandler;
   final IContactRepository _contactRepository;
   // Note: _chatManagementService kept for API compatibility but not currently used
@@ -74,13 +74,20 @@ class MeshNetworkingService implements IMeshNetworkingService {
   Stream<String> get messageDeliveryStream =>
       _healthMonitor.messageDeliveryStream;
 
+  MeshRelayCoordinator get relayCoordinator => _relayCoordinator;
+
+  MeshQueueSyncCoordinator get queueCoordinator => _queueCoordinator;
+
+  MeshNetworkHealthMonitor get healthMonitor => _healthMonitor;
+
   MeshNetworkingService({
-    required IMeshBleService bleService,
+    required IConnectionService bleService,
     required IBLEMessageHandlerFacade messageHandler,
     // ✅ Phase 3A: Now properly typed via BLEMessageHandlerFacadeImpl adapter
     required ChatManagementService
     chatManagementService, // Kept for API compatibility
     IRepositoryProvider? repositoryProvider,
+    MeshRelayCoordinator? relayCoordinator,
     MeshNetworkHealthMonitor? healthMonitor,
     MeshQueueSyncCoordinator? queueCoordinator,
   }) : _bleService = bleService,
@@ -92,12 +99,14 @@ class MeshNetworkingService implements IMeshNetworkingService {
            (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
                .messageRepository,
        _healthMonitor = healthMonitor ?? MeshNetworkHealthMonitor() {
-    _relayCoordinator = MeshRelayCoordinator(
-      bleService: _bleService,
-      onRelayDecision: _handleRelayDecision,
-      onRelayStatsUpdated: _handleRelayStatsUpdated,
-      onDeliverToSelf: _handleDeliverToSelf,
-    );
+    _relayCoordinator =
+        relayCoordinator ??
+        MeshRelayCoordinator(
+          bleService: _bleService,
+          onRelayDecision: _handleRelayDecision,
+          onRelayStatsUpdated: _handleRelayStatsUpdated,
+          onDeliverToSelf: _handleDeliverToSelf,
+        );
 
     _queueCoordinator =
         queueCoordinator ??
