@@ -8,7 +8,7 @@ import '../interfaces/i_chat_connection_manager.dart';
 import '../../core/models/connection_status.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
-import '../interfaces/i_mesh_ble_service.dart';
+import '../interfaces/i_connection_service.dart';
 
 /// Service for managing chat connection status determination
 ///
@@ -24,14 +24,14 @@ import '../interfaces/i_mesh_ble_service.dart';
 class ChatConnectionManager implements IChatConnectionManager {
   final _logger = Logger('ChatConnectionManager');
 
-  final IMeshBleService? _bleService;
+  final IConnectionService? _bleService;
   final StreamController<ConnectionStatus> _connectionStatusController =
       StreamController.broadcast();
 
   StreamSubscription? _peripheralConnectionSubscription;
   StreamSubscription? _discoveryDataSubscription;
 
-  ChatConnectionManager({IMeshBleService? bleService})
+  ChatConnectionManager({IConnectionService? bleService})
     : _bleService = bleService;
 
   @override

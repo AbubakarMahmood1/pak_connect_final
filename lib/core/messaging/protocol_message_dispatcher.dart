@@ -1,0 +1,127 @@
+import 'package:logging/logging.dart';
+
+import '../models/mesh_relay_models.dart';
+import '../models/protocol_message.dart';
+import 'message_ack_tracker.dart';
+
+/// Routes protocol messages to the appropriate handlers to keep
+/// BLEMessageHandler lean (parsing/dispatch separate from fragmentation).
+class ProtocolMessageDispatcher {
+  ProtocolMessageDispatcher({
+    required MessageAckTracker ackTracker,
+    required Future<String?> Function(
+      ProtocolMessage protocolMessage,
+      String? Function(String)? onMessageIdFound,
+      String? senderPublicKey,
+    )
+    onUnhandledMessage,
+    Future<void> Function({
+      required String originalMessageId,
+      required String relayNode,
+      required bool delivered,
+      List<String>? ackRoutingPath,
+    })?
+    onRelayAck,
+    void Function(QueueSyncMessage syncMessage, String fromNodeId)?
+    onQueueSyncReceived,
+    Logger? logger,
+  }) : _ackTracker = ackTracker,
+       _onUnhandledMessage = onUnhandledMessage,
+       _onRelayAck = onRelayAck,
+       _onQueueSyncReceived = onQueueSyncReceived,
+       _logger = logger ?? Logger('ProtocolMessageDispatcher');
+
+  final Logger _logger;
+  final MessageAckTracker _ackTracker;
+  final Future<String?> Function(
+    ProtocolMessage protocolMessage,
+    String? Function(String)? onMessageIdFound,
+    String? senderPublicKey,
+  )
+  _onUnhandledMessage;
+  final Future<void> Function({
+    required String originalMessageId,
+    required String relayNode,
+    required bool delivered,
+    List<String>? ackRoutingPath,
+  })?
+  _onRelayAck;
+  final void Function(QueueSyncMessage syncMessage, String fromNodeId)?
+  _onQueueSyncReceived;
+
+  Future<String?> dispatch(
+    ProtocolMessage protocolMessage, {
+    String? Function(String)? onMessageIdFound,
+    String? senderPublicKey,
+  }) async {
+    switch (protocolMessage.type) {
+      case ProtocolMessageType.ack:
+        final originalId =
+            protocolMessage.payload['originalMessageId'] as String? ??
+            protocolMessage.ackOriginalId;
+
+        if (originalId == null) {
+          _logger.warning('Received ACK with no originalMessageId');
+          return null;
+        }
+
+        final completed = _ackTracker.complete(originalId);
+        if (completed) {
+          _logger.info('Received protocol ACK for: $originalId');
+        } else {
+          _logger.fine('Protocol ACK for unknown message: $originalId');
+        }
+        return null;
+
+      case ProtocolMessageType.ping:
+        _logger.info('Received protocol ping');
+        return null;
+
+      case ProtocolMessageType.relayAck:
+        final originalMessageId = protocolMessage.relayAckOriginalMessageId;
+        final relayNode = protocolMessage.relayAckRelayNode ?? 'unknown';
+        final delivered = protocolMessage.relayAckDelivered;
+        final ackRoutingPath =
+            protocolMessage.payload['ackRoutingPath'] as List<dynamic>?;
+
+        if (originalMessageId == null) {
+          _logger.warning('Received relayAck with no message ID');
+          return null;
+        }
+
+        if (_onRelayAck != null) {
+          await _onRelayAck!(
+            originalMessageId: originalMessageId,
+            relayNode: relayNode,
+            delivered: delivered,
+            ackRoutingPath: ackRoutingPath?.cast<String>(),
+          );
+        }
+        return null;
+
+      case ProtocolMessageType.queueSync:
+        final queueSyncMessage = protocolMessage.queueSyncMessage;
+
+        if (queueSyncMessage != null &&
+            senderPublicKey != null &&
+            _onQueueSyncReceived != null) {
+          _onQueueSyncReceived!(queueSyncMessage, senderPublicKey);
+
+          final truncated = senderPublicKey.length > 16
+              ? senderPublicKey.substring(0, 16)
+              : senderPublicKey;
+          _logger.info('Received queue sync message from $truncated...');
+        } else {
+          _logger.warning('Received invalid queue sync message');
+        }
+        return null;
+
+      default:
+        return _onUnhandledMessage(
+          protocolMessage,
+          onMessageIdFound,
+          senderPublicKey,
+        );
+    }
+  }
+}

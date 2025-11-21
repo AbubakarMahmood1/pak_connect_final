@@ -44,9 +44,9 @@ class MeshNetworkingService implements IMeshNetworkingService {
   final MeshNetworkHealthMonitor _healthMonitor;
 
   // Integration services
-  // 🎯 NOTE: MeshNetworkingService now depends on IMeshBleService abstraction which
-  // is implemented by BLEService. This preserves access to the complex BLE
-  // lifecycle while keeping the domain layer decoupled from data implementations.
+  // 🎯 NOTE: MeshNetworkingService depends on the connection abstraction
+  // (IConnectionService) implemented by BLEServiceFacade to stay decoupled
+  // from concrete data-layer implementations.
   final IConnectionService _bleService;
   final IBLEMessageHandlerFacade _messageHandler;
   final IContactRepository _contactRepository;

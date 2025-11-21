@@ -1,6 +1,6 @@
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/interfaces/i_mesh_ble_service.dart';
+import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
@@ -31,7 +31,7 @@ typedef MeshRelayEngineFactory =
 /// focus on orchestration and queue/health concerns.
 class MeshRelayCoordinator {
   final Logger _logger;
-  final IMeshBleService _bleService;
+  final IConnectionService _bleService;
   final RelayDecisionCallback _onRelayDecision;
   final RelayStatsCallback _onRelayStatsUpdated;
   final DeliverToSelfCallback _onDeliverToSelf;
@@ -45,7 +45,7 @@ class MeshRelayCoordinator {
   String? _currentNodeId;
 
   MeshRelayCoordinator({
-    required IMeshBleService bleService,
+    required IConnectionService bleService,
     required RelayDecisionCallback onRelayDecision,
     required RelayStatsCallback onRelayStatsUpdated,
     required DeliverToSelfCallback onDeliverToSelf,

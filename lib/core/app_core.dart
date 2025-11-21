@@ -62,6 +62,7 @@ class AppCore {
 
   // State
   bool _isInitialized = false;
+  Completer<void>? _initializationCompleter;
   DateTime? _initializationTime;
   StreamController<AppStatus>? _statusController;
 
@@ -85,11 +86,21 @@ class AppCore {
 
   /// Initialize the entire application core
   Future<void> initialize() async {
+    // If initialization already completed, short-circuit.
     if (_isInitialized) {
       _logger.warning('App core already initialized');
       _emitStatus(AppStatus.ready); // Emit ready if already initialized
       return;
     }
+
+    // If initialization is in progress, wait for it to finish to avoid reentry.
+    if (_initializationCompleter != null) {
+      _logger.info('App core initialization already in progress, awaiting...');
+      await _initializationCompleter!.future;
+      return;
+    }
+
+    _initializationCompleter = Completer<void>();
 
     try {
       _logger.info('🚀 Starting application core initialization...');
@@ -184,11 +195,24 @@ class AppCore {
       _logger.info(
         '🎉 Application core initialized successfully in ${totalTime.inMilliseconds}ms',
       );
+      _initializationCompleter?.complete();
     } catch (e, stackTrace) {
       _logger.severe('❌ Failed to initialize app core: $e');
       _logger.severe('Stack trace: $stackTrace');
       _emitStatus(AppStatus.error);
+      if (_initializationCompleter != null &&
+          !_initializationCompleter!.isCompleted) {
+        _initializationCompleter!.completeError(e);
+      }
       throw AppCoreException('Initialization failed: $e');
+    } finally {
+      // If initialization failed before completing the completer, reset so a
+      // subsequent retry can proceed.
+      if (_initializationCompleter != null &&
+          _initializationCompleter!.isCompleted == false &&
+          _isInitialized == false) {
+        _initializationCompleter = null;
+      }
     }
   }
 

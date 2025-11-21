@@ -28,10 +28,12 @@ the team can see what is actually done and what must happen next.
   sits at 572 lines (`lib/domain/services/mesh_networking_service.dart`) and
   ChatScreen at 442 lines (`lib/presentation/screens/chat_screen.dart`) with the
   controller/view-model in place.
-- **Phase 3 – Layer Violations (ready)**: Most consumers already resolve
-  interfaces (`IConnectionService`, `IRepositoryProvider`, `IMeshBleService`).
-  Next actions are wiring remaining coordinators through the abstractions and
-  tightening DI seams for mesh/queue flows.
+- **Phase 3 – Layer Violations (✅)**: BLE/mesh coordinators now depend on
+  `IConnectionService` (burst scanning, chat list/home facades, relay/queue
+  coordinators, topology/connection monitors), NavigationService is callback
+  based, repositories flow via `IRepositoryProvider`, and
+  SecurityStateComputer lives in data. Remaining IMeshBleService references are
+  aliased solely for backwards compatibility in DI/providers.
 - **Phase 4 – Remaining God Classes (~20 %)**: >1,000-line targets remain:
   `ble_state_manager.dart` (2,328), `ble_message_handler.dart` (1,891),
   `discovery_overlay.dart` (1,866), `offline_message_queue.dart` (1,778),
@@ -77,22 +79,19 @@ the team can see what is actually done and what must happen next.
 
 ## Action Plan
 
-1. **Phase 0/1/2 documentation refresh (done)**: phase0 checklist now reflects
-   completed ADR/dependency work and defers perf metrics explicitly; Phase 2
-   marked complete.
-2. **Begin Phase 3**: tighten layer boundaries by driving mesh/queue flows
-   through `IConnectionService`/`IRepositoryProvider` seams in production wiring
-   and providers; prune any legacy direct imports that remain.
-3. **Phase 4 prep**: plan splits for the current >1,000-line files
+1. **Phase 0/1/2/3 documentation baseline (done)**: phase0 checklist and master
+   plan reflect current reality; Phase 3 layer seams now resolved on
+   `IConnectionService`.
+2. **Phase 4 prep**: plan splits for the current >1,000-line files
    (`ble_state_manager.dart`, `ble_message_handler.dart`,
    `offline_message_queue.dart`, `settings_screen.dart`,
    `chat_management_service.dart`, `home_screen.dart`,
    `discovery_overlay.dart`), sequencing lowest-risk first.
-4. **Phase 5 hardening**: wire `MockConnectionService`
+3. **Phase 5 hardening**: wire `MockConnectionService`
    (`test/test_helpers/mocks/mock_connection_service.dart`) into suites to reduce
    SQLCipher noise; update `phase5_testing_plan.md` with the 1,325-test reality
    and coverage artifacts; continue chasing the `InvalidCipherTextException`
    warnings.
 
-Proceeding with Phase 3 on this updated baseline keeps later refactors aligned
+Proceeding with Phase 4 on this updated baseline keeps later refactors aligned
 with the current code shape.

@@ -571,14 +571,19 @@ class MockBLEStateManager extends _i1.Mock implements _i3.BLEStateManager {
           as String);
 
   @override
-  void handleContactStatus(bool? theyHaveUsAsContact, String? theirPublicKey) =>
-      super.noSuchMethod(
-        Invocation.method(#handleContactStatus, [
-          theyHaveUsAsContact,
-          theirPublicKey,
-        ]),
-        returnValueForMissingStub: null,
-      );
+  _i4.Future<void> handleContactStatus(
+    bool theyHaveUsAsContact,
+    String theirPublicKey,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#handleContactStatus, [
+              theyHaveUsAsContact,
+              theirPublicKey,
+            ]),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
+          )
+          as _i4.Future<void>);
 
   @override
   _i4.Future<void> initializeContactFlags() =>

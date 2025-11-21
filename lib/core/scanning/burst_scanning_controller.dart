@@ -3,7 +3,7 @@ import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     show BluetoothLowEnergyState;
 import '../power/adaptive_power_manager.dart';
-import '../interfaces/i_mesh_ble_service.dart';
+import '../interfaces/i_connection_service.dart';
 import '../interfaces/i_ble_discovery_service.dart';
 import '../bluetooth/bluetooth_state_monitor.dart'; // ✅ FIX #2: Import for Bluetooth state checking
 
@@ -20,7 +20,7 @@ class BurstScanningController {
 
   AdaptivePowerManager?
   _powerManager; // ✅ FIX: Made nullable to prevent LateInitializationError on disposal
-  IMeshBleService? _bleService;
+  IConnectionService? _bleService;
   StreamSubscription<BluetoothStateInfo>? _bluetoothStateSubscription;
 
   // Status tracking
@@ -40,7 +40,7 @@ class BurstScanningController {
   Stream<BurstScanningStatus> get statusStream => _statusController.stream;
 
   /// Initialize the burst scanning controller
-  Future<void> initialize(IMeshBleService bleService) async {
+  Future<void> initialize(IConnectionService bleService) async {
     _bleService = bleService;
     _powerManager = AdaptivePowerManager();
 
