@@ -65,6 +65,8 @@ class AppCore {
   Completer<void>? _initializationCompleter;
   DateTime? _initializationTime;
   StreamController<AppStatus>? _statusController;
+  @visibleForTesting
+  static Future<void> Function()? initializationOverride;
 
   AppCore._() {
     // Initialize the status controller immediately
@@ -101,6 +103,9 @@ class AppCore {
     }
 
     _initializationCompleter = Completer<void>();
+    // Prevent unhandled asynchronous error warnings when initialization fails
+    // before another caller awaits the shared completer.
+    _initializationCompleter!.future.catchError((_) {});
 
     try {
       _logger.info('🚀 Starting application core initialization...');
@@ -110,6 +115,17 @@ class AppCore {
       _statusController ??= StreamController<AppStatus>.broadcast();
 
       _emitStatus(AppStatus.initializing);
+
+      // Allow tests to inject an override routine that simulates initialization
+      // outcomes without exercising the full stack.
+      if (initializationOverride != null) {
+        await initializationOverride!();
+        _isInitialized = true;
+        _initializationTime = DateTime.now();
+        _emitStatus(AppStatus.ready);
+        _initializationCompleter?.complete();
+        return;
+      }
 
       // Setup logging
       _logger.info('🗒️ Setting up logging...');
@@ -200,17 +216,15 @@ class AppCore {
       _logger.severe('❌ Failed to initialize app core: $e');
       _logger.severe('Stack trace: $stackTrace');
       _emitStatus(AppStatus.error);
+      final appCoreError = AppCoreException('Initialization failed: $e');
       if (_initializationCompleter != null &&
           !_initializationCompleter!.isCompleted) {
-        _initializationCompleter!.completeError(e);
+        _initializationCompleter!.completeError(appCoreError);
       }
-      throw AppCoreException('Initialization failed: $e');
+      throw appCoreError;
     } finally {
-      // If initialization failed before completing the completer, reset so a
-      // subsequent retry can proceed.
-      if (_initializationCompleter != null &&
-          _initializationCompleter!.isCompleted == false &&
-          _isInitialized == false) {
+      // If initialization failed, clear the completer so a retry can start fresh.
+      if (_initializationCompleter != null && _isInitialized == false) {
         _initializationCompleter = null;
       }
     }
@@ -676,6 +690,12 @@ class AppCore {
     } catch (e) {
       _logger.severe('Error during disposal: $e');
     }
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _instance?._statusController?.close();
+    _instance = null;
   }
 }
 
