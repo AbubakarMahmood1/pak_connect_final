@@ -7,7 +7,6 @@ import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:pointycastle/export.dart';
 import '../interfaces/i_contact_repository.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// 🔧 UTILITY: Safe string truncation to prevent RangeError

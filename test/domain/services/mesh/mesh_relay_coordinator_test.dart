@@ -5,17 +5,20 @@ import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/interfaces/i_mesh_routing_service.dart';
-import 'package:pak_connect/core/interfaces/i_mesh_ble_service.dart';
+import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
+import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/core/models/spy_mode_info.dart';
+import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
+import 'package:pak_connect/core/models/ble_server_connection.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
-import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
 
 void main() {
@@ -328,7 +331,7 @@ class _StubSeenMessageStore implements ISeenMessageStore {
   Map<String, dynamic> getStatistics() => const {};
 }
 
-class _FakeMeshBleService implements IMeshBleService {
+class _FakeMeshBleService implements IConnectionService {
   ConnectionInfo connectionInfoValue = const ConnectionInfo(
     isConnected: true,
     isReady: true,
@@ -371,6 +374,115 @@ class _FakeMeshBleService implements IMeshBleService {
   @override
   List<String> get activeConnectionDeviceIds =>
       currentSessionIdentifier == null ? [] : [currentSessionIdentifier!];
+
+  @override
+  Stream<List<Peripheral>> get discoveredDevices => const Stream.empty();
+
+  @override
+  Stream<String> get hintMatches => const Stream.empty();
+
+  @override
+  Future<Peripheral?> scanForSpecificDevice({Duration? timeout}) async => null;
+
+  @override
+  Stream<SpyModeInfo> get spyModeDetected => const Stream.empty();
+
+  @override
+  Stream<String> get identityRevealed => const Stream.empty();
+
+  @override
+  Central? get connectedCentral => null;
+
+  @override
+  Peripheral? get connectedDevice => null;
+
+  @override
+  Stream<BluetoothStateInfo> get bluetoothStateStream => const Stream.empty();
+
+  @override
+  Stream<BluetoothStatusMessage> get bluetoothMessageStream =>
+      const Stream.empty();
+
+  @override
+  bool get isBluetoothReady => true;
+
+  @override
+  BluetoothLowEnergyState get state => BluetoothLowEnergyState.poweredOn;
+
+  @override
+  Future<void> startAsPeripheral() async {}
+
+  @override
+  Future<void> startAsCentral() async {}
+
+  @override
+  Future<void> refreshAdvertising({bool? showOnlineStatus}) async {}
+
+  @override
+  bool get isAdvertising => false;
+
+  @override
+  bool get isPeripheralMTUReady => true;
+
+  @override
+  int? get peripheralNegotiatedMTU => 256;
+
+  @override
+  Future<void> connectToDevice(Peripheral device) async {}
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  void startConnectionMonitoring() {}
+
+  @override
+  void stopConnectionMonitoring() {}
+
+  @override
+  bool get isActivelyReconnecting => false;
+
+  @override
+  Future<void> requestIdentityExchange() async {}
+
+  @override
+  Future<void> triggerIdentityReExchange() async {}
+
+  @override
+  Future<ProtocolMessage?> revealIdentityToFriend() async => null;
+
+  @override
+  Future<void> setMyUserName(String name) async {}
+
+  @override
+  Future<void> acceptContactRequest() async {}
+
+  @override
+  void rejectContactRequest() {}
+
+  @override
+  void setContactRequestCompletedListener(
+    void Function(bool success) listener,
+  ) {}
+
+  @override
+  void setContactRequestReceivedListener(
+    void Function(String publicKey, String displayName) listener,
+  ) {}
+
+  @override
+  void setAsymmetricContactListener(
+    void Function(String publicKey, String displayName) listener,
+  ) {}
+
+  @override
+  void setPairingInProgress(bool isInProgress) {}
+
+  @override
+  List<BLEServerConnection> get serverConnections => const [];
+
+  @override
+  int get clientConnectionCount => activeConnectionCount;
 
   @override
   Stream<Map<String, DiscoveredEventArgs>> get discoveryData =>

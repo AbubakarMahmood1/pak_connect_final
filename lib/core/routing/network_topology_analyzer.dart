@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'routing_models.dart';
-import '../interfaces/i_mesh_ble_service.dart';
+import '../interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Analyzes and maintains the mesh network topology
@@ -134,7 +134,7 @@ class NetworkTopologyAnalyzer {
   }
 
   /// Discover network nodes through BLE scanning (non-blocking)
-  Future<void> discoverNodes(IMeshBleService bleService) async {
+  Future<void> discoverNodes(IConnectionService bleService) async {
     try {
       _logger.info('Starting non-blocking network discovery');
 
@@ -279,7 +279,7 @@ class NetworkTopologyAnalyzer {
   }
 
   /// Estimate connection quality based on BLE service data
-  ConnectionQuality _estimateConnectionQuality(IMeshBleService bleService) {
+  ConnectionQuality _estimateConnectionQuality(IConnectionService bleService) {
     try {
       final connectionInfo = bleService.currentConnectionInfo;
 

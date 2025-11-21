@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
-import 'package:pak_connect/core/interfaces/i_mesh_ble_service.dart';
+import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
@@ -24,7 +24,7 @@ typedef QueueSyncManagerFactory =
 /// Coordinates queue + sync responsibilities for MeshNetworkingService.
 class MeshQueueSyncCoordinator {
   final Logger _logger;
-  final IMeshBleService _bleService;
+  final IConnectionService _bleService;
   final IMessageRepository _messageRepository;
   final MeshNetworkHealthMonitor _healthMonitor;
   final ShouldRelayThroughDevice _shouldRelayThroughDevice;
@@ -38,7 +38,7 @@ class MeshQueueSyncCoordinator {
   bool _queueSyncHandlerRegistered = false;
 
   MeshQueueSyncCoordinator({
-    required IMeshBleService bleService,
+    required IConnectionService bleService,
     required IMessageRepository messageRepository,
     required MeshNetworkHealthMonitor healthMonitor,
     required ShouldRelayThroughDevice shouldRelayThroughDevice,
