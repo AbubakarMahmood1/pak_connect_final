@@ -204,21 +204,28 @@ class PairingFlowController {
     });
   }
 
-  void handlePairingVerification(String theirSecretHash) {
+  Future<void> handlePairingVerification(String theirSecretHash) async {
     _logger.info(
       'Received verification hash from other device: $theirSecretHash',
     );
 
-    if (_currentPairing != null && _currentPairing!.sharedSecret != null) {
-      final ourHash = sha256
-          .convert(utf8.encode(_currentPairing!.sharedSecret!))
-          .toString()
-          .shortId(8);
-      if (ourHash == theirSecretHash) {
-        _logger.info('✅ Verification hashes match - pairing confirmed!');
-      } else {
-        _logger.severe('❌ Hash mismatch - something went wrong!');
-      }
+    if (_currentPairing == null || _currentPairing!.sharedSecret == null) {
+      _logger.warning(
+        '⚠️ No shared secret available for verification - failing pairing for safety',
+      );
+      await _handleVerificationFailure('missing shared secret');
+      return;
+    }
+
+    final ourHash = sha256
+        .convert(utf8.encode(_currentPairing!.sharedSecret!))
+        .toString()
+        .shortId(8);
+    if (ourHash == theirSecretHash) {
+      _logger.info('✅ Verification hashes match - pairing confirmed!');
+    } else {
+      _logger.severe('❌ Hash mismatch - aborting pairing and revoking secrets');
+      await _handleVerificationFailure('verification hash mismatch');
     }
   }
 
@@ -226,6 +233,55 @@ class PairingFlowController {
   void setTheirEphemeralId(String ephemeralId, String displayName) {
     _logger.info('Storing their ephemeral ID: $ephemeralId ($displayName)');
     _identityState.setTheirEphemeralId(ephemeralId);
+  }
+
+  Future<void> _handleVerificationFailure(String reason) async {
+    final contactId = _currentSessionId ?? _theirPersistentKey;
+
+    if (_currentPairing != null) {
+      _currentPairing = PairingInfo(
+        myCode: _currentPairing!.myCode,
+        theirCode: _currentPairing!.theirCode,
+        state: PairingState.failed,
+        sharedSecret: null,
+        theirEphemeralId: _currentPairing!.theirEphemeralId,
+        theirDisplayName: _currentPairing!.theirDisplayName,
+      );
+    }
+    _pairingTimeout?.cancel();
+
+    if (_pairingCompleter != null && !_pairingCompleter!.isCompleted) {
+      _pairingCompleter!.complete(false);
+    }
+
+    if (contactId != null) {
+      _conversationKeys.remove(contactId);
+      SimpleCrypto.clearConversationKey(contactId);
+      await _contactRepository.clearCachedSecrets(contactId);
+    }
+
+    if (_theirPersistentKey != null) {
+      SecurityManager.instance.unregisterIdentityMapping(_theirPersistentKey!);
+      _theirPersistentKey = null;
+    }
+
+    if (contactId != null) {
+      final contact = await _contactRepository.getContactByAnyId(contactId);
+      if (contact != null && contact.securityLevel != SecurityLevel.low) {
+        await _contactRepository.saveContactWithSecurity(
+          contact.publicKey,
+          contact.displayName,
+          SecurityLevel.low,
+          currentEphemeralId: contact.currentEphemeralId ?? contact.publicKey,
+          persistentPublicKey: null,
+        );
+        _logger.info(
+          '🔒 Reverted contact ${contact.publicKey.shortId()}... to LOW after verification failure ($reason)',
+        );
+      }
+    }
+
+    onPairingCancelled?.call();
   }
 
   Future<void> sendPairingRequest() async {

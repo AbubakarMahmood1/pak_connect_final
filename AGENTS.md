@@ -22,6 +22,28 @@
 - SQLite with SQLCipher (encrypted storage)
 - BLE mesh networking (custom protocol)
 
+## Documentation Lookup with Context7 API
+- Use the Context7 API to search libraries and fetch documentation programmatically before opening plugin docs manually.
+- Call the search endpoint with the `query` parameter (search term). Example response:
+```
+{
+  "results": [
+    {
+      "id": "/react-hook-form/documentation",
+      "title": "React Hook Form",
+      "description": "📋 Official documentation",
+      "totalTokens": 50275,
+      "totalSnippets": 274,
+      "stars": 741,
+      "trustScore": 9.1,
+      "versions": []
+    },
+    ...
+  ]
+}
+```
+- Use the returned `id` to fetch documentation; rely on this flow so you do not need to read plugin documentation unless necessary.
+
 ---
 
 ## Project Structure & Module Organization
