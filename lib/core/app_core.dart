@@ -82,6 +82,11 @@ class AppCore {
   /// Get initialization status
   bool get isInitialized => _isInitialized;
 
+  /// True while initialization is in progress (before [isInitialized] is set).
+  bool get isInitializing =>
+      _initializationCompleter != null &&
+      !_initializationCompleter!.isCompleted;
+
   /// Stream of app status changes
   Stream<AppStatus> get statusStream =>
       _statusController?.stream ?? Stream.empty();

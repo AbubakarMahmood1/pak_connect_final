@@ -172,10 +172,18 @@ class MeshNetworkingService implements IMeshNetworkingService {
       '🔗 Using AppCore\'s shared message queue for mesh networking',
     );
 
-    // Get the shared queue from AppCore - ensure AppCore is initialized first
+    // Get the shared queue from AppCore - ensure AppCore is initialized first.
+    // Avoid re-entering AppCore initialization while it is already running,
+    // since AppCore->mesh initialization can otherwise deadlock.
     if (!AppCore.instance.isInitialized) {
-      _logger.warning('AppCore not initialized, initializing now...');
-      await AppCore.instance.initialize();
+      if (AppCore.instance.isInitializing) {
+        _logger.info(
+          'AppCore initialization in progress; reusing shared queue without re-entry',
+        );
+      } else {
+        _logger.warning('AppCore not initialized, initializing now...');
+        await AppCore.instance.initialize();
+      }
     }
 
     final sharedQueue = AppCore.instance.messageQueue;
