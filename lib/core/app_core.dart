@@ -16,11 +16,14 @@ import 'security/noise/adaptive_encryption_strategy.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
+import '../domain/services/mesh_networking_service.dart';
 import '../domain/services/auto_archive_scheduler.dart';
 import '../domain/services/notification_service.dart';
 import '../domain/services/notification_handler_factory.dart';
-// 🔧 REMOVED: BLEStateManager import - not used by AppCore
-// import '../data/services/ble_state_manager.dart';
+import '../data/services/ble_service.dart';
+import '../data/services/ble_message_handler.dart';
+import '../data/services/ble_message_handler_facade_impl.dart';
+import '../data/services/seen_message_store.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
 import '../data/repositories/archive_repository.dart';
@@ -28,8 +31,11 @@ import '../data/repositories/preferences_repository.dart';
 import '../data/repositories/message_repository.dart';
 import '../data/database/database_helper.dart';
 import '../domain/entities/message.dart';
+import '../domain/entities/preference_keys.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../core/messaging/message_router.dart';
 import 'di/service_locator.dart';
+import 'interfaces/i_connection_service.dart';
 
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
@@ -45,16 +51,22 @@ class AppCore {
   // 🔧 REMOVED: BLEStateManager - BLEService creates its own instance
   // late final BLEStateManager bleStateManager;
   late final BatteryOptimizer batteryOptimizer;
+  late final IConnectionService bleService;
+  late final MeshNetworkingService meshNetworkingService;
 
   // Repositories
   late final ContactRepository contactRepository;
+  late final MessageRepository messageRepository;
   late final UserPreferences userPreferences;
   late final ArchiveRepository archiveRepository;
 
   // State
   bool _isInitialized = false;
+  Completer<void>? _initializationCompleter;
   DateTime? _initializationTime;
   StreamController<AppStatus>? _statusController;
+  @visibleForTesting
+  static Future<void> Function()? initializationOverride;
 
   AppCore._() {
     // Initialize the status controller immediately
@@ -70,17 +82,35 @@ class AppCore {
   /// Get initialization status
   bool get isInitialized => _isInitialized;
 
+  /// True while initialization is in progress (before [isInitialized] is set).
+  bool get isInitializing =>
+      _initializationCompleter != null &&
+      !_initializationCompleter!.isCompleted;
+
   /// Stream of app status changes
   Stream<AppStatus> get statusStream =>
       _statusController?.stream ?? Stream.empty();
 
   /// Initialize the entire application core
   Future<void> initialize() async {
+    // If initialization already completed, short-circuit.
     if (_isInitialized) {
       _logger.warning('App core already initialized');
       _emitStatus(AppStatus.ready); // Emit ready if already initialized
       return;
     }
+
+    // If initialization is in progress, wait for it to finish to avoid reentry.
+    if (_initializationCompleter != null) {
+      _logger.info('App core initialization already in progress, awaiting...');
+      await _initializationCompleter!.future;
+      return;
+    }
+
+    _initializationCompleter = Completer<void>();
+    // Prevent unhandled asynchronous error warnings when initialization fails
+    // before another caller awaits the shared completer.
+    _initializationCompleter!.future.catchError((_) {});
 
     try {
       _logger.info('🚀 Starting application core initialization...');
@@ -90,6 +120,17 @@ class AppCore {
       _statusController ??= StreamController<AppStatus>.broadcast();
 
       _emitStatus(AppStatus.initializing);
+
+      // Allow tests to inject an override routine that simulates initialization
+      // outcomes without exercising the full stack.
+      if (initializationOverride != null) {
+        await initializationOverride!();
+        _isInitialized = true;
+        _initializationTime = DateTime.now();
+        _emitStatus(AppStatus.ready);
+        _initializationCompleter?.complete();
+        return;
+      }
 
       // Setup logging
       _logger.info('🗒️ Setting up logging...');
@@ -108,6 +149,11 @@ class AppCore {
       _logger.info(
         '✅ Repositories initialized in ${DateTime.now().difference(repoStart).inMilliseconds}ms',
       );
+
+      // Initialize seen message store after database setup
+      _logger.info('👀 Initializing SeenMessageStore...');
+      await SeenMessageStore.instance.initialize();
+      _logger.info('✅ SeenMessageStore initialized');
 
       // 🔧 FIX P0: Initialize message queue FIRST before any BLE components can access it
       _logger.info(
@@ -170,11 +216,22 @@ class AppCore {
       _logger.info(
         '🎉 Application core initialized successfully in ${totalTime.inMilliseconds}ms',
       );
+      _initializationCompleter?.complete();
     } catch (e, stackTrace) {
       _logger.severe('❌ Failed to initialize app core: $e');
       _logger.severe('Stack trace: $stackTrace');
       _emitStatus(AppStatus.error);
-      throw AppCoreException('Initialization failed: $e');
+      final appCoreError = AppCoreException('Initialization failed: $e');
+      if (_initializationCompleter != null &&
+          !_initializationCompleter!.isCompleted) {
+        _initializationCompleter!.completeError(appCoreError);
+      }
+      throw appCoreError;
+    } finally {
+      // If initialization failed, clear the completer so a retry can start fresh.
+      if (_initializationCompleter != null && _isInitialized == false) {
+        _initializationCompleter = null;
+      }
     }
   }
 
@@ -196,7 +253,8 @@ class AppCore {
     _logger.info('Database initialized successfully');
 
     // Initialize repositories
-    contactRepository = ContactRepository();
+    contactRepository = getIt<ContactRepository>();
+    messageRepository = getIt<MessageRepository>();
     userPreferences = UserPreferences();
     archiveRepository = ArchiveRepository();
 
@@ -262,7 +320,8 @@ class AppCore {
 
     // Initialize SecurityManager with Noise Protocol
     _logger.info('🔒 Initializing SecurityManager with Noise Protocol...');
-    await SecurityManager.initialize();
+    final securityManager = SecurityManager.instance;
+    await securityManager.initialize();
     _logger.info('✅ SecurityManager initialized successfully');
 
     // 🔧 FIX P1: Initialize EphemeralKeyManager ONCE here before any component uses it
@@ -309,22 +368,40 @@ class AppCore {
   /// Phase 1 Part C: Initialize BLEService and MeshNetworkingService,
   /// then register in DI container for access via providers
   Future<void> _initializeBLEIntegration() async {
-    // Note: Services are created and initialized here (not in providers)
-    // Then registered in DI for access via Riverpod providers
-
-    _logger.info(
-      '📡 Initializing BLE stack (eager, not lazy via providers)...',
-    );
+    _logger.info('📡 Initializing BLE + mesh stack via AppCore...');
 
     try {
-      // BLEService is already initialized by providers when accessed
-      // For now, we skip explicit initialization here since it's still triggered via providers
-      // This transition will be completed when providers use DI instead of creating services
-      _logger.info(
-        '✅ BLE integration ready (BLEService manages its own BLEStateManager)',
+      final legacyBleService = BLEService();
+      await legacyBleService.initialize();
+      await MessageRouter.initialize(legacyBleService);
+      bleService = legacyBleService;
+      _logger.info('✅ BLEService initialized via AppCore');
+
+      final messageHandlerFacade = BLEMessageHandlerFacadeImpl(
+        legacyBleService.messageHandler,
+        SeenMessageStore.instance,
       );
+
+      meshNetworkingService = MeshNetworkingService(
+        bleService: bleService,
+        messageHandler: messageHandlerFacade,
+        chatManagementService: chatService,
+      );
+      await meshNetworkingService.initialize();
+      _logger.info('🌐 MeshNetworkingService initialized successfully');
+
+      registerInitializedServices(
+        securityManager: SecurityManager.instance,
+        connectionService: bleService,
+        meshNetworkingService: meshNetworkingService,
+        meshRelayCoordinator: meshNetworkingService.relayCoordinator,
+        meshQueueSyncCoordinator: meshNetworkingService.queueCoordinator,
+        meshHealthMonitor: meshNetworkingService.healthMonitor,
+      );
+      _logger.info('📦 BLE + mesh services registered with GetIt');
     } catch (e, stackTrace) {
       _logger.severe('❌ Failed to initialize BLE integration: $e');
+      _logger.severe('Stack trace: $stackTrace');
       rethrow;
     }
   }
@@ -440,8 +517,6 @@ class AppCore {
     QueuedMessage queuedMessage,
   ) async {
     try {
-      final messageRepo = MessageRepository();
-
       // Create repository message with delivered status
       final repoMessage = Message(
         id: queuedMessage.id, // Same ID as queue (secure ID)
@@ -454,7 +529,7 @@ class AppCore {
 
       // 🎯 OPTION B: Message should NOT exist in repository yet
       // Queue owns it until delivery, then moves it to repository
-      await messageRepo.saveMessage(repoMessage);
+      await messageRepository.saveMessage(repoMessage);
       _logger.info(
         '✅ OPTION B: Moved message ${queuedMessage.id.shortId()}... from queue → repository (delivered)',
       );
@@ -620,6 +695,12 @@ class AppCore {
     } catch (e) {
       _logger.severe('Error during disposal: $e');
     }
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _instance?._statusController?.close();
+    _instance = null;
   }
 }
 

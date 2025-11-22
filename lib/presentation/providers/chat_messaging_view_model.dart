@@ -224,10 +224,8 @@ class ChatMessagingViewModel {
   Future<void> _logMessageSendState(String messageContent) async {
     try {
       final contact = await contactRepository.getContact(contactPublicKey);
-      final encryptionMethod = await SecurityManager.getEncryptionMethod(
-        contactPublicKey,
-        contactRepository,
-      );
+      final encryptionMethod = await SecurityManager.instance
+          .getEncryptionMethod(contactPublicKey, contactRepository);
 
       final preview = messageContent.length > 30
           ? "${messageContent.substring(0, 27)}..."

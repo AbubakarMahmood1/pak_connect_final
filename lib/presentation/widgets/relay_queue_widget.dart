@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/messaging/offline_message_queue.dart';
-import '../../domain/services/mesh_networking_service.dart';
+import '../../core/interfaces/i_mesh_networking_service.dart';
+import '../../domain/models/mesh_network_models.dart';
 import '../../core/utils/mesh_debug_logger.dart';
 import '../../core/utils/app_logger.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -10,7 +11,7 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 /// Widget for displaying and managing relay message queue
 /// Shows pending messages, delivery status, and manual retry options
 class RelayQueueWidget extends StatefulWidget {
-  final MeshNetworkingService meshService;
+  final IMeshNetworkingService meshService;
   final VoidCallback? onRequestClose;
 
   const RelayQueueWidget({

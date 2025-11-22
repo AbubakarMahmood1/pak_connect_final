@@ -8,8 +8,7 @@ import '../interfaces/i_chat_connection_manager.dart';
 import '../../core/models/connection_status.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
-import '../interfaces/i_ble_service.dart';
-import '../../data/services/ble_service.dart';
+import '../interfaces/i_connection_service.dart';
 
 /// Service for managing chat connection status determination
 ///
@@ -25,14 +24,15 @@ import '../../data/services/ble_service.dart';
 class ChatConnectionManager implements IChatConnectionManager {
   final _logger = Logger('ChatConnectionManager');
 
-  final BLEService? _bleService;
+  final IConnectionService? _bleService;
   final StreamController<ConnectionStatus> _connectionStatusController =
       StreamController.broadcast();
 
   StreamSubscription? _peripheralConnectionSubscription;
   StreamSubscription? _discoveryDataSubscription;
 
-  ChatConnectionManager({BLEService? bleService}) : _bleService = bleService;
+  ChatConnectionManager({IConnectionService? bleService})
+    : _bleService = bleService;
 
   @override
   Future<void> initialize() async {
@@ -64,7 +64,7 @@ class ChatConnectionManager implements IChatConnectionManager {
         !currentConnectionInfo.isReady) {
       final bleService = _bleService;
       if (bleService != null &&
-          bleService.theirPersistentKey == contactPublicKey) {
+          bleService.theirPersistentPublicKey == contactPublicKey) {
         return ConnectionStatus.connecting;
       }
     }
@@ -150,9 +150,7 @@ class ChatConnectionManager implements IChatConnectionManager {
     final bleService = _bleService;
     if (bleService == null) return;
 
-    _peripheralConnectionSubscription = bleService
-        .peripheralManager
-        .connectionStateChanged
+    _peripheralConnectionSubscription = bleService.peripheralConnectionChanges
         .distinct(
           (prev, next) =>
               prev.central.uuid == next.central.uuid &&

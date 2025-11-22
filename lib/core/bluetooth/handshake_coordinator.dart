@@ -379,7 +379,7 @@ class HandshakeCoordinator {
     _phaseController.add(_phase);
 
     try {
-      final noiseService = SecurityManager.noiseService;
+      final noiseService = SecurityManager.instance.noiseService;
       if (noiseService == null) {
         throw Exception('Noise service not initialized');
       }
@@ -513,7 +513,7 @@ class HandshakeCoordinator {
 
       // Store data and process
 
-      final noiseService = SecurityManager.noiseService;
+      final noiseService = SecurityManager.instance.noiseService;
       if (noiseService == null) {
         throw Exception('Noise service not initialized');
       }
@@ -597,7 +597,7 @@ class HandshakeCoordinator {
       _logger.info('  Received ${msg2Data.length} bytes');
 
       // Process message 2 and generate message 3
-      final noiseService = SecurityManager.noiseService;
+      final noiseService = SecurityManager.instance.noiseService;
       if (noiseService == null) {
         throw Exception('Noise service not initialized');
       }
@@ -647,7 +647,7 @@ class HandshakeCoordinator {
       _logger.info('  Received ${msg3Data.length} bytes');
 
       // Process message 3 - this completes the handshake
-      final noiseService = SecurityManager.noiseService;
+      final noiseService = SecurityManager.instance.noiseService;
       if (noiseService == null) {
         throw Exception('Noise service not initialized');
       }
@@ -740,7 +740,7 @@ class HandshakeCoordinator {
 
       // Try to get peer key
       try {
-        final noiseService = SecurityManager.noiseService;
+        final noiseService = SecurityManager.instance.noiseService;
         if (noiseService == null) {
           _logger.warning(
             '⏳ Attempt $attempt/$maxRetries: Noise service not initialized',

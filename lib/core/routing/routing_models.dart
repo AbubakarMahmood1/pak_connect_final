@@ -293,9 +293,6 @@ class ConnectionMetrics {
       );
 }
 
-/// Demo scenario types for FYP evaluation
-enum DemoScenarioType { aToBtoC, queueSync, spamPrevention, smartRouting }
-
 /// Route optimization strategies
 enum RouteOptimizationStrategy {
   shortestPath, // Minimize hop count

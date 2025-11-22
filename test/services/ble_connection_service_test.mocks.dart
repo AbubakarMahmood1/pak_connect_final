@@ -18,7 +18,7 @@ import 'package:pak_connect/core/models/spy_mode_info.dart' as _i7;
 import 'package:pak_connect/core/power/adaptive_power_manager.dart' as _i15;
 import 'package:pak_connect/core/services/security_manager.dart' as _i10;
 import 'package:pak_connect/data/models/ble_client_connection.dart' as _i13;
-import 'package:pak_connect/data/models/ble_server_connection.dart' as _i14;
+import 'package:pak_connect/core/models/ble_server_connection.dart' as _i14;
 import 'package:pak_connect/data/repositories/contact_repository.dart' as _i2;
 import 'package:pak_connect/data/services/ble_connection_manager.dart' as _i11;
 import 'package:pak_connect/data/services/ble_state_manager.dart' as _i5;
@@ -594,14 +594,19 @@ class MockBLEStateManager extends _i1.Mock implements _i5.BLEStateManager {
           as String);
 
   @override
-  void handleContactStatus(bool? theyHaveUsAsContact, String? theirPublicKey) =>
-      super.noSuchMethod(
-        Invocation.method(#handleContactStatus, [
-          theyHaveUsAsContact,
-          theirPublicKey,
-        ]),
-        returnValueForMissingStub: null,
-      );
+  _i6.Future<void> handleContactStatus(
+    bool theyHaveUsAsContact,
+    String theirPublicKey,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#handleContactStatus, [
+              theyHaveUsAsContact,
+              theirPublicKey,
+            ]),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
 
   @override
   _i6.Future<void> initializeContactFlags() =>

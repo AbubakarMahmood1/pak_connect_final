@@ -5,12 +5,13 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
+import 'package:get_it/get_it.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
-import '../../data/database/database_helper.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../security/message_security.dart';
 import '../models/mesh_relay_models.dart';
+import '../interfaces/i_database_provider.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Comprehensive offline message queue with intelligent retry and delivery management
@@ -45,11 +46,25 @@ class OfflineMessageQueue {
 
   // Repository provider for favorites support
   IRepositoryProvider? _repositoryProvider;
+  IDatabaseProvider? _databaseProvider;
+  IDatabaseProvider? _resolvedDatabaseProvider;
 
   // Queue hash synchronization
   final Set<String> _deletedMessageIds = {};
   String? _cachedQueueHash;
   DateTime? _lastHashCalculation;
+  Future<Database> _getDatabase() async {
+    _resolvedDatabaseProvider ??=
+        _databaseProvider ??
+        (GetIt.instance.isRegistered<IDatabaseProvider>()
+            ? GetIt.instance<IDatabaseProvider>()
+            : null);
+    final provider = _resolvedDatabaseProvider;
+    if (provider == null) {
+      throw StateError('IDatabaseProvider not available');
+    }
+    return await provider.database;
+  }
 
   // Connection monitoring
   bool _isOnline = false;
@@ -77,6 +92,7 @@ class OfflineMessageQueue {
     Function(String messageId)? onSendMessage,
     Function()? onConnectivityCheck,
     IRepositoryProvider? repositoryProvider,
+    IDatabaseProvider? databaseProvider,
   }) async {
     this.onMessageQueued = onMessageQueued;
     this.onMessageDelivered = onMessageDelivered;
@@ -93,6 +109,11 @@ class OfflineMessageQueue {
         'ℹ️ IRepositoryProvider not registered - favorites-based limits disabled',
       );
       _repositoryProvider = null;
+    }
+
+    if (databaseProvider != null) {
+      _databaseProvider = databaseProvider;
+      _resolvedDatabaseProvider = databaseProvider;
     }
 
     await _loadQueueFromStorage();
@@ -910,7 +931,7 @@ class OfflineMessageQueue {
   /// Load queue from persistent storage
   Future<void> _loadQueueFromStorage() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
       final List<Map<String, dynamic>> results = await db.query(
         'offline_message_queue',
         orderBy: 'priority DESC, queued_at ASC',
@@ -946,7 +967,7 @@ class OfflineMessageQueue {
   /// Save a single message to persistent storage (optimized for individual updates)
   Future<void> _saveMessageToStorage(QueuedMessage message) async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       // Use INSERT OR REPLACE for efficiency - updates if exists, inserts if not
       await db.insert(
@@ -966,7 +987,7 @@ class OfflineMessageQueue {
   /// Remove a single message from persistent storage
   Future<void> _deleteMessageFromStorage(String messageId) async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       await db.delete(
         'offline_message_queue',
@@ -986,7 +1007,7 @@ class OfflineMessageQueue {
   /// For individual message updates, use _saveMessageToStorage for better performance
   Future<void> _saveQueueToStorage() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       // PRIORITY 1 FIX: Save both queues
       // Use transaction for atomic operations
@@ -1022,7 +1043,7 @@ class OfflineMessageQueue {
   /// Load deleted message IDs from persistent storage
   Future<void> _loadDeletedMessageIds() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
       final List<Map<String, dynamic>> results = await db.query(
         'deleted_message_ids',
       );
@@ -1041,7 +1062,7 @@ class OfflineMessageQueue {
   /// Save deleted message IDs to persistent storage
   Future<void> _saveDeletedMessageIds() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       await db.transaction((txn) async {
         // Clear and reinsert all deleted IDs
@@ -1380,7 +1401,7 @@ class OfflineMessageQueue {
 
     // Delete expired messages from storage
     if (expiredIds.isNotEmpty) {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
       await db.transaction((txn) async {
         for (final id in expiredIds) {
           await txn.delete(

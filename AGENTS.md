@@ -22,6 +22,28 @@
 - SQLite with SQLCipher (encrypted storage)
 - BLE mesh networking (custom protocol)
 
+## Documentation Lookup with Context7 API
+- Use the Context7 API to search libraries and fetch documentation programmatically before opening plugin docs manually.
+- Call the search endpoint with the `query` parameter (search term). Example response:
+```
+{
+  "results": [
+    {
+      "id": "/react-hook-form/documentation",
+      "title": "React Hook Form",
+      "description": "📋 Official documentation",
+      "totalTokens": 50275,
+      "totalSnippets": 274,
+      "stars": 741,
+      "trustScore": 9.1,
+      "versions": []
+    },
+    ...
+  ]
+}
+```
+- Use the returned `id` to fetch documentation; rely on this flow so you do not need to read plugin documentation unless necessary.
+
 ---
 
 ## Project Structure & Module Organization
@@ -48,6 +70,7 @@ lib/
 - `dart format lib test` formats Dart code before commits.
 - `flutter run -d chrome` or `flutter run -d emulator-id` launches the app locally.
 - `flutter test` runs the unit and widget suites; use `flutter test integration_test/` for device-level coverage.
+- **Always capture full-suite test runs**: when executing `flutter test` against the full suite, pipe the output to `flutter_test_latest.log` (or the appropriate log listed in `TESTING_STRATEGY.md`) and review it before ending the session so regressions are documented.
 - **Sandbox note**: When running Flutter CLI commands from Codex, request elevated permissions up front—the CLI sandbox otherwise blocks writes to `/home/abubakar/flutter/bin/cache` (e.g., `engine.stamp` updates) and causes false "Permission denied" failures. Asking the user to approve elevated execution keeps `flutter analyze`, `flutter run`, and `flutter test` working.
 
 ## Coding Style & Naming Conventions

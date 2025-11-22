@@ -60,29 +60,26 @@ void main() {
     // ========================================================================
 
     group('Initialization', () {
-      test('constructor completes immediately', () async {
-        // Arrange & Act
-        final facade2 = BLEServiceFacade();
-
-        // Assert
-        expect(facade2.initializationComplete, completes);
-      });
-
       test('initialize() completes successfully', () async {
         // Arrange & Act
         await facade.initialize();
 
         // Assert
+        expect(facade.isInitialized, isTrue);
         expect(facade.initializationComplete, completes);
       });
 
-      test('initializationComplete is already completed', () async {
-        // Arrange & Act
-        final completes = facade.initializationComplete;
+      test(
+        'initializationComplete is not completed before initialize',
+        () async {
+          // Arrange & Act
+          final pending = facade.initializationComplete;
 
-        // Assert
-        expect(completes, completes);
-      });
+          // Assert
+          expect(facade.isInitialized, isFalse);
+          await expectLater(pending, doesNotComplete);
+        },
+      );
     });
 
     // ========================================================================
@@ -208,6 +205,56 @@ void main() {
 
         expect(true, isTrue);
       });
+
+      test('queue sync handler is invoked for incoming sync', () async {
+        final handled = <String>[];
+        facade.registerQueueSyncHandler((message, fromNodeId) async {
+          handled.add('$fromNodeId:${message.queueHash}');
+          return true;
+        });
+
+        final queueMessage = QueueSyncMessage.createRequest(
+          messageIds: ['m1', 'm2'],
+          nodeId: 'node-a',
+        );
+        facade.debugHandleQueueSync(queueMessage, 'node-a');
+
+        expect(handled, contains('node-a:${queueMessage.queueHash}'));
+      });
+
+      test('spy mode events bubble to state manager and stream', () async {
+        final localFacade = BLEServiceFacade(platformHost: platformHost);
+        addTearDown(() => localFacade.dispose());
+        final spyInfo = SpyModeInfo(contactName: 'Alice', ephemeralID: 'eph1');
+        final received = <String>[];
+        localFacade.stateManager.onSpyModeDetected = (info) {
+          received.add(info.contactName ?? '');
+        };
+
+        final streamFuture = localFacade.spyModeDetectedStream.first;
+        localFacade.debugEmitSpyModeDetected(spyInfo);
+
+        final streamValue = await streamFuture;
+        expect(received, contains('Alice'));
+        expect(streamValue.contactName, equals('Alice'));
+      });
+
+      test(
+        'identity revealed events bubble to state manager and stream',
+        () async {
+          final localFacade = BLEServiceFacade(platformHost: platformHost);
+          addTearDown(() => localFacade.dispose());
+          final received = <String>[];
+          localFacade.stateManager.onIdentityRevealed = received.add;
+
+          final streamFuture = localFacade.identityRevealedStream.first;
+          localFacade.debugEmitIdentityRevealed('peer-123');
+
+          final streamValue = await streamFuture;
+          expect(received, contains('peer-123'));
+          expect(streamValue, equals('peer-123'));
+        },
+      );
     });
 
     // ========================================================================

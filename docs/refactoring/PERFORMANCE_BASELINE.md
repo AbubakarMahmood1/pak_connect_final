@@ -8,12 +8,50 @@
 
 ## Measurement Status
 
-⚠️ **Status**: Pending Real Device Testing
+🚫 **Status**: Blocked on instrumented real-device testing
 
-This document serves as a placeholder for performance baseline metrics. Actual measurements require:
-- Real Android BLE devices (2+ devices available)
-- Production build (not debug mode)
-- Controlled testing environment
+The release-grade performance pass still requires:
+- Two or more Android BLE devices on the bench
+- Production (`--release`) builds with logging enabled
+- Controlled RF environment for repeatable BLE measurements
+
+Until hardware access is available, we record the host-only benchmarks produced by `test/performance_getAllChats_benchmark_test.dart` (captured in `flutter_test_latest.log`).
+
+### Interim Repository Benchmarks (Host Machine, 2025-11-19)
+
+| Scenario | Dataset | Result | Source |
+| --- | --- | --- | --- |
+| getAllChats benchmark | 10 contacts × 10 messages | 12 ms total (1.2 ms/chat) | `flutter_test_latest.log` 7475-7525 |
+| getAllChats benchmark | 50 contacts × 10 messages | 5 ms total (0.1 ms/chat) | `flutter_test_latest.log` 7845-7890 |
+| getAllChats benchmark | 100 contacts × 10 messages | 5 ms total (0.1 ms/chat) | `flutter_test_latest.log` 8074-8088 |
+
+> These values provide a reproducible baseline for the SQLite-heavy flows while we wait for the full BLE/device metrics.
+
+### Real-Device Measurement Plan
+
+1. **Prepare hardware**: Two BLE-capable Android devices (A+B) with developer mode enabled, plus optional Device C for mesh relay. Charge fully and keep within 1–2 m for consistent RSSI.
+2. **Build & install release APK**:
+   ```bash
+   flutter build apk --release
+   adb install -r build/app/outputs/flutter-apk/app-release.apk
+   ```
+   Repeat for every device that will participate.
+3. **Enable performance logging**: Launch the installed release build (or `flutter run --release`) and capture logs via `adb logcat -s PerformanceMonitor,AppCore,BleService` so timestamps for startup/BLE events are preserved.
+4. **Capture startup metrics**: For each device, clear the app (`adb shell pm clear com.pakconnect`), then run `adb shell am start -W com.pakconnect/.MainActivity` and record `TotalTime`, `WaitTime`, `ThisTime`.
+5. **Measure BLE init & handshake**:
+   - On Device A, turn on advertising (app home screen).
+   - On Device B, initiate discovery/connection.
+   - Use `adb logcat` timestamps from `[BleHandshake]`/`[NoiseHandshake]` logs to measure: MTU negotiation, connection established, Noise handshake complete.
+6. **Message latency**:
+   - Keep A↔B connected.
+   - Send 10 text messages in each direction; capture send and receive timestamps from logcat (`[MeshMessaging]` entries) or by instrumenting the UI stopwatch.
+   - Compute average delta per direction.
+7. **Memory footprint**:
+   - Immediately after cold start and after 10 minutes of active messaging, run `adb shell dumpsys meminfo com.pakconnect` on each device and note `TOTAL`, `Dalvik Heap`, and `Native Heap`.
+8. **Mesh relay (optional)**:
+   - Introduce Device C; send A→C with B as relay.
+   - Capture processing time from `[MeshRelayEngine]` logs.
+9. **Record results**: Append the measurements (device model, OS version, numbers) to the tables below so we can compare future runs against the same hardware.
 
 ---
 

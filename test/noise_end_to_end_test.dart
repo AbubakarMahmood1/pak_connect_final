@@ -110,7 +110,7 @@ void main() {
 
     // Initialize SecurityManager with Noise support
     mockStorage = MockSecureStorage();
-    await SecurityManager.initialize(secureStorage: mockStorage);
+    await SecurityManager.instance.initialize(secureStorage: mockStorage);
   });
 
   setUp(() async {
@@ -118,11 +118,11 @@ void main() {
     await TestSetup.fullDatabaseReset();
 
     // Clear all Noise sessions to prevent pollution between tests
-    SecurityManager.clearAllNoiseSessions();
+    SecurityManager.instance.clearAllNoiseSessions();
   });
 
   tearDownAll(() async {
-    SecurityManager.shutdown();
+    SecurityManager.instance.shutdown();
     await DatabaseHelper.deleteDatabase();
   });
 
@@ -258,7 +258,7 @@ void main() {
         final message = 'Hello Bob! 🔐';
         final plaintext = Uint8List.fromList(utf8.encode(message));
 
-        final ciphertext = await SecurityManager.noiseService!.encrypt(
+        final ciphertext = await SecurityManager.instance.noiseService!.encrypt(
           plaintext,
           'bob_id',
         );
@@ -272,10 +272,8 @@ void main() {
           );
 
           // Test decryption
-          final decrypted = await SecurityManager.noiseService!.decrypt(
-            ciphertext,
-            'alice_id',
-          );
+          final decrypted = await SecurityManager.instance.noiseService!
+              .decrypt(ciphertext, 'alice_id');
 
           expect(decrypted, isNotNull);
           if (decrypted != null) {
@@ -438,7 +436,7 @@ void main() {
 
     test('Encryption without session returns null', () async {
       final plaintext = Uint8List.fromList(utf8.encode('test'));
-      final result = await SecurityManager.noiseService!.encrypt(
+      final result = await SecurityManager.instance.noiseService!.encrypt(
         plaintext,
         'unknown_peer',
       );
@@ -486,14 +484,14 @@ void main() {
       final largeMessage = 'A' * 10240;
       final plaintext = Uint8List.fromList(utf8.encode(largeMessage));
 
-      final ciphertext = await SecurityManager.noiseService!.encrypt(
+      final ciphertext = await SecurityManager.instance.noiseService!.encrypt(
         plaintext,
         'bob_id',
       );
       expect(ciphertext, isNotNull);
 
       if (ciphertext != null) {
-        final decrypted = await SecurityManager.noiseService!.decrypt(
+        final decrypted = await SecurityManager.instance.noiseService!.decrypt(
           ciphertext,
           'alice_id',
         );
@@ -545,17 +543,15 @@ void main() {
         final message = 'Message #$i';
         final plaintext = Uint8List.fromList(utf8.encode(message));
 
-        final ciphertext = await SecurityManager.noiseService!.encrypt(
+        final ciphertext = await SecurityManager.instance.noiseService!.encrypt(
           plaintext,
           'bob_id',
         );
         expect(ciphertext, isNotNull);
 
         if (ciphertext != null) {
-          final decrypted = await SecurityManager.noiseService!.decrypt(
-            ciphertext,
-            'alice_id',
-          );
+          final decrypted = await SecurityManager.instance.noiseService!
+              .decrypt(ciphertext, 'alice_id');
           expect(decrypted, isNotNull);
           if (decrypted != null) {
             expect(utf8.decode(decrypted), message);

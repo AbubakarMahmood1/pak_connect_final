@@ -1,15 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import '../../data/repositories/message_repository.dart';
+import '../../core/interfaces/i_chats_repository.dart';
+import '../../domain/entities/chat_list_item.dart';
+import '../../domain/entities/message.dart';
 
 /// Handles all scroll-related logic for ChatScreen
 /// Manages unread message state, scroll position tracking, and mark-as-read logic
 class ChatScrollingController {
   final _logger = Logger('ChatScrollingController');
-  final MessageRepository messageRepository;
+  final IChatsRepository chatsRepository;
+  final String chatId;
   final VoidCallback onScrollToBottom;
   final Function(int) onUnreadCountChanged;
+  final VoidCallback onStateChanged;
 
   // Scroll control
   late ScrollController scrollController;
@@ -25,32 +29,83 @@ class ChatScrollingController {
   // Message state
   int _newMessagesWhileScrolledUp = 0;
   bool _messageListenerActive = false;
+  bool _showUnreadSeparator = false;
 
   ChatScrollingController({
-    required this.messageRepository,
+    required this.chatsRepository,
+    required this.chatId,
     required this.onScrollToBottom,
     required this.onUnreadCountChanged,
+    required this.onStateChanged,
   }) {
     scrollController = ScrollController();
     _setupScrollListener();
   }
+
+  Future<void> syncUnreadCount({required List<Message> messages}) async {
+    try {
+      final chats = await chatsRepository.getAllChats();
+      final currentChat = chats.firstWhere(
+        (chat) => chat.chatId == chatId,
+        orElse: () => ChatListItem(
+          chatId: '',
+          contactName: '',
+          contactPublicKey: null,
+          lastMessage: null,
+          lastMessageTime: null,
+          unreadCount: 0,
+          isOnline: false,
+          hasUnsentMessages: false,
+          lastSeen: null,
+        ),
+      );
+
+      _unreadMessageCount = currentChat.unreadCount;
+      onUnreadCountChanged(_unreadMessageCount);
+
+      if (_unreadMessageCount > 0 && messages.isNotEmpty) {
+        _lastReadMessageIndex = messages.length - _unreadMessageCount - 1;
+        _showUnreadSeparator = true;
+        _startUnreadSeparatorTimer();
+      } else {
+        _lastReadMessageIndex = -1;
+        _showUnreadSeparator = false;
+      }
+
+      _notifyStateChanged();
+    } catch (e) {
+      _logger.warning('⚠️ Failed to sync unread count: $e');
+    }
+  }
+
+  Future<void> handleIncomingWhileScrolledAway() async {
+    final shouldIncrementUnread =
+        !_isUserAtBottom || _hasScrolledAwayFromBottom;
+    if (!shouldIncrementUnread) return;
+
+    _unreadMessageCount++;
+    _newMessagesWhileScrolledUp++;
+    onUnreadCountChanged(_unreadMessageCount);
+    _showUnreadSeparator = true;
+
+    try {
+      await chatsRepository.incrementUnreadCount(chatId);
+    } catch (e) {
+      _logger.warning('⚠️ Failed to increment unread count: $e');
+    }
+
+    _notifyStateChanged();
+  }
+
+  bool get shouldAutoScrollOnIncoming =>
+      _isUserAtBottom && !_hasScrolledAwayFromBottom;
 
   /// Initialize unread count (can be set by caller)
   void setUnreadCount(int count) {
     _unreadMessageCount = count;
     onUnreadCountChanged(count);
     _logger.info('✅ Set unread count: $count');
-  }
-
-  /// Deprecated: use setUnreadCount instead
-  Future<void> loadUnreadCount(String chatId) async {
-    try {
-      // Load unread count based on message status
-      // Implementation depends on repository structure
-      _logger.info('✅ Loaded unread count: $_unreadMessageCount');
-    } catch (e) {
-      _logger.warning('⚠️ Failed to load unread count: $e');
-    }
+    _notifyStateChanged();
   }
 
   /// Set up scroll position listener
@@ -71,19 +126,23 @@ class ChatScrollingController {
       _newMessagesWhileScrolledUp = 0;
 
       // Mark visible messages as read
-      _scheduleMarkAsRead();
+      scheduleMarkAsRead();
       _logger.info('✅ User scrolled to bottom');
+      _notifyStateChanged();
     } else if (!isUserAtBottom && _isUserAtBottom) {
       // User scrolled away from bottom
       _isUserAtBottom = false;
       _hasScrolledAwayFromBottom = true;
       _logger.info('⚠️ User scrolled up, tracking new messages');
+      _notifyStateChanged();
     }
   }
 
   /// Check if scroll-down button should be visible
-  bool shouldShowScrollDownButton() {
-    return !_isUserAtBottom && _newMessagesWhileScrolledUp > 0;
+  bool shouldShowScrollDownButton(int messageCount) {
+    return !_isUserAtBottom &&
+        messageCount > 0 &&
+        (_newMessagesWhileScrolledUp > 0 || _hasScrolledAwayFromBottom);
   }
 
   /// Scroll to bottom of message list
@@ -112,28 +171,37 @@ class ChatScrollingController {
       _logger.info(
         'ℹ️ Unread count: $_unreadMessageCount, new while scrolled: $_newMessagesWhileScrolledUp',
       );
+      _notifyStateChanged();
     }
-  }
-
-  /// Schedule marking messages as read (debounced)
-  void _scheduleMarkAsRead() {
-    _markAsReadDebounceTimer?.cancel();
-    _markAsReadDebounceTimer = Timer(const Duration(milliseconds: 500), () {
-      _markAsRead();
-    });
   }
 
   /// Mark visible messages as read
   Future<void> _markAsRead() async {
     try {
       _markAsReadDebounceTimer?.cancel();
-      _lastReadMessageIndex = 0;
+      _lastReadMessageIndex = -1;
       _unreadMessageCount = 0;
+      _newMessagesWhileScrolledUp = 0;
+      _hasScrolledAwayFromBottom = false;
       onUnreadCountChanged(0);
-
+      await chatsRepository.markChatAsRead(chatId);
       _logger.info('✅ Marked messages as read');
+      _notifyStateChanged();
     } catch (e) {
       _logger.warning('⚠️ Failed to mark messages as read: $e');
+    }
+  }
+
+  Future<void> markAsRead() => _markAsRead();
+
+  void scheduleMarkAsRead() {
+    _markAsReadDebounceTimer?.cancel();
+    if (_newMessagesWhileScrolledUp > 0 || _unreadMessageCount > 0) {
+      _markAsReadDebounceTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (_isUserAtBottom) {
+          _markAsRead();
+        }
+      });
     }
   }
 
@@ -166,8 +234,12 @@ class ChatScrollingController {
   /// Get count of new messages while scrolled up
   int get newMessagesWhileScrolledUp => _newMessagesWhileScrolledUp;
 
-  /// Get last read message index
   int get lastReadMessageIndex => _lastReadMessageIndex;
+
+  bool get showUnreadSeparator => _showUnreadSeparator;
+
+  /// Get last read message index
+  bool get hasScrolledAwayFromBottom => _hasScrolledAwayFromBottom;
 
   /// Update message listener state
   void setMessageListenerActive(bool active) {
@@ -179,5 +251,18 @@ class ChatScrollingController {
     scrollController.dispose();
     _markAsReadDebounceTimer?.cancel();
     _unreadSeparatorTimer?.cancel();
+  }
+
+  void _notifyStateChanged() {
+    onStateChanged();
+  }
+
+  void _startUnreadSeparatorTimer() {
+    _unreadSeparatorTimer?.cancel();
+    _unreadSeparatorTimer = Timer(const Duration(seconds: 3), () {
+      _showUnreadSeparator = false;
+      _notifyStateChanged();
+      _markAsRead();
+    });
   }
 }

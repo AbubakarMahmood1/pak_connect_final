@@ -107,7 +107,7 @@ void main() {
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'debug_nonce');
     mockStorage = MockSecureStorage();
-    await SecurityManager.initialize(secureStorage: mockStorage);
+    await SecurityManager.instance.initialize(secureStorage: mockStorage);
   });
 
   setUp(() async {
@@ -120,7 +120,7 @@ void main() {
   });
 
   tearDownAll(() async {
-    SecurityManager.shutdown();
+    SecurityManager.instance.shutdown();
     await DatabaseHelper.deleteDatabase();
   });
 
@@ -182,7 +182,7 @@ void main() {
     print('──────────────────────────────────────────────────────────\n');
 
     // Print session info
-    final noiseManager = SecurityManager.noiseService!;
+    final noiseManager = SecurityManager.instance.noiseService!;
     print('Sessions in manager:');
     print(
       '  - Looking for bob_id session: ${noiseManager.hasEstablishedSession('bob_id')}',
@@ -199,7 +199,7 @@ void main() {
     final plaintext1 = Uint8List.fromList(utf8.encode(message1));
 
     print('Alice encrypting to bob_id: "$message1"');
-    final ciphertext1 = await SecurityManager.noiseService!.encrypt(
+    final ciphertext1 = await SecurityManager.instance.noiseService!.encrypt(
       plaintext1,
       'bob_id',
     );
@@ -210,7 +210,7 @@ void main() {
     print('──────────────────────────────────────────────────────────\n');
 
     print('Bob decrypting from alice_id');
-    final decrypted1 = await SecurityManager.noiseService!.decrypt(
+    final decrypted1 = await SecurityManager.instance.noiseService!.decrypt(
       ciphertext1!,
       'alice_id',
     );
@@ -226,7 +226,7 @@ void main() {
     final plaintext2 = Uint8List.fromList(utf8.encode(message2));
 
     print('Alice encrypting to bob_id: "$message2"');
-    final ciphertext2 = await SecurityManager.noiseService!.encrypt(
+    final ciphertext2 = await SecurityManager.instance.noiseService!.encrypt(
       plaintext2,
       'bob_id',
     );
@@ -237,7 +237,7 @@ void main() {
     print('──────────────────────────────────────────────────────────\n');
 
     print('Bob decrypting from alice_id');
-    final decrypted2 = await SecurityManager.noiseService!.decrypt(
+    final decrypted2 = await SecurityManager.instance.noiseService!.decrypt(
       ciphertext2!,
       'alice_id',
     );

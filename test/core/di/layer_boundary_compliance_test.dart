@@ -119,6 +119,59 @@ void main() {
               'NavigationService should define Builder typedefs for callbacks',
         );
       });
+
+      test('✅ Core layer files do NOT import data layer implementations', () {
+        final coreDir = Directory(path.join(projectRoot.path, 'lib', 'core'));
+        if (!coreDir.existsSync()) {
+          fail('Core directory not found');
+        }
+
+        final allowList = <String>{
+          path.join('lib', 'core', 'app_core.dart'),
+          path.join('lib', 'core', 'di', 'service_locator.dart'),
+          path.join('lib', 'core', 'interfaces', 'i_ble_service.dart'),
+        }.map(path.normalize).toSet();
+
+        final violations = <String>[];
+        final dartFiles = coreDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .toList();
+
+        for (final file in dartFiles) {
+          final relativePath = path.normalize(
+            path.relative(file.path, from: projectRoot.path),
+          );
+          if (allowList.contains(relativePath)) {
+            continue;
+          }
+
+          final lines = file.readAsLinesSync();
+          final hasConcreteImport = lines.any((line) {
+            final trimmed = line.trimLeft();
+            final startsWithImport =
+                trimmed.startsWith("import '") ||
+                trimmed.startsWith('import "');
+            if (!startsWithImport) return false;
+            return trimmed.contains("../data/") ||
+                trimmed.contains("../../data/") ||
+                trimmed.contains("package:pak_connect/data");
+          });
+
+          if (hasConcreteImport) {
+            violations.add(relativePath);
+          }
+        }
+
+        expect(
+          violations.isEmpty,
+          isTrue,
+          reason: violations.isEmpty
+              ? 'All core files respect the interface boundary'
+              : 'Core files importing data layer:\n${violations.join('\n')}',
+        );
+      });
     });
 
     group('Data Layer Abstraction Compliance', () {

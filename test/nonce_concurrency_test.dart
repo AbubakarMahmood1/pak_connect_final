@@ -128,7 +128,7 @@ void main() {
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'nonce_concurrency');
     mockStorage = MockSecureStorage();
-    await SecurityManager.initialize(secureStorage: mockStorage);
+    await SecurityManager.instance.initialize(secureStorage: mockStorage);
 
     // Enable detailed logging for debugging
     Logger.root.level = Level.ALL;
@@ -144,7 +144,7 @@ void main() {
   });
 
   tearDownAll(() async {
-    SecurityManager.shutdown();
+    SecurityManager.instance.shutdown();
     await DatabaseHelper.deleteDatabase();
   });
 
@@ -208,7 +208,7 @@ void main() {
       await aliceCoordinator.startHandshake();
 
       // Verify session is established
-      final noiseManager = SecurityManager.noiseService!;
+      final noiseManager = SecurityManager.instance.noiseService!;
       final hasAliceSession = noiseManager.hasEstablishedSession(
         'bob_ephemeral',
       );
@@ -447,7 +447,7 @@ void main() {
 
       await aliceCoordinator.startHandshake();
 
-      final noiseManager = SecurityManager.noiseService!;
+      final noiseManager = SecurityManager.instance.noiseService!;
       expect(noiseManager.hasEstablishedSession('bob_ephemeral'), isTrue);
 
       logger.info('✅ Noise session established\n');

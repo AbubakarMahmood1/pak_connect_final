@@ -12,7 +12,7 @@ class DeviceTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bleService = ref.watch(bleServiceProvider);
+    final bleService = ref.watch(connectionServiceProvider);
     final connectionInfoAsync = ref.watch(connectionInfoProvider);
 
     final connectionInfo = connectionInfoAsync.maybeWhen(

@@ -14,7 +14,6 @@ import '../providers/mesh_networking_provider.dart';
 import '../../core/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../core/models/connection_status.dart';
-import '../../data/services/ble_service.dart';
 import '../widgets/discovery_overlay.dart';
 import '../widgets/relay_queue_widget.dart';
 import 'chat_screen.dart';
@@ -76,7 +75,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ); // Listen for tab changes to update FAB
     _homeScreenFacade = HomeScreenFacade(
       chatsRepository: _chatsRepository,
-      bleService: ref.read(bleServiceProvider),
+      bleService: ref.read(connectionServiceProvider),
       chatManagementService: _chatManagementService,
       context: context,
       ref: ref,
@@ -168,7 +167,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// 🎯 OPTIMIZED: Updates only the affected chat item to prevent UI flicker
   void _setupGlobalMessageListener() {
     try {
-      final bleService = ref.read(bleServiceProvider);
+      final bleService = ref.read(connectionServiceProvider);
 
       _globalMessageSubscription = bleService.receivedMessages.listen((
         content,
@@ -850,11 +849,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _setupPeripheralConnectionListener() {
     if (!Platform.isAndroid) return;
 
-    final bleService = ref.read(bleServiceProvider);
+    final bleService = ref.read(connectionServiceProvider);
 
-    _peripheralConnectionSubscription = bleService
-        .peripheralManager
-        .connectionStateChanged
+    _peripheralConnectionSubscription = bleService.peripheralConnectionChanges
         .distinct(
           (prev, next) =>
               prev.central.uuid == next.central.uuid &&
@@ -879,7 +876,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _setupDiscoveryListener() {
     // Listen to real-time discovery data changes
     _discoveryDataSubscription = ref
-        .read(bleServiceProvider)
+        .read(connectionServiceProvider)
         .discoveryData
         .listen((discoveryData) {
           if (mounted && !_isLoading) {

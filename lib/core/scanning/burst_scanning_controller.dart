@@ -3,7 +3,8 @@ import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     show BluetoothLowEnergyState;
 import '../power/adaptive_power_manager.dart';
-import '../../data/services/ble_service.dart';
+import '../interfaces/i_connection_service.dart';
+import '../interfaces/i_ble_discovery_service.dart';
 import '../bluetooth/bluetooth_state_monitor.dart'; // ✅ FIX #2: Import for Bluetooth state checking
 
 /// Bridge controller that connects AdaptivePowerManager to actual BLE scanning operations
@@ -19,7 +20,7 @@ class BurstScanningController {
 
   AdaptivePowerManager?
   _powerManager; // ✅ FIX: Made nullable to prevent LateInitializationError on disposal
-  BLEService? _bleService;
+  IConnectionService? _bleService;
   StreamSubscription<BluetoothStateInfo>? _bluetoothStateSubscription;
 
   // Status tracking
@@ -39,7 +40,7 @@ class BurstScanningController {
   Stream<BurstScanningStatus> get statusStream => _statusController.stream;
 
   /// Initialize the burst scanning controller
-  Future<void> initialize(BLEService bleService) async {
+  Future<void> initialize(IConnectionService bleService) async {
     _bleService = bleService;
     _powerManager = AdaptivePowerManager();
 
@@ -125,19 +126,20 @@ class BurstScanningController {
     // Both central and peripheral roles run simultaneously without interference
 
     // 🔥 OPTIMIZATION: Check if at max connections before scanning
-    final connectionManager = _bleService!.connectionManager;
-    if (!connectionManager.canAcceptMoreConnections) {
+    final activeConnections = _bleService!.activeConnectionCount;
+    final maxConnections = _bleService!.maxCentralConnections;
+    if (!_bleService!.canAcceptMoreConnections) {
       _logger.info(
-        '🔥 BURST: Skipping scan - already at max connections (${connectionManager.activeConnectionCount}/${connectionManager.maxClientConnections})',
+        '🔥 BURST: Skipping scan - already at max connections ($activeConnections/$maxConnections)',
       );
       _logger.fine(
-        'Connected devices: ${connectionManager.activeConnections.map((p) => p.uuid).join(", ")}',
+        'Connected devices: ${_bleService!.activeConnectionDeviceIds.join(", ")}',
       );
       return; // Don't scan if we can't accept more connections
     }
 
     _logger.info(
-      '🔥 BURST: Starting burst scan cycle (${connectionManager.activeConnectionCount}/${connectionManager.maxClientConnections} connections)',
+      '🔥 BURST: Starting burst scan cycle ($activeConnections/$maxConnections connections)',
     );
     _isBurstActive = true;
     _burstEndTime = DateTime.now().add(

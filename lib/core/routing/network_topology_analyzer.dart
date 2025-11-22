@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'routing_models.dart';
-import '../../data/services/ble_service.dart';
+import '../interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Analyzes and maintains the mesh network topology
@@ -134,7 +134,7 @@ class NetworkTopologyAnalyzer {
   }
 
   /// Discover network nodes through BLE scanning (non-blocking)
-  Future<void> discoverNodes(BLEService bleService) async {
+  Future<void> discoverNodes(IConnectionService bleService) async {
     try {
       _logger.info('Starting non-blocking network discovery');
 
@@ -157,7 +157,7 @@ class NetworkTopologyAnalyzer {
           final quality = _estimateConnectionQuality(bleService);
 
           // Create metrics based on BLE data
-          final metrics = _createConnectionMetrics(bleService);
+          final metrics = _createConnectionMetrics();
 
           await addConnection(
             currentNodeId,
@@ -279,7 +279,7 @@ class NetworkTopologyAnalyzer {
   }
 
   /// Estimate connection quality based on BLE service data
-  ConnectionQuality _estimateConnectionQuality(BLEService bleService) {
+  ConnectionQuality _estimateConnectionQuality(IConnectionService bleService) {
     try {
       final connectionInfo = bleService.currentConnectionInfo;
 
@@ -302,7 +302,7 @@ class NetworkTopologyAnalyzer {
   }
 
   /// Create connection metrics from BLE service data
-  ConnectionMetrics _createConnectionMetrics(BLEService bleService) {
+  ConnectionMetrics _createConnectionMetrics() {
     try {
       // For now, use estimated values
       // In a real implementation, you'd get actual RSSI, latency measurements, etc.
