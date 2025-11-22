@@ -1,6 +1,6 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../../domain/entities/chat_list_item.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../domain/entities/contact.dart';
 
 /// Interface for chats repository operations
 ///

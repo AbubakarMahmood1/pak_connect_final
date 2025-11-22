@@ -7,7 +7,6 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import 'package:logging/logging.dart';
-import '../../data/services/ble_service.dart';
 import '../providers/ble_providers.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/security/hint_cache_manager.dart';
@@ -15,7 +14,8 @@ import '../../core/services/hint_advertisement_service.dart';
 import '../../core/services/security_manager.dart';
 import '../screens/chat_screen.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
-import '../../data/models/ble_server_connection.dart';
+import '../../core/models/ble_server_connection.dart';
+import '../../core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 enum ConnectionAttemptState {
@@ -152,25 +152,18 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   }
 
   void _initializeDiscovery() {
-    final bleService = ref.read(bleServiceProvider);
+    final connectionService = ref.read(connectionServiceProvider);
 
-    // 🔧 FIXED: Don't auto-start scanning - let burst scanning handle timing
-    // Only setup peripheral listener if needed
-    if (Platform.isAndroid && bleService.isPeripheralMode) {
+    if (Platform.isAndroid && connectionService.isPeripheralMode) {
       _setupPeripheralListener();
     }
-
-    // Note: Burst scanning controller will handle automatic scanning timing
-    // Manual scanning is still available via the UI buttons
   }
 
   void _setupPeripheralListener() {
-    final bleService = ref.read(bleServiceProvider);
+    final connectionService = ref.read(connectionServiceProvider);
 
     _connectionSubscription?.cancel();
-    _connectionSubscription = bleService
-        .peripheralManager
-        .connectionStateChanged
+    _connectionSubscription = connectionService.peripheralConnectionChanges
         .distinct(
           (prev, next) =>
               prev.central.uuid == next.central.uuid &&
@@ -235,14 +228,14 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     );
 
     try {
-      final bleService = ref.read(bleServiceProvider);
-      await bleService.connectToDevice(device);
+      final connectionService = ref.read(connectionServiceProvider);
+      await connectionService.connectToDevice(device);
 
       // Wait for identity exchange
       await Future.delayed(Duration(seconds: 2));
 
       // Mark as connected and verify connection state
-      if (bleService.connectedDevice?.uuid == device.uuid) {
+      if (connectionService.connectedDevice?.uuid == device.uuid) {
         setState(() {
           _connectionAttempts[deviceId] = ConnectionAttemptState.connected;
         });
@@ -309,7 +302,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   }
 
   Widget _buildConnectionStatusBadge(Peripheral device) {
-    final bleService = ref.read(bleServiceProvider);
+    final bleService = ref.read(connectionServiceProvider);
     final deviceId = device.uuid.toString();
     final attemptState =
         _connectionAttempts[deviceId] ?? ConnectionAttemptState.none;
@@ -362,7 +355,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   }
 
   Widget _buildTrailingIcon(Peripheral device, int rssi) {
-    final bleService = ref.read(bleServiceProvider);
+    final bleService = ref.read(connectionServiceProvider);
     final deviceId = device.uuid.toString();
     final attemptState =
         _connectionAttempts[deviceId] ?? ConnectionAttemptState.none;
@@ -444,7 +437,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
 
   @override
   Widget build(BuildContext context) {
-    final bleService = ref.watch(bleServiceProvider);
+    final bleService = ref.watch(connectionServiceProvider);
     final discoveredDevicesAsync = ref.watch(discoveredDevicesProvider);
     final discoveryDataAsync = ref.watch(discoveryDataProvider);
     final deduplicatedDevicesAsync = ref.watch(deduplicatedDevicesProvider);
@@ -539,7 +532,10 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     );
   }
 
-  Widget _buildHeader(BuildContext context, BLEService bleService) {
+  Widget _buildHeader(
+    BuildContext context,
+    IConnectionService connectionService,
+  ) {
     return Container(
       padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -562,7 +558,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              bleService.isPeripheralMode
+              connectionService.isPeripheralMode
                   ? Icons.wifi_tethering
                   : Icons.bluetooth_searching,
               color: Theme.of(context).colorScheme.primary,
@@ -619,11 +615,10 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
 
   /// 🆕 ENHANCEMENT 2: Connection slot indicator
   Widget _buildConnectionSlotIndicator() {
-    final bleService = ref.watch(bleServiceProvider);
-    final connectionManager = bleService.connectionManager;
+    final connectionService = ref.watch(connectionServiceProvider);
 
-    final currentConnections = connectionManager.clientConnectionCount;
-    final maxConnections = connectionManager.maxClientConnections;
+    final currentConnections = connectionService.clientConnectionCount;
+    final maxConnections = connectionService.maxCentralConnections;
     final availableSlots = maxConnections - currentConnections;
 
     // 🔗 Log connection slot status for debugging
@@ -1004,7 +999,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     final securityLevel = matchedContact?.securityLevel ?? SecurityLevel.low;
 
     // Role badges: determine if connected as central and/or peripheral
-    final bleService = ref.read(bleServiceProvider);
+    final bleService = ref.read(connectionServiceProvider);
     final isConnectedAsCentral =
         bleService.connectedDevice?.uuid == device.uuid;
     final isConnectedAsPeripheral =
@@ -1299,7 +1294,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
           ),
           trailing: _buildTrailingIcon(device, rssi),
           onTap: () {
-            final bleService = ref.read(bleServiceProvider);
+            final bleService = ref.read(connectionServiceProvider);
             final deviceId = device.uuid.toString();
             final attemptState =
                 _connectionAttempts[deviceId] ?? ConnectionAttemptState.none;
@@ -1471,8 +1466,8 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   }
 
   /// 🆕 Build peripheral mode view - shows devices connected TO us (we're the peripheral)
-  Widget _buildPeripheralMode(BLEService bleService) {
-    final serverConnections = bleService.connectionManager.serverConnections;
+  Widget _buildPeripheralMode(IConnectionService connectionService) {
+    final serverConnections = connectionService.serverConnections;
 
     return Column(
       children: [

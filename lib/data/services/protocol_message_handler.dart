@@ -163,7 +163,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       String decryptedContent = content;
       if (message.isEncrypted && fromNodeId.isNotEmpty) {
         try {
-          decryptedContent = await SecurityManager.decryptMessage(
+          decryptedContent = await SecurityManager.instance.decryptMessage(
             content,
             fromNodeId,
             _contactRepository,

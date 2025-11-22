@@ -1,11 +1,31 @@
 import 'dart:async';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../interfaces/i_queue_persistence_manager.dart';
-import '../../data/database/database_helper.dart';
+import '../interfaces/i_database_provider.dart';
 
 /// Manages queue table persistence, migrations, and maintenance
 class QueuePersistenceManager implements IQueuePersistenceManager {
   static final _logger = Logger('QueuePersistenceManager');
+  final IDatabaseProvider? _databaseProvider;
+  IDatabaseProvider? _resolvedDatabaseProvider;
+
+  QueuePersistenceManager({IDatabaseProvider? databaseProvider})
+    : _databaseProvider = databaseProvider;
+
+  Future<Database> _getDatabase() async {
+    _resolvedDatabaseProvider ??=
+        _databaseProvider ??
+        (GetIt.instance.isRegistered<IDatabaseProvider>()
+            ? GetIt.instance<IDatabaseProvider>()
+            : null);
+    final provider = _resolvedDatabaseProvider;
+    if (provider == null) {
+      throw StateError('IDatabaseProvider not available');
+    }
+    return await provider.database;
+  }
 
   // Table names
   static const String _offlineQueueTable = 'offline_message_queue';
@@ -15,7 +35,7 @@ class QueuePersistenceManager implements IQueuePersistenceManager {
   @override
   Future<bool> createQueueTablesIfNotExist() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       // Create offline_message_queue table
       await db.execute('''
@@ -116,7 +136,7 @@ class QueuePersistenceManager implements IQueuePersistenceManager {
   @override
   Future<Map<String, dynamic>> getQueueTableStats() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       // Get row count for offline_message_queue
       final queueResult = await db.rawQuery(
@@ -160,7 +180,7 @@ class QueuePersistenceManager implements IQueuePersistenceManager {
   Future<void> vacuumQueueTables() async {
     try {
       _logger.info('🧹 Starting queue table vacuum...');
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       // Execute VACUUM to defragment and reclaim space
       await db.execute('VACUUM');
@@ -177,7 +197,7 @@ class QueuePersistenceManager implements IQueuePersistenceManager {
   Future<String?> backupQueueData() async {
     try {
       _logger.info('💾 Starting queue data backup...');
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
 
       // Get all queue data
       final queueData = await db.query(_offlineQueueTable);
@@ -215,7 +235,7 @@ class QueuePersistenceManager implements IQueuePersistenceManager {
   @override
   Future<Map<String, dynamic>> getQueueTableHealth() async {
     try {
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
       final issues = <String>[];
 
       // Check for orphaned rows (messages with no corresponding chat)
@@ -263,7 +283,7 @@ class QueuePersistenceManager implements IQueuePersistenceManager {
   Future<int> ensureQueueConsistency() async {
     try {
       _logger.info('🔍 Ensuring queue consistency...');
-      final db = await DatabaseHelper.database;
+      final db = await _getDatabase();
       int rowsFixed = 0;
 
       await db.transaction((txn) async {

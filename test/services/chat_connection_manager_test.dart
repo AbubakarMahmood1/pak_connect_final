@@ -287,4 +287,7 @@ class _StubBleService extends BLEService {
 
   @override
   String? get theirPersistentKey => persistentKey;
+
+  @override
+  String? get theirPersistentPublicKey => persistentKey;
 }

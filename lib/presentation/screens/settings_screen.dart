@@ -497,7 +497,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
               // Only refresh advertising if in peripheral mode
               // Pass the value directly to avoid stale cache issues
-              final bleService = ref.read(bleServiceProvider);
+              final bleService = ref.read(connectionServiceProvider);
               if (bleService.isPeripheralMode) {
                 await bleService.refreshAdvertising(showOnlineStatus: value);
               }

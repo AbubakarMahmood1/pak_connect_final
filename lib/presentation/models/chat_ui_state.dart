@@ -15,7 +15,6 @@ class ChatUIState {
   final int unreadMessageCount;
   final int newMessagesWhileScrolledUp;
   final bool meshInitializing;
-  final bool demoModeEnabled;
   final bool contactRequestInProgress;
 
   const ChatUIState({
@@ -29,7 +28,6 @@ class ChatUIState {
     this.unreadMessageCount = 0,
     this.newMessagesWhileScrolledUp = 0,
     this.meshInitializing = false,
-    this.demoModeEnabled = true,
     this.contactRequestInProgress = false,
   });
 
@@ -45,7 +43,6 @@ class ChatUIState {
     int? unreadMessageCount,
     int? newMessagesWhileScrolledUp,
     bool? meshInitializing,
-    bool? demoModeEnabled,
     bool? contactRequestInProgress,
   }) {
     return ChatUIState(
@@ -60,7 +57,6 @@ class ChatUIState {
       newMessagesWhileScrolledUp:
           newMessagesWhileScrolledUp ?? this.newMessagesWhileScrolledUp,
       meshInitializing: meshInitializing ?? this.meshInitializing,
-      demoModeEnabled: demoModeEnabled ?? this.demoModeEnabled,
       contactRequestInProgress:
           contactRequestInProgress ?? this.contactRequestInProgress,
     );
@@ -76,6 +72,5 @@ class ChatUIState {
       'unreadMessageCount=$unreadMessageCount, '
       'newMessagesWhileScrolledUp=$newMessagesWhileScrolledUp, '
       'meshInitializing=$meshInitializing, '
-      'demoModeEnabled=$demoModeEnabled, '
       'contactRequestInProgress=$contactRequestInProgress)';
 }

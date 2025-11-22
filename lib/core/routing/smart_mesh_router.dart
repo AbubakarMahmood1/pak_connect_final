@@ -21,11 +21,6 @@ class SmartMeshRouter {
   final Map<String, DateTime> _cacheExpiry = {};
   static const Duration _cacheTimeout = Duration(minutes: 2);
 
-  // Demo mode
-  bool _demoMode = false;
-  final StreamController<RoutingDecision> _demoDecisionController =
-      StreamController<RoutingDecision>.broadcast();
-
   Timer? _maintenanceTimer;
 
   SmartMeshRouter({
@@ -38,17 +33,12 @@ class SmartMeshRouter {
        _qualityMonitor = qualityMonitor,
        _currentNodeId = currentNodeId;
 
-  /// Stream of routing decisions (for demo purposes)
-  Stream<RoutingDecision> get demoDecisions => _demoDecisionController.stream;
-
   /// Initialize the smart mesh router
-  Future<void> initialize({bool enableDemo = false}) async {
+  Future<void> initialize() async {
     try {
       _logger.info(
         'Initializing Smart Mesh Router for node ${_currentNodeId.shortId(8)}...',
       );
-
-      _demoMode = enableDemo;
 
       // Initialize all components
       await _topologyAnalyzer.initialize();
@@ -60,7 +50,7 @@ class SmartMeshRouter {
         (_) => _performMaintenance(),
       );
 
-      _logger.info('✅ Smart Mesh Router initialized (demo: $_demoMode)');
+      _logger.info('✅ Smart Mesh Router initialized');
     } catch (e) {
       _logger.severe('❌ Failed to initialize Smart Mesh Router: $e');
       rethrow;
@@ -85,9 +75,6 @@ class SmartMeshRouter {
       final cachedDecision = _getCachedDecision(cacheKey);
       if (cachedDecision != null) {
         _logger.info('📋 Using cached routing decision');
-        if (_demoMode) {
-          _demoDecisionController.add(cachedDecision);
-        }
         return cachedDecision;
       }
 
@@ -96,11 +83,6 @@ class SmartMeshRouter {
         _logger.info('🎯 Direct route available');
         final decision = RoutingDecision.direct(finalRecipient);
         _cacheDecision(cacheKey, decision);
-
-        if (_demoMode) {
-          _demoDecisionController.add(decision);
-        }
-
         return decision;
       }
 
@@ -125,11 +107,6 @@ class SmartMeshRouter {
         final decision = RoutingDecision.failed(
           'No route available to destination',
         );
-
-        if (_demoMode) {
-          _demoDecisionController.add(decision);
-        }
-
         return decision;
       }
 
@@ -156,20 +133,10 @@ class SmartMeshRouter {
       // Cache the decision
       _cacheDecision(cacheKey, decision);
 
-      // Broadcast for demo
-      if (_demoMode) {
-        _demoDecisionController.add(decision);
-      }
-
       return decision;
     } catch (e) {
       _logger.severe('❌ Route determination failed: $e');
       final decision = RoutingDecision.failed('Route calculation error: $e');
-
-      if (_demoMode) {
-        _demoDecisionController.add(decision);
-      }
-
       return decision;
     }
   }
@@ -432,12 +399,6 @@ class SmartMeshRouter {
     }
   }
 
-  /// Enable or disable demo mode
-  void setDemoMode(bool enabled) {
-    _demoMode = enabled;
-    _logger.info('Demo mode ${enabled ? 'enabled' : 'disabled'}');
-  }
-
   /// Get routing statistics
   SmartRouterStats getStatistics() {
     final topologyStats = _topologyAnalyzer.getNetworkStats();
@@ -450,7 +411,6 @@ class SmartMeshRouter {
       topologyStats: topologyStats,
       qualityStats: qualityStats,
       cacheStats: cacheStats,
-      demoModeEnabled: _demoMode,
     );
   }
 
@@ -466,7 +426,6 @@ class SmartMeshRouter {
   /// Dispose of all resources
   void dispose() {
     _maintenanceTimer?.cancel();
-    _demoDecisionController.close();
     _topologyAnalyzer.dispose();
     _qualityMonitor.dispose();
     clearAll();
@@ -481,7 +440,6 @@ class SmartRouterStats {
   final NetworkTopologyStats topologyStats;
   final QualityMonitoringStats qualityStats;
   final Map<String, int> cacheStats;
-  final bool demoModeEnabled;
 
   const SmartRouterStats({
     required this.nodeId,
@@ -489,7 +447,6 @@ class SmartRouterStats {
     required this.topologyStats,
     required this.qualityStats,
     required this.cacheStats,
-    required this.demoModeEnabled,
   });
 
   Map<String, dynamic> toJson() => {
@@ -498,11 +455,10 @@ class SmartRouterStats {
     'topologyStats': topologyStats.toJson(),
     'qualityStats': qualityStats.toJson(),
     'cacheStats': cacheStats,
-    'demoModeEnabled': demoModeEnabled,
   };
 
   @override
   String toString() =>
       'SmartRouterStats(node: ${nodeId.shortId(8)}..., '
-      'cached: $cachedDecisions, demo: $demoModeEnabled)';
+      'cached: $cachedDecisions)';
 }

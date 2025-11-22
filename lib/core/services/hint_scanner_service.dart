@@ -2,7 +2,7 @@
 
 import 'dart:typed_data';
 import '../../domain/entities/ephemeral_discovery_hint.dart';
-import '../../data/repositories/contact_repository.dart' show Contact;
+import '../../domain/entities/contact.dart' show Contact;
 import '../interfaces/i_repository_provider.dart';
 import '../utils/app_logger.dart';
 import 'hint_advertisement_service.dart';

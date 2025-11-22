@@ -46,6 +46,9 @@ flutter test --exclude-tags=mesh_relay
 
 # Run tests in compact mode (less verbose)
 flutter test --reporter=compact
+
+# Save full-suite runs to logs for later review
+set -o pipefail; flutter test | tee flutter_test_latest.log
 ```
 
 ### Code Quality

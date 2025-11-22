@@ -2,7 +2,12 @@ import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import '../../data/services/ble_service.dart';
 import '../../data/services/seen_message_store.dart';
+import '../../data/services/mesh_routing_service.dart';
+import '../../data/database/database_provider.dart';
 import '../../domain/services/mesh_networking_service.dart';
+import '../../domain/services/mesh/mesh_network_health_monitor.dart';
+import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
+import '../../domain/services/mesh/mesh_relay_coordinator.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
@@ -12,12 +17,21 @@ import '../../data/repositories/preferences_repository.dart';
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import '../interfaces/i_repository_provider.dart';
+import '../interfaces/i_contact_repository.dart';
+import '../interfaces/i_message_repository.dart';
+import '../interfaces/i_mesh_ble_service.dart';
+import '../interfaces/i_mesh_routing_service.dart';
 import '../interfaces/i_seen_message_store.dart';
+import '../interfaces/i_mesh_networking_service.dart';
+import '../interfaces/i_security_manager.dart';
+import '../interfaces/i_connection_service.dart';
+import '../interfaces/i_ble_service_facade.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_preferences_repository.dart';
 import '../interfaces/i_group_repository.dart';
 import '../interfaces/i_intro_hint_repository.dart';
+import '../interfaces/i_database_provider.dart';
 import 'repository_provider_impl.dart';
 
 /// GetIt service locator instance
@@ -70,12 +84,22 @@ Future<void> setupServiceLocator() async {
       _logger.fine('ℹ️ ContactRepository already registered');
     }
 
+    if (!getIt.isRegistered<IContactRepository>()) {
+      getIt.registerSingleton<IContactRepository>(getIt<ContactRepository>());
+      _logger.fine('✅ IContactRepository registered (Phase 3)');
+    }
+
     // Register IMessageRepository singleton
     if (!getIt.isRegistered<MessageRepository>()) {
       getIt.registerSingleton<MessageRepository>(MessageRepository());
       _logger.fine('✅ MessageRepository registered');
     } else {
       _logger.fine('ℹ️ MessageRepository already registered');
+    }
+
+    if (!getIt.isRegistered<IMessageRepository>()) {
+      getIt.registerSingleton<IMessageRepository>(getIt<MessageRepository>());
+      _logger.fine('✅ IMessageRepository registered (Phase 3)');
     }
 
     // Register ArchiveRepository singleton
@@ -116,6 +140,18 @@ Future<void> setupServiceLocator() async {
       _logger.fine('✅ IntroHintRepository registered');
     } else {
       _logger.fine('ℹ️ IntroHintRepository already registered');
+    }
+
+    if (!getIt.isRegistered<MeshRoutingService>()) {
+      getIt.registerSingleton<MeshRoutingService>(MeshRoutingService());
+      _logger.fine('✅ MeshRoutingService registered');
+    } else {
+      _logger.fine('ℹ️ MeshRoutingService already registered');
+    }
+
+    if (!getIt.isRegistered<IMeshRoutingService>()) {
+      getIt.registerSingleton<IMeshRoutingService>(getIt<MeshRoutingService>());
+      _logger.fine('✅ IMeshRoutingService registered (Phase 3)');
     }
 
     // ===========================
@@ -186,6 +222,16 @@ Future<void> setupServiceLocator() async {
     }
 
     // ===========================
+    // DATABASE PROVIDER
+    // ===========================
+    if (!getIt.isRegistered<IDatabaseProvider>()) {
+      getIt.registerSingleton<IDatabaseProvider>(DatabaseProvider());
+      _logger.fine('✅ IDatabaseProvider registered');
+    } else {
+      _logger.fine('ℹ️ IDatabaseProvider already registered');
+    }
+
+    // ===========================
     // CORE SERVICES (initialized by AppCore, not here)
     // ===========================
     // SecurityManager: Registered as singleton instance (lazy init by AppCore)
@@ -212,23 +258,82 @@ Future<void> setupServiceLocator() async {
 /// Called by AppCore during initialization sequence
 void registerInitializedServices({
   required SecurityManager securityManager,
-  required BLEService bleService,
+  required IConnectionService connectionService,
   required MeshNetworkingService meshNetworkingService,
+  MeshRelayCoordinator? meshRelayCoordinator,
+  MeshQueueSyncCoordinator? meshQueueSyncCoordinator,
+  MeshNetworkHealthMonitor? meshHealthMonitor,
 }) {
   _logger.info('📋 Registering initialized services...');
 
   try {
-    // Register SecurityManager singleton
-    getIt.registerSingleton<SecurityManager>(securityManager);
-    _logger.fine('✅ SecurityManager registered in DI container');
+    // Register SecurityManager singleton + interface
+    if (!getIt.isRegistered<SecurityManager>()) {
+      getIt.registerSingleton<SecurityManager>(securityManager);
+      _logger.fine('✅ SecurityManager registered in DI container');
+    }
+    if (!getIt.isRegistered<ISecurityManager>()) {
+      getIt.registerSingleton<ISecurityManager>(securityManager);
+      _logger.fine('✅ ISecurityManager registered in DI container');
+    }
 
-    // Register BLEService singleton
-    getIt.registerSingleton<BLEService>(bleService);
-    _logger.fine('✅ BLEService registered in DI container');
+    // Register BLE/IConnectionService singletons
+    if (connectionService is BLEService) {
+      if (!getIt.isRegistered<BLEService>()) {
+        getIt.registerSingleton<BLEService>(connectionService);
+        _logger.fine('✅ BLEService registered in DI container');
+      } else {
+        _logger.fine('ℹ️ BLEService already registered');
+      }
+    } else {
+      _logger.info(
+        'ℹ️ Connection service is ${connectionService.runtimeType}; BLEService alias not registered',
+      );
+    }
 
-    // Register MeshNetworkingService singleton
-    getIt.registerSingleton<MeshNetworkingService>(meshNetworkingService);
-    _logger.fine('✅ MeshNetworkingService registered in DI container');
+    if (!getIt.isRegistered<IMeshBleService>()) {
+      getIt.registerSingleton<IMeshBleService>(connectionService);
+      _logger.fine('✅ IMeshBleService registered in DI container');
+    }
+    if (!getIt.isRegistered<IConnectionService>()) {
+      getIt.registerSingleton<IConnectionService>(connectionService);
+      _logger.fine('✅ IConnectionService registered in DI container');
+    }
+    if (connectionService is IBLEServiceFacade &&
+        !getIt.isRegistered<IBLEServiceFacade>()) {
+      getIt.registerSingleton<IBLEServiceFacade>(
+        connectionService as IBLEServiceFacade,
+      );
+      _logger.fine('✅ IBLEServiceFacade registered in DI container');
+    }
+
+    // Register MeshNetworkingService singleton + interface
+    if (!getIt.isRegistered<MeshNetworkingService>()) {
+      getIt.registerSingleton<MeshNetworkingService>(meshNetworkingService);
+      _logger.fine('✅ MeshNetworkingService registered in DI container');
+    }
+    if (!getIt.isRegistered<IMeshNetworkingService>()) {
+      getIt.registerSingleton<IMeshNetworkingService>(meshNetworkingService);
+      _logger.fine('✅ IMeshNetworkingService registered in DI container');
+    }
+
+    if (meshRelayCoordinator != null &&
+        !getIt.isRegistered<MeshRelayCoordinator>()) {
+      getIt.registerSingleton<MeshRelayCoordinator>(meshRelayCoordinator);
+      _logger.fine('✅ MeshRelayCoordinator registered in DI container');
+    }
+    if (meshQueueSyncCoordinator != null &&
+        !getIt.isRegistered<MeshQueueSyncCoordinator>()) {
+      getIt.registerSingleton<MeshQueueSyncCoordinator>(
+        meshQueueSyncCoordinator,
+      );
+      _logger.fine('✅ MeshQueueSyncCoordinator registered in DI container');
+    }
+    if (meshHealthMonitor != null &&
+        !getIt.isRegistered<MeshNetworkHealthMonitor>()) {
+      getIt.registerSingleton<MeshNetworkHealthMonitor>(meshHealthMonitor);
+      _logger.fine('✅ MeshNetworkHealthMonitor registered in DI container');
+    }
 
     _logger.info(
       '✅ All initialized services registered (includes Phase 3 interfaces)',

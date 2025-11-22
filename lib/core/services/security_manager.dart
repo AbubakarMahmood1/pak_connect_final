@@ -1,5 +1,3 @@
-// Create new file: core/services/security_manager.dart
-
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -7,24 +5,31 @@ import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_contact_repository.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../interfaces/i_security_manager.dart';
+import '../security/security_types.dart';
+import '../../domain/entities/contact.dart';
 import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
 import 'simple_crypto.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
-enum SecurityLevel {
-  low, // Noise session only (temporary, forward secrecy)
-  medium, // Paired via 4-digit code (persistent, double DH)
-  high, // Contact with triple DH (maximum security, verified)
-}
+export '../security/security_types.dart';
 
-class SecurityManager {
+class SecurityManager implements ISecurityManager {
+  SecurityManager._internal();
+  static final SecurityManager _instance = SecurityManager._internal();
+  factory SecurityManager() => _instance;
+  static SecurityManager get instance => _instance;
+
   static final _logger = Logger('SecurityManager');
-  static NoiseEncryptionService? _noiseService;
+  NoiseEncryptionService? _noiseService;
+
+  @override
+  NoiseEncryptionService? get noiseService => _noiseService;
 
   /// Initialize the Noise Protocol encryption service
-  static Future<void> initialize({FlutterSecureStorage? secureStorage}) async {
+  @override
+  Future<void> initialize({FlutterSecureStorage? secureStorage}) async {
     if (_noiseService != null) {
       _logger.info('🔒 SecurityManager already initialized');
       return;
@@ -43,17 +48,16 @@ class SecurityManager {
     }
   }
 
-  /// Get the Noise service (for testing or advanced usage)
-  static NoiseEncryptionService? get noiseService => _noiseService;
-
   /// Clear all Noise sessions (for testing)
-  static void clearAllNoiseSessions() {
+  @override
+  void clearAllNoiseSessions() {
     _noiseService?.clearAllSessions();
     _logger.info('🔒 Cleared all Noise sessions');
   }
 
   /// Shutdown the security manager
-  static void shutdown() {
+  @override
+  void shutdown() {
     _noiseService?.shutdown();
     _noiseService = null;
     _logger.info('🔒 SecurityManager shutdown');
@@ -68,7 +72,8 @@ class SecurityManager {
   ///
   /// [persistentPublicKey] Long-term identity from pairing
   /// [ephemeralID] Session ID used during handshake
-  static void registerIdentityMapping({
+  @override
+  void registerIdentityMapping({
     required String persistentPublicKey,
     required String ephemeralID,
   }) {
@@ -82,7 +87,8 @@ class SecurityManager {
   }
 
   /// Unregister persistent → ephemeral mapping
-  static void unregisterIdentityMapping(String persistentPublicKey) {
+  @override
+  void unregisterIdentityMapping(String persistentPublicKey) {
     if (_noiseService == null) {
       return;
     }
@@ -90,7 +96,8 @@ class SecurityManager {
   }
 
   /// Get current security level for a contact
-  static Future<SecurityLevel> getCurrentLevel(
+  @override
+  Future<SecurityLevel> getCurrentLevel(
     String publicKey, [
     IContactRepository? repo,
   ]) async {
@@ -174,7 +181,8 @@ class SecurityManager {
   ///
   /// - LOW security: Always XX (first-time contact)
   /// - MEDIUM/HIGH security: Try KK if we have their static key, otherwise XX
-  static Future<(NoisePattern, Uint8List?)> selectNoisePattern(
+  @override
+  Future<(NoisePattern, Uint8List?)> selectNoisePattern(
     String publicKey, [
     IContactRepository? repo,
   ]) async {
@@ -216,7 +224,8 @@ class SecurityManager {
   }
 
   /// Get encryption key for current security level
-  static Future<EncryptionMethod> getEncryptionMethod(
+  @override
+  Future<EncryptionMethod> getEncryptionMethod(
     String publicKey,
     IContactRepository repo,
   ) async {
@@ -268,7 +277,8 @@ class SecurityManager {
   }
 
   /// Encrypt message using best available method
-  static Future<String> encryptMessage(
+  @override
+  Future<String> encryptMessage(
     String message,
     String publicKey,
     IContactRepository repo,
@@ -330,7 +340,8 @@ class SecurityManager {
   }
 
   /// Decrypt message trying methods in order
-  static Future<String> decryptMessage(
+  @override
+  Future<String> decryptMessage(
     String encryptedMessage,
     String publicKey,
     IContactRepository repo,
@@ -488,22 +499,4 @@ class SecurityManager {
         return [EncryptionType.noise, EncryptionType.global];
     }
   }
-}
-
-enum EncryptionType { ecdh, noise, pairing, global }
-
-class EncryptionMethod {
-  final EncryptionType type;
-  final String? publicKey;
-
-  const EncryptionMethod._(this.type, [this.publicKey]);
-
-  factory EncryptionMethod.ecdh(String publicKey) =>
-      EncryptionMethod._(EncryptionType.ecdh, publicKey);
-  factory EncryptionMethod.noise(String publicKey) =>
-      EncryptionMethod._(EncryptionType.noise, publicKey);
-  factory EncryptionMethod.pairing(String publicKey) =>
-      EncryptionMethod._(EncryptionType.pairing, publicKey);
-  factory EncryptionMethod.global() =>
-      EncryptionMethod._(EncryptionType.global);
 }
