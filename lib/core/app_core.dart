@@ -378,7 +378,7 @@ class AppCore {
       _logger.info('✅ BLEService initialized via AppCore');
 
       final messageHandlerFacade = BLEMessageHandlerFacadeImpl(
-        BLEMessageHandler(),
+        legacyBleService.messageHandler,
         SeenMessageStore.instance,
       );
 

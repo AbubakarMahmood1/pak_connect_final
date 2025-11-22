@@ -939,4 +939,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       callback(message, fromNodeId);
     }
   }
+
+  /// Expose underlying message handler for integration wiring (AppCore tests).
+  @visibleForTesting
+  BLEMessageHandler get messageHandler => _messageHandler;
 }
