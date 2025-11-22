@@ -6,11 +6,13 @@ import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/bluetooth/identity_session_state.dart';
 import 'package:pak_connect/core/models/pairing_state.dart';
+import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/core/security/security_types.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/pairing_flow_controller.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _MockContactRepository extends Mock implements ContactRepository {
   @override
@@ -64,7 +66,7 @@ class _MockContactRepository extends Mock implements ContactRepository {
 }
 
 void main() {
-  group('PairingFlowController verification failure', () {
+  group('PairingFlowController verification', () {
     late PairingFlowController controller;
     late _MockContactRepository contactRepository;
     late IdentitySessionState identityState;
@@ -72,8 +74,12 @@ void main() {
     late bool cancelledCalled;
     late Contact contact;
 
-    setUp(() {
+    setUp(() async {
       Logger.root.level = Level.OFF;
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      await EphemeralKeyManager.initialize('my-private-key');
+
       contactRepository = _MockContactRepository();
       conversationKeys = {};
       cancelledCalled = false;
@@ -140,10 +146,12 @@ void main() {
       expect(controller.currentPairing?.state, PairingState.failed);
       expect(controller.currentPairing?.sharedSecret, isNull);
       expect(conversationKeys.containsKey('peer'), isFalse);
+      expect(conversationKeys.containsKey('persist'), isFalse);
       expect(cancelledCalled, isTrue);
       expect(identityState.theirPersistentKey, isNull);
 
       verify(contactRepository.clearCachedSecrets('peer')).called(1);
+      verify(contactRepository.clearCachedSecrets('persist')).called(1);
       verify(
         contactRepository.saveContactWithSecurity(
           'peer',
@@ -152,6 +160,32 @@ void main() {
           currentEphemeralId: contact.currentEphemeralId!,
           persistentPublicKey: null,
         ),
+      ).called(1);
+    });
+
+    test('uses persistent IDs for shared secret when available', () async {
+      identityState.setTheirEphemeralId('peer-eph');
+      identityState.theirPersistentKey = 'persist';
+      identityState.currentSessionId = 'peer-eph';
+
+      final code = controller.generatePairingCode();
+
+      controller.handleReceivedPairingCode(code);
+      final success = await controller.completePairing(code);
+      expect(success, isTrue);
+
+      final sortedCodes = [code, code]..sort();
+      final sortedKeys = ['my-id', 'persist']..sort();
+      final expectedCombined =
+          '${sortedCodes[0]}:${sortedCodes[1]}:${sortedKeys[0]}:${sortedKeys[1]}';
+      final expectedSecret = sha256
+          .convert(utf8.encode(expectedCombined))
+          .toString();
+
+      expect(controller.currentPairing?.sharedSecret, expectedSecret);
+      expect(conversationKeys.containsKey('persist'), isTrue);
+      verify(
+        contactRepository.cacheSharedSecret('persist', expectedSecret),
       ).called(1);
     });
   });
