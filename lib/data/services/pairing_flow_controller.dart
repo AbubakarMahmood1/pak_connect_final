@@ -237,6 +237,10 @@ class PairingFlowController {
 
   Future<void> _handleVerificationFailure(String reason) async {
     final contactId = _currentSessionId ?? _theirPersistentKey;
+    final idsToClear = <String>{};
+    if (contactId != null) idsToClear.add(contactId);
+    if (_theirPersistentKey != null) idsToClear.add(_theirPersistentKey!);
+    if (_currentSessionId != null) idsToClear.add(_currentSessionId!);
 
     if (_currentPairing != null) {
       _currentPairing = PairingInfo(
@@ -254,10 +258,10 @@ class PairingFlowController {
       _pairingCompleter!.complete(false);
     }
 
-    if (contactId != null) {
-      _conversationKeys.remove(contactId);
-      SimpleCrypto.clearConversationKey(contactId);
-      await _contactRepository.clearCachedSecrets(contactId);
+    for (final id in idsToClear) {
+      _conversationKeys.remove(id);
+      SimpleCrypto.clearConversationKey(id);
+      await _contactRepository.clearCachedSecrets(id);
     }
 
     if (_theirPersistentKey != null) {
@@ -700,17 +704,27 @@ class PairingFlowController {
     }
 
     try {
-      final myPublicKey = await _getMyPersistentId();
-      final theirPublicKey = _currentSessionId;
+      String myIdForSecret;
+      try {
+        myIdForSecret = _theirPersistentKey != null
+            ? await _getMyPersistentId()
+            : EphemeralKeyManager.generateMyEphemeralKey();
+      } catch (e) {
+        _logger.warning('Falling back to persistent ID for pairing secret: $e');
+        myIdForSecret = await _getMyPersistentId();
+      }
 
-      if (theirPublicKey == null) {
+      final theirIdForSecret =
+          _theirPersistentKey ?? _theirEphemeralId ?? _currentSessionId;
+
+      if (theirIdForSecret == null) {
         _logger.warning('No other device public key');
         return false;
       }
 
       final sortedCodes = [_currentPairing!.myCode, _receivedPairingCode!]
         ..sort();
-      final sortedKeys = [myPublicKey, theirPublicKey]..sort();
+      final sortedKeys = [myIdForSecret, theirIdForSecret]..sort();
 
       final combinedData =
           '${sortedCodes[0]}:${sortedCodes[1]}:${sortedKeys[0]}:${sortedKeys[1]}';
@@ -718,7 +732,7 @@ class PairingFlowController {
 
       _logger.info('Computed shared secret from codes');
       await _ensureContactExistsAfterHandshake(
-        theirPublicKey,
+        _currentSessionId ?? theirIdForSecret,
         _otherUserName() ?? 'User',
       );
 
@@ -729,8 +743,20 @@ class PairingFlowController {
       _logger.info('Sending verification hash: $secretHash');
       await onSendPairingVerification?.call(secretHash);
 
-      _conversationKeys[theirPublicKey] = sharedSecret;
-      await _contactRepository.cacheSharedSecret(theirPublicKey, sharedSecret);
+      _conversationKeys[theirIdForSecret] = sharedSecret;
+      if (_currentSessionId != null && _currentSessionId != theirIdForSecret) {
+        _conversationKeys[_currentSessionId!] = sharedSecret;
+      }
+      await _contactRepository.cacheSharedSecret(
+        theirIdForSecret,
+        sharedSecret,
+      );
+      if (_currentSessionId != null && _currentSessionId != theirIdForSecret) {
+        await _contactRepository.cacheSharedSecret(
+          _currentSessionId!,
+          sharedSecret,
+        );
+      }
 
       _currentPairing = _currentPairing!.copyWith(
         state: PairingState.completed,
@@ -739,7 +765,10 @@ class PairingFlowController {
 
       _logger.info('✅ Pairing completed successfully!');
 
-      SimpleCrypto.initializeConversation(theirPublicKey, sharedSecret);
+      SimpleCrypto.initializeConversation(theirIdForSecret, sharedSecret);
+      if (_currentSessionId != null && _currentSessionId != theirIdForSecret) {
+        SimpleCrypto.initializeConversation(_currentSessionId!, sharedSecret);
+      }
 
       if (_theirEphemeralId != null && _theirPersistentKey != null) {
         _logger.info('🔐 Upgrading contact from LOW to MEDIUM security');
