@@ -2,6 +2,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 
 import '../bluetooth/bluetooth_state_monitor.dart';
 import '../interfaces/i_mesh_ble_service.dart';
+import 'i_ble_discovery_service.dart';
 import '../models/spy_mode_info.dart';
 import '../models/connection_info.dart';
 import '../models/ble_server_connection.dart';

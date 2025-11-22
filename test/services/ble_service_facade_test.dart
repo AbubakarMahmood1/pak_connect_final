@@ -60,29 +60,26 @@ void main() {
     // ========================================================================
 
     group('Initialization', () {
-      test('constructor completes immediately', () async {
-        // Arrange & Act
-        final facade2 = BLEServiceFacade();
-
-        // Assert
-        expect(facade2.initializationComplete, completes);
-      });
-
       test('initialize() completes successfully', () async {
         // Arrange & Act
         await facade.initialize();
 
         // Assert
+        expect(facade.isInitialized, isTrue);
         expect(facade.initializationComplete, completes);
       });
 
-      test('initializationComplete is already completed', () async {
-        // Arrange & Act
-        final completes = facade.initializationComplete;
+      test(
+        'initializationComplete is not completed before initialize',
+        () async {
+          // Arrange & Act
+          final pending = facade.initializationComplete;
 
-        // Assert
-        expect(completes, completes);
-      });
+          // Assert
+          expect(facade.isInitialized, isFalse);
+          await expectLater(pending, doesNotComplete);
+        },
+      );
     });
 
     // ========================================================================

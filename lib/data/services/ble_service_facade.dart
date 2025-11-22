@@ -131,8 +131,6 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           peripheralManager: _platformHost.peripheralManager,
           introHintRepo: _introHintRepository,
         );
-    // Immediate completion - actual initialization is deferred
-    _initializationCompleter.complete();
   }
 
   /// Get or create connection service (lazy singleton)
@@ -238,10 +236,15 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       await _ensureDiscoveryInitialized();
     } catch (e, stack) {
       _logger.severe('❌ Failed to initialize BLEServiceFacade', e, stack);
+      if (!_initializationCompleter.isCompleted) {
+        _initializationCompleter.completeError(e, stack);
+      }
       rethrow;
     }
     _logger.info('✅ BLEServiceFacade ready');
-    // Note: _initializationCompleter is already completed in constructor
+    if (!_initializationCompleter.isCompleted) {
+      _initializationCompleter.complete();
+    }
   }
 
   @override
