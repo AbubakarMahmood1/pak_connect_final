@@ -1,40 +1,42 @@
+import 'package:mockito/annotations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
-import 'package:mockito/annotations.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
 
 import 'package:pak_connect/data/services/ble_messaging_service.dart';
-import 'package:pak_connect/data/services/ble_message_handler.dart';
+import 'package:pak_connect/core/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
-import 'package:pak_connect/data/services/ble_state_manager.dart';
+import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart' as relay_models;
-import 'ble_messaging_service_test.mocks.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 @GenerateNiceMocks([
-  MockSpec<BLEMessageHandler>(),
+  MockSpec<IBLEMessageHandlerFacade>(),
   MockSpec<BLEConnectionManager>(),
-  MockSpec<BLEStateManager>(),
+  MockSpec<IBLEStateManagerFacade>(),
+  MockSpec<ContactRepository>(),
+  MockSpec<CentralManager>(),
+  MockSpec<PeripheralManager>(),
 ])
-// Simplified BLE platform manager mocks (no plugin dependency)
-class MockCentralManager extends Mock implements CentralManager {}
-
-class MockPeripheralManager extends Mock implements PeripheralManager {}
+import 'ble_messaging_service_test.mocks.dart';
 
 void main() {
   group('BLEMessagingService', () {
     late BLEMessagingService service;
-    late MockBLEMessageHandler mockMessageHandler;
+    late MockIBLEMessageHandlerFacade mockMessageHandler;
     late MockBLEConnectionManager mockConnectionManager;
-    late MockBLEStateManager mockStateManager;
+    late MockIBLEStateManagerFacade mockStateManager;
+    late MockContactRepository mockContactRepository;
     late MockCentralManager mockCentralManager;
     late MockPeripheralManager mockPeripheralManager;
     late StreamController<String> messagesController;
 
     setUp(() {
-      mockMessageHandler = MockBLEMessageHandler();
+      mockMessageHandler = MockIBLEMessageHandlerFacade();
       mockConnectionManager = MockBLEConnectionManager();
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
+      mockContactRepository = MockContactRepository();
       mockCentralManager = MockCentralManager();
       mockPeripheralManager = MockPeripheralManager();
       messagesController = StreamController<String>.broadcast();
@@ -42,12 +44,20 @@ void main() {
       // Setup default mocks
       when(mockStateManager.myUserName).thenReturn('TestUser');
       when(mockStateManager.isPeripheralMode).thenReturn(false);
+      when(mockStateManager.isPaired).thenReturn(false);
+      when(mockStateManager.getIdType()).thenReturn('ephemeral');
+      when(mockStateManager.getRecipientId()).thenReturn(null);
+      when(
+        mockStateManager.getMyPersistentId(),
+      ).thenAnswer((_) async => 'pubkey');
+      when(mockContactRepository.getAllContacts()).thenAnswer((_) async => {});
       when(mockConnectionManager.mtuSize).thenReturn(512);
 
       service = BLEMessagingService(
         messageHandler: mockMessageHandler,
         connectionManager: mockConnectionManager,
         stateManager: mockStateManager,
+        contactRepository: mockContactRepository,
         getCentralManager: () => mockCentralManager as dynamic,
         getPeripheralManager: () => mockPeripheralManager as dynamic,
         messagesController: messagesController,
@@ -137,6 +147,7 @@ void main() {
         messageHandler: mockMessageHandler,
         connectionManager: mockConnectionManager,
         stateManager: mockStateManager,
+        contactRepository: mockContactRepository,
         getCentralManager: () => mockCentralManager as dynamic,
         getPeripheralManager: () => mockPeripheralManager as dynamic,
         messagesController: messagesController,
@@ -186,6 +197,7 @@ void main() {
           messageHandler: mockMessageHandler,
           connectionManager: mockConnectionManager,
           stateManager: mockStateManager,
+          contactRepository: mockContactRepository,
           getCentralManager: () => mockCentralManager as dynamic,
           getPeripheralManager: () => mockPeripheralManager as dynamic,
           messagesController: messagesController,

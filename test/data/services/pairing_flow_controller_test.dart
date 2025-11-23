@@ -10,6 +10,7 @@ import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/core/security/security_types.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/pairing_flow_controller.dart';
+import 'package:pak_connect/data/services/pairing_lifecycle_service.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -103,6 +104,19 @@ void main() {
       ).thenAnswer((_) async => contact);
 
       identityState = IdentitySessionState();
+      final pairingLifecycleService = PairingLifecycleService(
+        logger: Logger('test-lifecycle'),
+        contactRepository: contactRepository,
+        identityState: identityState,
+        conversationKeys: conversationKeys,
+        myPersistentIdProvider: () async => 'my-id',
+        triggerChatMigration:
+            ({
+              required String ephemeralId,
+              required String persistentKey,
+              String? contactName,
+            }) async {},
+      );
 
       controller = PairingFlowController(
         logger: Logger('test'),
@@ -112,12 +126,7 @@ void main() {
         myPersistentIdProvider: () async => 'my-id',
         myUserNameProvider: () => 'Me',
         otherUserNameProvider: () => 'Peer',
-        triggerChatMigration:
-            ({
-              required String ephemeralId,
-              required String persistentKey,
-              String? contactName,
-            }) async {},
+        pairingLifecycleService: pairingLifecycleService,
       );
 
       identityState.currentSessionId = 'peer';

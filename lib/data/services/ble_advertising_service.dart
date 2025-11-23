@@ -3,7 +3,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_ble_advertising_service.dart';
 import '../../core/constants/ble_constants.dart';
-import '../../data/services/ble_state_manager.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/services/ble_connection_manager.dart';
 import '../../core/bluetooth/advertising_manager.dart';
 import '../../core/bluetooth/peripheral_initializer.dart';
@@ -22,7 +22,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
   final _logger = Logger('BLEAdvertisingService');
 
   // Dependencies injected at initialization
-  final BLEStateManager stateManager;
+  final IBLEStateManagerFacade stateManager;
   final BLEConnectionManager connectionManager;
   final AdvertisingManager advertisingManager;
   final PeripheralInitializer peripheralInitializer;

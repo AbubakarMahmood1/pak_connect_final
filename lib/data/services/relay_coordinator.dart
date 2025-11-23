@@ -9,6 +9,7 @@ import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
+import '../../core/app_core.dart';
 
 /// Coordinates relay decisions and message routing
 ///
@@ -28,8 +29,10 @@ class RelayCoordinator implements IRelayCoordinator {
   // Dependencies (initialized via initializeRelaySystem)
   MeshRelayEngine? _relayEngine;
   SpamPreventionManager? _spamPrevention;
+  bool _spamInitialized = false;
   OfflineMessageQueue? _messageQueue;
   ISeenMessageStore? _seenMessageStore;
+  List<String> Function()? _nextHopsProvider;
 
   String? _currentNodeId;
 
@@ -50,6 +53,31 @@ class RelayCoordinator implements IRelayCoordinator {
   @override
   Future<void> initializeRelaySystem({required String currentNodeId}) async {
     _currentNodeId = currentNodeId;
+    _messageQueue ??= _resolveMessageQueue();
+    _spamPrevention ??= SpamPreventionManager();
+    if (!_spamInitialized && _spamPrevention != null) {
+      await _spamPrevention!.initialize();
+      _spamInitialized = true;
+    }
+    _relayEngine ??= MeshRelayEngine(
+      messageQueue: _messageQueue!,
+      spamPrevention: _spamPrevention!,
+      seenMessageStore: _seenMessageStore,
+    );
+    await _relayEngine!.initialize(
+      currentNodeId: currentNodeId,
+      onRelayMessage: (relayMessage, nextHopId) {
+        handleRelayToNextHop(
+          relayMessage: relayMessage,
+          nextHopDeviceId: nextHopId,
+        );
+      },
+      onDeliverToSelf: (id, content, sender) {
+        _onRelayMessageReceived?.call(id, content, sender);
+      },
+      onRelayDecision: _onRelayDecisionMade,
+      onStatsUpdated: _onRelayStatsUpdated,
+    );
     _logger.info(
       '🔄 Relay system initialized for node: ${currentNodeId.substring(0, 8)}...',
     );
@@ -333,25 +361,23 @@ class RelayCoordinator implements IRelayCoordinator {
   /// Gets relay statistics from MeshRelayEngine
   @override
   Future<RelayStatistics> getRelayStatistics() async {
-    if (_relayEngine == null) {
-      _logger.warning(
-        'RelayEngine not initialized, returning empty statistics',
-      );
-      // Return default statistics if engine not available
-      return RelayStatistics(
-        totalRelayed: 0,
-        totalDropped: 0,
-        totalDeliveredToSelf: 0,
-        totalBlocked: 0,
-        totalProbabilisticSkip: 0,
-        spamScore: 0.0,
-        relayEfficiency: 0.0,
-        activeRelayMessages: 0,
-        networkSize: 0,
-        currentRelayProbability: 0.0,
-      );
+    if (_relayEngine != null) {
+      return _relayEngine!.getStatistics();
     }
-    return _relayEngine!.getStatistics();
+    _logger.warning('RelayEngine not initialized, returning empty statistics');
+    // Return default statistics if engine not available
+    return RelayStatistics(
+      totalRelayed: 0,
+      totalDropped: 0,
+      totalDeliveredToSelf: 0,
+      totalBlocked: 0,
+      totalProbabilisticSkip: 0,
+      spamScore: 0.0,
+      relayEfficiency: 0.0,
+      activeRelayMessages: 0,
+      networkSize: 0,
+      currentRelayProbability: 0.0,
+    );
   }
 
   /// Sends queue synchronization message
@@ -385,8 +411,13 @@ class RelayCoordinator implements IRelayCoordinator {
   /// Gets available next hops for relay
   @override
   List<String> getAvailableNextHops() {
-    // This would return connected devices from BLE service
-    // For now, return empty list
+    if (_nextHopsProvider != null) {
+      try {
+        return _nextHopsProvider!();
+      } catch (e) {
+        _logger.fine('Failed to read next hops from provider: $e');
+      }
+    }
     return [];
   }
 
@@ -434,6 +465,44 @@ class RelayCoordinator implements IRelayCoordinator {
     Function(String nodeId, QueueSyncResult result) callback,
   ) {
     _onQueueSyncCompleted = callback;
+  }
+
+  /// Override the message queue (useful for tests or explicit injection).
+  void setMessageQueue(OfflineMessageQueue queue) {
+    _messageQueue = queue;
+  }
+
+  /// Override spam prevention manager (useful for tests).
+  void setSpamPrevention(SpamPreventionManager spamPrevention) {
+    _spamPrevention = spamPrevention;
+  }
+
+  /// Provide available next hops from the BLE layer.
+  void setNextHopsProvider(List<String> Function() provider) {
+    _nextHopsProvider = provider;
+  }
+
+  /// Forward queue sync events to registered handler.
+  void handleQueueSyncReceived(
+    QueueSyncMessage syncMessage,
+    String fromNodeId,
+  ) {
+    _onQueueSyncReceived?.call(syncMessage, fromNodeId);
+  }
+
+  OfflineMessageQueue _resolveMessageQueue() {
+    if (_messageQueue != null) return _messageQueue!;
+    try {
+      final core = AppCore.instance;
+      if (core.isInitialized || core.isInitializing) {
+        return core.messageQueue;
+      }
+    } catch (_) {
+      // Fall through to error below
+    }
+    throw StateError(
+      'OfflineMessageQueue not available. Inject a queue or initialize AppCore before relay setup.',
+    );
   }
 
   // ==================== CLEANUP ====================

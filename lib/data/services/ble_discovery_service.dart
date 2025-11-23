@@ -3,7 +3,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_ble_discovery_service.dart';
 import '../../core/constants/ble_constants.dart';
-import '../../data/services/ble_state_manager.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/services/hint_scanner_service.dart';
 
@@ -21,7 +21,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
 
   // Dependencies injected at initialization
   final CentralManager centralManager;
-  final BLEStateManager stateManager;
+  final IBLEStateManagerFacade stateManager;
   final HintScannerService hintScanner;
 
   // Callback to update connection info in facade

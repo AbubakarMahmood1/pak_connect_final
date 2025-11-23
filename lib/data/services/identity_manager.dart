@@ -165,6 +165,27 @@ class IdentityManager implements IIdentityManager {
     }
   }
 
+  /// Synchronize cached identity fields from an existing state manager.
+  ///
+  /// This is used by BLEStateManagerFacade to keep the extracted
+  /// IdentityManager in sync with the legacy BLEStateManager during
+  /// the migration period.
+  void syncFromLegacy({
+    String? myUserName,
+    String? otherUserName,
+    String? myPersistentId,
+    String? theirEphemeralId,
+    String? theirPersistentKey,
+    String? currentSessionId,
+  }) {
+    _myUserName = myUserName ?? _myUserName;
+    _otherUserName = otherUserName ?? _otherUserName;
+    _myPersistentId = myPersistentId ?? _myPersistentId;
+    _theirEphemeralId = theirEphemeralId ?? _theirEphemeralId;
+    _theirPersistentKey = theirPersistentKey ?? _theirPersistentKey;
+    _currentSessionId = currentSessionId ?? _currentSessionId;
+  }
+
   // ============================================================================
   // USER IDENTITY (My side)
   // ============================================================================
@@ -279,6 +300,34 @@ class IdentityManager implements IIdentityManager {
       _logger.fine('Ephemeral ID stored successfully');
     } catch (e) {
       _logger.warning('Failed to set their ephemeral ID: $e');
+    }
+  }
+
+  @override
+  void setTheirPersistentKey(String persistentKey, {String? ephemeralId}) {
+    try {
+      _logger.fine(
+        'Storing their persistent key: ${_truncateId(persistentKey)}',
+      );
+      _theirPersistentKey = persistentKey;
+      if (ephemeralId != null && ephemeralId.isNotEmpty) {
+        _ephemeralToPersistent[ephemeralId] = persistentKey;
+      }
+
+      // Prefer persistent key as the active session identifier once available
+      _currentSessionId = persistentKey;
+    } catch (e) {
+      _logger.warning('Failed to set their persistent key: $e');
+    }
+  }
+
+  @override
+  void setCurrentSessionId(String? sessionId) {
+    try {
+      _currentSessionId = sessionId;
+      _logger.fine('Updated current session ID: ${_truncateId(sessionId)}');
+    } catch (e) {
+      _logger.warning('Failed to update session id: $e');
     }
   }
 

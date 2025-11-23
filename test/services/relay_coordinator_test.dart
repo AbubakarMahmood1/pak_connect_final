@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/data/services/relay_coordinator.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/core/messaging/offline_message_queue.dart';
+import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 /// Mock SeenMessageStore for testing deduplication
 class MockSeenMessageStore implements ISeenMessageStore {
@@ -39,12 +41,27 @@ class MockSeenMessageStore implements ISeenMessageStore {
   Future<void> performMaintenance() async {}
 }
 
+/// Minimal fake queue to satisfy RelayCoordinator dependency without hitting DB.
+class _FakeOfflineQueue extends OfflineMessageQueue {
+  @override
+  Future<String> queueMessage({
+    required String chatId,
+    required String content,
+    required String recipientPublicKey,
+    required String senderPublicKey,
+    MessagePriority priority = MessagePriority.normal,
+    String? replyToMessageId,
+    List<String> attachments = const [],
+  }) async => 'queued-$chatId';
+}
+
 void main() {
   group('RelayCoordinator', () {
     late RelayCoordinator coordinator;
 
     setUp(() {
       coordinator = RelayCoordinator();
+      coordinator.setMessageQueue(_FakeOfflineQueue());
     });
 
     tearDown(() {

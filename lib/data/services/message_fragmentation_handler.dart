@@ -18,6 +18,7 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
 
   // Message fragmentation and reassembly
   final MessageReassembler _messageReassembler = MessageReassembler();
+  final Map<String, _ReassembledMessage> _completedMessages = {};
 
   // ACK management
   final Map<String, Timer> _messageTimeouts = {};
@@ -25,11 +26,13 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
 
   Timer? _cleanupTimer;
 
-  MessageFragmentationHandler() {
+  MessageFragmentationHandler({bool enableCleanupTimer = false}) {
     // Setup periodic cleanup of old partial messages
-    _cleanupTimer = Timer.periodic(Duration(minutes: 2), (timer) {
-      cleanupOldMessages();
-    });
+    if (enableCleanupTimer) {
+      _cleanupTimer = Timer.periodic(Duration(minutes: 2), (timer) {
+        cleanupOldMessages();
+      });
+    }
   }
 
   /// Detects if raw bytes look like a fragmented message chunk
@@ -108,6 +111,10 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
             _logger.fine(
               '📥 Processing complete message (${completeMessageBytes.length} bytes)',
             );
+            _completedMessages[chunk.messageId] = _ReassembledMessage(
+              bytes: completeMessageBytes,
+              receivedAt: DateTime.now(),
+            );
             // Return complete message marker with length
             // Caller will reconstruct from reassembler
             return 'REASSEMBLY_COMPLETE:${chunk.messageId}';
@@ -175,10 +182,25 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
     return {};
   }
 
+  /// Retrieves and removes completed reassembled message bytes by ID.
+  Uint8List? takeReassembledMessageBytes(String messageId) {
+    final completed = _completedMessages.remove(messageId);
+    if (completed == null) {
+      _logger.fine('📥 No completed message found for id: $messageId');
+      return null;
+    }
+
+    return completed.bytes;
+  }
+
   /// Cleans up old partial messages that have timed out
   @override
   void cleanupOldMessages() {
     _messageReassembler.cleanupOldMessages();
+    final cutoff = DateTime.now().subtract(Duration(minutes: 2));
+    _completedMessages.removeWhere(
+      (_, completed) => completed.receivedAt.isBefore(cutoff),
+    );
     _logger.fine('🧹 Cleaned up old partial messages');
   }
 
@@ -201,6 +223,15 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
     }
     _messageAcks.clear();
 
+    _completedMessages.clear();
+
     _logger.info('🔌 MessageFragmentationHandler disposed');
   }
+}
+
+class _ReassembledMessage {
+  final Uint8List bytes;
+  final DateTime receivedAt;
+
+  _ReassembledMessage({required this.bytes, required this.receivedAt});
 }

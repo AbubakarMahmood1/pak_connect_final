@@ -10,10 +10,12 @@ import '../../core/services/simple_crypto.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
+import '../../core/interfaces/i_identity_manager.dart';
 import 'chat_migration_service.dart';
 import 'contact_request_controller.dart';
 import 'contact_status_sync_controller.dart';
 import 'pairing_flow_controller.dart';
+import 'pairing_lifecycle_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/models/spy_mode_info.dart';
 import '../../core/bluetooth/identity_session_state.dart';
@@ -30,6 +32,7 @@ class BLEStateManager {
   String? _myUserName;
   String? _otherUserName;
   String? _myPersistentId;
+  final IIdentityManager? _identityManager;
 
   // ============================================================================
   // REFACTORED IDENTITY TRACKING (clearer naming for ephemeral vs persistent)
@@ -184,7 +187,8 @@ class BLEStateManager {
   set onSendPersistentKeyExchange(Function(ProtocolMessage)? callback) =>
       _pairingController.onSendPersistentKeyExchange = callback;
 
-  BLEStateManager() {
+  BLEStateManager({IIdentityManager? identityManager})
+    : _identityManager = identityManager {
     _contactStatusSyncController = ContactStatusSyncController(
       logger: _logger,
       contactRepository: _contactRepository,
@@ -209,14 +213,12 @@ class BLEStateManager {
       markBilateralSyncComplete:
           _contactStatusSyncController.markBilateralSyncComplete,
     );
-    _pairingController = PairingFlowController(
+    final pairingLifecycleService = PairingLifecycleService(
       logger: _logger,
       contactRepository: _contactRepository,
       identityState: _identityState,
       conversationKeys: _conversationKeys,
       myPersistentIdProvider: () => getMyPersistentId(),
-      myUserNameProvider: () => _myUserName,
-      otherUserNameProvider: () => _otherUserName,
       triggerChatMigration:
           ({
             required String ephemeralId,
@@ -227,6 +229,17 @@ class BLEStateManager {
             persistentKey: persistentKey,
             contactName: contactName,
           ),
+      identityManager: _identityManager,
+    );
+    _pairingController = PairingFlowController(
+      logger: _logger,
+      contactRepository: _contactRepository,
+      identityState: _identityState,
+      conversationKeys: _conversationKeys,
+      myPersistentIdProvider: () => getMyPersistentId(),
+      myUserNameProvider: () => _myUserName,
+      otherUserNameProvider: () => _otherUserName,
+      pairingLifecycleService: pairingLifecycleService,
     );
   }
 

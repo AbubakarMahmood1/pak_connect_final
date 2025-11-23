@@ -1,5 +1,8 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'dart:convert';
 import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:pak_connect/core/utils/message_fragmenter.dart';
 import 'package:pak_connect/data/services/message_fragmentation_handler.dart';
 
 void main() {
@@ -117,6 +120,47 @@ void main() {
 
       expect(await ack1, isTrue);
       expect(await ack2, isTrue);
+    });
+
+    test('returns reassembled bytes after final chunk arrives', () async {
+      final message =
+          'Chunked message payload for testing that exceeds the 25 byte minimum MTU and forces multiple fragments to be combined again.';
+      final chunks = MessageFragmenter.fragmentBytes(
+        Uint8List.fromList(utf8.encode(message)),
+        60,
+        'message-123456',
+      );
+
+      String? completionMarker;
+      for (final chunk in chunks) {
+        completionMarker = await handler.processReceivedData(
+          data: chunk.toBytes(),
+          fromDeviceId: 'device1',
+          fromNodeId: 'node1',
+        );
+      }
+
+      expect(completionMarker, isNotNull);
+      expect(completionMarker!.startsWith('REASSEMBLY_COMPLETE:'), isTrue);
+
+      final completionId = completionMarker!.substring(
+        'REASSEMBLY_COMPLETE:'.length,
+      );
+      final expectedId = chunks.first.messageId.length >= 6
+          ? chunks.first.messageId.substring(chunks.first.messageId.length - 6)
+          : chunks.first.messageId;
+
+      expect(
+        completionId,
+        expectedId,
+        reason: 'completionMarker=$completionMarker',
+      );
+
+      final bytes = handler.takeReassembledMessageBytes(completionId);
+
+      expect(bytes, isNotNull, reason: 'completionMarker=$completionMarker');
+      expect(utf8.decode(bytes!), message);
+      expect(handler.takeReassembledMessageBytes(completionId), isNull);
     });
   });
 }
