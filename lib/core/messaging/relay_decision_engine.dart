@@ -1,7 +1,9 @@
 import 'dart:math';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../interfaces/i_mesh_routing_service.dart';
 import '../interfaces/i_seen_message_store.dart';
+import '../interfaces/i_identity_manager.dart';
 import '../models/mesh_relay_models.dart';
 import '../routing/network_topology_analyzer.dart';
 import '../security/ephemeral_key_manager.dart';
@@ -15,6 +17,7 @@ class RelayDecisionEngine {
   IMeshRoutingService? _routingService;
   NetworkTopologyAnalyzer? _topologyAnalyzer;
   String _currentNodeId;
+  String? _myPersistentId;
 
   RelayDecisionEngine({
     required Logger logger,
@@ -22,20 +25,26 @@ class RelayDecisionEngine {
     IMeshRoutingService? routingService,
     NetworkTopologyAnalyzer? topologyAnalyzer,
     required String currentNodeId,
+    String? myPersistentId,
   }) : _logger = logger,
        _seenMessageStore = seenMessageStore,
        _routingService = routingService,
        _topologyAnalyzer = topologyAnalyzer,
-       _currentNodeId = currentNodeId;
+       _currentNodeId = currentNodeId,
+       _myPersistentId = myPersistentId;
 
   void updateContext({
     required String currentNodeId,
     IMeshRoutingService? routingService,
     NetworkTopologyAnalyzer? topologyAnalyzer,
+    String? myPersistentId,
   }) {
     _currentNodeId = currentNodeId;
     _routingService = routingService;
     _topologyAnalyzer = topologyAnalyzer;
+    if (myPersistentId != null) {
+      _myPersistentId = myPersistentId;
+    }
   }
 
   bool isDuplicate(String messageId) {
@@ -61,7 +70,10 @@ class RelayDecisionEngine {
       _logger.fine('📭 No recipient specified - rejecting (use broadcast)');
       return false;
     }
-    if (finalRecipientPublicKey == _currentNodeId) {
+    final persistentId = _getMyPersistentId();
+
+    if (finalRecipientPublicKey == _currentNodeId ||
+        (persistentId != null && persistentId == finalRecipientPublicKey)) {
       _logger.info('✅ Message IS for current node (persistent key match)');
       return true;
     }
@@ -95,6 +107,16 @@ class RelayDecisionEngine {
       '   - Our ephemeral key: ${ephemeralKey?.shortId() ?? "NULL"}...',
     );
     return false;
+  }
+
+  String? _getMyPersistentId() {
+    if (_myPersistentId != null && _myPersistentId!.isNotEmpty) {
+      return _myPersistentId;
+    }
+    if (GetIt.instance.isRegistered<IIdentityManager>()) {
+      _myPersistentId = GetIt.instance<IIdentityManager>().myPersistentId;
+    }
+    return _myPersistentId;
   }
 
   bool shouldProbabilisticallySkip({
