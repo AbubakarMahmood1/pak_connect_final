@@ -380,6 +380,7 @@ class AppCore {
       final messageHandlerFacade = BLEMessageHandlerFacadeImpl(
         legacyBleService.messageHandler,
         SeenMessageStore.instance,
+        enableFragmentCleanupTimer: true,
       );
 
       meshNetworkingService = MeshNetworkingService(

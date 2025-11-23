@@ -19,13 +19,45 @@ class OutboundMessageSender {
     required Logger logger,
     required MessageAckTracker ackTracker,
     required MessageChunkSender chunkSender,
+    Future<void> Function({
+      required CentralManager centralManager,
+      required Peripheral peripheral,
+      required GATTCharacteristic characteristic,
+      required Uint8List value,
+    })?
+    centralWrite,
+    Future<void> Function({
+      required PeripheralManager peripheralManager,
+      required Central central,
+      required GATTCharacteristic characteristic,
+      required Uint8List value,
+      bool withoutResponse,
+    })?
+    peripheralWrite,
   }) : _logger = logger,
        _ackTracker = ackTracker,
-       _chunkSender = chunkSender;
+       _chunkSender = chunkSender,
+       _centralWrite = centralWrite,
+       _peripheralWrite = peripheralWrite;
 
   final Logger _logger;
   final MessageAckTracker _ackTracker;
   final MessageChunkSender _chunkSender;
+  final Future<void> Function({
+    required CentralManager centralManager,
+    required Peripheral peripheral,
+    required GATTCharacteristic characteristic,
+    required Uint8List value,
+  })?
+  _centralWrite;
+  final Future<void> Function({
+    required PeripheralManager peripheralManager,
+    required Central central,
+    required GATTCharacteristic characteristic,
+    required Uint8List value,
+    bool withoutResponse,
+  })?
+  _peripheralWrite;
   String? _currentNodeId;
 
   void setCurrentNodeId(String? nodeId) {
@@ -183,12 +215,21 @@ class OutboundMessageSender {
         messageId: msgId,
         fragments: chunks,
         sendChunk: (chunkData) async {
-          await centralManager.writeCharacteristic(
-            connectedDevice,
-            messageCharacteristic,
-            value: chunkData,
-            type: GATTCharacteristicWriteType.withResponse,
-          );
+          if (_centralWrite != null) {
+            await _centralWrite!(
+              centralManager: centralManager,
+              peripheral: connectedDevice,
+              characteristic: messageCharacteristic,
+              value: chunkData,
+            );
+          } else {
+            await centralManager.writeCharacteristic(
+              connectedDevice,
+              messageCharacteristic,
+              value: chunkData,
+              type: GATTCharacteristicWriteType.withResponse,
+            );
+          }
         },
         onBeforeSend: (index, chunk) {
           final step = index + 1;
@@ -354,11 +395,21 @@ class OutboundMessageSender {
         messageId: msgId,
         fragments: chunks,
         sendChunk: (chunkData) async {
-          await peripheralManager.notifyCharacteristic(
-            connectedCentral,
-            messageCharacteristic,
-            value: chunkData,
-          );
+          if (_peripheralWrite != null) {
+            await _peripheralWrite!(
+              peripheralManager: peripheralManager,
+              central: connectedCentral,
+              characteristic: messageCharacteristic,
+              value: chunkData,
+              withoutResponse: true,
+            );
+          } else {
+            await peripheralManager.notifyCharacteristic(
+              connectedCentral,
+              messageCharacteristic,
+              value: chunkData,
+            );
+          }
         },
         onBeforeSend: (index, chunk) {
           final step = index + 1;

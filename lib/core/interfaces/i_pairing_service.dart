@@ -26,7 +26,7 @@ abstract class IPairingService {
   Future<void> _performVerification();
 
   /// Receive peer's verification hash, compare with our computed hash
-  void handlePairingVerification(String theirSecretHash);
+  Future<void> handlePairingVerification(String theirSecretHash);
 
   /// Reset all pairing state after completion or failure
   void clearPairing();
@@ -59,4 +59,34 @@ abstract class IPairingService {
 
   /// Callback when pairing cancelled
   void Function()? onPairingCancelled;
+
+  /// Send pairing request with our ephemeral ID/display name
+  void initiatePairingRequest({
+    required String myEphemeralId,
+    required String displayName,
+  });
+
+  /// Receive pairing request from peer
+  void receivePairingRequest({
+    required String theirEphemeralId,
+    required String displayName,
+  });
+
+  /// Accept incoming pairing request and emit accept message
+  void acceptIncomingRequest({
+    required String myEphemeralId,
+    required String displayName,
+  });
+
+  /// Reject incoming pairing request
+  void rejectIncomingRequest();
+
+  /// Process pairing accept message from peer
+  void receivePairingAccept({
+    required String theirEphemeralId,
+    required String displayName,
+  });
+
+  /// Process pairing cancel from peer
+  void receivePairingCancel({String? reason});
 }

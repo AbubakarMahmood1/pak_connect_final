@@ -39,6 +39,12 @@ abstract class IIdentityManager {
   /// Store peer's ephemeral ID (8-char session-specific ID from Noise handshake)
   void setTheirEphemeralId(String ephemeralId, String displayName);
 
+  /// Store peer's persistent key and update mapping when available
+  void setTheirPersistentKey(String persistentKey, {String? ephemeralId});
+
+  /// Update the active session identifier (ephemeral or persistent)
+  void setCurrentSessionId(String? sessionId);
+
   /// Look up peer's persistent public key by ephemeral ID
   String? getPersistentKeyFromEphemeral(String ephemeralId);
 
