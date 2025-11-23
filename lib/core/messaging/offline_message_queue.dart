@@ -2,25 +2,32 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'package:crypto/crypto.dart';
+import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import 'package:get_it/get_it.dart';
-import 'package:sqflite_sqlcipher/sqflite.dart';
+import 'package:sqflite_common/sqflite.dart' as sqflite_common;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import '../interfaces/i_repository_provider.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../security/message_security.dart';
 import '../models/mesh_relay_models.dart';
 import '../interfaces/i_database_provider.dart';
+import '../interfaces/i_message_queue_repository.dart';
+import '../interfaces/i_queue_persistence_manager.dart';
+import '../interfaces/i_retry_scheduler.dart';
+import '../interfaces/i_queue_sync_coordinator.dart';
+import '../services/message_queue_repository.dart';
+import '../services/queue_persistence_manager.dart';
+import '../services/retry_scheduler.dart';
+import '../services/queue_sync_coordinator.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../data/database/database_provider.dart';
 
 /// Comprehensive offline message queue with intelligent retry and delivery management
 class OfflineMessageQueue {
   static final _logger = Logger('OfflineMessageQueue');
 
   static const int _maxRetries = 5;
-  static const Duration _initialDelay = Duration(seconds: 2);
-  static const Duration _maxDelay = Duration(minutes: 10);
 
   // Performance optimization constants
   static const int _maxDeletedIdsToKeep = 5000;
@@ -38,7 +45,10 @@ class OfflineMessageQueue {
       []; // Direct messages (high priority)
   final List<QueuedMessage> _relayMessageQueue =
       []; // Relay messages (controlled bandwidth)
-  final Map<String, Timer> _activeRetries = {};
+  IMessageQueueRepository? _queueRepository;
+  IQueuePersistenceManager? _queuePersistenceManager;
+  IRetryScheduler? _retryScheduler;
+  IQueueSyncCoordinator? _queueSyncCoordinator;
 
   // Bandwidth allocation constant
   static const double _directBandwidthRatio =
@@ -47,24 +57,9 @@ class OfflineMessageQueue {
   // Repository provider for favorites support
   IRepositoryProvider? _repositoryProvider;
   IDatabaseProvider? _databaseProvider;
-  IDatabaseProvider? _resolvedDatabaseProvider;
 
   // Queue hash synchronization
   final Set<String> _deletedMessageIds = {};
-  String? _cachedQueueHash;
-  DateTime? _lastHashCalculation;
-  Future<Database> _getDatabase() async {
-    _resolvedDatabaseProvider ??=
-        _databaseProvider ??
-        (GetIt.instance.isRegistered<IDatabaseProvider>()
-            ? GetIt.instance<IDatabaseProvider>()
-            : null);
-    final provider = _resolvedDatabaseProvider;
-    if (provider == null) {
-      throw StateError('IDatabaseProvider not available');
-    }
-    return await provider.database;
-  }
 
   // Connection monitoring
   bool _isOnline = false;
@@ -82,6 +77,45 @@ class OfflineMessageQueue {
   Function(QueueStatistics stats)? onStatsUpdated;
   Function(String messageId)? onSendMessage;
   Function()? onConnectivityCheck;
+
+  OfflineMessageQueue({
+    IMessageQueueRepository? queueRepository,
+    IQueuePersistenceManager? queuePersistenceManager,
+    IRetryScheduler? retryScheduler,
+  }) : _queueRepository = queueRepository,
+       _queuePersistenceManager = queuePersistenceManager,
+       _retryScheduler = retryScheduler;
+
+  IMessageQueueRepository get _repo {
+    _queueRepository ??= MessageQueueRepository(
+      directMessageQueue: _directMessageQueue,
+      relayMessageQueue: _relayMessageQueue,
+      deletedMessageIds: _deletedMessageIds,
+      databaseProvider: _databaseProvider,
+    );
+    return _queueRepository!;
+  }
+
+  IQueuePersistenceManager get _persistenceManager {
+    _queuePersistenceManager ??= QueuePersistenceManager(
+      databaseProvider: _databaseProvider,
+    );
+    return _queuePersistenceManager!;
+  }
+
+  IRetryScheduler get _scheduler {
+    _retryScheduler ??= RetryScheduler();
+    return _retryScheduler!;
+  }
+
+  IQueueSyncCoordinator get _sync {
+    final repo = _repo;
+    _queueSyncCoordinator ??= QueueSyncCoordinator(
+      repository: repo,
+      deletedMessageIds: _deletedMessageIds,
+    );
+    return _queueSyncCoordinator!;
+  }
 
   /// Initialize the offline message queue
   Future<void> initialize({
@@ -111,14 +145,41 @@ class OfflineMessageQueue {
       _repositoryProvider = null;
     }
 
-    if (databaseProvider != null) {
-      _databaseProvider = databaseProvider;
-      _resolvedDatabaseProvider = databaseProvider;
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      // Ensure sqflite_common_ffi is initialized for desktop/test environments
+      if (sqflite_common.databaseFactoryOrNull == null) {
+        sqflite_ffi.sqfliteFfiInit();
+        sqflite_common.databaseFactory = sqflite_ffi.databaseFactoryFfi;
+      }
     }
 
-    await _loadQueueFromStorage();
-    await _loadDeletedMessageIds();
-    await _performMigrationIfNeeded();
+    if (databaseProvider != null) {
+      _databaseProvider = databaseProvider;
+    } else if (_databaseProvider == null &&
+        GetIt.instance.isRegistered<IDatabaseProvider>()) {
+      _databaseProvider = GetIt.instance<IDatabaseProvider>();
+    } else if (_databaseProvider == null) {
+      _databaseProvider = DatabaseProvider();
+    }
+
+    // Ensure persistence dependencies are ready before touching storage
+    try {
+      await _persistenceManager.createQueueTablesIfNotExist();
+      await _loadQueueFromStorage();
+      await _loadDeletedMessageIds();
+    } catch (e) {
+      _logger.warning(
+        '⚠️ Persistence unavailable, falling back to in-memory queue: $e',
+      );
+      _queuePersistenceManager = _NoopQueuePersistenceManager();
+      _queueRepository = _InMemoryQueueRepository(
+        directMessageQueue: _directMessageQueue,
+        relayMessageQueue: _relayMessageQueue,
+        deletedMessageIds: _deletedMessageIds,
+      );
+    }
+
+    await _sync.initialize(deletedIds: _deletedMessageIds);
     _startConnectivityMonitoring();
     _startPeriodicCleanup();
 
@@ -454,8 +515,8 @@ class OfflineMessageQueue {
 
     await _saveMessageToStorage(message);
 
-    // Schedule retry
-    final retryTimer = Timer(backoffDelay, () async {
+    // Schedule retry via scheduler
+    _scheduler.registerRetryTimer(message.id, backoffDelay, () async {
       if (_isOnline) {
         await _tryDeliveryForMessage(message);
       } else {
@@ -463,8 +524,6 @@ class OfflineMessageQueue {
         await _saveMessageToStorage(message);
       }
     });
-
-    _activeRetries[message.id] = retryTimer;
 
     _logger.info(
       'Retry scheduled for ${message.id.shortId()}... in ${backoffDelay.inSeconds}s',
@@ -697,101 +756,39 @@ class OfflineMessageQueue {
   /// Insert message into queue by priority
   /// PRIORITY 1 FIX: Route to appropriate queue based on message type
   void _insertMessageByPriority(QueuedMessage message) {
-    // Determine target queue
-    final targetQueue = message.isRelayMessage
-        ? _relayMessageQueue
-        : _directMessageQueue;
-
-    // Find insertion point based on priority
-    int insertIndex = 0;
-    for (int i = 0; i < targetQueue.length; i++) {
-      if (targetQueue[i].priority.index <= message.priority.index) {
-        insertIndex = i;
-        break;
-      }
-      insertIndex = i + 1;
-    }
-
-    targetQueue.insert(insertIndex, message);
-
-    _logger.fine(
-      'Inserted into ${message.isRelayMessage ? "relay" : "direct"} queue at index $insertIndex (queue size: ${targetQueue.length})',
-    );
+    _repo.insertMessageByPriority(message);
   }
 
   /// Remove message from queue
   /// PRIORITY 1 FIX: Remove from both queues
   void _removeMessageFromQueue(String messageId) {
-    _directMessageQueue.removeWhere((m) => m.id == messageId);
-    _relayMessageQueue.removeWhere((m) => m.id == messageId);
+    _repo.removeMessageFromQueue(messageId);
   }
 
   /// Get all messages from both queues (helper for dual-queue operations)
   List<QueuedMessage> _getAllMessages() {
-    return [..._directMessageQueue, ..._relayMessageQueue];
+    return _repo.getAllMessages();
   }
 
   /// Calculate exponential backoff delay
   Duration _calculateBackoffDelay(int attempt) {
-    final exponentialDelay = Duration(
-      milliseconds: _initialDelay.inMilliseconds * (1 << (attempt - 1)),
-    );
-
-    // Cap at maximum delay and add jitter
-    final cappedDelay =
-        exponentialDelay.inMilliseconds > _maxDelay.inMilliseconds
-        ? _maxDelay
-        : exponentialDelay;
-
-    // Add random jitter (±25%)
-    final jitterRange = cappedDelay.inMilliseconds * 0.25;
-    final jitter =
-        (DateTime.now().millisecond % (jitterRange * 2)) - jitterRange;
-
-    return Duration(
-      milliseconds: (cappedDelay.inMilliseconds + jitter).round(),
-    );
+    return _scheduler.calculateBackoffDelay(attempt);
   }
 
   /// Get max retries based on message priority
   int _getMaxRetriesForPriority(MessagePriority priority) {
-    switch (priority) {
-      case MessagePriority.urgent:
-        return _maxRetries + 2;
-      case MessagePriority.high:
-        return _maxRetries + 1;
-      case MessagePriority.normal:
-        return _maxRetries;
-      case MessagePriority.low:
-        return _maxRetries - 1;
-    }
+    return _scheduler.getMaxRetriesForPriority(priority, _maxRetries);
   }
 
   /// Calculate expiry time based on priority
   /// Urgent messages have longer TTL to ensure delivery even with long offline periods
   DateTime _calculateExpiryTime(DateTime queuedAt, MessagePriority priority) {
-    Duration ttl;
-    switch (priority) {
-      case MessagePriority.urgent:
-        ttl = Duration(hours: 24); // 24 hours for critical messages
-        break;
-      case MessagePriority.high:
-        ttl = Duration(hours: 12); // 12 hours for important messages
-        break;
-      case MessagePriority.normal:
-        ttl = Duration(hours: 6); // 6 hours for regular messages
-        break;
-      case MessagePriority.low:
-        ttl = Duration(hours: 3); // 3 hours for low priority
-        break;
-    }
-    return queuedAt.add(ttl);
+    return _scheduler.calculateExpiryTime(queuedAt, priority);
   }
 
   /// Check if message has expired
   bool _isMessageExpired(QueuedMessage message) {
-    if (message.expiresAt == null) return false;
-    return DateTime.now().isAfter(message.expiresAt!);
+    return _scheduler.isMessageExpired(message);
   }
 
   /// Start connectivity monitoring
@@ -803,16 +800,12 @@ class OfflineMessageQueue {
 
   /// Cancel all active retry timers
   void _cancelAllActiveRetries() {
-    for (final timer in _activeRetries.values) {
-      timer.cancel();
-    }
-    _activeRetries.clear();
+    _scheduler.cancelAllRetryTimers();
   }
 
   /// Cancel retry timer for specific message
   void _cancelRetryTimer(String messageId) {
-    _activeRetries[messageId]?.cancel();
-    _activeRetries.remove(messageId);
+    _scheduler.cancelRetryTimer(messageId);
   }
 
   /// Calculate average delivery time
@@ -843,241 +836,33 @@ class OfflineMessageQueue {
     onStatsUpdated?.call(stats);
   }
 
-  /// Convert QueuedMessage to database row
-  Map<String, dynamic> _queuedMessageToDb(QueuedMessage message) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return {
-      'queue_id': message.id,
-      'message_id': message.id,
-      'chat_id': message.chatId,
-      'content': message.content,
-      'recipient_public_key': message.recipientPublicKey,
-      'sender_public_key': message.senderPublicKey,
-      'queued_at': message.queuedAt.millisecondsSinceEpoch,
-      'retry_count': message.attempts,
-      'max_retries': message.maxRetries,
-      'next_retry_at': message.nextRetryAt?.millisecondsSinceEpoch,
-      'priority': message.priority.index,
-      'status': message.status.index,
-      'attempts': message.attempts,
-      'last_attempt_at': message.lastAttemptAt?.millisecondsSinceEpoch,
-      'delivered_at': message.deliveredAt?.millisecondsSinceEpoch,
-      'failed_at': message.failedAt?.millisecondsSinceEpoch,
-      'failure_reason': message.failureReason,
-      'expires_at': message.expiresAt?.millisecondsSinceEpoch,
-      'is_relay_message': message.isRelayMessage ? 1 : 0,
-      'original_message_id': message.originalMessageId,
-      'relay_node_id': message.relayNodeId,
-      'message_hash': message.messageHash,
-      'relay_metadata_json': message.relayMetadata != null
-          ? jsonEncode(message.relayMetadata!.toJson())
-          : null,
-      'reply_to_message_id': message.replyToMessageId,
-      'attachments_json': message.attachments.isNotEmpty
-          ? jsonEncode(message.attachments)
-          : null,
-      'sender_rate_count': message.senderRateCount,
-      'created_at': now,
-      'updated_at': now,
-    };
-  }
-
-  /// Convert database row to QueuedMessage
-  QueuedMessage _queuedMessageFromDb(Map<String, dynamic> row) {
-    return QueuedMessage(
-      id: row['message_id'] as String,
-      chatId: row['chat_id'] as String,
-      content: row['content'] as String,
-      recipientPublicKey: row['recipient_public_key'] as String,
-      senderPublicKey: row['sender_public_key'] as String,
-      priority: MessagePriority.values[row['priority'] as int],
-      queuedAt: DateTime.fromMillisecondsSinceEpoch(row['queued_at'] as int),
-      maxRetries: row['max_retries'] as int,
-      replyToMessageId: row['reply_to_message_id'] as String?,
-      attachments: row['attachments_json'] != null
-          ? List<String>.from(jsonDecode(row['attachments_json'] as String))
-          : [],
-      status: QueuedMessageStatus.values[row['status'] as int],
-      attempts: row['attempts'] as int,
-      lastAttemptAt: row['last_attempt_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row['last_attempt_at'] as int)
-          : null,
-      nextRetryAt: row['next_retry_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row['next_retry_at'] as int)
-          : null,
-      deliveredAt: row['delivered_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row['delivered_at'] as int)
-          : null,
-      failedAt: row['failed_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row['failed_at'] as int)
-          : null,
-      failureReason: row['failure_reason'] as String?,
-      expiresAt: row['expires_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row['expires_at'] as int)
-          : null,
-      isRelayMessage: (row['is_relay_message'] as int) == 1,
-      relayMetadata: row['relay_metadata_json'] != null
-          ? RelayMetadata.fromJson(
-              jsonDecode(row['relay_metadata_json'] as String),
-            )
-          : null,
-      originalMessageId: row['original_message_id'] as String?,
-      relayNodeId: row['relay_node_id'] as String?,
-      messageHash: row['message_hash'] as String?,
-      senderRateCount: row['sender_rate_count'] as int? ?? 0,
-    );
-  }
-
   /// Load queue from persistent storage
   Future<void> _loadQueueFromStorage() async {
-    try {
-      final db = await _getDatabase();
-      final List<Map<String, dynamic>> results = await db.query(
-        'offline_message_queue',
-        orderBy: 'priority DESC, queued_at ASC',
-      );
-
-      // PRIORITY 1 FIX: Load into appropriate queue based on isRelayMessage flag
-      _directMessageQueue.clear();
-      _relayMessageQueue.clear();
-
-      for (final row in results) {
-        try {
-          final message = _queuedMessageFromDb(row);
-          if (message.isRelayMessage) {
-            _relayMessageQueue.add(message);
-          } else {
-            _directMessageQueue.add(message);
-          }
-        } catch (e) {
-          _logger.warning('Failed to parse queued message: $e');
-        }
-      }
-
-      final totalLoaded =
-          _directMessageQueue.length + _relayMessageQueue.length;
-      _logger.info(
-        'Loaded $totalLoaded messages from storage (direct: ${_directMessageQueue.length}, relay: ${_relayMessageQueue.length})',
-      );
-    } catch (e) {
-      _logger.severe('Failed to load message queue: $e');
-    }
+    await _repo.loadQueueFromStorage();
   }
 
   /// Save a single message to persistent storage (optimized for individual updates)
   Future<void> _saveMessageToStorage(QueuedMessage message) async {
-    try {
-      final db = await _getDatabase();
-
-      // Use INSERT OR REPLACE for efficiency - updates if exists, inserts if not
-      await db.insert(
-        'offline_message_queue',
-        _queuedMessageToDb(message),
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-
-      // Invalidate hash cache since queue changed
-      _cachedQueueHash = null;
-      _lastHashCalculation = null;
-    } catch (e) {
-      _logger.warning('Failed to save message ${message.id.shortId()}...: $e');
-    }
+    await _repo.saveMessageToStorage(message);
+    invalidateHashCache();
   }
 
   /// Remove a single message from persistent storage
   Future<void> _deleteMessageFromStorage(String messageId) async {
-    try {
-      final db = await _getDatabase();
-
-      await db.delete(
-        'offline_message_queue',
-        where: 'message_id = ?',
-        whereArgs: [messageId],
-      );
-
-      // Invalidate hash cache since queue changed
-      _cachedQueueHash = null;
-      _lastHashCalculation = null;
-    } catch (e) {
-      _logger.warning('Failed to delete message ${messageId.shortId()}...: $e');
-    }
+    await _repo.deleteMessageFromStorage(messageId);
+    invalidateHashCache();
   }
 
   /// Save entire queue to persistent storage (used for initial load and bulk operations)
   /// For individual message updates, use _saveMessageToStorage for better performance
   Future<void> _saveQueueToStorage() async {
-    try {
-      final db = await _getDatabase();
-
-      // PRIORITY 1 FIX: Save both queues
-      // Use transaction for atomic operations
-      await db.transaction((txn) async {
-        // Clear and reinsert all messages
-        await txn.delete('offline_message_queue');
-
-        // Save direct messages
-        for (final message in _directMessageQueue) {
-          await txn.insert(
-            'offline_message_queue',
-            _queuedMessageToDb(message),
-          );
-        }
-
-        // Save relay messages
-        for (final message in _relayMessageQueue) {
-          await txn.insert(
-            'offline_message_queue',
-            _queuedMessageToDb(message),
-          );
-        }
-      });
-
-      // Invalidate hash cache since queue changed
-      _cachedQueueHash = null;
-      _lastHashCalculation = null;
-    } catch (e) {
-      _logger.warning('Failed to save message queue: $e');
-    }
+    await _repo.saveQueueToStorage();
+    invalidateHashCache();
   }
 
   /// Load deleted message IDs from persistent storage
   Future<void> _loadDeletedMessageIds() async {
-    try {
-      final db = await _getDatabase();
-      final List<Map<String, dynamic>> results = await db.query(
-        'deleted_message_ids',
-      );
-
-      _deletedMessageIds.clear();
-      for (final row in results) {
-        _deletedMessageIds.add(row['message_id'] as String);
-      }
-
-      _logger.info('Loaded ${_deletedMessageIds.length} deleted message IDs');
-    } catch (e) {
-      _logger.severe('Failed to load deleted message IDs: $e');
-    }
-  }
-
-  /// Save deleted message IDs to persistent storage
-  Future<void> _saveDeletedMessageIds() async {
-    try {
-      final db = await _getDatabase();
-
-      await db.transaction((txn) async {
-        // Clear and reinsert all deleted IDs
-        await txn.delete('deleted_message_ids');
-
-        for (final messageId in _deletedMessageIds) {
-          await txn.insert('deleted_message_ids', {
-            'message_id': messageId,
-            'deleted_at': DateTime.now().millisecondsSinceEpoch,
-          });
-        }
-      });
-    } catch (e) {
-      _logger.warning('Failed to save deleted message IDs: $e');
-    }
+    await _repo.loadDeletedMessageIds();
   }
 
   // ===== QUEUE HASH SYNCHRONIZATION METHODS =====
@@ -1085,100 +870,17 @@ class OfflineMessageQueue {
   /// Calculate deterministic hash of current queue state
   /// Excludes delivered/expired messages and includes deleted message tracking
   String calculateQueueHash({bool forceRecalculation = false}) {
-    if (!forceRecalculation &&
-        _cachedQueueHash != null &&
-        _lastHashCalculation != null) {
-      // Use cache if less than 30 seconds old
-      final cacheAge = DateTime.now().difference(_lastHashCalculation!);
-      if (cacheAge.inSeconds < 30) {
-        return _cachedQueueHash!;
-      }
-    }
-
-    // PRIORITY 1 FIX: Get syncable messages from both queues
-    final syncableMessages = _getAllMessages()
-        .where(
-          (m) =>
-              m.status != QueuedMessageStatus.delivered &&
-              m.status != QueuedMessageStatus.failed,
-        )
-        .toList();
-
-    // Sort by message ID for consistent ordering
-    syncableMessages.sort((a, b) => a.id.compareTo(b.id));
-
-    // Create hash input combining message metadata and deleted IDs
-    final hashComponents = <String>[];
-
-    // Add active message metadata
-    for (final message in syncableMessages) {
-      final messageData = _getMessageHashData(message);
-      hashComponents.add(messageData);
-    }
-
-    // Add deleted message IDs (sorted for consistency)
-    final sortedDeletedIds = _deletedMessageIds.toList()..sort();
-    hashComponents.addAll(sortedDeletedIds.map((id) => 'deleted:$id'));
-
-    // Calculate final hash
-    final combinedData = hashComponents.join('|');
-    final bytes = utf8.encode(combinedData);
-    final digest = sha256.convert(bytes);
-
-    // Cache result
-    _cachedQueueHash = digest.toString();
-    _lastHashCalculation = DateTime.now();
-
-    _logger.fine(
-      'Calculated queue hash: ${_cachedQueueHash!.shortId()}... (${syncableMessages.length} messages, ${_deletedMessageIds.length} deleted)',
-    );
-
-    return _cachedQueueHash!;
-  }
-
-  /// Get hash data for a specific message
-  String _getMessageHashData(QueuedMessage message) {
-    return [
-      message.id,
-      message.status.index.toString(),
-      message.queuedAt.millisecondsSinceEpoch.toString(),
-      message.priority.index.toString(),
-      message.attempts.toString(),
-      message.messageHash ?? '',
-    ].join(':');
+    return _sync.calculateQueueHash(forceRecalculation: forceRecalculation);
   }
 
   /// Get queue sync information for mesh networking
   QueueSyncMessage createSyncMessage(String nodeId) {
-    // PRIORITY 1 FIX: Get syncable messages from both queues
-    final syncableMessages = _getAllMessages()
-        .where(
-          (m) =>
-              m.status != QueuedMessageStatus.delivered &&
-              m.status != QueuedMessageStatus.failed,
-        )
-        .toList();
-
-    final messageIds = syncableMessages.map((m) => m.id).toList();
-    final messageHashes = <String, String>{};
-
-    for (final message in syncableMessages) {
-      if (message.messageHash != null) {
-        messageHashes[message.id] = message.messageHash!;
-      }
-    }
-
-    return QueueSyncMessage.createRequest(
-      messageIds: messageIds,
-      nodeId: nodeId,
-      messageHashes: messageHashes.isNotEmpty ? messageHashes : null,
-    );
+    return _sync.createSyncMessage(nodeId);
   }
 
   /// Compare queue hashes to determine if synchronization is needed
   bool needsSynchronization(String otherQueueHash) {
-    final currentHash = calculateQueueHash();
-    return currentHash != otherQueueHash;
+    return _sync.needsSynchronization(otherQueueHash);
   }
 
   /// Insert a message received via queue synchronization
@@ -1200,102 +902,41 @@ class OfflineMessageQueue {
       return;
     }
 
-    // Normalize status for local retry pipeline
-    message.status = QueuedMessageStatus.pending;
-    message.attempts = 0;
-    message.failureReason = null;
-    message.nextRetryAt = null;
-    message.lastAttemptAt = null;
-
-    _insertMessageByPriority(message);
-    await _saveQueueToStorage();
-    _totalQueued++;
-    _updateStatistics();
-
-    _logger.info('🔄 Synced new queued message: ${message.id.shortId()}...');
+    final added = await _sync.addSyncedMessage(message);
+    if (added) {
+      _totalQueued++;
+      _updateStatistics();
+    }
   }
 
   /// Get missing messages compared to another queue
   List<String> getMissingMessageIds(List<String> otherMessageIds) {
-    // PRIORITY 1 FIX: Check both queues
-    final currentIds = _getAllMessages()
-        .where(
-          (m) =>
-              m.status != QueuedMessageStatus.delivered &&
-              m.status != QueuedMessageStatus.failed,
-        )
-        .map((m) => m.id)
-        .toSet();
-
-    return otherMessageIds
-        .where(
-          (id) => !currentIds.contains(id) && !_deletedMessageIds.contains(id),
-        )
-        .toList();
+    return _sync.getMissingMessageIds(otherMessageIds);
   }
 
   /// Get excess messages that the other queue doesn't have
   List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
-    final otherIdSet = otherMessageIds.toSet();
-
-    // PRIORITY 1 FIX: Get from both queues
-    return _getAllMessages()
-        .where(
-          (m) =>
-              m.status != QueuedMessageStatus.delivered &&
-              m.status != QueuedMessageStatus.failed &&
-              !otherIdSet.contains(m.id),
-        )
-        .toList();
+    return _sync.getExcessMessages(otherMessageIds);
   }
 
   /// Mark message as deleted for sync purposes
   Future<void> markMessageDeleted(String messageId) async {
-    _deletedMessageIds.add(messageId);
-    await _saveDeletedMessageIds();
-
-    // Remove from active queue if present
-    _removeMessageFromQueue(messageId);
-    await _saveQueueToStorage();
-
-    _logger.info(
-      'Message marked as deleted: ${messageId.length > 16 ? "${messageId.shortId()}..." : messageId}',
-    );
+    await _sync.markMessageDeleted(messageId);
   }
 
   /// Check if message was deleted
   bool isMessageDeleted(String messageId) {
-    return _deletedMessageIds.contains(messageId);
+    return _sync.isMessageDeleted(messageId);
   }
 
   /// Clean up old deleted message IDs with improved performance
   Future<void> cleanupOldDeletedIds() async {
-    final initialCount = _deletedMessageIds.length;
-
-    // Performance-optimized cleanup based on size threshold
-    if (_deletedMessageIds.length > _cleanupThreshold) {
-      final deletedList = _deletedMessageIds.toList()..sort();
-      _deletedMessageIds.clear();
-      _deletedMessageIds.addAll(deletedList.take(_maxDeletedIdsToKeep));
-
-      await _saveDeletedMessageIds();
-      _logger.info(
-        'Cleaned up ${initialCount - _deletedMessageIds.length} old deleted message IDs (performance optimization)',
-      );
-    }
+    await _sync.cleanupOldDeletedIds();
   }
 
   /// Invalidate hash cache (call after manual queue modifications)
   void invalidateHashCache() {
-    _cachedQueueHash = null;
-    _lastHashCalculation = null;
-  }
-
-  /// Perform legacy data migration for backward compatibility
-  Future<void> _performMigrationIfNeeded() async {
-    // Migration from SharedPreferences is handled by MigrationService
-    // This method is kept for backward compatibility but does nothing
-    _logger.fine('SQLite-based queue - no migration needed');
+    _sync.invalidateHashCache();
   }
 
   /// Start periodic cleanup for performance optimization
@@ -1320,8 +961,9 @@ class OfflineMessageQueue {
       await _optimizeStorage();
 
       // Invalidate old hash cache
-      if (_lastHashCalculation != null) {
-        final cacheAge = DateTime.now().difference(_lastHashCalculation!);
+      final lastHashTime = _sync.getSyncStatistics().lastHashTime;
+      if (lastHashTime != null) {
+        final cacheAge = DateTime.now().difference(lastHashTime);
         if (cacheAge.inHours > 1) {
           invalidateHashCache();
         }
@@ -1399,22 +1041,9 @@ class OfflineMessageQueue {
       return false;
     });
 
-    // Delete expired messages from storage
+    // Persist removal to storage
     if (expiredIds.isNotEmpty) {
-      final db = await _getDatabase();
-      await db.transaction((txn) async {
-        for (final id in expiredIds) {
-          await txn.delete(
-            'offline_message_queue',
-            where: 'message_id = ?',
-            whereArgs: [id],
-          );
-        }
-      });
-
-      // Invalidate hash cache
-      _cachedQueueHash = null;
-      _lastHashCalculation = null;
+      await _saveQueueToStorage();
 
       _logger.info(
         'Cleaned up ${expiredIds.length} expired messages '
@@ -1442,16 +1071,17 @@ class OfflineMessageQueue {
 
   /// Get performance statistics
   Map<String, dynamic> getPerformanceStats() {
+    final syncStats = _sync.getSyncStatistics();
     // PRIORITY 1 FIX: Include both queue stats
     return {
       'totalMessages': _directMessageQueue.length + _relayMessageQueue.length,
       'directMessages': _directMessageQueue.length,
       'relayMessages': _relayMessageQueue.length,
       'deletedIdsCount': _deletedMessageIds.length,
-      'hashCacheAge': _lastHashCalculation != null
-          ? DateTime.now().difference(_lastHashCalculation!).inSeconds
+      'hashCacheAge': syncStats.lastHashTime != null
+          ? DateTime.now().difference(syncStats.lastHashTime!).inSeconds
           : null,
-      'hashCached': _cachedQueueHash != null,
+      'hashCached': syncStats.isCachValid,
       'memoryOptimized': _deletedMessageIds.length <= _maxDeletedIdsToKeep,
     };
   }
@@ -1765,6 +1395,150 @@ class MessageQueueException implements Exception {
 
   @override
   String toString() => 'MessageQueueException: $message';
+}
+
+/// In-memory repository fallback for environments without SQLite (e.g., unit tests).
+class _InMemoryQueueRepository implements IMessageQueueRepository {
+  final List<QueuedMessage> directMessageQueue;
+  final List<QueuedMessage> relayMessageQueue;
+  final Set<String> deletedMessageIds;
+
+  _InMemoryQueueRepository({
+    List<QueuedMessage>? directMessageQueue,
+    List<QueuedMessage>? relayMessageQueue,
+    Set<String>? deletedMessageIds,
+  }) : directMessageQueue = directMessageQueue ?? [],
+       relayMessageQueue = relayMessageQueue ?? [],
+       deletedMessageIds = deletedMessageIds ?? {};
+
+  @override
+  Future<void> loadQueueFromStorage() async {}
+
+  @override
+  Future<void> saveMessageToStorage(QueuedMessage message) async {}
+
+  @override
+  Future<void> deleteMessageFromStorage(String messageId) async {}
+
+  @override
+  Future<void> saveQueueToStorage() async {}
+
+  @override
+  Future<void> loadDeletedMessageIds() async {}
+
+  @override
+  Future<void> saveDeletedMessageIds() async {}
+
+  @override
+  QueuedMessage? getMessageById(String messageId) {
+    return getAllMessages().where((m) => m.id == messageId).firstOrNull;
+  }
+
+  @override
+  List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) {
+    return getAllMessages().where((m) => m.status == status).toList();
+  }
+
+  @override
+  List<QueuedMessage> getPendingMessages() {
+    return getMessagesByStatus(QueuedMessageStatus.pending);
+  }
+
+  @override
+  Future<void> removeMessage(String messageId) async {
+    removeMessageFromQueue(messageId);
+  }
+
+  @override
+  QueuedMessage? getOldestPendingMessage() {
+    final pending = getPendingMessages();
+    pending.sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
+    return pending.isEmpty ? null : pending.first;
+  }
+
+  @override
+  List<QueuedMessage> getAllMessages() {
+    return [...directMessageQueue, ...relayMessageQueue];
+  }
+
+  @override
+  void insertMessageByPriority(QueuedMessage message) {
+    final targetQueue = message.isRelayMessage
+        ? relayMessageQueue
+        : directMessageQueue;
+    int insertIndex = 0;
+    for (int i = 0; i < targetQueue.length; i++) {
+      if (targetQueue[i].priority.index <= message.priority.index) {
+        insertIndex = i;
+        break;
+      }
+      insertIndex = i + 1;
+    }
+    targetQueue.insert(insertIndex, message);
+  }
+
+  @override
+  void removeMessageFromQueue(String messageId) {
+    directMessageQueue.removeWhere((m) => m.id == messageId);
+    relayMessageQueue.removeWhere((m) => m.id == messageId);
+  }
+
+  @override
+  bool isMessageDeleted(String messageId) {
+    return deletedMessageIds.contains(messageId);
+  }
+
+  @override
+  Future<void> markMessageDeleted(String messageId) async {
+    deletedMessageIds.add(messageId);
+    removeMessageFromQueue(messageId);
+  }
+
+  @override
+  Map<String, dynamic> queuedMessageToDb(QueuedMessage message) => {};
+
+  @override
+  QueuedMessage queuedMessageFromDb(Map<String, dynamic> row) {
+    throw UnimplementedError(
+      'In-memory repository does not deserialize DB rows',
+    );
+  }
+}
+
+/// No-op persistence manager for environments without SQLite.
+class _NoopQueuePersistenceManager implements IQueuePersistenceManager {
+  @override
+  Future<bool> createQueueTablesIfNotExist() async => true;
+
+  @override
+  Future<void> migrateQueueSchema({
+    required int oldVersion,
+    required int newVersion,
+  }) async {}
+
+  @override
+  Future<Map<String, dynamic>> getQueueTableStats() async => {
+    'tableCount': 0,
+    'rowCount': 0,
+  };
+
+  @override
+  Future<void> vacuumQueueTables() async {}
+
+  @override
+  Future<String?> backupQueueData() async => null;
+
+  @override
+  Future<bool> restoreQueueData(String backupPath) async => true;
+
+  @override
+  Future<Map<String, dynamic>> getQueueTableHealth() async => {
+    'ok': true,
+    'rowCount': 0,
+  };
+
+  @override
+  Future<int> ensureQueueConsistency() async => 0;
 }
 
 extension _FirstOrNull<T> on Iterable<T> {

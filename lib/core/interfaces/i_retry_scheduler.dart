@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../../domain/entities/enhanced_message.dart';
 import '../messaging/offline_message_queue.dart';
 
@@ -101,7 +102,12 @@ abstract class IRetryScheduler {
   /// Parameters:
   /// - messageId: Message ID being retried
   /// - callback: Function to call when retry delay elapses
-  void registerRetryTimer(String messageId, Function callback);
+  /// - delay: Backoff delay before retrying
+  void registerRetryTimer(
+    String messageId,
+    Duration delay,
+    FutureOr<void> Function() callback,
+  );
 
   /// Cancel retry timer for specific message
   ///

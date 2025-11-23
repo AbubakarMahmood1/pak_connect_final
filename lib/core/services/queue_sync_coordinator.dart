@@ -30,13 +30,16 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
   DateTime? _lastHashCalculation;
 
   // Deleted message tracking
-  final Set<String> _deletedMessageIds = {};
+  final Set<String> _deletedMessageIds;
 
   // Statistics
   int _syncRequestsCount = 0;
 
-  QueueSyncCoordinator({IMessageQueueRepository? repository})
-    : _repository = repository;
+  QueueSyncCoordinator({
+    IMessageQueueRepository? repository,
+    Set<String>? deletedMessageIds,
+  }) : _repository = repository,
+       _deletedMessageIds = deletedMessageIds ?? {};
 
   /// Load initial sync state from storage
   Future<void> initialize({required Set<String> deletedIds}) async {
@@ -149,18 +152,18 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
   }
 
   @override
-  Future<void> addSyncedMessage(QueuedMessage message) async {
+  Future<bool> addSyncedMessage(QueuedMessage message) async {
     // Skip if previously deleted
     if (_deletedMessageIds.contains(message.id)) {
       _logger.fine('Sync skip - message was deleted locally');
-      return;
+      return false;
     }
 
     // Skip if already exists
     final allMessages = _repository?.getAllMessages() ?? [];
     if (allMessages.any((m) => m.id == message.id)) {
       _logger.fine('Sync skip - message already exists');
-      return;
+      return false;
     }
 
     // Normalize for retry pipeline
@@ -171,10 +174,12 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     message.lastAttemptAt = null;
 
     // Add to repository
+    _repository?.insertMessageByPriority(message);
     await _repository?.saveMessageToStorage(message);
     invalidateHashCache();
 
     _logger.info('🔄 Synced new message: ${_previewId(message.id)}...');
+    return true;
   }
 
   @override
@@ -214,6 +219,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
   @override
   Future<void> markMessageDeleted(String messageId) async {
     _deletedMessageIds.add(messageId);
+    await _repository?.markMessageDeleted(messageId);
     invalidateHashCache();
 
     _logger.info('Message marked deleted: ${_previewId(messageId)}...');
@@ -237,6 +243,8 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
         'Cleaned up ${initialCount - _deletedMessageIds.length} old deleted IDs',
       );
     }
+
+    await _repository?.saveDeletedMessageIds();
   }
 
   @override

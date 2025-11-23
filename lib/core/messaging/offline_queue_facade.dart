@@ -56,6 +56,9 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
     return _persistenceManager;
   }
 
+  /// Expose underlying queue for legacy consumers while facade is introduced.
+  OfflineMessageQueue get queue => _queue;
+
   /// Initialize all sub-services (called once)
   void _initializeServices() {
     if (_initialized) return;
@@ -87,6 +90,7 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
     Function(String messageId)? onSendMessage,
     Function()? onConnectivityCheck,
   }) async {
+    _initializeServices();
     await _queue.initialize(
       onMessageQueued: onMessageQueued,
       onMessageDelivered: onMessageDelivered,

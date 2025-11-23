@@ -145,13 +145,22 @@ class RetryScheduler implements IRetryScheduler {
 
   /// Register retry timer
   @override
-  void registerRetryTimer(String messageId, Function callback) {
+  void registerRetryTimer(
+    String messageId,
+    Duration delay,
+    FutureOr<void> Function() callback,
+  ) {
     // Cancel existing timer if any
     _activeRetries[messageId]?.cancel();
 
-    // Create new timer - callback will be invoked when delay elapses
-    // Note: Actual timer creation should be done by caller with specific delay
-    _logger.fine('Registered retry timer for message $messageId');
+    _activeRetries[messageId] = Timer(delay, () async {
+      _activeRetries.remove(messageId);
+      await callback();
+    });
+
+    _logger.fine(
+      'Registered retry timer for message $messageId (delay: ${delay.inMilliseconds}ms)',
+    );
   }
 
   /// Cancel retry timer for specific message
