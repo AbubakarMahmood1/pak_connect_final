@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io' show Platform;
-import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/constants/ble_constants.dart';
@@ -11,13 +10,10 @@ import '../models/ble_client_connection.dart';
 import '../../core/models/ble_server_connection.dart';
 import '../models/connection_limit_config.dart';
 import '../exceptions/connection_exceptions.dart';
-import '../repositories/contact_repository.dart';
-import '../repositories/message_repository.dart';
-import '../../core/utils/chat_utils.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
-
-// Enum must be declared at top level
-enum ConnectionMonitorState { idle, healthChecking, reconnecting }
+import 'connection_health_monitor.dart';
+import 'connection_limit_enforcer.dart';
+import 'ephemeral_contact_cleaner.dart';
 
 class BLEConnectionManager {
   final _logger = Logger('BLEConnectionManager');
@@ -36,6 +32,7 @@ class BLEConnectionManager {
 
   // Connection limits (platform + power mode aware)
   late ConnectionLimitConfig _limitConfig;
+  late final ConnectionLimitEnforcer _limitEnforcer;
 
   // RSSI filtering (Phase 4: Adaptive Sync Frequency - RSSI-based connection filtering)
   int _rssiThreshold = -85; // Default: Balanced mode threshold
@@ -57,16 +54,9 @@ class BLEConnectionManager {
   bool _shouldBeAdvertising = true; // Whether we WANT to advertise
 
   // Simplified monitoring system
-  Timer? _monitoringTimer;
-  bool _isMonitoring = false;
-  int _monitoringInterval = 3000; // milliseconds
-  int _reconnectAttempts = 0;
-  bool _messageOperationInProgress = false;
-  bool _pairingInProgress = false;
-  bool _handshakeInProgress = false;
+  late final ConnectionHealthMonitor _healthMonitor;
   bool _isReconnection = false;
 
-  ConnectionMonitorState _monitorState = ConnectionMonitorState.idle;
   ChatConnectionState _connectionState = ChatConnectionState.disconnected;
 
   // Constants
@@ -91,11 +81,33 @@ class BLEConnectionManager {
     required this.peripheralManager,
     PowerMode initialPowerMode = PowerMode.balanced,
   }) {
+    _limitEnforcer = ConnectionLimitEnforcer(logger: _logger);
     _limitConfig = ConnectionLimitConfig.forPowerMode(initialPowerMode);
-    _rssiThreshold = _getRssiThresholdForPowerMode(initialPowerMode);
+    _rssiThreshold = _limitEnforcer.rssiThresholdForPowerMode(initialPowerMode);
     _logger.info('🎯 Connection limits initialized: $_limitConfig');
     _logger.info(
       '📡 RSSI threshold: $_rssiThreshold dBm (${initialPowerMode.name} mode)',
+    );
+
+    _healthMonitor = ConnectionHealthMonitor(
+      logger: _logger,
+      centralManager: centralManager,
+      minInterval: minInterval,
+      maxInterval: maxInterval,
+      maxReconnectAttempts: maxReconnectAttempts,
+      healthCheckInterval: healthCheckInterval,
+      getConnectedDevice: () => _connectedDevice,
+      getMessageCharacteristic: () => _messageCharacteristic,
+      hasBleConnection: () => hasBleConnection,
+      clearConnectionState: ({bool keepMonitoring = false}) async =>
+          clearConnectionState(keepMonitoring: keepMonitoring),
+      scanForSpecificDevice:
+          ({Duration timeout = const Duration(seconds: 8)}) =>
+              scanForSpecificDevice(timeout: timeout),
+      connectToDevice: (device) => connectToDevice(device),
+      hasViableRelayConnection: _hasViableRelayConnection,
+      onMonitoringChanged: onMonitoringChanged,
+      onReconnectionFlagChanged: (value) => _isReconnection = value,
     );
   }
 
@@ -110,12 +122,10 @@ class BLEConnectionManager {
   int? get mtuSize => _mtuSize;
   bool get hasBleConnection => _connectedDevice != null;
   bool get isReconnection => _isReconnection;
-  bool get isMonitoring => _isMonitoring;
+  bool get isMonitoring => _healthMonitor.isMonitoring;
   ChatConnectionState get connectionState => _connectionState;
-  bool get isActivelyReconnecting =>
-      _isMonitoring && _monitorState == ConnectionMonitorState.reconnecting;
-  bool get isHealthChecking =>
-      _isMonitoring && _monitorState == ConnectionMonitorState.healthChecking;
+  bool get isActivelyReconnecting => _healthMonitor.isActivelyReconnecting;
+  bool get isHealthChecking => _healthMonitor.isHealthChecking;
   bool get hasConnection => hasBleConnection;
   bool get _isReady => _connectionState == ChatConnectionState.ready;
 
@@ -166,196 +176,19 @@ class BLEConnectionManager {
   }
 
   void startConnectionMonitoring() {
-    if (_isMonitoring) return;
-
-    _isMonitoring = true;
     _lastConnectedDevice = _connectedDevice;
-    _monitorState = hasBleConnection
-        ? ConnectionMonitorState.healthChecking
-        : ConnectionMonitorState.reconnecting;
-    _monitoringInterval = minInterval;
-
-    _scheduleNextCheck();
-    onMonitoringChanged?.call(true);
-    _logger.info('Monitoring started in ${_monitorState.name} mode');
+    _healthMonitor.start();
   }
 
-  void stopConnectionMonitoring() {
-    _isMonitoring = false;
-    _monitoringTimer?.cancel();
-    _monitoringTimer = null;
-    _monitorState = ConnectionMonitorState.idle;
-    _monitoringInterval = minInterval;
-    _reconnectAttempts = 0;
-    onMonitoringChanged?.call(false);
-    _logger.info('Monitoring stopped');
-  }
+  void stopConnectionMonitoring() => _healthMonitor.stop();
 
-  void _scheduleNextCheck() {
-    _monitoringTimer?.cancel();
-    if (!_isMonitoring) return;
+  void setPairingInProgress(bool inProgress) =>
+      _healthMonitor.setPairingInProgress(inProgress);
 
-    _monitoringTimer = Timer(
-      Duration(milliseconds: _monitoringInterval),
-      () async {
-        if (!_isMonitoring) return;
+  void setHandshakeInProgress(bool inProgress) =>
+      _healthMonitor.setHandshakeInProgress(inProgress);
 
-        switch (_monitorState) {
-          case ConnectionMonitorState.healthChecking:
-            await _performHealthCheck();
-            break;
-          case ConnectionMonitorState.reconnecting:
-            await _attemptReconnection();
-            break;
-          case ConnectionMonitorState.idle:
-            return;
-        }
-
-        // Exponential backoff
-        _monitoringInterval = (_monitoringInterval * 1.2).round().clamp(
-          minInterval,
-          maxInterval,
-        );
-
-        if (_isMonitoring) {
-          _scheduleNextCheck();
-        }
-      },
-    );
-  }
-
-  void setPairingInProgress(bool inProgress) {
-    _pairingInProgress = inProgress;
-    if (inProgress) {
-      _logger.info('⏸️ Pausing health checks during pairing');
-    } else {
-      _logger.info('▶️ Resuming health checks after pairing');
-    }
-  }
-
-  void setHandshakeInProgress(bool inProgress) {
-    _handshakeInProgress = inProgress;
-    if (inProgress) {
-      _logger.info('🤝 Handshake started - pausing health checks');
-    } else {
-      _logger.info('⏹️ Handshake ended - resuming health checks');
-    }
-  }
-
-  Future<void> _performHealthCheck() async {
-    if (_pairingInProgress || _handshakeInProgress) {
-      _logger.info(
-        '⏸️ Skipping health check - ${_pairingInProgress ? "pairing" : "handshake"} in progress',
-      );
-      _scheduleNextCheck();
-      return;
-    }
-
-    if (_messageOperationInProgress ||
-        !hasBleConnection ||
-        _messageCharacteristic == null) {
-      _logger.fine(
-        '⏸️ Skipping health check - no active connection or message in progress',
-      );
-      _scheduleNextCheck();
-      return;
-    }
-
-    try {
-      final pingData = Uint8List.fromList([0x00]);
-
-      _logger.fine('💓 Sending health check ping...');
-
-      await centralManager
-          .writeCharacteristic(
-            _connectedDevice!,
-            _messageCharacteristic!,
-            value: pingData,
-            type: GATTCharacteristicWriteType.withResponse,
-          )
-          .timeout(Duration(seconds: 3));
-
-      _logger.info(
-        '✅ Health check passed (interval: ${_monitoringInterval}ms)',
-      );
-    } catch (e) {
-      _logger.warning('❌ Health check failed: $e');
-
-      // Switch to reconnection mode
-      _monitorState = ConnectionMonitorState.reconnecting;
-      _monitoringInterval = minInterval; // Reset interval
-
-      _logger.warning('🔄 Switching to reconnection mode');
-
-      // Force disconnect
-      try {
-        await centralManager.disconnect(_connectedDevice!);
-      } catch (_) {}
-
-      clearConnectionState(keepMonitoring: true);
-      _isReconnection = true;
-    }
-  }
-
-  Future<void> _attemptReconnection() async {
-    if (_reconnectAttempts >= maxReconnectAttempts) {
-      _logger.warning(
-        '❌ Max reconnection attempts reached ($_reconnectAttempts/$maxReconnectAttempts)',
-      );
-      stopConnectionMonitoring();
-      return;
-    }
-
-    // 🎯 RELAY-AWARE FIX: Don't disconnect if we have a viable relay connection
-    if (_hasViableRelayConnection()) {
-      _logger.info(
-        '🔄 Maintaining current connection for relay - not reconnecting',
-      );
-      _reconnectAttempts = 0; // Reset since we're not actually failing
-      _monitorState = ConnectionMonitorState.healthChecking;
-      _monitoringInterval = healthCheckInterval;
-      return;
-    }
-
-    _reconnectAttempts++;
-    _logger.info(
-      '🔄 Reconnect attempt $_reconnectAttempts/$maxReconnectAttempts',
-    );
-
-    try {
-      final foundDevice = await scanForSpecificDevice(
-        timeout: Duration(seconds: 8),
-      );
-
-      if (foundDevice != null) {
-        _logger.info('✅ Found device for reconnection');
-        _isReconnection = true;
-        await connectToDevice(foundDevice);
-
-        // Success - switch to health checking
-        _reconnectAttempts = 0;
-        _monitorState = ConnectionMonitorState.healthChecking;
-        _monitoringInterval = minInterval;
-        _isReconnection = false;
-        _logger.info('✅ Reconnection successful');
-      } else {
-        _logger.warning('⚠️ No device found for reconnection');
-      }
-    } catch (e) {
-      _logger.warning('❌ Reconnection failed: $e');
-    }
-  }
-
-  void startHealthChecks() {
-    if (!hasBleConnection) {
-      _logger.fine('⏸️ Skipping health checks - no client link to monitor');
-      return;
-    }
-
-    if (!_isMonitoring) {
-      startConnectionMonitoring();
-    }
-  }
+  void startHealthChecks() => _healthMonitor.startHealthChecks();
 
   // 🚀 ========== PHASE 2B: SIMULTANEOUS OPERATION ========== 🚀
 
@@ -637,18 +470,6 @@ class BLEConnectionManager {
     return address.length > 8 ? '${address.shortId(8)}...' : address;
   }
 
-  /// Determine if a connect error is transient and worth a quick retry
-  bool _isTransientConnectError(Object e) {
-    final s = e.toString();
-    // Timeouts and Android GATT status 133/147 are classic transient failures
-    return s.contains('timeout') ||
-        s.contains('Connection timeout') ||
-        s.contains('status=133') ||
-        s.contains('status=147') ||
-        s.contains('GATT 133') ||
-        s.contains('133') && (s.contains('Gatt') || s.contains('GATT'));
-  }
-
   // ⚡ ========== PHASE 2B: POWER MODE MANAGEMENT ========== ⚡
 
   /// ⚡ Handle power mode changes: Adjust connection limits and RSSI threshold
@@ -662,7 +483,7 @@ class BLEConnectionManager {
     final oldRssiThreshold = _rssiThreshold;
 
     _limitConfig = ConnectionLimitConfig.forPowerMode(newMode);
-    _rssiThreshold = _getRssiThresholdForPowerMode(newMode);
+    _rssiThreshold = _limitEnforcer.rssiThresholdForPowerMode(newMode);
 
     _logger.info('🎯 Connection limits updated: $oldConfig → $_limitConfig');
     _logger.info(
@@ -670,93 +491,16 @@ class BLEConnectionManager {
     );
 
     // Enforce new limits
-    await _enforceConnectionLimits();
-
-    // Update advertising based on new limits
-    await _updateAdvertisingState();
-  }
-
-  /// Get RSSI threshold for power mode (Phase 4: BitChat pattern)
-  int _getRssiThresholdForPowerMode(PowerMode mode) {
-    return switch (mode) {
-      PowerMode.performance => -95, // Accept all
-      PowerMode.balanced => -85, // Normal
-      PowerMode.powerSaver => -75, // Only good signals
-      PowerMode.ultraLowPower => -65, // Only excellent signals
-    };
-  }
-
-  /// 🔨 Enforce connection limits: Disconnect oldest connections
-  ///
-  /// Called after power mode change to bring connections within new limits
-  /// Uses FIFO strategy (disconnect oldest first)
-  Future<void> _enforceConnectionLimits() async {
-    // Check client connections
-    final excessClients = _limitConfig.getExcessClientConnections(
-      clientConnectionCount,
-      totalConnectionCount,
+    await _limitEnforcer.enforceConnectionLimits(
+      limitConfig: _limitConfig,
+      clientConnections: _clientConnections,
+      serverConnections: _serverConnections,
+      centralManager: centralManager,
+      updateAdvertisingState: _updateAdvertisingState,
+      formatAddress: _formatAddress,
     );
 
-    if (excessClients > 0) {
-      _logger.warning('⚠️ Excess client connections: $excessClients');
-      await _disconnectOldestClients(excessClients);
-    }
-
-    // Check server connections
-    final excessServers =
-        serverConnectionCount - _limitConfig.maxServerConnections;
-    final excessTotal = totalConnectionCount - _limitConfig.maxTotalConnections;
-
-    if (excessServers > 0 || excessTotal > 0) {
-      final toDisconnect = [
-        excessServers,
-        excessTotal,
-      ].reduce((a, b) => a > b ? a : b);
-      _logger.warning('⚠️ Excess server connections: $toDisconnect');
-      await _disconnectOldestServers(toDisconnect);
-    }
-  }
-
-  /// 🔌 Disconnect oldest client connections (FIFO strategy)
-  Future<void> _disconnectOldestClients(int count) async {
-    final sorted = _clientConnections.values.toList()
-      ..sort((a, b) => a.connectedAt.compareTo(b.connectedAt));
-
-    for (int i = 0; i < count && i < sorted.length; i++) {
-      final conn = sorted[i];
-      _logger.info(
-        '🔌 Disconnecting oldest client: ${_formatAddress(conn.address)}',
-      );
-      try {
-        await centralManager.disconnect(conn.peripheral);
-        // Connection will be removed in the disconnect event handler
-      } catch (e) {
-        _logger.warning(
-          '⚠️ Failed to disconnect ${_formatAddress(conn.address)}: $e',
-        );
-        // Remove from map anyway
-        _clientConnections.remove(conn.address);
-      }
-    }
-  }
-
-  /// 🔌 Disconnect oldest server connections (FIFO strategy)
-  Future<void> _disconnectOldestServers(int count) async {
-    final sorted = _serverConnections.values.toList()
-      ..sort((a, b) => a.connectedAt.compareTo(b.connectedAt));
-
-    for (int i = 0; i < count && i < sorted.length; i++) {
-      final conn = sorted[i];
-      _logger.info(
-        '🔌 Disconnecting oldest server connection: ${_formatAddress(conn.address)}',
-      );
-
-      // Note: PeripheralManager doesn't have explicit disconnect for incoming connections
-      // Platform will handle cleanup. We remove from our tracking:
-      _serverConnections.remove(conn.address);
-    }
-
-    // Update advertising state after removing connections
+    // Update advertising based on new limits
     await _updateAdvertisingState();
   }
 
@@ -861,7 +605,7 @@ class BLEConnectionManager {
           break; // success
         } catch (e) {
           _logger.warning('❌ Connect attempt $attempt failed: $e');
-          final transient = _isTransientConnectError(e);
+          final transient = _limitEnforcer.isTransientConnectError(e);
           if (attempt < 2 && transient) {
             // Best-effort cleanup before retry
             try {
@@ -1058,12 +802,7 @@ class BLEConnectionManager {
   }
 
   void setMessageOperationInProgress(bool inProgress) {
-    _messageOperationInProgress = inProgress;
-    if (inProgress) {
-      _logger.fine('💬 Message operation started - pausing health checks');
-    } else {
-      _logger.fine('✅ Message operation completed - resuming health checks');
-    }
+    _healthMonitor.setMessageOperationInProgress(inProgress);
   }
 
   Future<Peripheral?> scanForSpecificDevice({
@@ -1171,12 +910,10 @@ class BLEConnectionManager {
   }
 
   void triggerReconnection() {
-    if (!_isMonitoring) {
+    if (!_healthMonitor.isMonitoring) {
       startConnectionMonitoring();
-    } else if (_monitorState != ConnectionMonitorState.reconnecting) {
-      _monitorState = ConnectionMonitorState.reconnecting;
-      _monitoringInterval = minInterval;
-      _scheduleNextCheck();
+    } else {
+      _healthMonitor.triggerImmediateReconnection();
     }
     _logger.info('Triggering immediate reconnection...');
   }
@@ -1199,7 +936,6 @@ class BLEConnectionManager {
     _serverConnections.clear();
     _lastConnectedDevice = null;
 
-    _reconnectAttempts = 0;
     _isReconnection = false;
 
     _logger.info('📊 Connections cleared (client: 0, server: 0)');
@@ -1216,47 +952,10 @@ class BLEConnectionManager {
   /// 🧹 Clean up ephemeral contact immediately if they have no chat history
   /// Called on disconnect to keep database clean without waiting for app restart
   void _cleanupEphemeralContactIfOrphaned(String contactId) async {
-    try {
-      _logger.info(
-        '🧹 Checking if contact needs cleanup: ${contactId.length > 8 ? '${contactId.shortId(8)}...' : contactId}',
-      );
-
-      // Import repositories (will need to add imports at top of file)
-      final contactRepo = ContactRepository();
-      final messageRepo = MessageRepository();
-
-      // Get contact info
-      final contact = await contactRepo.getContact(contactId);
-      if (contact == null) {
-        _logger.fine('Contact not found - nothing to cleanup');
-        return;
-      }
-
-      // Skip if contact is verified (paired/trusted)
-      if (contact.trustStatus == TrustStatus.verified) {
-        _logger.fine('Contact is verified - keeping');
-        return;
-      }
-
-      // Check for chat history
-      final chatId = ChatUtils.generateChatId(contactId);
-      final messages = await messageRepo.getMessages(chatId);
-
-      if (messages.isEmpty) {
-        // No chat history - delete the ephemeral contact
-        final deleted = await contactRepo.deleteContact(contactId);
-        if (deleted) {
-          _logger.info(
-            '✅ Deleted orphaned ephemeral contact: ${contact.displayName}',
-          );
-        }
-      } else {
-        _logger.fine('Contact has ${messages.length} message(s) - keeping');
-      }
-    } catch (e) {
-      _logger.warning('Failed to cleanup ephemeral contact: $e');
-      // Non-critical failure - don't throw
-    }
+    await EphemeralContactCleaner.cleanup(
+      contactId: contactId,
+      logger: _logger,
+    );
   }
 
   /// 🎯 NEW: Check if current connection can serve as relay for pending messages

@@ -57,7 +57,7 @@ class SecurityStateComputer {
       '🔧 REPO DEBUG: Processing key: ${actualKey.length > 16 ? '${actualKey.shortId()}...' : actualKey}',
     );
 
-    final contactRepo = bleService.stateManager.contactRepository;
+    final contactRepo = ContactRepository();
     // 🔧 FIX: Use comprehensive lookup to handle publicKey, persistentPublicKey, AND currentEphemeralId
     // This fixes "Contact exists: false" bug when looking up by persistent or ephemeral IDs
     final contact = await contactRepo.getContactByAnyId(actualKey);
@@ -115,7 +115,7 @@ class SecurityStateComputer {
       return SecurityState.exchangingIdentity();
     }
 
-    final contactRepo = bleService.stateManager.contactRepository;
+    final contactRepo = ContactRepository();
 
     // Check bilateral contact relationship
     // 🔧 FIX: Use comprehensive lookup to handle any identifier type

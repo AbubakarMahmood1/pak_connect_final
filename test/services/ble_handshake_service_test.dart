@@ -6,6 +6,7 @@ import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/models/spy_mode_info.dart';
+import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/data/repositories/intro_hint_repository.dart';
 import 'package:pak_connect/data/services/ble_handshake_service.dart';
 
@@ -20,51 +21,102 @@ class _TestBufferedMessage {
     : timestamp = DateTime.now();
 }
 
-class _TestStateManager {
-  bool hasBleConnection = true;
-  bool isPeripheralMode = false;
-  String? myUserName = 'Alice';
-  String? myEphemeralId;
-  Future<void> Function()? _loadUserNameHandler;
-  Future<String> Function()? _persistentIdHandler;
+class _StubStateManager implements IBLEStateManagerFacade {
+  bool connected = true;
+  bool peripheralMode = false;
+  String? userName = 'Alice';
+  String? ephemeralId;
+  Future<void> Function()? loadUserNameHandler;
 
-  void mockLoadUserName(Future<void> Function() handler) {
-    _loadUserNameHandler = handler;
-  }
+  @override
+  Future<void> initialize() async {}
 
-  void mockPersistentId(Future<String> Function() handler) {
-    _persistentIdHandler = handler;
-  }
-
+  @override
   Future<void> loadUserName() async {
-    if (_loadUserNameHandler != null) {
-      return _loadUserNameHandler!();
+    if (loadUserNameHandler != null) {
+      return loadUserNameHandler!();
     }
   }
 
-  Future<String> getMyPersistentId() async {
-    if (_persistentIdHandler != null) {
-      return _persistentIdHandler!();
-    }
-    return 'pub-key-12345678';
+  @override
+  Future<String> getMyPersistentId() async => 'pub-key-12345678';
+
+  @override
+  void dispose() {}
+
+  @override
+  Future<void> setMyUserName(String name) async => userName = name;
+
+  @override
+  Future<void> setMyUserNameWithCallbacks(String name) async => userName = name;
+
+  @override
+  void setPeripheralMode(bool isPeripheral) {
+    peripheralMode = isPeripheral;
   }
+
+  @override
+  bool get isConnected => connected;
+
+  @override
+  bool get isPeripheralMode => peripheralMode;
+
+  @override
+  String? get myUserName => userName;
+
+  @override
+  String? get myEphemeralId => ephemeralId;
+
+  @override
+  String getIdType() => 'persistent';
+
+  @override
+  String? get otherUserName => null;
+
+  @override
+  String? get theirEphemeralId => null;
+
+  @override
+  String? get theirPersistentKey => null;
+
+  @override
+  String? get myPersistentId => null;
+
+  @override
+  String? get currentSessionId => null;
+
+  @override
+  bool get isPaired => false;
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 @GenerateNiceMocks([MockSpec<IntroHintRepository>()])
 void main() {
-  late _TestStateManager mockStateManager;
+  late _StubStateManager mockStateManager;
   late MockIntroHintRepository mockIntroHintRepository;
   late StreamController<SpyModeInfo> spyModeController;
   late StreamController<String> identityController;
   late List<ProtocolMessage> sentMessages;
   late BLEHandshakeService service;
 
+  void _stubDefaults() {
+    mockStateManager
+      ..connected = true
+      ..peripheralMode = false
+      ..userName = 'Alice'
+      ..ephemeralId = null
+      ..loadUserNameHandler = null;
+  }
+
   setUp(() {
-    mockStateManager = _TestStateManager();
+    mockStateManager = _StubStateManager();
     mockIntroHintRepository = MockIntroHintRepository();
     spyModeController = StreamController<SpyModeInfo>.broadcast();
     identityController = StreamController<String>.broadcast();
     sentMessages = [];
+    _stubDefaults();
 
     service = BLEHandshakeService(
       stateManager: mockStateManager,
@@ -96,7 +148,7 @@ void main() {
   });
 
   test('requestIdentityExchange does nothing when not connected', () async {
-    mockStateManager.hasBleConnection = false;
+    mockStateManager.connected = false;
 
     await service.requestIdentityExchange();
 
@@ -104,7 +156,7 @@ void main() {
   });
 
   test('requestIdentityExchange sends identity when connected', () async {
-    mockStateManager.hasBleConnection = true;
+    mockStateManager.connected = true;
 
     await service.requestIdentityExchange();
 
@@ -113,7 +165,7 @@ void main() {
   });
 
   test('triggerIdentityReExchange swallows load errors', () async {
-    mockStateManager.mockLoadUserName(() => Future.error(Exception('fail')));
+    mockStateManager.loadUserNameHandler = () async => throw Exception('fail');
 
     await service.triggerIdentityReExchange();
 
@@ -123,7 +175,7 @@ void main() {
   test(
     'triggerIdentityReExchange sends identity when peripheral mode active',
     () async {
-      mockStateManager.isPeripheralMode = true;
+      mockStateManager.peripheralMode = true;
 
       await service.triggerIdentityReExchange();
 

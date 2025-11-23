@@ -67,6 +67,7 @@ lib/
 ## Build, Test, and Development Commands
 - `flutter pub get` retrieves dependencies; run after pulling main.
 - `flutter analyze` enforces the lints in `analysis_options.yaml`.
+- **Use `flutter test`, not `dart test`, for this repo** — `package:flutter_test` pulls in `dart:ui`, which only exists when the Flutter engine is running. Running with plain `dart test` will fail; stick to `flutter test …` (including single-file runs). `flutter analyze` is preferred; only use `dart analyze` if you are certain it won’t trip `dart:ui` dependencies.
 - `dart format lib test` formats Dart code before commits.
 - `flutter run -d chrome` or `flutter run -d emulator-id` launches the app locally.
 - `flutter test` runs the unit and widget suites; use `flutter test integration_test/` for device-level coverage.

@@ -8,6 +8,7 @@ import '../../core/interfaces/i_ble_state_coordinator.dart';
 import '../../core/interfaces/i_identity_manager.dart';
 import '../../core/interfaces/i_pairing_service.dart';
 import '../../core/interfaces/i_session_service.dart';
+import '../../core/security/ephemeral_key_manager.dart';
 import 'chat_migration_service.dart';
 
 /// BLE State Coordinator
@@ -92,7 +93,38 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
   @override
   Future<void> sendPairingRequest() async {
     _logger.info('📤 STEP 3: Sending pairing request');
-    onSendPairingRequest?.call();
+
+    final theirEphemeralId = _identityManager.theirEphemeralId;
+    if (theirEphemeralId == null || theirEphemeralId.isEmpty) {
+      _logger.warning(
+        '❌ Cannot send pairing request - no peer ephemeral ID (handshake incomplete)',
+      );
+      return;
+    }
+
+    final myEphemeralId =
+        _identityManager.myEphemeralId ??
+        EphemeralKeyManager.generateMyEphemeralKey();
+    if (myEphemeralId == null || myEphemeralId.isEmpty) {
+      _logger.warning(
+        '❌ Cannot send pairing request - my ephemeral ID unavailable',
+      );
+      return;
+    }
+
+    final displayName = _identityManager.myUserName ?? 'User';
+    _pairingService.initiatePairingRequest(
+      myEphemeralId: myEphemeralId,
+      displayName: displayName,
+    );
+
+    if (onSendPairingRequest == null) {
+      _logger.fine(
+        'Pairing request callback not set; relying on pairing service hooks',
+      );
+    } else {
+      onSendPairingRequest!.call();
+    }
   }
 
   @override

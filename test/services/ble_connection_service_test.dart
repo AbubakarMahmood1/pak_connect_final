@@ -1,22 +1,23 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
 import 'package:mockito/annotations.dart';
+import 'package:mockito/mockito.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/services/ble_connection_service.dart';
-import 'package:pak_connect/data/services/ble_state_manager.dart';
+import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
-import 'ble_connection_service_test.mocks.dart';
 
 @GenerateNiceMocks([
-  MockSpec<BLEStateManager>(),
+  MockSpec<IBLEStateManagerFacade>(),
   MockSpec<BLEConnectionManager>(),
   MockSpec<CentralManager>(),
   MockSpec<BluetoothStateMonitor>(),
 ])
+import 'ble_connection_service_test.mocks.dart';
+
 void main() {
   late BLEConnectionService service;
-  late MockBLEStateManager mockStateManager;
+  late MockIBLEStateManagerFacade mockStateManager;
   late MockBLEConnectionManager mockConnectionManager;
   late MockCentralManager mockCentralManager;
   late MockBluetoothStateMonitor mockBluetoothMonitor;
@@ -45,7 +46,7 @@ void main() {
 
   group('BLEConnectionService', () {
     test('can be instantiated', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -56,7 +57,7 @@ void main() {
     });
 
     test('has public API methods', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -73,7 +74,7 @@ void main() {
     });
 
     test('has state getters', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -97,7 +98,7 @@ void main() {
     });
 
     test('current connection info is initialized', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -112,7 +113,7 @@ void main() {
     });
 
     test('peripheral handshake flag can be set', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -125,7 +126,7 @@ void main() {
     });
 
     test('mesh networking flag can be set', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -138,7 +139,7 @@ void main() {
     });
 
     test('connected central property can be set', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -151,7 +152,7 @@ void main() {
     });
 
     test('can dispose connection', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -163,7 +164,7 @@ void main() {
     });
 
     test('getConnectionInfo() returns current state', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -176,7 +177,7 @@ void main() {
     });
 
     test('connection info stream is available', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -188,7 +189,7 @@ void main() {
     });
 
     test('has peripheral connection property', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -199,7 +200,7 @@ void main() {
     });
 
     test('has central connection property', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
@@ -210,7 +211,7 @@ void main() {
     });
 
     test('can send messages property', () {
-      mockStateManager = MockBLEStateManager();
+      mockStateManager = MockIBLEStateManagerFacade();
       mockConnectionManager = MockBLEConnectionManager();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();

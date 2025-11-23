@@ -1,29 +1,30 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
 import 'package:mockito/annotations.dart';
+import 'package:mockito/mockito.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/services/ble_discovery_service.dart';
-import 'package:pak_connect/data/services/ble_state_manager.dart';
+import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/core/services/hint_scanner_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
-import 'ble_discovery_service_test.mocks.dart';
 
 @GenerateNiceMocks([
   MockSpec<CentralManager>(),
-  MockSpec<BLEStateManager>(),
+  MockSpec<IBLEStateManagerFacade>(),
   MockSpec<HintScannerService>(),
 ])
+import 'ble_discovery_service_test.mocks.dart';
+
 void main() {
   late BLEDiscoveryService service;
   late MockCentralManager mockCentralManager;
-  late MockBLEStateManager mockStateManager;
+  late MockIBLEStateManagerFacade mockStateManager;
   late MockHintScannerService mockHintScanner;
 
   Map<String, dynamic> connectionInfoUpdates = {};
 
   setUp(() {
     mockCentralManager = MockCentralManager();
-    mockStateManager = MockBLEStateManager();
+    mockStateManager = MockIBLEStateManagerFacade();
     mockHintScanner = MockHintScannerService();
 
     when(mockStateManager.isPeripheralMode).thenReturn(false);

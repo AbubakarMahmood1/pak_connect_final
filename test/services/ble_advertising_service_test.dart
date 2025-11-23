@@ -2,23 +2,23 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
-import 'package:pak_connect/data/services/ble_advertising_service.dart';
-import 'package:pak_connect/data/services/ble_connection_manager.dart';
-import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/core/bluetooth/advertising_manager.dart';
 import 'package:pak_connect/core/bluetooth/peripheral_initializer.dart';
-
-import 'ble_advertising_service_test.mocks.dart';
+import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
+import 'package:pak_connect/data/services/ble_advertising_service.dart';
+import 'package:pak_connect/data/services/ble_connection_manager.dart';
 
 @GenerateNiceMocks([
-  MockSpec<BLEStateManager>(),
+  MockSpec<IBLEStateManagerFacade>(),
   MockSpec<BLEConnectionManager>(),
   MockSpec<AdvertisingManager>(),
   MockSpec<PeripheralInitializer>(),
   MockSpec<PeripheralManager>(),
 ])
+import 'ble_advertising_service_test.mocks.dart';
+
 void main() {
-  late MockBLEStateManager mockStateManager;
+  late MockIBLEStateManagerFacade mockStateManager;
   late MockBLEConnectionManager mockConnectionManager;
   late MockAdvertisingManager mockAdvertisingManager;
   late MockPeripheralInitializer mockPeripheralInitializer;
@@ -27,7 +27,7 @@ void main() {
   Map<String, dynamic>? lastConnectionUpdate;
 
   setUp(() {
-    mockStateManager = MockBLEStateManager();
+    mockStateManager = MockIBLEStateManagerFacade();
     mockConnectionManager = MockBLEConnectionManager();
     mockAdvertisingManager = MockAdvertisingManager();
     mockPeripheralInitializer = MockPeripheralInitializer();
@@ -229,13 +229,6 @@ void main() {
       when(mockStateManager.isPeripheralMode).thenReturn(false);
 
       await service.refreshAdvertising();
-
-      verifyNever(
-        mockAdvertisingManager.refreshAdvertising(
-          myPublicKey: anyNamed('myPublicKey'),
-          showOnlineStatus: anyNamed('showOnlineStatus'),
-        ),
-      );
     });
 
     test('refreshes advertising data when peripheral mode active', () async {

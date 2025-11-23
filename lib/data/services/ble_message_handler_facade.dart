@@ -8,6 +8,7 @@ import '../../core/models/mesh_relay_models.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
+import '../../core/security/spam_prevention_manager.dart';
 import 'message_fragmentation_handler.dart';
 import 'protocol_message_handler.dart';
 import 'relay_coordinator.dart';
@@ -22,21 +23,53 @@ import 'relay_coordinator.dart';
 /// All consumers of BLEMessageHandler should use this interface
 class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   final _logger = Logger('BLEMessageHandlerFacade');
+  final bool _enableCleanupTimer;
 
   // Lazy-initialized handlers
   late final MessageFragmentationHandler _fragmentationHandler;
   late final ProtocolMessageHandler _protocolHandler;
   late final RelayCoordinator _relayCoordinator;
+  Future<bool> Function({
+    required String recipientKey,
+    required String content,
+    required Duration timeout,
+    String? messageId,
+    String? originalIntendedRecipient,
+  })?
+  _sendCentralCallback;
+  Future<bool> Function({
+    required String senderKey,
+    required String content,
+    String? messageId,
+  })?
+  _sendPeripheralCallback;
+  OfflineMessageQueue? _messageQueue;
+  SpamPreventionManager? _spamPreventionManager;
+  List<String> Function()? _nextHopsProvider;
 
   bool _initialized = false;
+
+  BLEMessageHandlerFacade({bool enableCleanupTimer = false})
+    : _enableCleanupTimer = enableCleanupTimer;
 
   /// Initializes the facade (lazy - called on first access)
   void _ensureInitialized() {
     if (_initialized) return;
 
-    _fragmentationHandler = MessageFragmentationHandler();
+    _fragmentationHandler = MessageFragmentationHandler(
+      enableCleanupTimer: _enableCleanupTimer,
+    );
     _protocolHandler = ProtocolMessageHandler();
     _relayCoordinator = RelayCoordinator();
+    if (_messageQueue != null) {
+      _relayCoordinator.setMessageQueue(_messageQueue!);
+    }
+    if (_spamPreventionManager != null) {
+      _relayCoordinator.setSpamPrevention(_spamPreventionManager!);
+    }
+    if (_nextHopsProvider != null) {
+      _relayCoordinator.setNextHopsProvider(_nextHopsProvider!);
+    }
 
     _initialized = true;
     _logger.info('✅ BLEMessageHandlerFacade initialized with 3 sub-handlers');
@@ -52,6 +85,27 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     _relayCoordinator.setCurrentNodeId(nodeId);
   }
 
+  /// Configure sending callbacks supplied by the production adapter.
+  void configureSenders({
+    required Future<bool> Function({
+      required String recipientKey,
+      required String content,
+      required Duration timeout,
+      String? messageId,
+      String? originalIntendedRecipient,
+    })
+    sendCentral,
+    required Future<bool> Function({
+      required String senderKey,
+      required String content,
+      String? messageId,
+    })
+    sendPeripheral,
+  }) {
+    _sendCentralCallback = sendCentral;
+    _sendPeripheralCallback = sendPeripheral;
+  }
+
   /// Initializes relay system with dependencies
   @override
   Future<void> initializeRelaySystem({
@@ -60,9 +114,22 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     onRelayMessageReceived,
     Function(RelayDecision decision)? onRelayDecisionMade,
     Function(RelayStatistics stats)? onRelayStatsUpdated,
+    List<String> Function()? nextHopsProvider,
   }) async {
     _ensureInitialized();
+    if (nextHopsProvider != null) {
+      _relayCoordinator.setNextHopsProvider(nextHopsProvider);
+    }
     await _relayCoordinator.initializeRelaySystem(currentNodeId: currentNodeId);
+    if (onRelayMessageReceived != null) {
+      _relayCoordinator.onRelayMessageReceived(onRelayMessageReceived);
+    }
+    if (onRelayDecisionMade != null) {
+      _relayCoordinator.onRelayDecisionMade(onRelayDecisionMade);
+    }
+    if (onRelayStatsUpdated != null) {
+      _relayCoordinator.onRelayStatsUpdated(onRelayStatsUpdated);
+    }
 
     // Auto-inject SeenMessageStore from DI for duplicate detection
     // This ensures production code automatically gets the dependency
@@ -87,6 +154,30 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     _logger.fine('🔐 SeenMessageStore injected into RelayCoordinator');
   }
 
+  @override
+  void setMessageQueue(OfflineMessageQueue queue) {
+    _messageQueue = queue;
+    if (_initialized) {
+      _relayCoordinator.setMessageQueue(queue);
+    }
+  }
+
+  @override
+  void setSpamPreventionManager(SpamPreventionManager manager) {
+    _spamPreventionManager = manager;
+    if (_initialized) {
+      _relayCoordinator.setSpamPrevention(manager);
+    }
+  }
+
+  @override
+  void setNextHopsProvider(List<String> Function() provider) {
+    _nextHopsProvider = provider;
+    if (_initialized) {
+      _relayCoordinator.setNextHopsProvider(provider);
+    }
+  }
+
   /// Gets available next hop devices for relay
   @override
   List<String> getAvailableNextHops() {
@@ -100,13 +191,25 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     required String recipientKey,
     required String content,
     required Duration timeout,
+    String? messageId,
+    String? originalIntendedRecipient,
   }) async {
     _ensureInitialized();
     try {
+      if (_sendCentralCallback == null) {
+        _logger.warning(
+          '⚠️ sendMessage skipped - no central sender configured in facade',
+        );
+        return false;
+      }
       _logger.fine('📤 Sending message to: ${recipientKey.substring(0, 8)}...');
-      // Fragment if needed and send
-      // This would integrate with BLEService for actual transmission
-      return true;
+      return await _sendCentralCallback!(
+        recipientKey: recipientKey,
+        content: content,
+        timeout: timeout,
+        messageId: messageId,
+        originalIntendedRecipient: originalIntendedRecipient,
+      );
     } catch (e) {
       _logger.severe('❌ Send failed: $e');
       return false;
@@ -118,13 +221,24 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   Future<bool> sendPeripheralMessage({
     required String senderKey,
     required String content,
+    String? messageId,
   }) async {
     _ensureInitialized();
     try {
+      if (_sendPeripheralCallback == null) {
+        _logger.warning(
+          '⚠️ Peripheral send skipped - no peripheral sender configured in facade',
+        );
+        return false;
+      }
       _logger.fine(
         '📤 Sending peripheral message from: ${senderKey.substring(0, 8)}...',
       );
-      return true;
+      return await _sendPeripheralCallback!(
+        senderKey: senderKey,
+        content: content,
+        messageId: messageId,
+      );
     } catch (e) {
       _logger.severe('❌ Peripheral send failed: $e');
       return false;
@@ -167,8 +281,37 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
       if (fragmentResult?.startsWith('REASSEMBLY_COMPLETE:') ?? false) {
         // Reassembly complete, retrieve from reassembler and process
         _logger.fine('📦 Reassembly complete, processing protocol message');
-        // Would retrieve complete message from fragmentationHandler's reassembler
-        return fragmentResult;
+        final messageId = fragmentResult!.substring(
+          'REASSEMBLY_COMPLETE:'.length,
+        );
+        final reassembledBytes = _fragmentationHandler
+            .takeReassembledMessageBytes(messageId);
+
+        if (reassembledBytes == null) {
+          _logger.warning(
+            '⚠️ Reassembly marker present but bytes missing for $messageId',
+          );
+          return null;
+        }
+
+        try {
+          final protocolMessage = ProtocolMessage.fromBytes(reassembledBytes);
+
+          // Mesh relay still routed through legacy handler (RelayCoordinator)
+          if (protocolMessage.type == ProtocolMessageType.meshRelay) {
+            _logger.fine('🔀 Mesh relay payload - hand off to coordinator');
+            return null;
+          }
+
+          return await _protocolHandler.processProtocolMessage(
+            message: protocolMessage,
+            fromDeviceId: fromDeviceId,
+            fromNodeId: fromNodeId,
+          );
+        } catch (e) {
+          _logger.warning('Failed to parse reassembled protocol message: $e');
+          return null;
+        }
       }
 
       return fragmentResult;
@@ -176,6 +319,12 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
       _logger.severe('Error processing received data: $e');
       return null;
     }
+  }
+
+  /// Retrieves reassembled message bytes produced during fragment processing.
+  Uint8List? takeReassembledMessageBytes(String messageId) {
+    _ensureInitialized();
+    return _fragmentationHandler.takeReassembledMessageBytes(messageId);
   }
 
   /// Handles QR code introduction claim
