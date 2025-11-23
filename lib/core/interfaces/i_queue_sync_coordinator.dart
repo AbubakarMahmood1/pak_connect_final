@@ -51,7 +51,7 @@ abstract class IQueueSyncCoordinator {
   /// - message: QueuedMessage from peer
   ///
   /// Returns: Future that completes when message added
-  Future<void> addSyncedMessage(QueuedMessage message);
+  Future<bool> addSyncedMessage(QueuedMessage message);
 
   /// Get message IDs we don't have that peer has
   ///
@@ -129,6 +129,9 @@ abstract class IQueueSyncCoordinator {
   ///
   /// Used for testing and recovery scenarios.
   Future<void> resetSyncState();
+
+  /// Initialize coordinator with existing deleted IDs (when restoring from storage)
+  Future<void> initialize({required Set<String> deletedIds});
 }
 
 /// Queue synchronization coordinator statistics

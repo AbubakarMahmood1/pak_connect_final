@@ -5,7 +5,6 @@
 // Priority 2: Broadcast messaging support (BitChat-inspired)
 
 import 'dart:async';
-import 'dart:math';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import '../models/mesh_relay_models.dart';
@@ -14,13 +13,14 @@ import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_seen_message_store.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../services/security_manager.dart';
-import '../security/ephemeral_key_manager.dart';
 import 'offline_message_queue.dart';
 import '../security/spam_prevention_manager.dart';
 import '../routing/network_topology_analyzer.dart';
 import '../interfaces/i_mesh_routing_service.dart';
 import 'relay_config_manager.dart';
 import 'relay_policy.dart';
+import 'relay_decision_engine.dart';
+import 'relay_send_pipeline.dart';
 import '../constants/special_recipients.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
@@ -41,6 +41,8 @@ class MeshRelayEngine {
 
   // Relay configuration (Phase 1: Role Awareness)
   final RelayConfigManager _relayConfig = RelayConfigManager.instance;
+  late final RelayDecisionEngine _decisionEngine;
+  late final RelaySendPipeline _sendPipeline;
 
   // Node identification (NOT final to allow re-initialization in tests and node identity changes)
   late String _currentNodeId;
@@ -74,7 +76,20 @@ class MeshRelayEngine {
                ? GetIt.instance<ISeenMessageStore>()
                : _InMemorySeenMessageStore()),
        _messageQueue = messageQueue,
-       _spamPrevention = spamPrevention;
+       _spamPrevention = spamPrevention {
+    _decisionEngine = RelayDecisionEngine(
+      logger: _logger,
+      seenMessageStore: _seenMessageStore,
+      routingService: _routingService,
+      topologyAnalyzer: _topologyAnalyzer,
+      currentNodeId: '', // updated on initialize
+    );
+    _sendPipeline = RelaySendPipeline(
+      logger: _logger,
+      messageQueue: _messageQueue,
+      spamPrevention: _spamPrevention,
+    );
+  }
 
   /// Initialize the relay engine
   ///
@@ -121,6 +136,11 @@ class MeshRelayEngine {
     _currentNodeId = currentNodeId;
     _routingService = routingService;
     _topologyAnalyzer = topologyAnalyzer; // Phase 3: Store topology analyzer
+    _decisionEngine.updateContext(
+      currentNodeId: _currentNodeId,
+      routingService: _routingService,
+      topologyAnalyzer: _topologyAnalyzer,
+    );
     this.onRelayMessage = onRelayMessage;
     this.onDeliverToSelf = onDeliverToSelf;
     this.onRelayDecision = onRelayDecision;
@@ -188,7 +208,7 @@ class MeshRelayEngine {
       }
 
       // Step 0C: Deduplication check (FIRST - before spam prevention)
-      if (_seenMessageStore.hasDelivered(relayMessage.originalMessageId)) {
+      if (_decisionEngine.isDuplicate(relayMessage.originalMessageId)) {
         _totalDropped++;
         _logger.info(
           '⏭️  Duplicate message detected (already delivered): $truncatedMessageId...',
@@ -220,7 +240,7 @@ class MeshRelayEngine {
       }
 
       // Determine message targeting before probabilistic decisions
-      final isForUs = await _isMessageForCurrentNode(
+      final isForUs = await _decisionEngine.isMessageForCurrentNode(
         relayMessage.relayMetadata.finalRecipient,
       );
 
@@ -230,31 +250,24 @@ class MeshRelayEngine {
 
       // Step 1A: Probabilistic relay decision (Phase 3: Network-size adaptive)
       // Apply BEFORE checking if message is for us to reduce processing overhead
-      final relayProbability = _calculateRelayProbability();
+      final relayProbability = _decisionEngine.calculateRelayProbability();
       final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 1;
 
-      if (!isForUs && relayProbability < 1.0) {
-        final randomValue = Random().nextDouble();
-        if (randomValue > relayProbability) {
-          _totalProbabilisticSkip++;
-          _logger.info(
-            '🎲 Probabilistic relay SKIP (network: $networkSize nodes, prob: ${(relayProbability * 100).toStringAsFixed(0)}%, roll: ${(randomValue * 100).toStringAsFixed(0)}%)',
-          );
+      if (_decisionEngine.shouldProbabilisticallySkip(
+        isForUs: isForUs,
+        relayProbability: relayProbability,
+      )) {
+        _totalProbabilisticSkip++;
 
-          final decision = RelayDecision.dropped(
-            messageId: relayMessage.originalMessageId,
-            reason: 'Probabilistic skip (network size: $networkSize)',
-          );
+        final decision = RelayDecision.dropped(
+          messageId: relayMessage.originalMessageId,
+          reason: 'Probabilistic skip (network size: $networkSize)',
+        );
 
-          onRelayDecision?.call(decision);
-          _updateStatistics();
+        onRelayDecision?.call(decision);
+        _updateStatistics();
 
-          return RelayProcessingResult.dropped('Probabilistic relay skip');
-        } else {
-          _logger.fine(
-            '🎲 Probabilistic relay PASS (network: $networkSize nodes, prob: ${(relayProbability * 100).toStringAsFixed(0)}%, roll: ${(randomValue * 100).toStringAsFixed(0)}%)',
-          );
-        }
+        return RelayProcessingResult.dropped('Probabilistic relay skip');
       }
 
       // Step 2: Check if we are the final recipient
@@ -305,7 +318,11 @@ class MeshRelayEngine {
 
       if (isBroadcast) {
         // Priority 2: Broadcast to ALL neighbors (no single next-hop selection)
-        await _broadcastToAllNeighbors(relayMessage, availableNextHops);
+        await _sendPipeline.broadcastToNeighbors(
+          relayMessage: relayMessage,
+          availableNeighbors: availableNextHops,
+          onRelayMessage: onRelayMessage,
+        );
         _totalRelayed++;
 
         final decision = RelayDecision.relayed(
@@ -320,7 +337,7 @@ class MeshRelayEngine {
         return RelayProcessingResult.relayed('broadcast_to_all');
       } else {
         // Point-to-point: Choose single next hop and relay
-        final nextHop = await _chooseNextHop(
+        final nextHop = await _decisionEngine.chooseNextHop(
           relayMessage: relayMessage,
           availableHops: availableNextHops,
         );
@@ -339,7 +356,11 @@ class MeshRelayEngine {
         }
 
         // Step 5: Create next hop message and relay
-        await _relayToNextHop(relayMessage, nextHop);
+        await _sendPipeline.relayToNextHop(
+          relayMessage: relayMessage,
+          nextHopNodeId: nextHop,
+          onRelayMessage: onRelayMessage,
+        );
         _totalRelayed++;
 
         final decision = RelayDecision.relayed(
@@ -438,7 +459,9 @@ class MeshRelayEngine {
   }) async {
     try {
       // Check if we are the final recipient
-      if (await _isMessageForCurrentNode(finalRecipientPublicKey)) {
+      if (await _decisionEngine.isMessageForCurrentNode(
+        finalRecipientPublicKey,
+      )) {
         return true;
       }
 
@@ -472,7 +495,7 @@ class MeshRelayEngine {
   RelayStatistics getStatistics() {
     final spamStats = _spamPrevention.getStatistics();
     final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 0;
-    final relayProbability = _calculateRelayProbability();
+    final relayProbability = _decisionEngine.calculateRelayProbability();
 
     return RelayStatistics(
       totalRelayed: _totalRelayed,
@@ -501,93 +524,6 @@ class MeshRelayEngine {
 
   // Private methods
 
-  /// Calculate relay probability based on network size
-  ///
-  /// Phase 3: Network-size adaptive relay (inspired by BitChat Android)
-  /// Prevents broadcast storms in large networks by scaling relay probability
-  ///
-  /// Probability scale:
-  /// - Small networks (≤3 nodes): 100% - always relay (critical for connectivity)
-  /// - Medium networks (≤10 nodes): 100% - full relay for reliability
-  /// - Growing networks (≤30 nodes): 85% - start reducing relay load
-  /// - Large networks (≤50 nodes): 70% - further reduce broadcast traffic
-  /// - Very large (≤100 nodes): 55% - significant reduction
-  /// - Massive networks (>100 nodes): 40% - minimum relay to prevent storms
-  double _calculateRelayProbability() {
-    final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 1;
-
-    // Small networks: always relay (critical for connectivity)
-    if (networkSize <= 3) return 1.0;
-
-    // Adaptive relay probability based on network size
-    if (networkSize <= 10) return 1.0; // Still small, full relay
-    if (networkSize <= 30) return 0.85; // Growing network
-    if (networkSize <= 50) return 0.7; // Large network
-    if (networkSize <= 100) return 0.55; // Very large
-    return 0.4; // Massive network - prevent broadcast storms
-  }
-
-  /// Check if message is for current node
-  ///
-  /// Phase 1 (Role Awareness): Enhanced with ephemeral key checking and broadcast handling
-  /// Priority 2 (Broadcast): Broadcast messages delivered to ALL nodes
-  /// Inspired by BitChat's isPacketAddressedToMe() method
-  Future<bool> _isMessageForCurrentNode(String finalRecipientPublicKey) async {
-    // Priority 2: Broadcast messages are for EVERYONE (including us)
-    if (SpecialRecipients.isBroadcast(finalRecipientPublicKey)) {
-      _logger.info('📣 Broadcast message - delivering to self AND forwarding');
-      return true; // Always deliver broadcast locally
-    }
-
-    // Handle null/empty recipient (reject - must use explicit broadcast sentinel)
-    if (finalRecipientPublicKey.isEmpty) {
-      _logger.fine(
-        '📭 No recipient specified - rejecting (use broadcast sentinel)',
-      );
-      return false;
-    }
-
-    // Check 1: Match persistent public key
-    if (finalRecipientPublicKey == _currentNodeId) {
-      _logger.info('✅ Message IS for current node (persistent key match)');
-      return true;
-    }
-
-    // Check 2: Match ephemeral session key
-    final ephemeralKey = EphemeralKeyManager.currentSessionKey;
-    if (ephemeralKey != null && finalRecipientPublicKey == ephemeralKey) {
-      _logger.info('✅ Message IS for current node (ephemeral key match)');
-      return true;
-    }
-
-    // Check 3: Match ephemeral signing public key
-    final ephemeralSigningKey = EphemeralKeyManager.ephemeralSigningPublicKey;
-    if (ephemeralSigningKey != null &&
-        finalRecipientPublicKey == ephemeralSigningKey) {
-      _logger.info(
-        '✅ Message IS for current node (ephemeral signing key match)',
-      );
-      return true;
-    }
-
-    // No match - message is NOT for us
-    final truncatedRecipient = finalRecipientPublicKey.length > 16
-        ? finalRecipientPublicKey.shortId()
-        : finalRecipientPublicKey;
-    final truncatedNodeId = _currentNodeId.length > 16
-        ? _currentNodeId.shortId()
-        : _currentNodeId;
-
-    _logger.fine('📭 Message NOT for current node:');
-    _logger.fine('   - Recipient: $truncatedRecipient...');
-    _logger.fine('   - Our persistent key: $truncatedNodeId...');
-    _logger.fine(
-      '   - Our ephemeral key: ${ephemeralKey?.shortId() ?? "NULL"}...',
-    );
-
-    return false;
-  }
-
   /// Deliver message to current node
   Future<void> _deliverToCurrentNode(MeshRelayMessage relayMessage) async {
     try {
@@ -608,225 +544,6 @@ class MeshRelayEngine {
       );
     } catch (e) {
       _logger.severe('Failed to deliver message to self: $e');
-    }
-  }
-
-  /// Choose next hop for relay using smart routing
-  Future<String?> _chooseNextHop({
-    required MeshRelayMessage relayMessage,
-    required List<String> availableHops,
-  }) async {
-    if (availableHops.isEmpty) {
-      return null;
-    }
-
-    try {
-      // Filter out hops already in routing path (loop prevention)
-      final validHops = availableHops
-          .where((hop) => !relayMessage.relayMetadata.hasNodeInPath(hop))
-          .toList();
-
-      if (validHops.isEmpty) {
-        _logger.warning('All available hops would create loops');
-        return null;
-      }
-
-      // Use routing service if available
-      if (_routingService != null) {
-        try {
-          _logger.info('🧠 Using routing service for next hop selection');
-
-          final routingDecision = await _routingService!.determineOptimalRoute(
-            finalRecipient: relayMessage.relayMetadata.finalRecipient,
-            availableHops: validHops,
-            priority: relayMessage.relayMetadata.priority,
-          );
-
-          if (routingDecision.isSuccessful && routingDecision.nextHop != null) {
-            final truncatedNextHop = routingDecision.nextHop!.length > 8
-                ? routingDecision.nextHop!.shortId(8)
-                : routingDecision.nextHop!;
-            _logger.info(
-              '✅ Routing service chose: $truncatedNextHop... (score: ${routingDecision.routeScore?.toStringAsFixed(2)})',
-            );
-            return routingDecision.nextHop;
-          } else {
-            _logger.warning(
-              '⚠️ Routing service failed: ${routingDecision.reason}',
-            );
-          }
-        } catch (e) {
-          _logger.warning(
-            'Smart router error: $e - falling back to simple selection',
-          );
-        }
-      }
-
-      // Fallback to enhanced simple selection
-      final chosenHop = await _selectBestHopByQuality(validHops);
-
-      final truncatedChosenHop = chosenHop.length > 8
-          ? chosenHop.shortId(8)
-          : chosenHop;
-      _logger.info(
-        '📍 Selected hop: $truncatedChosenHop... from ${validHops.length} valid options',
-      );
-      return chosenHop;
-    } catch (e) {
-      _logger.severe('Failed to choose next hop: $e');
-      return null;
-    }
-  }
-
-  /// Select best hop by quality metrics (fallback when smart router not available)
-  Future<String> _selectBestHopByQuality(List<String> validHops) async {
-    if (validHops.length == 1) {
-      return validHops.first;
-    }
-
-    // For now, use simple first selection
-    // In a more sophisticated implementation, this could use basic quality heuristics
-    return validHops.first;
-  }
-
-  /// Relay message to next hop (point-to-point)
-  Future<void> _relayToNextHop(
-    MeshRelayMessage relayMessage,
-    String nextHopNodeId,
-  ) async {
-    try {
-      // Create next hop relay message
-      final nextHopMessage = relayMessage.nextHop(nextHopNodeId);
-
-      // Record relay operation for spam prevention
-      await _spamPrevention.recordRelayOperation(
-        fromNodeId: relayMessage.relayNodeId,
-        toNodeId: nextHopNodeId,
-        messageHash: relayMessage.relayMetadata.messageHash,
-        messageSize: relayMessage.messageSize,
-      );
-
-      // 🎯 CRITICAL FIX: Preserve original sender identity through relay chain
-      await _messageQueue.queueMessage(
-        chatId: 'mesh_relay_$nextHopNodeId',
-        content: nextHopMessage.originalContent,
-        recipientPublicKey: nextHopNodeId,
-        senderPublicKey: nextHopMessage
-            .relayMetadata
-            .originalSender, // ✅ Use original sender, not relay node
-        priority: nextHopMessage.relayMetadata.priority,
-      );
-
-      // Notify relay
-      onRelayMessage?.call(nextHopMessage, nextHopNodeId);
-
-      final truncatedMessageId = relayMessage.originalMessageId.length > 16
-          ? relayMessage.originalMessageId.shortId()
-          : relayMessage.originalMessageId;
-      final truncatedNextHop = nextHopNodeId.length > 8
-          ? nextHopNodeId.shortId(8)
-          : nextHopNodeId;
-      _logger.info(
-        'Relayed message $truncatedMessageId... to $truncatedNextHop...',
-      );
-    } catch (e) {
-      _logger.severe('Failed to relay to next hop: $e');
-      throw RelayException('Failed to relay message: $e');
-    }
-  }
-
-  /// Broadcast message to all neighbors (Priority 2: Broadcast messaging)
-  ///
-  /// Forwards broadcast message to ALL connected neighbors, with:
-  /// - Loop prevention (skip nodes already in routing path)
-  /// - Deduplication (handled by SeenMessageStore)
-  /// - Spam prevention (recorded for each neighbor)
-  ///
-  /// Inspired by BitChat's broadcast packet forwarding
-  Future<void> _broadcastToAllNeighbors(
-    MeshRelayMessage relayMessage,
-    List<String> availableNeighbors,
-  ) async {
-    try {
-      // Filter out neighbors already in routing path (loop prevention)
-      final validNeighbors = availableNeighbors
-          .where(
-            (neighborId) =>
-                !relayMessage.relayMetadata.hasNodeInPath(neighborId),
-          )
-          .toList();
-
-      if (validNeighbors.isEmpty) {
-        _logger.info(
-          '📣 No valid neighbors for broadcast (all in routing path or none available)',
-        );
-        return;
-      }
-
-      final truncatedMessageId = relayMessage.originalMessageId.length > 16
-          ? relayMessage.originalMessageId.shortId()
-          : relayMessage.originalMessageId;
-      _logger.info(
-        '📣 Broadcasting message $truncatedMessageId... to ${validNeighbors.length} neighbor(s)',
-      );
-
-      int successCount = 0;
-      int failCount = 0;
-
-      // Broadcast to each neighbor
-      for (final neighborId in validNeighbors) {
-        try {
-          // Create next hop message for this neighbor
-          final nextHopMessage = relayMessage.nextHop(neighborId);
-
-          // Record relay operation for spam prevention
-          await _spamPrevention.recordRelayOperation(
-            fromNodeId: relayMessage.relayNodeId,
-            toNodeId: neighborId,
-            messageHash: relayMessage.relayMetadata.messageHash,
-            messageSize: relayMessage.messageSize,
-          );
-
-          // Queue message for this neighbor
-          await _messageQueue.queueMessage(
-            chatId: 'broadcast_relay_$neighborId',
-            content: nextHopMessage.originalContent,
-            recipientPublicKey: neighborId,
-            senderPublicKey: nextHopMessage
-                .relayMetadata
-                .originalSender, // Preserve original sender
-            priority: nextHopMessage.relayMetadata.priority,
-          );
-
-          // Notify relay
-          onRelayMessage?.call(nextHopMessage, neighborId);
-
-          successCount++;
-
-          final truncatedNeighbor = neighborId.length > 8
-              ? neighborId.shortId(8)
-              : neighborId;
-          _logger.fine(
-            '  ✅ Broadcast queued for neighbor $truncatedNeighbor...',
-          );
-        } catch (e) {
-          failCount++;
-          final truncatedNeighbor = neighborId.length > 8
-              ? neighborId.shortId(8)
-              : neighborId;
-          _logger.warning(
-            '  ⚠️ Failed to broadcast to neighbor $truncatedNeighbor...: $e',
-          );
-          // Continue broadcasting to other neighbors
-        }
-      }
-
-      _logger.info(
-        '📣 Broadcast complete: $successCount success, $failCount failed (total: ${validNeighbors.length})',
-      );
-    } catch (e) {
-      _logger.severe('Failed to broadcast to neighbors: $e');
-      throw RelayException('Failed to broadcast message: $e');
     }
   }
 
