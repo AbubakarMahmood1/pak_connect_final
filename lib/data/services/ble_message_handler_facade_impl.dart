@@ -38,6 +38,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   late final BLEMessageHandlerFacade _splitFacade;
   final ContactRepository _contactRepository = ContactRepository();
   late ISeenMessageStore _seenMessageStore;
+  OfflineMessageQueue? _messageQueueOverride;
   final BLEConnectionManager? _connectionManager;
   final IBLEStateManagerFacade? _stateManager;
   late final BleWriteAdapter _writeAdapter;
@@ -122,6 +123,9 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       _logger.info('🚀 Initializing relay system...');
       _currentNodeId = currentNodeId;
 
+      final messageQueue = await _resolveMessageQueue();
+      _splitFacade.setMessageQueue(messageQueue);
+
       await _splitFacade.initializeRelaySystem(
         currentNodeId: currentNodeId,
         onRelayMessageReceived: onRelayMessageReceived,
@@ -129,14 +133,6 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
         onRelayStatsUpdated: onRelayStatsUpdated,
         nextHopsProvider: nextHopsProvider,
       );
-
-      if (!AppCore.instance.isInitialized) {
-        _logger.warning('AppCore not initialized, initializing now...');
-        await AppCore.instance.initialize();
-      }
-
-      final messageQueue = AppCore.instance.messageQueue;
-      _logger.fine('📦 Using AppCore message queue');
 
       await _handler.initializeRelaySystem(
         currentNodeId: currentNodeId,
@@ -163,6 +159,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
 
   @override
   void setMessageQueue(OfflineMessageQueue queue) {
+    _messageQueueOverride = queue;
     _splitFacade.setMessageQueue(queue);
   }
 
@@ -453,6 +450,26 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     throw StateError(
       'Legacy BLEStateManager not available for send operations',
     );
+  }
+
+  Future<OfflineMessageQueue> _resolveMessageQueue() async {
+    if (_messageQueueOverride != null) {
+      return _messageQueueOverride!;
+    }
+
+    final core = AppCore.instance;
+    if (!core.isInitialized && !core.isInitializing) {
+      _logger.warning('AppCore not initialized, initializing now...');
+      await core.initialize();
+    } else if (core.isInitializing) {
+      _logger.fine(
+        'AppCore initialization in progress, awaiting completion...',
+      );
+      await core.initialize();
+    }
+
+    _logger.fine('📦 Using AppCore message queue');
+    return core.messageQueue;
   }
 
   Future<bool> _sendCentralViaAdapter({
