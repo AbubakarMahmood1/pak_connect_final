@@ -8,6 +8,7 @@ import 'power/adaptive_power_manager.dart';
 import 'power/battery_optimizer.dart';
 import 'scanning/burst_scanning_controller.dart';
 import 'messaging/offline_message_queue.dart';
+import 'messaging/offline_queue_facade.dart';
 import 'performance/performance_monitor.dart';
 import 'services/security_manager.dart';
 import 'networking/topology_manager.dart';
@@ -44,6 +45,7 @@ class AppCore {
 
   // Core components
   late final BurstScanningController burstScanningController;
+  late final OfflineQueueFacade messageQueueFacade;
   late final OfflineMessageQueue messageQueue;
   late final ContactManagementService contactService;
   late final ChatManagementService chatService;
@@ -409,8 +411,8 @@ class AppCore {
 
   /// Initialize message queue (must be called early - before BLE services)
   Future<void> _initializeMessageQueue() async {
-    messageQueue = OfflineMessageQueue();
-    await messageQueue.initialize(
+    messageQueueFacade = OfflineQueueFacade();
+    await messageQueueFacade.initialize(
       onMessageQueued: (message) =>
           _logger.info('Message queued: ${message.id}'),
       onMessageDelivered: (message) async {
@@ -424,6 +426,7 @@ class AppCore {
       onSendMessage: _handleMessageSend,
       onConnectivityCheck: _checkConnectivity,
     );
+    messageQueue = messageQueueFacade.queue;
 
     final queueStats = messageQueue.getStatistics();
     final totalQueued =

@@ -8,6 +8,7 @@ import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/services/group_messaging_service.dart';
 import '../../core/messaging/offline_message_queue.dart';
+import '../../core/messaging/offline_queue_facade.dart';
 
 final _logger = Logger('GroupProviders');
 
@@ -24,7 +25,8 @@ final groupRepositoryProvider = Provider<GroupRepository>((ref) {
 final groupMessagingServiceProvider = Provider<GroupMessagingService>((ref) {
   final groupRepo = ref.watch(groupRepositoryProvider);
   final contactRepo = ContactRepository();
-  final messageQueue = OfflineMessageQueue();
+  final queueFacade = OfflineQueueFacade();
+  final messageQueue = queueFacade.queue;
 
   return GroupMessagingService(
     groupRepo: groupRepo as IGroupRepository,
