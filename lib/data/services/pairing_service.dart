@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_pairing_service.dart';
 import '../../core/models/pairing_state.dart';
+import '../../core/models/protocol_message.dart';
 
 /// Pairing Service
 ///
@@ -54,6 +55,123 @@ class PairingService implements IPairingService {
   @override
   void Function()? onPairingCancelled;
 
+  /// Callbacks for signalling protocol messages outward
+  void Function(ProtocolMessage message)? onSendPairingRequest;
+  void Function(ProtocolMessage message)? onSendPairingAccept;
+  void Function(ProtocolMessage message)? onSendPairingCancel;
+
+  void _startRequestTimeout() {
+    _pairingTimeout?.cancel();
+    _pairingTimeout = Timer(Duration(seconds: 30), () {
+      if (_currentPairing?.state == PairingState.pairingRequested) {
+        _logger.warning('⏰ Pairing request timeout - no response');
+        _currentPairing = _currentPairing!.copyWith(state: PairingState.failed);
+        onPairingCancelled?.call();
+      }
+    });
+  }
+
+  @override
+  void initiatePairingRequest({
+    required String myEphemeralId,
+    required String displayName,
+  }) {
+    _currentPairing = PairingInfo(
+      myCode: '',
+      state: PairingState.pairingRequested,
+      theirEphemeralId: null,
+      theirDisplayName: null,
+    );
+
+    final message = ProtocolMessage.pairingRequest(
+      ephemeralId: myEphemeralId,
+      displayName: displayName,
+    );
+
+    onSendPairingRequest?.call(message);
+    _startRequestTimeout();
+  }
+
+  @override
+  void receivePairingRequest({
+    required String theirEphemeralId,
+    required String displayName,
+  }) {
+    _currentPairing = PairingInfo(
+      myCode: '',
+      state: PairingState.requestReceived,
+      theirEphemeralId: theirEphemeralId,
+      theirDisplayName: displayName,
+    );
+    onPairingRequestReceived?.call();
+  }
+
+  @override
+  void acceptIncomingRequest({
+    required String myEphemeralId,
+    required String displayName,
+  }) {
+    if (_currentPairing?.state != PairingState.requestReceived) {
+      _logger.warning('❌ No pending pairing request to accept');
+      return;
+    }
+
+    final message = ProtocolMessage.pairingAccept(
+      ephemeralId: myEphemeralId,
+      displayName: displayName,
+    );
+    onSendPairingAccept?.call(message);
+
+    final code = generatePairingCode();
+    _logger.info('📱 Generated PIN code after accept: $code');
+
+    _currentPairing = _currentPairing!.copyWith(state: PairingState.displaying);
+  }
+
+  @override
+  void rejectIncomingRequest() {
+    final message = ProtocolMessage.pairingCancel(
+      reason: 'User rejected pairing',
+    );
+    onSendPairingCancel?.call(message);
+    clearPairing();
+  }
+
+  @override
+  void receivePairingAccept({
+    required String theirEphemeralId,
+    required String displayName,
+  }) {
+    if (_currentPairing?.state != PairingState.pairingRequested) {
+      _logger.warning('⚠️ Received accept but we didn\'t send a request');
+      return;
+    }
+
+    _pairingTimeout?.cancel();
+
+    final code = generatePairingCode();
+    _logger.info('📱 Generated PIN code after receiving accept: $code');
+
+    _currentPairing = _currentPairing!.copyWith(
+      state: PairingState.displaying,
+      theirEphemeralId: theirEphemeralId,
+      theirDisplayName: displayName,
+    );
+  }
+
+  @override
+  void receivePairingCancel({String? reason}) {
+    _logger.info(
+      '❌ STEP 3: Pairing cancelled by other device${reason != null ? ": $reason" : ""}',
+    );
+
+    _pairingTimeout?.cancel();
+    _currentPairing = _currentPairing?.copyWith(state: PairingState.cancelled);
+    onPairingCancelled?.call();
+
+    Future.delayed(Duration(seconds: 1), clearPairing);
+  }
+
   // ============================================================================
   // DEPENDENCIES (Injected for testability)
   // ============================================================================
@@ -77,6 +195,9 @@ class PairingService implements IPairingService {
   )?
   onVerificationComplete;
 
+  /// Callback when verification fails (hash mismatch or missing data)
+  final Future<void> Function(String reason)? onVerificationFailure;
+
   // ============================================================================
   // CONSTRUCTOR
   // ============================================================================
@@ -86,6 +207,7 @@ class PairingService implements IPairingService {
     required this.getTheirSessionId,
     required this.getTheirDisplayName,
     this.onVerificationComplete,
+    this.onVerificationFailure,
   });
 
   // ============================================================================
@@ -307,7 +429,7 @@ class PairingService implements IPairingService {
   // ============================================================================
 
   @override
-  void handlePairingVerification(String theirSecretHash) {
+  Future<void> handlePairingVerification(String theirSecretHash) async {
     try {
       _logger.info(
         '📥 Received verification hash from peer: ${theirSecretHash.substring(0, 8)}...',
@@ -323,12 +445,15 @@ class PairingService implements IPairingService {
           _logger.info('✅ Verification hashes match - pairing confirmed!');
         } else {
           _logger.severe('❌ Hash mismatch - verification failed!');
+          await onVerificationFailure?.call('verification hash mismatch');
         }
       } else {
         _logger.warning('⚠️ No shared secret to compare against');
+        await onVerificationFailure?.call('missing shared secret');
       }
     } catch (e) {
       _logger.severe('❌ Error handling verification: $e');
+      await onVerificationFailure?.call('verification exception');
     }
   }
 
@@ -386,6 +511,11 @@ class PairingService implements IPairingService {
 
   @override
   bool get weEnteredCode => _weEnteredCode;
+
+  /// Allows orchestration layers to seed or update the pairing state machine.
+  void setCurrentPairing(PairingInfo? pairingInfo) {
+    _currentPairing = pairingInfo;
+  }
 
   // ============================================================================
   // CLEANUP (Dispose)

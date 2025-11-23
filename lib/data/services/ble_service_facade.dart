@@ -17,13 +17,18 @@ import '../../core/models/spy_mode_info.dart';
 import '../../core/models/ble_server_connection.dart';
 import 'ble_connection_service.dart';
 import 'ble_messaging_service.dart';
+import 'ble_message_handler_facade_impl.dart';
 import 'ble_discovery_service.dart';
 import 'ble_advertising_service.dart';
 import 'ble_handshake_service.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import 'ble_state_manager.dart';
+import 'ble_state_manager_facade.dart';
 import 'ble_connection_manager.dart';
 import 'ble_message_handler.dart';
 import '../repositories/intro_hint_repository.dart';
+import '../repositories/contact_repository.dart';
+import '../services/seen_message_store.dart';
 import '../../core/bluetooth/advertising_manager.dart';
 import '../../core/bluetooth/peripheral_initializer.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
@@ -45,11 +50,13 @@ import '../../core/bluetooth/ble_platform_host.dart';
 class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   final _logger = Logger('BLEServiceFacade');
   final IBLEPlatformHost _platformHost;
-  final BLEStateManager _stateManager;
+  final BLEStateManagerFacade _stateManager;
   final BLEMessageHandler _messageHandler;
+  late final BLEMessageHandlerFacadeImpl _messageHandlerFacade;
   final HintScannerService _hintScanner;
   final IntroHintRepository _introHintRepository;
   final BluetoothStateMonitor _bluetoothStateMonitor;
+  final ContactRepository _contactRepository;
   late final BLEConnectionManager _connectionManager;
   late final PeripheralInitializer _peripheralInitializer;
   late final AdvertisingManager _advertisingManager;
@@ -95,7 +102,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     IBLEDiscoveryService? discoveryService,
     IBLEAdvertisingService? advertisingService,
     IBLEHandshakeService? handshakeService,
-    BLEStateManager? stateManager,
+    BLEStateManagerFacade? stateManager,
+    BLEStateManager? legacyStateManager,
     BLEMessageHandler? messageHandler,
     HintScannerService? hintScanner,
     IntroHintRepository? introHintRepository,
@@ -103,13 +111,17 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     BLEConnectionManager? connectionManager,
     PeripheralInitializer? peripheralInitializer,
     AdvertisingManager? advertisingManager,
+    ContactRepository? contactRepository,
   }) : _platformHost = platformHost ?? BlePlatformHost(),
-       _stateManager = stateManager ?? BLEStateManager(),
+       _stateManager =
+           stateManager ??
+           BLEStateManagerFacade(legacyStateManager: legacyStateManager),
        _messageHandler = messageHandler ?? BLEMessageHandler(),
        _hintScanner = hintScanner ?? HintScannerService(),
        _introHintRepository = introHintRepository ?? IntroHintRepository(),
        _bluetoothStateMonitor =
            bluetoothStateMonitor ?? BluetoothStateMonitor.instance,
+       _contactRepository = contactRepository ?? ContactRepository(),
        _connectionService = connectionService,
        _messagingService = messagingService,
        _discoveryService = discoveryService,
@@ -131,6 +143,26 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           peripheralManager: _platformHost.peripheralManager,
           introHintRepo: _introHintRepository,
         );
+
+    _messageHandlerFacade = BLEMessageHandlerFacadeImpl(
+      _messageHandler,
+      SeenMessageStore.instance,
+      connectionManager: _connectionManager,
+      stateManager: _stateManager,
+      getCentralManager: () => _platformHost.centralManager,
+      getPeripheralManager: () => _platformHost.peripheralManager,
+      getConnectedCentral: () => _getConnectionService().connectedCentral,
+      getMessageCharacteristic: () =>
+          _getConnectionService().connectedCharacteristic,
+      getPeripheralMessageCharacteristic: () =>
+          _getConnectionService().connectedCharacteristic,
+      getPeripheralMtuReady: () =>
+          _getAdvertisingService().isPeripheralMTUReady,
+      getPeripheralNegotiatedMtu: () =>
+          _getAdvertisingService().peripheralNegotiatedMTU ??
+          _connectionManager.mtuSize,
+      enableFragmentCleanupTimer: true,
+    );
   }
 
   /// Get or create connection service (lazy singleton)
@@ -177,9 +209,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   /// Get or create messaging service (lazy singleton)
   IBLEMessagingService _getMessagingService() {
     return _messagingService ??= BLEMessagingService(
-      messageHandler: _messageHandler,
+      messageHandler: _messageHandlerFacade,
       connectionManager: _connectionManager,
       stateManager: _stateManager,
+      contactRepository: _contactRepository,
       getCentralManager: () => _platformHost.centralManager,
       getPeripheralManager: () => _platformHost.peripheralManager,
       messagesController: StreamController<String>.broadcast(),
@@ -212,6 +245,9 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       identityRevealedController: _handshakeIdentityController,
       introHintRepo: _introHintRepository,
       messageBuffer: _handshakeMessageBuffer,
+      connectionStatusProvider: () =>
+          _connectionManager.hasBleConnection ||
+          _connectionManager.serverConnectionCount > 0,
     );
   }
 
@@ -264,6 +300,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       if (_handshakeService != null) {
         _handshakeService!.disposeHandshakeCoordinator();
       }
+      _messageHandlerFacade.dispose();
+      _messageHandler.dispose();
       _logger.info('✅ BLEServiceFacade disposed');
     } catch (e, stack) {
       _logger.severe('❌ Disposal error', e, stack);
@@ -351,7 +389,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   ) {
     _logger.info('📡 Registering queue sync handler for mesh networking');
     _queueSyncHandler = handler;
-    _messageHandler.onQueueSyncReceived = (message, fromNodeId) {
+    _messageHandlerFacade.onQueueSyncReceived = (message, fromNodeId) {
       final registeredHandler = _queueSyncHandler;
       if (registeredHandler != null) {
         unawaited(registeredHandler(message, fromNodeId));
@@ -568,7 +606,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   /// Get state manager for Noise protocol and security operations
   /// 🔑 Used for pairing flow (generatePairingCode, completePairing, etc.)
-  BLEStateManager get stateManager => _getConnectionService().stateManager;
+  IBLEStateManagerFacade get stateManager => _stateManager;
 
   // ============================================================================
   // DELEGATION TO SUB-SERVICES (IBLEMessagingService)
@@ -934,9 +972,9 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   @visibleForTesting
   void debugHandleQueueSync(QueueSyncMessage message, String fromNodeId) {
-    final callback = _messageHandler.onQueueSyncReceived;
-    if (callback != null) {
-      callback(message, fromNodeId);
+    final handler = _queueSyncHandler;
+    if (handler != null) {
+      handler(message, fromNodeId);
     }
   }
 

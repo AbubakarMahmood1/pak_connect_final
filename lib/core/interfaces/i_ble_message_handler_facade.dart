@@ -3,8 +3,9 @@ import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
-import '../../core/messaging/offline_message_queue.dart' show QueuedMessage;
+import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
+import '../../core/security/spam_prevention_manager.dart';
 
 /// Public API interface for BLE message handling
 ///
@@ -29,6 +30,7 @@ abstract interface class IBLEMessageHandlerFacade {
     onRelayMessageReceived,
     Function(RelayDecision decision)? onRelayDecisionMade,
     Function(RelayStatistics stats)? onRelayStatsUpdated,
+    List<String> Function()? nextHopsProvider,
   });
 
   /// Sets the SeenMessageStore for relay deduplication
@@ -36,6 +38,15 @@ abstract interface class IBLEMessageHandlerFacade {
   /// **Note**: Normally called automatically by initializeRelaySystem() during production startup.
   /// Provided as public method for test overrides.
   void setSeenMessageStore(ISeenMessageStore seenMessageStore);
+
+  /// Inject the offline message queue (useful for tests/explicit wiring).
+  void setMessageQueue(OfflineMessageQueue queue);
+
+  /// Inject spam prevention manager.
+  void setSpamPreventionManager(SpamPreventionManager manager);
+
+  /// Provide available next hops from the BLE layer.
+  void setNextHopsProvider(List<String> Function() provider);
 
   /// Gets available next hop devices for relay
   List<String> getAvailableNextHops();
@@ -53,6 +64,8 @@ abstract interface class IBLEMessageHandlerFacade {
     required String recipientKey,
     required String content,
     required Duration timeout,
+    String? messageId,
+    String? originalIntendedRecipient,
   });
 
   /// Sends message from peripheral role (advertising device)
@@ -62,6 +75,7 @@ abstract interface class IBLEMessageHandlerFacade {
   Future<bool> sendPeripheralMessage({
     required String senderKey,
     required String content,
+    String? messageId,
   });
 
   /// Main entry point for processing received BLE data

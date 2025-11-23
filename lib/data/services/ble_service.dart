@@ -12,6 +12,7 @@ import 'ble_connection_service.dart';
 import 'ble_message_handler.dart';
 import 'ble_service_facade.dart';
 import 'ble_state_manager.dart';
+import 'ble_state_manager_facade.dart';
 import '../../core/services/hint_scanner_service.dart';
 import '../repositories/intro_hint_repository.dart';
 
@@ -27,6 +28,7 @@ class BLEService extends BLEServiceFacade {
     IBLEDiscoveryService? discoveryService,
     IBLEAdvertisingService? advertisingService,
     IBLEHandshakeService? handshakeService,
+    BLEStateManagerFacade? stateManagerFacade,
     BLEStateManager? stateManager,
     BLEMessageHandler? messageHandler,
     HintScannerService? hintScanner,
@@ -42,7 +44,8 @@ class BLEService extends BLEServiceFacade {
          discoveryService: discoveryService,
          advertisingService: advertisingService,
          handshakeService: handshakeService,
-         stateManager: stateManager,
+         stateManager: stateManagerFacade,
+         legacyStateManager: stateManager,
          messageHandler: messageHandler,
          hintScanner: hintScanner,
          introHintRepository: introHintRepository,

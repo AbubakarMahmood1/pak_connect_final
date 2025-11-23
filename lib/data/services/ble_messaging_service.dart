@@ -6,10 +6,13 @@ import '../../core/interfaces/i_ble_messaging_service.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/utils/message_fragmenter.dart';
-import 'ble_message_handler.dart';
+import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import 'ble_connection_manager.dart';
-import 'ble_state_manager.dart';
 import '../../core/constants/ble_constants.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
+import '../../data/repositories/contact_repository.dart';
+import 'ble_state_manager_facade.dart';
+import 'ble_state_manager.dart';
 
 // Type aliases for better clarity
 typedef CentralManagerType = CentralManager;
@@ -28,9 +31,10 @@ class BLEMessagingService implements IBLEMessagingService {
   final _logger = Logger('BLEMessagingService');
 
   // Dependencies (injected)
-  final BLEMessageHandler _messageHandler;
+  final IBLEMessageHandlerFacade _messageHandler;
   final BLEConnectionManager _connectionManager;
-  final BLEStateManager _stateManager;
+  final IBLEStateManagerFacade _stateManager;
+  final ContactRepository _contactRepository;
   final CentralManager Function() _getCentralManager;
   final PeripheralManager Function() _getPeripheralManager;
 
@@ -56,9 +60,10 @@ class BLEMessagingService implements IBLEMessagingService {
   final Function(bool)? onMessageOperationChanged;
 
   BLEMessagingService({
-    required BLEMessageHandler messageHandler,
+    required IBLEMessageHandlerFacade messageHandler,
     required BLEConnectionManager connectionManager,
-    required BLEStateManager stateManager,
+    required IBLEStateManagerFacade stateManager,
+    required ContactRepository contactRepository,
     required CentralManager Function() getCentralManager,
     required PeripheralManager Function() getPeripheralManager,
     required StreamController<String> messagesController,
@@ -70,6 +75,7 @@ class BLEMessagingService implements IBLEMessagingService {
   }) : _messageHandler = messageHandler,
        _connectionManager = connectionManager,
        _stateManager = stateManager,
+       _contactRepository = contactRepository,
        _getCentralManager = getCentralManager,
        _getPeripheralManager = getPeripheralManager,
        _messagesController = messagesController,
@@ -81,7 +87,6 @@ class BLEMessagingService implements IBLEMessagingService {
   // ============================================================================
   // MESSAGE SENDING (CENTRAL ROLE)
   // ============================================================================
-
   @override
   Future<bool> sendMessage(
     String message, {
@@ -93,9 +98,6 @@ class BLEMessagingService implements IBLEMessagingService {
       throw Exception('Not connected to any device');
     }
 
-    int mtuSize = _connectionManager.mtuSize ?? 20;
-
-    // STEP 7: Get appropriate recipient ID (ephemeral or persistent)
     final recipientId = _stateManager.getRecipientId();
     final isPaired = _stateManager.isPaired;
     final idType = _stateManager.getIdType();
@@ -110,23 +112,11 @@ class BLEMessagingService implements IBLEMessagingService {
     }
 
     return await _messageHandler.sendMessage(
-      centralManager: _getCentralManager(),
-      connectedDevice: _connectionManager.connectedDevice!,
-      messageCharacteristic: _connectionManager.messageCharacteristic!,
-      message: message,
-      mtuSize: mtuSize,
+      recipientKey: recipientId ?? '',
+      content: message,
+      timeout: Duration(seconds: 5),
       messageId: messageId,
-      contactPublicKey: isPaired
-          ? recipientId
-          : null, // STEP 7: Only for paired contacts
-      recipientId: recipientId, // STEP 7: Pass recipient ID
-      useEphemeralAddressing: !isPaired, // STEP 7: Flag for routing
-      originalIntendedRecipient:
-          originalIntendedRecipient, // Pass through for relay messages
-      contactRepository: _stateManager.contactRepository,
-      stateManager: _stateManager,
-      onMessageOperationChanged: (inProgress) =>
-          onMessageOperationChanged?.call(inProgress),
+      originalIntendedRecipient: originalIntendedRecipient,
     );
   }
 
@@ -191,19 +181,9 @@ class BLEMessagingService implements IBLEMessagingService {
     }
 
     return await _messageHandler.sendPeripheralMessage(
-      peripheralManager: _getPeripheralManager(),
-      connectedCentral: connectedCentral,
-      messageCharacteristic: messageCharacteristic,
-      message: message,
-      mtuSize: mtuSize,
+      senderKey: recipientId ?? '',
+      content: message,
       messageId: messageId,
-      contactPublicKey: isPaired
-          ? recipientId
-          : null, // STEP 7: Only for paired contacts
-      recipientId: recipientId, // STEP 7: Pass recipient ID
-      useEphemeralAddressing: !isPaired, // STEP 7: Flag for routing
-      contactRepository: _stateManager.contactRepository,
-      stateManager: _stateManager,
     );
   }
 

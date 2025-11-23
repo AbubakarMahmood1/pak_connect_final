@@ -1,4 +1,7 @@
 import '../../core/models/protocol_message.dart';
+import '../../core/models/spy_mode_info.dart';
+import '../../domain/entities/contact.dart';
+import '../../core/services/security_manager.dart';
 
 /// BLE State Manager Facade Interface
 ///
@@ -20,7 +23,7 @@ abstract class IBLEStateManagerFacade {
   Future<void> loadUserName();
 
   /// Get user's Ed25519 persistent public key
-  String? getMyPersistentId();
+  Future<String> getMyPersistentId();
 
   /// Cleanup and disposal
   void dispose();
@@ -68,10 +71,10 @@ abstract class IBLEStateManagerFacade {
   Future<void> saveContact(String publicKey, String userName);
 
   /// Retrieve single contact by key
-  Future<dynamic> getContact(String publicKey);
+  Future<Contact?> getContact(String publicKey);
 
   /// Get all contacts from repository
-  Future<List<dynamic>> getAllContacts();
+  Future<Map<String, Contact>> getAllContacts();
 
   /// Get display name for a contact key
   Future<String?> getContactName(String publicKey);
@@ -80,10 +83,13 @@ abstract class IBLEStateManagerFacade {
   Future<void> markContactVerified(String publicKey);
 
   /// Get trust status (newContact/trusted/verified)
-  String getContactTrustStatus(String publicKey);
+  Future<TrustStatus> getContactTrustStatus(String publicKey);
 
   /// Detect if display name's public key changed (impersonation check)
-  bool hasContactKeyChanged(String publicKey, String currentDisplayName);
+  Future<bool> hasContactKeyChanged(
+    String publicKey,
+    String currentDisplayName,
+  );
 
   // ============================================================================
   // PAIRING FLOW (Delegates to StateCoordinator)
@@ -124,7 +130,7 @@ abstract class IBLEStateManagerFacade {
   void rejectContactRequest();
 
   /// Send contact request (legacy)
-  Future<void> sendContactRequest();
+  Future<bool> sendContactRequest();
 
   /// Receive contact accept response
   Future<void> handleContactAccept(String publicKey, String displayName);
@@ -143,10 +149,10 @@ abstract class IBLEStateManagerFacade {
   Future<void> ensureContactMaximumSecurity(String contactPublicKey);
 
   /// Check if shared secret cached, restore in crypto
-  Future<void> checkExistingPairing(String publicKey);
+  Future<bool> checkExistingPairing(String publicKey);
 
   /// Check for QR intro data (informational)
-  Future<bool> checkForQRIntroduction(String otherPublicKey, String otherName);
+  Future<void> checkForQRIntroduction(String otherPublicKey, String otherName);
 
   /// Request security level sync from peer
   Future<void> requestSecurityLevelSync();
@@ -155,10 +161,10 @@ abstract class IBLEStateManagerFacade {
   Future<void> handleSecurityLevelSync(Map<String, dynamic> payload);
 
   /// Confirm and apply security level upgrade
-  Future<void> confirmSecurityUpgrade(String publicKey, String newLevel);
+  Future<bool> confirmSecurityUpgrade(String publicKey, SecurityLevel newLevel);
 
   /// Reset contact security to LOW (for debugging/recovery)
-  Future<void> resetContactSecurity(String publicKey, String reason);
+  Future<bool> resetContactSecurity(String publicKey, String reason);
 
   // ============================================================================
   // CONTACT STATUS SYNCHRONIZATION (Delegates to SessionService)
@@ -173,12 +179,20 @@ abstract class IBLEStateManagerFacade {
   /// Request contact status exchange
   Future<void> requestContactStatusExchange();
 
+  /// Preserve last known contact relationship across mode switch
+  void preserveContactRelationship({
+    String? otherPublicKey,
+    String? otherName,
+    bool? theyHaveUs,
+    bool? weHaveThem,
+  });
+
   // ============================================================================
   // SPY MODE (Delegates to StateCoordinator)
   // ============================================================================
 
   /// Reveal identity to friend in spy mode
-  Future<void> revealIdentityToFriend();
+  Future<ProtocolMessage?> revealIdentityToFriend();
 
   // ============================================================================
   // SESSION LIFECYCLE
@@ -194,7 +208,7 @@ abstract class IBLEStateManagerFacade {
   Future<void> recoverIdentityFromStorage();
 
   /// Get identity with fallback to repository
-  Future<Map<String, String>> getIdentityWithFallback();
+  Future<Map<String, String?>> getIdentityWithFallback();
 
   // ============================================================================
   // STATE QUERIES & GETTERS
@@ -220,6 +234,9 @@ abstract class IBLEStateManagerFacade {
 
   /// Whether peer has us in their contacts
   bool get theyHaveUsAsContact;
+
+  /// Whether we already have the peer in contacts (legacy async check)
+  Future<bool> get weHaveThemAsContact;
 
   /// User's persistent public key
   String? get myPersistentId;
@@ -247,13 +264,14 @@ abstract class IBLEStateManagerFacade {
   // ============================================================================
 
   /// Callback when new device discovered via BLE
-  void Function(String deviceId, String displayName)? onDeviceDiscovered;
+  void Function(dynamic device, int? rssi)? onDeviceDiscovered;
 
   /// Callback when message successfully sent
-  void Function(String messageId)? onMessageSent;
+  void Function(String messageId, bool success)? onMessageSent;
 
   /// Callback when user name changes
-  void Function(String newName)? onNameChanged;
+  void Function(String? newName)? onNameChanged;
+  void Function(String newName)? onMyUsernameChanged;
 
   /// Callback to send pairing code to peer
   void Function(String code)? onSendPairingCode;
@@ -262,47 +280,48 @@ abstract class IBLEStateManagerFacade {
   void Function(String verification)? onSendPairingVerification;
 
   /// Callback when contact request received
-  void Function()? onContactRequestReceived;
+  void Function(String publicKey, String displayName)? onContactRequestReceived;
 
   /// Callback when contact request completed
-  void Function()? onContactRequestCompleted;
+  void Function(bool success)? onContactRequestCompleted;
 
   /// Callback to send contact request
-  void Function()? onSendContactRequest;
+  void Function(String publicKey, String displayName)? onSendContactRequest;
 
   /// Callback to send contact accept
-  void Function()? onSendContactAccept;
+  void Function(String publicKey, String displayName)? onSendContactAccept;
 
   /// Callback to send contact reject
   void Function()? onSendContactReject;
 
   /// Callback to send contact status
-  void Function()? onSendContactStatus;
+  void Function(ProtocolMessage message)? onSendContactStatus;
 
   /// Callback when asymmetric contact detected
-  void Function()? onAsymmetricContactDetected;
+  void Function(String publicKey, String displayName)?
+  onAsymmetricContactDetected;
 
   /// Callback when mutual consent required
-  void Function()? onMutualConsentRequired;
+  void Function(String publicKey, String displayName)? onMutualConsentRequired;
 
   /// Callback when spy mode detected
-  void Function()? onSpyModeDetected;
+  void Function(SpyModeInfo info)? onSpyModeDetected;
 
   /// Callback when identity revealed
-  void Function()? onIdentityRevealed;
+  void Function(String contactId)? onIdentityRevealed;
 
   /// Callback to send pairing request
-  void Function()? onSendPairingRequest;
+  void Function(ProtocolMessage message)? onSendPairingRequest;
 
   /// Callback to send pairing accept
-  void Function()? onSendPairingAccept;
+  void Function(ProtocolMessage message)? onSendPairingAccept;
 
   /// Callback to send pairing cancel
-  void Function()? onSendPairingCancel;
+  void Function(ProtocolMessage message)? onSendPairingCancel;
 
   /// Callback when pairing cancelled
   void Function()? onPairingCancelled;
 
   /// Callback to send persistent key exchange
-  void Function()? onSendPersistentKeyExchange;
+  void Function(ProtocolMessage message)? onSendPersistentKeyExchange;
 }

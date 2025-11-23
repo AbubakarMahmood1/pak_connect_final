@@ -19,7 +19,7 @@ import '../../core/services/security_manager.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/mesh_relay_engine.dart'
-    show RelayDecision, RelayStatistics, MessagePriority;
+    show RelayDecision, RelayStatistics;
 import '../../core/messaging/message_ack_tracker.dart';
 import '../../core/messaging/inbound_text_processor.dart';
 import '../../core/messaging/protocol_message_dispatcher.dart';

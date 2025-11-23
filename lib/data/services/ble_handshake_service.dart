@@ -5,11 +5,12 @@ import 'package:logging/logging.dart';
 
 import '../../core/bluetooth/handshake_coordinator.dart';
 import '../../core/interfaces/i_ble_handshake_service.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
+import '../../core/models/protocol_message.dart';
+import '../../core/models/spy_mode_info.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/services/hint_advertisement_service.dart';
-import '../../core/models/protocol_message.dart';
 import '../../data/repositories/intro_hint_repository.dart';
-import '../../core/models/spy_mode_info.dart';
 
 class _BufferedMessage {
   final Uint8List data;
@@ -37,7 +38,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
   final _logger = Logger('BLEHandshakeService');
 
   // ===== Dependencies =====
-  final dynamic _stateManager; // BLEStateManager - avoid circular imports
+  final IBLEStateManagerFacade _stateManager;
   final void Function(String, String) _onIdentityExchangeSent;
   final void Function({
     bool? isConnected,
@@ -62,13 +63,14 @@ class BLEHandshakeService implements IBLEHandshakeService {
   final StreamController<String> _identityRevealedController;
   final IntroHintRepository _introHintRepo;
   final List<dynamic> _messageBuffer; // List<_BufferedMessage> from facade
+  final bool Function()? _connectionStatusProvider;
 
   // ===== Handshake State =====
   HandshakeCoordinator? _handshakeCoordinator;
   StreamSubscription<ConnectionPhase>? _handshakePhaseSubscription;
 
   BLEHandshakeService({
-    required dynamic stateManager,
+    required IBLEStateManagerFacade stateManager,
     required void Function(String, String) onIdentityExchangeSent,
     required void Function({
       bool? isConnected,
@@ -93,6 +95,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
     required StreamController<String> identityRevealedController,
     required IntroHintRepository introHintRepo,
     required List<dynamic> messageBuffer,
+    bool Function()? connectionStatusProvider,
   }) : _stateManager = stateManager,
        _onIdentityExchangeSent = onIdentityExchangeSent,
        _updateConnectionInfo = updateConnectionInfo,
@@ -106,7 +109,21 @@ class BLEHandshakeService implements IBLEHandshakeService {
        _spyModeDetectedController = spyModeDetectedController,
        _identityRevealedController = identityRevealedController,
        _introHintRepo = introHintRepo,
-       _messageBuffer = messageBuffer;
+       _messageBuffer = messageBuffer,
+       _connectionStatusProvider = connectionStatusProvider;
+
+  bool get _isBleConnected {
+    if (_connectionStatusProvider != null) {
+      try {
+        return _connectionStatusProvider!();
+      } catch (_) {}
+    }
+    try {
+      return _stateManager.isConnected;
+    } catch (_) {
+      return true;
+    }
+  }
 
   @override
   Future<void> performHandshake({bool? startAsInitiatorOverride}) async {
@@ -257,7 +274,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
 
   @override
   Future<void> requestIdentityExchange() async {
-    if (!_stateManager.hasBleConnection) {
+    if (!_isBleConnected) {
       _logger.warning('Cannot request identity - not connected');
       return;
     }
@@ -404,7 +421,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
   }
 
   Future<void> _sendIdentityExchange() async {
-    if (!_stateManager.hasBleConnection) {
+    if (!_isBleConnected) {
       _logger.warning('Cannot send identity - not connected');
       return;
     }

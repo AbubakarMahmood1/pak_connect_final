@@ -1,377 +1,586 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../core/models/pairing_state.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/spy_mode_info.dart';
+import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../../domain/entities/contact.dart';
+import 'ble_state_coordinator.dart';
+import 'ble_state_manager.dart';
 import 'identity_manager.dart';
 import 'pairing_service.dart';
 import 'session_service.dart';
-import 'ble_state_coordinator.dart';
 
-/// BLEStateManagerFacade
-///
-/// Provides 100% backward-compatible wrapper around extracted services:
-/// - IdentityManager: User & peer identity
-/// - PairingService: PIN code exchange & verification
-/// - SessionService: Session state & contact status sync
-/// - BLEStateCoordinator: Cross-service orchestration
-///
-/// Features:
-/// - Lazy initialization (services created on first use)
-/// - Dependency injection (pure, testable components)
-/// - All callbacks forwarded through facade
-/// - Zero changes needed in consumer code
-///
-/// **Architecture**:
-/// ```
-/// BLEStateManagerFacade (public API)
-///   ├─ IdentityManager (user & peer identity)
-///   ├─ PairingService (pairing state machine)
-///   ├─ SessionService (session addressing & sync)
-///   └─ BLEStateCoordinator (orchestration & security gates)
-/// ```
-
-class BLEStateManagerFacade {
+/// Facade that wraps the legacy BLEStateManager while keeping the new
+/// extracted services in sync. This allows BLEServiceFacade to depend on
+/// the slimmer facade without changing existing consumers of BLEStateManager.
+class BLEStateManagerFacade implements IBLEStateManagerFacade {
   final _logger = Logger('BLEStateManagerFacade');
+  late final BLEStateManager _legacyStateManager;
+  final ContactRepository _contactRepository;
 
-  // Lazy-initialized services
-  IdentityManager? _identityManager;
-  PairingService? _pairingService;
-  SessionService? _sessionService;
-  BLEStateCoordinator? _stateCoordinator;
+  late final IdentityManager _identityManager;
+  late final PairingService _pairingService;
+  late final SessionService _sessionService;
+  late final BLEStateCoordinator _stateCoordinator;
 
-  // Cached dependency
-  final ContactRepository _contactRepository = ContactRepository();
-
-  // ============================================================================
-  // LAZY GETTERS (Initialize on first access)
-  // ============================================================================
-
-  IdentityManager get identityManager {
-    return _identityManager ??= IdentityManager();
+  BLEStateManagerFacade({
+    BLEStateManager? legacyStateManager,
+    IdentityManager? identityManager,
+    PairingService? pairingService,
+    SessionService? sessionService,
+    BLEStateCoordinator? stateCoordinator,
+    ContactRepository? contactRepository,
+  }) : _contactRepository = contactRepository ?? ContactRepository() {
+    _identityManager = identityManager ?? IdentityManager();
+    _legacyStateManager =
+        legacyStateManager ??
+        BLEStateManager(identityManager: _identityManager);
+    _pairingService =
+        pairingService ??
+        PairingService(
+          getMyPersistentId: () async =>
+              _legacyStateManager.myPersistentId ?? '',
+          getTheirSessionId: () => _legacyStateManager.currentSessionId,
+          getTheirDisplayName: () => _legacyStateManager.otherUserName,
+          onVerificationComplete: null,
+        );
+    _sessionService =
+        sessionService ??
+        SessionService(
+          contactRepository: _contactRepository,
+          getWeHaveThemAsContact: () => _legacyStateManager.weHaveThemAsContact,
+          getMyPersistentId: () => _legacyStateManager.getMyPersistentId(),
+          getTheirPersistentKey: () => _legacyStateManager.theirPersistentKey,
+          getTheirEphemeralId: () => _legacyStateManager.theirEphemeralId,
+        );
+    _stateCoordinator =
+        stateCoordinator ??
+        BLEStateCoordinator(
+          identityManager: _identityManager,
+          pairingService: _pairingService,
+          sessionService: _sessionService,
+        );
   }
 
-  PairingService get pairingService {
-    return _pairingService ??= PairingService(
-      getMyPersistentId: () async => identityManager.myPersistentId ?? '',
-      getTheirSessionId: () => identityManager.currentSessionId,
-      getTheirDisplayName: () => identityManager.otherUserName,
-      onVerificationComplete: null,
+  BLEStateManager get legacyStateManager => _legacyStateManager;
+
+  void _syncIdentityFromLegacy() {
+    _identityManager.syncFromLegacy(
+      myUserName: _legacyStateManager.myUserName,
+      otherUserName: _legacyStateManager.otherUserName,
+      myPersistentId: _legacyStateManager.myPersistentId,
+      theirEphemeralId: _legacyStateManager.theirEphemeralId,
+      theirPersistentKey: _legacyStateManager.theirPersistentKey,
+      currentSessionId: _legacyStateManager.currentSessionId,
     );
   }
 
-  SessionService get sessionService {
-    return _sessionService ??= SessionService(
-      contactRepository: _contactRepository,
-      getWeHaveThemAsContact: () async => false,
-      getMyPersistentId: () async => identityManager.myPersistentId ?? '',
-      getTheirPersistentKey: () => identityManager.theirPersistentKey,
-      getTheirEphemeralId: () => identityManager.theirEphemeralId,
-    );
-  }
-
-  BLEStateCoordinator get stateCoordinator {
-    return _stateCoordinator ??= BLEStateCoordinator(
-      identityManager: identityManager,
-      pairingService: pairingService,
-      sessionService: sessionService,
-    );
-  }
-
   // ============================================================================
-  // PROPERTY DELEGATION (to IdentityManager)
+  // INITIALIZATION & LIFECYCLE
   // ============================================================================
 
-  String? get myUserName => identityManager.myUserName;
-  String? get otherUserName => identityManager.otherUserName;
-  String? get myPersistentId => identityManager.myPersistentId;
-  String? get myEphemeralId => identityManager.myEphemeralId;
-  String? get theirEphemeralId => identityManager.theirEphemeralId;
-  String? get theirPersistentKey => identityManager.theirPersistentKey;
-  String? get currentSessionId => identityManager.currentSessionId;
-
-  // ============================================================================
-  // PROPERTY DELEGATION (to PairingService)
-  // ============================================================================
-
-  PairingInfo? get currentPairing => pairingService.currentPairing;
-  String? get theirReceivedCode => pairingService.theirReceivedCode;
-  bool get weEnteredCode => pairingService.weEnteredCode;
-
-  // ============================================================================
-  // PROPERTY DELEGATION (to SessionService)
-  // ============================================================================
-
-  bool get isPaired => sessionService.isPaired;
-
-  // ============================================================================
-  // OTHER PROPERTIES
-  // ============================================================================
-
-  bool get isPeripheralMode => _isPeripheralMode;
-  bool get hasContactRequest => _contactRequestPending;
-  String? get pendingContactName => _pendingContactName;
-  bool get theyHaveUsAsContact => false; // TODO: Extract to service
-  bool get isConnected => otherUserName != null && otherUserName!.isNotEmpty;
-  ContactRepository get contactRepository => _contactRepository;
-
-  // Placeholder fields (TODO: Move to coordinator/session service)
-  bool _isPeripheralMode = false;
-  final bool _contactRequestPending = false;
-  String? _pendingContactName;
-
-  // ============================================================================
-  // INITIALIZE & LIFECYCLE
-  // ============================================================================
-
-  /// Initialize all services (called once at app startup)
+  @override
   Future<void> initialize() async {
     _logger.info('🚀 Initializing BLEStateManagerFacade...');
-    final startTime = DateTime.now();
-
-    await identityManager.initialize();
-    _logger.info(
-      '✅ IdentityManager initialized in ${DateTime.now().difference(startTime).inMilliseconds}ms',
-    );
-
-    _logger.info('🎯 All services initialized successfully');
+    await _legacyStateManager.initialize();
+    await _identityManager.initialize();
+    _syncIdentityFromLegacy();
+    _logger.info('🎯 BLEStateManagerFacade ready');
   }
 
-  /// Dispose all services
+  @override
+  Future<void> loadUserName() async {
+    await _legacyStateManager.loadUserName();
+    _syncIdentityFromLegacy();
+  }
+
+  @override
+  Future<String> getMyPersistentId() => _legacyStateManager.getMyPersistentId();
+
+  @override
   void dispose() {
-    _logger.info('🛑 Disposing BLEStateManagerFacade...');
-    // Services are stateless, no cleanup needed
+    _legacyStateManager.dispose();
   }
 
   // ============================================================================
-  // IDENTITY MANAGER DELEGATION
+  // USER IDENTITY
   // ============================================================================
 
-  Future<void> loadUserName() => identityManager.loadUserName();
+  @override
+  Future<void> setMyUserName(String name) async {
+    await _legacyStateManager.setMyUserName(name);
+    _syncIdentityFromLegacy();
+  }
 
-  String? getMyPersistentId() => identityManager.getMyPersistentId();
+  @override
+  Future<void> setMyUserNameWithCallbacks(String name) async {
+    await _legacyStateManager.setMyUserNameWithCallbacks(name);
+    _syncIdentityFromLegacy();
+  }
 
-  Future<void> setMyUserName(String name) =>
-      identityManager.setMyUserName(name);
+  @override
+  void clearOtherUserName() => _legacyStateManager.clearOtherUserName();
 
-  Future<void> setMyUserNameWithCallbacks(String name) =>
-      identityManager.setMyUserNameWithCallbacks(name);
+  // ============================================================================
+  // PEER IDENTITY
+  // ============================================================================
 
-  void setOtherUserName(String? name) => identityManager.setOtherUserName(name);
+  @override
+  void setOtherUserName(String? name) {
+    _legacyStateManager.setOtherUserName(name);
+    _identityManager.syncFromLegacy(otherUserName: name);
+  }
 
-  void setOtherDeviceIdentity(String deviceId, String displayName) =>
-      identityManager.setOtherDeviceIdentity(deviceId, displayName);
+  @override
+  void setOtherDeviceIdentity(String deviceId, String displayName) {
+    _legacyStateManager.setOtherDeviceIdentity(deviceId, displayName);
+    _identityManager.syncFromLegacy(
+      otherUserName: displayName,
+      currentSessionId: deviceId,
+    );
+  }
 
-  void setTheirEphemeralId(String ephemeralId, String displayName) =>
-      identityManager.setTheirEphemeralId(ephemeralId, displayName);
+  @override
+  void setTheirEphemeralId(String ephemeralId, String displayName) {
+    _legacyStateManager.setTheirEphemeralId(ephemeralId, displayName);
+    _identityManager.syncFromLegacy(
+      theirEphemeralId: ephemeralId,
+      otherUserName: displayName,
+    );
+  }
 
+  @override
+  String? getRecipientId() => _legacyStateManager.getRecipientId();
+
+  @override
+  String getIdType() => _legacyStateManager.getIdType();
+
+  @override
   String? getPersistentKeyFromEphemeral(String ephemeralId) =>
-      identityManager.getPersistentKeyFromEphemeral(ephemeralId);
+      _legacyStateManager.getPersistentKeyFromEphemeral(ephemeralId);
 
-  void clearOtherUserName() {
-    identityManager.setOtherUserName(null);
+  // ============================================================================
+  // CONTACT REPOSITORY ACCESS
+  // ============================================================================
+
+  @override
+  Future<void> saveContact(String publicKey, String userName) =>
+      _legacyStateManager.saveContact(publicKey, userName);
+
+  @override
+  Future<Contact?> getContact(String publicKey) =>
+      _legacyStateManager.getContact(publicKey);
+
+  @override
+  Future<Map<String, Contact>> getAllContacts() async =>
+      await _legacyStateManager.getAllContacts();
+
+  @override
+  Future<String?> getContactName(String publicKey) =>
+      _legacyStateManager.getContactName(publicKey);
+
+  @override
+  Future<void> markContactVerified(String publicKey) =>
+      _legacyStateManager.markContactVerified(publicKey);
+
+  @override
+  Future<TrustStatus> getContactTrustStatus(String publicKey) =>
+      _legacyStateManager.getContactTrustStatus(publicKey);
+
+  @override
+  Future<bool> hasContactKeyChanged(
+    String publicKey,
+    String currentDisplayName,
+  ) => _legacyStateManager.hasContactKeyChanged(publicKey, currentDisplayName);
+
+  // ============================================================================
+  // PAIRING FLOW (delegated with coordinator notification)
+  // ============================================================================
+
+  @override
+  Future<void> sendPairingRequest() async {
+    await _stateCoordinator.sendPairingRequest();
+  }
+
+  @override
+  Future<void> handlePairingRequest(ProtocolMessage message) async {
+    await _stateCoordinator.handlePairingRequest(message);
+  }
+
+  @override
+  Future<void> acceptPairingRequest() async {
+    await _stateCoordinator.acceptPairingRequest();
+  }
+
+  @override
+  void rejectPairingRequest() {
+    _stateCoordinator.rejectPairingRequest();
+  }
+
+  @override
+  Future<void> handlePairingAccept(ProtocolMessage message) async {
+    await _stateCoordinator.handlePairingAccept(message);
+  }
+
+  @override
+  void handlePairingCancel(ProtocolMessage message) {
+    _stateCoordinator.handlePairingCancel(message);
+  }
+
+  @override
+  void cancelPairing({String? reason}) {
+    _stateCoordinator.cancelPairing(reason: reason);
   }
 
   // ============================================================================
-  // PAIRING SERVICE DELEGATION
+  // CONTACT REQUEST FLOW
   // ============================================================================
 
-  String generatePairingCode() => pairingService.generatePairingCode();
-
-  Future<void> completePairing(String theirCode) =>
-      pairingService.completePairing(theirCode);
-
-  void handleReceivedPairingCode(String theirCode) =>
-      pairingService.handleReceivedPairingCode(theirCode);
-
-  void handlePairingVerification(String theirSecretHash) =>
-      pairingService.handlePairingVerification(theirSecretHash);
-
-  void clearPairing() => pairingService.clearPairing();
-
-  // Pairing request/accept flow
-  void sendPairingCode(String code) => onSendPairingCode?.call(code);
-
-  void sendPairingVerification(String verification) =>
-      onSendPairingVerification?.call(verification);
-
-  // ============================================================================
-  // SESSION SERVICE DELEGATION
-  // ============================================================================
-
-  String? getRecipientId() => sessionService.getRecipientId();
-
-  String getIdType() => sessionService.getIdType();
-
-  String? getConversationKey(String publicKey) =>
-      sessionService.getConversationKey(publicKey);
-
-  Future<void> requestContactStatusExchange() =>
-      sessionService.requestContactStatusExchange();
-
-  Future<void> handleContactStatus(bool theyHaveUs, String theirPublicKey) =>
-      sessionService.handleContactStatus(theyHaveUs, theirPublicKey);
-
-  void updateTheirContactStatus(bool theyHaveUs) =>
-      sessionService.updateTheirContactStatus(theyHaveUs);
-
-  void updateTheirContactClaim(bool theyClaimUs) =>
-      sessionService.updateTheirContactClaim(theyClaimUs);
-
-  // ============================================================================
-  // STATE COORDINATOR DELEGATION
-  // ============================================================================
-
-  Future<void> sendPairingRequest() => stateCoordinator.sendPairingRequest();
-
-  Future<void> handlePairingRequest(ProtocolMessage message) =>
-      stateCoordinator.handlePairingRequest(message);
-
-  Future<void> acceptPairingRequest() =>
-      stateCoordinator.acceptPairingRequest();
-
-  void rejectPairingRequest() => stateCoordinator.rejectPairingRequest();
-
-  Future<void> handlePairingAccept(ProtocolMessage message) =>
-      stateCoordinator.handlePairingAccept(message);
-
-  void handlePairingCancel(ProtocolMessage message) =>
-      stateCoordinator.handlePairingCancel(message);
-
-  void cancelPairing({String? reason}) =>
-      stateCoordinator.cancelPairing(reason: reason);
-
-  void revealIdentityToFriend() => stateCoordinator.revealIdentityToFriend();
-
-  Future<void> initializeContactFlags() =>
-      stateCoordinator.initializeContactFlags();
-
-  // Contact request flow (placeholders - to be implemented in StateCoordinator)
+  @override
   Future<void> handleContactRequest(
     String publicKey,
     String displayName,
-  ) async {
-    // TODO: Implement in StateCoordinator
+  ) async => _legacyStateManager.handleContactRequest(publicKey, displayName);
+
+  @override
+  Future<void> acceptContactRequest() =>
+      _legacyStateManager.acceptContactRequest();
+
+  @override
+  void rejectContactRequest() => _legacyStateManager.rejectContactRequest();
+
+  @override
+  Future<bool> sendContactRequest() => _legacyStateManager.sendContactRequest();
+
+  @override
+  Future<void> handleContactAccept(String publicKey, String displayName) async {
+    _legacyStateManager.handleContactAccept(publicKey, displayName);
   }
 
-  Future<void> acceptContactRequest(String publicKey) async {
-    // TODO: Implement in StateCoordinator
-  }
+  @override
+  void handleContactReject() => _legacyStateManager.handleContactReject();
 
-  Future<void> rejectContactRequest() async {
-    // TODO: Implement in StateCoordinator
-  }
+  @override
+  Future<bool> initiateContactRequest() =>
+      _legacyStateManager.initiateContactRequest();
 
-  Future<void> ensureContactMaximumSecurity(String publicKey) async {
-    // TODO: Implement in StateCoordinator
-  }
+  // ============================================================================
+  // SECURITY & CONTACT STATUS
+  // ============================================================================
 
-  // Contact repository delegation
-  Future<void> saveContact(dynamic contact) async {
-    // TODO: Implement contact saving
-  }
+  @override
+  Future<void> ensureContactMaximumSecurity(String contactPublicKey) =>
+      _legacyStateManager.ensureContactMaximumSecurity(contactPublicKey);
 
-  Future<dynamic> getContact(String publicKey) =>
-      _contactRepository.getContact(publicKey);
+  @override
+  Future<bool> checkExistingPairing(String publicKey) =>
+      _legacyStateManager.checkExistingPairing(publicKey);
 
-  Future<Map<String, dynamic>> getAllContacts() =>
-      _contactRepository.getAllContacts();
+  @override
+  Future<void> checkForQRIntroduction(
+    String otherPublicKey,
+    String otherName,
+  ) => _legacyStateManager.checkForQRIntroduction(otherPublicKey, otherName);
 
-  Future<String?> getContactName(String publicKey) =>
-      _contactRepository.getContactName(publicKey);
+  @override
+  Future<void> requestSecurityLevelSync() =>
+      _legacyStateManager.requestSecurityLevelSync();
 
-  Future<void> markContactVerified(String publicKey) =>
-      _contactRepository.markContactVerified(publicKey);
+  @override
+  Future<void> handleSecurityLevelSync(Map<String, dynamic> payload) =>
+      _legacyStateManager.handleSecurityLevelSync(payload);
 
-  // Session/peripheral mode
+  @override
+  Future<bool> confirmSecurityUpgrade(
+    String publicKey,
+    SecurityLevel newLevel,
+  ) => _legacyStateManager.confirmSecurityUpgrade(publicKey, newLevel);
+
+  @override
+  Future<bool> resetContactSecurity(String publicKey, String reason) =>
+      _legacyStateManager.resetContactSecurity(publicKey, reason);
+
+  @override
+  Future<void> handleContactStatus(
+    bool theyHaveUsAsContact,
+    String theirPublicKey,
+  ) => _legacyStateManager.handleContactStatus(
+    theyHaveUsAsContact,
+    theirPublicKey,
+  );
+
+  @override
+  Future<void> requestContactStatusExchange() =>
+      _legacyStateManager.requestContactStatusExchange();
+
+  // ============================================================================
+  // SPY MODE
+  // ============================================================================
+
+  @override
+  Future<ProtocolMessage?> revealIdentityToFriend() =>
+      _legacyStateManager.revealIdentityToFriend();
+
+  // ============================================================================
+  // SESSION LIFECYCLE
+  // ============================================================================
+
+  @override
   void setPeripheralMode(bool isPeripheral) {
-    _isPeripheralMode = isPeripheral;
+    _legacyStateManager.setPeripheralMode(isPeripheral);
   }
 
-  void clearSessionState() {
-    identityManager.setOtherUserName(null);
-    pairingService.clearPairing();
+  @override
+  void clearSessionState({bool preservePersistentId = false}) {
+    _legacyStateManager.clearSessionState(
+      preservePersistentId: preservePersistentId,
+    );
+    _syncIdentityFromLegacy();
   }
 
-  String? getIdentityWithFallback() {
-    return identityManager.theirPersistentKey ??
-        identityManager.theirEphemeralId;
-  }
+  @override
+  Future<void> recoverIdentityFromStorage() =>
+      _legacyStateManager.recoverIdentityFromStorage();
 
-  String? recoverIdentityFromStorage() {
-    return identityManager.theirPersistentKey ??
-        identityManager.theirEphemeralId;
-  }
+  @override
+  Future<Map<String, String?>> getIdentityWithFallback() =>
+      _legacyStateManager.getIdentityWithFallback();
+
+  @override
+  void preserveContactRelationship({
+    String? otherPublicKey,
+    String? otherName,
+    bool? theyHaveUs,
+    bool? weHaveThem,
+  }) => _legacyStateManager.preserveContactRelationship(
+    otherPublicKey: otherPublicKey,
+    otherName: otherName,
+    theyHaveUs: theyHaveUs,
+    weHaveThem: weHaveThem,
+  );
 
   // ============================================================================
-  // CALLBACKS (Public API)
+  // STATE QUERIES & GETTERS
   // ============================================================================
 
-  /// Callback when user's username changes
-  void Function(String?)? onNameChanged;
+  @override
+  String? get myUserName =>
+      _legacyStateManager.myUserName ?? _identityManager.myUserName;
 
-  /// Callback when my username changes
-  void Function(String)? onMyUsernameChanged;
+  @override
+  String? get otherUserName =>
+      _legacyStateManager.otherUserName ?? _identityManager.otherUserName;
 
-  /// Callback to send pairing code to peer
-  void Function(String)? onSendPairingCode;
+  @override
+  bool get isConnected => _legacyStateManager.isConnected;
 
-  /// Callback to send pairing verification hash
-  void Function(String)? onSendPairingVerification;
+  @override
+  bool get isPeripheralMode => _legacyStateManager.isPeripheralMode;
 
-  /// Callback to send pairing request message
-  void Function(ProtocolMessage)? onSendPairingRequest;
+  @override
+  bool get hasContactRequest => _legacyStateManager.hasContactRequest;
 
-  /// Callback to send pairing accept message
-  void Function(ProtocolMessage)? onSendPairingAccept;
+  @override
+  String? get pendingContactName => _legacyStateManager.pendingContactName;
 
-  /// Callback to send pairing cancel message
-  void Function(ProtocolMessage)? onSendPairingCancel;
+  @override
+  bool get theyHaveUsAsContact => _legacyStateManager.theyHaveUsAsContact;
 
-  /// Callback when pairing request received from peer
-  void Function(String ephemeralId, String displayName)?
-  onPairingRequestReceived;
+  @override
+  Future<bool> get weHaveThemAsContact =>
+      _legacyStateManager.weHaveThemAsContact;
 
-  /// Callback when pairing is cancelled
-  void Function()? onPairingCancelled;
+  @override
+  String? get myPersistentId =>
+      _legacyStateManager.myPersistentId ?? _identityManager.myPersistentId;
 
-  /// Callback to send persistent key exchange message
-  void Function(ProtocolMessage)? onSendPersistentKeyExchange;
+  @override
+  String? get myEphemeralId => _legacyStateManager.myEphemeralId;
 
-  /// Callback when contact request is received
-  void Function(String, String)? onContactRequestReceived;
+  @override
+  String? get theirEphemeralId =>
+      _legacyStateManager.theirEphemeralId ?? _identityManager.theirEphemeralId;
 
-  /// Callback when contact request is completed
-  void Function(bool)? onContactRequestCompleted;
+  @override
+  String? get theirPersistentKey =>
+      _legacyStateManager.theirPersistentKey ??
+      _identityManager.theirPersistentKey;
 
-  /// Callback to send contact request
-  void Function(String, String)? onSendContactRequest;
+  @override
+  String? get currentSessionId =>
+      _legacyStateManager.currentSessionId ?? _identityManager.currentSessionId;
 
-  /// Callback to send contact accept
-  void Function(String, String)? onSendContactAccept;
+  @override
+  PairingInfo? get currentPairing => _pairingService.currentPairing;
 
-  /// Callback to send contact reject
-  void Function()? onSendContactReject;
+  @override
+  bool get isPaired => _legacyStateManager.isPaired;
 
-  /// Callback to send contact status
-  void Function(ProtocolMessage)? onSendContactStatus;
+  // ============================================================================
+  // CALLBACKS
+  // ============================================================================
 
-  /// Callback when asymmetric contact detected
-  void Function(String?, String?)? onAsymmetricContactDetected;
+  @override
+  void Function(dynamic device, int? rssi)? get onDeviceDiscovered =>
+      _legacyStateManager.onDeviceDiscovered;
+  @override
+  set onDeviceDiscovered(void Function(dynamic device, int? rssi)? value) =>
+      _legacyStateManager.onDeviceDiscovered = value;
 
-  /// Callback when mutual consent required
-  void Function(String?, String?)? onMutualConsentRequired;
+  @override
+  void Function(String messageId, bool success)? get onMessageSent =>
+      _legacyStateManager.onMessageSent;
+  @override
+  set onMessageSent(void Function(String messageId, bool success)? value) =>
+      _legacyStateManager.onMessageSent = value;
 
-  /// Callback when message sent
-  void Function(String messageId, bool success)? onMessageSent;
+  @override
+  void Function(String? newName)? get onNameChanged =>
+      _legacyStateManager.onNameChanged;
+  @override
+  set onNameChanged(void Function(String? newName)? value) {
+    _legacyStateManager.onNameChanged = value;
+    _identityManager.onNameChanged = value;
+  }
 
-  /// Callback when device discovered
-  void Function(dynamic device, int? rssi)? onDeviceDiscovered;
+  @override
+  void Function(String newName)? get onMyUsernameChanged =>
+      _legacyStateManager.onMyUsernameChanged;
+  @override
+  set onMyUsernameChanged(void Function(String newName)? value) {
+    _legacyStateManager.onMyUsernameChanged = value;
+    _identityManager.onMyUsernameChanged = value;
+  }
 
-  /// Callback when spy mode detected
-  void Function(SpyModeInfo)? onSpyModeDetected;
+  @override
+  void Function(String code)? get onSendPairingCode =>
+      _legacyStateManager.onSendPairingCode;
+  @override
+  set onSendPairingCode(void Function(String code)? value) {
+    _legacyStateManager.onSendPairingCode = value;
+    _pairingService.onSendPairingCode = value;
+  }
 
-  /// Callback when identity is revealed
-  void Function(String)? onIdentityRevealed;
+  @override
+  void Function(String verification)? get onSendPairingVerification =>
+      _legacyStateManager.onSendPairingVerification;
+  @override
+  set onSendPairingVerification(void Function(String verification)? value) {
+    _legacyStateManager.onSendPairingVerification = value;
+    _pairingService.onSendPairingVerification = value;
+  }
+
+  @override
+  void Function(String publicKey, String displayName)?
+  get onContactRequestReceived => _legacyStateManager.onContactRequestReceived;
+  @override
+  set onContactRequestReceived(
+    void Function(String publicKey, String displayName)? value,
+  ) => _legacyStateManager.onContactRequestReceived = value;
+
+  @override
+  void Function(bool success)? get onContactRequestCompleted =>
+      _legacyStateManager.onContactRequestCompleted;
+  @override
+  set onContactRequestCompleted(void Function(bool success)? value) =>
+      _legacyStateManager.onContactRequestCompleted = value;
+
+  @override
+  void Function(String publicKey, String displayName)?
+  get onSendContactRequest => _legacyStateManager.onSendContactRequest;
+  @override
+  set onSendContactRequest(
+    void Function(String publicKey, String displayName)? value,
+  ) => _legacyStateManager.onSendContactRequest = value;
+
+  @override
+  void Function(String publicKey, String displayName)?
+  get onSendContactAccept => _legacyStateManager.onSendContactAccept;
+  @override
+  set onSendContactAccept(
+    void Function(String publicKey, String displayName)? value,
+  ) => _legacyStateManager.onSendContactAccept = value;
+
+  @override
+  void Function()? get onSendContactReject =>
+      _legacyStateManager.onSendContactReject;
+  @override
+  set onSendContactReject(void Function()? value) =>
+      _legacyStateManager.onSendContactReject = value;
+
+  @override
+  void Function(ProtocolMessage message)? get onSendContactStatus =>
+      _legacyStateManager.onSendContactStatus;
+  @override
+  set onSendContactStatus(void Function(ProtocolMessage message)? value) =>
+      _legacyStateManager.onSendContactStatus = value;
+
+  @override
+  void Function(String publicKey, String displayName)?
+  get onAsymmetricContactDetected =>
+      _legacyStateManager.onAsymmetricContactDetected;
+  @override
+  set onAsymmetricContactDetected(
+    void Function(String publicKey, String displayName)? value,
+  ) => _legacyStateManager.onAsymmetricContactDetected = value;
+
+  @override
+  void Function(String publicKey, String displayName)?
+  get onMutualConsentRequired => _legacyStateManager.onMutualConsentRequired;
+  @override
+  set onMutualConsentRequired(
+    void Function(String publicKey, String displayName)? value,
+  ) => _legacyStateManager.onMutualConsentRequired = value;
+
+  @override
+  void Function(SpyModeInfo info)? get onSpyModeDetected =>
+      _legacyStateManager.onSpyModeDetected;
+  @override
+  set onSpyModeDetected(void Function(SpyModeInfo info)? value) =>
+      _legacyStateManager.onSpyModeDetected = value;
+
+  @override
+  void Function(String contactId)? get onIdentityRevealed =>
+      _legacyStateManager.onIdentityRevealed;
+  @override
+  set onIdentityRevealed(void Function(String contactId)? value) =>
+      _legacyStateManager.onIdentityRevealed = value;
+
+  @override
+  void Function(ProtocolMessage message)? get onSendPairingRequest =>
+      _pairingService.onSendPairingRequest;
+  @override
+  set onSendPairingRequest(void Function(ProtocolMessage message)? value) =>
+      _pairingService.onSendPairingRequest = value;
+
+  @override
+  void Function(ProtocolMessage message)? get onSendPairingAccept =>
+      _pairingService.onSendPairingAccept;
+  @override
+  set onSendPairingAccept(void Function(ProtocolMessage message)? value) =>
+      _pairingService.onSendPairingAccept = value;
+
+  @override
+  void Function(ProtocolMessage message)? get onSendPairingCancel =>
+      _pairingService.onSendPairingCancel;
+  @override
+  set onSendPairingCancel(void Function(ProtocolMessage message)? value) =>
+      _pairingService.onSendPairingCancel = value;
+
+  @override
+  void Function()? get onPairingCancelled => _pairingService.onPairingCancelled;
+  @override
+  set onPairingCancelled(void Function()? value) =>
+      _pairingService.onPairingCancelled = value;
+
+  @override
+  void Function(ProtocolMessage message)? get onSendPersistentKeyExchange =>
+      _legacyStateManager.onSendPersistentKeyExchange;
+  @override
+  set onSendPersistentKeyExchange(
+    void Function(ProtocolMessage message)? value,
+  ) => _legacyStateManager.onSendPersistentKeyExchange = value;
 }

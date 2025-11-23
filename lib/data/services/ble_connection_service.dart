@@ -3,7 +3,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_ble_connection_service.dart';
 import '../../core/models/connection_info.dart';
-import '../../data/services/ble_state_manager.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/services/ble_connection_manager.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
@@ -21,7 +21,7 @@ class BLEConnectionService implements IBLEConnectionService {
   final _logger = Logger('BLEConnectionService');
 
   // Dependencies injected at initialization
-  final BLEStateManager stateManager;
+  final IBLEStateManagerFacade stateManager;
   final BLEConnectionManager connectionManager;
   final CentralManager centralManager;
   final BluetoothStateMonitor bluetoothStateMonitor;
