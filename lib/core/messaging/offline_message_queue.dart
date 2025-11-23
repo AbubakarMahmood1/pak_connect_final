@@ -21,7 +21,6 @@ import '../services/queue_persistence_manager.dart';
 import '../services/retry_scheduler.dart';
 import '../services/queue_sync_coordinator.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../data/database/database_provider.dart';
 
 /// Comprehensive offline message queue with intelligent retry and delivery management
 class OfflineMessageQueue {
@@ -97,9 +96,15 @@ class OfflineMessageQueue {
   }
 
   IQueuePersistenceManager get _persistenceManager {
-    _queuePersistenceManager ??= QueuePersistenceManager(
-      databaseProvider: _databaseProvider,
-    );
+    if (_queuePersistenceManager != null) return _queuePersistenceManager!;
+
+    final hasDbProvider =
+        _databaseProvider != null ||
+        GetIt.instance.isRegistered<IDatabaseProvider>();
+
+    _queuePersistenceManager = hasDbProvider
+        ? QueuePersistenceManager(databaseProvider: _databaseProvider)
+        : _NoopQueuePersistenceManager();
     return _queuePersistenceManager!;
   }
 
@@ -158,25 +163,39 @@ class OfflineMessageQueue {
     } else if (_databaseProvider == null &&
         GetIt.instance.isRegistered<IDatabaseProvider>()) {
       _databaseProvider = GetIt.instance<IDatabaseProvider>();
-    } else if (_databaseProvider == null) {
-      _databaseProvider = DatabaseProvider();
     }
 
-    // Ensure persistence dependencies are ready before touching storage
-    try {
-      await _persistenceManager.createQueueTablesIfNotExist();
-      await _loadQueueFromStorage();
-      await _loadDeletedMessageIds();
-    } catch (e) {
-      _logger.warning(
-        '⚠️ Persistence unavailable, falling back to in-memory queue: $e',
-      );
+    final hasDbProvider =
+        _databaseProvider != null ||
+        GetIt.instance.isRegistered<IDatabaseProvider>();
+
+    if (!hasDbProvider) {
       _queuePersistenceManager = _NoopQueuePersistenceManager();
       _queueRepository = _InMemoryQueueRepository(
         directMessageQueue: _directMessageQueue,
         relayMessageQueue: _relayMessageQueue,
         deletedMessageIds: _deletedMessageIds,
       );
+      _logger.warning(
+        '⚠️ No database provider found; using in-memory queue for this run',
+      );
+    } else {
+      // Ensure persistence dependencies are ready before touching storage
+      try {
+        await _persistenceManager.createQueueTablesIfNotExist();
+        await _loadQueueFromStorage();
+        await _loadDeletedMessageIds();
+      } catch (e) {
+        _logger.warning(
+          '⚠️ Persistence unavailable, falling back to in-memory queue: $e',
+        );
+        _queuePersistenceManager = _NoopQueuePersistenceManager();
+        _queueRepository = _InMemoryQueueRepository(
+          directMessageQueue: _directMessageQueue,
+          relayMessageQueue: _relayMessageQueue,
+          deletedMessageIds: _deletedMessageIds,
+        );
+      }
     }
 
     await _sync.initialize(deletedIds: _deletedMessageIds);

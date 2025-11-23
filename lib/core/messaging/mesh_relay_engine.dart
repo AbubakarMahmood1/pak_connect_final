@@ -11,6 +11,7 @@ import '../models/mesh_relay_models.dart';
 import '../models/protocol_message.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_seen_message_store.dart';
+import '../interfaces/i_identity_manager.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../services/security_manager.dart';
 import 'offline_message_queue.dart';
@@ -140,6 +141,7 @@ class MeshRelayEngine {
       currentNodeId: _currentNodeId,
       routingService: _routingService,
       topologyAnalyzer: _topologyAnalyzer,
+      myPersistentId: _getMyPersistentId(),
     );
     this.onRelayMessage = onRelayMessage;
     this.onDeliverToSelf = onDeliverToSelf;
@@ -567,6 +569,13 @@ class MeshRelayEngine {
   void _updateStatistics() {
     final stats = getStatistics();
     onStatsUpdated?.call(stats);
+  }
+
+  String? _getMyPersistentId() {
+    if (GetIt.instance.isRegistered<IIdentityManager>()) {
+      return GetIt.instance<IIdentityManager>().myPersistentId;
+    }
+    return null;
   }
 }
 
