@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
@@ -41,7 +42,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   OfflineMessageQueue? _messageQueueOverride;
   final BLEConnectionManager? _connectionManager;
   final IBLEStateManagerFacade? _stateManager;
-  late final BleWriteAdapter _writeAdapter;
+  BleWriteAdapter? _writeAdapter;
   final CentralManager Function()? _getCentralManager;
   final PeripheralManager Function()? _getPeripheralManager;
   final Central? Function()? _getConnectedCentral;
@@ -93,12 +94,12 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
         _splitFacade.setMessageQueue(AppCore.instance.messageQueue);
       }
     } catch (_) {}
-    _writeAdapter = BleWriteAdapter(
-      contactRepository: _contactRepository,
-      stateManagerProvider: _inferLegacyStateManager,
-      onMessageOperationChanged: _onMessageOperationChanged,
-      logger: Logger('BleWriteAdapter'),
-    );
+    _writeAdapter = _buildWriteAdapterIfPossible();
+    if (_writeAdapter == null) {
+      _logger.warning(
+        '⚠️ BLEStateManager not provided yet; write adapter will attach when available',
+      );
+    }
   }
 
   @override
@@ -106,7 +107,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     _currentNodeId = nodeId;
     _splitFacade.setCurrentNodeId(nodeId);
     _handler.setCurrentNodeId(nodeId);
-    _writeAdapter.setCurrentNodeId(nodeId);
+    _ensureWriteAdapter()?.setCurrentNodeId(nodeId);
     _logger.fine('✅ Current node ID set');
   }
 
@@ -440,16 +441,81 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     _logger.info('♻️ BLEMessageHandlerFacadeImpl disposed');
   }
 
-  BLEStateManager _inferLegacyStateManager() {
+  BleWriteAdapter? _buildWriteAdapterIfPossible() {
+    final legacyStateManager = _resolveLegacyStateManager();
+    if (legacyStateManager == null) {
+      return null;
+    }
+    final adapter = BleWriteAdapter(
+      contactRepository: _contactRepository,
+      stateManagerProvider: () => legacyStateManager,
+      onMessageOperationChanged: _onMessageOperationChanged,
+      logger: Logger('BleWriteAdapter'),
+    );
+    if (_currentNodeId != null) {
+      adapter.setCurrentNodeId(_currentNodeId!);
+    }
+    return adapter;
+  }
+
+  BleWriteAdapter? _ensureWriteAdapter() {
+    _writeAdapter ??= _buildWriteAdapterIfPossible();
+    return _writeAdapter;
+  }
+
+  BLEStateManager? _resolveLegacyStateManager() {
     if (_stateManager is BLEStateManagerFacade) {
       return (_stateManager as BLEStateManagerFacade).legacyStateManager;
     }
     if (_stateManager is BLEStateManager) {
       return _stateManager as BLEStateManager;
     }
-    throw StateError(
-      'Legacy BLEStateManager not available for send operations',
-    );
+    try {
+      final di = GetIt.instance;
+      if (di.isRegistered<BLEStateManagerFacade>()) {
+        return di<BLEStateManagerFacade>().legacyStateManager;
+      }
+      if (di.isRegistered<IBLEStateManagerFacade>()) {
+        final facade = di<IBLEStateManagerFacade>();
+        if (facade is BLEStateManagerFacade) {
+          return facade.legacyStateManager;
+        }
+      }
+      if (di.isRegistered<BLEStateManager>()) {
+        return di<BLEStateManager>();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  bool _isPeripheralMode(Object manager) {
+    if (manager is IBLEStateManagerFacade) {
+      return manager.isPeripheralMode;
+    }
+    if (manager is BLEStateManager) {
+      return manager.isPeripheralMode;
+    }
+    return false;
+  }
+
+  bool _isPaired(Object manager) {
+    if (manager is IBLEStateManagerFacade) {
+      return manager.isPaired;
+    }
+    if (manager is BLEStateManager) {
+      return manager.isPaired;
+    }
+    return false;
+  }
+
+  String _getIdType(Object manager) {
+    if (manager is IBLEStateManagerFacade) {
+      return manager.getIdType();
+    }
+    if (manager is BLEStateManager) {
+      return manager.getIdType();
+    }
+    return 'unknown';
   }
 
   Future<OfflineMessageQueue> _resolveMessageQueue() async {
@@ -480,6 +546,14 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     String? originalIntendedRecipient,
   }) async {
     try {
+      final adapter = _ensureWriteAdapter();
+      if (adapter == null) {
+        _logger.warning(
+          '⚠️ sendMessage skipped - missing BLEStateManager / write adapter',
+        );
+        return false;
+      }
+
       if (_connectionManager == null ||
           _getCentralManager == null ||
           _connectionManager!.connectedDevice == null) {
@@ -501,7 +575,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
 
       final mtuSize = _connectionManager!.mtuSize ?? 20;
 
-      return await _writeAdapter.sendCentralMessage(
+      return await adapter.sendCentralMessage(
         centralManager: _getCentralManager!(),
         connectedDevice: _connectionManager!.connectedDevice!,
         messageCharacteristic: characteristic,
@@ -523,9 +597,19 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     String? messageId,
   }) async {
     try {
+      final adapter = _ensureWriteAdapter();
+      if (adapter == null) {
+        _logger.warning(
+          '⚠️ Peripheral send skipped - missing BLEStateManager / write adapter',
+        );
+        return false;
+      }
+
+      final stateManager = _stateManager ?? _resolveLegacyStateManager();
+
       if (_getPeripheralManager == null ||
-          _stateManager == null ||
-          !_stateManager!.isPeripheralMode) {
+          stateManager == null ||
+          !_isPeripheralMode(stateManager)) {
         _logger.warning(
           '⚠️ Peripheral send skipped - not in peripheral mode or missing managers',
         );
@@ -554,8 +638,8 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       }
 
       final mtuSize = _getPeripheralNegotiatedMtu?.call() ?? 20;
-      final isPaired = _stateManager!.isPaired;
-      final idType = _stateManager!.getIdType();
+      final isPaired = _isPaired(stateManager);
+      final idType = _getIdType(stateManager);
 
       final truncatedId = senderKey.length > 16
           ? senderKey.substring(0, 16)
@@ -564,7 +648,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
         '📤 Peripheral sending via adapter using $idType ID: $truncatedId...',
       );
 
-      return await _writeAdapter.sendPeripheralMessage(
+      return await adapter.sendPeripheralMessage(
         peripheralManager: _getPeripheralManager!(),
         connectedCentral: connectedCentral,
         messageCharacteristic: messageCharacteristic,
