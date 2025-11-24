@@ -466,8 +466,20 @@ class ChatSyncService {
     UnifiedSearchResult legacyResult,
     String query,
   ) {
+    final combinedMessages = <ArchivedMessage>[
+      ...legacyResult.archiveResults,
+      ...legacyResult.liveResults.map(
+        (m) => ArchivedMessage.fromEnhancedMessage(
+          m,
+          m.timestamp,
+          customArchiveId: 'live_${m.id}',
+          additionalMetadata: {'source': 'live'},
+        ),
+      ),
+    ];
+
     final archiveResult = ArchiveSearchResult.fromResults(
-      messages: legacyResult.archiveResults,
+      messages: combinedMessages,
       chats: [],
       query: query,
       searchTime: legacyResult.searchTime,

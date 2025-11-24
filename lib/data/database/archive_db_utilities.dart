@@ -85,7 +85,7 @@ class ArchiveDbUtilities {
       CREATE VIRTUAL TABLE archived_messages_fts USING fts5(
         content=archived_messages,
         searchable_text,
-        tokenize = "porter"
+        tokenize = "porter unicode61"
       );
     ''');
 
