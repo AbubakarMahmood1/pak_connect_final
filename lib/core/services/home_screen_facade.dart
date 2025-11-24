@@ -50,6 +50,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
   final BuildContext? _context;
   final WidgetRef? _ref;
   final ChatInteractionHandlerBuilder? _interactionHandlerBuilder;
+  final bool _enableListCoordinatorInitialization;
 
   // Lazy-initialized services
   late final ChatConnectionManager _connectionManager;
@@ -66,12 +67,15 @@ class HomeScreenFacade implements IHomeScreenFacade {
     BuildContext? context,
     WidgetRef? ref,
     ChatInteractionHandlerBuilder? interactionHandlerBuilder,
+    bool enableListCoordinatorInitialization = true,
   }) : _chatsRepository = chatsRepository,
        _bleService = bleService,
        _chatManagementService = chatManagementService,
        _context = context,
        _ref = ref,
-       _interactionHandlerBuilder = interactionHandlerBuilder {
+       _interactionHandlerBuilder = interactionHandlerBuilder,
+       _enableListCoordinatorInitialization =
+           enableListCoordinatorInitialization {
     _initializeLazyServices();
   }
 
@@ -113,10 +117,10 @@ class HomeScreenFacade implements IHomeScreenFacade {
 
     try {
       await _interactionHandler.initialize();
-      await _listCoordinator.initialize();
+      if (_enableListCoordinatorInitialization) {
+        await _listCoordinator.initialize();
+      }
       await _connectionManager.initialize();
-      _setupPeriodicRefresh();
-      _setupGlobalMessageListener();
       _initialized = true;
       _logger.info('✅ HomeScreenFacade initialized');
     } catch (e) {
@@ -132,13 +136,6 @@ class HomeScreenFacade implements IHomeScreenFacade {
   @override
   Future<List<ChatListItem>> loadChats({String? searchQuery}) =>
       _listCoordinator.loadChats(searchQuery: searchQuery);
-
-  /// Internal: Setup periodic refresh (called during initialize)
-  void _setupPeriodicRefresh() => _listCoordinator.setupPeriodicRefresh();
-
-  /// Internal: Setup global message listener (called during initialize)
-  void _setupGlobalMessageListener() =>
-      _listCoordinator.setupGlobalMessageListener();
 
   /// Internal: Update single chat item (called when message arrives)
   Future<void> _updateSingleChatItem() =>

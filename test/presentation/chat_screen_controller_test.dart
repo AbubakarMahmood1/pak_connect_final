@@ -17,6 +17,7 @@ import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/presentation/controllers/chat_screen_controller.dart';
+import 'package:pak_connect/presentation/models/chat_screen_config.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/mesh_networking_provider.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';

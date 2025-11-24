@@ -1,18 +1,19 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../../core/app_core.dart';
+import '../../core/interfaces/i_connection_service.dart';
 import '../../core/models/connection_info.dart';
+import '../../core/messaging/message_router.dart';
 import '../../core/security/message_security.dart';
 import '../../core/services/message_retry_coordinator.dart';
 import '../../core/services/persistent_chat_state_manager.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../core/utils/string_extensions.dart';
-import '../../core/messaging/message_router.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
@@ -20,37 +21,18 @@ import '../../data/services/ble_state_manager.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/services/notification_service.dart';
-import '../../core/interfaces/i_connection_service.dart';
+import '../models/chat_screen_config.dart';
+import '../../presentation/controllers/chat_pairing_dialog_controller.dart';
 import '../../presentation/controllers/chat_scrolling_controller.dart'
     as chat_controller;
 import '../../presentation/controllers/chat_search_controller.dart';
-import '../../presentation/controllers/chat_pairing_dialog_controller.dart';
 import '../../presentation/models/chat_ui_state.dart';
+import '../../presentation/providers/ble_providers.dart';
 import '../../presentation/providers/chat_messaging_view_model.dart';
 import '../../presentation/providers/mesh_networking_provider.dart';
-import '../../presentation/providers/ble_providers.dart';
 import '../../presentation/providers/security_state_provider.dart';
 import '../widgets/chat_search_bar.dart' show SearchResult;
-
-class ChatScreenConfig {
-  final Peripheral? device;
-  final Central? central;
-  final String? chatId;
-  final String? contactName;
-  final String? contactPublicKey;
-
-  const ChatScreenConfig({
-    this.device,
-    this.central,
-    this.chatId,
-    this.contactName,
-    this.contactPublicKey,
-  });
-
-  bool get isRepositoryMode => chatId != null;
-  bool get isCentralMode => device != null;
-  bool get isPeripheralMode => central != null;
-}
+import 'chat_retry_helper.dart';
 
 /// Coordinates all non-UI chat behaviors so the widget can stay lean.
 class ChatScreenController extends ChangeNotifier {
@@ -68,8 +50,8 @@ class ChatScreenController extends ChangeNotifier {
   late chat_controller.ChatScrollingController _scrollingController;
   late ChatSearchController _searchController;
   late ChatPairingDialogController _pairingDialogController;
+  late ChatRetryHelper _retryHelper;
   PersistentChatStateManager? _persistentChatManager;
-  MessageRetryCoordinator? _retryCoordinator;
 
   StreamSubscription<String>? _messageSubscription;
   StreamSubscription<String>? _deliverySubscription;
@@ -98,12 +80,27 @@ class ChatScreenController extends ChangeNotifier {
        contactRepository = contactRepository ?? ContactRepository(),
        chatsRepository = chatsRepository ?? ChatsRepository(),
        _persistentChatManager = persistentChatManager,
-       _retryCoordinator = retryCoordinator,
        _injectedPairingController = pairingDialogController {
     _repositoryRetryHandler = repositoryRetryHandler ?? _retryRepositoryMessage;
     _chatId = _calculateInitialChatId();
     _cachedContactPublicKey = _contactPublicKey;
     _initializeControllers(messagingViewModel: messagingViewModel);
+    _retryHelper = ChatRetryHelper(
+      ref: ref,
+      config: config,
+      chatId: () => _chatId,
+      contactPublicKey: () => _contactPublicKey,
+      displayContactName: () => displayContactName,
+      messageRepository: this.messageRepository,
+      repositoryRetryHandler: _repositoryRetryHandler,
+      showSuccess: _showSuccess,
+      showError: _showError,
+      showInfo: _showInfo,
+      scrollToBottom: scrollToBottom,
+      getMessages: () => _state.messages,
+      logger: _logger,
+      initialCoordinator: retryCoordinator,
+    );
   }
 
   ChatUIState get state => _state;
@@ -242,7 +239,7 @@ class ChatScreenController extends ChangeNotifier {
     _checkAndSetupLiveMessaging();
     _setupMeshNetworking();
     _setupDeliveryListener();
-    _initializeRetryCoordinator();
+    _retryHelper.ensureRetryCoordinator();
     _setupSecurityStateListener();
   }
 
@@ -473,7 +470,7 @@ class ChatScreenController extends ChangeNotifier {
     final connectionInfo =
         connectionInfoAsync.value ?? connectionService.currentConnectionInfo;
 
-    if (!(connectionInfo.isConnected)) {
+    if (connectionInfo == null || !connectionInfo.isConnected) {
       _showError('Not connected - cannot pair');
       return;
     }
@@ -555,7 +552,8 @@ class ChatScreenController extends ChangeNotifier {
 
       Future.delayed(const Duration(milliseconds: 1000), () {
         if (!_disposed) {
-          _autoRetryFailedMessages();
+          _retryHelper.ensureRetryCoordinator();
+          _retryHelper.autoRetryFailedMessages();
         }
       });
     } catch (e) {
@@ -565,78 +563,8 @@ class ChatScreenController extends ChangeNotifier {
     }
   }
 
-  void _initializeRetryCoordinator() {
-    if (_retryCoordinator != null) return;
-    try {
-      final meshService = ref.read(meshNetworkingServiceProvider);
-      final offlineQueue = AppCore.instance.messageQueue;
-
-      _retryCoordinator = MessageRetryCoordinator(
-        offlineQueue: offlineQueue,
-        meshService: meshService,
-      );
-    } catch (e) {
-      _logger.warning('Failed to initialize MessageRetryCoordinator: $e');
-    }
-  }
-
-  Future<void> _autoRetryFailedMessages() async {
-    if (_retryCoordinator == null) return;
-    try {
-      final connectionInfo = ref.read(connectionInfoProvider).value;
-      final isConnected = connectionInfo?.isConnected ?? false;
-
-      if (!isConnected) {
-        _showSuccess(
-          'Attempting retry - messages will be queued if connection fails...',
-        );
-      } else {
-        _showSuccess('Connection available - retrying failed messages...');
-      }
-
-      final retryStatus = await _retryCoordinator!.getFailedMessageStatus(
-        _chatId,
-      );
-
-      if (retryStatus.hasError) {
-        _showError('Failed to check message status - ${retryStatus.error}');
-        return;
-      }
-
-      if (!retryStatus.hasFailedMessages) {
-        return;
-      }
-
-      _showSuccess(
-        'Retrying ${retryStatus.totalFailed} failed message${retryStatus.totalFailed > 1 ? 's' : ''}...',
-      );
-
-      final retryResult = await _retryCoordinator!.retryAllFailedMessages(
-        chatId: _chatId,
-        allowPartialConnection: true,
-        onRepositoryMessageRetry: (message) => _repositoryRetryHandler(message),
-        onQueueMessageRetry: (queuedMessage) async {},
-      );
-
-      scrollToBottom();
-
-      final stillFailed = _state.messages
-          .where((m) => m.isFromMe && m.status == MessageStatus.failed)
-          .length;
-
-      if (retryResult.success && retryResult.totalSucceeded > 0) {
-        _showSuccess('✅ ${retryResult.message}');
-      } else if (stillFailed > 0) {
-        _showError('⚠️ ${retryResult.message}');
-      } else {
-        _showSuccess('✅ All messages processed - ${retryResult.message}');
-      }
-    } catch (e) {
-      _logger.severe('Retry coordination error: $e');
-      _showError('Retry coordination error - falling back to individual retry');
-      await _fallbackRetryFailedMessages();
-    }
-  }
+  Future<void> _autoRetryFailedMessages() =>
+      _retryHelper.autoRetryFailedMessages();
 
   Future<void> _retryRepositoryMessage(Message message) async {
     try {
@@ -730,34 +658,8 @@ class ChatScreenController extends ChangeNotifier {
     }
   }
 
-  Future<void> _fallbackRetryFailedMessages() async {
-    final failedMessages = _state.messages
-        .where((m) => m.isFromMe && m.status == MessageStatus.failed)
-        .toList();
-
-    if (failedMessages.isEmpty) {
-      return;
-    }
-
-    int successCount = 0;
-    for (final message in failedMessages) {
-      try {
-        await _retryRepositoryMessage(message);
-        successCount++;
-      } catch (_) {}
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
-
-    if (successCount > 0) {
-      _showSuccess(
-        '✅ Fallback retry delivered $successCount message${successCount > 1 ? 's' : ''}',
-      );
-    } else {
-      _showError(
-        '⚠️ Fallback retry failed - messages will retry automatically when connection improves',
-      );
-    }
-  }
+  Future<void> _fallbackRetryFailedMessages() =>
+      _retryHelper.fallbackRetryFailedMessages();
 
   void _setupPersistentChatManager() {
     _persistentChatManager ??= ref.read(persistentChatStateManagerProvider);
@@ -1173,6 +1075,7 @@ class ChatScreenController extends ChangeNotifier {
     _messagingViewModel.dispose();
     _searchController.clear();
     _pairingDialogController.clear();
+    _retryHelper.dispose();
     super.dispose();
   }
 }
