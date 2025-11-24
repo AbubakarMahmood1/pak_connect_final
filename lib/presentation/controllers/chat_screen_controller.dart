@@ -470,7 +470,7 @@ class ChatScreenController extends ChangeNotifier {
     final connectionInfo =
         connectionInfoAsync.value ?? connectionService.currentConnectionInfo;
 
-    if (!(connectionInfo.isConnected)) {
+    if (connectionInfo == null || !connectionInfo.isConnected) {
       _showError('Not connected - cannot pair');
       return;
     }
