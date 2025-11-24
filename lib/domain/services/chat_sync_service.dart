@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:get_it/get_it.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/message_repository.dart';
+import '../../core/interfaces/i_chats_repository.dart';
+import '../../core/interfaces/i_message_repository.dart';
 import '../entities/chat_list_item.dart';
 import '../entities/enhanced_message.dart';
 import '../entities/archived_message.dart';
@@ -19,20 +22,21 @@ class ChatSyncService {
 
   final _logger = Logger('ChatSyncService');
 
-  final ChatsRepository _chatsRepository;
-  final MessageRepository _messageRepository;
+  final IChatsRepository _chatsRepository;
+  final IMessageRepository _messageRepository;
   final ArchiveSearchService _archiveSearchService;
   final ChatCacheState _cacheState;
 
   bool _isInitialized = false;
 
   ChatSyncService({
-    required ChatsRepository chatsRepository,
-    required MessageRepository messageRepository,
+    IChatsRepository? chatsRepository,
+    IMessageRepository? messageRepository,
     required ChatCacheState cacheState,
     ArchiveSearchService? archiveSearchService,
-  }) : _chatsRepository = chatsRepository,
-       _messageRepository = messageRepository,
+  }) : _chatsRepository = chatsRepository ?? GetIt.instance<IChatsRepository>(),
+       _messageRepository =
+           messageRepository ?? GetIt.instance<IMessageRepository>(),
        _archiveSearchService =
            archiveSearchService ?? ArchiveSearchService.instance,
        _cacheState = cacheState;
@@ -45,6 +49,11 @@ class ChatSyncService {
 
     _isInitialized = true;
     _logger.info('ChatSyncService initialized');
+  }
+
+  /// Allow parent services to force a re-initialization after disposal
+  void resetInitialization() {
+    _isInitialized = false;
   }
 
   Set<String> get pinnedChats => _cacheState.pinnedChats;

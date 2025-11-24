@@ -1,10 +1,11 @@
 // WhatsApp-inspired chat management system with comprehensive message operations and archive integration
 
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../../core/models/archive_models.dart';
-import '../../data/repositories/archive_repository.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/message_repository.dart';
+import '../../core/interfaces/i_archive_repository.dart';
+import '../../core/interfaces/i_chats_repository.dart';
+import '../../core/interfaces/i_message_repository.dart';
 import '../entities/chat_list_item.dart';
 import '../entities/enhanced_message.dart';
 import 'archive_management_service.dart';
@@ -27,9 +28,9 @@ class ChatManagementService {
     return _instance!;
   }
 
-  final ChatsRepository _chatsRepository;
-  final MessageRepository _messageRepository;
-  final ArchiveRepository _archiveRepository;
+  final IChatsRepository _chatsRepository;
+  final IMessageRepository _messageRepository;
+  final IArchiveRepository _archiveRepository;
   final ArchiveManagementService _archiveManagementService;
   final ArchiveSearchService _archiveSearchService;
 
@@ -42,9 +43,9 @@ class ChatManagementService {
   Future<void>? _initializationFuture;
 
   ChatManagementService._internal()
-    : _chatsRepository = ChatsRepository(),
-      _messageRepository = MessageRepository(),
-      _archiveRepository = ArchiveRepository.instance,
+    : _chatsRepository = GetIt.instance<IChatsRepository>(),
+      _messageRepository = GetIt.instance<IMessageRepository>(),
+      _archiveRepository = GetIt.instance<IArchiveRepository>(),
       _archiveManagementService = ArchiveManagementService.instance,
       _archiveSearchService = ArchiveSearchService.instance {
     _notificationService = ChatNotificationService();
@@ -266,8 +267,11 @@ class ChatManagementService {
     await _notificationService.dispose();
     await _archiveManagementService.dispose();
     await _archiveSearchService.dispose();
-    _archiveRepository.dispose();
+    await _archiveRepository.dispose();
+
+    _syncService.resetInitialization();
     _isInitialized = false;
+    _initializationFuture = null;
     _logger.info('Chat management service disposed');
   }
 }
