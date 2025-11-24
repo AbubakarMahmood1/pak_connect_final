@@ -8,6 +8,11 @@ import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../core/models/archive_models.dart';
+import 'archive_policy_engine.dart';
+import 'archive_maintenance.dart';
+import 'archive_management_models.dart';
+
+export 'archive_management_models.dart';
 
 /// Comprehensive archive management service with business logic and automation
 /// Singleton pattern to prevent multiple service instances
@@ -27,7 +32,15 @@ class ArchiveManagementService {
   /// Private constructor for singleton
   ArchiveManagementService._internal({IArchiveRepository? archiveRepository})
     : _archiveRepository =
-          archiveRepository ?? GetIt.instance<IArchiveRepository>() {
+          archiveRepository ?? GetIt.instance<IArchiveRepository>(),
+      _policyEngine = ArchivePolicyEngine(
+        archiveRepository:
+            archiveRepository ?? GetIt.instance<IArchiveRepository>(),
+      ),
+      _maintenance = ArchiveMaintenance(
+        archiveRepository:
+            archiveRepository ?? GetIt.instance<IArchiveRepository>(),
+      ) {
     _logger.info('✅ ArchiveManagementService singleton instance created');
   }
 
@@ -36,6 +49,8 @@ class ArchiveManagementService {
 
   // Dependencies (injected for testability)
   final IArchiveRepository _archiveRepository;
+  final ArchivePolicyEngine _policyEngine;
+  final ArchiveMaintenance _maintenance;
   // Note: ChatsRepository and MessageRepository would be used for business context gathering
   // when those features are implemented (currently stubs). All archive operations
   // are delegated to _archiveRepository which handles its own data access.
@@ -91,6 +106,8 @@ class ArchiveManagementService {
       // Load configuration and policies
       await _loadConfiguration();
       await _loadArchivePolicies();
+      _policyEngine.policies = _policies;
+      _policyEngine.config = _config;
 
       // Start background tasks
       _startMaintenanceTasks();
@@ -130,7 +147,10 @@ class ArchiveManagementService {
       _logger.info('Starting managed archive operation for chat: $chatId');
 
       // Business logic validation
-      final validationResult = await _validateArchiveRequest(chatId, force);
+      final validationResult = await _policyEngine.validateArchiveRequest(
+        chatId,
+        force,
+      );
       if (!validationResult.isValid) {
         return ArchiveOperationResult.failure(
           message: validationResult.errorMessage!,
@@ -162,7 +182,7 @@ class ArchiveManagementService {
         ...?metadata,
         'archiveReason': reason ?? 'User initiated',
         'businessContext': await _gatherBusinessContext(chatId),
-        'archivePolicy': _findApplicablePolicy(chatId)?.name,
+        'archivePolicy': _policyEngine.findApplicablePolicy(chatId)?.name,
         'storageOptimization': _config.enableCompression,
         'timestamp': DateTime.now().toIso8601String(),
       };
@@ -235,7 +255,7 @@ class ArchiveManagementService {
       }
 
       // Business logic validation
-      final validationResult = await _validateRestoreRequest(
+      final validationResult = await _policyEngine.validateRestoreRequest(
         archive,
         overwriteExisting,
       );
@@ -250,7 +270,7 @@ class ArchiveManagementService {
 
       // Check for conflicts
       if (!overwriteExisting) {
-        final conflictCheck = await _checkRestoreConflicts(
+        final conflictCheck = await _policyEngine.checkRestoreConflicts(
           archive,
           targetChatId,
         );
@@ -335,35 +355,12 @@ class ArchiveManagementService {
     try {
       _logger.info('Applying archive policies (dryRun: $dryRun)');
 
-      final policiesToApply = specificPolicies != null
-          ? _policies.where((p) => specificPolicies.contains(p.name)).toList()
-          : _policies.where((p) => p.enabled).toList();
+      _policyEngine.policies = _policies;
+      _policyEngine.config = _config;
 
-      final results = <ArchivePolicyApplication>[];
-
-      for (final policy in policiesToApply) {
-        final policyResult = await _applyArchivePolicy(policy, dryRun);
-        results.add(policyResult);
-      }
-
-      final totalChatsProcessed = results.fold(
-        0,
-        (sum, r) => sum + r.chatsProcessed,
-      );
-      final totalArchived = results.fold(0, (sum, r) => sum + r.chatsArchived);
-      final totalErrors = results.fold(0, (sum, r) => sum + r.errors.length);
-
-      _logger.info(
-        'Policy application complete: $totalArchived/$totalChatsProcessed chats archived',
-      );
-
-      return ArchivePolicyResult(
-        applications: results,
-        totalChatsProcessed: totalChatsProcessed,
-        totalChatsArchived: totalArchived,
-        totalErrors: totalErrors,
+      return _policyEngine.applyPolicies(
+        specificPolicies: specificPolicies,
         dryRun: dryRun,
-        appliedAt: DateTime.now(),
       );
     } catch (e) {
       _logger.severe('Failed to apply archive policies: $e');
@@ -381,12 +378,6 @@ class ArchiveManagementService {
         'Starting archive maintenance tasks: ${tasks.map((t) => t.name).join(', ')}',
       );
 
-      final results = <String, dynamic>{};
-      var totalSpaceFreed = 0;
-      var totalOperationsPerformed = 0;
-      final errors = <String>[];
-
-      // Default maintenance tasks if none specified
       final tasksToRun = tasks.isEmpty
           ? {
               ArchiveMaintenanceTask.cleanupOrphaned,
@@ -397,46 +388,42 @@ class ArchiveManagementService {
           : tasks;
 
       for (final task in tasksToRun) {
-        try {
+        _maintenanceUpdatesController.add(
+          ArchiveMaintenanceEvent.taskStarted(task),
+        );
+      }
+
+      final maintenanceResult = await _maintenance.performMaintenance(
+        tasks: tasksToRun,
+        force: force,
+      );
+
+      for (final task in tasksToRun) {
+        final taskResult = maintenanceResult.results[task.name];
+        final taskNameLower = task.name.toLowerCase();
+        final hasError = maintenanceResult.errors.any(
+          (e) => e.toLowerCase().contains(taskNameLower),
+        );
+
+        if (hasError) {
           _maintenanceUpdatesController.add(
-            ArchiveMaintenanceEvent.taskStarted(task),
+            ArchiveMaintenanceEvent.taskFailed(task, 'Task failed'),
           );
-
-          final taskResult = await _performMaintenanceTask(task, force);
-          results[task.name] = taskResult;
-          totalSpaceFreed += (taskResult['spaceFreed'] as int?) ?? 0;
-          totalOperationsPerformed +=
-              (taskResult['operationsCount'] as int?) ?? 0;
-
+        } else {
           _maintenanceUpdatesController.add(
-            ArchiveMaintenanceEvent.taskCompleted(task, taskResult),
-          );
-        } catch (e) {
-          final error = 'Task ${task.name} failed: $e';
-          errors.add(error);
-          _logger.warning(error);
-
-          _maintenanceUpdatesController.add(
-            ArchiveMaintenanceEvent.taskFailed(task, error),
+            ArchiveMaintenanceEvent.taskCompleted(
+              task,
+              taskResult is Map<String, dynamic> ? taskResult : {},
+            ),
           );
         }
       }
-
-      final maintenanceResult = ArchiveMaintenanceResult(
-        tasksPerformed: tasksToRun.toList(),
-        results: results,
-        totalSpaceFreed: totalSpaceFreed,
-        totalOperationsPerformed: totalOperationsPerformed,
-        errors: errors,
-        performedAt: DateTime.now(),
-        durationMs: 0, // Would track actual duration
-      );
 
       // Update maintenance history
       await _saveMaintenanceHistory(maintenanceResult);
 
       _logger.info(
-        'Archive maintenance completed: $totalOperationsPerformed operations, ${totalSpaceFreed}B freed',
+        'Archive maintenance completed: ${maintenanceResult.totalOperationsPerformed} operations, ${maintenanceResult.totalSpaceFreed}B freed',
       );
 
       return maintenanceResult;
@@ -487,6 +474,7 @@ class ArchiveManagementService {
   Future<void> updateConfiguration(ArchiveManagementConfig config) async {
     try {
       _config = config;
+      _policyEngine.config = _config;
       await _saveConfiguration();
 
       // Restart timers with new intervals
@@ -511,6 +499,7 @@ class ArchiveManagementService {
         _policies.add(policy);
       }
 
+      _policyEngine.policies = _policies;
       await _saveArchivePolicies();
 
       _policyUpdatesController.add(
@@ -527,6 +516,7 @@ class ArchiveManagementService {
   Future<void> removeArchivePolicy(String policyName) async {
     try {
       _policies.removeWhere((p) => p.name == policyName);
+      _policyEngine.policies = _policies;
       await _saveArchivePolicies();
 
       _policyUpdatesController.add(ArchivePolicyEvent.removed(policyName));
@@ -723,22 +713,6 @@ class ArchiveManagementService {
     }
   }
 
-  Future<ArchiveValidationResult> _validateArchiveRequest(
-    String chatId,
-    bool force,
-  ) async {
-    // Implementation would validate business rules
-    return ArchiveValidationResult.valid();
-  }
-
-  Future<ArchiveValidationResult> _validateRestoreRequest(
-    ArchivedChat archive,
-    bool overwrite,
-  ) async {
-    // Implementation would validate restore compatibility
-    return ArchiveValidationResult.valid();
-  }
-
   Future<StorageCapacityCheck> _checkStorageLimits() async {
     final stats =
         await _archiveRepository.getArchiveStatistics() ??
@@ -749,14 +723,6 @@ class ArchiveManagementService {
       stats.totalSizeBytes,
       _config.maxStorageSizeBytes,
     );
-  }
-
-  Future<RestoreConflictCheck> _checkRestoreConflicts(
-    ArchivedChat archive,
-    String? targetChatId,
-  ) async {
-    // Implementation would check for conflicts
-    return RestoreConflictCheck(false, []);
   }
 
   Future<void> _performAutomaticCleanup() async {
@@ -848,456 +814,4 @@ class ArchiveManagementService {
     // Implementation would calculate storage metrics
     return ArchiveStorageMetrics.empty();
   }
-}
-
-// Supporting classes (would be moved to archive_models.dart in a real implementation)
-
-class ArchiveManagementConfig {
-  final bool enableCompression;
-  final int maxStorageSizeBytes;
-  final int maintenanceIntervalHours;
-  final int policyEvaluationIntervalHours;
-  final bool autoCleanupEnabled;
-  final int maxArchiveAgeMonths;
-
-  const ArchiveManagementConfig({
-    required this.enableCompression,
-    required this.maxStorageSizeBytes,
-    required this.maintenanceIntervalHours,
-    required this.policyEvaluationIntervalHours,
-    required this.autoCleanupEnabled,
-    required this.maxArchiveAgeMonths,
-  });
-
-  factory ArchiveManagementConfig.defaultConfig() =>
-      const ArchiveManagementConfig(
-        enableCompression: true,
-        maxStorageSizeBytes: 100 * 1024 * 1024, // 100MB
-        maintenanceIntervalHours: 24,
-        policyEvaluationIntervalHours: 12,
-        autoCleanupEnabled: true,
-        maxArchiveAgeMonths: 12,
-      );
-
-  Map<String, dynamic> toJson() => {
-    'enableCompression': enableCompression,
-    'maxStorageSizeBytes': maxStorageSizeBytes,
-    'maintenanceIntervalHours': maintenanceIntervalHours,
-    'policyEvaluationIntervalHours': policyEvaluationIntervalHours,
-    'autoCleanupEnabled': autoCleanupEnabled,
-    'maxArchiveAgeMonths': maxArchiveAgeMonths,
-  };
-
-  factory ArchiveManagementConfig.fromJson(Map<String, dynamic> json) =>
-      ArchiveManagementConfig(
-        enableCompression: json['enableCompression'],
-        maxStorageSizeBytes: json['maxStorageSizeBytes'],
-        maintenanceIntervalHours: json['maintenanceIntervalHours'],
-        policyEvaluationIntervalHours: json['policyEvaluationIntervalHours'],
-        autoCleanupEnabled: json['autoCleanupEnabled'],
-        maxArchiveAgeMonths: json['maxArchiveAgeMonths'],
-      );
-}
-
-// Event classes for streams
-abstract class ArchiveUpdateEvent {
-  final DateTime timestamp;
-
-  const ArchiveUpdateEvent(this.timestamp);
-
-  factory ArchiveUpdateEvent.archived(
-    String chatId,
-    String archiveId,
-    String? reason,
-  ) => _ArchiveCreated(chatId, archiveId, reason, DateTime.now());
-  factory ArchiveUpdateEvent.restored(String archiveId, String chatId) =>
-      _ArchiveRestored(archiveId, chatId, DateTime.now());
-}
-
-class _ArchiveCreated extends ArchiveUpdateEvent {
-  final String chatId;
-  final String archiveId;
-  final String? reason;
-  const _ArchiveCreated(
-    this.chatId,
-    this.archiveId,
-    this.reason,
-    DateTime timestamp,
-  ) : super(timestamp);
-}
-
-class _ArchiveRestored extends ArchiveUpdateEvent {
-  final String archiveId;
-  final String chatId;
-  const _ArchiveRestored(this.archiveId, this.chatId, DateTime timestamp)
-    : super(timestamp);
-}
-
-abstract class ArchivePolicyEvent {
-  final DateTime timestamp;
-
-  const ArchivePolicyEvent(this.timestamp);
-
-  factory ArchivePolicyEvent.updated(String policyName, bool enabled) =>
-      _PolicyUpdated(policyName, enabled, DateTime.now());
-  factory ArchivePolicyEvent.removed(String policyName) =>
-      _PolicyRemoved(policyName, DateTime.now());
-}
-
-class _PolicyUpdated extends ArchivePolicyEvent {
-  final String policyName;
-  final bool enabled;
-  const _PolicyUpdated(this.policyName, this.enabled, DateTime timestamp)
-    : super(timestamp);
-}
-
-class _PolicyRemoved extends ArchivePolicyEvent {
-  final String policyName;
-  const _PolicyRemoved(this.policyName, DateTime timestamp) : super(timestamp);
-}
-
-abstract class ArchiveMaintenanceEvent {
-  final DateTime timestamp;
-
-  const ArchiveMaintenanceEvent(this.timestamp);
-
-  factory ArchiveMaintenanceEvent.taskStarted(ArchiveMaintenanceTask task) =>
-      _MaintenanceTaskStarted(task, DateTime.now());
-  factory ArchiveMaintenanceEvent.taskCompleted(
-    ArchiveMaintenanceTask task,
-    Map<String, dynamic> result,
-  ) => _MaintenanceTaskCompleted(task, result, DateTime.now());
-  factory ArchiveMaintenanceEvent.taskFailed(
-    ArchiveMaintenanceTask task,
-    String error,
-  ) => _MaintenanceTaskFailed(task, error, DateTime.now());
-}
-
-class _MaintenanceTaskStarted extends ArchiveMaintenanceEvent {
-  final ArchiveMaintenanceTask task;
-  const _MaintenanceTaskStarted(this.task, DateTime timestamp)
-    : super(timestamp);
-}
-
-class _MaintenanceTaskCompleted extends ArchiveMaintenanceEvent {
-  final ArchiveMaintenanceTask task;
-  final Map<String, dynamic> result;
-  const _MaintenanceTaskCompleted(this.task, this.result, DateTime timestamp)
-    : super(timestamp);
-}
-
-class _MaintenanceTaskFailed extends ArchiveMaintenanceEvent {
-  final ArchiveMaintenanceTask task;
-  final String error;
-  const _MaintenanceTaskFailed(this.task, this.error, DateTime timestamp)
-    : super(timestamp);
-}
-
-// Supporting data classes (simplified implementations)
-
-class ArchivePolicy {
-  final String name;
-  final bool enabled;
-  final Map<String, dynamic> conditions;
-  final Map<String, dynamic> actions;
-
-  const ArchivePolicy({
-    required this.name,
-    required this.enabled,
-    required this.conditions,
-    required this.actions,
-  });
-
-  factory ArchivePolicy.olderThan({
-    required String name,
-    required int days,
-    bool requiresInactivity = false,
-  }) => ArchivePolicy(
-    name: name,
-    enabled: true,
-    conditions: {'maxAgeDays': days, 'requiresInactivity': requiresInactivity},
-    actions: {'archive': true},
-  );
-
-  factory ArchivePolicy.largeChats({
-    required String name,
-    required int messageCountThreshold,
-    bool enabled = true,
-  }) => ArchivePolicy(
-    name: name,
-    enabled: enabled,
-    conditions: {'minMessageCount': messageCountThreshold},
-    actions: {'archive': true},
-  );
-
-  factory ArchivePolicy.byContact({
-    required String name,
-    required String contactPattern,
-    bool enabled = true,
-  }) => ArchivePolicy(
-    name: name,
-    enabled: enabled,
-    conditions: {'contactPattern': contactPattern},
-    actions: {'archive': true},
-  );
-
-  bool get isHealthy => enabled; // Simplified
-
-  Map<String, dynamic> toJson() => {
-    'name': name,
-    'enabled': enabled,
-    'conditions': conditions,
-    'actions': actions,
-  };
-
-  factory ArchivePolicy.fromJson(Map<String, dynamic> json) => ArchivePolicy(
-    name: json['name'],
-    enabled: json['enabled'],
-    conditions: Map<String, dynamic>.from(json['conditions']),
-    actions: Map<String, dynamic>.from(json['actions']),
-  );
-}
-
-class EnhancedArchiveSummary {
-  final ArchivedChatSummary summary;
-  final ArchiveBusinessMetadata businessData;
-
-  const EnhancedArchiveSummary(this.summary, this.businessData);
-
-  factory EnhancedArchiveSummary.fromSummary(
-    ArchivedChatSummary summary,
-    ArchiveBusinessMetadata businessData,
-  ) => EnhancedArchiveSummary(summary, businessData);
-}
-
-class ArchiveBusinessMetadata {
-  static ArchiveBusinessMetadata empty() => const ArchiveBusinessMetadata();
-  const ArchiveBusinessMetadata();
-}
-
-class ArchiveValidationResult {
-  final bool isValid;
-  final String? errorMessage;
-  final List<String> warnings;
-
-  const ArchiveValidationResult(this.isValid, this.errorMessage, this.warnings);
-
-  factory ArchiveValidationResult.valid() =>
-      const ArchiveValidationResult(true, null, []);
-}
-
-class StorageCapacityCheck {
-  final bool hasCapacity;
-  final int currentSize;
-  final int maxSize;
-
-  const StorageCapacityCheck(this.hasCapacity, this.currentSize, this.maxSize);
-}
-
-class RestoreConflictCheck {
-  final bool hasConflicts;
-  final List<String> warnings;
-
-  const RestoreConflictCheck(this.hasConflicts, this.warnings);
-}
-
-class ArchivePolicyResult {
-  final List<ArchivePolicyApplication> applications;
-  final int totalChatsProcessed;
-  final int totalChatsArchived;
-  final int totalErrors;
-  final bool dryRun;
-  final DateTime appliedAt;
-
-  const ArchivePolicyResult({
-    required this.applications,
-    required this.totalChatsProcessed,
-    required this.totalChatsArchived,
-    required this.totalErrors,
-    required this.dryRun,
-    required this.appliedAt,
-  });
-
-  factory ArchivePolicyResult.empty() => ArchivePolicyResult(
-    applications: [],
-    totalChatsProcessed: 0,
-    totalChatsArchived: 0,
-    totalErrors: 0,
-    dryRun: true,
-    appliedAt: DateTime.now(),
-  );
-}
-
-class ArchivePolicyApplication {
-  final String policyName;
-  final int chatsProcessed;
-  final int chatsArchived;
-  final List<String> errors;
-
-  const ArchivePolicyApplication({
-    required this.policyName,
-    required this.chatsProcessed,
-    required this.chatsArchived,
-    required this.errors,
-  });
-
-  factory ArchivePolicyApplication.empty(String policyName) =>
-      ArchivePolicyApplication(
-        policyName: policyName,
-        chatsProcessed: 0,
-        chatsArchived: 0,
-        errors: [],
-      );
-}
-
-enum ArchiveMaintenanceTask {
-  cleanupOrphaned,
-  rebuildIndex,
-  compressLarge,
-  removeExpired,
-}
-
-extension ArchiveMaintenanceTaskExt on ArchiveMaintenanceTask {
-  String get name => toString().split('.').last;
-}
-
-class ArchiveMaintenanceResult {
-  final List<ArchiveMaintenanceTask> tasksPerformed;
-  final Map<String, dynamic> results;
-  final int totalSpaceFreed;
-  final int totalOperationsPerformed;
-  final List<String> errors;
-  final DateTime performedAt;
-  final int durationMs;
-
-  const ArchiveMaintenanceResult({
-    required this.tasksPerformed,
-    required this.results,
-    required this.totalSpaceFreed,
-    required this.totalOperationsPerformed,
-    required this.errors,
-    required this.performedAt,
-    required this.durationMs,
-  });
-
-  factory ArchiveMaintenanceResult.empty() => ArchiveMaintenanceResult(
-    tasksPerformed: [],
-    results: {},
-    totalSpaceFreed: 0,
-    totalOperationsPerformed: 0,
-    errors: [],
-    performedAt: DateTime.now(),
-    durationMs: 0,
-  );
-}
-
-enum ArchiveAnalyticsScope { all, recent, policies }
-
-class ArchiveAnalytics {
-  final ArchiveStatistics statistics;
-  final ArchiveBusinessMetrics businessMetrics;
-  final ArchivePolicyMetrics policyMetrics;
-  final ArchivePerformanceTrends performanceTrends;
-  final ArchiveStorageMetrics storageMetrics;
-  final DateTime generatedAt;
-  final ArchiveAnalyticsScope scope;
-
-  const ArchiveAnalytics({
-    required this.statistics,
-    required this.businessMetrics,
-    required this.policyMetrics,
-    required this.performanceTrends,
-    required this.storageMetrics,
-    required this.generatedAt,
-    required this.scope,
-  });
-
-  factory ArchiveAnalytics.empty() => ArchiveAnalytics(
-    statistics: ArchiveStatistics.empty(),
-    businessMetrics: ArchiveBusinessMetrics.empty(),
-    policyMetrics: ArchivePolicyMetrics.empty(),
-    performanceTrends: ArchivePerformanceTrends.empty(),
-    storageMetrics: ArchiveStorageMetrics.empty(),
-    generatedAt: DateTime.now(),
-    scope: ArchiveAnalyticsScope.all,
-  );
-}
-
-class ArchiveBusinessMetrics {
-  static ArchiveBusinessMetrics empty() => const ArchiveBusinessMetrics();
-  const ArchiveBusinessMetrics();
-}
-
-class ArchivePolicyMetrics {
-  static ArchivePolicyMetrics empty() => const ArchivePolicyMetrics();
-  const ArchivePolicyMetrics();
-}
-
-class ArchivePerformanceTrends {
-  static ArchivePerformanceTrends empty() => const ArchivePerformanceTrends();
-  const ArchivePerformanceTrends();
-}
-
-class ArchiveStorageMetrics {
-  static ArchiveStorageMetrics empty() => const ArchiveStorageMetrics();
-  const ArchiveStorageMetrics();
-}
-
-enum ArchiveHealthLevel { healthy, warning, critical }
-
-class ArchiveHealthStatus {
-  final ArchiveHealthLevel level;
-  final List<ArchiveHealthIssue> issues;
-  final DateTime checkedAt;
-  final ArchiveStatistics? statistics;
-
-  const ArchiveHealthStatus({
-    required this.level,
-    required this.issues,
-    required this.checkedAt,
-    this.statistics,
-  });
-
-  factory ArchiveHealthStatus.unhealthy(String reason) => ArchiveHealthStatus(
-    level: ArchiveHealthLevel.critical,
-    issues: [ArchiveHealthIssue.generic(reason)],
-    checkedAt: DateTime.now(),
-  );
-}
-
-enum ArchiveIssueSeverity { info, warning, critical }
-
-class ArchiveHealthIssue {
-  final ArchiveIssueSeverity severity;
-  final String description;
-  final String? recommendation;
-
-  const ArchiveHealthIssue({
-    required this.severity,
-    required this.description,
-    this.recommendation,
-  });
-
-  factory ArchiveHealthIssue.storageOverLimit() => const ArchiveHealthIssue(
-    severity: ArchiveIssueSeverity.critical,
-    description: 'Archive storage over limit',
-    recommendation: 'Clean up old archives or increase storage limit',
-  );
-
-  factory ArchiveHealthIssue.performanceDegraded() => const ArchiveHealthIssue(
-    severity: ArchiveIssueSeverity.warning,
-    description: 'Archive performance degraded',
-    recommendation: 'Run maintenance tasks to optimize performance',
-  );
-
-  factory ArchiveHealthIssue.policyProblems(int count) => ArchiveHealthIssue(
-    severity: ArchiveIssueSeverity.warning,
-    description: '$count archive policies have issues',
-    recommendation: 'Review and fix policy configurations',
-  );
-
-  factory ArchiveHealthIssue.generic(String description) => ArchiveHealthIssue(
-    severity: ArchiveIssueSeverity.critical,
-    description: description,
-  );
 }
