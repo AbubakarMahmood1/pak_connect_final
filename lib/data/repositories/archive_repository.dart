@@ -13,8 +13,10 @@ import '../../core/models/archive_models.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/database/database_helper.dart';
-import '../../core/compression/compression_util.dart';
 import '../../core/compression/compression_config.dart';
+import '../../core/compression/compression_util.dart';
+import 'archive_data_helper.dart';
+import 'archive_storage_utils.dart';
 
 /// Repository for managing archived chats with SQLite and FTS5 search
 /// Singleton pattern to prevent multiple instances and redundant initialization
@@ -39,8 +41,12 @@ class ArchiveRepository implements IArchiveRepository {
   ArchiveRepository._internal({
     MessageRepository? messageRepository,
     ChatsRepository? chatsRepository,
+    ArchiveDataHelper? dataHelper,
+    ArchiveStorageUtils? storageUtils,
   }) : _messageRepository = messageRepository ?? MessageRepository(),
-       _chatsRepository = chatsRepository ?? ChatsRepository() {
+       _chatsRepository = chatsRepository ?? ChatsRepository(),
+       _dataHelper = dataHelper ?? const ArchiveDataHelper(),
+       _storageUtils = storageUtils ?? ArchiveStorageUtils() {
     _logger.info('✅ ArchiveRepository singleton instance created');
   }
 
@@ -50,10 +56,9 @@ class ArchiveRepository implements IArchiveRepository {
   // Dependencies (injected via constructor for testability)
   final MessageRepository _messageRepository;
   final ChatsRepository _chatsRepository;
+  final ArchiveDataHelper _dataHelper;
+  final ArchiveStorageUtils _storageUtils;
 
-  // Performance tracking
-  final Map<String, Duration> _operationTimes = {};
-  int _operationsCount = 0;
   bool _isInitialized = false;
 
   /// Initialize repository (idempotent - safe to call multiple times)
@@ -125,50 +130,30 @@ class ArchiveRepository implements IArchiveRepository {
         customData: customData,
       );
 
-      // Apply compression if needed
       ArchivedChat finalArchive = archivedChat;
       if (compressLargeArchives && archivedChat.estimatedSize > 10240) {
-        // 10KB threshold
         finalArchive = await _compressArchive(archivedChat);
-      } else {
-        _logger.info(
-          'Archive ${archivedChat.id} size (${archivedChat.estimatedSize} bytes) below 10KB threshold - compression skipped',
-        );
       }
 
       // Store the archive in SQLite transaction
       final db = await DatabaseHelper.database;
       await db.transaction((txn) async {
         // Insert archived chat
-        await txn.insert('archived_chats', {
-          'archive_id': finalArchive.id,
-          'original_chat_id': chatId,
-          'contact_name': finalArchive.contactName,
-          'contact_public_key': chatItem.contactPublicKey,
-          'archived_at': finalArchive.archivedAt.millisecondsSinceEpoch,
-          'last_message_time':
-              finalArchive.lastMessageTime?.millisecondsSinceEpoch,
-          'message_count': finalArchive.messageCount,
-          'archive_reason': archiveReason,
-          'estimated_size': finalArchive.estimatedSize,
-          'is_compressed': finalArchive.isCompressed ? 1 : 0,
-          'compression_ratio': finalArchive.compressionInfo?.compressionRatio,
-          'metadata_json': jsonEncode(finalArchive.metadata),
-          'compression_info_json': finalArchive.compressionInfo != null
-              ? jsonEncode(finalArchive.compressionInfo!.toJson())
-              : null,
-          'custom_data_json': customData != null
-              ? jsonEncode(customData)
-              : null,
-          'created_at': DateTime.now().millisecondsSinceEpoch,
-          'updated_at': DateTime.now().millisecondsSinceEpoch,
-        });
+        await txn.insert(
+          'archived_chats',
+          _dataHelper.archivedChatToMap(
+            finalArchive,
+            chatId,
+            archiveReason,
+            customData,
+          ),
+        );
 
         // Insert archived messages with searchable text for FTS5
         for (final message in finalArchive.messages) {
           await txn.insert(
             'archived_messages',
-            _archivedMessageToMap(message, finalArchive.id),
+            _dataHelper.archivedMessageToMap(message, finalArchive.id),
           );
         }
 
@@ -181,7 +166,7 @@ class ArchiveRepository implements IArchiveRepository {
       await _messageRepository.clearMessages(chatId);
 
       final operationTime = DateTime.now().difference(startTime);
-      _recordOperationTime('archive', operationTime);
+      _storageUtils.recordOperationTime('archive', operationTime);
 
       final warnings = <String>[];
       if (finalArchive.isCompressed) {
@@ -683,17 +668,24 @@ class ArchiveRepository implements IArchiveRepository {
 
       // Performance stats
       final performanceStats = ArchivePerformanceStats(
-        averageArchiveTime: _operationTimes['archive'] ?? Duration.zero,
-        averageRestoreTime: _operationTimes['restore'] ?? Duration.zero,
-        averageSearchTime: _operationTimes['search'] ?? Duration.zero,
+        averageArchiveTime:
+            _storageUtils.operationTimes['archive'] ?? Duration.zero,
+        averageRestoreTime:
+            _storageUtils.operationTimes['restore'] ?? Duration.zero,
+        averageSearchTime:
+            _storageUtils.operationTimes['search'] ?? Duration.zero,
         averageMemoryUsage: 0.0, // No in-memory cache with SQLite
-        operationsCount: _operationsCount,
+        operationsCount: _storageUtils.operationsCount,
         operationCounts: {
-          'archive': _operationTimes.containsKey('archive') ? 1 : 0,
-          'restore': _operationTimes.containsKey('restore') ? 1 : 0,
-          'search': _operationTimes.containsKey('search') ? 1 : 0,
+          'archive': _storageUtils.operationTimes.containsKey('archive')
+              ? 1
+              : 0,
+          'restore': _storageUtils.operationTimes.containsKey('restore')
+              ? 1
+              : 0,
+          'search': _storageUtils.operationTimes.containsKey('search') ? 1 : 0,
         },
-        recentOperationTimes: _operationTimes.values.toList(),
+        recentOperationTimes: _storageUtils.operationTimes.values.toList(),
       );
 
       return ArchiveStatistics(
@@ -864,8 +856,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   void _recordOperationTime(String operation, Duration time) {
-    _operationTimes[operation] = time;
-    _operationsCount++;
+    _storageUtils.recordOperationTime(operation, time);
   }
 
   List<ArchivedMessage> _applyMessageTypeFilter(
@@ -896,59 +887,7 @@ class ArchiveRepository implements IArchiveRepository {
     ArchivedMessage message,
     String archiveId,
   ) {
-    // Determine media type from attachments
-    String? mediaType;
-    if (message.attachments.isNotEmpty) {
-      final firstAttachment = message.attachments.first;
-      mediaType = firstAttachment.type.toString().split('.').last;
-    }
-
-    return {
-      'id': message.id,
-      'archive_id': archiveId,
-      'original_message_id': message.id, // Use message id as original
-      'chat_id': message.chatId,
-      'content': message.content,
-      'timestamp': message.timestamp.millisecondsSinceEpoch,
-      'is_from_me': message.isFromMe ? 1 : 0,
-      'status': message.status.index,
-      'reply_to_message_id': message.replyToMessageId,
-      'thread_id': message.threadId,
-      'is_starred': message.isStarred ? 1 : 0,
-      'is_forwarded': message.isForwarded ? 1 : 0,
-      'priority': message.priority.index,
-      'edited_at': message.editedAt?.millisecondsSinceEpoch,
-      'original_content': message.originalContent,
-      'has_media': message.attachments.isNotEmpty ? 1 : 0,
-      'media_type': mediaType,
-      'archived_at': message.archivedAt.millisecondsSinceEpoch,
-      'original_timestamp': message.originalTimestamp.millisecondsSinceEpoch,
-      'metadata_json': message.metadata != null && message.metadata!.isNotEmpty
-          ? jsonEncode(message.metadata)
-          : null,
-      'delivery_receipt_json': message.deliveryReceipt != null
-          ? jsonEncode(message.deliveryReceipt!.toJson())
-          : null,
-      'read_receipt_json': message.readReceipt != null
-          ? jsonEncode(message.readReceipt!.toJson())
-          : null,
-      'reactions_json': message.reactions.isNotEmpty
-          ? jsonEncode(message.reactions.map((r) => r.toJson()).toList())
-          : null,
-      'attachments_json': message.attachments.isNotEmpty
-          ? jsonEncode(message.attachments.map((a) => a.toJson()).toList())
-          : null,
-      'encryption_info_json': message.encryptionInfo != null
-          ? jsonEncode(message.encryptionInfo!.toJson())
-          : null,
-      'archive_metadata_json': jsonEncode(message.archiveMetadata.toJson()),
-      'preserved_state_json':
-          message.preservedState != null && message.preservedState!.isNotEmpty
-          ? jsonEncode(message.preservedState)
-          : null,
-      'searchable_text': message.searchableText, // KEY for FTS5!
-      'created_at': DateTime.now().millisecondsSinceEpoch,
-    };
+    return _dataHelper.archivedMessageToMap(message, archiveId);
   }
 
   ArchivedMessage _mapToArchivedMessage(Map<String, dynamic> row) {

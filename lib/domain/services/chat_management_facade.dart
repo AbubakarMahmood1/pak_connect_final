@@ -1,37 +1,24 @@
-/// ChatManagementFacade - backward-compatible wrapper for extracted chat services
-/// Delegates to ArchiveService, SearchService, and PinningService
-/// 100% backward compatible - zero consumer code changes required
-
 import 'package:logging/logging.dart';
 import '../../core/models/archive_models.dart';
-import '../../core/services/archive_service.dart';
-import '../../core/services/search_service.dart';
-import '../../core/services/pinning_service.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'chat_management_service.dart';
 import 'archive_search_service.dart';
+import 'chat_management_models.dart';
 
 /// Facade providing backward-compatible ChatManagementService interface
-/// Internally delegates to extracted services (ArchiveService, SearchService, PinningService)
+/// Internally delegates to ChatManagementService and keeps APIs stable
 class ChatManagementFacade implements IChatManagement {
   static final _logger = Logger('ChatManagementFacade');
 
-  // Sub-services (allow dependency injection for testing)
-  final ArchiveService _archiveService;
-  final SearchService _searchService;
-  final PinningService _pinningService;
+  final ChatManagementService _chatManagementService;
 
   bool _initialized = false;
   Future<void>? _initializationFuture;
 
-  ChatManagementFacade({
-    ArchiveService? archiveService,
-    SearchService? searchService,
-    PinningService? pinningService,
-  }) : _archiveService = archiveService ?? ArchiveService(),
-       _searchService = searchService ?? SearchService(),
-       _pinningService = pinningService ?? PinningService() {
-    _logger.info('✅ ChatManagementFacade created (lazy initialization)');
+  ChatManagementFacade({ChatManagementService? chatManagementService})
+    : _chatManagementService =
+          chatManagementService ?? ChatManagementService.instance {
+    _logger.info('✅ ChatManagementFacade created (thin orchestrator)');
   }
 
   /// Ensure all services are initialized
@@ -39,9 +26,7 @@ class ChatManagementFacade implements IChatManagement {
     if (_initialized) return;
 
     _initializationFuture ??= () async {
-      await _archiveService.loadArchivedChats();
-      await _searchService.initialize();
-      await _pinningService.initialize();
+      await _chatManagementService.initialize();
 
       _initialized = true;
       _logger.info('✅ ChatManagementFacade services initialized');
@@ -65,15 +50,7 @@ class ChatManagementFacade implements IChatManagement {
     bool useEnhancedArchive = true,
   }) async {
     await _ensureInitialized();
-
-    if (_archiveService.isArchived(chatId)) {
-      return _archiveService.unarchiveChat(
-        chatId,
-        useEnhancedArchive: useEnhancedArchive,
-      );
-    }
-
-    return _archiveService.archiveChat(
+    return _chatManagementService.toggleChatArchive(
       chatId,
       reason: reason,
       useEnhancedArchive: useEnhancedArchive,
@@ -81,10 +58,11 @@ class ChatManagementFacade implements IChatManagement {
   }
 
   @override
-  bool isChatArchived(String chatId) => _archiveService.isArchived(chatId);
+  bool isChatArchived(String chatId) =>
+      _chatManagementService.isChatArchived(chatId);
 
   @override
-  int get archivedChatsCount => _archiveService.archivedChatsCount;
+  int get archivedChatsCount => _chatManagementService.archivedChatsCount;
 
   @override
   Future<BatchArchiveResult> batchArchiveChats({
@@ -93,7 +71,7 @@ class ChatManagementFacade implements IChatManagement {
     bool useEnhancedArchive = true,
   }) async {
     await _ensureInitialized();
-    return _archiveService.batchArchiveChats(
+    return _chatManagementService.batchArchiveChats(
       chatIds: chatIds,
       reason: reason,
       useEnhancedArchive: useEnhancedArchive,
@@ -105,32 +83,33 @@ class ChatManagementFacade implements IChatManagement {
   @override
   Future<ChatOperationResult> toggleChatPin(String chatId) async {
     await _ensureInitialized();
-    return _pinningService.toggleChatPin(chatId);
+    return _chatManagementService.toggleChatPin(chatId);
   }
 
   @override
-  bool isChatPinned(String chatId) => _pinningService.isChatPinned(chatId);
+  bool isChatPinned(String chatId) =>
+      _chatManagementService.isChatPinned(chatId);
 
   @override
-  int get pinnedChatsCount => _pinningService.pinnedChatsCount;
+  int get pinnedChatsCount => _chatManagementService.pinnedChatsCount;
 
   @override
   Future<ChatOperationResult> toggleMessageStar(String messageId) async {
     await _ensureInitialized();
-    return _pinningService.toggleMessageStar(messageId);
+    return _chatManagementService.toggleMessageStar(messageId);
   }
 
   @override
   bool isMessageStarred(String messageId) =>
-      _pinningService.isMessageStarred(messageId);
+      _chatManagementService.isMessageStarred(messageId);
 
   @override
-  int get starredMessagesCount => _pinningService.starredMessagesCount;
+  int get starredMessagesCount => _chatManagementService.starredMessagesCount;
 
   @override
   Future<List<EnhancedMessage>> getStarredMessages() async {
     await _ensureInitialized();
-    return _pinningService.getStarredMessages();
+    return _chatManagementService.getStarredMessages();
   }
 
   // ========================= SEARCH METHODS =========================
@@ -143,7 +122,7 @@ class ChatManagementFacade implements IChatManagement {
     int limit = 50,
   }) async {
     await _ensureInitialized();
-    return _searchService.searchMessages(
+    return _chatManagementService.searchMessages(
       query: query,
       chatId: chatId,
       filter: filter,
@@ -160,7 +139,7 @@ class ChatManagementFacade implements IChatManagement {
     int limit = 50,
   }) async {
     await _ensureInitialized();
-    return _searchService.searchMessagesUnified(
+    return _chatManagementService.searchMessagesUnified(
       query: query,
       chatId: chatId,
       filter: filter,
@@ -178,7 +157,7 @@ class ChatManagementFacade implements IChatManagement {
     bool includeArchives = true,
   }) async {
     await _ensureInitialized();
-    return _searchService.performAdvancedSearch(
+    return _chatManagementService.performAdvancedSearch(
       query: query,
       filter: filter,
       options: options,
@@ -189,12 +168,12 @@ class ChatManagementFacade implements IChatManagement {
 
   @override
   List<String> getMessageSearchHistory() =>
-      _searchService.getMessageSearchHistory();
+      _chatManagementService.getMessageSearchHistory();
 
   @override
   Future<void> clearMessageSearchHistory() async {
     await _ensureInitialized();
-    await _searchService.clearMessageSearchHistory();
+    await _chatManagementService.clearMessageSearchHistory();
   }
 
   // ========================= LIFECYCLE =========================
@@ -209,11 +188,10 @@ class ChatManagementFacade implements IChatManagement {
   Future<void> dispose() async {
     if (!_initialized) return;
 
-    await _archiveService.saveArchivedChats();
-    await _searchService.clearMessageSearchHistory();
-    await _searchService.dispose();
-    await _pinningService.dispose();
-
+    // Facade should not tear down the shared ChatManagementService singleton
+    // because other consumers may still be using it.
+    _initializationFuture = null;
+    _initialized = false;
     _logger.info('✅ ChatManagementFacade disposed');
   }
 }
