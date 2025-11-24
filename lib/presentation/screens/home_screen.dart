@@ -1,8 +1,7 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
@@ -25,6 +24,7 @@ import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/services/home_screen_facade.dart';
 import '../../domain/services/chat_management_service.dart';
+import '../controllers/home_screen_controller.dart';
 import '../services/chat_interaction_handler.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
@@ -43,27 +43,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _logger = Logger('HomeScreen');
   late final IChatsRepository _chatsRepository;
   final ChatManagementService _chatManagementService = ChatManagementService();
-  late final HomeScreenFacade _homeScreenFacade;
+  late final HomeScreenController _controller;
   final TextEditingController _searchController = TextEditingController();
 
   // Tab controller for Chats and Relay Queue
   late TabController _tabController;
 
-  List<ChatListItem> _chats = [];
-  bool _isLoading = true;
-  String _searchQuery = '';
-  Timer? _refreshTimer;
-  Timer? _searchDebounceTimer;
+  List<ChatListItem> get _chats => _controller.chats;
+  bool get _isLoading => _controller.isLoading;
+  String get _searchQuery => _controller.searchQuery;
+  Stream<int>? get _unreadCountStream => _controller.unreadCountStream;
   bool _showDiscoveryOverlay = false;
-  StreamSubscription? _peripheralConnectionSubscription;
-  StreamSubscription? _discoveryDataSubscription;
-
-  // Unread count stream
-  Stream<int>? _unreadCountStream;
-  StreamSubscription? _unreadCountSubscription;
-
-  // 🔥 NEW: Global message listener for instant UI updates
-  StreamSubscription<String>? _globalMessageSubscription;
 
   @override
   void initState() {
@@ -73,30 +63,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _tabController.addListener(
       _onTabChanged,
     ); // Listen for tab changes to update FAB
-    _homeScreenFacade = HomeScreenFacade(
-      chatsRepository: _chatsRepository,
-      bleService: ref.read(connectionServiceProvider),
-      chatManagementService: _chatManagementService,
-      context: context,
+    _controller = HomeScreenController(
       ref: ref,
-      interactionHandlerBuilder:
-          ({context, ref, chatsRepository, chatManagementService}) {
-            return ChatInteractionHandler(
-              context: context,
-              ref: ref,
-              chatsRepository: chatsRepository,
-              chatManagementService: chatManagementService,
-            );
-          },
-    );
-    unawaited(_homeScreenFacade.initialize());
-    _initializeServices();
-    _loadChats();
-    _setupPeriodicRefresh();
-    _setupPeripheralConnectionListener();
-    _setupDiscoveryListener();
-    _setupUnreadCountStream();
-    _setupGlobalMessageListener(); // 🔥 NEW: Real-time chat list updates
+      context: context,
+      chatsRepository: _chatsRepository,
+      logger: _logger,
+      chatManagementService: _chatManagementService,
+      homeScreenFacade: HomeScreenFacade(
+        chatsRepository: _chatsRepository,
+        bleService: ref.read(connectionServiceProvider),
+        chatManagementService: _chatManagementService,
+        context: context,
+        ref: ref,
+        enableListCoordinatorInitialization: false,
+        interactionHandlerBuilder:
+            ({context, ref, chatsRepository, chatManagementService}) {
+              return ChatInteractionHandler(
+                context: context,
+                ref: ref,
+                chatsRepository: chatsRepository,
+                chatManagementService: chatManagementService,
+              );
+            },
+      ),
+    )..addListener(_onControllerChanged);
+    _controller.initialize();
   }
 
   void _onTabChanged() {
@@ -106,158 +97,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  Future<void> _initializeServices() async {
-    await _chatManagementService.initialize();
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
   }
 
-  /// Load all chats (full refresh - used on initial load and manual refresh)
-  /// 🎯 For message updates, use _updateSingleChatItem() instead to prevent flicker
-  void _loadChats() async {
-    if (!mounted) return;
+  Future<void> _loadChats() => _controller.loadChats();
 
-    // Only show loading spinner on initial load or when list is empty
-    final showSpinner = _chats.isEmpty;
-    if (showSpinner) {
-      setState(() => _isLoading = true);
-    }
-
-    final nearbyDevices = await _getNearbyDevices();
-
-    // Get discovery data with advertisements
-    final discoveryDataAsync = ref.read(discoveryDataProvider);
-    final discoveryData = discoveryDataAsync.maybeWhen(
-      data: (data) => data,
-      orElse: () => <String, DiscoveredEventArgs>{},
-    );
-
-    final chats = await _chatsRepository.getAllChats(
-      nearbyDevices: nearbyDevices,
-      discoveryData: discoveryData,
-      searchQuery: _searchQuery.isEmpty ? null : _searchQuery,
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _chats = chats;
-      _isLoading = false;
-    });
-
-    // Refresh unread count when chats are loaded
-    _refreshUnreadCount();
-  }
-
-  Future<List<Peripheral>?> _getNearbyDevices() async {
-    final devicesAsync = ref.read(discoveredDevicesProvider);
-    return devicesAsync.maybeWhen(
-      data: (devices) => devices,
-      orElse: () => null,
-    );
-  }
-
-  void _setupPeriodicRefresh() {
-    _refreshTimer = Timer.periodic(Duration(seconds: 10), (_) {
-      if (mounted && !_isLoading) {
-        _loadChats();
-      }
-    });
-  }
-
-  /// 🔥 NEW: Setup global message listener for instant chat list updates
-  /// This listens to ALL incoming messages and triggers an immediate refresh
-  /// 🎯 OPTIMIZED: Updates only the affected chat item to prevent UI flicker
-  void _setupGlobalMessageListener() {
-    try {
-      final bleService = ref.read(connectionServiceProvider);
-
-      _globalMessageSubscription = bleService.receivedMessages.listen((
-        content,
-      ) async {
-        if (!mounted) return;
-
-        _logger.info(
-          '🔔 Global listener: New message received - surgical update to prevent flicker',
-        );
-
-        // 🎯 SURGICAL UPDATE: Only refresh the affected chat, not the entire list
-        await _updateSingleChatItem();
-
-        // Also refresh unread count
-        _refreshUnreadCount();
-      });
-
-      _logger.info(
-        '✅ Global message listener set up for instant surgical updates (no flicker)',
-      );
-    } catch (e) {
-      _logger.warning('⚠️ Failed to set up global message listener: $e');
-      // Not critical - periodic refresh will still work
-    }
-  }
-
-  /// 🎯 OPTIMIZED: Surgical update of single chat item (prevents full list rebuild/flicker)
-  /// Only fetches the most recently updated chat instead of ALL chats
-  Future<void> _updateSingleChatItem() async {
-    if (!mounted) return;
-
-    try {
-      final nearbyDevices = await _getNearbyDevices();
-      final discoveryDataAsync = ref.read(discoveryDataProvider);
-      final discoveryData = discoveryDataAsync.maybeWhen(
-        data: (data) => data,
-        orElse: () => <String, DiscoveredEventArgs>{},
-      );
-
-      // Get fresh list to find the updated chat
-      final updatedChats = await _chatsRepository.getAllChats(
-        nearbyDevices: nearbyDevices,
-        discoveryData: discoveryData,
-        searchQuery: _searchQuery.isEmpty ? null : _searchQuery,
-      );
-
-      if (!mounted || updatedChats.isEmpty) return;
-
-      // Find the chat that was just updated (most recent message)
-      final mostRecentChat =
-          updatedChats.first; // Already sorted by last message time
-
-      // 🎯 SURGICAL UPDATE: Only update this one chat in the list
-      setState(() {
-        final existingIndex = _chats.indexWhere(
-          (c) => c.chatId == mostRecentChat.chatId,
-        );
-
-        if (existingIndex != -1) {
-          // Chat exists - update it in place
-          _chats[existingIndex] = mostRecentChat;
-
-          // Re-sort to move updated chat to top (if needed)
-          _chats.sort((a, b) {
-            // Online chats first
-            if (a.isOnline && !b.isOnline) return -1;
-            if (!a.isOnline && b.isOnline) return 1;
-
-            // Then by last message time
-            final aTime = a.lastMessageTime ?? DateTime(1970);
-            final bTime = b.lastMessageTime ?? DateTime(1970);
-            return bTime.compareTo(aTime);
-          });
-        } else {
-          // New chat - add to top
-          _chats.insert(0, mostRecentChat);
-        }
-      });
-
-      _logger.fine(
-        '🎯 Surgical update completed - only affected chat item rebuilt',
-      );
-    } catch (e) {
-      _logger.warning(
-        '⚠️ Surgical update failed, falling back to full refresh: $e',
-      );
-      // Fallback to full refresh only if surgical update fails
-      _loadChats();
-    }
-  }
+  Future<void> _updateSingleChatItem() => _controller.updateSingleChatItem();
 
   @override
   Widget build(BuildContext context) {
@@ -509,8 +355,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final deduplicatedDevices =
         ref.watch(deduplicatedDevicesProvider).value ?? {};
 
-    // 🎯 Use facade method for single source of truth on connection status
-    final connectionStatus = _homeScreenFacade.determineConnectionStatus(
+    // 🎯 Use controller facade for connection status
+    final connectionStatus = _controller.determineConnectionStatus(
       contactPublicKey: chat.contactPublicKey,
       contactName: chat.contactName,
       currentConnectionInfo: connectionInfo,
@@ -834,93 +680,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(25)),
         ),
         onChanged: (query) {
-          setState(() => _searchQuery = query);
-
-          // Debounce search to prevent excessive calls
-          _searchDebounceTimer?.cancel();
-          _searchDebounceTimer = Timer(Duration(milliseconds: 300), () {
-            if (mounted) _loadChats();
-          });
+          _controller.onSearchChanged(query);
         },
       ),
     );
   }
 
-  void _setupPeripheralConnectionListener() {
-    if (!Platform.isAndroid) return;
-
-    final bleService = ref.read(connectionServiceProvider);
-
-    _peripheralConnectionSubscription = bleService.peripheralConnectionChanges
-        .distinct(
-          (prev, next) =>
-              prev.central.uuid == next.central.uuid &&
-              prev.state == next.state,
-        )
-        .where(
-          (event) =>
-              bleService.isPeripheralMode &&
-              event.state == ble.ConnectionState.connected,
-        )
-        .listen((event) {
-          _handleIncomingPeripheralConnection(event.central);
-        });
-
-    bleService.connectionInfo.listen((info) {
-      if (mounted) {
-        setState(() {});
-      }
-    });
-  }
-
-  void _setupDiscoveryListener() {
-    // Listen to real-time discovery data changes
-    _discoveryDataSubscription = ref
-        .read(connectionServiceProvider)
-        .discoveryData
-        .listen((discoveryData) {
-          if (mounted && !_isLoading) {
-            // Trigger immediate refresh when discovery data changes
-            _loadChats();
-          }
-        });
-  }
-
-  void _handleIncomingPeripheralConnection(Central central) {
-    if (!mounted) return;
-
-    _loadChats();
-  }
-
   void _onDeviceSelected(Peripheral device) async {
     setState(() => _showDiscoveryOverlay = false);
-
     _logger.info('Connecting to device: ${device.uuid.toString().shortId(8)}');
-
-    // The connection will be handled by the BLE service
-    // The chat list will automatically update to show connection status
-    // User can tap the chat when they see it's connected
-
-    // Refresh the chat list after a short delay
-    Future.delayed(Duration(seconds: 2), () {
-      if (mounted) {
-        _loadChats();
-      }
-    });
+    await _controller.handleDeviceSelected(device);
   }
 
   void _openChat(ChatListItem chat) async {
-    await _homeScreenFacade.openChat(chat);
-    if (mounted) {
-      _loadChats();
-    }
+    await _controller.openChat(chat);
   }
 
   void _showSearch() {
     setState(() {
       if (_searchQuery.isEmpty) {
-        _searchQuery = ' '; // Show search bar
-        _homeScreenFacade.showSearch();
+        _controller.onSearchChanged(' ');
       } else {
         _clearSearch();
       }
@@ -929,17 +708,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _clearSearch() {
     _searchController.clear();
-    setState(() => _searchQuery = '');
-    _homeScreenFacade.clearSearch();
-    _loadChats();
+    _controller.clearSearch();
   }
 
   void _showSettings() {
-    _homeScreenFacade.openSettings();
+    _controller.openSettings();
   }
 
   void _openProfile() {
-    _homeScreenFacade.openProfile();
+    _controller.openProfile();
   }
 
   void _editDisplayName() async {
@@ -949,7 +726,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Check mounted after async
     if (!mounted) return;
 
-    await _homeScreenFacade.editDisplayName(currentName);
+    await _controller.editDisplayName(currentName);
   }
 
   String _formatTime(DateTime time) {
@@ -969,20 +746,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  void _setupUnreadCountStream() {
-    // Create a simple periodic stream that updates unread count
-    _unreadCountStream = Stream.periodic(Duration(seconds: 3), (_) {
-      return _chatsRepository.getTotalUnreadCount();
-    }).asyncMap((futureCount) async => await futureCount);
-  }
-
-  void _refreshUnreadCount() async {
-    // Force refresh the unread count when chats are updated
-    setState(() {
-      _setupUnreadCountStream();
-    });
-  }
-
   void _handleMenuAction(HomeMenuAction action) {
     switch (action) {
       case HomeMenuAction.openProfile:
@@ -1000,28 +763,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  void _openContacts() => _homeScreenFacade.openContacts();
+  void _openContacts() => _controller.openContacts();
 
-  void _openArchives() => _homeScreenFacade.openArchives();
+  void _openArchives() => _controller.openArchives();
 
   Future<bool> _showArchiveConfirmation(ChatListItem chat) =>
-      _homeScreenFacade.showArchiveConfirmation(chat);
+      _controller.showArchiveConfirmation(chat);
 
   Future<void> _archiveChat(ChatListItem chat) async {
-    await _homeScreenFacade.archiveChat(chat);
-    if (mounted) {
-      _loadChats();
-    }
+    await _controller.archiveChat(chat);
   }
 
   Future<bool> _showDeleteConfirmation(ChatListItem chat) =>
-      _homeScreenFacade.showDeleteConfirmation(chat);
+      _controller.showDeleteConfirmation(chat);
 
   Future<void> _deleteChat(ChatListItem chat) async {
-    await _homeScreenFacade.deleteChat(chat);
-    if (mounted) {
-      _loadChats();
-    }
+    await _controller.deleteChat(chat);
   }
 
   void _showChatContextMenu(ChatListItem chat) {
@@ -1123,25 +880,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _toggleChatPin(ChatListItem chat) async {
-    await _homeScreenFacade.toggleChatPin(chat);
-    if (mounted) {
-      _loadChats();
-    }
+    await _controller.toggleChatPin(chat);
   }
 
   @override
   void dispose() {
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
-    _refreshTimer?.cancel();
-    _searchDebounceTimer?.cancel();
-    _unreadCountSubscription?.cancel();
-    _discoveryDataSubscription?.cancel();
-    _globalMessageSubscription?.cancel(); // 🔥 Clean up global message listener
     _searchController.dispose();
-    _peripheralConnectionSubscription?.cancel();
-    _chatManagementService.dispose();
-    unawaited(_homeScreenFacade.dispose());
+    _controller
+      ..removeListener(_onControllerChanged)
+      ..dispose();
     super.dispose();
   }
 }

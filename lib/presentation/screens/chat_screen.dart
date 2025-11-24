@@ -5,6 +5,7 @@ import '../../core/models/connection_info.dart';
 import '../../core/models/security_state.dart';
 import '../../domain/entities/message.dart';
 import '../controllers/chat_screen_controller.dart';
+import '../models/chat_screen_config.dart';
 import '../models/chat_ui_state.dart';
 import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
