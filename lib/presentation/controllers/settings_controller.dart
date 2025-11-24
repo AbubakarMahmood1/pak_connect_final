@@ -242,8 +242,9 @@ class SettingsController extends ChangeNotifier {
   }
 
   Future<StorageInfo> getStorageInfo() async {
-    if (_isDisposed)
+    if (_isDisposed) {
       return StorageInfo(exists: false, sizeMB: '0.00', sizeKB: '0.00');
+    }
     final sizeInfo = await DatabaseHelper.getDatabaseSize();
     return StorageInfo(
       exists: sizeInfo['exists'] ?? false,
