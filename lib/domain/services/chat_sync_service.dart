@@ -183,6 +183,7 @@ class ChatSyncService {
         );
       }
 
+      bool archiveHasMore = false;
       if (includeArchives) {
         try {
           final archiveFilter = _convertToArchiveFilter(filter, chatId);
@@ -192,6 +193,7 @@ class ChatSyncService {
             limit: limit,
           );
           archiveResults = archiveSearchResult.messages;
+          archiveHasMore = archiveSearchResult.searchResult.hasMore;
         } catch (e) {
           _logger.warning('Archive search failed: $e');
         }
@@ -201,34 +203,44 @@ class ChatSyncService {
       final totalArchiveResults = archiveResults.length;
       final totalResults = totalLiveResults + totalArchiveResults;
 
+      var limitedLiveResults = filteredLiveResults;
+      var limitedArchiveResults = archiveResults;
+
       if (totalResults > limit) {
         final liveLimit = ((totalLiveResults / totalResults) * limit).round();
         final archiveLimit = limit - liveLimit;
 
-        if (filteredLiveResults.length > liveLimit) {
-          filteredLiveResults = filteredLiveResults.take(liveLimit).toList();
+        if (limitedLiveResults.length > liveLimit) {
+          limitedLiveResults = limitedLiveResults.take(liveLimit).toList();
         }
-        if (archiveResults.length > archiveLimit) {
-          archiveResults = archiveResults.take(archiveLimit).toList();
+        if (limitedArchiveResults.length > archiveLimit) {
+          limitedArchiveResults = limitedArchiveResults
+              .take(archiveLimit)
+              .toList();
         }
       }
 
-      final liveResultsByChat = _groupResultsByChat(filteredLiveResults);
-      final archiveResultsByChat = _groupArchiveResultsByChat(archiveResults);
+      final liveResultsByChat = _groupResultsByChat(limitedLiveResults);
+      final archiveResultsByChat = _groupArchiveResultsByChat(
+        limitedArchiveResults,
+      );
 
       final searchTime = DateTime.now().difference(startTime);
 
+      final liveTrimmed = totalLiveResults > limitedLiveResults.length;
+      final archiveTrimmed = totalArchiveResults > limitedArchiveResults.length;
+      final hasMore = liveTrimmed || archiveTrimmed || archiveHasMore;
+
       return UnifiedSearchResult(
-        liveResults: filteredLiveResults,
-        archiveResults: archiveResults,
+        liveResults: limitedLiveResults,
+        archiveResults: limitedArchiveResults,
         liveResultsByChat: liveResultsByChat,
         archiveResultsByChat: archiveResultsByChat,
         query: query,
-        totalLiveResults: filteredLiveResults.length,
-        totalArchiveResults: archiveResults.length,
+        totalLiveResults: limitedLiveResults.length,
+        totalArchiveResults: limitedArchiveResults.length,
         searchTime: searchTime,
-        hasMore:
-            totalResults < (liveResults.length + (includeArchives ? 1000 : 0)),
+        hasMore: hasMore,
         includeArchives: includeArchives,
       );
     } catch (e) {
