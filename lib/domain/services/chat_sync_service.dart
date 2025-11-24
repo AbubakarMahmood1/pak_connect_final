@@ -119,6 +119,7 @@ class ChatSyncService {
         results = _applyMessageSearchFilter(results, filter);
       }
 
+      final totalMatched = results.length;
       if (results.length > limit) {
         results = results.take(limit).toList();
       }
@@ -132,7 +133,7 @@ class ChatSyncService {
         query: query,
         totalResults: results.length,
         searchTime: searchTime,
-        hasMore: allMessages.length > limit,
+        hasMore: totalMatched > limit,
       );
     } catch (e) {
       _logger.severe('Unified message search failed: $e');
