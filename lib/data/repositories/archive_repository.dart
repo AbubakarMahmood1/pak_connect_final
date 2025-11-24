@@ -158,7 +158,7 @@ class ArchiveRepository implements IArchiveRepository {
         }
 
         // Delete the chat from chats table (it's now in archived_chats)
-        await txn.delete('chats', where: 'id = ?', whereArgs: [chatId]);
+        await txn.delete('chats', where: 'chat_id = ?', whereArgs: [chatId]);
         // FTS5 index is automatically updated via triggers!
       });
 

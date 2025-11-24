@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/repositories/archive_repository.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/message_repository.dart';
+import '../../core/interfaces/i_archive_repository.dart';
+import '../../core/interfaces/i_chats_repository.dart';
+import '../../core/interfaces/i_message_repository.dart';
 import '../entities/archived_chat.dart';
 import '../entities/chat_list_item.dart';
 import '../entities/enhanced_message.dart';
@@ -18,18 +18,18 @@ import 'chat_sync_service.dart';
 class ChatLifecycleService {
   final _logger = Logger('ChatLifecycleService');
 
-  final ChatsRepository _chatsRepository;
-  final MessageRepository _messageRepository;
-  final ArchiveRepository _archiveRepository;
+  final IChatsRepository _chatsRepository;
+  final IMessageRepository _messageRepository;
+  final IArchiveRepository _archiveRepository;
   final ArchiveManagementService _archiveManagementService;
   final ChatCacheState _cacheState;
   final ChatNotificationService _notificationService;
   final ChatSyncService _syncService;
 
   ChatLifecycleService({
-    required ChatsRepository chatsRepository,
-    required MessageRepository messageRepository,
-    required ArchiveRepository archiveRepository,
+    required IChatsRepository chatsRepository,
+    required IMessageRepository messageRepository,
+    required IArchiveRepository archiveRepository,
     required ArchiveManagementService archiveManagementService,
     required ChatCacheState cacheState,
     required ChatNotificationService notificationService,
