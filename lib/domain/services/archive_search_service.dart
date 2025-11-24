@@ -10,6 +10,12 @@ import '../../core/interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../core/models/archive_models.dart';
+import 'archive_search_indexing.dart';
+import 'archive_search_query_builder.dart';
+import 'archive_search_pagination.dart';
+import 'archive_search_models.dart';
+
+export 'archive_search_models.dart';
 
 /// Advanced search service for archived chats and messages with full-text capabilities
 /// Singleton pattern to prevent multiple service instances
@@ -26,9 +32,21 @@ class ArchiveSearchService {
   }
 
   /// Private constructor for singleton
-  ArchiveSearchService._internal({IArchiveRepository? archiveRepository})
-    : _archiveRepository =
-          archiveRepository ?? GetIt.instance<IArchiveRepository>() {
+  ArchiveSearchService._internal({
+    IArchiveRepository? archiveRepository,
+    ArchiveSearchIndexing? indexing,
+    ArchiveSearchQueryBuilder? queryBuilder,
+    ArchiveSearchPagination? pagination,
+  }) : _archiveRepository =
+           archiveRepository ?? GetIt.instance<IArchiveRepository>(),
+       _indexing =
+           indexing ??
+           ArchiveSearchIndexing(
+             archiveRepository:
+                 archiveRepository ?? GetIt.instance<IArchiveRepository>(),
+           ),
+       _queryBuilder = queryBuilder ?? ArchiveSearchQueryBuilder(),
+       _pagination = pagination ?? ArchiveSearchPagination() {
     _logger.info('✅ ArchiveSearchService singleton instance created');
   }
 
@@ -37,6 +55,9 @@ class ArchiveSearchService {
 
   // Dependencies (injected for testability)
   final IArchiveRepository _archiveRepository;
+  final ArchiveSearchIndexing _indexing;
+  final ArchiveSearchQueryBuilder _queryBuilder;
+  final ArchiveSearchPagination _pagination;
 
   // Storage keys
   static const String _searchHistoryKey = 'archive_search_history_v2';
@@ -44,9 +65,7 @@ class ArchiveSearchService {
   static const String _searchAnalyticsKey = 'archive_search_analytics_v2';
   static const String _savedSearchesKey = 'archive_saved_searches_v2';
 
-  // Search index and cache
-  final Map<String, Set<String>> _termIndex = {}; // term -> archive IDs
-  final Map<String, Set<String>> _fuzzyIndex = {}; // soundex -> archive IDs
+  // Search cache
   final Map<String, SearchResultCache> _searchCache = {};
   final Map<String, SearchSuggestionCache> _suggestionCache = {};
 
@@ -98,7 +117,7 @@ class ArchiveSearchService {
       await _loadSearchAnalytics();
 
       // Build search indexes
-      await _rebuildSearchIndexes();
+      await _indexing.rebuildIndexes();
 
       _isInitialized = true;
       _logger.info('Archive search service initialized successfully');
@@ -126,8 +145,8 @@ class ArchiveSearchService {
       _logger.info('Starting advanced search: "$query"');
 
       // Parse and normalize query
-      final parsedQuery = _parseSearchQuery(query);
-      final normalizedQuery = _normalizeQuery(parsedQuery);
+      final parsedQuery = _queryBuilder.parse(query);
+      final normalizedQuery = _queryBuilder.normalize(parsedQuery);
 
       // Check cache first
       final cacheKey = _generateSearchCacheKey(
@@ -153,7 +172,7 @@ class ArchiveSearchService {
       _searchUpdatesController.add(ArchiveSearchEvent.started(searchId, query));
 
       // Execute search strategy
-      final searchStrategy = _determineSearchStrategy(
+      final searchStrategy = _queryBuilder.determineStrategy(
         parsedQuery,
         filter,
         options,
@@ -172,17 +191,18 @@ class ArchiveSearchService {
         parsedQuery,
         options,
       );
+      final paginatedResult = _pagination.applyLimit(enhancedResult, limit);
 
       // Build advanced result
       final searchTime = DateTime.now().difference(searchStartTime);
       final advancedResult = AdvancedSearchResult.fromSearchResult(
-        searchResult: enhancedResult,
+        searchResult: paginatedResult,
         query: query,
         parsedQuery: parsedQuery,
         searchTime: searchTime,
         searchStrategy: searchStrategy,
-        suggestions: await _generateSearchSuggestions(query, enhancedResult),
-        analytics: _buildSearchAnalytics(query, enhancedResult, searchTime),
+        suggestions: await _generateSearchSuggestions(query, paginatedResult),
+        analytics: _buildSearchAnalytics(query, paginatedResult, searchTime),
       );
 
       // Cache result
@@ -290,10 +310,13 @@ class ArchiveSearchService {
       _logger.info('Performing fuzzy search: "$query"');
 
       // Generate similar terms using various algorithms
-      final fuzzyTerms = _generateFuzzyTerms(query, similarityThreshold);
+      final fuzzyTerms = _queryBuilder.generateFuzzyTerms(
+        query,
+        similarityThreshold,
+      );
 
       // Build expanded query with fuzzy terms
-      final expandedQuery = _buildFuzzyQuery(query, fuzzyTerms);
+      final expandedQuery = _queryBuilder.buildFuzzyQuery(query, fuzzyTerms);
 
       // Execute search with fuzzy options
       final options = SearchOptions(
@@ -506,7 +529,7 @@ class ArchiveSearchService {
   Future<void> rebuildIndexes() async {
     try {
       _logger.info('Rebuilding search indexes');
-      await _rebuildSearchIndexes();
+      await _indexing.rebuildIndexes();
       _logger.info('Search indexes rebuilt successfully');
     } catch (e) {
       _logger.severe('Failed to rebuild search indexes: $e');
@@ -533,56 +556,6 @@ class ArchiveSearchService {
   }
 
   // Private methods
-
-  ParsedSearchQuery _parseSearchQuery(String query) {
-    // Advanced query parsing with operators, phrases, exclusions
-    final tokens = <String>[];
-    final phrases = <String>[];
-    final excludedTerms = <String>[];
-    final operators = <SearchOperator>[];
-
-    // Simple parsing implementation (would be more sophisticated in real app)
-    final words = query
-        .toLowerCase()
-        .split(' ')
-        .where((w) => w.isNotEmpty)
-        .toList();
-
-    for (final word in words) {
-      if (word.startsWith('-')) {
-        excludedTerms.add(word.substring(1));
-      } else if (word.startsWith('"') && word.endsWith('"')) {
-        phrases.add(word.substring(1, word.length - 1));
-      } else {
-        tokens.add(word);
-      }
-    }
-
-    return ParsedSearchQuery(
-      originalQuery: query,
-      tokens: tokens,
-      phrases: phrases,
-      excludedTerms: excludedTerms,
-      operators: operators,
-    );
-  }
-
-  String _normalizeQuery(ParsedSearchQuery query) {
-    // Normalize terms for consistent searching
-    return query.tokens.join(' ');
-  }
-
-  SearchStrategy _determineSearchStrategy(
-    ParsedSearchQuery query,
-    ArchiveSearchFilter? filter,
-    SearchOptions? options,
-  ) {
-    if (query.phrases.isNotEmpty) return SearchStrategy.phrase;
-    if (options?.fuzzySearch == true) return SearchStrategy.fuzzy;
-    if (filter?.dateRange != null) return SearchStrategy.temporal;
-    if (query.tokens.length > 3) return SearchStrategy.complex;
-    return SearchStrategy.simple;
-  }
 
   Future<ArchiveSearchResult> _executeSearch(
     SearchStrategy strategy,
@@ -629,7 +602,7 @@ class ArchiveSearchService {
     // Generate suggestions based on search results
     if (result.hasResults) {
       // Extract common terms from results
-      final commonTerms = _extractCommonTerms(result);
+      final commonTerms = _queryBuilder.extractCommonTerms(result);
       for (final term in commonTerms.take(3)) {
         suggestions.add(SearchSuggestion.relatedTerm(term));
       }
@@ -725,14 +698,13 @@ class ArchiveSearchService {
     String partial,
     int limit,
   ) async {
-    // Generate suggestions from indexed content
     final suggestions = <SearchSuggestion>[];
+    final matches = _indexing.findTermsContaining(partial, limit);
 
-    for (final term in _termIndex.keys) {
-      if (term.contains(partial) && suggestions.length < limit) {
-        final frequency = _termIndex[term]?.length ?? 0;
-        suggestions.add(SearchSuggestion.contentBased(term, frequency));
-      }
+    for (final match in matches) {
+      suggestions.add(
+        SearchSuggestion.contentBased(match.term, match.frequency),
+      );
     }
 
     return suggestions;
@@ -770,55 +742,6 @@ class ArchiveSearchService {
     return unique;
   }
 
-  List<String> _generateFuzzyTerms(String query, double threshold) {
-    final fuzzyTerms = <String>[];
-
-    // Generate variations using different algorithms
-    // 1. Edit distance variations
-    // 2. Phonetic variations (soundex)
-    // 3. Common misspellings
-
-    // Simplified implementation
-    final variations = _generateEditDistanceVariations(query, 1);
-    fuzzyTerms.addAll(variations);
-
-    return fuzzyTerms.take(10).toList();
-  }
-
-  List<String> _generateEditDistanceVariations(String word, int maxDistance) {
-    // Generate variations within edit distance
-    // Simplified implementation
-    return [word]; // Would implement proper edit distance algorithm
-  }
-
-  String _buildFuzzyQuery(String original, List<String> fuzzyTerms) {
-    final queryBuilder = StringBuffer(original);
-
-    for (final term in fuzzyTerms.take(3)) {
-      queryBuilder.write(' OR $term');
-    }
-
-    return queryBuilder.toString();
-  }
-
-  List<String> _extractCommonTerms(ArchiveSearchResult result) {
-    final termFrequency = <String, int>{};
-
-    for (final message in result.messages) {
-      final words = message.content.toLowerCase().split(' ');
-      for (final word in words) {
-        if (word.length > 3) {
-          termFrequency[word] = (termFrequency[word] ?? 0) + 1;
-        }
-      }
-    }
-
-    final sortedTerms = termFrequency.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    return sortedTerms.map((e) => e.key).take(5).toList();
-  }
-
   Map<int, int> _calculateHourlySearchPatterns(
     List<ArchiveSearchEntry> history,
   ) {
@@ -853,52 +776,6 @@ class ArchiveSearchService {
   void _clearCaches() {
     _searchCache.clear();
     _suggestionCache.clear();
-  }
-
-  Future<void> _rebuildSearchIndexes() async {
-    try {
-      _termIndex.clear();
-      _fuzzyIndex.clear();
-
-      // Get all archived chats and build indexes
-      final summaries = await _archiveRepository.getArchivedChats();
-
-      for (final summary in summaries) {
-        final archive = await _archiveRepository.getArchivedChat(summary.id);
-        if (archive != null) {
-          _indexArchiveContent(archive);
-        }
-      }
-
-      _logger.info('Rebuilt search indexes for ${summaries.length} archives');
-    } catch (e) {
-      _logger.severe('Failed to rebuild search indexes: $e');
-    }
-  }
-
-  void _indexArchiveContent(ArchivedChat archive) {
-    // Index contact name
-    final contactTerms = _tokenizeText(archive.contactName);
-    for (final term in contactTerms) {
-      _termIndex.putIfAbsent(term, () => {}).add(archive.id);
-    }
-
-    // Index message content
-    for (final message in archive.messages) {
-      final messageTerms = _tokenizeText(message.searchableText);
-      for (final term in messageTerms) {
-        _termIndex.putIfAbsent(term, () => {}).add(archive.id);
-      }
-    }
-  }
-
-  Set<String> _tokenizeText(String text) {
-    return text
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^\w\s]'), ' ')
-        .split(RegExp(r'\s+'))
-        .where((word) => word.length > 2)
-        .toSet();
   }
 
   String _generateSearchId() {
@@ -1060,487 +937,5 @@ class ArchiveSearchService {
     } catch (e) {
       _logger.warning('Failed to load search analytics: $e');
     }
-  }
-}
-
-// Supporting classes and enums
-
-class SearchServiceConfig {
-  final bool enableFuzzySearch;
-  final int maxCacheSize;
-  final int cacheValidityMinutes;
-  final int maxHistorySize;
-  final bool enableSuggestions;
-  final double fuzzyThreshold;
-
-  const SearchServiceConfig({
-    required this.enableFuzzySearch,
-    required this.maxCacheSize,
-    required this.cacheValidityMinutes,
-    required this.maxHistorySize,
-    required this.enableSuggestions,
-    required this.fuzzyThreshold,
-  });
-
-  factory SearchServiceConfig.defaultConfig() => const SearchServiceConfig(
-    enableFuzzySearch: true,
-    maxCacheSize: 100,
-    cacheValidityMinutes: 30,
-    maxHistorySize: 500,
-    enableSuggestions: true,
-    fuzzyThreshold: 0.7,
-  );
-
-  Map<String, dynamic> toJson() => {
-    'enableFuzzySearch': enableFuzzySearch,
-    'maxCacheSize': maxCacheSize,
-    'cacheValidityMinutes': cacheValidityMinutes,
-    'maxHistorySize': maxHistorySize,
-    'enableSuggestions': enableSuggestions,
-    'fuzzyThreshold': fuzzyThreshold,
-  };
-
-  factory SearchServiceConfig.fromJson(Map<String, dynamic> json) =>
-      SearchServiceConfig(
-        enableFuzzySearch: json['enableFuzzySearch'],
-        maxCacheSize: json['maxCacheSize'],
-        cacheValidityMinutes: json['cacheValidityMinutes'],
-        maxHistorySize: json['maxHistorySize'],
-        enableSuggestions: json['enableSuggestions'],
-        fuzzyThreshold: json['fuzzyThreshold'],
-      );
-}
-
-class SearchOptions {
-  final bool fuzzySearch;
-  final double similarityThreshold;
-  final bool expandQuery;
-  final bool temporalRanking;
-  final TemporalSearchMode temporalMode;
-  final bool boostRecent;
-
-  const SearchOptions({
-    this.fuzzySearch = false,
-    this.similarityThreshold = 0.7,
-    this.expandQuery = false,
-    this.temporalRanking = false,
-    this.temporalMode = TemporalSearchMode.archived,
-    this.boostRecent = false,
-  });
-}
-
-enum TemporalSearchMode { archived, original, recent }
-
-enum SearchStrategy { simple, phrase, fuzzy, temporal, complex }
-
-enum SearchAnalyticsScope { all, recent, popular }
-
-class AdvancedSearchResult {
-  final ArchiveSearchResult searchResult;
-  final String query;
-  final ParsedSearchQuery? parsedQuery;
-  final Duration searchTime;
-  final SearchStrategy? searchStrategy;
-  final List<SearchSuggestion> suggestions;
-  final SearchAnalyticsSummary? analytics;
-  final String? error;
-
-  const AdvancedSearchResult({
-    required this.searchResult,
-    required this.query,
-    this.parsedQuery,
-    required this.searchTime,
-    this.searchStrategy,
-    required this.suggestions,
-    this.analytics,
-    this.error,
-  });
-
-  factory AdvancedSearchResult.fromSearchResult({
-    required ArchiveSearchResult searchResult,
-    required String query,
-    ParsedSearchQuery? parsedQuery,
-    required Duration searchTime,
-    SearchStrategy? searchStrategy,
-    required List<SearchSuggestion> suggestions,
-    SearchAnalyticsSummary? analytics,
-  }) => AdvancedSearchResult(
-    searchResult: searchResult,
-    query: query,
-    parsedQuery: parsedQuery,
-    searchTime: searchTime,
-    searchStrategy: searchStrategy,
-    suggestions: suggestions,
-    analytics: analytics,
-  );
-
-  factory AdvancedSearchResult.error({
-    required String query,
-    required String error,
-    required Duration searchTime,
-  }) => AdvancedSearchResult(
-    searchResult: ArchiveSearchResult.empty(query),
-    query: query,
-    searchTime: searchTime,
-    suggestions: [],
-    error: error,
-  );
-
-  int get totalResults => searchResult.totalResults;
-  List<ArchivedMessage> get messages => searchResult.messages;
-  String get formattedSearchTime => searchResult.formattedSearchTime;
-  bool get hasError => error != null;
-  bool get hasResults => searchResult.hasResults;
-}
-
-class ParsedSearchQuery {
-  final String originalQuery;
-  final List<String> tokens;
-  final List<String> phrases;
-  final List<String> excludedTerms;
-  final List<SearchOperator> operators;
-
-  const ParsedSearchQuery({
-    required this.originalQuery,
-    required this.tokens,
-    required this.phrases,
-    required this.excludedTerms,
-    required this.operators,
-  });
-}
-
-enum SearchOperator { and, or, not, near }
-
-class SearchSuggestion {
-  final String text;
-  final SearchSuggestionType type;
-  final double relevanceScore;
-  final Map<String, dynamic>? metadata;
-
-  const SearchSuggestion({
-    required this.text,
-    required this.type,
-    required this.relevanceScore,
-    this.metadata,
-  });
-
-  factory SearchSuggestion.fromHistory(String query, int resultCount) =>
-      SearchSuggestion(
-        text: query,
-        type: SearchSuggestionType.history,
-        relevanceScore: min(resultCount / 10.0, 1.0),
-        metadata: {'resultCount': resultCount},
-      );
-
-  factory SearchSuggestion.contentBased(String term, int frequency) =>
-      SearchSuggestion(
-        text: term,
-        type: SearchSuggestionType.content,
-        relevanceScore: min(frequency / 100.0, 1.0),
-        metadata: {'frequency': frequency},
-      );
-
-  factory SearchSuggestion.savedSearch(String name, String query) =>
-      SearchSuggestion(
-        text: query,
-        type: SearchSuggestionType.saved,
-        relevanceScore: 1.0,
-        metadata: {'name': name},
-      );
-
-  factory SearchSuggestion.relatedTerm(String term) => SearchSuggestion(
-    text: term,
-    type: SearchSuggestionType.related,
-    relevanceScore: 0.8,
-  );
-
-  factory SearchSuggestion.refinement(String suggestion) => SearchSuggestion(
-    text: suggestion,
-    type: SearchSuggestionType.refinement,
-    relevanceScore: 0.6,
-  );
-}
-
-enum SearchSuggestionType { history, content, saved, related, refinement }
-
-class ArchiveSearchEntry {
-  final String query;
-  final int resultCount;
-  final Duration searchTime;
-  final DateTime timestamp;
-
-  const ArchiveSearchEntry({
-    required this.query,
-    required this.resultCount,
-    required this.searchTime,
-    required this.timestamp,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'query': query,
-    'resultCount': resultCount,
-    'searchTime': searchTime.inMilliseconds,
-    'timestamp': timestamp.millisecondsSinceEpoch,
-  };
-
-  factory ArchiveSearchEntry.fromJson(Map<String, dynamic> json) =>
-      ArchiveSearchEntry(
-        query: json['query'],
-        resultCount: json['resultCount'],
-        searchTime: Duration(milliseconds: json['searchTime']),
-        timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
-      );
-}
-
-class SavedSearch {
-  final String id;
-  final String name;
-  final String query;
-  final ArchiveSearchFilter? filter;
-  final SearchOptions? options;
-  final DateTime createdAt;
-
-  const SavedSearch({
-    required this.id,
-    required this.name,
-    required this.query,
-    this.filter,
-    this.options,
-    required this.createdAt,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'query': query,
-    'filter': filter?.toJson(),
-    'options': _optionsToJson(options),
-    'createdAt': createdAt.millisecondsSinceEpoch,
-  };
-
-  factory SavedSearch.fromJson(Map<String, dynamic> json) => SavedSearch(
-    id: json['id'],
-    name: json['name'],
-    query: json['query'],
-    filter: json['filter'] != null
-        ? ArchiveSearchFilter.fromJson(json['filter'])
-        : null,
-    options: json['options'] != null ? _optionsFromJson(json['options']) : null,
-    createdAt: DateTime.fromMillisecondsSinceEpoch(json['createdAt']),
-  );
-
-  static Map<String, dynamic> _optionsToJson(SearchOptions? options) {
-    if (options == null) return {};
-    return {
-      'fuzzySearch': options.fuzzySearch,
-      'similarityThreshold': options.similarityThreshold,
-      'expandQuery': options.expandQuery,
-      'temporalRanking': options.temporalRanking,
-      'temporalMode': options.temporalMode.index,
-      'boostRecent': options.boostRecent,
-    };
-  }
-
-  static SearchOptions _optionsFromJson(Map<String, dynamic> json) {
-    return SearchOptions(
-      fuzzySearch: json['fuzzySearch'] ?? false,
-      similarityThreshold: json['similarityThreshold'] ?? 0.7,
-      expandQuery: json['expandQuery'] ?? false,
-      temporalRanking: json['temporalRanking'] ?? false,
-      temporalMode: TemporalSearchMode.values[json['temporalMode'] ?? 0],
-      boostRecent: json['boostRecent'] ?? false,
-    );
-  }
-}
-
-class SearchAnalytics {
-  final String query;
-  int searchCount = 0;
-  int totalResults = 0;
-  Duration totalSearchTime = Duration.zero;
-  int cacheHits = 0;
-  DateTime lastSearched = DateTime.now();
-
-  SearchAnalytics({required this.query});
-
-  void recordSearch(int resultCount, Duration searchTime, bool cacheHit) {
-    searchCount++;
-    totalResults += resultCount;
-    totalSearchTime += searchTime;
-    if (cacheHit) cacheHits++;
-    lastSearched = DateTime.now();
-  }
-
-  double get averageResults =>
-      searchCount > 0 ? totalResults / searchCount : 0.0;
-  Duration get averageSearchTime =>
-      searchCount > 0 ? totalSearchTime ~/ searchCount : Duration.zero;
-  double get cacheHitRate => searchCount > 0 ? cacheHits / searchCount : 0.0;
-
-  Map<String, dynamic> toJson() => {
-    'query': query,
-    'searchCount': searchCount,
-    'totalResults': totalResults,
-    'totalSearchTime': totalSearchTime.inMilliseconds,
-    'cacheHits': cacheHits,
-    'lastSearched': lastSearched.millisecondsSinceEpoch,
-  };
-
-  factory SearchAnalytics.fromJson(Map<String, dynamic> json) {
-    final analytics = SearchAnalytics(query: json['query']);
-    analytics.searchCount = json['searchCount'];
-    analytics.totalResults = json['totalResults'];
-    analytics.totalSearchTime = Duration(milliseconds: json['totalSearchTime']);
-    analytics.cacheHits = json['cacheHits'];
-    analytics.lastSearched = DateTime.fromMillisecondsSinceEpoch(
-      json['lastSearched'],
-    );
-    return analytics;
-  }
-}
-
-class SearchAnalyticsSummary {
-  final String query;
-  final int resultCount;
-  final Duration searchTime;
-  final bool cacheHit;
-  final DateTime timestamp;
-
-  const SearchAnalyticsSummary({
-    required this.query,
-    required this.resultCount,
-    required this.searchTime,
-    required this.cacheHit,
-    required this.timestamp,
-  });
-}
-
-class SearchAnalyticsReport {
-  final ArchiveDateRange period;
-  final int totalSearches;
-  final int uniqueQueries;
-  final double averageResultsPerSearch;
-  final Duration averageSearchTime;
-  final List<MapEntry<String, int>> topQueries;
-  final Map<int, int> hourlySearchPatterns;
-  final double successRate;
-  final double cacheHitRate;
-  final SearchAnalyticsScope scope;
-  final DateTime generatedAt;
-
-  const SearchAnalyticsReport({
-    required this.period,
-    required this.totalSearches,
-    required this.uniqueQueries,
-    required this.averageResultsPerSearch,
-    required this.averageSearchTime,
-    required this.topQueries,
-    required this.hourlySearchPatterns,
-    required this.successRate,
-    required this.cacheHitRate,
-    required this.scope,
-    required this.generatedAt,
-  });
-
-  factory SearchAnalyticsReport.empty() => SearchAnalyticsReport(
-    period: ArchiveDateRange(start: DateTime.now(), end: DateTime.now()),
-    totalSearches: 0,
-    uniqueQueries: 0,
-    averageResultsPerSearch: 0.0,
-    averageSearchTime: Duration.zero,
-    topQueries: [],
-    hourlySearchPatterns: {},
-    successRate: 0.0,
-    cacheHitRate: 0.0,
-    scope: SearchAnalyticsScope.all,
-    generatedAt: DateTime.now(),
-  );
-}
-
-// Event classes
-abstract class ArchiveSearchEvent {
-  final DateTime timestamp;
-
-  const ArchiveSearchEvent(this.timestamp);
-
-  factory ArchiveSearchEvent.started(String searchId, String query) =>
-      _SearchStarted(searchId, query, DateTime.now());
-  factory ArchiveSearchEvent.completed(
-    String searchId,
-    AdvancedSearchResult result,
-  ) => _SearchCompleted(searchId, result, DateTime.now());
-  factory ArchiveSearchEvent.failed(
-    String searchId,
-    String query,
-    String error,
-  ) => _SearchFailed(searchId, query, error, DateTime.now());
-}
-
-class _SearchStarted extends ArchiveSearchEvent {
-  final String searchId;
-  final String query;
-  const _SearchStarted(this.searchId, this.query, DateTime timestamp)
-    : super(timestamp);
-}
-
-class _SearchCompleted extends ArchiveSearchEvent {
-  final String searchId;
-  final AdvancedSearchResult result;
-  const _SearchCompleted(this.searchId, this.result, DateTime timestamp)
-    : super(timestamp);
-}
-
-class _SearchFailed extends ArchiveSearchEvent {
-  final String searchId;
-  final String query;
-  final String error;
-  const _SearchFailed(this.searchId, this.query, this.error, DateTime timestamp)
-    : super(timestamp);
-}
-
-abstract class SearchSuggestionEvent {
-  final DateTime timestamp;
-
-  const SearchSuggestionEvent(this.timestamp);
-
-  factory SearchSuggestionEvent.generated(
-    String query,
-    List<SearchSuggestion> suggestions,
-  ) => _SuggestionsGenerated(query, suggestions, DateTime.now());
-}
-
-class _SuggestionsGenerated extends SearchSuggestionEvent {
-  final String query;
-  final List<SearchSuggestion> suggestions;
-  const _SuggestionsGenerated(this.query, this.suggestions, DateTime timestamp)
-    : super(timestamp);
-}
-
-// Cache classes
-class SearchResultCache {
-  final AdvancedSearchResult result;
-  final DateTime cachedAt;
-
-  const SearchResultCache({required this.result, required this.cachedAt});
-}
-
-class SearchSuggestionCache {
-  final List<SearchSuggestion> suggestions;
-  final DateTime cachedAt;
-
-  const SearchSuggestionCache({
-    required this.suggestions,
-    required this.cachedAt,
-  });
-}
-
-// Extension for firstOrNull
-extension _FirstWhereOrNull<T> on Iterable<T> {
-  T? get firstOrNull {
-    final iterator = this.iterator;
-    if (iterator.moveNext()) {
-      return iterator.current;
-    }
-    return null;
   }
 }
