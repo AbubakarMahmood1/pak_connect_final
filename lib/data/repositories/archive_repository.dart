@@ -405,6 +405,28 @@ class ArchiveRepository implements IArchiveRepository {
     }
   }
 
+  /// Look up an archived chat by its original chat id
+  @override
+  Future<ArchivedChatSummary?> getArchivedChatByOriginalId(
+    String chatId,
+  ) async {
+    try {
+      final db = await DatabaseHelper.database;
+      final result = await db.query(
+        'archived_chats',
+        where: 'original_chat_id = ?',
+        whereArgs: [chatId],
+        limit: 1,
+      );
+
+      if (result.isEmpty) return null;
+      return _mapToArchivedChatSummary(result.first);
+    } catch (e) {
+      _logger.severe('Failed to get archive for chat $chatId: $e');
+      return null;
+    }
+  }
+
   /// Get specific archived chat with full data
   Future<ArchivedChat?> getArchivedChat(String archiveId) async {
     try {
