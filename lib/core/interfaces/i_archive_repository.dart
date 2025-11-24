@@ -32,6 +32,9 @@ abstract class IArchiveRepository {
     String? afterCursor,
   });
 
+  /// Look up an archived chat summary by its original chat ID
+  Future<ArchivedChatSummary?> getArchivedChatByOriginalId(String chatId);
+
   /// Get a specific archived chat (full details)
   Future<ArchivedChat?> getArchivedChat(String archiveId);
 

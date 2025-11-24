@@ -154,14 +154,12 @@ class ChatLifecycleService {
     try {
       if (_cacheState.archivedChats.contains(chatId)) {
         if (useEnhancedArchive) {
-          final archives = await _archiveRepository.getArchivedChats(
-            filter: ArchiveSearchFilter(contactFilter: chatId),
-          );
+          final archiveSummary = await _archiveRepository
+              .getArchivedChatByOriginalId(chatId);
 
-          if (archives.isNotEmpty) {
-            final archiveToRestore = archives.first;
+          if (archiveSummary != null) {
             final restoreResult = await _archiveManagementService.restoreChat(
-              archiveId: archiveToRestore.id,
+              archiveId: archiveSummary.id,
             );
 
             if (restoreResult.success) {
