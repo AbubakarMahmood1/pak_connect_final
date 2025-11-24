@@ -241,15 +241,15 @@ class ChatLifecycleService {
 
   Future<ChatOperationResult> deleteChat(String chatId) async {
     try {
-      await _messageRepository.clearMessages(chatId);
-
-      _cacheState.archivedChats.remove(chatId);
-      _cacheState.pinnedChats.remove(chatId);
-
       final chatMessages = await _messageRepository.getMessages(chatId);
       for (final message in chatMessages) {
         _cacheState.starredMessageIds.remove(message.id);
       }
+
+      await _messageRepository.clearMessages(chatId);
+
+      _cacheState.archivedChats.remove(chatId);
+      _cacheState.pinnedChats.remove(chatId);
 
       await _syncService.saveArchivedChats();
       await _syncService.savePinnedChats();
