@@ -267,7 +267,14 @@ class ChatSyncService {
     bool includeArchives = true,
   }) async {
     try {
-      if (includeArchives) {
+      if (includeArchives && includeLive) {
+        final unifiedResult = await searchMessagesUnified(
+          query: query,
+          filter: _convertFromArchiveFilter(filter),
+          includeArchives: true,
+        );
+        return _convertToAdvancedSearchResult(unifiedResult, query);
+      } else if (includeArchives) {
         return await _archiveSearchService.search(
           query: query,
           filter: filter,
