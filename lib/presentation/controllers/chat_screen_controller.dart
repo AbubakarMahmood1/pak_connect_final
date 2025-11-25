@@ -91,7 +91,8 @@ class ChatScreenController extends ChangeNotifier {
 
   bool _initialized = false;
 
-  // Local state retained only for initialization and notifier publishing.
+  // Primary source of truth for controller state (legacy path).
+  // Also published to provider for opt-in migration path.
   ChatUIState _state = const ChatUIState();
   String _chatId = '';
   String? _cachedContactPublicKey;
@@ -134,8 +135,7 @@ class ChatScreenController extends ChangeNotifier {
     _publishStateToOwnedNotifier(state);
   }
 
-  ChatUIState get state =>
-      ref.read(chatSessionOwnedStateNotifierProvider(_args));
+  ChatUIState get state => _state;
   String get chatId => _chatId;
   chat_controller.ChatScrollingController get scrollingController =>
       _scrollingController;
@@ -342,9 +342,10 @@ class ChatScreenController extends ChangeNotifier {
   void _updateState(ChatUIState Function(ChatUIState) updater) =>
       publishState(updater(state));
 
-  /// Publishes state to the provider-owned notifier.
+  /// Publishes state to both local controller and provider-owned notifier.
   void publishState(ChatUIState newState) {
     if (_disposed) return;
+    _state = newState;
     _publishStateToOwnedNotifier(newState);
     notifyListeners();
   }
