@@ -41,8 +41,8 @@ import 'sqlite/native_sqlite_loader.dart';
 class TestSetup {
   static Future<void> initializeTestEnvironment({
     String? dbLabel,
-    bool useRealServiceLocator = false,
-    bool configureDiWithMocks = true,
+    bool useRealServiceLocator = true,
+    bool configureDiWithMocks = false,
     IContactRepository? contactRepository,
     IMessageRepository? messageRepository,
     ISeenMessageStore? seenMessageStore,
@@ -71,9 +71,17 @@ class TestSetup {
 
     resetSharedPreferences();
     await resetDIServiceLocator();
-    if (useRealServiceLocator) {
-      await di_service_locator.setupServiceLocator();
-    } else if (configureDiWithMocks) {
+    await di_service_locator.setupServiceLocator();
+
+    if (configureDiWithMocks &&
+        [
+          contactRepository,
+          messageRepository,
+          seenMessageStore,
+          connectionService,
+          chatsRepository,
+          archiveRepository,
+        ].any((element) => element != null)) {
       await configureTestDI(
         contactRepository: contactRepository,
         messageRepository: messageRepository,
@@ -81,6 +89,7 @@ class TestSetup {
         connectionService: connectionService,
         chatsRepository: chatsRepository,
         archiveRepository: archiveRepository,
+        resetGraph: false,
       );
     }
     setupTestLogging();
@@ -112,41 +121,59 @@ class TestSetup {
     IChatsRepository? chatsRepository,
     IArchiveRepository? archiveRepository,
     IDatabaseProvider? databaseProvider,
+    bool resetGraph = false,
   }) async {
-    await resetDIServiceLocator();
-    final contactRepo = contactRepository ?? MockContactRepository();
-    final messageRepo = messageRepository ?? MockMessageRepository();
-    final connectionSvc = connectionService ?? MockConnectionService();
-    final store = seenMessageStore ?? SeenMessageStore.instance;
+    final locator = GetIt.instance;
+    if (resetGraph) {
+      await resetDIServiceLocator();
+      await di_service_locator.setupServiceLocator();
+    }
+
+    void override<T extends Object>(T instance) {
+      if (locator.isRegistered<T>()) {
+        locator.unregister<T>();
+      }
+      locator.registerSingleton<T>(instance);
+    }
+
+    if (contactRepository != null) {
+      override<IContactRepository>(contactRepository);
+      if (contactRepository is ContactRepository) {
+        override<ContactRepository>(contactRepository);
+      }
+    }
+    if (messageRepository != null) {
+      override<IMessageRepository>(messageRepository);
+      if (messageRepository is MessageRepository) {
+        override<MessageRepository>(messageRepository);
+      }
+    }
+    if (databaseProvider != null) {
+      override<IDatabaseProvider>(databaseProvider);
+    }
+
+    final store =
+        seenMessageStore ??
+        (locator.isRegistered<ISeenMessageStore>()
+            ? locator<ISeenMessageStore>()
+            : SeenMessageStore.instance);
     if (store is SeenMessageStore) {
       await store.initialize();
     }
-
-    final locator = GetIt.instance;
-    if (contactRepo is ContactRepository) {
-      locator.registerSingleton<ContactRepository>(contactRepo);
+    if (seenMessageStore != null ||
+        !locator.isRegistered<ISeenMessageStore>()) {
+      override<ISeenMessageStore>(store);
     }
-    if (messageRepo is MessageRepository) {
-      locator.registerSingleton<MessageRepository>(messageRepo);
-    }
-    locator.registerSingleton<IContactRepository>(contactRepo);
-    locator.registerSingleton<IMessageRepository>(messageRepo);
-    locator.registerSingleton<IRepositoryProvider>(
-      RepositoryProviderImpl(
-        contactRepository: contactRepo,
-        messageRepository: messageRepo,
-      ),
-    );
-    locator.registerSingleton<IDatabaseProvider>(
-      databaseProvider ?? DatabaseProvider(),
-    );
-    locator.registerSingleton<ISeenMessageStore>(store);
-    locator.registerSingleton<IConnectionService>(connectionSvc);
 
-    final chatsRepo = chatsRepository ?? ChatsRepository();
-    locator.registerSingleton<IChatsRepository>(chatsRepo);
-    final archiveRepo = archiveRepository ?? ArchiveRepository();
-    locator.registerSingleton<IArchiveRepository>(archiveRepo);
+    if (connectionService != null) {
+      override<IConnectionService>(connectionService);
+    }
+    if (chatsRepository != null) {
+      override<IChatsRepository>(chatsRepository);
+    }
+    if (archiveRepository != null) {
+      override<IArchiveRepository>(archiveRepository);
+    }
   }
 
   static Future<void> cleanupDatabase() async {
