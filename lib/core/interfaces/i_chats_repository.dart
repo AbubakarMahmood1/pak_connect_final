@@ -14,6 +14,8 @@ abstract class IChatsRepository {
     List<Peripheral>? nearbyDevices,
     Map<String, DiscoveredEventArgs>? discoveryData,
     String? searchQuery,
+    int? limit,
+    int? offset,
   });
 
   /// Get contacts without existing chats (for discovery integration)

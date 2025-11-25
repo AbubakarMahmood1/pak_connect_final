@@ -2,11 +2,11 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
 
 import 'package:pak_connect/core/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/interfaces/i_archive_repository.dart';
+import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/services/home_screen_facade.dart';
 import 'package:pak_connect/core/models/archive_models.dart';
 import 'package:pak_connect/domain/entities/archived_chat.dart';
@@ -15,6 +15,8 @@ import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/presentation/controllers/home_screen_controller.dart';
+import 'package:pak_connect/domain/services/chat_management_service.dart';
+import '../../test_helpers/test_setup.dart';
 
 class _FakeChatsRepository implements IChatsRepository {
   int totalUnreadCountCalls = 0;
@@ -33,6 +35,8 @@ class _FakeChatsRepository implements IChatsRepository {
     List<Peripheral>? nearbyDevices,
     Map<String, DiscoveredEventArgs>? discoveryData,
     String? searchQuery,
+    int? limit,
+    int? offset,
   }) async => <ChatListItem>[];
 
   @override
@@ -122,7 +126,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   Future<List<ArchivedChatSummary>> getArchivedChats({
     ArchiveSearchFilter? filter,
     int? limit,
-    String? afterCursor,
+    int? offset,
   }) async => <ArchivedChatSummary>[];
 
   @override
@@ -163,19 +167,49 @@ class _FakeArchiveRepository implements IArchiveRepository {
   void clearCache() {}
 }
 
+class _InMemorySeenMessageStore implements ISeenMessageStore {
+  final Set<String> _delivered = {};
+  final Set<String> _read = {};
+
+  @override
+  Future<void> clear() async {
+    _delivered.clear();
+    _read.clear();
+  }
+
+  @override
+  Map<String, dynamic> getStatistics() => {
+    'delivered': _delivered.length,
+    'read': _read.length,
+  };
+
+  @override
+  bool hasDelivered(String messageId) => _delivered.contains(messageId);
+
+  @override
+  bool hasRead(String messageId) => _read.contains(messageId);
+
+  @override
+  Future<void> markDelivered(String messageId) async {
+    _delivered.add(messageId);
+  }
+
+  @override
+  Future<void> markRead(String messageId) async {
+    _read.add(messageId);
+  }
+
+  @override
+  Future<void> performMaintenance() async {}
+}
+
 class _TestHomeScreenController extends HomeScreenController {
-  _TestHomeScreenController({
-    required super.ref,
-    required super.context,
-    required super.chatsRepository,
-    super.chatManagementService,
-    super.homeScreenFacade,
-  });
+  _TestHomeScreenController(HomeScreenControllerArgs args) : super(args);
 
   int loadCount = 0;
 
   @override
-  Future<void> loadChats() async {
+  Future<void> loadChats({bool reset = true}) async {
     loadCount++;
   }
 }
@@ -186,13 +220,17 @@ void main() {
   ) async {
     late _TestHomeScreenController controller;
     final fakeRepo = _FakeChatsRepository();
-    final getIt = GetIt.instance;
-    await getIt.reset();
-    getIt.registerSingleton<IChatsRepository>(fakeRepo);
-    getIt.registerSingleton<IMessageRepository>(_FakeMessageRepository());
-    getIt.registerSingleton<IArchiveRepository>(_FakeArchiveRepository());
+    final fakeMessageRepo = _FakeMessageRepository();
+    final fakeArchiveRepo = _FakeArchiveRepository();
+
+    await TestSetup.configureTestDI(
+      messageRepository: fakeMessageRepo,
+      chatsRepository: fakeRepo,
+      archiveRepository: fakeArchiveRepo,
+      seenMessageStore: _InMemorySeenMessageStore(),
+    );
     addTearDown(() async {
-      await getIt.reset();
+      await TestSetup.resetDIServiceLocator();
     });
 
     await tester.pumpWidget(
@@ -203,16 +241,19 @@ void main() {
               return Consumer(
                 builder: (context, ref, _) {
                   controller = _TestHomeScreenController(
-                    ref: ref,
-                    context: context,
-                    chatsRepository: fakeRepo,
-                    homeScreenFacade: HomeScreenFacade(
-                      chatsRepository: fakeRepo,
-                      bleService: null,
-                      chatManagementService: null,
+                    HomeScreenControllerArgs(
                       context: context,
                       ref: ref,
-                      enableListCoordinatorInitialization: false,
+                      chatsRepository: fakeRepo,
+                      chatManagementService: ChatManagementService(),
+                      homeScreenFacade: HomeScreenFacade(
+                        chatsRepository: fakeRepo,
+                        bleService: null,
+                        chatManagementService: null,
+                        context: context,
+                        ref: ref,
+                        enableListCoordinatorInitialization: false,
+                      ),
                     ),
                   );
                   return const SizedBox.shrink();

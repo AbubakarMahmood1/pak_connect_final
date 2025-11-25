@@ -43,16 +43,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _logger = Logger('HomeScreen');
   late final IChatsRepository _chatsRepository;
   final ChatManagementService _chatManagementService = ChatManagementService();
-  late final HomeScreenController _controller;
+  late final HomeScreenControllerArgs _controllerArgs;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _listScrollController = ScrollController();
+  HomeScreenController get _controller =>
+      ref.read(homeScreenControllerProvider(_controllerArgs));
 
   // Tab controller for Chats and Relay Queue
   late TabController _tabController;
 
-  List<ChatListItem> get _chats => _controller.chats;
-  bool get _isLoading => _controller.isLoading;
-  String get _searchQuery => _controller.searchQuery;
-  Stream<int>? get _unreadCountStream => _controller.unreadCountStream;
+  List<ChatListItem> _chats(HomeScreenController controller) =>
+      controller.chats;
+  bool _isLoading(HomeScreenController controller) => controller.isLoading;
+  String _searchQuery(HomeScreenController controller) =>
+      controller.searchQuery;
+  Stream<int>? _unreadCountStream(HomeScreenController controller) =>
+      controller.unreadCountStream;
   bool _showDiscoveryOverlay = false;
 
   @override
@@ -63,12 +69,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _tabController.addListener(
       _onTabChanged,
     ); // Listen for tab changes to update FAB
-    _controller = HomeScreenController(
-      ref: ref,
+    _listScrollController.addListener(_onScroll);
+    _controllerArgs = HomeScreenControllerArgs(
       context: context,
+      ref: ref,
       chatsRepository: _chatsRepository,
-      logger: _logger,
       chatManagementService: _chatManagementService,
+      logger: _logger,
       homeScreenFacade: HomeScreenFacade(
         chatsRepository: _chatsRepository,
         bleService: ref.read(connectionServiceProvider),
@@ -86,8 +93,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               );
             },
       ),
-    )..addListener(_onControllerChanged);
-    _controller.initialize();
+    );
+  }
+
+  void _onScroll() {
+    if (!_listScrollController.hasClients) return;
+    final position = _listScrollController.position;
+    if (position.maxScrollExtent - position.pixels <= 200) {
+      _controller.loadMoreChats();
+    }
   }
 
   void _onTabChanged() {
@@ -97,16 +111,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  void _onControllerChanged() {
-    if (mounted) setState(() {});
-  }
+  Future<void> _loadChats(HomeScreenController controller) =>
+      controller.loadChats();
 
-  Future<void> _loadChats() => _controller.loadChats();
-
-  Future<void> _updateSingleChatItem() => _controller.updateSingleChatItem();
+  Future<void> _updateSingleChatItem(HomeScreenController controller) =>
+      controller.updateSingleChatItem();
 
   @override
   Widget build(BuildContext context) {
+    final controller = ref.watch(homeScreenControllerProvider(_controllerArgs));
     final bleStateAsync = ref.watch(bleStateProvider);
     ref.watch(connectionInfoProvider);
     ref.watch(discoveredDevicesProvider);
@@ -154,11 +167,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               Stack(
                 children: [
                   IconButton(
-                    onPressed: () => _showSearch(),
+                    onPressed: () => _showSearch(controller),
                     icon: Icon(Icons.search),
                   ),
                   StreamBuilder<int>(
-                    stream: _unreadCountStream,
+                    stream: _unreadCountStream(controller),
                     builder: (context, snapshot) {
                       final count = snapshot.data ?? 0;
                       if (count == 0) return SizedBox.shrink();
@@ -257,7 +270,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   controller: _tabController,
                   children: [
                     // Tab 1: Chats (existing functionality)
-                    _buildChatsTab(),
+                    _buildChatsTab(controller),
 
                     // Tab 2: Relay Queue (new functionality)
                     _buildRelayQueueTab(),
@@ -297,25 +310,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   /// Build the chats tab (existing functionality moved to separate method)
-  Widget _buildChatsTab() {
+  Widget _buildChatsTab(HomeScreenController controller) {
     return Column(
       children: [
-        if (_searchQuery.isNotEmpty) _buildSearchBar(),
+        if (_searchQuery(controller).isNotEmpty) _buildSearchBar(controller),
 
         Expanded(
-          child: _isLoading
+          child: _isLoading(controller)
               ? Center(child: CircularProgressIndicator())
-              : _chats.isEmpty
-              ? _buildEmptyState()
+              : _chats(controller).isEmpty
+              ? _buildEmptyState(controller)
               : RefreshIndicator(
-                  onRefresh: () async => _loadChats(),
+                  onRefresh: () async => _loadChats(controller),
                   child: ListView.builder(
-                    itemCount: _chats.length,
+                    controller: _listScrollController,
+                    itemCount:
+                        _chats(controller).length +
+                        ((controller.isPaging && controller.hasMore) ? 1 : 0),
                     itemBuilder: (context, index) {
-                      final chat = _chats[index];
+                      final chats = _chats(controller);
+                      final showPagingIndicator =
+                          controller.isPaging && controller.hasMore;
+                      if (showPagingIndicator && index == chats.length) {
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      final chat = chats[index];
                       // 🎯 Use ValueKey for efficient widget reuse (prevents unnecessary rebuilds)
                       return _buildSwipeableChatTile(
                         chat,
+                        controller: controller,
                         key: ValueKey(chat.chatId),
                       );
                     },
@@ -348,7 +374,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  Widget _buildChatTile(ChatListItem chat) {
+  Widget _buildChatTile(ChatListItem chat, HomeScreenController controller) {
     // Get live connection status
     final connectionInfo = ref.watch(connectionInfoProvider).value;
     final discoveredDevices = ref.watch(discoveredDevicesProvider).value ?? [];
@@ -356,7 +382,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ref.watch(deduplicatedDevicesProvider).value ?? {};
 
     // 🎯 Use controller facade for connection status
-    final connectionStatus = _controller.determineConnectionStatus(
+    final connectionStatus = controller.determineConnectionStatus(
       contactPublicKey: chat.contactPublicKey,
       contactName: chat.contactName,
       currentConnectionInfo: connectionInfo,
@@ -508,14 +534,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ],
         ),
         onTap: () => _openChat(chat),
-        onLongPress: () => _showChatContextMenu(chat),
+        onLongPress: () => _showChatContextMenu(chat, controller),
       ),
     );
   }
 
   /// Build swipeable chat tile with archive and delete functionality
   /// 🎯 Accepts optional key for efficient widget reuse during surgical updates
-  Widget _buildSwipeableChatTile(ChatListItem chat, {Key? key}) {
+  Widget _buildSwipeableChatTile(
+    ChatListItem chat, {
+    Key? key,
+    required HomeScreenController controller,
+  }) {
     return Dismissible(
       key:
           key ?? Key('chat_${chat.chatId}'), // Use provided key or generate one
@@ -595,11 +625,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           await _deleteChat(chat);
         }
       },
-      child: _buildChatTile(chat),
+      child: _buildChatTile(chat, controller),
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(HomeScreenController controller) {
     final devicesAsync = ref.watch(discoveredDevicesProvider);
     final hasNearbyDevices = devicesAsync.maybeWhen(
       data: (devices) => devices.isNotEmpty,
@@ -665,7 +695,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(HomeScreenController controller) {
     return Container(
       padding: EdgeInsets.all(12),
       child: TextField(
@@ -680,7 +710,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(25)),
         ),
         onChanged: (query) {
-          _controller.onSearchChanged(query);
+          controller.onSearchChanged(query);
         },
       ),
     );
@@ -696,10 +726,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await _controller.openChat(chat);
   }
 
-  void _showSearch() {
+  void _showSearch(HomeScreenController controller) {
     setState(() {
-      if (_searchQuery.isEmpty) {
-        _controller.onSearchChanged(' ');
+      if (_searchQuery(controller).isEmpty) {
+        controller.onSearchChanged(' ');
       } else {
         _clearSearch();
       }
@@ -781,7 +811,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await _controller.deleteChat(chat);
   }
 
-  void _showChatContextMenu(ChatListItem chat) {
+  void _showChatContextMenu(
+    ChatListItem chat,
+    HomeScreenController controller,
+  ) {
     final isPinned = _chatManagementService.isChatPinned(chat.chatId);
     final hasUnread = chat.unreadCount > 0;
 
@@ -865,7 +898,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           break;
         case 'mark_read':
           await _chatsRepository.markChatAsRead(chat.chatId);
-          _loadChats();
+          _loadChats(_controller);
           break;
         case 'mark_unread':
           // Note: This would require implementing markChatAsUnread in repository
@@ -888,9 +921,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _searchController.dispose();
-    _controller
-      ..removeListener(_onControllerChanged)
-      ..dispose();
+    _listScrollController.removeListener(_onScroll);
+    _listScrollController.dispose();
     super.dispose();
   }
 }

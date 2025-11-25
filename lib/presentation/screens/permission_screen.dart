@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -20,26 +21,18 @@ class PermissionScreen extends ConsumerStatefulWidget {
 class _PermissionScreenState extends ConsumerState<PermissionScreen> {
   final _logger = Logger('PermissionScreen');
   bool _isRequestingPermissions = false;
-  Timer? _timeoutTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timeoutTimer = Timer(Duration(seconds: 10), () {
-      if (mounted) {
-        _showError('BLE initialization timed out. Please restart the app.');
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _timeoutTimer?.cancel();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
+    // Start and observe timeout lifecycle via provider (autoDispose handles cancellation)
+    ref.watch(permissionTimeoutProvider);
+
+    ref.listen(permissionTimeoutProvider, (previous, next) {
+      if (next && mounted) {
+        _showError('BLE initialization timed out. Please restart the app.');
+      }
+    });
+
     final bleStateAsync = ref.watch(bleStateProvider);
 
     return Scaffold(
@@ -117,8 +110,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     // Cancel timeout timer when BLE state is resolved
     if (state != BluetoothLowEnergyState.unknown &&
         state != BluetoothLowEnergyState.unsupported) {
-      _timeoutTimer?.cancel();
-      _timeoutTimer = null;
+      ref.read(permissionTimeoutProvider.notifier).cancel();
     }
 
     switch (state) {
@@ -450,3 +442,33 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     );
   }
 }
+
+/// Riverpod-managed permission timeout with lifecycle-bound timer.
+class PermissionTimeoutStateNotifier extends StateNotifier<bool> {
+  Timer? _timer;
+
+  PermissionTimeoutStateNotifier() : super(false) {
+    _timer = Timer(const Duration(seconds: 10), () => state = true);
+  }
+
+  void cancel() {
+    _timer?.cancel();
+    _timer = null;
+    state = false;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+}
+
+final permissionTimeoutProvider =
+    StateNotifierProvider.autoDispose<PermissionTimeoutStateNotifier, bool>((
+      ref,
+    ) {
+      final notifier = PermissionTimeoutStateNotifier();
+      ref.onDispose(notifier.dispose);
+      return notifier;
+    });

@@ -2,9 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/message_retry_coordinator.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/core/di/repository_provider_impl.dart';
+import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
 import 'test_helpers/test_setup.dart';
 
 /// Test to verify the message retry coordination functionality
@@ -21,19 +25,29 @@ void main() {
     late OfflineMessageQueue offlineQueue;
     late MessageRetryCoordinator coordinator;
     late ChatsRepository chatsRepository;
+    late IContactRepository contactRepository;
+    late IRepositoryProvider repositoryProvider;
 
     setUp(() async {
       await TestSetup.fullDatabaseReset();
       TestSetup.resetSharedPreferences();
 
+      contactRepository = ContactRepository();
       messageRepository = MessageRepository();
       chatsRepository = ChatsRepository();
       offlineQueue = OfflineMessageQueue();
+      repositoryProvider = RepositoryProviderImpl(
+        contactRepository: contactRepository,
+        messageRepository: messageRepository,
+      );
 
       // Initialize the offline queue
       await offlineQueue.initialize();
 
-      coordinator = MessageRetryCoordinator(offlineQueue: offlineQueue);
+      coordinator = MessageRetryCoordinator(
+        repositoryProvider: repositoryProvider,
+        offlineQueue: offlineQueue,
+      );
     });
 
     tearDown(() async {

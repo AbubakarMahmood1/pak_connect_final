@@ -7,17 +7,23 @@ import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
+import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/security/message_security.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/core/di/repository_provider_impl.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment(dbLabel: 'mesh_relay_flow');
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'mesh_relay_flow',
+      useRealServiceLocator: true,
+      configureDiWithMocks: false,
+    );
   });
 
   setUp(() async {
@@ -31,6 +37,7 @@ void main() {
 
   group('Mesh Relay Flow Tests', () {
     late ContactRepository contactRepository;
+    late MessageRepository messageRepository;
     late OfflineMessageQueue messageQueue;
     late SpamPreventionManager spamPrevention;
     late MeshRelayEngine relayEngine;
@@ -44,12 +51,18 @@ void main() {
 
     setUp(() async {
       contactRepository = ContactRepository();
+      messageRepository = MessageRepository();
       messageQueue = OfflineMessageQueue();
       spamPrevention = SpamPreventionManager();
       messageHandler = BLEMessageHandler();
       seenStore = TestSetup.getService<ISeenMessageStore>();
 
-      await messageQueue.initialize();
+      final repositoryProvider = RepositoryProviderImpl(
+        contactRepository: contactRepository,
+        messageRepository: messageRepository,
+      );
+
+      await messageQueue.initialize(repositoryProvider: repositoryProvider);
       await spamPrevention.initialize();
 
       relayEngine = MeshRelayEngine(

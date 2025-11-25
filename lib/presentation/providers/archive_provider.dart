@@ -73,7 +73,9 @@ final archiveListProvider =
         final summaries = await managementService.getEnhancedArchiveSummaries(
           filter: filter?.searchFilter,
           limit: filter?.limit ?? 50,
-          afterCursor: filter?.afterCursor,
+          offset: filter?.afterCursor != null
+              ? int.tryParse(filter!.afterCursor!)
+              : null,
         );
 
         // Convert enhanced summaries to basic summaries for UI
@@ -229,6 +231,7 @@ class ArchiveOperationsState {
 class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
   late ArchiveManagementService _managementService;
   StreamSubscription? _archiveUpdatesSubscription;
+  Timer? _searchDebounceTimer;
 
   @override
   ArchiveOperationsState build() {
@@ -241,6 +244,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
     // Cleanup on dispose
     ref.onDispose(() {
       _archiveUpdatesSubscription?.cancel();
+      _searchDebounceTimer?.cancel();
     });
 
     return const ArchiveOperationsState();
@@ -265,6 +269,31 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
         'Archive operation completed',
       ],
     );
+  }
+
+  /// Debounced search to avoid hammering DB on each keystroke
+  void debouncedSearch(String query) {
+    _searchDebounceTimer?.cancel();
+    _searchDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      ref.read(archiveUIStateProvider.notifier).updateSearchQuery(query);
+      _performSearch(query);
+    });
+  }
+
+  Future<void> _performSearch(String query) async {
+    try {
+      final ArchiveSearchService searchService = ref.read(
+        archiveSearchServiceProvider,
+      );
+      await searchService.search(
+        query: query,
+        filter: null,
+        options: null,
+        limit: 50,
+      );
+    } catch (e) {
+      _logger.warning('Archive search failed: $e');
+    }
   }
 
   /// Archive a chat

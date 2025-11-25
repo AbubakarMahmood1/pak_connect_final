@@ -321,7 +321,7 @@ class ArchiveRepository implements IArchiveRepository {
   Future<List<ArchivedChatSummary>> getArchivedChats({
     ArchiveSearchFilter? filter,
     int? limit,
-    String? afterCursor,
+    int? offset,
   }) async {
     try {
       final db = await DatabaseHelper.database;
@@ -359,12 +359,6 @@ class ArchiveRepository implements IArchiveRepository {
         }
       }
 
-      // Cursor-based pagination
-      if (afterCursor != null) {
-        where.add('archive_id > ?');
-        whereArgs.add(afterCursor);
-      }
-
       // Build sort clause
       String orderBy = 'archived_at DESC';
       if (filter?.sortBy != null) {
@@ -396,6 +390,7 @@ class ArchiveRepository implements IArchiveRepository {
         whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
         orderBy: orderBy,
         limit: limit,
+        offset: offset,
       );
 
       return results.map((row) => _mapToArchivedChatSummary(row)).toList();

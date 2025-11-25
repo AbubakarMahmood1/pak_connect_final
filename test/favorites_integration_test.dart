@@ -6,13 +6,19 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
+import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/core/di/repository_provider_impl.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
   setUpAll(() async {
-    await TestSetup.initializeTestEnvironment(dbLabel: 'favorites');
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'favorites',
+      useRealServiceLocator: true,
+      configureDiWithMocks: false,
+    );
   });
 
   setUp(() async {
@@ -332,6 +338,7 @@ void main() {
   group('OfflineMessageQueue Favorites Integration', () {
     late OfflineMessageQueue queue;
     late ContactRepository repository;
+    late MessageRepository messageRepository;
 
     const testSenderKey = 'sender_public_key_123';
     const testRecipientKey = 'recipient_public_key_456';
@@ -341,12 +348,18 @@ void main() {
       await TestSetup.configureTestDatabase(label: 'favorites_queue');
 
       repository = ContactRepository();
+      messageRepository = MessageRepository();
       await repository.saveContact(testRecipientKey, 'Regular Contact');
       await repository.saveContact(testFavoriteKey, 'Favorite Contact');
       await repository.markContactFavorite(testFavoriteKey);
 
       queue = OfflineMessageQueue();
-      await queue.initialize();
+      await queue.initialize(
+        repositoryProvider: RepositoryProviderImpl(
+          contactRepository: repository,
+          messageRepository: messageRepository,
+        ),
+      );
     });
 
     test('auto-boosts priority for favorite contacts', () async {

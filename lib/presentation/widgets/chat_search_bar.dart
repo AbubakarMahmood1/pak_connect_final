@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../domain/entities/message.dart';
 
@@ -35,12 +34,9 @@ class ChatSearchBar extends StatefulWidget {
 class _ChatSearchBarState extends State<ChatSearchBar> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
-  Timer? _debounceTimer;
   List<SearchResult> _searchResults = [];
   int _currentResultIndex = -1;
   bool _isSearching = false;
-
-  static const Duration _debounceDuration = Duration(milliseconds: 300);
 
   @override
   void initState() {
@@ -52,15 +48,11 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
   void dispose() {
     _searchController.dispose();
     _searchFocusNode.dispose();
-    _debounceTimer?.cancel();
     super.dispose();
   }
 
   void _onSearchChanged(String query) {
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(_debounceDuration, () {
-      _performSearch(query.trim());
-    });
+    _performSearch(query.trim());
   }
 
   void _performSearch(String query) {
