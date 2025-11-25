@@ -98,6 +98,8 @@ class MockChatsRepository implements IChatsRepository {
     List<Peripheral>? nearbyDevices,
     Map<String, DiscoveredEventArgs>? discoveryData,
     String? searchQuery,
+    int? limit,
+    int? offset,
   }) async {
     return chats
         .map(

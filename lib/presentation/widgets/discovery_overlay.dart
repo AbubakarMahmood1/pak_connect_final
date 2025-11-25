@@ -1,15 +1,11 @@
-import 'dart:io' show Platform;
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
-    hide ConnectionState;
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../providers/ble_providers.dart';
 import '../screens/chat_screen.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../controllers/discovery_overlay_controller.dart';
 import 'discovery/discovery_header.dart';
 import 'discovery/discovery_peripheral_view.dart';
@@ -36,8 +32,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
-  StreamSubscription? _connectionSubscription;
-  late final DiscoveryOverlayController _controller;
+  late final ProviderSubscription<AsyncValue<DiscoveryOverlayState>> _stateSub;
 
   // Device list management
   static const int _maxDevices = 50;
@@ -60,54 +55,21 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     );
 
     _animationController.forward();
-    _controller = DiscoveryOverlayController(ref: ref, logger: _logger)
-      ..addListener(_onControllerChanged);
-    _controller.initialize();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initializeDiscovery();
-    });
-  }
-
-  void _onControllerChanged() {
-    if (!mounted) return;
-    setState(() {});
-  }
-
-  void _initializeDiscovery() {
-    final connectionService = ref.read(connectionServiceProvider);
-
-    if (Platform.isAndroid && connectionService.isPeripheralMode) {
-      _setupPeripheralListener();
-    }
-  }
-
-  void _setupPeripheralListener() {
-    final connectionService = ref.read(connectionServiceProvider);
-
-    _connectionSubscription?.cancel();
-    _connectionSubscription = connectionService.peripheralConnectionChanges
-        .distinct(
-          (prev, next) =>
-              prev.central.uuid == next.central.uuid &&
-              prev.state == next.state,
-        )
-        .listen((event) {
-          if (event.state == ble.ConnectionState.connected) {
-            _logger.info('Incoming connection detected');
-            _handleIncomingConnection(event.central);
-          }
-        });
-  }
-
-  void _handleIncomingConnection(Central central) async {
-    if (!mounted) return;
-    setState(() {});
+    _stateSub = ref.listenManual<AsyncValue<DiscoveryOverlayState>>(
+      discoveryOverlayControllerProvider,
+      (previous, next) {
+        if (mounted) setState(() {});
+      },
+    );
+    // Prime provider to start initialization.
+    ref.read(discoveryOverlayControllerProvider);
   }
 
   /// Trigger immediate burst scan (manual override)
   Future<void> _startScanning() async {
-    if (!_controller.canTriggerManualScan()) {
+    final controller = ref.read(discoveryOverlayControllerProvider.notifier);
+
+    if (!controller.canTriggerManualScan()) {
       return;
     }
 
@@ -128,10 +90,11 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
 
     if (!mounted) return;
 
+    final controller = ref.read(discoveryOverlayControllerProvider.notifier);
     final deviceId = device.uuid.toString();
 
     // Mark as connecting
-    _controller.setAttemptState(deviceId, ConnectionAttemptState.connecting);
+    controller.setAttemptState(deviceId, ConnectionAttemptState.connecting);
 
     // Show connecting dialog
     showDialog(
@@ -157,21 +120,21 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
 
       // Mark as connected and verify connection state
       if (connectionService.connectedDevice?.uuid == device.uuid) {
-        _controller.setAttemptState(deviceId, ConnectionAttemptState.connected);
+        controller.setAttemptState(deviceId, ConnectionAttemptState.connected);
         if (mounted) {
           Navigator.pop(context);
           widget.onDeviceSelected(device);
         }
       } else {
         // Connection didn't actually succeed, mark as failed
-        _controller.setAttemptState(deviceId, ConnectionAttemptState.failed);
+        controller.setAttemptState(deviceId, ConnectionAttemptState.failed);
         if (mounted) {
           Navigator.pop(context);
         }
       }
     } catch (e) {
       // Mark as failed
-      _controller.setAttemptState(deviceId, ConnectionAttemptState.failed);
+      controller.setAttemptState(deviceId, ConnectionAttemptState.failed);
 
       if (mounted) {
         Navigator.pop(context);
@@ -226,6 +189,12 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
 
   @override
   Widget build(BuildContext context) {
+    final overlayAsync = ref.watch(discoveryOverlayControllerProvider);
+    final overlayState =
+        overlayAsync.asData?.value ?? DiscoveryOverlayState.initial();
+    final overlayController = ref.read(
+      discoveryOverlayControllerProvider.notifier,
+    );
     final bleService = ref.watch(connectionServiceProvider);
     final discoveredDevicesAsync = ref.watch(discoveredDevicesProvider);
     final discoveryDataAsync = ref.watch(discoveryDataProvider);
@@ -293,24 +262,26 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
                       child: Column(
                         children: [
                           DiscoveryHeader(
-                            showScannerMode: _controller.showScannerMode,
+                            showScannerMode: overlayState.showScannerMode,
                             isPeripheralMode: bleService.isPeripheralMode,
-                            onToggleMode: () => _controller.setShowScannerMode(
-                              !_controller.showScannerMode,
-                            ),
+                            onToggleMode: () =>
+                                overlayController.setShowScannerMode(
+                                  !overlayState.showScannerMode,
+                                ),
                             onClose: widget.onClose,
                           ),
 
                           Expanded(
                             child: AnimatedSwitcher(
                               duration: Duration(milliseconds: 300),
-                              child: _controller.showScannerMode
+                              child: overlayState.showScannerMode
                                   ? DiscoveryScannerView(
                                       devicesAsync: discoveredDevicesAsync,
                                       discoveryDataAsync: discoveryDataAsync,
                                       deduplicatedDevicesAsync:
                                           deduplicatedDevicesAsync,
-                                      controller: _controller,
+                                      state: overlayState,
+                                      controller: overlayController,
                                       maxDevices: _maxDevices,
                                       logger: _logger,
                                       onStartScanning: _startScanning,
@@ -359,11 +330,8 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
 
   @override
   void dispose() {
-    _connectionSubscription?.cancel();
     _animationController.dispose();
-    _controller
-      ..removeListener(_onControllerChanged)
-      ..dispose();
+    _stateSub.close();
     super.dispose();
   }
 }

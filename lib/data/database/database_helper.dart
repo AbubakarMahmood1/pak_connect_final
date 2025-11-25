@@ -901,7 +901,11 @@ class DatabaseHelper {
       await factory.deleteDatabase(path);
       _database = null;
       _initializingDatabase = null;
-      _logger.warning('Database deleted');
+      if (_testDatabaseName != null) {
+        _logger.fine('Database deleted (test database: $dbName)');
+      } else {
+        _logger.warning('Database deleted');
+      }
     } catch (e) {
       // In test environment, may fail - that's OK
       _logger.fine('Database delete attempted: $e');

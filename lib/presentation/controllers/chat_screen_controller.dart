@@ -3,6 +3,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
 import '../../core/app_core.dart';
 import '../../core/interfaces/i_connection_service.dart';
@@ -34,6 +35,34 @@ import '../../presentation/providers/security_state_provider.dart';
 import '../widgets/chat_search_bar.dart' show SearchResult;
 import 'chat_retry_helper.dart';
 
+class ChatScreenControllerArgs {
+  const ChatScreenControllerArgs({
+    required this.ref,
+    required this.context,
+    required this.config,
+    this.messageRepository,
+    this.contactRepository,
+    this.chatsRepository,
+    this.persistentChatManager,
+    this.retryCoordinator,
+    this.messagingViewModel,
+    this.repositoryRetryHandler,
+    this.pairingDialogController,
+  });
+
+  final WidgetRef ref;
+  final BuildContext context;
+  final ChatScreenConfig config;
+  final MessageRepository? messageRepository;
+  final ContactRepository? contactRepository;
+  final ChatsRepository? chatsRepository;
+  final PersistentChatStateManager? persistentChatManager;
+  final MessageRetryCoordinator? retryCoordinator;
+  final ChatMessagingViewModel? messagingViewModel;
+  final Future<void> Function(Message message)? repositoryRetryHandler;
+  final ChatPairingDialogController? pairingDialogController;
+}
+
 /// Coordinates all non-UI chat behaviors so the widget can stay lean.
 class ChatScreenController extends ChangeNotifier {
   final _logger = Logger('ChatScreenController');
@@ -56,6 +85,8 @@ class ChatScreenController extends ChangeNotifier {
   StreamSubscription<String>? _messageSubscription;
   StreamSubscription<String>? _deliverySubscription;
   Timer? _initializationTimeoutTimer;
+  final List<StreamSubscription<dynamic>> _managedSubscriptions = [];
+  bool _initialized = false;
 
   ChatUIState _state = const ChatUIState();
   String _chatId = '';
@@ -64,34 +95,27 @@ class ChatScreenController extends ChangeNotifier {
   bool _disposed = false;
   final List<String> _messageBuffer = [];
 
-  ChatScreenController({
-    required this.ref,
-    required this.context,
-    required this.config,
-    MessageRepository? messageRepository,
-    ContactRepository? contactRepository,
-    ChatsRepository? chatsRepository,
-    PersistentChatStateManager? persistentChatManager,
-    MessageRetryCoordinator? retryCoordinator,
-    ChatMessagingViewModel? messagingViewModel,
-    Future<void> Function(Message message)? repositoryRetryHandler,
-    ChatPairingDialogController? pairingDialogController,
-  }) : messageRepository = messageRepository ?? MessageRepository(),
-       contactRepository = contactRepository ?? ContactRepository(),
-       chatsRepository = chatsRepository ?? ChatsRepository(),
-       _persistentChatManager = persistentChatManager,
-       _injectedPairingController = pairingDialogController {
-    _repositoryRetryHandler = repositoryRetryHandler ?? _retryRepositoryMessage;
+  ChatScreenController(ChatScreenControllerArgs args)
+    : ref = args.ref,
+      context = args.context,
+      config = args.config,
+      messageRepository = args.messageRepository ?? MessageRepository(),
+      contactRepository = args.contactRepository ?? ContactRepository(),
+      chatsRepository = args.chatsRepository ?? ChatsRepository(),
+      _persistentChatManager = args.persistentChatManager,
+      _injectedPairingController = args.pairingDialogController {
+    _repositoryRetryHandler =
+        args.repositoryRetryHandler ?? _retryRepositoryMessage;
     _chatId = _calculateInitialChatId();
     _cachedContactPublicKey = _contactPublicKey;
-    _initializeControllers(messagingViewModel: messagingViewModel);
+    _initializeControllers(messagingViewModel: args.messagingViewModel);
     _retryHelper = ChatRetryHelper(
       ref: ref,
       config: config,
       chatId: () => _chatId,
       contactPublicKey: () => _contactPublicKey,
       displayContactName: () => displayContactName,
-      messageRepository: this.messageRepository,
+      messageRepository: messageRepository,
       repositoryRetryHandler: _repositoryRetryHandler,
       showSuccess: _showSuccess,
       showError: _showError,
@@ -99,7 +123,7 @@ class ChatScreenController extends ChangeNotifier {
       scrollToBottom: scrollToBottom,
       getMessages: () => _state.messages,
       logger: _logger,
-      initialCoordinator: retryCoordinator,
+      initialCoordinator: args.retryCoordinator,
     );
   }
 
@@ -110,6 +134,37 @@ class ChatScreenController extends ChangeNotifier {
   ChatSearchController get searchController => _searchController;
   ChatPairingDialogController get pairingDialogController =>
       _pairingDialogController;
+
+  /// Legacy-style constructor kept for compatibility in tests and widgets that
+  /// still pass named parameters directly.
+  @visibleForTesting
+  ChatScreenController.deprecated({
+    required WidgetRef ref,
+    required BuildContext context,
+    required ChatScreenConfig config,
+    MessageRepository? messageRepository,
+    ContactRepository? contactRepository,
+    ChatsRepository? chatsRepository,
+    PersistentChatStateManager? persistentChatManager,
+    MessageRetryCoordinator? retryCoordinator,
+    ChatMessagingViewModel? messagingViewModel,
+    Future<void> Function(Message message)? repositoryRetryHandler,
+    ChatPairingDialogController? pairingDialogController,
+  }) : this(
+         ChatScreenControllerArgs(
+           ref: ref,
+           context: context,
+           config: config,
+           messageRepository: messageRepository,
+           contactRepository: contactRepository,
+           chatsRepository: chatsRepository,
+           persistentChatManager: persistentChatManager,
+           retryCoordinator: retryCoordinator,
+           messagingViewModel: messagingViewModel,
+           repositoryRetryHandler: repositoryRetryHandler,
+           pairingDialogController: pairingDialogController,
+         ),
+       );
 
   String get displayContactName {
     if (config.isRepositoryMode) {
@@ -231,6 +286,7 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   Future<void> initialize({bool logChatOpen = true}) async {
+    if (_disposed || _initialized) return;
     if (logChatOpen) {
       await _logChatOpenState();
     }
@@ -241,6 +297,7 @@ class ChatScreenController extends ChangeNotifier {
     _setupDeliveryListener();
     _retryHelper.ensureRetryCoordinator();
     _setupSecurityStateListener();
+    _initialized = true;
   }
 
   void _updateState(ChatUIState Function(ChatUIState) updater) {
@@ -364,6 +421,7 @@ class ChatScreenController extends ChangeNotifier {
       ) {
         _updateMessageStatus(messageId, MessageStatus.delivered);
       });
+      _managedSubscriptions.add(_deliverySubscription!);
     } catch (e) {
       _logger.warning('Failed to set up delivery listener: $e');
     }
@@ -700,6 +758,7 @@ class ChatScreenController extends ChangeNotifier {
           _messageBuffer.add(content);
         }
       });
+      _managedSubscriptions.add(_messageSubscription!);
     }
   }
 
@@ -1068,8 +1127,10 @@ class ChatScreenController extends ChangeNotifier {
     _disposed = true;
     _persistentChatManager?.unregisterChatScreen(_chatId);
     _messageListenerActive = false;
-    _messageSubscription?.cancel();
-    _deliverySubscription?.cancel();
+    for (final sub in _managedSubscriptions) {
+      sub.cancel();
+    }
+    _managedSubscriptions.clear();
     _initializationTimeoutTimer?.cancel();
     _scrollingController.dispose();
     _messagingViewModel.dispose();
@@ -1079,3 +1140,10 @@ class ChatScreenController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+final chatScreenControllerProvider = ChangeNotifierProvider.autoDispose
+    .family<ChatScreenController, ChatScreenControllerArgs>((ref, args) {
+      final controller = ChatScreenController(args);
+      unawaited(controller.initialize());
+      return controller;
+    });

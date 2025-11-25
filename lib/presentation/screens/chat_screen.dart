@@ -48,9 +48,7 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   late final TextEditingController _messageController;
-  late final ChatScreenController _controller;
-  late ChatUIState _uiState;
-
+  late final ChatScreenControllerArgs _controllerArgs;
   bool get _isRepositoryMode => widget.chatId != null;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
@@ -59,7 +57,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _messageController = TextEditingController();
-    _controller = ChatScreenController(
+    _controllerArgs = ChatScreenControllerArgs(
       ref: ref,
       context: context,
       config: ChatScreenConfig(
@@ -69,36 +67,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         contactName: widget.contactName,
         contactPublicKey: widget.contactPublicKey,
       ),
-    )..addListener(_handleControllerUpdate);
-    _uiState = _controller.state;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _controller.initialize();
-    });
-  }
-
-  void _handleControllerUpdate() {
-    if (!mounted) return;
-    setState(() {
-      _uiState = _controller.state;
-    });
+    );
   }
 
   @override
   void dispose() {
-    _controller.removeListener(_handleControllerUpdate);
-    _controller.dispose();
     _messageController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final controller = ref.watch(chatScreenControllerProvider(_controllerArgs));
+    final uiState = controller.state;
+
     ref.listen(connectionInfoProvider, (previous, next) {
-      _controller.handleConnectionChange(previous?.value, next.value);
+      controller.handleConnectionChange(previous?.value, next.value);
     });
     ref.listen(meshNetworkStatusProvider, (previous, next) {
-      _controller.handleMeshInitializationStatusChange(previous, next);
+      controller.handleMeshInitializationStatusChange(previous, next);
     });
 
     final connectionInfoAsync = ref.watch(connectionInfoProvider);
@@ -108,13 +95,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
 
     final securityStateAsync = ref.watch(
-      securityStateProvider(_controller.securityStateKey),
+      securityStateProvider(controller.securityStateKey),
     );
 
     final bleService = ref.watch(connectionServiceProvider);
 
     final actuallyConnected = connectionInfo?.isConnected ?? false;
-    final messages = _uiState.messages;
+    final messages = uiState.messages;
 
     return Scaffold(
       appBar: AppBar(
@@ -125,7 +112,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               _isRepositoryMode
                   ? '${widget.contactName}'
                   : (connectionInfo?.otherUserName ??
-                        'Device ${_controller.displayContactName}'),
+                        'Device ${controller.displayContactName}'),
               style: Theme.of(context).textTheme.titleMedium,
             ),
             securityStateAsync.when(
@@ -153,17 +140,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         actions: [
           IconButton(
             icon: Icon(
-              _controller.searchController.isSearchMode
+              controller.searchController.isSearchMode
                   ? Icons.close
                   : Icons.search,
             ),
             onPressed: _toggleSearchMode,
-            tooltip: _controller.searchController.isSearchMode
+            tooltip: controller.searchController.isSearchMode
                 ? 'Exit search'
                 : 'Search messages',
           ),
           securityStateAsync.when(
-            data: (securityState) => _buildSingleActionButton(securityState),
+            data: (securityState) =>
+                _buildSingleActionButton(securityState, controller),
             loading: () => const SizedBox.shrink(),
             error: (error, stack) => const SizedBox.shrink(),
           ),
@@ -178,34 +166,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 bleService: bleService,
                 isPeripheralMode: _isPeripheralMode,
                 onReconnect: () {
-                  _controller.manualReconnection();
+                  controller.manualReconnection();
                 },
               ),
-            if (_uiState.meshInitializing)
+            if (uiState.meshInitializing)
               InitializationStatusPanel(
-                statusText: _uiState.initializationStatus,
+                statusText: uiState.initializationStatus,
               ),
-            if (_controller.searchController.isSearchMode)
+            if (controller.searchController.isSearchMode)
               ChatSearchBar(
                 messages: messages,
-                onSearch: _controller.searchController.handleSearchQuery,
-                onNavigateToResult: (index) => _controller.searchController
+                onSearch: controller.searchController.handleSearchQuery,
+                onNavigateToResult: (index) => controller.searchController
                     .navigateToSearchResult(index, messages.length),
                 onExitSearch: _toggleSearchMode,
               ),
             Expanded(
-              child: _uiState.isLoading
+              child: uiState.isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : messages.isEmpty
                   ? const EmptyChatPlaceholder()
                   : ListView.builder(
                       controller:
-                          _controller.scrollingController.scrollController,
+                          controller.scrollingController.scrollController,
                       padding: EdgeInsets.zero,
                       itemCount: messages.length + 1,
                       itemBuilder: (context, index) {
                         if (index == messages.length) {
-                          final failedCount = _uiState.messages
+                          final failedCount = uiState.messages
                               .where(
                                 (m) =>
                                     m.isFromMe &&
@@ -215,7 +203,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           return RetryIndicator(
                             failedCount: failedCount,
                             onRetry: () {
-                              _controller.retryFailedMessages();
+                              controller.retryFailedMessages();
                             },
                           );
                         }
@@ -225,21 +213,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           message: message,
                           showAvatar: true,
                           showStatus: true,
-                          searchQuery: _controller.searchController.isSearchMode
-                              ? _controller.searchController.searchQuery
+                          searchQuery: controller.searchController.isSearchMode
+                              ? controller.searchController.searchQuery
                               : null,
                           onRetry: null,
                           onDelete: (messageId, deleteForEveryone) =>
                               _deleteMessage(messageId, deleteForEveryone),
                         );
 
-                        if (_uiState.showUnreadSeparator &&
+                        if (uiState.showUnreadSeparator &&
                             index ==
-                                _controller
+                                controller
                                         .scrollingController
                                         .lastReadMessageIndex +
                                     1 &&
-                            _controller.scrollingController.unreadMessageCount >
+                            controller.scrollingController.unreadMessageCount >
                                 0) {
                           return Column(
                             children: [const UnreadSeparator(), messageWidget],
@@ -276,7 +264,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
       ),
       floatingActionButton:
-          _controller.scrollingController.shouldShowScrollDownButton(
+          controller.scrollingController.shouldShowScrollDownButton(
             messages.length,
           )
           ? Padding(
@@ -284,14 +272,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: FloatingActionButton(
                 mini: true,
                 onPressed: () {
-                  _controller.scrollToBottom();
-                  _controller.scrollingController.scheduleMarkAsRead();
+                  controller.scrollToBottom();
+                  controller.scrollingController.scheduleMarkAsRead();
                 },
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     const Icon(Icons.arrow_downward),
-                    if (_uiState.newMessagesWhileScrolledUp > 0)
+                    if (uiState.newMessagesWhileScrolledUp > 0)
                       Positioned(
                         right: 0,
                         top: 0,
@@ -306,9 +294,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             minHeight: 16,
                           ),
                           child: Text(
-                            _uiState.newMessagesWhileScrolledUp > 99
+                            uiState.newMessagesWhileScrolledUp > 99
                                 ? '99+'
-                                : '${_uiState.newMessagesWhileScrolledUp}',
+                                : '${uiState.newMessagesWhileScrolledUp}',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 10,
@@ -379,12 +367,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  Widget _buildSingleActionButton(SecurityState securityState) {
+  Widget _buildSingleActionButton(
+    SecurityState securityState,
+    ChatScreenController controller,
+  ) {
     if (securityState.showPairingButton) {
       return IconButton(
         icon: const Icon(Icons.lock_open),
         onPressed: () {
-          _controller.userRequestedPairing();
+          controller.userRequestedPairing();
         },
         tooltip: 'Secure Chat',
       );
@@ -392,7 +383,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.person_add),
         onPressed: () {
-          _controller.userRequestedPairing();
+          controller.userRequestedPairing();
         },
         tooltip: 'Add Contact',
       );
@@ -400,7 +391,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.sync),
         onPressed: () {
-          _controller.handleAsymmetricContact(
+          controller.handleAsymmetricContact(
             securityState.otherPublicKey ?? '',
             securityState.otherUserName ?? 'Unknown',
           );
@@ -415,7 +406,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     _messageController.clear();
-    _controller.sendMessage(text);
+    final controller = ref.read(chatScreenControllerProvider(_controllerArgs));
+    controller.sendMessage(text);
   }
 
   String _getMessageHintText(ConnectionInfo? connectionInfo) {
@@ -434,10 +426,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return 'Type a message...';
   }
 
-  Future<void> _deleteMessage(String messageId, bool deleteForEveryone) =>
-      _controller.deleteMessage(messageId, deleteForEveryone);
+  Future<void> _deleteMessage(String messageId, bool deleteForEveryone) => ref
+      .read(chatScreenControllerProvider(_controllerArgs))
+      .deleteMessage(messageId, deleteForEveryone);
 
   void _toggleSearchMode() {
-    _controller.toggleSearchMode();
+    ref.read(chatScreenControllerProvider(_controllerArgs)).toggleSearchMode();
   }
 }

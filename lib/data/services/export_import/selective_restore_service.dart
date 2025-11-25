@@ -93,7 +93,7 @@ class SelectiveRestoreService {
 
     // Clear existing contacts if requested
     if (clearExisting) {
-      _logger.warning('Clearing existing contacts...');
+      _logger.fine('Clearing existing contacts...');
       await targetDb.delete('contacts');
     }
 
@@ -101,7 +101,7 @@ class SelectiveRestoreService {
     final contacts = await backupDb.query('contacts');
 
     if (contacts.isEmpty) {
-      _logger.warning('No contacts found in backup');
+      _logger.info('No contacts found in backup');
       return 0;
     }
 

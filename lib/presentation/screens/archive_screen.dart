@@ -1,7 +1,6 @@
 // Archive screen for displaying and managing archived chats
 // Provides comprehensive archive management functionality
 
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/archive_provider.dart';
@@ -22,20 +21,25 @@ class ArchiveScreen extends ConsumerStatefulWidget {
 
 class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   final TextEditingController _searchController = TextEditingController();
-  Timer? _searchDebounceTimer;
   bool _showStatistics = true;
   ArchiveListFilter? _currentFilter;
+  int _offset = 0;
+  static const int _pageSize = 25;
 
   @override
   void initState() {
     super.initState();
     // Initialize any required state
+    _offset = 0;
+    _currentFilter = const ArchiveListFilter(
+      limit: _pageSize,
+      afterCursor: null,
+    );
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _searchDebounceTimer?.cancel();
     super.dispose();
   }
 
@@ -250,21 +254,40 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
           return _buildEmptyState(context);
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.only(bottom: 80), // Account for FAB
-          itemCount: archives.length,
-          itemBuilder: (context, index) {
-            final archive = archives[index];
-            return ArchivedChatTile(
-              archive: archive,
-              onTap: () => _openArchiveDetail(archive),
-              onRestore: () => _restoreChat(archive),
-              onDelete: () => _deleteChat(archive),
-              isSelected:
-                  archive.id ==
-                  ref.read(archiveUIStateProvider).selectedArchiveId,
-            );
+        final hasMore = archives.length >= (_currentFilter?.limit ?? _pageSize);
+
+        return NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification.metrics.pixels >=
+                notification.metrics.maxScrollExtent - 100) {
+              if (hasMore) {
+                _loadMoreArchives();
+              }
+            }
+            return false;
           },
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 80), // Account for FAB
+            itemCount: archives.length + (hasMore ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (hasMore && index == archives.length) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final archive = archives[index];
+              return ArchivedChatTile(
+                archive: archive,
+                onTap: () => _openArchiveDetail(archive),
+                onRestore: () => _restoreChat(archive),
+                onDelete: () => _deleteChat(archive),
+                isSelected:
+                    archive.id ==
+                    ref.read(archiveUIStateProvider).selectedArchiveId,
+              );
+            },
+          ),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -455,10 +478,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   }
 
   void _handleSearchQueryChanged(String query) {
-    _searchDebounceTimer?.cancel();
-    _searchDebounceTimer = Timer(const Duration(milliseconds: 300), () {
-      ref.read(archiveUIStateProvider.notifier).updateSearchQuery(query);
-    });
+    ref.read(archiveOperationsProvider.notifier).debouncedSearch(query);
   }
 
   void _handleMenuAction(ArchiveMenuAction action) {
@@ -492,6 +512,13 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
 
   Future<void> _handleRefresh() async {
     // Invalidate providers to trigger refresh
+    setState(() {
+      _offset = 0;
+      _currentFilter = const ArchiveListFilter(
+        limit: _pageSize,
+        afterCursor: null,
+      );
+    });
     ref.invalidate(archiveListProvider);
     ref.invalidate(archiveStatisticsProvider);
   }
@@ -513,6 +540,17 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _loadMoreArchives() async {
+    setState(() {
+      _currentFilter = (_currentFilter ?? const ArchiveListFilter()).copyWith(
+        limit: _pageSize,
+        afterCursor: '${_offset + _pageSize}',
+      );
+      _offset += _pageSize;
+    });
+    ref.invalidate(archiveListProvider);
   }
 
   void _openSearchResult(ArchivedMessage message) {
