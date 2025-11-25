@@ -27,11 +27,14 @@ import '../../presentation/controllers/chat_pairing_dialog_controller.dart';
 import '../../presentation/controllers/chat_scrolling_controller.dart'
     as chat_controller;
 import '../../presentation/controllers/chat_search_controller.dart';
+import '../../presentation/controllers/chat_session_lifecycle.dart';
 import '../../presentation/models/chat_ui_state.dart';
 import '../../presentation/providers/ble_providers.dart';
 import '../../presentation/providers/chat_messaging_view_model.dart';
 import '../../presentation/providers/mesh_networking_provider.dart';
 import '../../presentation/providers/security_state_provider.dart';
+import '../providers/chat_session_providers.dart';
+import '../viewmodels/chat_session_view_model.dart';
 import '../widgets/chat_search_bar.dart' show SearchResult;
 import 'chat_retry_helper.dart';
 
@@ -65,6 +68,7 @@ class ChatScreenControllerArgs {
 
 /// Coordinates all non-UI chat behaviors so the widget can stay lean.
 class ChatScreenController extends ChangeNotifier {
+  final ChatScreenControllerArgs _args;
   final _logger = Logger('ChatScreenController');
   final WidgetRef ref;
   final BuildContext context;
@@ -74,36 +78,37 @@ class ChatScreenController extends ChangeNotifier {
   final ChatsRepository chatsRepository;
   late final Future<void> Function(Message message) _repositoryRetryHandler;
   final ChatPairingDialogController? _injectedPairingController;
+  final MessageRetryCoordinator? _initialRetryCoordinator;
 
   late ChatMessagingViewModel _messagingViewModel;
   late chat_controller.ChatScrollingController _scrollingController;
   late ChatSearchController _searchController;
   late ChatPairingDialogController _pairingDialogController;
+  late ChatSessionViewModel _sessionViewModel;
+  late ChatSessionLifecycle _sessionLifecycle;
   late ChatRetryHelper _retryHelper;
   PersistentChatStateManager? _persistentChatManager;
 
-  StreamSubscription<String>? _messageSubscription;
-  StreamSubscription<String>? _deliverySubscription;
-  Timer? _initializationTimeoutTimer;
-  final List<StreamSubscription<dynamic>> _managedSubscriptions = [];
   bool _initialized = false;
 
+  // Local state retained only for initialization and notifier publishing.
   ChatUIState _state = const ChatUIState();
   String _chatId = '';
   String? _cachedContactPublicKey;
-  bool _messageListenerActive = false;
   bool _disposed = false;
-  final List<String> _messageBuffer = [];
+  bool _messageListenerActive = false;
 
   ChatScreenController(ChatScreenControllerArgs args)
-    : ref = args.ref,
+    : _args = args,
+      ref = args.ref,
       context = args.context,
       config = args.config,
       messageRepository = args.messageRepository ?? MessageRepository(),
       contactRepository = args.contactRepository ?? ContactRepository(),
       chatsRepository = args.chatsRepository ?? ChatsRepository(),
       _persistentChatManager = args.persistentChatManager,
-      _injectedPairingController = args.pairingDialogController {
+      _injectedPairingController = args.pairingDialogController,
+      _initialRetryCoordinator = args.retryCoordinator {
     _repositoryRetryHandler =
         args.repositoryRetryHandler ?? _retryRepositoryMessage;
     _chatId = _calculateInitialChatId();
@@ -121,19 +126,25 @@ class ChatScreenController extends ChangeNotifier {
       showError: _showError,
       showInfo: _showInfo,
       scrollToBottom: scrollToBottom,
-      getMessages: () => _state.messages,
+      getMessages: () => state.messages,
       logger: _logger,
       initialCoordinator: args.retryCoordinator,
     );
+    _sessionLifecycle.retryHelper = _retryHelper;
+    _publishStateToOwnedNotifier(state);
   }
 
-  ChatUIState get state => _state;
+  ChatUIState get state =>
+      ref.read(chatSessionOwnedStateNotifierProvider(_args));
   String get chatId => _chatId;
   chat_controller.ChatScrollingController get scrollingController =>
       _scrollingController;
   ChatSearchController get searchController => _searchController;
   ChatPairingDialogController get pairingDialogController =>
       _pairingDialogController;
+  ChatSessionViewModel get sessionViewModel => _sessionViewModel;
+  ChatSessionLifecycle get sessionLifecycle => _sessionLifecycle;
+  ChatScreenControllerArgs get args => _args;
 
   /// Legacy-style constructor kept for compatibility in tests and widgets that
   /// still pass named parameters directly.
@@ -226,16 +237,18 @@ class ChatScreenController extends ChangeNotifier {
       chatsRepository: chatsRepository,
       chatId: _chatId,
       onScrollToBottom: () => _updateState(
-        (state) => state.copyWith(newMessagesWhileScrolledUp: 0),
+        (state) => _sessionViewModel.clearNewWhileScrolledUp(state),
       ),
-      onUnreadCountChanged: (count) =>
-          _updateState((state) => state.copyWith(unreadMessageCount: count)),
+      onUnreadCountChanged: (count) => _updateState(
+        (state) => _sessionViewModel.applyUnreadCount(state, count),
+      ),
       onStateChanged: _syncScrollState,
     );
 
     _searchController = ChatSearchController(
-      onSearchModeToggled: (isSearchMode) =>
-          _updateState((state) => state.copyWith(isSearchMode: isSearchMode)),
+      onSearchModeToggled: (isSearchMode) => _updateState(
+        (state) => _sessionViewModel.applySearchMode(state, isSearchMode),
+      ),
       onSearchResultsChanged: _onSearch,
       onNavigateToResult: _navigateToSearchResult,
       scrollController: _scrollingController.scrollController,
@@ -260,6 +273,31 @@ class ChatScreenController extends ChangeNotifier {
           onPairingError: _showError,
           onPairingSuccess: _showSuccess,
         );
+
+    _sessionViewModel = ChatSessionViewModel(
+      config: config,
+      messageRepository: messageRepository,
+      contactRepository: contactRepository,
+      chatsRepository: chatsRepository,
+      messagingViewModel: _messagingViewModel,
+      scrollingController: _scrollingController,
+      searchController: _searchController,
+      pairingDialogController: _pairingDialogController,
+      retryCoordinator: _initialRetryCoordinator,
+    );
+
+    _sessionLifecycle = ChatSessionLifecycle(
+      viewModel: _sessionViewModel,
+      connectionService: connectionService,
+      meshService: ref.read(meshNetworkingServiceProvider),
+      messageRouter: MessageRouter.instance,
+      messageSecurity: MessageSecurity(),
+      messageRepository: messageRepository,
+      retryCoordinator: _initialRetryCoordinator,
+      offlineQueue: AppCore.instance.messageQueue,
+      notificationService: NotificationService(),
+      logger: _logger,
+    );
   }
 
   BLEStateManager _resolvePairingStateManager(
@@ -295,26 +333,32 @@ class ChatScreenController extends ChangeNotifier {
     _checkAndSetupLiveMessaging();
     _setupMeshNetworking();
     _setupDeliveryListener();
-    _retryHelper.ensureRetryCoordinator();
+    _sessionLifecycle.ensureRetryCoordinator();
     _setupSecurityStateListener();
     _initialized = true;
+    _publishStateToOwnedNotifier(state);
   }
 
-  void _updateState(ChatUIState Function(ChatUIState) updater) {
+  void _updateState(ChatUIState Function(ChatUIState) updater) =>
+      publishState(updater(state));
+
+  /// Publishes state to the provider-owned notifier.
+  void publishState(ChatUIState newState) {
     if (_disposed) return;
-    _state = updater(_state);
+    _publishStateToOwnedNotifier(newState);
     notifyListeners();
   }
 
-  void _syncScrollState() {
-    _updateState(
-      (state) => state.copyWith(
-        unreadMessageCount: _scrollingController.unreadMessageCount,
-        newMessagesWhileScrolledUp:
-            _scrollingController.newMessagesWhileScrolledUp,
-        showUnreadSeparator: _scrollingController.showUnreadSeparator,
-      ),
+  void _publishStateToOwnedNotifier(ChatUIState newState) {
+    // Publish state for provider consumers.
+    final ownedState = ref.read(
+      chatSessionOwnedStateNotifierProvider(_args).notifier,
     );
+    ownedState.replace(newState);
+  }
+
+  void _syncScrollState() {
+    _updateState((state) => _sessionViewModel.syncScrollState(state));
   }
 
   Future<void> _logChatOpenState() async {
@@ -364,48 +408,41 @@ class ChatScreenController extends ChangeNotifier {
   void _setupMeshNetworking() {
     try {
       final meshStatusAsync = ref.read(meshNetworkStatusProvider);
+      _sessionLifecycle.handleMeshStatus(
+        statusAsync: meshStatusAsync,
+        isCurrentlyInitializing: state.meshInitializing,
+        updateState: _updateState,
+        onSuccessMessage: _showSuccess,
+        onWarningMessage: (msg) => _logger.warning(msg),
+      );
       meshStatusAsync.when(
         data: (status) {
-          if (status.isInitialized) {
-            _updateState(
-              (state) => state.copyWith(
-                meshInitializing: false,
-                initializationStatus: 'Ready',
-              ),
+          if (!status.isInitialized) {
+            _sessionLifecycle.startInitializationTimeout(
+              isCheckingStatus: false,
+              disposed: () => _disposed,
+              stillInitializing: () => state.meshInitializing,
+              updateState: _updateState,
+              onSuccessMessage: _showSuccess,
             );
-          } else {
-            _updateState(
-              (state) => state.copyWith(
-                meshInitializing: true,
-                initializationStatus: 'Initializing mesh network...',
-              ),
-            );
-            _startInitializationTimeoutTimer();
           }
         },
         loading: () {
-          _updateState(
-            (state) => state.copyWith(
-              meshInitializing: true,
-              initializationStatus: 'Checking mesh status...',
-            ),
+          _sessionLifecycle.startInitializationTimeout(
+            isCheckingStatus: true,
+            disposed: () => _disposed,
+            stillInitializing: () => state.meshInitializing,
+            updateState: _updateState,
+            onSuccessMessage: _showSuccess,
           );
-          _startInitializationTimeoutTimer();
         },
-        error: (error, stack) {
-          _updateState(
-            (state) => state.copyWith(
-              meshInitializing: false,
-              initializationStatus: 'Mesh ready (fallback)',
-            ),
-          );
-          _logger.warning('Mesh status error - skipping banner: $error');
-        },
+        error: (error, stack) {},
       );
     } catch (e) {
       _logger.warning('Failed to set up mesh networking: $e');
       _updateState(
-        (state) => state.copyWith(
+        (state) => _sessionViewModel.applyMeshState(
+          state,
           meshInitializing: false,
           initializationStatus: 'Failed to initialize',
         ),
@@ -414,59 +451,24 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   void _setupDeliveryListener() {
-    try {
-      final meshService = ref.read(meshNetworkingServiceProvider);
-      _deliverySubscription = meshService.messageDeliveryStream.listen((
-        messageId,
-      ) {
-        _updateMessageStatus(messageId, MessageStatus.delivered);
-      });
-      _managedSubscriptions.add(_deliverySubscription!);
-    } catch (e) {
-      _logger.warning('Failed to set up delivery listener: $e');
-    }
+    _sessionLifecycle.setupDeliveryListener(
+      onDelivered: (messageId) =>
+          _updateMessageStatus(messageId, MessageStatus.delivered),
+    );
   }
 
   void _updateMessageStatus(String messageId, MessageStatus newStatus) {
-    _updateState((state) {
-      final messages = [...state.messages];
-      final index = messages.indexWhere((m) => m.id == messageId);
-      if (index != -1) {
-        messages[index] = messages[index].copyWith(status: newStatus);
-      }
-      return state.copyWith(messages: messages);
-    });
+    _updateState(
+      (state) =>
+          _sessionViewModel.applyMessageStatus(state, messageId, newStatus),
+    );
   }
 
   @visibleForTesting
   void applyMessageUpdate(Message updatedMessage) {
-    _updateState((state) {
-      final messages = [...state.messages];
-      final index = messages.indexWhere((m) => m.id == updatedMessage.id);
-      if (index != -1) {
-        messages[index] = updatedMessage;
-      }
-      return state.copyWith(messages: messages);
-    });
-  }
-
-  void _startInitializationTimeoutTimer() {
-    _initializationTimeoutTimer?.cancel();
-    final timeoutDuration = _state.initializationStatus.contains('Checking')
-        ? const Duration(seconds: 3)
-        : const Duration(seconds: 15);
-
-    _initializationTimeoutTimer = Timer(timeoutDuration, () {
-      if (_disposed || !_state.meshInitializing) return;
-      _logger.info('Mesh initialization timeout reached - hiding banner');
-      _updateState(
-        (state) => state.copyWith(
-          meshInitializing: false,
-          initializationStatus: 'Ready (timeout fallback)',
-        ),
-      );
-      _showSuccess('Mesh networking ready (fallback mode)');
-    });
+    _updateState(
+      (state) => _sessionViewModel.applyMessageUpdate(state, updatedMessage),
+    );
   }
 
   void handleMeshInitializationStatusChange(
@@ -474,42 +476,11 @@ class ChatScreenController extends ChangeNotifier {
     AsyncValue<MeshNetworkStatus> next,
   ) {
     if (_disposed) return;
-    next.when(
-      data: (status) {
-        if (status.isInitialized && _state.meshInitializing) {
-          _initializationTimeoutTimer?.cancel();
-          _updateState(
-            (state) => state.copyWith(
-              meshInitializing: false,
-              initializationStatus: 'Ready',
-            ),
-          );
-          _showSuccess('Mesh networking ready');
-        } else if (!status.isInitialized && !_state.meshInitializing) {
-          _updateState(
-            (state) => state.copyWith(initializationStatus: 'Initializing...'),
-          );
-        }
-      },
-      loading: () {
-        if (!_state.meshInitializing) {
-          _updateState(
-            (state) => state.copyWith(
-              meshInitializing: true,
-              initializationStatus: 'Initializing mesh network...',
-            ),
-          );
-        }
-      },
-      error: (error, stack) {
-        _updateState(
-          (state) => state.copyWith(
-            meshInitializing: false,
-            initializationStatus: 'Initialization failed',
-          ),
-        );
-        _logger.severe('Mesh initialization error: $error');
-      },
+    _sessionLifecycle.handleMeshStatus(
+      statusAsync: next,
+      isCurrentlyInitializing: state.meshInitializing,
+      updateState: _updateState,
+      onSuccessMessage: _showSuccess,
     );
   }
 
@@ -591,7 +562,9 @@ class ChatScreenController extends ChangeNotifier {
       final meshService = ref.read(meshNetworkingServiceProvider);
       final allMessages = await _messagingViewModel.loadMessages(
         onLoadingStateChanged: (isLoading) {
-          _updateState((state) => state.copyWith(isLoading: isLoading));
+          _updateState(
+            (state) => _sessionViewModel.applyLoading(state, isLoading),
+          );
         },
         onGetQueuedMessages: () =>
             meshService.getQueuedMessagesForChat(_chatId),
@@ -599,7 +572,9 @@ class ChatScreenController extends ChangeNotifier {
         onError: _showError,
       );
 
-      _updateState((state) => state.copyWith(messages: allMessages));
+      _updateState(
+        (state) => _sessionViewModel.applyMessages(state, allMessages),
+      );
 
       if (config.isRepositoryMode) {
         await _scrollingController.syncUnreadCount(messages: allMessages);
@@ -608,34 +583,31 @@ class ChatScreenController extends ChangeNotifier {
 
       await _processBufferedMessages();
 
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (!_disposed) {
-          _retryHelper.ensureRetryCoordinator();
-          _retryHelper.autoRetryFailedMessages();
-        }
-      });
+      _sessionLifecycle.scheduleAutoRetry(
+        delay: const Duration(milliseconds: 1000),
+        disposed: () => _disposed,
+        onRetry: () async {
+          _sessionLifecycle.ensureRetryCoordinator();
+          await _sessionLifecycle.autoRetryFailedMessages();
+        },
+      );
     } catch (e) {
       _logger.severe('Error in loadMessages: $e');
       _showError('Failed to load messages: $e');
-      _updateState((state) => state.copyWith(isLoading: false));
+      _updateState((state) => _sessionViewModel.applyLoading(state, false));
     }
   }
 
   Future<void> _autoRetryFailedMessages() =>
-      _retryHelper.autoRetryFailedMessages();
+      _sessionLifecycle.autoRetryFailedMessages();
 
   Future<void> _retryRepositoryMessage(Message message) async {
     try {
       final retryMessage = message.copyWith(status: MessageStatus.sending);
       await messageRepository.updateMessage(retryMessage);
-      _updateState((state) {
-        final messages = [...state.messages];
-        final index = messages.indexWhere((m) => m.id == message.id);
-        if (index != -1) {
-          messages[index] = retryMessage;
-        }
-        return state.copyWith(messages: messages);
-      });
+      _updateState(
+        (state) => _sessionViewModel.applyMessageUpdate(state, retryMessage),
+      );
 
       bool success = false;
       final connectionInfo = ref.read(connectionInfoProvider).value;
@@ -693,37 +665,30 @@ class ChatScreenController extends ChangeNotifier {
           : MessageStatus.failed;
       final updatedMessage = retryMessage.copyWith(status: newStatus);
       await messageRepository.updateMessage(updatedMessage);
-      _updateState((state) {
-        final messages = [...state.messages];
-        final index = messages.indexWhere((m) => m.id == message.id);
-        if (index != -1) {
-          messages[index] = updatedMessage;
-        }
-        return state.copyWith(messages: messages);
-      });
+      _updateState(
+        (state) => _sessionViewModel.applyMessageUpdate(state, updatedMessage),
+      );
     } catch (e) {
       final failedAgain = message.copyWith(status: MessageStatus.failed);
       await messageRepository.updateMessage(failedAgain);
-      _updateState((state) {
-        final messages = [...state.messages];
-        final index = messages.indexWhere((m) => m.id == message.id);
-        if (index != -1) {
-          messages[index] = failedAgain;
-        }
-        return state.copyWith(messages: messages);
-      });
+      _updateState(
+        (state) => _sessionViewModel.applyMessageUpdate(state, failedAgain),
+      );
       rethrow;
     }
   }
 
   Future<void> _fallbackRetryFailedMessages() =>
-      _retryHelper.fallbackRetryFailedMessages();
+      _sessionLifecycle.fallbackRetryFailedMessages();
 
   void _setupPersistentChatManager() {
     _persistentChatManager ??= ref.read(persistentChatStateManagerProvider);
-    _persistentChatManager?.registerChatScreen(
-      _chatId,
-      _handlePersistentMessage,
+    _sessionLifecycle.persistentChatManager = _persistentChatManager;
+    _sessionLifecycle.registerPersistentListener(
+      chatId: _chatId,
+      incomingStream: () =>
+          ref.read(connectionServiceProvider).receivedMessages,
+      onMessage: _addReceivedMessage,
     );
   }
 
@@ -732,33 +697,33 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   void _activateMessageListener() {
-    if (_messageListenerActive) {
+    if (_sessionLifecycle.messageListenerActive || _messageListenerActive) {
       return;
     }
-
+    _sessionLifecycle.messageListenerActive = true;
     _messageListenerActive = true;
     final connectionService = ref.read(connectionServiceProvider);
 
     if (_persistentChatManager != null &&
         !_persistentChatManager!.hasActiveListener(_chatId)) {
-      _persistentChatManager!.setupPersistentListener(
-        _chatId,
-        connectionService.receivedMessages,
+      _sessionLifecycle.registerPersistentListener(
+        chatId: _chatId,
+        incomingStream: () => connectionService.receivedMessages,
+        onMessage: _addReceivedMessage,
       );
     } else if (_persistentChatManager != null &&
         _persistentChatManager!.hasActiveListener(_chatId)) {
       return;
     } else {
-      _messageSubscription = connectionService.receivedMessages.listen((
-        content,
-      ) {
-        if (!_disposed && _messageListenerActive) {
-          _addReceivedMessage(content);
-        } else if (_disposed) {
-          _messageBuffer.add(content);
-        }
-      });
-      _managedSubscriptions.add(_messageSubscription!);
+      _sessionLifecycle.attachMessageStream(
+        stream: connectionService.receivedMessages,
+        disposed: () => _disposed,
+        isActive: () => _sessionLifecycle.messageListenerActive,
+        onMessage: (content) async {
+          _sessionLifecycle.messageBuffer.add(content);
+          await _processBufferedMessages();
+        },
+      );
     }
   }
 
@@ -777,11 +742,10 @@ class ChatScreenController extends ChangeNotifier {
       secureMessageId,
     );
     if (existingMessage != null) {
-      final inUiList = _state.messages.any((m) => m.id == secureMessageId);
+      final inUiList = state.messages.any((m) => m.id == secureMessageId);
       if (!inUiList) {
         _updateState(
-          (state) =>
-              state.copyWith(messages: [...state.messages, existingMessage]),
+          (state) => _sessionViewModel.appendMessage(state, existingMessage),
         );
         scrollToBottom();
       }
@@ -815,9 +779,7 @@ class ChatScreenController extends ChangeNotifier {
       await _scrollingController.handleIncomingWhileScrolledAway();
     }
 
-    _updateState(
-      (state) => state.copyWith(messages: [...state.messages, message]),
-    );
+    _updateState((state) => _sessionViewModel.appendMessage(state, message));
 
     if (shouldAutoScroll) {
       scrollToBottom();
@@ -826,13 +788,7 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   Future<void> _processBufferedMessages() async {
-    if (_messageBuffer.isEmpty) return;
-    final bufferedMessages = List<String>.from(_messageBuffer);
-    _messageBuffer.clear();
-
-    for (final content in bufferedMessages) {
-      await _addReceivedMessage(content);
-    }
+    await _sessionLifecycle.processBufferedMessages(_addReceivedMessage);
   }
 
   Future<void> sendMessage(String content) async {
@@ -842,7 +798,7 @@ class ChatScreenController extends ChangeNotifier {
         content: content,
         onMessageAdded: (message) {
           _updateState(
-            (state) => state.copyWith(messages: [...state.messages, message]),
+            (state) => _sessionViewModel.appendMessage(state, message),
           );
         },
         onShowSuccess: _showSuccess,
@@ -861,11 +817,7 @@ class ChatScreenController extends ChangeNotifier {
         deleteForEveryone: deleteForEveryone,
         onMessageRemoved: (id) {
           _updateState(
-            (state) => state.copyWith(
-              messages: state.messages
-                  .where((message) => message.id != id)
-                  .toList(),
-            ),
+            (state) => _sessionViewModel.removeMessageById(state, id),
           );
         },
         onShowSuccess: _showSuccess,
@@ -932,16 +884,18 @@ class ChatScreenController extends ChangeNotifier {
       chatsRepository: chatsRepository,
       chatId: _chatId,
       onScrollToBottom: () => _updateState(
-        (state) => state.copyWith(newMessagesWhileScrolledUp: 0),
+        (state) => _sessionViewModel.clearNewWhileScrolledUp(state),
       ),
-      onUnreadCountChanged: (count) =>
-          _updateState((state) => state.copyWith(unreadMessageCount: count)),
+      onUnreadCountChanged: (count) => _updateState(
+        (state) => _sessionViewModel.applyUnreadCount(state, count),
+      ),
       onStateChanged: _syncScrollState,
     );
 
     _searchController = ChatSearchController(
-      onSearchModeToggled: (isSearchMode) =>
-          _updateState((state) => state.copyWith(isSearchMode: isSearchMode)),
+      onSearchModeToggled: (isSearchMode) => _updateState(
+        (state) => _sessionViewModel.applySearchMode(state, isSearchMode),
+      ),
       onSearchResultsChanged: _onSearch,
       onNavigateToResult: _navigateToSearchResult,
       scrollController: _scrollingController.scrollController,
@@ -959,7 +913,7 @@ class ChatScreenController extends ChangeNotifier {
       _handlePersistentMessage,
     );
 
-    _updateState((state) => state.copyWith(messages: []));
+    _updateState((state) => _sessionViewModel.applyMessages(state, []));
     await _loadMessages();
   }
 
@@ -1001,9 +955,11 @@ class ChatScreenController extends ChangeNotifier {
       _showError('Device disconnected');
     } else if (isConnected && !wasReady && isReady) {
       _showSuccess('Identity exchange complete!');
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (!_disposed) _autoRetryFailedMessages();
-      });
+      _sessionLifecycle.scheduleAutoRetry(
+        delay: const Duration(milliseconds: 1000),
+        disposed: () => _disposed,
+        onRetry: _autoRetryFailedMessages,
+      );
     }
 
     if (current?.otherUserName != null &&
@@ -1013,11 +969,11 @@ class ChatScreenController extends ChangeNotifier {
     }
 
     if (isConnected) {
-      Future.delayed(const Duration(milliseconds: 2500), () {
-        if (!_disposed) {
-          _autoRetryFailedMessages();
-        }
-      });
+      _sessionLifecycle.scheduleAutoRetry(
+        delay: const Duration(milliseconds: 2500),
+        disposed: () => _disposed,
+        onRetry: _autoRetryFailedMessages,
+      );
     } else {
       final connectionService = ref.read(connectionServiceProvider);
       if (!connectionService.isPeripheralMode) {
@@ -1096,13 +1052,13 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   void _onSearch(String query, List<SearchResult> results) {
-    _updateState((state) => state.copyWith(searchQuery: query));
+    _updateState((state) => _sessionViewModel.applySearchQuery(state, query));
   }
 
   void _navigateToSearchResult(int messageIndex) {
     _searchController.navigateToSearchResult(
       messageIndex,
-      _state.messages.length,
+      state.messages.length,
     );
   }
 
@@ -1125,18 +1081,14 @@ class ChatScreenController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _persistentChatManager?.unregisterChatScreen(_chatId);
+    _sessionLifecycle.unregisterPersistentListener(_chatId);
+    _sessionLifecycle.messageListenerActive = false;
     _messageListenerActive = false;
-    for (final sub in _managedSubscriptions) {
-      sub.cancel();
-    }
-    _managedSubscriptions.clear();
-    _initializationTimeoutTimer?.cancel();
     _scrollingController.dispose();
     _messagingViewModel.dispose();
     _searchController.clear();
     _pairingDialogController.clear();
-    _retryHelper.dispose();
+    _sessionLifecycle.dispose();
     super.dispose();
   }
 }

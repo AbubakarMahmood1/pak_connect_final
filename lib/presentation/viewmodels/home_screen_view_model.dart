@@ -1,0 +1,364 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
+
+import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/interfaces/i_chats_repository.dart';
+import '../../core/models/connection_info.dart';
+import '../../core/models/connection_status.dart';
+import '../../core/performance/performance_monitor.dart';
+import '../../core/services/home_screen_facade.dart';
+import '../../domain/entities/chat_list_item.dart';
+import '../../domain/services/chat_management_service.dart';
+import '../controllers/chat_list_controller.dart';
+import '../models/home_screen_state.dart';
+import '../providers/ble_providers.dart';
+import '../providers/mesh_networking_provider.dart';
+import '../providers/home_screen_providers.dart';
+
+class HomeScreenViewModel extends Notifier<HomeScreenState> {
+  static const int _pageSize = 50;
+
+  late final IChatsRepository _chatsRepository;
+  late final ChatManagementService _chatManagementService;
+  late final HomeScreenFacade _homeScreenFacade;
+  late final Logger _logger;
+  final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
+  final ChatListController _listController = ChatListController();
+
+  bool _initialized = false;
+  bool _isPaging = false;
+  bool _hasMore = true;
+  int _offset = 0;
+  String _searchQuery = '';
+
+  StreamSubscription? _peripheralConnectionSubscription;
+  StreamSubscription? _connectionInfoSubscription;
+  StreamSubscription? _discoveryDataSubscription;
+  StreamSubscription? _globalMessageSubscription;
+
+  @override
+  HomeScreenState build() {
+    // Get dependencies from provider args - will be wired in provider definition
+    // For now, using a placeholder pattern that will be replaced
+    _chatsRepository = ref.watch(chatsRepositoryProvider);
+    _chatManagementService = ChatManagementService();
+    _homeScreenFacade = HomeScreenFacade();
+    _logger = Logger('HomeScreenViewModel');
+
+    ref.onDispose(() {
+      _peripheralConnectionSubscription?.cancel();
+      _connectionInfoSubscription?.cancel();
+      _discoveryDataSubscription?.cancel();
+      _globalMessageSubscription?.cancel();
+      _chatManagementService.dispose();
+      _homeScreenFacade.dispose();
+    });
+
+    if (!_initialized) {
+      _initialized = true;
+      _initialize();
+    }
+
+    return const HomeScreenState();
+  }
+
+  Future<void> _initialize() async {
+    await Future.wait([
+      _chatManagementService.initialize(),
+      _homeScreenFacade.initialize(),
+    ]);
+    await loadChats(reset: true);
+    _setupPeripheralConnectionListener();
+    _setupDiscoveryListener();
+    _setupUnreadCountStream();
+    _setupGlobalMessageListener();
+  }
+
+  Future<void> loadChats({bool reset = true}) async {
+    _performanceMonitor.startOperation('home_load_chats');
+    if (state.isLoading || reset) {
+      _updateState(state.copyWith(isLoading: true));
+    }
+
+    if (reset) {
+      _offset = 0;
+      _hasMore = true;
+      _isPaging = false;
+    }
+
+    final nearbyDevices = await _getNearbyDevices();
+    final discoveryDataAsync = ref.read(discoveryDataProvider);
+    final discoveryData = discoveryDataAsync.maybeWhen(
+      data: (data) => data,
+      orElse: () => <String, DiscoveredEventArgs>{},
+    );
+
+    final isSearching = _searchQuery.trim().isNotEmpty;
+    final effectiveLimit = isSearching ? null : _pageSize;
+    final effectiveOffset = isSearching ? 0 : (reset ? 0 : _offset);
+
+    try {
+      final results = await _chatsRepository.getAllChats(
+        nearbyDevices: nearbyDevices,
+        discoveryData: discoveryData,
+        searchQuery: isSearching ? _searchQuery : null,
+        limit: effectiveLimit,
+        offset: effectiveOffset,
+      );
+      _performanceMonitor.endOperation('home_load_chats', success: true);
+
+      final merged = _listController.mergeChats(
+        existing: state.chats,
+        incoming: results,
+        reset: reset,
+        isSearching: isSearching,
+        pageSize: _pageSize,
+      );
+
+      _offset = merged.length;
+      _hasMore = !isSearching && results.length >= _pageSize;
+      _isPaging = false;
+      _updateState(
+        state.copyWith(
+          chats: merged,
+          isLoading: false,
+          isPaging: false,
+          hasMore: _hasMore,
+          searchQuery: _searchQuery,
+        ),
+      );
+      _refreshUnreadCount();
+    } catch (e) {
+      _performanceMonitor.endOperation('home_load_chats', success: false);
+      _isPaging = false;
+      _updateState(state.copyWith(isLoading: false, isPaging: false));
+      rethrow;
+    }
+  }
+
+  void onSearchChanged(String query) {
+    // Single-space sentinel opens the search bar without filtering.
+    if (query == ' ') {
+      _searchQuery = query;
+      _updateState(state.copyWith(searchQuery: _searchQuery));
+      return;
+    }
+
+    if (query.trim().isEmpty) {
+      _searchQuery = '';
+      _updateState(state.copyWith(searchQuery: _searchQuery));
+      loadChats(reset: true);
+      return;
+    }
+
+    _searchQuery = query;
+    _updateState(state.copyWith(searchQuery: _searchQuery));
+    loadChats(reset: true);
+  }
+
+  void clearSearch() {
+    _searchQuery = '';
+    loadChats(reset: true);
+  }
+
+  Future<void> updateSingleChatItem() async {
+    try {
+      final nearbyDevices = await _getNearbyDevices();
+      final discoveryDataAsync = ref.read(discoveryDataProvider);
+      final discoveryData = discoveryDataAsync.maybeWhen(
+        data: (data) => data,
+        orElse: () => <String, DiscoveredEventArgs>{},
+      );
+
+      final updatedChats = await _chatsRepository.getAllChats(
+        nearbyDevices: nearbyDevices,
+        discoveryData: discoveryData,
+        searchQuery: _searchQuery.trim().isEmpty ? null : _searchQuery,
+        limit: _searchQuery.trim().isEmpty ? _pageSize : null,
+        offset: 0,
+      );
+      if (updatedChats.isEmpty) return;
+
+      final mostRecentChat = updatedChats.first;
+      final merged = _listController.applySurgicalUpdate(
+        existing: state.chats,
+        updated: mostRecentChat,
+      );
+      _offset = merged.length;
+      _updateState(state.copyWith(chats: merged));
+      _refreshUnreadCount();
+    } catch (e) {
+      _logger.warning(
+        'Surgical chat update failed, falling back to full reload: $e',
+      );
+      await loadChats();
+    }
+  }
+
+  Future<void> openChat(ChatListItem chat) async {
+    await _homeScreenFacade.openChat(chat);
+    await loadChats();
+  }
+
+  Future<bool> showArchiveConfirmation(ChatListItem chat) =>
+      _homeScreenFacade.showArchiveConfirmation(chat);
+
+  Future<void> archiveChat(ChatListItem chat) async {
+    await _homeScreenFacade.archiveChat(chat);
+    await loadChats();
+  }
+
+  Future<bool> showDeleteConfirmation(ChatListItem chat) =>
+      _homeScreenFacade.showDeleteConfirmation(chat);
+
+  Future<void> deleteChat(ChatListItem chat) async {
+    await _homeScreenFacade.deleteChat(chat);
+    await loadChats();
+  }
+
+  bool isChatPinned(String chatId) =>
+      _chatManagementService.isChatPinned(chatId);
+
+  Future<void> toggleChatPin(ChatListItem chat) async {
+    await _homeScreenFacade.toggleChatPin(chat);
+    await loadChats();
+  }
+
+  Future<void> handleDeviceSelected(Peripheral device) async {
+    _logger.info('Connecting to device: ${device.uuid.toString()}');
+    await Future.delayed(const Duration(seconds: 2));
+    await loadChats();
+  }
+
+  void _setupGlobalMessageListener() {
+    try {
+      final bleService = ref.read(connectionServiceProvider);
+
+      _globalMessageSubscription = bleService.receivedMessages.listen((
+        _,
+      ) async {
+        _logger.info(
+          'Global listener: New message received - updating chat list',
+        );
+        await updateSingleChatItem();
+        _refreshUnreadCount();
+      });
+    } catch (e) {
+      _logger.warning('Failed to set up global message listener: $e');
+    }
+  }
+
+  Future<List<Peripheral>?> _getNearbyDevices() async {
+    final devicesAsync = ref.read(discoveredDevicesProvider);
+    return devicesAsync.maybeWhen(
+      data: (devices) => devices,
+      orElse: () => null,
+    );
+  }
+
+  void _setupPeripheralConnectionListener() {
+    if (!Platform.isAndroid) return;
+
+    final bleService = ref.read(connectionServiceProvider);
+
+    _peripheralConnectionSubscription = bleService.peripheralConnectionChanges
+        .distinct(
+          (prev, next) =>
+              prev.central.uuid == next.central.uuid &&
+              prev.state == next.state,
+        )
+        .where(
+          (event) =>
+              bleService.isPeripheralMode &&
+              event.state == ble.ConnectionState.connected,
+        )
+        .listen((event) {
+          _handleIncomingPeripheralConnection(event.central);
+        });
+
+    _connectionInfoSubscription = bleService.connectionInfo.listen((
+      ConnectionInfo _,
+    ) {
+      _refreshUnreadCount();
+    });
+  }
+
+  void _setupDiscoveryListener() {
+    _discoveryDataSubscription = ref
+        .read(connectionServiceProvider)
+        .discoveryData
+        .listen((_) {
+          if (!state.isLoading) {
+            loadChats();
+          }
+        });
+  }
+
+  void _handleIncomingPeripheralConnection(Central central) {
+    _logger.fine('Incoming peripheral connection: ${central.uuid}');
+    loadChats();
+  }
+
+  void _setupUnreadCountStream() {
+    final stream = Stream.periodic(const Duration(seconds: 3), (_) {
+      return _chatsRepository.getTotalUnreadCount();
+    }).asyncMap((futureCount) async => await futureCount);
+    _updateState(state.copyWith(unreadCountStream: stream));
+  }
+
+  void _refreshUnreadCount() {
+    _setupUnreadCountStream();
+  }
+
+  bool get isPaging => _isPaging;
+  bool get hasMore => _hasMore;
+
+  Future<void> loadMoreChats() async {
+    if (_isPaging || !_hasMore) return;
+    _isPaging = true;
+    _updateState(state.copyWith(isPaging: true));
+    await loadChats(reset: false);
+  }
+
+  Future<void> openContacts() => Future.sync(_homeScreenFacade.openContacts);
+
+  Future<void> openSettings() => Future.sync(_homeScreenFacade.openSettings);
+
+  Future<void> openProfile() => Future.sync(_homeScreenFacade.openProfile);
+
+  Future<String?> editDisplayName(String currentName) =>
+      _homeScreenFacade.editDisplayName(currentName);
+
+  ConnectionStatus determineConnectionStatus({
+    required String? contactPublicKey,
+    required String contactName,
+    required ConnectionInfo? currentConnectionInfo,
+    required List<Peripheral> discoveredDevices,
+    required Map<String, DiscoveredDevice> discoveryData,
+    required DateTime? lastSeenTime,
+  }) {
+    return _homeScreenFacade.determineConnectionStatus(
+      contactPublicKey: contactPublicKey,
+      contactName: contactName,
+      currentConnectionInfo: currentConnectionInfo,
+      discoveredDevices: discoveredDevices,
+      discoveryData: discoveryData,
+      lastSeenTime: lastSeenTime,
+    );
+  }
+
+  void _updateState(HomeScreenState newState) {
+    state = newState;
+  }
+}
+
+// Placeholder provider - will be properly wired with dependencies
+final homeScreenViewModelProvider =
+    NotifierProvider<HomeScreenViewModel, HomeScreenState>(
+      HomeScreenViewModel.new,
+    );
