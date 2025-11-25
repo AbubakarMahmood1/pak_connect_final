@@ -145,7 +145,7 @@ class EncryptionUtils {
 
       return decrypted;
     } catch (e) {
-      _logger.warning(
+      _logger.fine(
         'Decryption failed (wrong passphrase or corrupted data): $e',
       );
       return null;

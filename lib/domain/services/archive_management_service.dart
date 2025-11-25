@@ -324,13 +324,13 @@ class ArchiveManagementService {
   Future<List<EnhancedArchiveSummary>> getEnhancedArchiveSummaries({
     ArchiveSearchFilter? filter,
     int? limit,
-    String? afterCursor,
+    int? offset,
   }) async {
     try {
       final summaries = await _archiveRepository.getArchivedChats(
         filter: filter,
         limit: limit,
-        afterCursor: afterCursor,
+        offset: offset,
       );
 
       // Enhance with business metadata

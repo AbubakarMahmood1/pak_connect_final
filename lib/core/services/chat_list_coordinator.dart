@@ -84,6 +84,8 @@ class ChatListCoordinator implements IChatListCoordinator {
         nearbyDevices: nearbyDevices,
         discoveryData: _lastDiscoveryData ?? <String, DiscoveredEventArgs>{},
         searchQuery: searchQuery?.isEmpty ?? true ? null : searchQuery,
+        limit: null,
+        offset: null,
       );
 
       _currentChats = chats;

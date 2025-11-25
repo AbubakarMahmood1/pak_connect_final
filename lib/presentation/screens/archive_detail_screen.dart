@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/archived_chat.dart';
@@ -23,7 +22,6 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
   List<ArchivedMessage> _messages = [];
   bool _isLoading = true;
   String _searchQuery = '';
-  Timer? _searchDebounceTimer;
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -39,7 +37,6 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
 
   @override
   void dispose() {
-    _searchDebounceTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -787,12 +784,7 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
             border: OutlineInputBorder(),
           ),
           autofocus: true,
-          onChanged: (value) {
-            _searchDebounceTimer?.cancel();
-            _searchDebounceTimer = Timer(Duration(milliseconds: 300), () {
-              _performSearch(value);
-            });
-          },
+          onChanged: _performSearch,
         ),
         actions: [
           TextButton(

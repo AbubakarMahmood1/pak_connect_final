@@ -79,6 +79,7 @@ class ArchiveService implements IArchiveService {
         // Find archive by original chat ID
         final archives = await _archiveRepository.getArchivedChats(
           filter: ArchiveSearchFilter(contactFilter: chatId),
+          offset: 0,
         );
 
         if (archives.isNotEmpty) {

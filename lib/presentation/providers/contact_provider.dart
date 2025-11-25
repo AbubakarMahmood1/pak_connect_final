@@ -1,6 +1,7 @@
 // Contact management state provider with comprehensive features
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../domain/services/contact_management_service.dart';
 import '../../domain/entities/enhanced_contact.dart';
@@ -88,11 +89,23 @@ class ContactSearchState {
 
 /// Contact search state notifier
 class ContactSearchNotifier extends Notifier<ContactSearchState> {
+  Timer? _debounce;
+
   @override
   ContactSearchState build() => const ContactSearchState();
 
   void setQuery(String query) {
     state = state.copyWith(query: query);
+  }
+
+  void debouncedQuery(String query) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      setQuery(query);
+    });
+    ref.onDispose(() {
+      _debounce?.cancel();
+    });
   }
 
   void setFilter(ContactSearchFilter? filter) {

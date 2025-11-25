@@ -1,6 +1,5 @@
 // ignore_for_file: avoid_print
 
-import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/security_state.dart';
 import '../../data/services/security_state_computer.dart';
@@ -12,65 +11,56 @@ final Map<String, SecurityState> _securityStateCache = {};
 final Map<String, DateTime> _cacheTimestamps = {};
 const Duration _cacheValidityDuration = Duration(seconds: 30);
 
-/// Security state provider (keeping as FutureProvider.family - works well for this use case)
+SecurityState? _getCached(String? key) {
+  if (key == null) return null;
+  final cached = _securityStateCache[key];
+  final timestamp = _cacheTimestamps[key];
+  if (cached == null || timestamp == null) return null;
+  if (DateTime.now().difference(timestamp) > _cacheValidityDuration) {
+    _securityStateCache.remove(key);
+    _cacheTimestamps.remove(key);
+    return null;
+  }
+  return cached;
+}
+
+void _cacheResult(String? key, SecurityState result) {
+  if (key == null) return;
+  _securityStateCache[key] = result;
+  _cacheTimestamps[key] = DateTime.now();
+}
+
 final securityStateProvider = FutureProvider.family<SecurityState, String?>((
   ref,
   otherPublicKey,
 ) async {
-  print('🐛 NAV DEBUG: securityStateProvider CREATE for key: $otherPublicKey');
+  final runtime = ref.watch(bleRuntimeProvider);
+  final connectionInfo = runtime.asData?.value.connectionInfo;
+  final isRepositoryMode = otherPublicKey?.startsWith('repo_') ?? false;
 
-  // Enhanced disposal tracking with state preservation
-  ref.onDispose(() {
-    print(
-      '🐛 NAV DEBUG: securityStateProvider DISPOSE SCHEDULED for key: $otherPublicKey',
-    );
-
-    // Keep the provider alive for a short time to handle rapid dispose/create cycles
-    Timer(Duration(seconds: 5), () {
-      print(
-        '🐛 NAV DEBUG: securityStateProvider ACTUALLY DISPOSED for key: $otherPublicKey',
-      );
-    });
-  });
-
-  // Check cache first to prevent redundant computations
-  if (otherPublicKey != null &&
-      _securityStateCache.containsKey(otherPublicKey)) {
-    final cacheTime = _cacheTimestamps[otherPublicKey];
-    if (cacheTime != null &&
-        DateTime.now().difference(cacheTime) < _cacheValidityDuration) {
-      print(
-        '🐛 NAV DEBUG: Using cached security state for key: $otherPublicKey',
-      );
-      return _securityStateCache[otherPublicKey]!;
-    }
+  final cached = _getCached(otherPublicKey);
+  if (cached != null) {
+    print('🐛 NAV DEBUG: Using cached security state for key: $otherPublicKey');
+    return cached;
   }
 
   final bleService = ref.watch(bleServiceProvider);
-  final connectionInfo = ref.watch(connectionInfoProvider);
-
   print(
     '🐛 NAV DEBUG: - bleService.theirPersistentKey: ${bleService.theirPersistentKey != null && bleService.theirPersistentKey!.length > 16 ? '${bleService.theirPersistentKey!.shortId()}...' : bleService.theirPersistentKey ?? 'null'}',
   );
   print(
-    '🐛 NAV DEBUG: - connectionInfo: ${connectionInfo.value?.isConnected}/${connectionInfo.value?.isReady}',
+    '🐛 NAV DEBUG: - connectionInfo: ${connectionInfo?.isConnected}/${connectionInfo?.isReady}',
   );
-
-  final isRepositoryMode = otherPublicKey?.startsWith('repo_') ?? false;
   print('🐛 NAV DEBUG: - isRepositoryMode: $isRepositoryMode');
 
   final result = await SecurityStateComputer.computeState(
     isRepositoryMode: isRepositoryMode,
-    connectionInfo: connectionInfo.value,
+    connectionInfo: connectionInfo,
     bleService: bleService,
     otherPublicKey: otherPublicKey,
   );
 
-  // Cache the result
-  if (otherPublicKey != null) {
-    _securityStateCache[otherPublicKey] = result;
-    _cacheTimestamps[otherPublicKey] = DateTime.now();
-  }
+  _cacheResult(otherPublicKey, result);
 
   print(
     '🐛 NAV DEBUG: securityStateProvider RESULT: ${result.status.name} for key: $otherPublicKey',

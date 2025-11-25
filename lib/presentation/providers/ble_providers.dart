@@ -14,11 +14,176 @@ import '../../data/repositories/user_preferences.dart';
 import '../../core/messaging/message_router.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initialization check
+import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
 import '../../core/interfaces/i_mesh_ble_service.dart';
 import '../../core/interfaces/i_connection_service.dart';
 import '../../core/interfaces/i_ble_service_facade.dart';
+import '../../core/interfaces/i_ble_service.dart';
 import 'mesh_networking_provider.dart';
+import 'runtime_providers.dart';
+
+// =============================================================================
+// CORE RUNTIME NOTIFIER (BLE)
+// =============================================================================
+
+/// Aggregate BLE runtime state surfaced via Riverpod (replaces manual listeners).
+class BleRuntimeState {
+  final ConnectionInfo connectionInfo;
+  final List<Peripheral> discoveredDevices;
+  final Map<String, DiscoveredEventArgs> discoveryData;
+  final SpyModeInfo? lastSpyModeEvent;
+  final String? lastIdentityReveal;
+  final BluetoothStateInfo? bluetoothState;
+  final BluetoothStatusMessage? bluetoothMessage;
+  final bool isBluetoothReady;
+
+  const BleRuntimeState({
+    required this.connectionInfo,
+    required this.discoveredDevices,
+    required this.discoveryData,
+    required this.lastSpyModeEvent,
+    required this.lastIdentityReveal,
+    required this.bluetoothState,
+    required this.bluetoothMessage,
+    required this.isBluetoothReady,
+  });
+
+  factory BleRuntimeState.initial(IConnectionService service) {
+    return BleRuntimeState(
+      connectionInfo: service.currentConnectionInfo,
+      discoveredDevices: const [],
+      discoveryData: const {},
+      lastSpyModeEvent: null,
+      lastIdentityReveal: null,
+      bluetoothState: null,
+      bluetoothMessage: null,
+      isBluetoothReady: service.isBluetoothReady,
+    );
+  }
+
+  BleRuntimeState copyWith({
+    ConnectionInfo? connectionInfo,
+    List<Peripheral>? discoveredDevices,
+    Map<String, DiscoveredEventArgs>? discoveryData,
+    SpyModeInfo? lastSpyModeEvent,
+    String? lastIdentityReveal,
+    BluetoothStateInfo? bluetoothState,
+    BluetoothStatusMessage? bluetoothMessage,
+    bool? isBluetoothReady,
+  }) {
+    return BleRuntimeState(
+      connectionInfo: connectionInfo ?? this.connectionInfo,
+      discoveredDevices: discoveredDevices ?? this.discoveredDevices,
+      discoveryData: discoveryData ?? this.discoveryData,
+      lastSpyModeEvent: lastSpyModeEvent ?? this.lastSpyModeEvent,
+      lastIdentityReveal: lastIdentityReveal ?? this.lastIdentityReveal,
+      bluetoothState: bluetoothState ?? this.bluetoothState,
+      bluetoothMessage: bluetoothMessage ?? this.bluetoothMessage,
+      isBluetoothReady: isBluetoothReady ?? this.isBluetoothReady,
+    );
+  }
+}
+
+/// Centralized BLE runtime lifecycle handler with ref-managed subscriptions.
+class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
+
+  @override
+  Future<BleRuntimeState> build() async {
+    // Ensure AppCore bootstraps before wiring BLE state.
+    await ref.watch(appBootstrapProvider.future);
+
+    final connectionService = ref.watch(connectionServiceProvider);
+    await _awaitInitialization(connectionService);
+
+    final initialState = BleRuntimeState.initial(connectionService);
+    ref.onDispose(_cancelSubscriptions);
+    state = AsyncValue.data(initialState);
+
+    _wireStreams(connectionService);
+    return initialState;
+  }
+
+  void _wireStreams(IConnectionService connectionService) {
+    _listen<ConnectionInfo>(
+      connectionService.connectionInfo,
+      (current, value) => current.copyWith(connectionInfo: value),
+    );
+
+    _listen<List<Peripheral>>(
+      connectionService.discoveredDevices,
+      (current, value) => current.copyWith(discoveredDevices: value),
+    );
+
+    _listen<Map<String, DiscoveredEventArgs>>(
+      connectionService.discoveryData,
+      (current, value) => current.copyWith(discoveryData: value),
+    );
+
+    _listen<SpyModeInfo>(
+      connectionService.spyModeDetected,
+      (current, value) => current.copyWith(lastSpyModeEvent: value),
+    );
+
+    _listen<String>(
+      connectionService.identityRevealed,
+      (current, value) => current.copyWith(lastIdentityReveal: value),
+    );
+
+    _listen<BluetoothStateInfo>(
+      connectionService.bluetoothStateStream,
+      (current, value) => current.copyWith(
+        bluetoothState: value,
+        isBluetoothReady: connectionService.isBluetoothReady,
+      ),
+    );
+
+    _listen<BluetoothStatusMessage>(
+      connectionService.bluetoothMessageStream,
+      (current, value) => current.copyWith(bluetoothMessage: value),
+    );
+  }
+
+  void _listen<T>(
+    Stream<T> stream,
+    BleRuntimeState Function(BleRuntimeState current, T value) updater,
+  ) {
+    _subscriptions.add(
+      stream.listen(
+        (value) {
+          final current = state.asData?.value;
+          if (current == null) return;
+          state = AsyncValue.data(updater(current, value));
+        },
+        onError: (error, stack) {
+          state = AsyncValue.error(error, stack);
+        },
+      ),
+    );
+  }
+
+  Future<void> _awaitInitialization(IConnectionService service) async {
+    if (service is IBLEServiceFacade) {
+      await (service as IBLEServiceFacade).initializationComplete;
+    } else if (service is IBLEService) {
+      await (service as IBLEService).initializationComplete;
+    }
+  }
+
+  void _cancelSubscriptions() {
+    for (final sub in _subscriptions) {
+      unawaited(sub.cancel());
+    }
+    _subscriptions.clear();
+  }
+}
+
+/// Provider exposing BLE runtime state.
+final bleRuntimeProvider =
+    AsyncNotifierProvider<BleRuntimeNotifier, BleRuntimeState>(
+      () => BleRuntimeNotifier(),
+    );
 
 // =============================================================================
 // REACTIVE USERNAME PROVIDERS (RIVERPOD 3.0 MODERN APPROACH)
@@ -237,25 +402,26 @@ final bleServiceInitializedProvider = FutureProvider<BLEService>((ref) async {
   return service;
 });
 
-// BLE State provider
-// FIX-007: Added autoDispose to prevent memory leaks
-final bleStateProvider = StreamProvider.autoDispose<BluetoothLowEnergyState>((
-  ref,
-) {
-  final service = ref.watch(bleServiceProvider);
-  return Stream.fromFuture(service.initializationComplete).asyncExpand(
-    (_) => Stream.periodic(Duration(seconds: 1), (_) => service.state),
-  );
-});
+// BLE State provider (driven by BleRuntimeNotifier)
+final bleStateProvider =
+    Provider.autoDispose<AsyncValue<BluetoothLowEnergyState>>((ref) {
+      final runtime = ref.watch(bleRuntimeProvider);
+      return runtime.whenData((state) {
+        final runtimeState = state.bluetoothState?.state;
+        if (runtimeState != null) {
+          return runtimeState;
+        }
+        return ref.read(connectionServiceProvider).state;
+      });
+    });
 
-// Discovered devices provider
-// FIX-007: Added autoDispose to prevent memory leaks
-final discoveredDevicesProvider = StreamProvider.autoDispose<List<Peripheral>>((
-  ref,
-) {
-  final service = ref.watch(connectionServiceProvider);
-  return service.discoveredDevices;
-});
+// Discovered devices provider (driven by BleRuntimeNotifier)
+final discoveredDevicesProvider =
+    Provider.autoDispose<AsyncValue<List<Peripheral>>>((ref) {
+      return ref.watch(bleRuntimeProvider).whenData((state) {
+        return state.discoveredDevices;
+      });
+    });
 
 // Received messages provider
 // FIX-007: Added autoDispose to prevent memory leaks
@@ -264,37 +430,58 @@ final receivedMessagesProvider = StreamProvider.autoDispose<String>((ref) {
   return service.receivedMessages;
 });
 
-// FIX-007: Added autoDispose to prevent memory leaks
-final connectionInfoProvider = StreamProvider.autoDispose<ConnectionInfo>((
-  ref,
-) {
-  final service = ref.watch(connectionServiceProvider);
-  return service.connectionInfo;
-});
+// Connection info provider (driven by BleRuntimeNotifier)
+final connectionInfoProvider = Provider.autoDispose<AsyncValue<ConnectionInfo>>(
+  (ref) {
+    return ref.watch(bleRuntimeProvider).whenData((state) {
+      return state.connectionInfo;
+    });
+  },
+);
 
 // Spy mode providers
-// FIX-007: Added autoDispose to prevent memory leaks
-final spyModeDetectedProvider = StreamProvider.autoDispose<SpyModeInfo>((ref) {
-  final connectionService = ref.watch(connectionServiceProvider);
-  return connectionService.spyModeDetected;
+final spyModeDetectedProvider = Provider.autoDispose<AsyncValue<SpyModeInfo>>((
+  ref,
+) {
+  return ref
+      .watch(bleRuntimeProvider)
+      .when(
+        data: (state) {
+          final event = state.lastSpyModeEvent;
+          if (event != null) return AsyncValue.data(event);
+          return const AsyncValue.loading();
+        },
+        loading: () => const AsyncValue.loading(),
+        error: (error, stack) => AsyncValue.error(error, stack),
+      );
 });
 
-// FIX-007: Added autoDispose to prevent memory leaks
-final identityRevealedProvider = StreamProvider.autoDispose<String>((ref) {
-  final connectionService = ref.watch(connectionServiceProvider);
-  return connectionService.identityRevealed;
+final identityRevealedProvider = Provider.autoDispose<AsyncValue<String>>((
+  ref,
+) {
+  return ref
+      .watch(bleRuntimeProvider)
+      .when(
+        data: (state) {
+          final identity = state.lastIdentityReveal;
+          if (identity != null) return AsyncValue.data(identity);
+          return const AsyncValue.loading();
+        },
+        loading: () => const AsyncValue.loading(),
+        error: (error, stack) => AsyncValue.error(error, stack),
+      );
 });
 
 final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
   return ChatsRepository();
 });
 
-// Discovery data with advertisements provider
-// FIX-007: Added autoDispose to prevent memory leaks
+// Discovery data with advertisements provider (driven by BleRuntimeNotifier)
 final discoveryDataProvider =
-    StreamProvider.autoDispose<Map<String, DiscoveredEventArgs>>((ref) {
-      final service = ref.watch(connectionServiceProvider);
-      return service.discoveryData;
+    Provider.autoDispose<AsyncValue<Map<String, DiscoveredEventArgs>>>((ref) {
+      return ref.watch(bleRuntimeProvider).whenData((state) {
+        return state.discoveryData;
+      });
     });
 
 // 🆕 Deduplicated discovered devices provider (with contact recognition)

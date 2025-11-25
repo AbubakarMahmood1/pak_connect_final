@@ -1,6 +1,8 @@
 // Riverpod providers for mesh networking UI state management
 // Integrates MeshNetworkingService with the presentation layer
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../../domain/services/mesh_networking_service.dart';
@@ -23,6 +25,122 @@ import '../../domain/services/mesh/mesh_network_health_monitor.dart';
 import 'ble_providers.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
+import 'runtime_providers.dart';
+
+// =============================================================================
+// CORE RUNTIME NOTIFIER (MESH)
+// =============================================================================
+
+class MeshRuntimeState {
+  final MeshNetworkStatus status;
+  final RelayStatistics? relayStatistics;
+  final QueueSyncManagerStats? queueStatistics;
+
+  const MeshRuntimeState({
+    required this.status,
+    required this.relayStatistics,
+    required this.queueStatistics,
+  });
+
+  factory MeshRuntimeState.initial() => MeshRuntimeState(
+    status: MeshNetworkStatus(
+      isInitialized: false,
+      currentNodeId: null,
+      isConnected: false,
+      queueMessages: const [],
+      statistics: const MeshNetworkStatistics(
+        nodeId: 'unknown',
+        isInitialized: false,
+        relayStatistics: null,
+        queueStatistics: null,
+        syncStatistics: null,
+        spamStatistics: null,
+        spamPreventionActive: false,
+        queueSyncActive: false,
+      ),
+    ),
+    relayStatistics: null,
+    queueStatistics: null,
+  );
+
+  MeshRuntimeState copyWith({
+    MeshNetworkStatus? status,
+    RelayStatistics? relayStatistics,
+    QueueSyncManagerStats? queueStatistics,
+  }) {
+    return MeshRuntimeState(
+      status: status ?? this.status,
+      relayStatistics: relayStatistics ?? this.relayStatistics,
+      queueStatistics: queueStatistics ?? this.queueStatistics,
+    );
+  }
+}
+
+class MeshRuntimeNotifier extends AsyncNotifier<MeshRuntimeState> {
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
+
+  @override
+  Future<MeshRuntimeState> build() async {
+    await ref.watch(appBootstrapProvider.future);
+
+    final service = ref.watch(meshNetworkingServiceProvider);
+    final initialState = MeshRuntimeState.initial();
+    ref.onDispose(_cancelSubscriptions);
+    state = AsyncValue.data(initialState);
+
+    _listen<MeshNetworkStatus>(
+      service.meshStatus,
+      (current, value) => current.copyWith(status: value),
+    );
+
+    _listen<RelayStatistics>(
+      service.relayStats,
+      (current, value) => current.copyWith(relayStatistics: value),
+    );
+
+    _listen<QueueSyncManagerStats>(
+      service.queueStats,
+      (current, value) => current.copyWith(queueStatistics: value),
+    );
+
+    // Force a status refresh for late subscribers.
+    try {
+      service.refreshMeshStatus();
+    } catch (_) {}
+
+    return initialState;
+  }
+
+  void _listen<T>(
+    Stream<T> stream,
+    MeshRuntimeState Function(MeshRuntimeState current, T value) updater,
+  ) {
+    _subscriptions.add(
+      stream.listen(
+        (value) {
+          final current = state.asData?.value;
+          if (current == null) return;
+          state = AsyncValue.data(updater(current, value));
+        },
+        onError: (error, stack) {
+          state = AsyncValue.error(error, stack);
+        },
+      ),
+    );
+  }
+
+  void _cancelSubscriptions() {
+    for (final sub in _subscriptions) {
+      unawaited(sub.cancel());
+    }
+    _subscriptions.clear();
+  }
+}
+
+final meshRuntimeProvider =
+    AsyncNotifierProvider<MeshRuntimeNotifier, MeshRuntimeState>(
+      () => MeshRuntimeNotifier(),
+    );
 
 /// Logger for mesh networking providers
 final _logger = Logger('MeshNetworkingProvider');
@@ -45,27 +163,26 @@ final bluetoothStateMonitorProvider = Provider<BluetoothStateMonitor>((ref) {
   return BluetoothStateMonitor.instance;
 });
 
-/// Stream provider for Bluetooth state information
-/// FIX-007: Added autoDispose to prevent memory leaks
-final bluetoothStateProvider = StreamProvider.autoDispose<BluetoothStateInfo>((
-  ref,
-) {
-  final monitor = ref.watch(bluetoothStateMonitorProvider);
-  return monitor.stateStream;
-});
+/// Bluetooth state (driven by BleRuntimeNotifier)
+final bluetoothStateProvider =
+    Provider.autoDispose<AsyncValue<BluetoothStateInfo?>>((ref) {
+      return ref.watch(bleRuntimeProvider).whenData((state) {
+        return state.bluetoothState;
+      });
+    });
 
-/// Stream provider for Bluetooth status messages
-/// FIX-007: Added autoDispose to prevent memory leaks
+/// Bluetooth status messages (driven by BleRuntimeNotifier)
 final bluetoothStatusMessageProvider =
-    StreamProvider.autoDispose<BluetoothStatusMessage>((ref) {
-      final monitor = ref.watch(bluetoothStateMonitorProvider);
-      return monitor.messageStream;
+    Provider.autoDispose<AsyncValue<BluetoothStatusMessage?>>((ref) {
+      return ref.watch(bleRuntimeProvider).whenData((state) {
+        return state.bluetoothMessage;
+      });
     });
 
 /// Provider for current Bluetooth ready state
 final bluetoothReadyProvider = Provider<bool>((ref) {
-  final monitor = ref.watch(bluetoothStateMonitorProvider);
-  return monitor.isBluetoothReady;
+  final runtime = ref.watch(bleRuntimeProvider);
+  return runtime.asData?.value.isBluetoothReady ?? false;
 });
 
 /// Provider for MeshNetworkingService (Singleton to prevent multiple instances)
@@ -145,58 +262,26 @@ final meshRoutingServiceProvider = Provider<IMeshRoutingService?>((ref) {
   return null;
 });
 
-/// Stream provider for mesh network status with fallback
-/// FIX-007: Added autoDispose to prevent memory leaks
-final meshNetworkStatusProvider = StreamProvider.autoDispose<MeshNetworkStatus>(
-  (ref) {
-    final service = ref.watch(meshNetworkingServiceProvider);
-
-    return service.meshStatus.handleError((error) {
-      _logger.warning('Mesh status stream error: $error');
-      // Return a default status to prevent infinite loading
-      return MeshNetworkStatus(
-        isInitialized: false,
-        currentNodeId: null,
-        isConnected: false,
-        queueMessages: [], // CRITICAL FIX: Initialize empty queue messages list
-        statistics: MeshNetworkStatistics(
-          nodeId: 'error',
-          isInitialized: false,
-          relayStatistics: null,
-          queueStatistics: null,
-          syncStatistics: null,
-          spamStatistics: null,
-          spamPreventionActive: false,
-          queueSyncActive: false,
-        ),
-      );
+/// Mesh runtime status provider (driven by MeshRuntimeNotifier)
+final meshNetworkStatusProvider =
+    Provider.autoDispose<AsyncValue<MeshNetworkStatus>>((ref) {
+      return ref.watch(meshRuntimeProvider).whenData((state) => state.status);
     });
-  },
-);
 
-/// Stream provider for relay statistics with fallback
-/// FIX-007: Added autoDispose to prevent memory leaks
-final relayStatisticsProvider = StreamProvider.autoDispose<RelayStatistics>((
-  ref,
-) {
-  final service = ref.watch(meshNetworkingServiceProvider);
+/// Relay statistics provider (driven by MeshRuntimeNotifier)
+final relayStatisticsProvider =
+    Provider.autoDispose<AsyncValue<RelayStatistics?>>((ref) {
+      return ref
+          .watch(meshRuntimeProvider)
+          .whenData((state) => state.relayStatistics);
+    });
 
-  return service.relayStats.handleError((error) {
-    _logger.warning('Relay stats stream error: $error');
-    // Return default stats to prevent stream failure
-  });
-});
-
-/// Stream provider for queue sync statistics with fallback
-/// FIX-007: Added autoDispose to prevent memory leaks
+/// Queue sync statistics provider (driven by MeshRuntimeNotifier)
 final queueSyncStatisticsProvider =
-    StreamProvider.autoDispose<QueueSyncManagerStats>((ref) {
-      final service = ref.watch(meshNetworkingServiceProvider);
-
-      return service.queueStats.handleError((error) {
-        _logger.warning('Queue stats stream error: $error');
-        // Return default stats to prevent stream failure
-      });
+    Provider.autoDispose<AsyncValue<QueueSyncManagerStats?>>((ref) {
+      return ref
+          .watch(meshRuntimeProvider)
+          .whenData((state) => state.queueStatistics);
     });
 
 /// Provider for current mesh network statistics
@@ -360,8 +445,8 @@ class MeshNetworkingController {
 /// UI state for mesh networking components
 class MeshNetworkingUIState {
   final AsyncValue<MeshNetworkStatus> networkStatus;
-  final AsyncValue<RelayStatistics> relayStats;
-  final AsyncValue<QueueSyncManagerStats> queueStats;
+  final AsyncValue<RelayStatistics?> relayStats;
+  final AsyncValue<QueueSyncManagerStats?> queueStats;
 
   const MeshNetworkingUIState({
     required this.networkStatus,
@@ -386,7 +471,7 @@ class MeshNetworkingUIState {
 
   /// Get relay efficiency percentage
   double get relayEfficiencyPercent {
-    final efficiency = relayStats.asData?.value.relayEfficiency ?? 0.0;
+    final efficiency = relayStats.asData?.value?.relayEfficiency ?? 0.0;
     return efficiency * 100;
   }
 
@@ -405,12 +490,12 @@ class MeshNetworkingUIState {
 
   /// Get total messages relayed
   int get totalRelayed {
-    return relayStats.asData?.value.totalRelayed ?? 0;
+    return relayStats.asData?.value?.totalRelayed ?? 0;
   }
 
   /// Get total messages blocked by spam prevention
   int get totalBlocked {
-    return relayStats.asData?.value.totalBlocked ?? 0;
+    return relayStats.asData?.value?.totalBlocked ?? 0;
   }
 
   /// Get pending messages count

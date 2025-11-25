@@ -150,8 +150,8 @@ class PerformanceMonitor {
         final janky = (prefs.getInt(_keyJankyCount) ?? 0) + 1;
         await prefs.setInt(_keyJankyCount, janky);
 
-        _logger.warning(
-          '⚠️ Janky encryption detected: ${durationMs}ms (size: ${messageSize}B)',
+        _logger.fine(
+          'Janky encryption detected: ${durationMs}ms (size: ${messageSize}B)',
         );
       }
 
@@ -186,8 +186,8 @@ class PerformanceMonitor {
         final janky = (prefs.getInt(_keyJankyCount) ?? 0) + 1;
         await prefs.setInt(_keyJankyCount, janky);
 
-        _logger.warning(
-          '⚠️ Janky decryption detected: ${durationMs}ms (size: ${messageSize}B)',
+        _logger.fine(
+          'Janky decryption detected: ${durationMs}ms (size: ${messageSize}B)',
         );
       }
 

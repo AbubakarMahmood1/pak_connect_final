@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
@@ -10,40 +11,68 @@ import '../../domain/entities/contact.dart';
 import '../providers/ble_providers.dart';
 import '../widgets/discovery/discovery_types.dart';
 
-/// Coordinates non-UI state for the discovery overlay so the widget can stay
-/// focused on rendering.
-class DiscoveryOverlayController extends ChangeNotifier {
-  DiscoveryOverlayController({
-    required this.ref,
-    required this.logger,
-    ContactRepository? contactRepository,
-  }) : _contactRepository = contactRepository ?? ContactRepository();
+class DiscoveryOverlayState {
+  const DiscoveryOverlayState({
+    required this.contacts,
+    required this.deviceLastSeen,
+    required this.connectionAttempts,
+    required this.showScannerMode,
+    this.lastIncomingConnectionAt,
+  });
 
-  final WidgetRef ref;
-  final Logger logger;
-  final ContactRepository _contactRepository;
+  factory DiscoveryOverlayState.initial() => const DiscoveryOverlayState(
+    contacts: {},
+    deviceLastSeen: {},
+    connectionAttempts: {},
+    showScannerMode: true,
+  );
 
-  Map<String, Contact> contacts = {};
-  Map<String, DateTime> deviceLastSeen = {};
-  Map<String, ConnectionAttemptState> connectionAttempts = {};
-  bool showScannerMode = true;
+  final Map<String, Contact> contacts;
+  final Map<String, DateTime> deviceLastSeen;
+  final Map<String, ConnectionAttemptState> connectionAttempts;
+  final bool showScannerMode;
+  final DateTime? lastIncomingConnectionAt;
 
-  Timer? _deviceCleanupTimer;
-
-  Future<void> initialize() async {
-    contacts = await _contactRepository.getAllContacts();
-    await _updateHintCache();
-    _deviceCleanupTimer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => cleanupStaleDevices(),
+  DiscoveryOverlayState copyWith({
+    Map<String, Contact>? contacts,
+    Map<String, DateTime>? deviceLastSeen,
+    Map<String, ConnectionAttemptState>? connectionAttempts,
+    bool? showScannerMode,
+    DateTime? lastIncomingConnectionAt,
+  }) {
+    return DiscoveryOverlayState(
+      contacts: contacts ?? this.contacts,
+      deviceLastSeen: deviceLastSeen ?? this.deviceLastSeen,
+      connectionAttempts: connectionAttempts ?? this.connectionAttempts,
+      showScannerMode: showScannerMode ?? this.showScannerMode,
+      lastIncomingConnectionAt:
+          lastIncomingConnectionAt ?? this.lastIncomingConnectionAt,
     );
-    notifyListeners();
   }
+}
+
+/// Riverpod-managed controller for discovery overlay state with lifecycle-aware
+/// timers and subscriptions.
+class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
+  final _logger = Logger('DiscoveryOverlayController');
+  Timer? _deviceCleanupTimer;
+  StreamSubscription? _peripheralSubscription;
 
   @override
-  void dispose() {
-    _deviceCleanupTimer?.cancel();
-    super.dispose();
+  Future<DiscoveryOverlayState> build() async {
+    ref.onDispose(_cancelResources);
+
+    final contacts = await ContactRepository().getAllContacts();
+    await _updateHintCache();
+    _startCleanupTimer();
+    _startPeripheralListener();
+
+    return DiscoveryOverlayState(
+      contacts: contacts,
+      deviceLastSeen: {},
+      connectionAttempts: {},
+      showScannerMode: true,
+    );
   }
 
   bool getUnifiedScanningState() {
@@ -65,45 +94,113 @@ class DiscoveryOverlayController extends ChangeNotifier {
   }
 
   void setShowScannerMode(bool value) {
-    showScannerMode = value;
-    notifyListeners();
+    state = state.whenData(
+      (current) => current.copyWith(showScannerMode: value),
+    );
   }
 
   void cleanupStaleDevices() {
     final now = DateTime.now();
     const staleThreshold = Duration(minutes: 3);
 
-    deviceLastSeen.removeWhere((deviceId, lastSeen) {
-      final isStale = now.difference(lastSeen) > staleThreshold;
-      if (isStale) {
-        logger.fine('Removing stale device: $deviceId');
-        connectionAttempts.remove(deviceId);
-      }
-      return isStale;
-    });
+    state = state.whenData((current) {
+      final updatedLastSeen = Map<String, DateTime>.from(
+        current.deviceLastSeen,
+      );
+      final updatedAttempts = Map<String, ConnectionAttemptState>.from(
+        current.connectionAttempts,
+      );
 
-    notifyListeners();
+      updatedLastSeen.removeWhere((deviceId, lastSeen) {
+        final isStale = now.difference(lastSeen) > staleThreshold;
+        if (isStale) {
+          _logger.fine('Removing stale device: $deviceId');
+          updatedAttempts.remove(deviceId);
+        }
+        return isStale;
+      });
+
+      return current.copyWith(
+        deviceLastSeen: updatedLastSeen,
+        connectionAttempts: updatedAttempts,
+      );
+    });
   }
 
   void updateDeviceLastSeen(String deviceId) {
-    deviceLastSeen[deviceId] = DateTime.now();
+    state = state.whenData((current) {
+      final updated = Map<String, DateTime>.from(current.deviceLastSeen);
+      updated[deviceId] = DateTime.now();
+      return current.copyWith(deviceLastSeen: updated);
+    });
   }
 
-  void setAttemptState(String deviceId, ConnectionAttemptState state) {
-    connectionAttempts[deviceId] = state;
-    notifyListeners();
+  void setAttemptState(String deviceId, ConnectionAttemptState attemptState) {
+    state = state.whenData((current) {
+      final updated = Map<String, ConnectionAttemptState>.from(
+        current.connectionAttempts,
+      );
+      updated[deviceId] = attemptState;
+      return current.copyWith(connectionAttempts: updated);
+    });
   }
 
   ConnectionAttemptState attemptStateFor(String deviceId) {
-    return connectionAttempts[deviceId] ?? ConnectionAttemptState.none;
+    final current = state.asData?.value;
+    return current?.connectionAttempts[deviceId] ?? ConnectionAttemptState.none;
+  }
+
+  void recordIncomingConnection() {
+    state = state.whenData(
+      (current) => current.copyWith(lastIncomingConnectionAt: DateTime.now()),
+    );
+  }
+
+  void _startCleanupTimer() {
+    _deviceCleanupTimer ??= Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => cleanupStaleDevices(),
+    );
+  }
+
+  void _startPeripheralListener() {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final connectionService = ref.read(connectionServiceProvider);
+    if (!connectionService.isPeripheralMode) return;
+
+    _peripheralSubscription ??= connectionService.peripheralConnectionChanges
+        .distinct(
+          (prev, next) =>
+              prev.central.uuid == next.central.uuid &&
+              prev.state == next.state,
+        )
+        .listen((event) {
+          if (event.state == ble.ConnectionState.connected) {
+            _logger.info('Incoming connection detected');
+            recordIncomingConnection();
+          }
+        });
   }
 
   Future<void> _updateHintCache() async {
     try {
       await HintCacheManager.updateCache();
-      logger.fine('Hint cache updated for discovery overlay');
+      _logger.fine('Hint cache updated for discovery overlay');
     } catch (e) {
-      logger.warning('Failed to update hint cache: $e');
+      _logger.warning('Failed to update hint cache: $e');
     }
   }
+
+  void _cancelResources() {
+    _deviceCleanupTimer?.cancel();
+    _peripheralSubscription?.cancel();
+    _deviceCleanupTimer = null;
+    _peripheralSubscription = null;
+  }
 }
+
+final discoveryOverlayControllerProvider =
+    AsyncNotifierProvider.autoDispose<
+      DiscoveryOverlayController,
+      DiscoveryOverlayState
+    >(DiscoveryOverlayController.new);

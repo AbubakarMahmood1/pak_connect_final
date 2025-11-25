@@ -87,7 +87,7 @@ void main() {
               MeshNetworkingController(meshService),
             ),
             meshNetworkStatusProvider.overrideWith(
-              (ref) => Stream.value(
+              (ref) => AsyncValue.data(
                 MeshNetworkStatus(
                   isInitialized: true,
                   currentNodeId: 'node',
@@ -107,8 +107,8 @@ void main() {
               ),
             ),
             connectionInfoProvider.overrideWith(
-              (ref) => Stream.value(
-                const ConnectionInfo(
+              (ref) => const AsyncValue.data(
+                ConnectionInfo(
                   isConnected: true,
                   isReady: true,
                   statusMessage: 'ready',
@@ -121,7 +121,7 @@ void main() {
               builder: (context) {
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController(
+                    controller = ChatScreenController.deprecated(
                       ref: ref,
                       context: context,
                       config: ChatScreenConfig(
@@ -184,7 +184,7 @@ void main() {
               MeshNetworkingController(meshService),
             ),
             meshNetworkStatusProvider.overrideWith(
-              (ref) => Stream.value(
+              (ref) => AsyncValue.data(
                 MeshNetworkStatus(
                   isInitialized: true,
                   currentNodeId: 'node',
@@ -204,8 +204,8 @@ void main() {
               ),
             ),
             connectionInfoProvider.overrideWith(
-              (ref) => Stream.value(
-                const ConnectionInfo(
+              (ref) => const AsyncValue.data(
+                ConnectionInfo(
                   isConnected: true,
                   isReady: true,
                   statusMessage: 'ready',
@@ -218,7 +218,7 @@ void main() {
               builder: (context) {
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController(
+                    controller = ChatScreenController.deprecated(
                       ref: ref,
                       context: context,
                       config: const ChatScreenConfig(
@@ -303,8 +303,8 @@ void main() {
               MeshNetworkingController(meshService),
             ),
             connectionInfoProvider.overrideWith(
-              (ref) => Stream.value(
-                const ConnectionInfo(
+              (ref) => const AsyncValue.data(
+                ConnectionInfo(
                   isConnected: true,
                   isReady: true,
                   statusMessage: 'ready',
@@ -312,7 +312,7 @@ void main() {
               ),
             ),
             meshNetworkStatusProvider.overrideWith(
-              (ref) => Stream.value(
+              (ref) => AsyncValue.data(
                 MeshNetworkStatus(
                   isInitialized: true,
                   currentNodeId: 'node',
@@ -337,7 +337,7 @@ void main() {
               builder: (context) {
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController(
+                    controller = ChatScreenController.deprecated(
                       ref: ref,
                       context: context,
                       config: const ChatScreenConfig(
@@ -411,8 +411,8 @@ void main() {
                 MeshNetworkingController(meshService),
               ),
               connectionInfoProvider.overrideWith(
-                (ref) => Stream.value(
-                  const ConnectionInfo(
+                (ref) => const AsyncValue.data(
+                  ConnectionInfo(
                     isConnected: false,
                     isReady: false,
                     statusMessage: 'offline',
@@ -420,7 +420,7 @@ void main() {
                 ),
               ),
               meshNetworkStatusProvider.overrideWith(
-                (ref) => Stream.value(_readyStatus),
+                (ref) => AsyncValue.data(_readyStatus),
               ),
             ],
             child: Builder(
@@ -433,7 +433,7 @@ void main() {
                 );
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController(
+                    controller = ChatScreenController.deprecated(
                       ref: ref,
                       context: context,
                       config: const ChatScreenConfig(
@@ -512,8 +512,8 @@ void main() {
                 MeshNetworkingController(meshService),
               ),
               connectionInfoProvider.overrideWith(
-                (ref) => Stream.value(
-                  const ConnectionInfo(
+                (ref) => const AsyncValue.data(
+                  ConnectionInfo(
                     isConnected: true,
                     isReady: true,
                     statusMessage: 'ready',
@@ -521,7 +521,7 @@ void main() {
                 ),
               ),
               meshNetworkStatusProvider.overrideWith(
-                (ref) => Stream.value(_readyStatus),
+                (ref) => AsyncValue.data(_readyStatus),
               ),
             ],
             child: Builder(
@@ -534,7 +534,7 @@ void main() {
                 );
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController(
+                    controller = ChatScreenController.deprecated(
                       ref: ref,
                       context: context,
                       config: const ChatScreenConfig(
@@ -668,6 +668,8 @@ class _FakeChatsRepository extends ChatsRepository {
     List<Peripheral>? nearbyDevices,
     Map<String, DiscoveredEventArgs>? discoveryData,
     String? searchQuery,
+    int? limit,
+    int? offset,
   }) async {
     return _chats.values.toList();
   }
