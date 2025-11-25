@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
@@ -164,7 +164,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
   }
 
   void _startPeripheralListener() {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     final connectionService = ref.read(connectionServiceProvider);
     if (!connectionService.isPeripheralMode) return;
 
