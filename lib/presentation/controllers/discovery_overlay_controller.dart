@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
@@ -175,7 +175,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
               prev.state == next.state,
         )
         .listen((event) {
-          if (event.state == ConnectionState.connected) {
+          if (event.state == ble.ConnectionState.connected) {
             _logger.info('Incoming connection detected');
             recordIncomingConnection();
           }
