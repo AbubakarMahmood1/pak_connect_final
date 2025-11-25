@@ -388,6 +388,7 @@ class ChatLifecycleService {
       try {
         final archives = await _archiveRepository.getArchivedChats(
           filter: ArchiveSearchFilter(contactFilter: chatId),
+          offset: 0,
         );
 
         if (archives.isNotEmpty) {

@@ -29,7 +29,7 @@ abstract class IArchiveRepository {
   Future<List<ArchivedChatSummary>> getArchivedChats({
     ArchiveSearchFilter? filter,
     int? limit,
-    String? afterCursor,
+    int? offset,
   });
 
   /// Look up an archived chat summary by its original chat ID

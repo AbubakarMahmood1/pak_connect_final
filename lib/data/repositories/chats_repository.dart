@@ -22,13 +22,15 @@ class ChatsRepository implements IChatsRepository {
     List<Peripheral>? nearbyDevices,
     Map<String, DiscoveredEventArgs>? discoveryData,
     String? searchQuery,
+    int? limit,
+    int? offset,
   }) async {
     final db = await DatabaseHelper.database;
 
     // ✅ FIX-006: Single JOIN query replaces N+1 pattern
     // Before: 1 + 4N queries (get contacts, check messages N times, get messages N times, get unread N times, get last seen N times)
     // After: 1 query with JOINs
-    final results = await db.rawQuery('''
+    final buffer = StringBuffer('''
       SELECT
         c.public_key,
         c.display_name,
@@ -50,6 +52,18 @@ class ChatsRepository implements IChatsRepository {
       HAVING message_count > 0
       ORDER BY latest_message_timestamp DESC NULLS LAST
     ''');
+
+    final params = <Object?>[];
+    if (limit != null) {
+      buffer.write(' LIMIT ?');
+      params.add(limit);
+      if (offset != null) {
+        buffer.write(' OFFSET ?');
+        params.add(offset);
+      }
+    }
+
+    final results = await db.rawQuery(buffer.toString(), params);
 
     final chatItems = <ChatListItem>[];
 

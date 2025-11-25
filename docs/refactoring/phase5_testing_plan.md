@@ -1,21 +1,21 @@
 # Phase 5 – Testing Infrastructure Plan (2025-11-18)
 
 ## 1. Current Snapshot
-- Phase 5 deliverables are merged: GetIt + repository abstractions back every module and presentation wiring stays within its own layer.
+- Phase 5 harness is live: GetIt + repository abstractions back every module and presentation wiring stays within its own layer.
 - Secure-storage/sqlite shims flow through `TestSetup.initializeTestEnvironment`, `configureTestDatabase`, and `setupTestDI`, so every DB-heavy suite now runs against its own SQLCipher file.
-- BLE, mesh, queue, and widget suites rely on focused services with deterministic harnesses; the new `IBLEPlatformHost` seam plus `FakeBlePlatformHost` keep BLE facade tests pure Dart.
+- BLE, mesh, queue, and widget suites rely on focused services with deterministic harnesses; the `IBLEPlatformHost` seam plus `FakeBlePlatformHost` keep BLE facade tests pure Dart.
 - Plugin-touching utilities (BatteryOptimizer, EphemeralKeyManager) have explicit test gates, so shared initialization no longer leaks into `flutter test`.
 
 ## 2. Latest Test Signals
-- `flutter test --coverage` (see `flutter_test_latest.log`) now finishes cleanly with **1 284 passing specs, 19 skipped, 0 failing** and refreshes `coverage/lcov.info` for CI.
-- The BLE service facade suite runs inside the harness again: `test/services/ble_service_facade_test.dart` injects `_FakeBlePlatformHost` + stub services so no platform channels are touched.
+- `flutter test --coverage` (see `flutter_test_latest.log`) now finishes cleanly with **1 339 passing specs, 0 failing** and refreshes `coverage/lcov.info` for CI. Remaining skips are intentional hardware gaps.
+- BLE service facade suite runs inside the harness: `test/services/ble_service_facade_test.dart` injects `_FakeBlePlatformHost` + stub services so no platform channels are touched.
 - Queue persistence, mesh networking, selective export/import, relay, retry, and benchmark suites all pass in isolation and as part of the full matrix using the labeled databases.
 - Analyzer continues to surface only the long-standing warnings that were already documented; no new lint debt was introduced by the harness changes.
 
 ## 3. Objectives
 1. ✅ Stabilize the harness so every suite runs against isolated sqlite + fake secure storage (done via `initializeTestEnvironment` + per-suite labels).
-2. ✅ Provide DI-aware mocks (`configureTestDI`, canonical repositories, `MockConnectionService`, `_FakeBlePlatformHost`) so service/BLE tests are pure Dart.
-3. ✅ Raise coverage once the harness is stable — `flutter test --coverage` now completes and writes `coverage/lcov.info`.
+2. ✅ Provide DI-aware mocks (`configureTestDI`, canonical repositories, `_FakeBlePlatformHost`; `MockConnectionService` is used selectively in presentation/controller suites).
+3. ✅ Full suite runs cleanly — `flutter test --coverage` completes and writes `coverage/lcov.info` + `flutter_test_latest.log` (1 339 passing).
 4. ✅ Capture repeatable logs/coverage artifacts (`flutter_test_latest.log`, coverage artifact, Phase 5 journal) for future phases and CI.
 
 ## 4. Workstreams
@@ -24,7 +24,7 @@
 - Outcome: Mesh, relay, queue, favorites, export/import, and benchmark specs run concurrently without colliding sqlite files or deleting each other’s temp DBs.
 
 ### W2 – DI Utilities & Mocks
-- Status: Complete. `configureTestDI()` resets GetIt, registers mock repositories, and exposes the canonical mocks in `test/test_helpers/mocks/`. BLE-focused suites use `_FakeBlePlatformHost` + stub services instead of platform singletons.
+- Status: Complete. `configureTestDI()` resets GetIt, registers mock repositories, and exposes the canonical mocks in `test/test_helpers/mocks/`. `MockConnectionService` is exercised in presentation/controller suites (e.g., chat screen), while most BLE suites rely on `_FakeBlePlatformHost` + stub services.
 - Outcome: All service-level tests (queue persistence, chat connection manager, relay coordinators, retry schedulers, etc.) execute entirely within the DI harness with deterministic dependencies.
 
 ### W3 – Test Refactors & Coverage

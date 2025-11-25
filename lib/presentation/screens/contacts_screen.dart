@@ -1,6 +1,5 @@
 // Modern contacts management screen with search, filter, and sort
 
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/enhanced_contact.dart';
@@ -22,30 +21,18 @@ class ContactsScreen extends ConsumerStatefulWidget {
 
 class _ContactsScreenState extends ConsumerState<ContactsScreen> {
   final _searchController = TextEditingController();
-  Timer? _searchDebounce;
   final _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _searchDebounce?.cancel();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _onSearchChanged() {
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
-      ref
-          .read(contactSearchStateProvider.notifier)
-          .setQuery(_searchController.text);
-    });
   }
 
   void _clearSearch() {
@@ -204,6 +191,9 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                 filled: true,
                 fillColor: theme.colorScheme.surfaceContainerHighest,
               ),
+              onChanged: (value) => ref
+                  .read(contactSearchStateProvider.notifier)
+                  .debouncedQuery(value),
             ),
           ),
 

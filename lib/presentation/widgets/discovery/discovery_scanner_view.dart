@@ -15,6 +15,7 @@ class DiscoveryScannerView extends ConsumerWidget {
     required this.devicesAsync,
     required this.discoveryDataAsync,
     required this.deduplicatedDevicesAsync,
+    required this.state,
     required this.controller,
     required this.maxDevices,
     required this.logger,
@@ -28,6 +29,7 @@ class DiscoveryScannerView extends ConsumerWidget {
   final AsyncValue<List<Peripheral>> devicesAsync;
   final AsyncValue<Map<String, DiscoveredEventArgs>> discoveryDataAsync;
   final AsyncValue<Map<String, DiscoveredDevice>> deduplicatedDevicesAsync;
+  final DiscoveryOverlayState state;
   final DiscoveryOverlayController controller;
   final int maxDevices;
   final Logger logger;
@@ -79,7 +81,7 @@ class DiscoveryScannerView extends ConsumerWidget {
     final now = DateTime.now();
     const staleThreshold = Duration(minutes: 3);
     final freshDevices = devices.where((device) {
-      final lastSeen = controller.deviceLastSeen[device.uuid.toString()];
+      final lastSeen = state.deviceLastSeen[device.uuid.toString()];
       return lastSeen != null && now.difference(lastSeen) <= staleThreshold;
     }).toList();
 
@@ -132,7 +134,7 @@ class DiscoveryScannerView extends ConsumerWidget {
               device: device,
               advertisement: discoveryData[device.uuid.toString()],
               isKnownContact: true,
-              contacts: controller.contacts,
+              contacts: state.contacts,
               attemptState: controller.attemptStateFor(device.uuid.toString()),
               isConnectedAsCentral:
                   connectionService.connectedDevice?.uuid == device.uuid,
@@ -167,7 +169,7 @@ class DiscoveryScannerView extends ConsumerWidget {
               device: device,
               advertisement: discoveryData[device.uuid.toString()],
               isKnownContact: false,
-              contacts: controller.contacts,
+              contacts: state.contacts,
               attemptState: controller.attemptStateFor(device.uuid.toString()),
               isConnectedAsCentral:
                   connectionService.connectedDevice?.uuid == device.uuid,

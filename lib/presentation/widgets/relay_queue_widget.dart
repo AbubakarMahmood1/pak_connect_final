@@ -27,8 +27,6 @@ class RelayQueueWidget extends StatefulWidget {
 
 class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   static final _logger = AppLogger.getLogger(LoggerNames.ui);
-  Timer? _loadingTimeout;
-  bool _timeoutReached = false;
 
   // ✅ FIX: Track last logged status to prevent duplicate logs
   MeshNetworkStatus? _lastLoggedStatus;
@@ -37,30 +35,6 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
   @override
   void initState() {
     super.initState();
-    // Start timeout timer for loading state
-    _startLoadingTimeout();
-  }
-
-  @override
-  void dispose() {
-    _loadingTimeout?.cancel();
-    super.dispose();
-  }
-
-  /// Start timeout timer for loading state
-  void _startLoadingTimeout() {
-    _loadingTimeout?.cancel();
-    _loadingTimeout = Timer(Duration(seconds: 10), () {
-      if (mounted) {
-        setState(() {
-          _timeoutReached = true;
-        });
-        MeshDebugLogger.warning(
-          'RelayQueueWidget',
-          'Loading timeout reached - mesh status stream not providing data',
-        );
-      }
-    });
   }
 
   @override
@@ -93,24 +67,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
               'ℹ️ RelayQueueWidget: Loading state - waiting for status',
             );
           }
-          // Cancel timeout if we get data
-          if (_timeoutReached) {
-            _loadingTimeout?.cancel();
-            return _buildTimeoutState();
-          }
           return _buildLoadingState();
-        }
-
-        // Reset timeout state when we get data (defer to avoid setState during build)
-        if (_timeoutReached) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _timeoutReached = false;
-              });
-              _loadingTimeout?.cancel();
-            }
-          });
         }
 
         return Card(
@@ -196,16 +153,7 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _timeoutReached = false;
-                    });
-                    _startLoadingTimeout();
-                    MeshDebugLogger.info(
-                      'RelayQueueWidget',
-                      'Retry after timeout requested',
-                    );
-                  },
+                  onPressed: () => setState(() {}),
                   icon: Icon(Icons.refresh),
                   label: Text('Retry'),
                   style: ElevatedButton.styleFrom(
@@ -776,9 +724,6 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
       'RelayQueueWidget',
       'Close request - using coordinated close',
     );
-
-    // First, cancel any active timers to prevent memory leaks
-    _loadingTimeout?.cancel();
 
     // Use callback if provided (for tab-based integration)
     if (widget.onRequestClose != null) {

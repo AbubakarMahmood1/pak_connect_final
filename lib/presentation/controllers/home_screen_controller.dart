@@ -5,6 +5,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
 
 import '../../core/discovery/device_deduplication_manager.dart';
@@ -16,37 +17,43 @@ import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
+import '../../core/performance/performance_monitor.dart';
+
+class HomeScreenControllerArgs {
+  const HomeScreenControllerArgs({
+    required this.context,
+    required this.ref,
+    required this.chatsRepository,
+    required this.chatManagementService,
+    this.logger,
+    this.homeScreenFacade,
+  });
+
+  final BuildContext context;
+  final WidgetRef ref;
+  final IChatsRepository chatsRepository;
+  final ChatManagementService chatManagementService;
+  final Logger? logger;
+  final HomeScreenFacade? homeScreenFacade;
+}
 
 class HomeScreenController extends ChangeNotifier {
-  HomeScreenController({
-    required this.ref,
-    required this.context,
-    required IChatsRepository chatsRepository,
-    Logger? logger,
-    ChatManagementService? chatManagementService,
-    HomeScreenFacade? homeScreenFacade,
-  }) : _logger = logger ?? Logger('HomeScreenController'),
-       _chatsRepository = chatsRepository,
-       _chatManagementService =
-           chatManagementService ??
-           _fallbackChatManagementServiceHolder.instance,
-       _homeScreenFacade =
-           homeScreenFacade ??
-           HomeScreenFacade(
-             chatsRepository: chatsRepository,
-             bleService: ref.read(connectionServiceProvider),
-             chatManagementService:
-                 chatManagementService ??
-                 _fallbackChatManagementServiceHolder.instance,
-             context: context,
-             ref: ref,
-             enableListCoordinatorInitialization: false,
-           );
-
-  // Ensures HomeScreenFacade gets a stable ChatManagementService when one is
-  // not provided explicitly.
-  static final _fallbackChatManagementServiceHolder =
-      _ChatManagementServiceHolder();
+  HomeScreenController(HomeScreenControllerArgs args)
+    : ref = args.ref,
+      context = args.context,
+      _logger = args.logger ?? Logger('HomeScreenController'),
+      _chatsRepository = args.chatsRepository,
+      _chatManagementService = args.chatManagementService,
+      _homeScreenFacade =
+          args.homeScreenFacade ??
+          HomeScreenFacade(
+            chatsRepository: args.chatsRepository,
+            bleService: args.ref.read(connectionServiceProvider),
+            chatManagementService: args.chatManagementService,
+            context: args.context,
+            ref: args.ref,
+            enableListCoordinatorInitialization: false,
+          );
 
   final WidgetRef ref;
   final BuildContext context;
@@ -54,15 +61,18 @@ class HomeScreenController extends ChangeNotifier {
   final IChatsRepository _chatsRepository;
   final ChatManagementService _chatManagementService;
   final HomeScreenFacade _homeScreenFacade;
+  final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
 
   bool _isDisposed = false;
+  bool _isPaging = false;
+  bool _hasMore = true;
+  int _offset = 0;
+  static const int _pageSize = 50;
   List<ChatListItem> chats = [];
   bool isLoading = true;
   String searchQuery = '';
   Stream<int>? unreadCountStream;
 
-  Timer? _refreshTimer;
-  Timer? _searchDebounceTimer;
   StreamSubscription? _peripheralConnectionSubscription;
   StreamSubscription? _connectionInfoSubscription;
   StreamSubscription? _discoveryDataSubscription;
@@ -70,23 +80,29 @@ class HomeScreenController extends ChangeNotifier {
 
   Future<void> initialize() async {
     if (_isDisposed) return;
-    await _chatManagementService.initialize();
+    await Future.wait([
+      _chatManagementService.initialize(),
+      _homeScreenFacade.initialize(),
+    ]);
     if (_isDisposed) return;
-    await _homeScreenFacade.initialize();
-    if (_isDisposed) return;
-    await loadChats();
-    if (_isDisposed) return;
-    _setupPeriodicRefresh();
+    await loadChats(reset: true);
     _setupPeripheralConnectionListener();
     _setupDiscoveryListener();
     _setupUnreadCountStream();
     _setupGlobalMessageListener();
   }
 
-  Future<void> loadChats() async {
+  Future<void> loadChats({bool reset = true}) async {
     if (_isDisposed) return;
-    if (isLoading) {
+    _performanceMonitor.startOperation('home_load_chats');
+    if (isLoading || reset) {
       _safeNotifyListeners();
+    }
+
+    if (reset) {
+      _offset = 0;
+      _hasMore = true;
+      _isPaging = false;
     }
 
     final nearbyDevices = await _getNearbyDevices();
@@ -97,15 +113,41 @@ class HomeScreenController extends ChangeNotifier {
       orElse: () => <String, DiscoveredEventArgs>{},
     );
 
-    final results = await _chatsRepository.getAllChats(
-      nearbyDevices: nearbyDevices,
-      discoveryData: discoveryData,
-      searchQuery: searchQuery.trim().isEmpty ? null : searchQuery,
-    );
+    final isSearching = searchQuery.trim().isNotEmpty;
+    final effectiveLimit = isSearching ? null : _pageSize;
+    final effectiveOffset = isSearching ? 0 : (reset ? 0 : _offset);
+
+    List<ChatListItem> results = [];
+    try {
+      results = await _chatsRepository.getAllChats(
+        nearbyDevices: nearbyDevices,
+        discoveryData: discoveryData,
+        searchQuery: isSearching ? searchQuery : null,
+        limit: effectiveLimit,
+        offset: effectiveOffset,
+      );
+      _performanceMonitor.endOperation('home_load_chats', success: true);
+    } catch (e) {
+      _performanceMonitor.endOperation('home_load_chats', success: false);
+      if (!_isDisposed) {
+        isLoading = false;
+        _isPaging = false;
+        _safeNotifyListeners();
+      }
+      rethrow;
+    }
 
     if (_isDisposed) return;
-    chats = results;
+    if (reset) {
+      chats = results;
+      _offset = results.length;
+    } else {
+      chats = [...chats, ...results];
+      _offset = chats.length;
+    }
+    _hasMore = !isSearching && results.length >= _pageSize;
     isLoading = false;
+    _isPaging = false;
     _safeNotifyListeners();
     _refreshUnreadCount();
   }
@@ -123,24 +165,19 @@ class HomeScreenController extends ChangeNotifier {
     if (query.trim().isEmpty) {
       searchQuery = '';
       _safeNotifyListeners();
-      _searchDebounceTimer?.cancel();
-      loadChats();
+      loadChats(reset: true);
       return;
     }
 
     searchQuery = query;
     _safeNotifyListeners();
-    _searchDebounceTimer?.cancel();
-    _searchDebounceTimer = Timer(const Duration(milliseconds: 300), () {
-      loadChats();
-    });
+    loadChats(reset: true);
   }
 
   void clearSearch() {
     if (_isDisposed) return;
     searchQuery = '';
-    _searchDebounceTimer?.cancel();
-    loadChats();
+    loadChats(reset: true);
   }
 
   Future<void> updateSingleChatItem() async {
@@ -158,6 +195,8 @@ class HomeScreenController extends ChangeNotifier {
         nearbyDevices: nearbyDevices,
         discoveryData: discoveryData,
         searchQuery: searchQuery.trim().isEmpty ? null : searchQuery,
+        limit: searchQuery.trim().isEmpty ? _pageSize : null,
+        offset: 0,
       );
       if (_isDisposed) return;
       if (updatedChats.isEmpty) return;
@@ -226,14 +265,7 @@ class HomeScreenController extends ChangeNotifier {
     await loadChats();
   }
 
-  void _setupPeriodicRefresh() {
-    if (_isDisposed) return;
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (!isLoading) {
-        loadChats();
-      }
-    });
-  }
+  void _setupPeriodicRefresh() {}
 
   void _setupGlobalMessageListener() {
     if (_isDisposed) return;
@@ -319,6 +351,16 @@ class HomeScreenController extends ChangeNotifier {
     _setupUnreadCountStream();
   }
 
+  bool get isPaging => _isPaging;
+  bool get hasMore => _hasMore;
+
+  Future<void> loadMoreChats() async {
+    if (_isDisposed || _isPaging || !_hasMore) return;
+    _isPaging = true;
+    _safeNotifyListeners();
+    await loadChats(reset: false);
+  }
+
   Future<void> openContacts() => Future.sync(_homeScreenFacade.openContacts);
   Future<void> openArchives() => Future.sync(_homeScreenFacade.openArchives);
   Future<void> openSettings() => Future.sync(_homeScreenFacade.openSettings);
@@ -347,8 +389,6 @@ class HomeScreenController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
-    _refreshTimer?.cancel();
-    _searchDebounceTimer?.cancel();
     _peripheralConnectionSubscription?.cancel();
     _connectionInfoSubscription?.cancel();
     _discoveryDataSubscription?.cancel();
@@ -368,3 +408,10 @@ class _ChatManagementServiceHolder {
   _ChatManagementServiceHolder();
   final ChatManagementService instance = ChatManagementService();
 }
+
+final homeScreenControllerProvider = ChangeNotifierProvider.autoDispose
+    .family<HomeScreenController, HomeScreenControllerArgs>((ref, args) {
+      final controller = HomeScreenController(args);
+      unawaited(controller.initialize());
+      return controller;
+    });
