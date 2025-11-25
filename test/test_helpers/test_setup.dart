@@ -174,6 +174,18 @@ class TestSetup {
     if (archiveRepository != null) {
       override<IArchiveRepository>(archiveRepository);
     }
+
+    // If repositories were overridden, update repository provider to use them.
+    if (contactRepository != null || messageRepository != null) {
+      final contactRepo = locator<IContactRepository>();
+      final messageRepo = locator<IMessageRepository>();
+      override<IRepositoryProvider>(
+        RepositoryProviderImpl(
+          contactRepository: contactRepo,
+          messageRepository: messageRepo,
+        ),
+      );
+    }
   }
 
   static Future<void> cleanupDatabase() async {
