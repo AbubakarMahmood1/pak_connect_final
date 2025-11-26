@@ -11,6 +11,7 @@ import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../providers/security_state_provider.dart';
 import '../providers/chat_session_providers.dart';
+import '../notifiers/chat_session_state_provider.dart';
 import '../widgets/chat_screen_helpers.dart';
 import '../widgets/chat_search_bar.dart';
 import '../widgets/message_bubble.dart';
@@ -56,6 +57,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool get _isRepositoryMode => widget.chatId != null;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
+  ChatScreenController get _controller =>
+      ref.read(chatScreenControllerProvider(_controllerArgs));
+  ChatSessionActions? get _sessionActions => widget.useSessionProviders
+      ? ref.read(chatSessionActionsFromControllerProvider(_controllerArgs))
+      : null;
 
   @override
   void initState() {
@@ -82,20 +88,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Legacy controller remains the source of truth for now; opt-in path uses
-    // the provider-resolved handle but it ultimately draws from the controller.
     final controller = ref.watch(chatScreenControllerProvider(_controllerArgs));
     final sessionHandle = widget.useSessionProviders
         ? ref.watch(chatSessionHandleProvider(_controllerArgs))
         : null;
-    final uiState = sessionHandle?.state ?? controller.state;
+    final sessionActions = sessionHandle?.actions ?? _sessionActions;
+    final ChatUIState uiState =
+        sessionHandle?.state ??
+        ref.watch(chatSessionStateProvider(_controllerArgs));
     final searchController =
         sessionHandle?.viewModel.searchController ??
         controller.searchController;
     final scrollingController =
         sessionHandle?.viewModel.scrollingController ??
         controller.scrollingController;
-    final sessionActions = sessionHandle?.actions;
 
     ref.listen(connectionInfoProvider, (previous, next) {
       (sessionActions?.handleConnectionChange ??
@@ -109,11 +115,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
     });
 
-    final connectionInfoAsync = ref.watch(connectionInfoProvider);
-    final connectionInfo = connectionInfoAsync.maybeWhen(
-      data: (info) => info,
-      orElse: () => null,
-    );
+    final connectionInfo = ref.watch(connectionInfoProvider).value;
 
     final securityStateAsync = ref.watch(
       securityStateProvider(controller.securityStateKey),
@@ -169,8 +171,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 : 'Search messages',
           ),
           securityStateAsync.when(
-            data: (securityState) =>
-                _buildSingleActionButton(securityState, controller),
+            data: (securityState) => _buildSingleActionButton(securityState),
             loading: () => const SizedBox.shrink(),
             error: (error, stack) => const SizedBox.shrink(),
           ),
@@ -221,22 +222,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           return RetryIndicator(
                             failedCount: failedCount,
                             onRetry: () {
-                              final provider = ref.read(
-                                widget.useSessionProviders
-                                    ? chatSessionActionsFromControllerProvider(
-                                        _controllerArgs,
-                                      )
-                                    : chatScreenControllerProvider(
-                                        _controllerArgs,
-                                      ),
-                              );
-                              if (widget.useSessionProviders) {
-                                (provider as ChatSessionActions)
-                                    .retryFailedMessages();
-                              } else {
-                                (provider as ChatScreenController)
-                                    .retryFailedMessages();
-                              }
+                              ((sessionActions ?? _sessionActions)
+                                      ?.retryFailedMessages ??
+                                  controller.retryFailedMessages)();
                             },
                           );
                         }
@@ -299,7 +287,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: FloatingActionButton(
                 mini: true,
                 onPressed: () {
-                  (sessionActions?.scrollToBottom ??
+                  ((sessionActions ?? _sessionActions)?.scrollToBottom ??
                       controller.scrollToBottom)();
                   scrollingController.scheduleMarkAsRead();
                 },
@@ -395,24 +383,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  Widget _buildSingleActionButton(
-    SecurityState securityState,
-    ChatScreenController controller,
-  ) {
+  Widget _buildSingleActionButton(SecurityState securityState) {
     if (securityState.showPairingButton) {
       return IconButton(
         icon: const Icon(Icons.lock_open),
         onPressed: () {
-          final provider = ref.read(
-            widget.useSessionProviders
-                ? chatSessionActionsFromControllerProvider(_controllerArgs)
-                : chatScreenControllerProvider(_controllerArgs),
-          );
-          if (widget.useSessionProviders) {
-            (provider as ChatSessionActions).requestPairing();
-          } else {
-            (provider as ChatScreenController).userRequestedPairing();
-          }
+          (_sessionActions?.requestPairing ??
+              _controller.userRequestedPairing)();
         },
         tooltip: 'Secure Chat',
       );
@@ -420,16 +397,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.person_add),
         onPressed: () {
-          final provider = ref.read(
-            widget.useSessionProviders
-                ? chatSessionActionsFromControllerProvider(_controllerArgs)
-                : chatScreenControllerProvider(_controllerArgs),
-          );
-          if (widget.useSessionProviders) {
-            (provider as ChatSessionActions).requestPairing();
-          } else {
-            (provider as ChatScreenController).userRequestedPairing();
-          }
+          (_sessionActions?.requestPairing ??
+              _controller.userRequestedPairing)();
         },
         tooltip: 'Add Contact',
       );
@@ -437,22 +406,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.sync),
         onPressed: () {
-          final provider = ref.read(
-            widget.useSessionProviders
-                ? chatSessionActionsFromControllerProvider(_controllerArgs)
-                : chatScreenControllerProvider(_controllerArgs),
+          final handle =
+              _sessionActions?.handleAsymmetricContact ??
+              _controller.handleAsymmetricContact;
+          handle(
+            securityState.otherPublicKey ?? '',
+            securityState.otherUserName ?? 'Unknown',
           );
-          if (widget.useSessionProviders) {
-            (provider as ChatSessionActions).handleAsymmetricContact(
-              securityState.otherPublicKey ?? '',
-              securityState.otherUserName ?? 'Unknown',
-            );
-          } else {
-            (provider as ChatScreenController).handleAsymmetricContact(
-              securityState.otherPublicKey ?? '',
-              securityState.otherUserName ?? 'Unknown',
-            );
-          }
         },
         tooltip: 'Sync Contact',
       );
@@ -464,16 +424,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     _messageController.clear();
-    final provider = ref.read(
-      widget.useSessionProviders
-          ? chatSessionActionsFromControllerProvider(_controllerArgs)
-          : chatScreenControllerProvider(_controllerArgs),
-    );
-    if (widget.useSessionProviders) {
-      (provider as ChatSessionActions).sendMessage(text);
-    } else {
-      (provider as ChatScreenController).sendMessage(text);
-    }
+    ((_sessionActions)?.sendMessage ?? _controller.sendMessage).call(text);
   }
 
   String _getMessageHintText(ConnectionInfo? connectionInfo) {
@@ -493,47 +444,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _deleteMessage(String messageId, bool deleteForEveryone) {
-    final provider = ref.read(
-      widget.useSessionProviders
-          ? chatSessionActionsFromControllerProvider(_controllerArgs)
-          : chatScreenControllerProvider(_controllerArgs),
+    return ((_sessionActions)?.deleteMessage ?? _controller.deleteMessage)(
+      messageId,
+      deleteForEveryone,
     );
-    if (widget.useSessionProviders) {
-      return (provider as ChatSessionActions).deleteMessage(
-        messageId,
-        deleteForEveryone,
-      );
-    } else {
-      return (provider as ChatScreenController).deleteMessage(
-        messageId,
-        deleteForEveryone,
-      );
-    }
   }
 
   void _toggleSearchMode() {
-    final provider = ref.read(
-      widget.useSessionProviders
-          ? chatSessionActionsFromControllerProvider(_controllerArgs)
-          : chatScreenControllerProvider(_controllerArgs),
-    );
-    if (widget.useSessionProviders) {
-      (provider as ChatSessionActions).toggleSearchMode();
-    } else {
-      (provider as ChatScreenController).toggleSearchMode();
-    }
+    ((_sessionActions)?.toggleSearchMode ?? _controller.toggleSearchMode)();
   }
 
   Future<void> _manualReconnect() {
-    final provider = ref.read(
-      widget.useSessionProviders
-          ? chatSessionActionsFromControllerProvider(_controllerArgs)
-          : chatScreenControllerProvider(_controllerArgs),
-    );
-    if (widget.useSessionProviders) {
-      return (provider as ChatSessionActions).manualReconnection();
-    } else {
-      return (provider as ChatScreenController).manualReconnection();
-    }
+    return ((_sessionActions)?.manualReconnection ??
+        _controller.manualReconnection)();
   }
 }
