@@ -43,8 +43,11 @@ class AutoArchiveScheduler {
       }
 
       // Then check daily at midnight (or every 24 hours)
-      _checkTimer = Timer.periodic(Duration(hours: 24), (_) {
-        _checkAndArchiveInactiveChats();
+      _checkTimer?.cancel();
+      _checkTimer = Timer.periodic(Duration(hours: 24), (_) async {
+        if (_isRunning) {
+          await _checkAndArchiveInactiveChats();
+        }
       });
 
       _logger.info('Auto-archive scheduler started successfully');

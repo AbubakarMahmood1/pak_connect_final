@@ -83,7 +83,8 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
         });
 
     // ✅ Cleanup stale devices periodically
-    _staleDeviceTimer = Timer.periodic(Duration(minutes: 1), (timer) {
+    _staleDeviceTimer?.cancel();
+    _staleDeviceTimer = Timer.periodic(Duration(minutes: 1), (_) {
       DeviceDeduplicationManager.removeStaleDevices();
     });
 

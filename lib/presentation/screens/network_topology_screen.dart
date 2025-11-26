@@ -2,20 +2,22 @@
 // Shows live mesh network graph with nodes and connections
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/networking/topology_manager.dart';
 import '../../core/models/network_topology.dart';
+import '../providers/mesh_networking_provider.dart';
 import 'dart:math' as math;
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
-class NetworkTopologyScreen extends StatefulWidget {
+class NetworkTopologyScreen extends ConsumerStatefulWidget {
   const NetworkTopologyScreen({super.key});
 
   @override
-  State<NetworkTopologyScreen> createState() => _NetworkTopologyScreenState();
+  ConsumerState<NetworkTopologyScreen> createState() =>
+      _NetworkTopologyScreenState();
 }
 
-class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
-  final TopologyManager _topologyManager = TopologyManager.instance;
+class _NetworkTopologyScreenState extends ConsumerState<NetworkTopologyScreen> {
   NetworkTopology? _topology;
   NetworkStatistics? _statistics;
 
@@ -24,21 +26,26 @@ class _NetworkTopologyScreenState extends State<NetworkTopologyScreen> {
     super.initState();
     _loadTopology();
 
-    // Listen to topology updates
-    _topologyManager.topologyStream.listen((topology) {
-      if (mounted) {
+    // Listen once for topology updates; Riverpod disposes this when the widget unmounts
+    ref.listen<AsyncValue<NetworkTopology>>(topologyStreamProvider, (
+      prev,
+      next,
+    ) {
+      next.whenData((topology) {
+        if (!mounted) return;
         setState(() {
           _topology = topology;
-          _statistics = _topologyManager.getStatistics();
+          _statistics = ref.read(topologyManagerProvider).getStatistics();
         });
-      }
+      });
     });
   }
 
   void _loadTopology() {
+    final topologyManager = ref.read(topologyManagerProvider);
     setState(() {
-      _topology = _topologyManager.getTopology();
-      _statistics = _topologyManager.getStatistics();
+      _topology = topologyManager.getTopology();
+      _statistics = topologyManager.getStatistics();
     });
   }
 

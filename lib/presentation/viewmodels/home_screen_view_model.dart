@@ -19,6 +19,7 @@ import '../../domain/services/chat_management_service.dart';
 import '../controllers/chat_list_controller.dart';
 import '../models/home_screen_state.dart';
 import '../providers/ble_providers.dart';
+import '../providers/chat_notification_providers.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../providers/home_screen_providers.dart';
 
@@ -26,18 +27,16 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   HomeScreenViewModel(this._ref, this.args) : super(const HomeScreenState()) {
     _chatsRepository = args.chatsRepository;
     _chatManagementService = args.chatManagementService;
+    // Keep the provider alive so its listeners stay registered; only dispose what we create.
     _homeScreenFacade =
-        args.homeScreenFacade ?? _ref.read(homeScreenFacadeProvider(args));
+        args.homeScreenFacade ?? _ref.watch(homeScreenFacadeProvider(args));
+    // Provider-owned facades are disposed by the provider; dispose injected ones here.
     _disposeFacadeOnTearDown = args.homeScreenFacade != null;
     _logger = args.logger ?? Logger('HomeScreenViewModel');
     _listController =
         args.chatListController ?? _ref.read(chatListControllerProvider);
 
     _ref.onDispose(() {
-      _peripheralConnectionSubscription?.cancel();
-      _connectionInfoSubscription?.cancel();
-      _discoveryDataSubscription?.cancel();
-      _globalMessageSubscription?.cancel();
       if (_disposeFacadeOnTearDown) {
         unawaited(_homeScreenFacade.dispose());
       }
@@ -64,11 +63,6 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   int _offset = 0;
   String _searchQuery = '';
 
-  StreamSubscription? _peripheralConnectionSubscription;
-  StreamSubscription? _connectionInfoSubscription;
-  StreamSubscription? _discoveryDataSubscription;
-  StreamSubscription? _globalMessageSubscription;
-
   Future<void> _initialize() async {
     if (_initialized) return;
     _initialized = true;
@@ -81,6 +75,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
     _setupDiscoveryListener();
     _setupUnreadCountStream();
     _setupGlobalMessageListener();
+    _setupChatNotificationListeners();
   }
 
   Future<void> loadChats({bool reset = true}) async {
@@ -244,21 +239,15 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   }
 
   void _setupGlobalMessageListener() {
-    try {
-      final bleService = _ref.read(connectionServiceProvider);
-
-      _globalMessageSubscription = bleService.receivedMessages.listen((
-        _,
-      ) async {
+    _ref.listen<AsyncValue<String>>(receivedMessagesProvider, (previous, next) {
+      next.whenData((_) async {
         _logger.info(
           'Global listener: New message received - updating chat list',
         );
         await updateSingleChatItem();
         _refreshUnreadCount();
       });
-    } catch (e) {
-      _logger.warning('Failed to set up global message listener: $e');
-    }
+    });
   }
 
   Future<List<Peripheral>?> _getNearbyDevices() async {
@@ -272,39 +261,43 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   void _setupPeripheralConnectionListener() {
     if (!Platform.isAndroid) return;
 
-    final bleService = _ref.read(connectionServiceProvider);
+    _ref.listen<AsyncValue<CentralConnectionStateChangedEventArgs>>(
+      peripheralConnectionChangesProvider,
+      (previous, next) {
+        next.whenData((event) {
+          final bleService = _ref.read(connectionServiceProvider);
+          final isConnected =
+              event.state == ble.ConnectionState.connected &&
+              bleService.isPeripheralMode;
 
-    _peripheralConnectionSubscription = bleService.peripheralConnectionChanges
-        .distinct(
-          (prev, next) =>
-              prev.central.uuid == next.central.uuid &&
-              prev.state == next.state,
-        )
-        .where(
-          (event) =>
-              bleService.isPeripheralMode &&
-              event.state == ble.ConnectionState.connected,
-        )
-        .listen((event) {
-          _handleIncomingPeripheralConnection(event.central);
+          if (isConnected) {
+            _handleIncomingPeripheralConnection(event.central);
+          }
         });
+      },
+    );
 
-    _connectionInfoSubscription = bleService.connectionInfo.listen((
-      ConnectionInfo _,
+    _ref.listen<AsyncValue<ConnectionInfo>>(connectionInfoProvider, (
+      previous,
+      next,
     ) {
-      _refreshUnreadCount();
+      if (next.hasValue) {
+        _refreshUnreadCount();
+      }
     });
   }
 
   void _setupDiscoveryListener() {
-    _discoveryDataSubscription = _ref
-        .read(connectionServiceProvider)
-        .discoveryData
-        .listen((_) {
+    _ref.listen<AsyncValue<Map<String, DiscoveredEventArgs>>>(
+      discoveryDataProvider,
+      (previous, next) {
+        next.whenData((_) {
           if (!state.isLoading) {
             loadChats();
           }
         });
+      },
+    );
   }
 
   void _handleIncomingPeripheralConnection(Central central) {
@@ -313,10 +306,35 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   }
 
   void _setupUnreadCountStream() {
-    final stream = Stream.periodic(const Duration(seconds: 3), (_) {
-      return _chatsRepository.getTotalUnreadCount();
-    }).asyncMap((futureCount) async => await futureCount);
+    if (state.unreadCountStream != null) return;
+
+    // Reuse facade-managed unread count stream to avoid duplicating timers.
+    final stream = _homeScreenFacade.unreadCountStream;
     _updateState(state.copyWith(unreadCountStream: stream));
+  }
+
+  void _setupChatNotificationListeners() {
+    _ref.listen<AsyncValue<ChatUpdateEvent>>(chatUpdatesStreamProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((event) async {
+        _logger.fine('Chat update received: $event');
+        await updateSingleChatItem();
+        _refreshUnreadCount();
+      });
+    });
+
+    _ref.listen<AsyncValue<MessageUpdateEvent>>(messageUpdatesStreamProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((event) async {
+        _logger.fine('Message update received: $event');
+        await updateSingleChatItem();
+        _refreshUnreadCount();
+      });
+    });
   }
 
   void _refreshUnreadCount() {

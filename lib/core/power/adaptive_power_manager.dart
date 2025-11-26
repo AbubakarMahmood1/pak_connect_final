@@ -249,6 +249,7 @@ class AdaptivePowerManager {
     onStartScan?.call();
 
     // Schedule duty cycle loop
+    _dutyCycleTimer?.cancel();
     _dutyCycleTimer = Timer.periodic(
       Duration(milliseconds: onDuration + offDuration),
       (_) {

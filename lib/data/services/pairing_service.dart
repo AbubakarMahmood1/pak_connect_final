@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import '../../core/interfaces/i_pairing_service.dart';
 import '../../core/models/pairing_state.dart';
 import '../../core/models/protocol_message.dart';
+import '../../core/utils/string_extensions.dart';
 
 /// Pairing Service
 ///
@@ -402,9 +403,7 @@ class PairingService implements IPairingService {
 
       // Generate verification hash for confirmation
       final secretHash = sha256.convert(sharedSecret.codeUnits).toString();
-      _logger.info(
-        '📤 Sending verification hash: ${secretHash.substring(0, 8)}...',
-      );
+      _logger.info('📤 Sending verification hash: ${secretHash.shortId(8)}...');
 
       // Send verification hash to peer
       await _sendPairingVerification(secretHash);
@@ -432,7 +431,7 @@ class PairingService implements IPairingService {
   Future<void> handlePairingVerification(String theirSecretHash) async {
     try {
       _logger.info(
-        '📥 Received verification hash from peer: ${theirSecretHash.substring(0, 8)}...',
+        '📥 Received verification hash from peer: ${theirSecretHash.shortId(8)}...',
       );
 
       // Verify our hash matches theirs (if we have computed secret)

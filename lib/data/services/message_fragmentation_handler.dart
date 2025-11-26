@@ -25,13 +25,15 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
   final Map<String, Completer<bool>> _messageAcks = {};
 
   Timer? _cleanupTimer;
+  bool _cleanupInProgress = false;
 
   MessageFragmentationHandler({bool enableCleanupTimer = false}) {
     // Setup periodic cleanup of old partial messages
     if (enableCleanupTimer) {
-      _cleanupTimer = Timer.periodic(Duration(minutes: 2), (timer) {
-        cleanupOldMessages();
-      });
+      _cleanupTimer ??= Timer.periodic(
+        Duration(minutes: 2),
+        (_) => cleanupOldMessages(),
+      );
     }
   }
 
@@ -196,12 +198,18 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
   /// Cleans up old partial messages that have timed out
   @override
   void cleanupOldMessages() {
-    _messageReassembler.cleanupOldMessages();
-    final cutoff = DateTime.now().subtract(Duration(minutes: 2));
-    _completedMessages.removeWhere(
-      (_, completed) => completed.receivedAt.isBefore(cutoff),
-    );
-    _logger.fine('🧹 Cleaned up old partial messages');
+    if (_cleanupInProgress) return;
+    _cleanupInProgress = true;
+    try {
+      _messageReassembler.cleanupOldMessages();
+      final cutoff = DateTime.now().subtract(Duration(minutes: 2));
+      _completedMessages.removeWhere(
+        (_, completed) => completed.receivedAt.isBefore(cutoff),
+      );
+      _logger.fine('🧹 Cleaned up old partial messages');
+    } finally {
+      _cleanupInProgress = false;
+    }
   }
 
   /// Disposes resources (timers, etc.)

@@ -88,6 +88,8 @@ class ArchiveManagementService {
   bool _isInitialized = false;
   Timer? _maintenanceTimer;
   Timer? _policyEvaluationTimer;
+  bool _maintenanceRunning = false;
+  bool _policyEvaluationRunning = false;
   final Set<String> _operationsInProgress = {};
 
   /// Initialize the archive management service (idempotent - safe to call multiple times)
@@ -669,6 +671,7 @@ class ArchiveManagementService {
 
   void _startMaintenanceTasks() {
     if (_config.maintenanceIntervalHours > 0) {
+      _maintenanceTimer?.cancel();
       _maintenanceTimer = Timer.periodic(
         Duration(hours: _config.maintenanceIntervalHours),
         (_) => _runScheduledMaintenance(),
@@ -678,6 +681,7 @@ class ArchiveManagementService {
 
   void _startPolicyEvaluation() {
     if (_config.policyEvaluationIntervalHours > 0) {
+      _policyEvaluationTimer?.cancel();
       _policyEvaluationTimer = Timer.periodic(
         Duration(hours: _config.policyEvaluationIntervalHours),
         (_) => _runScheduledPolicyEvaluation(),
@@ -691,15 +695,21 @@ class ArchiveManagementService {
   }
 
   Future<void> _runScheduledMaintenance() async {
+    if (_maintenanceRunning) return;
+    _maintenanceRunning = true;
     try {
       _logger.info('Running scheduled archive maintenance');
       await performMaintenance();
     } catch (e) {
       _logger.warning('Scheduled maintenance failed: $e');
+    } finally {
+      _maintenanceRunning = false;
     }
   }
 
   Future<void> _runScheduledPolicyEvaluation() async {
+    if (_policyEvaluationRunning) return;
+    _policyEvaluationRunning = true;
     try {
       _logger.info('Running scheduled policy evaluation');
       final result = await applyArchivePolicies(dryRun: false);
@@ -710,6 +720,8 @@ class ArchiveManagementService {
       }
     } catch (e) {
       _logger.warning('Scheduled policy evaluation failed: $e');
+    } finally {
+      _policyEvaluationRunning = false;
     }
   }
 

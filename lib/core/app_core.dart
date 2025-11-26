@@ -271,11 +271,10 @@ class AppCore {
   Future<void> _initializeMonitoring() async {
     performanceMonitor = PerformanceMonitor();
     await performanceMonitor.initialize();
-    performanceMonitor.startMonitoring();
-    _logger.info('Performance monitor initialized');
-
-    performanceMonitor.startMonitoring();
-    _logger.info('Performance monitoring started');
+    // Event-driven mode: disable periodic sampling, take initial snapshot.
+    performanceMonitor.startMonitoring(enablePeriodic: false);
+    performanceMonitor.collectSnapshot();
+    _logger.info('Performance monitor initialized (event-driven)');
 
     // Initialize adaptive encryption strategy (FIX-013)
     // This checks performance metrics and decides whether to use isolate for encryption

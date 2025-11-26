@@ -511,13 +511,15 @@ class SpamPreventionManager {
 
   /// Start periodic cleanup
   void _startPeriodicCleanup() {
-    _cleanupTimer = Timer.periodic(Duration(hours: 1), (timer) {
-      _performCleanup();
+    _cleanupTimer?.cancel();
+    _cleanupTimer = Timer.periodic(Duration(hours: 1), (_) {
+      unawaited(_performCleanup());
     });
   }
 
   /// Perform cleanup of old data
   Future<void> _performCleanup() async {
+    if (_cleanupTimer == null) return; // cleanup only when timer active
     try {
       final now = DateTime.now();
       final cutoffTime = now
