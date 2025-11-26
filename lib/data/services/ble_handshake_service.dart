@@ -68,6 +68,12 @@ class BLEHandshakeService implements IBLEHandshakeService {
   // ===== Handshake State =====
   HandshakeCoordinator? _handshakeCoordinator;
   StreamSubscription<ConnectionPhase>? _handshakePhaseSubscription;
+  final _handshakePhaseController =
+      StreamController<ConnectionPhase>.broadcast();
+
+  @override
+  Stream<ConnectionPhase> get handshakePhaseStream =>
+      _handshakePhaseController.stream;
 
   BLEHandshakeService({
     required IBLEStateManagerFacade stateManager,
@@ -189,6 +195,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
       _handshakePhaseSubscription = _handshakeCoordinator!.phaseStream.listen((
         phase,
       ) async {
+        _handshakePhaseController.add(phase);
         _logger.info('🤝 Handshake phase: $phase');
         _updateConnectionInfo(statusMessage: _getPhaseMessage(phase));
 

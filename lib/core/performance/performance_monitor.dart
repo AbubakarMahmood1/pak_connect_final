@@ -16,6 +16,8 @@ class PerformanceMonitor {
   // Monitoring state
   bool _isMonitoring = false;
   Timer? _monitoringTimer;
+  bool _periodicEnabled = true;
+  DateTime? _lastSnapshot;
 
   // Performance metrics
   final Map<String, List<PerformanceEntry>> _operationMetrics = {};
@@ -38,15 +40,19 @@ class PerformanceMonitor {
   }
 
   /// Start performance monitoring
-  void startMonitoring() {
+  void startMonitoring({bool enablePeriodic = true}) {
     if (_isMonitoring) return;
 
     _isMonitoring = true;
     _monitoringStartTime = DateTime.now();
+    _periodicEnabled = enablePeriodic;
 
-    _monitoringTimer = Timer.periodic(_monitoringInterval, (timer) {
-      _collectSystemMetrics();
-    });
+    if (_periodicEnabled) {
+      _monitoringTimer?.cancel();
+      _monitoringTimer = Timer.periodic(_monitoringInterval, (_) {
+        _collectSystemMetrics();
+      });
+    }
 
     _logger.info('Performance monitoring started');
   }
@@ -57,6 +63,7 @@ class PerformanceMonitor {
 
     _isMonitoring = false;
     _monitoringTimer?.cancel();
+    _monitoringTimer = null;
 
     _logger.info('Performance monitoring stopped');
   }
@@ -101,6 +108,14 @@ class PerformanceMonitor {
 
   /// Get comprehensive performance metrics
   PerformanceMetrics getMetrics() {
+    // For event-driven mode, take a fresh snapshot if we're stale.
+    if (_isMonitoring &&
+        !_periodicEnabled &&
+        (_lastSnapshot == null ||
+            DateTime.now().difference(_lastSnapshot!) >= _monitoringInterval)) {
+      _collectSystemMetrics();
+    }
+
     return PerformanceMetrics(
       monitoringDuration: _monitoringStartTime != null
           ? DateTime.now().difference(_monitoringStartTime!)
@@ -147,6 +162,11 @@ class PerformanceMonitor {
       successRate: successCount / entries.length,
       recentEntries: entries.take(10).toList(),
     );
+  }
+
+  /// Collect a one-off snapshot (no periodic timer needed).
+  void collectSnapshot() {
+    _collectSystemMetrics();
   }
 
   /// Clear old performance data
@@ -231,6 +251,7 @@ class PerformanceMonitor {
       if (_cpuHistory.length > 288) {
         _cpuHistory.removeAt(0);
       }
+      _lastSnapshot = DateTime.now();
     } catch (e) {
       _logger.warning('Failed to collect system metrics: $e');
     }

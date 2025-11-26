@@ -10,6 +10,7 @@ import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/app_core.dart';
+import '../../core/utils/string_extensions.dart';
 
 /// Coordinates relay decisions and message routing
 ///
@@ -79,7 +80,7 @@ class RelayCoordinator implements IRelayCoordinator {
       onStatsUpdated: _onRelayStatsUpdated,
     );
     _logger.info(
-      '🔄 Relay system initialized for node: ${currentNodeId.substring(0, 8)}...',
+      '🔄 Relay system initialized for node: ${currentNodeId.shortId(8)}...',
     );
   }
 
@@ -87,7 +88,7 @@ class RelayCoordinator implements IRelayCoordinator {
   @override
   void setCurrentNodeId(String nodeId) {
     _currentNodeId = nodeId;
-    _logger.fine('📍 Relay coordinator node ID: ${nodeId.substring(0, 8)}...');
+    _logger.fine('📍 Relay coordinator node ID: ${nodeId.shortId(8)}...');
   }
 
   /// Sets the SeenMessageStore for deduplication
@@ -124,7 +125,7 @@ class RelayCoordinator implements IRelayCoordinator {
       if (_seenMessageStore != null) {
         await _seenMessageStore!.markDelivered(originalMessageId);
         final shortId = originalMessageId.length > 8
-            ? originalMessageId.substring(0, 8)
+            ? originalMessageId.shortId(8)
             : originalMessageId;
         _logger.fine(
           '✅ Relay marked as delivered for dedup window: $shortId...',
@@ -195,9 +196,7 @@ class RelayCoordinator implements IRelayCoordinator {
     required String nextHopDeviceId,
   }) async {
     try {
-      _logger.fine(
-        '📤 Relaying to next hop: ${nextHopDeviceId.substring(0, 8)}...',
-      );
+      _logger.fine('📤 Relaying to next hop: ${nextHopDeviceId.shortId(8)}...');
 
       // Use nextHop() for hop chaining (updates metadata internally)
       final nextRelayMessage = relayMessage.nextHop(nextHopDeviceId);
@@ -284,9 +283,7 @@ class RelayCoordinator implements IRelayCoordinator {
     // Prevents loops and traffic amplification from duplicate relay paths
     if (_seenMessageStore != null &&
         _seenMessageStore!.hasDelivered(messageId)) {
-      final shortId = messageId.length > 8
-          ? messageId.substring(0, 8)
-          : messageId;
+      final shortId = messageId.length > 8 ? messageId.shortId(8) : messageId;
       _logger.fine(
         '🔄 Duplicate relay suppressed (already processed): $shortId...',
       );
@@ -316,7 +313,7 @@ class RelayCoordinator implements IRelayCoordinator {
   }) async {
     try {
       _logger.fine(
-        '✅ Sending relay ACK for: ${originalMessageId.substring(0, 8)}...',
+        '✅ Sending relay ACK for: ${originalMessageId.shortId(8)}...',
       );
 
       // Use ProtocolMessage.relayAck() factory (NOT createRelayAck)
@@ -341,7 +338,7 @@ class RelayCoordinator implements IRelayCoordinator {
   }) async {
     try {
       _logger.fine(
-        '✅ Relay ACK received for: ${originalMessageId.substring(0, 8)}...',
+        '✅ Relay ACK received for: ${originalMessageId.shortId(8)}...',
       );
 
       // Cancel timeout
@@ -387,7 +384,7 @@ class RelayCoordinator implements IRelayCoordinator {
     required List<String> messageIds,
   }) async {
     try {
-      _logger.fine('📦 Sending queue sync to: ${toNodeId.substring(0, 8)}...');
+      _logger.fine('📦 Sending queue sync to: ${toNodeId.shortId(8)}...');
 
       // Create QueueSyncMessage using factory
       final syncMessage = QueueSyncMessage.createRequest(

@@ -193,9 +193,11 @@ class BLEMessageHandler {
 
     if (enableCleanupTimer) {
       // Setup periodic cleanup of old partial messages
-      _cleanupTimer = Timer.periodic(Duration(minutes: 2), (timer) {
-        _messageReassembler.cleanupOldMessages();
-      });
+      _cleanupTimer?.cancel();
+      _cleanupTimer = Timer.periodic(
+        Duration(minutes: 2),
+        (_) => _messageReassembler.cleanupOldMessages(),
+      );
     }
   }
 

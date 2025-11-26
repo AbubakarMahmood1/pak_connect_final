@@ -39,6 +39,7 @@ class QueueSyncManager {
   int _successfulSyncs = 0;
   int _failedSyncs = 0;
   int _messagesTransferred = 0;
+  Timer? _cleanupTimer;
 
   // Callbacks
   Function(QueueSyncMessage message, String fromNodeId)? onSyncRequest;
@@ -400,7 +401,8 @@ class QueueSyncManager {
 
   /// Start cleanup timer for old sync data
   void _startCleanupTimer() {
-    Timer.periodic(Duration(hours: 1), (timer) {
+    _cleanupTimer?.cancel();
+    _cleanupTimer = Timer.periodic(Duration(hours: 1), (_) {
       _cleanupRecentSyncs();
       _cleanupOldSyncData();
     });
@@ -512,6 +514,8 @@ class QueueSyncManager {
 
   /// Dispose resources
   void dispose() {
+    _cleanupTimer?.cancel();
+    _cleanupTimer = null;
     for (final timer in _activeSyncs.values) {
       timer.cancel();
     }

@@ -1,4 +1,5 @@
-import '../messaging/offline_message_queue.dart';
+import '../../domain/entities/queued_message.dart';
+import '../../domain/entities/queue_enums.dart';
 
 /// Interface for message queue database operations
 ///

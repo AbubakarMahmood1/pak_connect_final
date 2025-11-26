@@ -1,6 +1,10 @@
 // Enhanced message entity with comprehensive state tracking and metadata
 
 import '../../domain/entities/message.dart';
+import '../../core/models/message_priority.dart';
+
+// Re-export MessagePriority for backward compatibility
+export '../../core/models/message_priority.dart' show MessagePriority;
 
 /// Enhanced message with comprehensive state tracking and metadata
 class EnhancedMessage extends Message {
@@ -204,9 +208,6 @@ class EnhancedMessage extends Message {
             : null,
       );
 }
-
-/// Message priority levels
-enum MessagePriority { low, normal, high, urgent }
 
 /// Message delivery receipt
 class MessageDeliveryReceipt {

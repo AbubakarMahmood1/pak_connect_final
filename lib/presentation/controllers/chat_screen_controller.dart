@@ -9,6 +9,7 @@ import '../../core/app_core.dart';
 import '../../core/interfaces/i_connection_service.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/messaging/message_router.dart';
+import '../../core/messaging/offline_message_queue.dart';
 import '../../core/security/message_security.dart';
 import '../../core/services/message_retry_coordinator.dart';
 import '../../core/services/persistent_chat_state_manager.dart';
@@ -27,11 +28,15 @@ import '../../presentation/controllers/chat_pairing_dialog_controller.dart';
 import '../../presentation/controllers/chat_scrolling_controller.dart'
     as chat_controller;
 import '../../presentation/controllers/chat_search_controller.dart';
+import '../../presentation/controllers/chat_session_lifecycle.dart';
 import '../../presentation/models/chat_ui_state.dart';
 import '../../presentation/providers/ble_providers.dart';
 import '../../presentation/providers/chat_messaging_view_model.dart';
 import '../../presentation/providers/mesh_networking_provider.dart';
 import '../../presentation/providers/security_state_provider.dart';
+import '../providers/chat_session_providers.dart';
+import '../viewmodels/chat_session_view_model.dart';
+import '../notifiers/chat_session_state_notifier.dart';
 import '../widgets/chat_search_bar.dart' show SearchResult;
 import 'chat_retry_helper.dart';
 
@@ -48,6 +53,7 @@ class ChatScreenControllerArgs {
     this.messagingViewModel,
     this.repositoryRetryHandler,
     this.pairingDialogController,
+    this.messageRouter,
   });
 
   final WidgetRef ref;
@@ -61,10 +67,12 @@ class ChatScreenControllerArgs {
   final ChatMessagingViewModel? messagingViewModel;
   final Future<void> Function(Message message)? repositoryRetryHandler;
   final ChatPairingDialogController? pairingDialogController;
+  final MessageRouter? messageRouter;
 }
 
 /// Coordinates all non-UI chat behaviors so the widget can stay lean.
 class ChatScreenController extends ChangeNotifier {
+  final ChatScreenControllerArgs _args;
   final _logger = Logger('ChatScreenController');
   final WidgetRef ref;
   final BuildContext context;
@@ -73,42 +81,65 @@ class ChatScreenController extends ChangeNotifier {
   final ContactRepository contactRepository;
   final ChatsRepository chatsRepository;
   late final Future<void> Function(Message message) _repositoryRetryHandler;
+  final MessageRouter? _injectedMessageRouter;
   final ChatPairingDialogController? _injectedPairingController;
+  final MessageRetryCoordinator? _initialRetryCoordinator;
 
   late ChatMessagingViewModel _messagingViewModel;
   late chat_controller.ChatScrollingController _scrollingController;
   late ChatSearchController _searchController;
   late ChatPairingDialogController _pairingDialogController;
+  late ChatSessionViewModel _sessionViewModel;
+  late ChatSessionLifecycle _sessionLifecycle;
   late ChatRetryHelper _retryHelper;
   PersistentChatStateManager? _persistentChatManager;
+  late final ChatSessionStateStore _stateStore;
 
-  StreamSubscription<String>? _messageSubscription;
-  StreamSubscription<String>? _deliverySubscription;
-  Timer? _initializationTimeoutTimer;
-  final List<StreamSubscription<dynamic>> _managedSubscriptions = [];
   bool _initialized = false;
 
+  // Primary source of truth for controller state (legacy path).
+  // Also published to provider for opt-in migration path.
   ChatUIState _state = const ChatUIState();
   String _chatId = '';
   String? _cachedContactPublicKey;
-  bool _messageListenerActive = false;
   bool _disposed = false;
-  final List<String> _messageBuffer = [];
+  bool _messageListenerActive = false;
+  OfflineMessageQueue? _fallbackOfflineQueue;
+  bool _fallbackQueueInitialized = false;
+  Future<void>? _fallbackQueueInitFuture;
+  void Function(ChatUIState)? _stateListener;
+  void Function()? _disposeStateListener;
 
   ChatScreenController(ChatScreenControllerArgs args)
-    : ref = args.ref,
+    : _args = args,
+      ref = args.ref,
       context = args.context,
       config = args.config,
       messageRepository = args.messageRepository ?? MessageRepository(),
       contactRepository = args.contactRepository ?? ContactRepository(),
       chatsRepository = args.chatsRepository ?? ChatsRepository(),
       _persistentChatManager = args.persistentChatManager,
-      _injectedPairingController = args.pairingDialogController {
+      _injectedMessageRouter = args.messageRouter,
+      _injectedPairingController = args.pairingDialogController,
+      _initialRetryCoordinator = args.retryCoordinator {
     _repositoryRetryHandler =
         args.repositoryRetryHandler ?? _retryRepositoryMessage;
     _chatId = _calculateInitialChatId();
     _cachedContactPublicKey = _contactPublicKey;
+    _stateStore = ref.read(chatSessionStateStoreProvider(_args).notifier);
+    _state = _stateStore.current;
+    _stateListener = (newState) {
+      if (_disposed) return;
+      _state = newState;
+      _publishStateToOwnedNotifier(newState);
+      notifyListeners();
+    };
+    _disposeStateListener = _stateStore.addListener(
+      _stateListener!,
+      fireImmediately: false,
+    );
     _initializeControllers(messagingViewModel: args.messagingViewModel);
+    _sessionViewModel.bindStateStore(_stateStore);
     _retryHelper = ChatRetryHelper(
       ref: ref,
       config: config,
@@ -121,10 +152,13 @@ class ChatScreenController extends ChangeNotifier {
       showError: _showError,
       showInfo: _showInfo,
       scrollToBottom: scrollToBottom,
-      getMessages: () => _state.messages,
+      getMessages: () => state.messages,
       logger: _logger,
       initialCoordinator: args.retryCoordinator,
+      offlineQueueResolver: _resolveOfflineQueue,
     );
+    _sessionLifecycle.retryHelper = _retryHelper;
+    _publishInitialState();
   }
 
   ChatUIState get state => _state;
@@ -134,6 +168,9 @@ class ChatScreenController extends ChangeNotifier {
   ChatSearchController get searchController => _searchController;
   ChatPairingDialogController get pairingDialogController =>
       _pairingDialogController;
+  ChatSessionViewModel get sessionViewModel => _sessionViewModel;
+  ChatSessionLifecycle get sessionLifecycle => _sessionLifecycle;
+  ChatScreenControllerArgs get args => _args;
 
   /// Legacy-style constructor kept for compatibility in tests and widgets that
   /// still pass named parameters directly.
@@ -150,6 +187,7 @@ class ChatScreenController extends ChangeNotifier {
     ChatMessagingViewModel? messagingViewModel,
     Future<void> Function(Message message)? repositoryRetryHandler,
     ChatPairingDialogController? pairingDialogController,
+    MessageRouter? messageRouter,
   }) : this(
          ChatScreenControllerArgs(
            ref: ref,
@@ -163,6 +201,7 @@ class ChatScreenController extends ChangeNotifier {
            messagingViewModel: messagingViewModel,
            repositoryRetryHandler: repositoryRetryHandler,
            pairingDialogController: pairingDialogController,
+           messageRouter: messageRouter,
          ),
        );
 
@@ -225,17 +264,14 @@ class ChatScreenController extends ChangeNotifier {
     _scrollingController = chat_controller.ChatScrollingController(
       chatsRepository: chatsRepository,
       chatId: _chatId,
-      onScrollToBottom: () => _updateState(
-        (state) => state.copyWith(newMessagesWhileScrolledUp: 0),
-      ),
-      onUnreadCountChanged: (count) =>
-          _updateState((state) => state.copyWith(unreadMessageCount: count)),
+      onScrollToBottom: () => _stateStore.clearNewWhileScrolledUp(),
+      onUnreadCountChanged: (count) => _stateStore.setUnreadCount(count),
       onStateChanged: _syncScrollState,
     );
 
     _searchController = ChatSearchController(
       onSearchModeToggled: (isSearchMode) =>
-          _updateState((state) => state.copyWith(isSearchMode: isSearchMode)),
+          _stateStore.setSearchMode(isSearchMode),
       onSearchResultsChanged: _onSearch,
       onNavigateToResult: _navigateToSearchResult,
       scrollController: _scrollingController.scrollController,
@@ -260,6 +296,131 @@ class ChatScreenController extends ChangeNotifier {
           onPairingError: _showError,
           onPairingSuccess: _showSuccess,
         );
+
+    _sessionViewModel = ChatSessionViewModel(
+      config: config,
+      messageRepository: messageRepository,
+      contactRepository: contactRepository,
+      chatsRepository: chatsRepository,
+      messagingViewModel: _messagingViewModel,
+      scrollingController: _scrollingController,
+      searchController: _searchController,
+      pairingDialogController: _pairingDialogController,
+      retryCoordinator: _initialRetryCoordinator,
+    );
+
+    _sessionLifecycle = ChatSessionLifecycle(
+      viewModel: _sessionViewModel,
+      connectionService: connectionService,
+      meshService: ref.read(meshNetworkingServiceProvider),
+      messageRouter: _resolveMessageRouter(connectionService),
+      messageSecurity: MessageSecurity(),
+      messageRepository: messageRepository,
+      retryCoordinator: _initialRetryCoordinator,
+      offlineQueue: _resolveOfflineQueue(),
+      notificationService: NotificationService(),
+      logger: _logger,
+    );
+    _sessionLifecycle.pairingController = _pairingDialogController;
+  }
+
+  MessageRouter? _resolveMessageRouter(IConnectionService connectionService) {
+    if (_injectedMessageRouter != null) {
+      return _injectedMessageRouter;
+    }
+
+    try {
+      return MessageRouter.instance;
+    } on StateError {
+      _logger.warning(
+        'MessageRouter not initialized; attempting on-demand initialization',
+      );
+      try {
+        final fallbackQueue = _resolveOfflineQueue();
+        unawaited(
+          MessageRouter.initialize(
+            connectionService,
+            offlineQueue: fallbackQueue,
+            fallbackQueueBuilder: _buildFallbackOfflineQueue,
+          ),
+        );
+        return MessageRouter.instance;
+      } catch (error, stack) {
+        _logger.warning(
+          'MessageRouter initialization failed; routing hooks disabled: $error',
+          stack,
+        );
+        if (AppCore.instance.isInitialized) {
+          _logger.warning(
+            'AppCore initialized but MessageRouter still unavailable',
+          );
+        }
+        return null;
+      }
+    }
+  }
+
+  OfflineMessageQueue? _resolveOfflineQueue() {
+    final appCoreQueue = _tryResolveAppCoreQueue();
+    if (appCoreQueue != null) {
+      return appCoreQueue;
+    }
+
+    try {
+      return MessageRouter.instance.offlineQueue;
+    } catch (_) {}
+
+    _logger.fine('Using standalone OfflineMessageQueue fallback');
+    return _getFallbackQueue();
+  }
+
+  OfflineMessageQueue? _tryResolveAppCoreQueue() {
+    final appCore = AppCore.instance;
+    if (!appCore.isInitialized && !appCore.isInitializing) {
+      _logger.fine('AppCore not initialized; offline queue unavailable');
+      return null;
+    }
+
+    try {
+      return appCore.messageQueue;
+    } catch (error) {
+      _logger.warning('Failed to access offline queue: $error');
+      return null;
+    }
+  }
+
+  Future<OfflineMessageQueue> _buildFallbackOfflineQueue() async {
+    final queue = _getFallbackQueue(ensureInitialized: true);
+    if (_fallbackQueueInitFuture != null) {
+      try {
+        await _fallbackQueueInitFuture;
+      } catch (error, stack) {
+        _logger.warning(
+          'Fallback offline queue initialization failed: $error',
+          stack,
+        );
+      }
+    }
+    return queue;
+  }
+
+  OfflineMessageQueue _getFallbackQueue({bool ensureInitialized = false}) {
+    _fallbackOfflineQueue ??= OfflineMessageQueue();
+    if (_fallbackQueueInitFuture == null && !_fallbackQueueInitialized) {
+      _fallbackQueueInitialized = true;
+      _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
+      if (!ensureInitialized) {
+        _fallbackQueueInitFuture!.catchError((error, stack) {
+          _logger.warning(
+            'Fallback offline queue initialization failed: $error',
+            stack,
+          );
+        });
+      }
+    } else if (ensureInitialized && _fallbackQueueInitFuture == null) {
+      _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
+    }
+    return _fallbackOfflineQueue!;
   }
 
   BLEStateManager _resolvePairingStateManager(
@@ -295,19 +456,35 @@ class ChatScreenController extends ChangeNotifier {
     _checkAndSetupLiveMessaging();
     _setupMeshNetworking();
     _setupDeliveryListener();
-    _retryHelper.ensureRetryCoordinator();
+    _sessionLifecycle.ensureRetryCoordinator();
     _setupSecurityStateListener();
     _initialized = true;
   }
 
-  void _updateState(ChatUIState Function(ChatUIState) updater) {
+  /// Publishes state to both local controller and provider-owned notifier.
+  void publishState(ChatUIState newState) {
     if (_disposed) return;
-    _state = updater(_state);
-    notifyListeners();
+    _stateStore.replace(newState);
+  }
+
+  void _publishStateToOwnedNotifier(ChatUIState newState) {
+    if (_disposed) return;
+    // Publish state for provider consumers.
+    final ownedState = ref.read(
+      chatSessionOwnedStateNotifierProvider(_args).notifier,
+    );
+    ownedState.replace(newState);
+  }
+
+  void _publishInitialState() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      _stateListener?.call(_stateStore.current);
+    });
   }
 
   void _syncScrollState() {
-    _updateState(
+    _stateStore.update(
       (state) => state.copyWith(
         unreadMessageCount: _scrollingController.unreadMessageCount,
         newMessagesWhileScrolledUp:
@@ -364,109 +541,59 @@ class ChatScreenController extends ChangeNotifier {
   void _setupMeshNetworking() {
     try {
       final meshStatusAsync = ref.read(meshNetworkStatusProvider);
+      _sessionLifecycle.handleMeshStatus(
+        statusAsync: meshStatusAsync,
+        isCurrentlyInitializing: _stateStore.current.meshInitializing,
+        updateState: _stateStore.update,
+        onSuccessMessage: _showSuccess,
+        onWarningMessage: (msg) => _logger.warning(msg),
+      );
       meshStatusAsync.when(
         data: (status) {
-          if (status.isInitialized) {
-            _updateState(
-              (state) => state.copyWith(
-                meshInitializing: false,
-                initializationStatus: 'Ready',
-              ),
+          if (!status.isInitialized) {
+            _sessionLifecycle.startInitializationTimeout(
+              isCheckingStatus: false,
+              disposed: () => _disposed,
+              stillInitializing: () => _stateStore.current.meshInitializing,
+              updateState: _stateStore.update,
+              onSuccessMessage: _showSuccess,
             );
-          } else {
-            _updateState(
-              (state) => state.copyWith(
-                meshInitializing: true,
-                initializationStatus: 'Initializing mesh network...',
-              ),
-            );
-            _startInitializationTimeoutTimer();
           }
         },
         loading: () {
-          _updateState(
-            (state) => state.copyWith(
-              meshInitializing: true,
-              initializationStatus: 'Checking mesh status...',
-            ),
+          _sessionLifecycle.startInitializationTimeout(
+            isCheckingStatus: true,
+            disposed: () => _disposed,
+            stillInitializing: () => _stateStore.current.meshInitializing,
+            updateState: _stateStore.update,
+            onSuccessMessage: _showSuccess,
           );
-          _startInitializationTimeoutTimer();
         },
-        error: (error, stack) {
-          _updateState(
-            (state) => state.copyWith(
-              meshInitializing: false,
-              initializationStatus: 'Mesh ready (fallback)',
-            ),
-          );
-          _logger.warning('Mesh status error - skipping banner: $error');
-        },
+        error: (error, stack) {},
       );
     } catch (e) {
       _logger.warning('Failed to set up mesh networking: $e');
-      _updateState(
-        (state) => state.copyWith(
-          meshInitializing: false,
-          initializationStatus: 'Failed to initialize',
-        ),
+      _stateStore.setMeshState(
+        meshInitializing: false,
+        initializationStatus: 'Failed to initialize',
       );
     }
   }
 
   void _setupDeliveryListener() {
-    try {
-      final meshService = ref.read(meshNetworkingServiceProvider);
-      _deliverySubscription = meshService.messageDeliveryStream.listen((
-        messageId,
-      ) {
-        _updateMessageStatus(messageId, MessageStatus.delivered);
-      });
-      _managedSubscriptions.add(_deliverySubscription!);
-    } catch (e) {
-      _logger.warning('Failed to set up delivery listener: $e');
-    }
+    _sessionLifecycle.setupDeliveryListener(
+      onDelivered: (messageId) =>
+          _updateMessageStatus(messageId, MessageStatus.delivered),
+    );
   }
 
   void _updateMessageStatus(String messageId, MessageStatus newStatus) {
-    _updateState((state) {
-      final messages = [...state.messages];
-      final index = messages.indexWhere((m) => m.id == messageId);
-      if (index != -1) {
-        messages[index] = messages[index].copyWith(status: newStatus);
-      }
-      return state.copyWith(messages: messages);
-    });
+    _stateStore.updateMessageStatus(messageId, newStatus);
   }
 
   @visibleForTesting
   void applyMessageUpdate(Message updatedMessage) {
-    _updateState((state) {
-      final messages = [...state.messages];
-      final index = messages.indexWhere((m) => m.id == updatedMessage.id);
-      if (index != -1) {
-        messages[index] = updatedMessage;
-      }
-      return state.copyWith(messages: messages);
-    });
-  }
-
-  void _startInitializationTimeoutTimer() {
-    _initializationTimeoutTimer?.cancel();
-    final timeoutDuration = _state.initializationStatus.contains('Checking')
-        ? const Duration(seconds: 3)
-        : const Duration(seconds: 15);
-
-    _initializationTimeoutTimer = Timer(timeoutDuration, () {
-      if (_disposed || !_state.meshInitializing) return;
-      _logger.info('Mesh initialization timeout reached - hiding banner');
-      _updateState(
-        (state) => state.copyWith(
-          meshInitializing: false,
-          initializationStatus: 'Ready (timeout fallback)',
-        ),
-      );
-      _showSuccess('Mesh networking ready (fallback mode)');
-    });
+    _stateStore.updateMessage(updatedMessage);
   }
 
   void handleMeshInitializationStatusChange(
@@ -474,42 +601,11 @@ class ChatScreenController extends ChangeNotifier {
     AsyncValue<MeshNetworkStatus> next,
   ) {
     if (_disposed) return;
-    next.when(
-      data: (status) {
-        if (status.isInitialized && _state.meshInitializing) {
-          _initializationTimeoutTimer?.cancel();
-          _updateState(
-            (state) => state.copyWith(
-              meshInitializing: false,
-              initializationStatus: 'Ready',
-            ),
-          );
-          _showSuccess('Mesh networking ready');
-        } else if (!status.isInitialized && !_state.meshInitializing) {
-          _updateState(
-            (state) => state.copyWith(initializationStatus: 'Initializing...'),
-          );
-        }
-      },
-      loading: () {
-        if (!_state.meshInitializing) {
-          _updateState(
-            (state) => state.copyWith(
-              meshInitializing: true,
-              initializationStatus: 'Initializing mesh network...',
-            ),
-          );
-        }
-      },
-      error: (error, stack) {
-        _updateState(
-          (state) => state.copyWith(
-            meshInitializing: false,
-            initializationStatus: 'Initialization failed',
-          ),
-        );
-        _logger.severe('Mesh initialization error: $error');
-      },
+    _sessionLifecycle.handleMeshStatus(
+      statusAsync: next,
+      isCurrentlyInitializing: _stateStore.current.meshInitializing,
+      updateState: _stateStore.update,
+      onSuccessMessage: _showSuccess,
     );
   }
 
@@ -528,62 +624,20 @@ class ChatScreenController extends ChangeNotifier {
     final connectionInfo =
         connectionInfoAsync.value ?? connectionService.currentConnectionInfo;
 
-    if (connectionInfo == null || !connectionInfo.isConnected) {
-      _showError('Not connected - cannot pair');
-      return;
-    }
-    await _pairingDialogController.userRequestedPairing();
+    await _sessionLifecycle.requestPairing(
+      connectionInfo: connectionInfo,
+      onErrorMessage: _showError,
+    );
   }
 
-  Future<void> _manualReconnection() async {
-    final connectionService = ref.read(connectionServiceProvider);
-    if (connectionService.isConnected) {
-      _showSuccess('Already connected');
-      return;
-    }
-
-    _showSuccess('Manually searching for device...');
-
-    try {
-      final foundDevice = await connectionService.scanForSpecificDevice(
-        timeout: const Duration(seconds: 10),
-      );
-
-      if (foundDevice != null) {
-        if (connectionService.connectedDevice?.uuid == foundDevice.uuid) {
-          _showSuccess('Already connected to this device');
-          return;
-        }
-
-        await connectionService.connectToDevice(foundDevice);
-        _showSuccess('Manual reconnection successful!');
-      } else {
-        _showError(
-          'Device not found - ensure other device is in discoverable mode',
-        );
-      }
-    } catch (e) {
-      final errorMsg = e.toString();
-      if (errorMsg.contains('1049')) {
-        _showSuccess('Already connected to device');
-      } else {
-        _showError('Manual reconnection failed: ${errorMsg.split(':').last}');
-      }
-    }
-  }
+  Future<void> _manualReconnection() => _sessionLifecycle.manualReconnection(
+    disposed: () => _disposed,
+    onSuccessMessage: _showSuccess,
+    onErrorMessage: _showError,
+  );
 
   bool _hasMessagesQueuedForRelay() {
-    try {
-      final offlineQueue = AppCore.instance.messageQueue;
-      final queuedMessages = offlineQueue.getPendingMessages();
-      final chatMessages = queuedMessages.where(
-        (msg) => msg.recipientPublicKey == _contactPublicKey,
-      );
-      return chatMessages.isNotEmpty;
-    } catch (e) {
-      _logger.warning('Error checking relay queue: $e');
-      return false;
-    }
+    return _sessionLifecycle.hasMessagesQueuedForRelay(_contactPublicKey);
   }
 
   Future<void> _loadMessages() async {
@@ -591,7 +645,7 @@ class ChatScreenController extends ChangeNotifier {
       final meshService = ref.read(meshNetworkingServiceProvider);
       final allMessages = await _messagingViewModel.loadMessages(
         onLoadingStateChanged: (isLoading) {
-          _updateState((state) => state.copyWith(isLoading: isLoading));
+          _stateStore.setLoading(isLoading);
         },
         onGetQueuedMessages: () =>
             meshService.getQueuedMessagesForChat(_chatId),
@@ -599,7 +653,7 @@ class ChatScreenController extends ChangeNotifier {
         onError: _showError,
       );
 
-      _updateState((state) => state.copyWith(messages: allMessages));
+      _stateStore.setMessages(allMessages);
 
       if (config.isRepositoryMode) {
         await _scrollingController.syncUnreadCount(messages: allMessages);
@@ -608,34 +662,29 @@ class ChatScreenController extends ChangeNotifier {
 
       await _processBufferedMessages();
 
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (!_disposed) {
-          _retryHelper.ensureRetryCoordinator();
-          _retryHelper.autoRetryFailedMessages();
-        }
-      });
+      _sessionLifecycle.scheduleAutoRetry(
+        delay: const Duration(milliseconds: 1000),
+        disposed: () => _disposed,
+        onRetry: () async {
+          _sessionLifecycle.ensureRetryCoordinator();
+          await _sessionLifecycle.autoRetryFailedMessages();
+        },
+      );
     } catch (e) {
       _logger.severe('Error in loadMessages: $e');
       _showError('Failed to load messages: $e');
-      _updateState((state) => state.copyWith(isLoading: false));
+      _stateStore.setLoading(false);
     }
   }
 
   Future<void> _autoRetryFailedMessages() =>
-      _retryHelper.autoRetryFailedMessages();
+      _sessionLifecycle.autoRetryFailedMessages();
 
   Future<void> _retryRepositoryMessage(Message message) async {
     try {
       final retryMessage = message.copyWith(status: MessageStatus.sending);
       await messageRepository.updateMessage(retryMessage);
-      _updateState((state) {
-        final messages = [...state.messages];
-        final index = messages.indexWhere((m) => m.id == message.id);
-        if (index != -1) {
-          messages[index] = retryMessage;
-        }
-        return state.copyWith(messages: messages);
-      });
+      _stateStore.updateMessage(retryMessage);
 
       bool success = false;
       final connectionInfo = ref.read(connectionInfoProvider).value;
@@ -693,37 +742,26 @@ class ChatScreenController extends ChangeNotifier {
           : MessageStatus.failed;
       final updatedMessage = retryMessage.copyWith(status: newStatus);
       await messageRepository.updateMessage(updatedMessage);
-      _updateState((state) {
-        final messages = [...state.messages];
-        final index = messages.indexWhere((m) => m.id == message.id);
-        if (index != -1) {
-          messages[index] = updatedMessage;
-        }
-        return state.copyWith(messages: messages);
-      });
+      _stateStore.updateMessage(updatedMessage);
     } catch (e) {
       final failedAgain = message.copyWith(status: MessageStatus.failed);
       await messageRepository.updateMessage(failedAgain);
-      _updateState((state) {
-        final messages = [...state.messages];
-        final index = messages.indexWhere((m) => m.id == message.id);
-        if (index != -1) {
-          messages[index] = failedAgain;
-        }
-        return state.copyWith(messages: messages);
-      });
+      _stateStore.updateMessage(failedAgain);
       rethrow;
     }
   }
 
   Future<void> _fallbackRetryFailedMessages() =>
-      _retryHelper.fallbackRetryFailedMessages();
+      _sessionLifecycle.fallbackRetryFailedMessages();
 
   void _setupPersistentChatManager() {
     _persistentChatManager ??= ref.read(persistentChatStateManagerProvider);
-    _persistentChatManager?.registerChatScreen(
-      _chatId,
-      _handlePersistentMessage,
+    _sessionLifecycle.persistentChatManager = _persistentChatManager;
+    _sessionLifecycle.registerPersistentListener(
+      chatId: _chatId,
+      incomingStream: () =>
+          ref.read(connectionServiceProvider).receivedMessages,
+      onMessage: _addReceivedMessage,
     );
   }
 
@@ -732,33 +770,33 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   void _activateMessageListener() {
-    if (_messageListenerActive) {
+    if (_sessionLifecycle.messageListenerActive || _messageListenerActive) {
       return;
     }
-
+    _sessionLifecycle.messageListenerActive = true;
     _messageListenerActive = true;
     final connectionService = ref.read(connectionServiceProvider);
 
     if (_persistentChatManager != null &&
         !_persistentChatManager!.hasActiveListener(_chatId)) {
-      _persistentChatManager!.setupPersistentListener(
-        _chatId,
-        connectionService.receivedMessages,
+      _sessionLifecycle.registerPersistentListener(
+        chatId: _chatId,
+        incomingStream: () => connectionService.receivedMessages,
+        onMessage: _addReceivedMessage,
       );
     } else if (_persistentChatManager != null &&
         _persistentChatManager!.hasActiveListener(_chatId)) {
       return;
     } else {
-      _messageSubscription = connectionService.receivedMessages.listen((
-        content,
-      ) {
-        if (!_disposed && _messageListenerActive) {
-          _addReceivedMessage(content);
-        } else if (_disposed) {
-          _messageBuffer.add(content);
-        }
-      });
-      _managedSubscriptions.add(_messageSubscription!);
+      _sessionLifecycle.attachMessageStream(
+        stream: connectionService.receivedMessages,
+        disposed: () => _disposed,
+        isActive: () => _sessionLifecycle.messageListenerActive,
+        onMessage: (content) async {
+          _sessionLifecycle.messageBuffer.add(content);
+          await _processBufferedMessages();
+        },
+      );
     }
   }
 
@@ -777,12 +815,9 @@ class ChatScreenController extends ChangeNotifier {
       secureMessageId,
     );
     if (existingMessage != null) {
-      final inUiList = _state.messages.any((m) => m.id == secureMessageId);
+      final inUiList = state.messages.any((m) => m.id == secureMessageId);
       if (!inUiList) {
-        _updateState(
-          (state) =>
-              state.copyWith(messages: [...state.messages, existingMessage]),
-        );
+        _stateStore.appendMessage(existingMessage);
         scrollToBottom();
       }
       return;
@@ -815,9 +850,7 @@ class ChatScreenController extends ChangeNotifier {
       await _scrollingController.handleIncomingWhileScrolledAway();
     }
 
-    _updateState(
-      (state) => state.copyWith(messages: [...state.messages, message]),
-    );
+    _stateStore.appendMessage(message);
 
     if (shouldAutoScroll) {
       scrollToBottom();
@@ -826,13 +859,7 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   Future<void> _processBufferedMessages() async {
-    if (_messageBuffer.isEmpty) return;
-    final bufferedMessages = List<String>.from(_messageBuffer);
-    _messageBuffer.clear();
-
-    for (final content in bufferedMessages) {
-      await _addReceivedMessage(content);
-    }
+    await _sessionLifecycle.processBufferedMessages(_addReceivedMessage);
   }
 
   Future<void> sendMessage(String content) async {
@@ -841,9 +868,7 @@ class ChatScreenController extends ChangeNotifier {
       await _messagingViewModel.sendMessage(
         content: content,
         onMessageAdded: (message) {
-          _updateState(
-            (state) => state.copyWith(messages: [...state.messages, message]),
-          );
+          _stateStore.appendMessage(message);
         },
         onShowSuccess: _showSuccess,
         onShowError: _showError,
@@ -860,13 +885,7 @@ class ChatScreenController extends ChangeNotifier {
         messageId: messageId,
         deleteForEveryone: deleteForEveryone,
         onMessageRemoved: (id) {
-          _updateState(
-            (state) => state.copyWith(
-              messages: state.messages
-                  .where((message) => message.id != id)
-                  .toList(),
-            ),
-          );
+          _stateStore.removeMessage(id);
         },
         onShowSuccess: _showSuccess,
         onShowError: _showError,
@@ -931,17 +950,14 @@ class ChatScreenController extends ChangeNotifier {
     _scrollingController = chat_controller.ChatScrollingController(
       chatsRepository: chatsRepository,
       chatId: _chatId,
-      onScrollToBottom: () => _updateState(
-        (state) => state.copyWith(newMessagesWhileScrolledUp: 0),
-      ),
-      onUnreadCountChanged: (count) =>
-          _updateState((state) => state.copyWith(unreadMessageCount: count)),
+      onScrollToBottom: () => _stateStore.clearNewWhileScrolledUp(),
+      onUnreadCountChanged: (count) => _stateStore.setUnreadCount(count),
       onStateChanged: _syncScrollState,
     );
 
     _searchController = ChatSearchController(
       onSearchModeToggled: (isSearchMode) =>
-          _updateState((state) => state.copyWith(isSearchMode: isSearchMode)),
+          _stateStore.setSearchMode(isSearchMode),
       onSearchResultsChanged: _onSearch,
       onNavigateToResult: _navigateToSearchResult,
       scrollController: _scrollingController.scrollController,
@@ -959,7 +975,7 @@ class ChatScreenController extends ChangeNotifier {
       _handlePersistentMessage,
     );
 
-    _updateState((state) => state.copyWith(messages: []));
+    _stateStore.setMessages([]);
     await _loadMessages();
   }
 
@@ -988,46 +1004,16 @@ class ChatScreenController extends ChangeNotifier {
     ConnectionInfo? previous,
     ConnectionInfo? current,
   ) {
-    if (_disposed) return;
-
-    final wasConnected = previous?.isConnected ?? false;
-    final isConnected = current?.isConnected ?? false;
-    final wasReady = previous?.isReady ?? false;
-    final isReady = current?.isReady ?? false;
-
-    if (!wasConnected && isConnected) {
-      _showSuccess('Connected to device!');
-    } else if (wasConnected && !isConnected) {
-      _showError('Device disconnected');
-    } else if (isConnected && !wasReady && isReady) {
-      _showSuccess('Identity exchange complete!');
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (!_disposed) _autoRetryFailedMessages();
-      });
-    }
-
-    if (current?.otherUserName != null &&
-        current!.otherUserName!.isNotEmpty &&
-        previous?.otherUserName != current.otherUserName) {
-      handleIdentityReceived();
-    }
-
-    if (isConnected) {
-      Future.delayed(const Duration(milliseconds: 2500), () {
-        if (!_disposed) {
-          _autoRetryFailedMessages();
-        }
-      });
-    } else {
-      final connectionService = ref.read(connectionServiceProvider);
-      if (!connectionService.isPeripheralMode) {
-        if (_hasMessagesQueuedForRelay()) {
-          _showInfo('Messages queued for relay - maintaining connection');
-        } else {
-          connectionService.startConnectionMonitoring();
-        }
-      }
-    }
+    _sessionLifecycle.handleConnectionChange(
+      previous: previous,
+      current: current,
+      disposed: () => _disposed,
+      onIdentityReceived: handleIdentityReceived,
+      onSuccessMessage: _showSuccess,
+      onErrorMessage: _showError,
+      contactPublicKey: _contactPublicKey ?? _chatId,
+      onInfoMessage: _showInfo,
+    );
   }
 
   void _setupContactRequestListener() {
@@ -1082,27 +1068,24 @@ class ChatScreenController extends ChangeNotifier {
     String publicKey,
     String displayName,
   ) async {
-    await _pairingDialogController.handleAsymmetricContact(
-      publicKey,
-      displayName,
-    );
+    await _sessionLifecycle.handleAsymmetricContact(publicKey, displayName);
   }
 
   Future<void> addAsVerifiedContact(String publicKey, String displayName) =>
-      _pairingDialogController.addAsVerifiedContact(publicKey, displayName);
+      _sessionLifecycle.addAsVerifiedContact(publicKey, displayName);
 
   void toggleSearchMode() {
-    _searchController.toggleSearchMode();
+    _sessionViewModel.toggleSearchMode();
   }
 
   void _onSearch(String query, List<SearchResult> results) {
-    _updateState((state) => state.copyWith(searchQuery: query));
+    _sessionViewModel.updateSearchQuery(query);
   }
 
   void _navigateToSearchResult(int messageIndex) {
-    _searchController.navigateToSearchResult(
+    _sessionViewModel.navigateToSearchResult(
       messageIndex,
-      _state.messages.length,
+      state.messages.length,
     );
   }
 
@@ -1125,18 +1108,15 @@ class ChatScreenController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _persistentChatManager?.unregisterChatScreen(_chatId);
+    _disposeStateListener?.call();
+    _sessionLifecycle.unregisterPersistentListener(_chatId);
+    _sessionLifecycle.messageListenerActive = false;
     _messageListenerActive = false;
-    for (final sub in _managedSubscriptions) {
-      sub.cancel();
-    }
-    _managedSubscriptions.clear();
-    _initializationTimeoutTimer?.cancel();
     _scrollingController.dispose();
     _messagingViewModel.dispose();
     _searchController.clear();
     _pairingDialogController.clear();
-    _retryHelper.dispose();
+    _sessionLifecycle.dispose();
     super.dispose();
   }
 }

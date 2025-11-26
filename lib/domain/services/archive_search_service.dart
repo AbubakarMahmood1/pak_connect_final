@@ -14,6 +14,9 @@ import 'archive_search_indexing.dart';
 import 'archive_search_query_builder.dart';
 import 'archive_search_pagination.dart';
 import 'archive_search_models.dart';
+import 'search_cache_manager.dart';
+import 'search_history_manager.dart';
+import 'search_analytics_tracker.dart';
 
 export 'archive_search_models.dart';
 
@@ -37,6 +40,9 @@ class ArchiveSearchService {
     ArchiveSearchIndexing? indexing,
     ArchiveSearchQueryBuilder? queryBuilder,
     ArchiveSearchPagination? pagination,
+    SearchCacheManager? cacheManager,
+    SearchHistoryManager? historyManager,
+    SearchAnalyticsTracker? analyticsTracker,
   }) : _archiveRepository =
            archiveRepository ?? GetIt.instance<IArchiveRepository>(),
        _indexing =
@@ -47,6 +53,13 @@ class ArchiveSearchService {
            ),
        _queryBuilder = queryBuilder ?? ArchiveSearchQueryBuilder(),
        _pagination = pagination ?? ArchiveSearchPagination() {
+    // Initialize extracted services (Phase 4D)
+    _cacheManager =
+        cacheManager ?? SearchCacheManager(getConfig: () => _config);
+    _historyManager =
+        historyManager ?? SearchHistoryManager(getConfig: () => _config);
+    _analyticsTracker = analyticsTracker ?? SearchAnalyticsTracker();
+
     _logger.info('✅ ArchiveSearchService singleton instance created');
   }
 
@@ -59,27 +72,16 @@ class ArchiveSearchService {
   final ArchiveSearchQueryBuilder _queryBuilder;
   final ArchiveSearchPagination _pagination;
 
-  // Storage keys
-  static const String _searchHistoryKey = 'archive_search_history_v2';
+  // Extracted services (Phase 4D refactoring)
+  late final SearchCacheManager _cacheManager;
+  late final SearchHistoryManager _historyManager;
+  late final SearchAnalyticsTracker _analyticsTracker;
+
+  // Storage key (config only)
   static const String _searchPreferencesKey = 'archive_search_preferences_v2';
-  static const String _searchAnalyticsKey = 'archive_search_analytics_v2';
-  static const String _savedSearchesKey = 'archive_saved_searches_v2';
 
-  // Search cache
-  final Map<String, SearchResultCache> _searchCache = {};
-  final Map<String, SearchSuggestionCache> _suggestionCache = {};
-
-  // Configuration
+  // Configuration (kept in facade per Codex recommendation)
   SearchServiceConfig _config = SearchServiceConfig.defaultConfig();
-
-  // Search history and analytics
-  final List<ArchiveSearchEntry> _searchHistory = [];
-  final Map<String, SearchAnalytics> _queryAnalytics = {};
-  final List<SavedSearch> _savedSearches = [];
-
-  // Performance tracking
-  //final Map<String, Duration> _searchTimes = {};
-  int _totalSearches = 0;
 
   // Event streams
   final _searchUpdatesController =
@@ -110,11 +112,12 @@ class ArchiveSearchService {
       // Initialize repository
       await _archiveRepository.initialize();
 
-      // Load search data
-      await _loadSearchHistory();
+      // Initialize extracted services (Phase 4D)
+      await _historyManager.initialize();
+      await _analyticsTracker.initialize();
+
+      // Load config
       await _loadSearchPreferences();
-      await _loadSavedSearches();
-      await _loadSearchAnalytics();
 
       // Build search indexes
       await _indexing.rebuildIndexes();
@@ -148,21 +151,20 @@ class ArchiveSearchService {
       final parsedQuery = _queryBuilder.parse(query);
       final normalizedQuery = _queryBuilder.normalize(parsedQuery);
 
-      // Check cache first
+      // Check cache first (Phase 4D: delegated to SearchCacheManager)
       final cacheKey = _generateSearchCacheKey(
         normalizedQuery,
         filter,
         options,
       );
-      if (_searchCache.containsKey(cacheKey) && _isCacheValid(cacheKey)) {
-        final cachedResult = _searchCache[cacheKey]!.result;
-
-        // Record cache hit
-        _recordSearchAnalytics(
-          query,
-          cachedResult,
-          DateTime.now().difference(searchStartTime),
-          true,
+      final cachedResult = _cacheManager.getCachedResult(cacheKey);
+      if (cachedResult != null) {
+        // Record cache hit (Phase 4D: delegated to SearchAnalyticsTracker)
+        await _analyticsTracker.recordSearch(
+          query: query,
+          result: cachedResult,
+          searchTime: DateTime.now().difference(searchStartTime),
+          cacheHit: true,
         );
 
         return cachedResult;
@@ -205,12 +207,17 @@ class ArchiveSearchService {
         analytics: _buildSearchAnalytics(query, paginatedResult, searchTime),
       );
 
-      // Cache result
-      _cacheSearchResult(cacheKey, advancedResult);
+      // Cache result (Phase 4D: delegated to SearchCacheManager)
+      _cacheManager.cacheSearchResult(cacheKey, advancedResult);
 
-      // Update search history and analytics
-      await _updateSearchHistory(query, advancedResult);
-      _recordSearchAnalytics(query, advancedResult, searchTime, false);
+      // Update search history and analytics (Phase 4D: delegated to services)
+      await _historyManager.addToHistory(query, advancedResult);
+      await _analyticsTracker.recordSearch(
+        query: query,
+        result: advancedResult,
+        searchTime: searchTime,
+        cacheHit: false,
+      );
 
       // Emit search completed event
       _searchUpdatesController.add(
@@ -249,18 +256,18 @@ class ArchiveSearchService {
     }
 
     try {
-      // Check cache first
+      // Check cache first (Phase 4D: delegated to SearchCacheManager)
       final cacheKey = 'suggestions_${partialQuery.toLowerCase()}';
-      if (_suggestionCache.containsKey(cacheKey) &&
-          _isSuggestionCacheValid(cacheKey)) {
-        return _suggestionCache[cacheKey]!.suggestions;
+      final cachedSuggestions = _cacheManager.getCachedSuggestions(cacheKey);
+      if (cachedSuggestions != null) {
+        return cachedSuggestions;
       }
 
       final suggestions = <SearchSuggestion>[];
       final partialLower = partialQuery.toLowerCase();
 
-      // 1. History-based suggestions
-      final historySuggestions = _getHistorySuggestions(
+      // 1. History-based suggestions (Phase 4D: delegated to SearchHistoryManager)
+      final historySuggestions = _historyManager.getHistorySuggestions(
         partialLower,
         limit ~/ 3,
       );
@@ -273,8 +280,8 @@ class ArchiveSearchService {
       );
       suggestions.addAll(contentSuggestions);
 
-      // 3. Saved search suggestions
-      final savedSuggestions = _getSavedSearchSuggestions(
+      // 3. Saved search suggestions (Phase 4D: delegated to SearchHistoryManager)
+      final savedSuggestions = _historyManager.getSavedSearchSuggestions(
         partialLower,
         limit ~/ 3,
       );
@@ -284,8 +291,8 @@ class ArchiveSearchService {
       final uniqueSuggestions = _deduplicateAndRankSuggestions(suggestions);
       final limitedSuggestions = uniqueSuggestions.take(limit).toList();
 
-      // Cache suggestions
-      _cacheSuggestions(cacheKey, limitedSuggestions);
+      // Cache suggestions (Phase 4D: delegated to SearchCacheManager)
+      _cacheManager.cacheSuggestions(cacheKey, limitedSuggestions);
 
       // Emit suggestion event
       _suggestionUpdatesController.add(
@@ -383,18 +390,13 @@ class ArchiveSearchService {
     SearchOptions? options,
   }) async {
     try {
-      final savedSearch = SavedSearch(
+      await _historyManager.saveSearch(
         id: _generateSavedSearchId(),
         name: name,
         query: query,
         filter: filter,
         options: options,
-        createdAt: DateTime.now(),
       );
-
-      _savedSearches.add(savedSearch);
-      await _saveSavedSearches();
-
       _logger.info('Saved search: "$name"');
     } catch (e) {
       _logger.severe('Failed to save search: $e');
@@ -404,9 +406,7 @@ class ArchiveSearchService {
   /// Execute saved search
   Future<AdvancedSearchResult> executeSavedSearch(String savedSearchId) async {
     try {
-      final savedSearch = _savedSearches
-          .where((s) => s.id == savedSearchId)
-          .firstOrNull;
+      final savedSearch = _historyManager.getSavedSearchById(savedSearchId);
       if (savedSearch == null) {
         throw ArgumentError('Saved search not found: $savedSearchId');
       }
@@ -434,55 +434,10 @@ class ArchiveSearchService {
     SearchAnalyticsScope scope = SearchAnalyticsScope.all,
   }) async {
     try {
-      final cutoffDate =
-          since ?? DateTime.now().subtract(const Duration(days: 30));
-
-      // Filter history based on date
-      final recentHistory = _searchHistory
-          .where((entry) => entry.timestamp.isAfter(cutoffDate))
-          .toList();
-
-      // Calculate metrics
-      final totalSearches = recentHistory.length;
-      final uniqueQueries = recentHistory.map((e) => e.query).toSet().length;
-      final averageResults = recentHistory.isNotEmpty
-          ? recentHistory.fold(0, (sum, entry) => sum + entry.resultCount) /
-                recentHistory.length
-          : 0.0;
-
-      final averageTime = recentHistory.isNotEmpty
-          ? recentHistory.fold(
-                  Duration.zero,
-                  (sum, entry) => sum + entry.searchTime,
-                ) ~/
-                recentHistory.length
-          : Duration.zero;
-
-      // Top queries
-      final queryFrequency = <String, int>{};
-      for (final entry in recentHistory) {
-        queryFrequency[entry.query] = (queryFrequency[entry.query] ?? 0) + 1;
-      }
-
-      final topQueries = queryFrequency.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-
-      // Search patterns
-      final hourlyPatterns = _calculateHourlySearchPatterns(recentHistory);
-      final successRate = _calculateSuccessRate(recentHistory);
-
-      return SearchAnalyticsReport(
-        period: ArchiveDateRange(start: cutoffDate, end: DateTime.now()),
-        totalSearches: totalSearches,
-        uniqueQueries: uniqueQueries,
-        averageResultsPerSearch: averageResults,
-        averageSearchTime: averageTime,
-        topQueries: topQueries.take(10).toList(),
-        hourlySearchPatterns: hourlyPatterns,
-        successRate: successRate,
-        cacheHitRate: _calculateCacheHitRate(),
+      return await _analyticsTracker.getAnalyticsReport(
+        since: since,
         scope: scope,
-        generatedAt: DateTime.now(),
+        searchHistory: _historyManager.getHistory(),
       );
     } catch (e) {
       _logger.severe('Failed to generate search analytics: $e');
@@ -493,13 +448,14 @@ class ArchiveSearchService {
   /// Update search service configuration
   Future<void> updateConfiguration(SearchServiceConfig config) async {
     try {
+      final previousConfig = _config;
       _config = config;
       await _saveSearchPreferences();
 
       // Clear caches if configuration changed significantly
-      if (config.enableFuzzySearch != _config.enableFuzzySearch ||
-          config.maxCacheSize != _config.maxCacheSize) {
-        _clearCaches();
+      if (config.enableFuzzySearch != previousConfig.enableFuzzySearch ||
+          config.maxCacheSize != previousConfig.maxCacheSize) {
+        _cacheManager.clearAllCaches();
       }
 
       _logger.info('Search service configuration updated');
@@ -511,8 +467,7 @@ class ArchiveSearchService {
   /// Clear search history
   Future<void> clearSearchHistory() async {
     try {
-      _searchHistory.clear();
-      await _saveSearchHistory();
+      await _historyManager.clearHistory();
       _logger.info('Search history cleared');
     } catch (e) {
       _logger.severe('Failed to clear search history: $e');
@@ -521,8 +476,20 @@ class ArchiveSearchService {
 
   /// Clear search caches
   void clearCaches() {
-    _clearCaches();
+    _cacheManager.clearAllCaches();
     _logger.info('Search caches cleared');
+  }
+
+  /// Clear saved searches
+  Future<void> clearSavedSearches() async {
+    await _historyManager.clearSavedSearches();
+    _logger.info('Saved searches cleared');
+  }
+
+  /// Clear analytics data
+  Future<void> clearAnalytics() async {
+    await _analyticsTracker.clearAnalytics();
+    _logger.info('Search analytics cleared');
   }
 
   /// Rebuild search indexes
@@ -540,14 +507,14 @@ class ArchiveSearchService {
   SearchServiceConfig get configuration => _config;
 
   /// Get search history
-  List<ArchiveSearchEntry> get searchHistory =>
-      List.unmodifiable(_searchHistory);
+  List<ArchiveSearchEntry> get searchHistory => _historyManager.getHistory();
 
   /// Get saved searches
-  List<SavedSearch> get savedSearches => List.unmodifiable(_savedSearches);
+  List<SavedSearch> get savedSearches => _historyManager.getSavedSearches();
 
   /// Dispose and cleanup
   Future<void> dispose() async {
+    await _analyticsTracker.forceSave();
     await _searchUpdatesController.close();
     await _suggestionUpdatesController.close();
 
@@ -633,67 +600,6 @@ class ArchiveSearchService {
     );
   }
 
-  void _cacheSearchResult(String cacheKey, AdvancedSearchResult result) {
-    _searchCache[cacheKey] = SearchResultCache(
-      result: result,
-      cachedAt: DateTime.now(),
-    );
-
-    // Maintain cache size
-    _maintainSearchCacheSize();
-  }
-
-  void _maintainSearchCacheSize() {
-    while (_searchCache.length > _config.maxCacheSize) {
-      final oldestKey = _searchCache.keys.first;
-      _searchCache.remove(oldestKey);
-    }
-  }
-
-  bool _isCacheValid(String cacheKey) {
-    final cache = _searchCache[cacheKey];
-    if (cache == null) return false;
-
-    final age = DateTime.now().difference(cache.cachedAt);
-    return age.inMinutes < _config.cacheValidityMinutes;
-  }
-
-  void _cacheSuggestions(String cacheKey, List<SearchSuggestion> suggestions) {
-    _suggestionCache[cacheKey] = SearchSuggestionCache(
-      suggestions: suggestions,
-      cachedAt: DateTime.now(),
-    );
-
-    // Maintain cache size
-    while (_suggestionCache.length > _config.maxCacheSize ~/ 2) {
-      final oldestKey = _suggestionCache.keys.first;
-      _suggestionCache.remove(oldestKey);
-    }
-  }
-
-  bool _isSuggestionCacheValid(String cacheKey) {
-    final cache = _suggestionCache[cacheKey];
-    if (cache == null) return false;
-
-    final age = DateTime.now().difference(cache.cachedAt);
-    return age.inMinutes < 5; // Short cache for suggestions
-  }
-
-  List<SearchSuggestion> _getHistorySuggestions(String partial, int limit) {
-    final suggestions = <SearchSuggestion>[];
-
-    for (final entry in _searchHistory.reversed) {
-      if (entry.query.toLowerCase().contains(partial) &&
-          suggestions.length < limit) {
-        suggestions.add(
-          SearchSuggestion.fromHistory(entry.query, entry.resultCount),
-        );
-      }
-    }
-
-    return suggestions;
-  }
-
   Future<List<SearchSuggestion>> _getContentSuggestions(
     String partial,
     int limit,
@@ -705,19 +611,6 @@ class ArchiveSearchService {
       suggestions.add(
         SearchSuggestion.contentBased(match.term, match.frequency),
       );
-    }
-
-    return suggestions;
-  }
-
-  List<SearchSuggestion> _getSavedSearchSuggestions(String partial, int limit) {
-    final suggestions = <SearchSuggestion>[];
-
-    for (final saved in _savedSearches) {
-      if (saved.query.toLowerCase().contains(partial) &&
-          suggestions.length < limit) {
-        suggestions.add(SearchSuggestion.savedSearch(saved.name, saved.query));
-      }
     }
 
     return suggestions;
@@ -742,42 +635,6 @@ class ArchiveSearchService {
     return unique;
   }
 
-  Map<int, int> _calculateHourlySearchPatterns(
-    List<ArchiveSearchEntry> history,
-  ) {
-    final hourlyCount = <int, int>{};
-
-    for (final entry in history) {
-      final hour = entry.timestamp.hour;
-      hourlyCount[hour] = (hourlyCount[hour] ?? 0) + 1;
-    }
-
-    return hourlyCount;
-  }
-
-  double _calculateSuccessRate(List<ArchiveSearchEntry> history) {
-    if (history.isEmpty) return 0.0;
-
-    final successfulSearches = history.where((e) => e.resultCount > 0).length;
-    return successfulSearches / history.length;
-  }
-
-  double _calculateCacheHitRate() {
-    if (_totalSearches == 0) return 0.0;
-
-    final cacheHits = _queryAnalytics.values.fold(
-      0,
-      (sum, analytics) => sum + analytics.cacheHits,
-    );
-
-    return cacheHits / _totalSearches;
-  }
-
-  void _clearCaches() {
-    _searchCache.clear();
-    _suggestionCache.clear();
-  }
-
   String _generateSearchId() {
     return 'search_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000)}';
   }
@@ -794,73 +651,6 @@ class ArchiveSearchService {
     final filterHash = filter?.toJson().toString().hashCode.abs() ?? 0;
     final optionsHash = options?.toString().hashCode.abs() ?? 0;
     return 'search_${query.hashCode.abs()}_${filterHash}_$optionsHash';
-  }
-
-  Future<void> _updateSearchHistory(
-    String query,
-    AdvancedSearchResult result,
-  ) async {
-    final entry = ArchiveSearchEntry(
-      query: query,
-      resultCount: result.totalResults,
-      searchTime: result.searchTime,
-      timestamp: DateTime.now(),
-    );
-
-    _searchHistory.add(entry);
-
-    // Keep only recent history
-    while (_searchHistory.length > _config.maxHistorySize) {
-      _searchHistory.removeAt(0);
-    }
-
-    await _saveSearchHistory();
-  }
-
-  void _recordSearchAnalytics(
-    String query,
-    AdvancedSearchResult result,
-    Duration searchTime,
-    bool cacheHit,
-  ) {
-    _totalSearches++;
-
-    final analytics = _queryAnalytics.putIfAbsent(
-      query,
-      () => SearchAnalytics(query: query),
-    );
-    analytics.recordSearch(result.totalResults, searchTime, cacheHit);
-  }
-
-  // Storage methods
-
-  Future<void> _loadSearchHistory() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final historyJson = prefs.getString(_searchHistoryKey);
-
-      if (historyJson != null) {
-        final historyList = jsonDecode(historyJson) as List;
-        _searchHistory.clear();
-        _searchHistory.addAll(
-          historyList.map((json) => ArchiveSearchEntry.fromJson(json)),
-        );
-      }
-    } catch (e) {
-      _logger.warning('Failed to load search history: $e');
-    }
-  }
-
-  Future<void> _saveSearchHistory() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final historyJson = jsonEncode(
-        _searchHistory.map((e) => e.toJson()).toList(),
-      );
-      await prefs.setString(_searchHistoryKey, historyJson);
-    } catch (e) {
-      _logger.warning('Failed to save search history: $e');
-    }
   }
 
   Future<void> _loadSearchPreferences() async {
@@ -886,56 +676,6 @@ class ArchiveSearchService {
       );
     } catch (e) {
       _logger.warning('Failed to save search preferences: $e');
-    }
-  }
-
-  Future<void> _loadSavedSearches() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedJson = prefs.getString(_savedSearchesKey);
-
-      if (savedJson != null) {
-        final savedList = jsonDecode(savedJson) as List;
-        _savedSearches.clear();
-        _savedSearches.addAll(
-          savedList.map((json) => SavedSearch.fromJson(json)),
-        );
-      }
-    } catch (e) {
-      _logger.warning('Failed to load saved searches: $e');
-    }
-  }
-
-  Future<void> _saveSavedSearches() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedJson = jsonEncode(
-        _savedSearches.map((s) => s.toJson()).toList(),
-      );
-      await prefs.setString(_savedSearchesKey, savedJson);
-    } catch (e) {
-      _logger.warning('Failed to save saved searches: $e');
-    }
-  }
-
-  Future<void> _loadSearchAnalytics() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final analyticsJson = prefs.getString(_searchAnalyticsKey);
-
-      if (analyticsJson != null) {
-        final analyticsData = jsonDecode(analyticsJson) as Map<String, dynamic>;
-        _totalSearches = analyticsData['totalSearches'] ?? 0;
-
-        final queryData =
-            analyticsData['queryAnalytics'] as Map<String, dynamic>? ?? {};
-        _queryAnalytics.clear();
-        for (final entry in queryData.entries) {
-          _queryAnalytics[entry.key] = SearchAnalytics.fromJson(entry.value);
-        }
-      }
-    } catch (e) {
-      _logger.warning('Failed to load search analytics: $e');
     }
   }
 }

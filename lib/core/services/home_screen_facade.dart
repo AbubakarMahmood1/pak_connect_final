@@ -51,6 +51,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
   final WidgetRef? _ref;
   final ChatInteractionHandlerBuilder? _interactionHandlerBuilder;
   final bool _enableListCoordinatorInitialization;
+  final bool _enableInternalIntentListener;
 
   // Lazy-initialized services
   late final ChatConnectionManager _connectionManager;
@@ -68,6 +69,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
     WidgetRef? ref,
     ChatInteractionHandlerBuilder? interactionHandlerBuilder,
     bool enableListCoordinatorInitialization = true,
+    bool enableInternalIntentListener = true,
   }) : _chatsRepository = chatsRepository,
        _bleService = bleService,
        _chatManagementService = chatManagementService,
@@ -75,7 +77,8 @@ class HomeScreenFacade implements IHomeScreenFacade {
        _ref = ref,
        _interactionHandlerBuilder = interactionHandlerBuilder,
        _enableListCoordinatorInitialization =
-           enableListCoordinatorInitialization {
+           enableListCoordinatorInitialization,
+       _enableInternalIntentListener = enableInternalIntentListener {
     _initializeLazyServices();
   }
 
@@ -97,18 +100,21 @@ class HomeScreenFacade implements IHomeScreenFacade {
           )
         : _NullChatInteractionHandler();
 
-    // Listen to interaction intents and refresh chat list when needed
-    _intentSubscription = _interactionHandler.interactionIntentStream.listen((
-      intent,
-    ) async {
-      if (intent is ChatOpenedIntent ||
-          intent is ChatArchivedIntent ||
-          intent is ChatDeletedIntent ||
-          intent is ChatPinToggleIntent) {
-        _logger.fine('🔄 Interaction triggered refresh');
-        await _listCoordinator.loadChats();
-      }
-    });
+    // Listen to interaction intents and refresh chat list when needed.
+    // When Riverpod manages the listener (preferred), this opt-in can be disabled.
+    if (_enableInternalIntentListener) {
+      _intentSubscription = _interactionHandler.interactionIntentStream.listen((
+        intent,
+      ) async {
+        if (intent is ChatOpenedIntent ||
+            intent is ChatArchivedIntent ||
+            intent is ChatDeletedIntent ||
+            intent is ChatPinToggleIntent) {
+          _logger.fine('🔄 Interaction triggered refresh');
+          await _listCoordinator.loadChats();
+        }
+      });
+    }
   }
 
   @override

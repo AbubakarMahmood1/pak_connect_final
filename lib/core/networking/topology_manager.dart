@@ -30,6 +30,7 @@ class TopologyManager {
       StreamController<NetworkTopology>.broadcast();
   Stream<NetworkTopology> get topologyStream =>
       _topologyStreamController.stream;
+  Duration _cleanupInterval = const Duration(minutes: 1);
 
   // Cleanup timer
   Timer? _cleanupTimer;
@@ -47,8 +48,8 @@ class TopologyManager {
       hopDistance: 0,
     );
 
-    // Start periodic cleanup
-    _startCleanupTimer();
+    // Start cleanup cadence (single-shot rescheduling to reduce polling)
+    _scheduleCleanup();
 
     _logger.info(
       'TopologyManager initialized for node ${currentNodeId.shortId(8)}...',
@@ -63,7 +64,7 @@ class TopologyManager {
       _cleanupTimer?.cancel();
       _cleanupTimer = null;
     } else if (_currentNodeId != null) {
-      _startCleanupTimer();
+      _scheduleCleanup();
     }
   }
 
@@ -294,16 +295,21 @@ class TopologyManager {
         .toList();
   }
 
-  /// Start cleanup timer to remove stale nodes
-  void _startCleanupTimer() {
+  /// Start or refresh cleanup timer (single-shot reschedule to minimize polling).
+  void _scheduleCleanup() {
     if (_isTestMode) {
       _cleanupTimer?.cancel();
       _cleanupTimer = null;
       return;
     }
     _cleanupTimer?.cancel();
-    _cleanupTimer = Timer.periodic(Duration(minutes: 1), (_) {
+    _cleanupTimer = Timer(_cleanupInterval, () {
+      _cleanupTimer = null;
       _cleanupStaleData();
+      // Reschedule for continuous maintenance while initialized.
+      if (!_isTestMode && _currentNodeId != null) {
+        _scheduleCleanup();
+      }
     });
   }
 
@@ -345,6 +351,7 @@ class TopologyManager {
       );
       _notifyUpdate();
     }
+    // Reschedule handled by _scheduleCleanup caller.
   }
 
   /// Notify listeners of topology update

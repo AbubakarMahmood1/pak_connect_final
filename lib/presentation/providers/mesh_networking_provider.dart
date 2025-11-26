@@ -26,6 +26,8 @@ import 'ble_providers.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
 import 'runtime_providers.dart';
+import '../../core/networking/topology_manager.dart';
+import '../../core/models/network_topology.dart';
 
 // =============================================================================
 // CORE RUNTIME NOTIFIER (MESH)
@@ -76,32 +78,52 @@ class MeshRuntimeState {
   }
 }
 
+/// ✅ Phase 6: Migrated from manual StreamSubscriptions to ref.listen pattern
 class MeshRuntimeNotifier extends AsyncNotifier<MeshRuntimeState> {
-  final List<StreamSubscription<dynamic>> _subscriptions = [];
-
   @override
   Future<MeshRuntimeState> build() async {
     await ref.watch(appBootstrapProvider.future);
 
     final service = ref.watch(meshNetworkingServiceProvider);
     final initialState = MeshRuntimeState.initial();
-    ref.onDispose(_cancelSubscriptions);
     state = AsyncValue.data(initialState);
 
-    _listen<MeshNetworkStatus>(
-      service.meshStatus,
-      (current, value) => current.copyWith(status: value),
-    );
+    // ✅ Phase 6: Use ref.listen for automatic lifecycle management
+    ref.listen<AsyncValue<MeshNetworkStatus>>(meshStatusStreamProvider, (
+      prev,
+      next,
+    ) {
+      next.whenData((value) {
+        final current = state.asData?.value;
+        if (current != null) {
+          state = AsyncValue.data(current.copyWith(status: value));
+        }
+      });
+    });
 
-    _listen<RelayStatistics>(
-      service.relayStats,
-      (current, value) => current.copyWith(relayStatistics: value),
-    );
+    ref.listen<AsyncValue<RelayStatistics>>(relayStatsStreamProvider, (
+      prev,
+      next,
+    ) {
+      next.whenData((value) {
+        final current = state.asData?.value;
+        if (current != null) {
+          state = AsyncValue.data(current.copyWith(relayStatistics: value));
+        }
+      });
+    });
 
-    _listen<QueueSyncManagerStats>(
-      service.queueStats,
-      (current, value) => current.copyWith(queueStatistics: value),
-    );
+    ref.listen<AsyncValue<QueueSyncManagerStats>>(queueStatsStreamProvider, (
+      prev,
+      next,
+    ) {
+      next.whenData((value) {
+        final current = state.asData?.value;
+        if (current != null) {
+          state = AsyncValue.data(current.copyWith(queueStatistics: value));
+        }
+      });
+    });
 
     // Force a status refresh for late subscribers.
     try {
@@ -109,31 +131,6 @@ class MeshRuntimeNotifier extends AsyncNotifier<MeshRuntimeState> {
     } catch (_) {}
 
     return initialState;
-  }
-
-  void _listen<T>(
-    Stream<T> stream,
-    MeshRuntimeState Function(MeshRuntimeState current, T value) updater,
-  ) {
-    _subscriptions.add(
-      stream.listen(
-        (value) {
-          final current = state.asData?.value;
-          if (current == null) return;
-          state = AsyncValue.data(updater(current, value));
-        },
-        onError: (error, stack) {
-          state = AsyncValue.error(error, stack);
-        },
-      ),
-    );
-  }
-
-  void _cancelSubscriptions() {
-    for (final sub in _subscriptions) {
-      unawaited(sub.cancel());
-    }
-    _subscriptions.clear();
   }
 }
 
@@ -163,26 +160,35 @@ final bluetoothStateMonitorProvider = Provider<BluetoothStateMonitor>((ref) {
   return BluetoothStateMonitor.instance;
 });
 
+/// Bluetooth state stream (bridged via Riverpod for lifecycle safety)
+final bluetoothStateStreamProvider = StreamProvider<BluetoothStateInfo>((ref) {
+  final monitor = ref.watch(bluetoothStateMonitorProvider);
+  return monitor.stateStream;
+});
+
+/// Bluetooth status message stream (bridged via Riverpod for lifecycle safety)
+final bluetoothStatusMessageStreamProvider =
+    StreamProvider<BluetoothStatusMessage>((ref) {
+      final monitor = ref.watch(bluetoothStateMonitorProvider);
+      return monitor.messageStream;
+    });
+
 /// Bluetooth state (driven by BleRuntimeNotifier)
 final bluetoothStateProvider =
-    Provider.autoDispose<AsyncValue<BluetoothStateInfo?>>((ref) {
-      return ref.watch(bleRuntimeProvider).whenData((state) {
-        return state.bluetoothState;
-      });
+    Provider.autoDispose<AsyncValue<BluetoothStateInfo>>((ref) {
+      return ref.watch(bluetoothStateStreamProvider);
     });
 
 /// Bluetooth status messages (driven by BleRuntimeNotifier)
 final bluetoothStatusMessageProvider =
-    Provider.autoDispose<AsyncValue<BluetoothStatusMessage?>>((ref) {
-      return ref.watch(bleRuntimeProvider).whenData((state) {
-        return state.bluetoothMessage;
-      });
+    Provider.autoDispose<AsyncValue<BluetoothStatusMessage>>((ref) {
+      return ref.watch(bluetoothStatusMessageStreamProvider);
     });
 
 /// Provider for current Bluetooth ready state
 final bluetoothReadyProvider = Provider<bool>((ref) {
-  final runtime = ref.watch(bleRuntimeProvider);
-  return runtime.asData?.value.isBluetoothReady ?? false;
+  final state = ref.watch(bluetoothStateStreamProvider);
+  return state.asData?.value.isReady ?? false;
 });
 
 /// Provider for MeshNetworkingService (Singleton to prevent multiple instances)
@@ -249,6 +255,37 @@ final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
   } catch (_) {}
 
   return service;
+});
+
+/// ✅ Phase 6: Mesh network status stream (bridged through Riverpod)
+/// Exposes MeshNetworkingService.meshStatus via StreamProvider for proper lifecycle
+final meshStatusStreamProvider = StreamProvider<MeshNetworkStatus>((ref) {
+  final service = ref.watch(meshNetworkingServiceProvider);
+  return service.meshStatus;
+});
+
+/// ✅ Phase 6: Relay statistics stream (bridged through Riverpod)
+final relayStatsStreamProvider = StreamProvider<RelayStatistics>((ref) {
+  final service = ref.watch(meshNetworkingServiceProvider);
+  return service.relayStats;
+});
+
+/// ✅ Phase 6: Queue sync statistics stream (bridged through Riverpod)
+final queueStatsStreamProvider = StreamProvider<QueueSyncManagerStats>((ref) {
+  final service = ref.watch(meshNetworkingServiceProvider);
+  return service.queueStats;
+});
+
+/// ✅ Phase 6: Topology manager provider (singleton access)
+final topologyManagerProvider = Provider<TopologyManager>((ref) {
+  return TopologyManager.instance;
+});
+
+/// ✅ Phase 6: Network topology stream (bridged through Riverpod)
+/// Exposes TopologyManager.topologyStream for proper lifecycle management
+final topologyStreamProvider = StreamProvider<NetworkTopology>((ref) {
+  final topologyManager = ref.watch(topologyManagerProvider);
+  return topologyManager.topologyStream;
 });
 
 /// Provider for MeshRoutingService (optional, for routing-specific monitoring)

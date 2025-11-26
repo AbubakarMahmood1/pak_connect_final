@@ -26,14 +26,14 @@ class ConnectionQualityMonitor {
   Future<void> initialize() async {
     _logger.info('Initializing Connection Quality Monitor');
 
-    // Start periodic monitoring
-    _monitoringTimer = Timer.periodic(
+    // Start periodic monitoring (kept for now; can be tied to connection events later)
+    _monitoringTimer ??= Timer.periodic(
       _monitoringInterval,
       (_) => _updateConnectionMetrics(),
     );
 
-    // Start history cleanup
-    _historyCleanupTimer = Timer.periodic(
+    // Start history cleanup (kept but guarded to avoid duplicate timers)
+    _historyCleanupTimer ??= Timer.periodic(
       Duration(minutes: 15),
       (_) => _cleanupHistory(),
     );
@@ -445,7 +445,9 @@ class ConnectionQualityMonitor {
   /// Dispose of resources
   void dispose() {
     _monitoringTimer?.cancel();
+    _monitoringTimer = null;
     _historyCleanupTimer?.cancel();
+    _historyCleanupTimer = null;
     clearAll();
     _logger.info('Connection Quality Monitor disposed');
   }

@@ -1,4 +1,5 @@
 import '../../core/models/spy_mode_info.dart';
+import '../bluetooth/handshake_coordinator.dart';
 
 /// Manages BLE handshake protocol execution and identity resolution including:
 /// - 4-phase handshake coordination (CONNECTION_READY → IDENTITY_EXCHANGE → NOISE_HANDSHAKE → CONTACT_STATUS_SYNC)
@@ -92,6 +93,10 @@ abstract class IBLEHandshakeService {
   /// Emitted when user's identity is revealed to contact (via message)
   /// Contains contact name
   Stream<String> get identityRevealedStream;
+
+  /// Stream of handshake phase changes (for UI/diagnostics).
+  /// READ-ONLY: Do not push messages into the underlying coordinator.
+  Stream<ConnectionPhase> get handshakePhaseStream;
 
   // ============================================================================
   // HANDSHAKE STATE & UTILITIES
