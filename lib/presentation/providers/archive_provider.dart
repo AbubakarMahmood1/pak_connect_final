@@ -46,6 +46,28 @@ final archiveSearchServiceProvider = Provider<ArchiveSearchService>((ref) {
   return service;
 });
 
+/// Archive update events stream (bridged through Riverpod)
+/// ✅ Phase 6: StreamController exposed via StreamProvider for proper lifecycle management
+final archiveUpdatesProvider = StreamProvider<ArchiveUpdateEvent>((ref) {
+  final service = ref.watch(archiveManagementServiceProvider);
+  return service.archiveUpdates;
+});
+
+/// Archive policy update events stream (bridged through Riverpod)
+/// ✅ Phase 6: StreamController exposed via StreamProvider
+final archivePolicyUpdatesProvider = StreamProvider<ArchivePolicyEvent>((ref) {
+  final service = ref.watch(archiveManagementServiceProvider);
+  return service.policyUpdates;
+});
+
+/// Archive maintenance events stream (bridged through Riverpod)
+/// ✅ Phase 6: StreamController exposed via StreamProvider
+final archiveMaintenanceUpdatesProvider =
+    StreamProvider<ArchiveMaintenanceEvent>((ref) {
+      final service = ref.watch(archiveManagementServiceProvider);
+      return service.maintenanceUpdates;
+    });
+
 /// Archive statistics provider
 final archiveStatisticsProvider = FutureProvider<ArchiveStatistics>((
   ref,
@@ -228,34 +250,27 @@ class ArchiveOperationsState {
 }
 
 /// Modern Riverpod 3.0 Archive Operations Notifier
+/// ✅ Phase 6: Migrated from manual StreamSubscription to ref.listen pattern
 class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
-  late ArchiveManagementService _managementService;
-  StreamSubscription? _archiveUpdatesSubscription;
   Timer? _searchDebounceTimer;
 
   @override
   ArchiveOperationsState build() {
-    // Get the management service from provider
-    _managementService = ref.watch(archiveManagementServiceProvider);
-
-    // Setup event listeners
-    _setupEventListeners();
+    // ✅ Phase 6: Use ref.listen instead of manual StreamSubscription
+    // This provides automatic lifecycle management and disposal
+    ref.listen<AsyncValue<ArchiveUpdateEvent>>(archiveUpdatesProvider, (
+      prev,
+      next,
+    ) {
+      next.whenData(_handleArchiveUpdateEvent);
+    });
 
     // Cleanup on dispose
     ref.onDispose(() {
-      _archiveUpdatesSubscription?.cancel();
       _searchDebounceTimer?.cancel();
     });
 
     return const ArchiveOperationsState();
-  }
-
-  void _setupEventListeners() {
-    _archiveUpdatesSubscription = _managementService.archiveUpdates.listen((
-      event,
-    ) {
-      _handleArchiveUpdateEvent(event);
-    });
   }
 
   void _handleArchiveUpdateEvent(ArchiveUpdateEvent event) {
@@ -297,6 +312,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
   }
 
   /// Archive a chat
+  /// ✅ Phase 6: Uses ref.read to access service instead of storing instance
   Future<ArchiveOperationResult> archiveChat({
     required String chatId,
     String? reason,
@@ -308,7 +324,8 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
     );
 
     try {
-      final result = await _managementService.archiveChat(
+      final managementService = ref.read(archiveManagementServiceProvider);
+      final result = await managementService.archiveChat(
         chatId: chatId,
         reason: reason,
         metadata: metadata,
@@ -339,6 +356,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
   }
 
   /// Restore a chat from archive
+  /// ✅ Phase 6: Uses ref.read to access service instead of storing instance
   Future<ArchiveOperationResult> restoreChat({
     required String archiveId,
     bool overwriteExisting = false,
@@ -349,7 +367,8 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
     );
 
     try {
-      final result = await _managementService.restoreChat(
+      final managementService = ref.read(archiveManagementServiceProvider);
+      final result = await managementService.restoreChat(
         archiveId: archiveId,
         overwriteExisting: overwriteExisting,
       );

@@ -36,12 +36,14 @@ class NetworkTopologyAnalyzer {
     _logger.info('Initializing Network Topology Analyzer');
 
     // Start periodic topology updates
+    _topologyUpdateTimer?.cancel();
     _topologyUpdateTimer = Timer.periodic(
       _topologyUpdateInterval,
       (_) => _updateTopology(),
     );
 
     // Start cleanup timer for stale nodes
+    _cleanupTimer?.cancel();
     _cleanupTimer = Timer.periodic(
       _cleanupInterval,
       (_) => _cleanupStaleNodes(),

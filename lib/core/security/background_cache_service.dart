@@ -15,7 +15,8 @@ class BackgroundCacheService {
     if (_isInitialized) return;
 
     // Refresh cache every 4 minutes (for contact changes)
-    _refreshTimer = Timer.periodic(Duration(minutes: 4), (timer) {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(Duration(minutes: 4), (_) {
       _refreshCacheInBackground();
     });
 

@@ -12,6 +12,7 @@ import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_advertising_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_handshake_service.dart';
+import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
@@ -1087,6 +1088,7 @@ final class _StubAdvertisingService implements IBLEAdvertisingService {
 final class _StubHandshakeService implements IBLEHandshakeService {
   final _spyModeController = StreamController<SpyModeInfo>.broadcast();
   final _identityController = StreamController<String>.broadcast();
+  final _phaseController = StreamController<ConnectionPhase>.broadcast();
   final List<dynamic> _bufferedMessages = [];
   bool _isInProgress = false;
   bool _hasCompleted = false;
@@ -1096,6 +1098,7 @@ final class _StubHandshakeService implements IBLEHandshakeService {
   Future<void> performHandshake({bool? startAsInitiatorOverride}) async {
     _isInProgress = true;
     _phase = 'NOISE_HANDSHAKE';
+    _phaseController.add(ConnectionPhase.noiseHandshakeComplete);
   }
 
   @override
@@ -1103,6 +1106,7 @@ final class _StubHandshakeService implements IBLEHandshakeService {
     _hasCompleted = true;
     _isInProgress = false;
     _phase = 'CONTACT_STATUS_SYNC';
+    _phaseController.add(ConnectionPhase.contactStatusComplete);
   }
 
   @override
@@ -1133,6 +1137,9 @@ final class _StubHandshakeService implements IBLEHandshakeService {
   Stream<String> get identityRevealedStream => _identityController.stream;
 
   @override
+  Stream<ConnectionPhase> get handshakePhaseStream => _phaseController.stream;
+
+  @override
   String getPhaseMessage(String phase) => 'Phase: $phase';
 
   @override
@@ -1154,6 +1161,7 @@ final class _StubHandshakeService implements IBLEHandshakeService {
   void dispose() {
     _spyModeController.close();
     _identityController.close();
+    _phaseController.close();
   }
 }
 

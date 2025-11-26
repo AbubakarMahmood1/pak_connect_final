@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
 import '../../core/interfaces/i_chats_repository.dart';
+import '../../core/interfaces/i_chat_interaction_handler.dart';
 import '../../core/services/home_screen_facade.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../controllers/chat_list_controller.dart';
@@ -62,19 +63,27 @@ final chatInteractionHandlerProvider = Provider.autoDispose
       return handler;
     });
 
+/// StreamProvider bridge for interaction intents emitted by ChatInteractionHandler.
+final chatInteractionIntentProvider = StreamProvider.autoDispose
+    .family<ChatInteractionIntent, ChatInteractionHandlerArgs>((ref, args) {
+      final handler = ref.watch(chatInteractionHandlerProvider(args));
+      return handler.interactionIntentStream;
+    });
+
 final homeScreenFacadeProvider = Provider.autoDispose
     .family<HomeScreenFacade, HomeScreenProviderArgs>((ref, args) {
       if (args.homeScreenFacade != null) return args.homeScreenFacade!;
 
+      // Use a single args instance so the handler and intent listener share the same provider instance.
+      final handlerArgs = ChatInteractionHandlerArgs(
+        context: args.context,
+        ref: args.ref,
+        chatsRepository: args.chatsRepository,
+        chatManagementService: args.chatManagementService,
+      );
+
       final interactionHandler = ref.watch(
-        chatInteractionHandlerProvider(
-          ChatInteractionHandlerArgs(
-            context: args.context,
-            ref: args.ref,
-            chatsRepository: args.chatsRepository,
-            chatManagementService: args.chatManagementService,
-          ),
-        ),
+        chatInteractionHandlerProvider(handlerArgs),
       );
 
       final facade = HomeScreenFacade(
@@ -86,7 +95,23 @@ final homeScreenFacadeProvider = Provider.autoDispose
         interactionHandlerBuilder:
             ({context, ref, chatsRepository, chatManagementService}) =>
                 interactionHandler,
+        enableInternalIntentListener: false,
       );
+
+      ref.listen<AsyncValue<ChatInteractionIntent>>(
+        chatInteractionIntentProvider(handlerArgs),
+        (previous, next) {
+          next.whenData((intent) async {
+            if (intent is ChatOpenedIntent ||
+                intent is ChatArchivedIntent ||
+                intent is ChatDeletedIntent ||
+                intent is ChatPinToggleIntent) {
+              unawaited(facade.loadChats());
+            }
+          });
+        },
+      );
+
       ref.onDispose(() {
         unawaited(facade.dispose());
       });
