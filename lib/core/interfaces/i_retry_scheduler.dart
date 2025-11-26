@@ -1,6 +1,7 @@
 import 'dart:async';
 import '../../domain/entities/enhanced_message.dart';
-import '../messaging/offline_message_queue.dart';
+import '../../domain/entities/queued_message.dart';
+import '../../domain/entities/queue_enums.dart';
 
 /// Interface for retry scheduling and exponential backoff logic
 ///

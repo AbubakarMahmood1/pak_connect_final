@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
-import '../../domain/entities/enhanced_message.dart';
+import 'message_priority.dart';
 import '../utils/gcs_filter.dart';
 import 'protocol_message.dart'; // PHASE 2: For ProtocolMessageType
 

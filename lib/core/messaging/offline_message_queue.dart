@@ -8,7 +8,7 @@ import 'package:get_it/get_it.dart';
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import '../interfaces/i_repository_provider.dart';
-import '../../domain/entities/enhanced_message.dart';
+import '../../domain/entities/enhanced_message.dart' hide MessagePriority;
 import '../security/message_security.dart';
 import '../models/mesh_relay_models.dart';
 import '../interfaces/i_database_provider.dart';
@@ -20,7 +20,18 @@ import '../services/message_queue_repository.dart';
 import '../services/queue_persistence_manager.dart';
 import '../services/retry_scheduler.dart';
 import '../services/queue_sync_coordinator.dart';
+import '../services/queue_policy_manager.dart';
+import '../services/queue_bandwidth_allocator.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/entities/queued_message.dart';
+import '../../domain/entities/queue_statistics.dart';
+import '../../domain/entities/queue_enums.dart';
+
+// Re-export domain entities for backward compatibility with existing imports
+// These have been extracted to domain/entities for better separation
+export '../../domain/entities/queued_message.dart';
+export '../../domain/entities/queue_statistics.dart';
+export '../../domain/entities/queue_enums.dart';
 
 /// Comprehensive offline message queue with intelligent retry and delivery management
 class OfflineMessageQueue {
@@ -48,6 +59,8 @@ class OfflineMessageQueue {
   IQueuePersistenceManager? _queuePersistenceManager;
   IRetryScheduler? _retryScheduler;
   IQueueSyncCoordinator? _queueSyncCoordinator;
+  QueuePolicyManager? _policyManager;
+  QueueBandwidthAllocator? _bandwidthAllocator;
 
   // Bandwidth allocation constant
   static const double _directBandwidthRatio =
@@ -120,6 +133,18 @@ class OfflineMessageQueue {
       deletedMessageIds: _deletedMessageIds,
     );
     return _queueSyncCoordinator!;
+  }
+
+  QueuePolicyManager get _policy {
+    _policyManager ??= QueuePolicyManager(
+      repositoryProvider: _repositoryProvider,
+    );
+    return _policyManager!;
+  }
+
+  QueueBandwidthAllocator get _bandwidth {
+    _bandwidthAllocator ??= QueueBandwidthAllocator();
+    return _bandwidthAllocator!;
   }
 
   /// Initialize the offline message queue
@@ -220,55 +245,25 @@ class OfflineMessageQueue {
     List<String> attachments = const [],
   }) async {
     try {
-      // Check if recipient is a favorite and apply favorites-based benefits
-      bool isFavorite = false;
-      int peerLimit =
-          _maxMessagesPerRegular; // Default limit for regular contacts
+      // Apply favorites-based priority boost
+      final boostResult = await _policy.applyFavoritesPriorityBoost(
+        recipientPublicKey: recipientPublicKey,
+        currentPriority: priority,
+      );
+      priority = boostResult.priority;
 
-      if (_repositoryProvider != null) {
-        try {
-          isFavorite = await _repositoryProvider!.contactRepository
-              .isContactFavorite(recipientPublicKey);
-          if (isFavorite) {
-            peerLimit = _maxMessagesPerFavorite;
+      // Validate per-peer queue limits
+      final validation = await _policy.validateQueueLimit(
+        recipientPublicKey: recipientPublicKey,
+        allMessages: _getAllMessages(),
+      );
 
-            // Auto-boost priority for favorite contacts (if not already high/urgent)
-            if (priority == MessagePriority.normal ||
-                priority == MessagePriority.low) {
-              priority = MessagePriority.high;
-              _logger.fine(
-                '⭐ Auto-boosted priority to HIGH for favorite contact ${recipientPublicKey.shortId(8)}...',
-              );
-            }
-          }
-        } catch (e) {
-          _logger.warning(
-            'Failed to check favorite status for ${recipientPublicKey.shortId(8)}...: $e',
-          );
-          // Continue with default values if check fails
-        }
-      }
-
-      // Check per-peer queue limits
-      // PRIORITY 1 FIX: Count across both queues
-      final existingMessagesForPeer = _getAllMessages()
-          .where(
-            (m) =>
-                m.recipientPublicKey == recipientPublicKey &&
-                m.status != QueuedMessageStatus.delivered &&
-                m.status != QueuedMessageStatus.failed,
-          )
-          .length;
-
-      if (existingMessagesForPeer >= peerLimit) {
-        final limitType = isFavorite ? 'favorite' : 'regular';
+      if (!validation.isValid) {
         _logger.warning(
-          'Queue limit reached for $limitType contact ${recipientPublicKey.shortId(8)}...: '
-          '$existingMessagesForPeer/$peerLimit messages',
+          'Queue limit reached for ${validation.limitType} contact ${recipientPublicKey.shortId(8)}...: '
+          '${validation.currentCount}/${validation.limit} messages',
         );
-        throw MessageQueueException(
-          'Per-peer queue limit reached: $existingMessagesForPeer/$peerLimit messages for $limitType contact',
-        );
+        throw MessageQueueException(validation.errorMessage);
       }
 
       // Generate secure message ID with nonce tracking
@@ -304,10 +299,10 @@ class OfflineMessageQueue {
       onMessageQueued?.call(queuedMessage);
       _updateStatistics();
 
-      final favoriteTag = isFavorite ? ' ⭐' : '';
+      final favoriteTag = boostResult.isFavorite ? ' ⭐' : '';
       final queueType = queuedMessage.isRelayMessage ? 'relay' : 'direct';
       _logger.info(
-        'Message queued [$queueType]: ${messageId.shortId()}... (priority: ${priority.name}, peer: ${existingMessagesForPeer + 1}/$peerLimit)$favoriteTag',
+        'Message queued [$queueType]: ${messageId.shortId()}... (priority: ${priority.name}, peer: ${validation.currentCount + 1}/${validation.limit})$favoriteTag',
       );
 
       // Attempt immediate delivery if online
@@ -355,73 +350,25 @@ class OfflineMessageQueue {
 
     if (totalDirect == 0 && totalRelay == 0) return;
 
-    _logger.info(
-      'Processing message queues: direct=$totalDirect (80%), relay=$totalRelay (20%)',
+    // Create delivery schedule with 80/20 bandwidth allocation
+    final schedule = _bandwidth.createDeliverySchedule(
+      directQueue: _directMessageQueue,
+      relayQueue: _relayMessageQueue,
     );
 
-    // Sort both queues by priority and timestamp
-    _directMessageQueue.sort((a, b) {
-      final priorityComparison = b.priority.index.compareTo(a.priority.index);
-      if (priorityComparison != 0) return priorityComparison;
-      return a.queuedAt.compareTo(b.queuedAt);
-    });
+    if (schedule.isEmpty) return;
 
-    _relayMessageQueue.sort((a, b) {
-      final priorityComparison = b.priority.index.compareTo(a.priority.index);
-      if (priorityComparison != 0) return priorityComparison;
-      return a.queuedAt.compareTo(b.queuedAt);
-    });
-
-    // Calculate bandwidth allocation
-    // For every 10 messages, process 8 direct + 2 relay (80/20 ratio)
-    final totalSlots = totalDirect + totalRelay;
-    final directSlots = (totalSlots * _directBandwidthRatio).ceil();
-
-    int directProcessed = 0;
-    int relayProcessed = 0;
-    int slotIndex = 0;
-
-    // Interleaved processing with bandwidth allocation
-    while (directProcessed < totalDirect || relayProcessed < totalRelay) {
-      // Determine which queue to process from
-      final shouldProcessDirect =
-          directProcessed < totalDirect &&
-          (relayProcessed >= totalRelay || directProcessed < directSlots);
-
-      if (shouldProcessDirect && directProcessed < totalDirect) {
-        final message = _directMessageQueue[directProcessed];
-        if (message.status == QueuedMessageStatus.pending) {
-          // Stagger deliveries to prevent network congestion
-          final delay = Duration(milliseconds: slotIndex * 100);
-          Timer(delay, () {
-            if (_isOnline) {
-              _tryDeliveryForMessage(message);
-            }
-          });
+    // Execute scheduled deliveries
+    for (final scheduledMessage in schedule.schedule) {
+      Timer(scheduledMessage.delay, () {
+        if (_isOnline) {
+          _tryDeliveryForMessage(scheduledMessage.message);
         }
-        directProcessed++;
-        slotIndex++;
-      } else if (relayProcessed < totalRelay) {
-        final message = _relayMessageQueue[relayProcessed];
-        if (message.status == QueuedMessageStatus.pending) {
-          // Stagger deliveries to prevent network congestion
-          final delay = Duration(milliseconds: slotIndex * 100);
-          Timer(delay, () {
-            if (_isOnline) {
-              _tryDeliveryForMessage(message);
-            }
-          });
-        }
-        relayProcessed++;
-        slotIndex++;
-      } else {
-        // Both queues exhausted
-        break;
-      }
+      });
     }
 
     _logger.info(
-      'Queue processing scheduled: direct=$directProcessed, relay=$relayProcessed (total slots: $slotIndex)',
+      'Queue processing scheduled: direct=${schedule.directCount}, relay=${schedule.relayCount} (total slots: ${schedule.totalScheduled})',
     );
   }
 
@@ -1111,309 +1058,6 @@ class OfflineMessageQueue {
     _cancelAllActiveRetries();
     _logger.info('Offline message queue disposed');
   }
-}
-
-/// Queued message with delivery tracking
-class QueuedMessage {
-  final String id;
-  final String chatId;
-  final String content;
-  final String recipientPublicKey;
-  final String senderPublicKey;
-  MessagePriority priority; // Mutable to allow priority changes
-  final DateTime queuedAt;
-  final String? replyToMessageId;
-  final List<String> attachments;
-  final int maxRetries;
-
-  // Delivery tracking
-  QueuedMessageStatus status;
-  int attempts;
-  DateTime? lastAttemptAt;
-  DateTime? nextRetryAt;
-  DateTime? deliveredAt;
-  DateTime? failedAt;
-  String? failureReason;
-
-  /// Expiry timestamp - messages expire if not delivered by this time
-  /// TTL is priority-based: urgent=24h, high=12h, normal=6h, low=3h
-  final DateTime? expiresAt;
-
-  // Mesh relay fields (optional for backward compatibility)
-  /// Indicates if this is a relay message
-  final bool isRelayMessage;
-
-  /// Relay metadata for mesh routing (only present for relay messages)
-  final RelayMetadata? relayMetadata;
-
-  /// Original message ID (for relay messages, different from relay wrapper ID)
-  final String? originalMessageId;
-
-  /// Node that created this relay (current relay node's public key)
-  final String? relayNodeId;
-
-  /// Message hash for deduplication across the mesh
-  final String? messageHash;
-
-  /// Rate limiting: sender's message count in current time window
-  final int senderRateCount;
-
-  QueuedMessage({
-    required this.id,
-    required this.chatId,
-    required this.content,
-    required this.recipientPublicKey,
-    required this.senderPublicKey,
-    required this.priority,
-    required this.queuedAt,
-    required this.maxRetries,
-    this.replyToMessageId,
-    this.attachments = const [],
-    this.status = QueuedMessageStatus.pending,
-    this.attempts = 0,
-    this.lastAttemptAt,
-    this.nextRetryAt,
-    this.deliveredAt,
-    this.failedAt,
-    this.failureReason,
-    this.expiresAt,
-    // Relay-specific fields
-    this.isRelayMessage = false,
-    this.relayMetadata,
-    this.originalMessageId,
-    this.relayNodeId,
-    this.messageHash,
-    this.senderRateCount = 0,
-  });
-
-  /// Create a relay message from a MeshRelayMessage
-  factory QueuedMessage.fromRelayMessage({
-    required MeshRelayMessage relayMessage,
-    required String chatId,
-    required int maxRetries,
-    QueuedMessageStatus status = QueuedMessageStatus.pending,
-  }) {
-    final queuedAt = relayMessage.relayedAt;
-    final priority = relayMessage.relayMetadata.priority;
-
-    // Calculate expiry time based on priority
-    Duration ttl;
-    switch (priority) {
-      case MessagePriority.urgent:
-        ttl = Duration(hours: 24);
-        break;
-      case MessagePriority.high:
-        ttl = Duration(hours: 12);
-        break;
-      case MessagePriority.normal:
-        ttl = Duration(hours: 6);
-        break;
-      case MessagePriority.low:
-        ttl = Duration(hours: 3);
-        break;
-    }
-
-    return QueuedMessage(
-      id: '${relayMessage.originalMessageId}_relay_${DateTime.now().millisecondsSinceEpoch}',
-      chatId: chatId,
-      content: relayMessage.originalContent,
-      recipientPublicKey: relayMessage.relayMetadata.finalRecipient,
-      senderPublicKey: relayMessage.relayMetadata.originalSender,
-      priority: priority,
-      queuedAt: queuedAt,
-      maxRetries: maxRetries,
-      status: status,
-      expiresAt: queuedAt.add(ttl),
-      // Relay-specific fields
-      isRelayMessage: true,
-      relayMetadata: relayMessage.relayMetadata,
-      originalMessageId: relayMessage.originalMessageId,
-      relayNodeId: relayMessage.relayNodeId,
-      messageHash: relayMessage.relayMetadata.messageHash,
-      senderRateCount: relayMessage.relayMetadata.senderRateCount,
-    );
-  }
-
-  /// Check if message can be relayed further
-  bool get canRelay =>
-      isRelayMessage && relayMetadata != null && relayMetadata!.canRelay;
-
-  /// Get relay hop count
-  int get relayHopCount => relayMetadata?.hopCount ?? 0;
-
-  /// Check if this message has exceeded TTL
-  bool get hasExceededTTL =>
-      relayMetadata != null && relayMetadata!.hopCount >= relayMetadata!.ttl;
-
-  /// Create next hop relay message
-  QueuedMessage createNextHopRelay(String nextRelayNodeId) {
-    if (!canRelay || relayMetadata == null) {
-      throw RelayException('Cannot create next hop: message cannot be relayed');
-    }
-
-    final nextMetadata = relayMetadata!.nextHop(nextRelayNodeId);
-
-    return QueuedMessage(
-      id: '${originalMessageId}_relay_${DateTime.now().millisecondsSinceEpoch}',
-      chatId: chatId,
-      content: content,
-      recipientPublicKey: recipientPublicKey,
-      senderPublicKey: senderPublicKey,
-      priority: priority,
-      queuedAt: DateTime.now(),
-      maxRetries: maxRetries,
-      replyToMessageId: replyToMessageId,
-      attachments: attachments,
-      // Relay-specific fields
-      isRelayMessage: true,
-      relayMetadata: nextMetadata,
-      originalMessageId: originalMessageId,
-      relayNodeId: nextRelayNodeId,
-      messageHash: messageHash,
-      senderRateCount: senderRateCount,
-    );
-  }
-
-  /// Convert to JSON for storage
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'chatId': chatId,
-    'content': content,
-    'recipientPublicKey': recipientPublicKey,
-    'senderPublicKey': senderPublicKey,
-    'priority': priority.index,
-    'queuedAt': queuedAt.millisecondsSinceEpoch,
-    'maxRetries': maxRetries,
-    'replyToMessageId': replyToMessageId,
-    'attachments': attachments,
-    'status': status.index,
-    'attempts': attempts,
-    'lastAttemptAt': lastAttemptAt?.millisecondsSinceEpoch,
-    'nextRetryAt': nextRetryAt?.millisecondsSinceEpoch,
-    'deliveredAt': deliveredAt?.millisecondsSinceEpoch,
-    'failedAt': failedAt?.millisecondsSinceEpoch,
-    'failureReason': failureReason,
-    // Relay-specific fields (for backward compatibility, only include if present)
-    'isRelayMessage': isRelayMessage,
-    if (relayMetadata != null) 'relayMetadata': relayMetadata!.toJson(),
-    if (originalMessageId != null) 'originalMessageId': originalMessageId,
-    if (relayNodeId != null) 'relayNodeId': relayNodeId,
-    if (messageHash != null) 'messageHash': messageHash,
-    'senderRateCount': senderRateCount,
-  };
-
-  /// Create from JSON
-  factory QueuedMessage.fromJson(Map<String, dynamic> json) => QueuedMessage(
-    id: json['id'],
-    chatId: json['chatId'],
-    content: json['content'],
-    recipientPublicKey: json['recipientPublicKey'],
-    senderPublicKey: json['senderPublicKey'],
-    priority: MessagePriority.values[json['priority']],
-    queuedAt: DateTime.fromMillisecondsSinceEpoch(json['queuedAt']),
-    maxRetries: json['maxRetries'],
-    replyToMessageId: json['replyToMessageId'],
-    attachments: List<String>.from(json['attachments'] ?? []),
-    status: QueuedMessageStatus.values[json['status']],
-    attempts: json['attempts'] ?? 0,
-    lastAttemptAt: json['lastAttemptAt'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(json['lastAttemptAt'])
-        : null,
-    nextRetryAt: json['nextRetryAt'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(json['nextRetryAt'])
-        : null,
-    deliveredAt: json['deliveredAt'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(json['deliveredAt'])
-        : null,
-    failedAt: json['failedAt'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(json['failedAt'])
-        : null,
-    failureReason: json['failureReason'],
-    // Relay-specific fields (backward compatible - default to false/null if not present)
-    isRelayMessage: json['isRelayMessage'] ?? false,
-    relayMetadata: json['relayMetadata'] != null
-        ? RelayMetadata.fromJson(json['relayMetadata'])
-        : null,
-    originalMessageId: json['originalMessageId'],
-    relayNodeId: json['relayNodeId'],
-    messageHash: json['messageHash'],
-    senderRateCount: json['senderRateCount'] ?? 0,
-  );
-}
-
-/// Queue message status
-enum QueuedMessageStatus {
-  pending,
-  sending,
-  awaitingAck, // Waiting for final recipient ACK in mesh relay
-  retrying,
-  delivered,
-  failed,
-}
-
-/// Queue statistics
-class QueueStatistics {
-  final int totalQueued;
-  final int totalDelivered;
-  final int totalFailed;
-  final int pendingMessages;
-  final int sendingMessages;
-  final int retryingMessages;
-  final int failedMessages;
-  final bool isOnline;
-  final QueuedMessage? oldestPendingMessage;
-  final Duration averageDeliveryTime;
-
-  // PRIORITY 1 FIX: Add queue size tracking
-  final int directQueueSize;
-  final int relayQueueSize;
-
-  const QueueStatistics({
-    required this.totalQueued,
-    required this.totalDelivered,
-    required this.totalFailed,
-    required this.pendingMessages,
-    required this.sendingMessages,
-    required this.retryingMessages,
-    required this.failedMessages,
-    required this.isOnline,
-    this.oldestPendingMessage,
-    required this.averageDeliveryTime,
-    this.directQueueSize = 0, // Default for backward compatibility
-    this.relayQueueSize = 0, // Default for backward compatibility
-  });
-
-  /// Get delivery success rate
-  double get successRate {
-    final totalAttempted = totalDelivered + totalFailed;
-    return totalAttempted > 0 ? totalDelivered / totalAttempted : 0.0;
-  }
-
-  /// Get queue health score (0.0 - 1.0)
-  double get queueHealthScore {
-    final totalActive = pendingMessages + sendingMessages + retryingMessages;
-    final healthFactors = [
-      successRate, // Delivery success rate
-      isOnline ? 1.0 : 0.5, // Connection status
-      totalActive < 10 ? 1.0 : (10 / totalActive), // Queue congestion
-      failedMessages < 5 ? 1.0 : (5 / failedMessages), // Failed message ratio
-    ];
-
-    return healthFactors.reduce((a, b) => a + b) / healthFactors.length;
-  }
-
-  @override
-  String toString() =>
-      'QueueStats(pending: $pendingMessages, success: ${(successRate * 100).toStringAsFixed(1)}%, health: ${(queueHealthScore * 100).toStringAsFixed(1)}%)';
-}
-
-/// Exception for queue operations
-class MessageQueueException implements Exception {
-  final String message;
-  const MessageQueueException(this.message);
-
-  @override
-  String toString() => 'MessageQueueException: $message';
 }
 
 /// In-memory repository fallback for environments without SQLite (e.g., unit tests).
