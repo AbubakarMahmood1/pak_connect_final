@@ -34,8 +34,19 @@ class BurstScanningController {
   _burstDurationTimer; // Timer to handle burst duration in continuous scan mode
 
   // Status stream
-  final StreamController<BurstScanningStatus> _statusController =
-      StreamController<BurstScanningStatus>.broadcast();
+  late final StreamController<BurstScanningStatus> _statusController =
+      StreamController<BurstScanningStatus>.broadcast(
+        onListen: () {
+          _startStatusTimer();
+          // Emit an immediate snapshot for the first listener.
+          _updateStatus();
+        },
+        onCancel: () {
+          if (!_statusController.hasListener) {
+            _stopStatusTimer();
+          }
+        },
+      );
 
   Stream<BurstScanningStatus> get statusStream => _statusController.stream;
 
@@ -64,12 +75,6 @@ class BurstScanningController {
         unawaited(future);
       }
     });
-
-    // Start status update timer
-    _statusUpdateTimer = Timer.periodic(
-      Duration(seconds: 1),
-      (_) => _updateStatus(),
-    );
 
     _logger.info('🔧 Burst scanning controller initialized');
   }
@@ -365,9 +370,21 @@ class BurstScanningController {
     _statusController.add(status);
   }
 
+  void _startStatusTimer() {
+    _statusUpdateTimer ??= Timer.periodic(
+      Duration(seconds: 1),
+      (_) => _updateStatus(),
+    );
+  }
+
+  void _stopStatusTimer() {
+    _statusUpdateTimer?.cancel();
+    _statusUpdateTimer = null;
+  }
+
   /// Dispose of resources
   void dispose() {
-    _statusUpdateTimer?.cancel();
+    _stopStatusTimer();
     _burstDurationTimer?.cancel();
     _bluetoothStateSubscription?.cancel();
 

@@ -45,10 +45,16 @@ class MessageRouter {
   late final IConnectionService _bleService; // ignore: unused_field
   late final OfflineMessageQueue _offlineQueue;
 
+  OfflineMessageQueue get offlineQueue => _offlineQueue;
+
   MessageRouter._();
 
   /// Initialize the message router
-  static Future<void> initialize(IConnectionService bleService) async {
+  static Future<void> initialize(
+    IConnectionService bleService, {
+    OfflineMessageQueue? offlineQueue,
+    Future<OfflineMessageQueue> Function()? fallbackQueueBuilder,
+  }) async {
     if (_instance != null) {
       _logger.warning('MessageRouter already initialized');
       return;
@@ -60,7 +66,10 @@ class MessageRouter {
     // 🔧 FIX: Direct access to messageQueue (no polling needed)
     // messageQueue is now initialized BEFORE core services in AppCore,
     // so it's guaranteed to be available when BLEService initializes
-    _instance!._offlineQueue = AppCore.instance.messageQueue;
+    _instance!._offlineQueue = await _resolveOfflineQueue(
+      providedQueue: offlineQueue,
+      fallbackQueueBuilder: fallbackQueueBuilder,
+    );
 
     _logger.info(
       '✅ MessageRouter initialized (delegating to OfflineMessageQueue)',
@@ -226,6 +235,40 @@ class MessageRouter {
     _logger.info(
       'MessageRouter disposed (queue managed by OfflineMessageQueue)',
     );
+  }
+
+  static Future<OfflineMessageQueue> _resolveOfflineQueue({
+    OfflineMessageQueue? providedQueue,
+    Future<OfflineMessageQueue> Function()? fallbackQueueBuilder,
+  }) async {
+    if (providedQueue != null) {
+      return providedQueue;
+    }
+
+    final appCore = AppCore.instance;
+    if (appCore.isInitialized || appCore.isInitializing) {
+      try {
+        return appCore.messageQueue;
+      } catch (error) {
+        _logger.warning(
+          'AppCore messageQueue unavailable during MessageRouter init: $error',
+        );
+      }
+    }
+
+    if (fallbackQueueBuilder != null) {
+      _logger.info(
+        'MessageRouter using fallback OfflineMessageQueue from builder',
+      );
+      return fallbackQueueBuilder();
+    }
+
+    _logger.info(
+      'MessageRouter initializing standalone OfflineMessageQueue (tests)',
+    );
+    final queue = OfflineMessageQueue();
+    await queue.initialize();
+    return queue;
   }
 }
 

@@ -166,6 +166,7 @@ class BatteryOptimizer {
       _updatePowerMode();
 
       // Start periodic battery checks (every 2 minutes)
+      _batteryMonitor?.cancel();
       _batteryMonitor = Timer.periodic(
         Duration(minutes: 2),
         (_) => _checkBattery(),

@@ -7,6 +7,7 @@ import '../../core/services/message_retry_coordinator.dart';
 import '../../core/utils/string_extensions.dart';
 import '../../domain/entities/message.dart';
 import '../../data/repositories/message_repository.dart';
+import '../../core/messaging/offline_message_queue.dart';
 import '../models/chat_screen_config.dart';
 import '../../presentation/providers/ble_providers.dart';
 import '../../presentation/providers/mesh_networking_provider.dart';
@@ -25,6 +26,7 @@ class ChatRetryHelper {
     required this.showInfo,
     required this.scrollToBottom,
     required this.getMessages,
+    this.offlineQueueResolver,
     Logger? logger,
     MessageRetryCoordinator? initialCoordinator,
     Duration? fallbackRetryDelay,
@@ -45,6 +47,7 @@ class ChatRetryHelper {
   final void Function(String) showInfo;
   final void Function() scrollToBottom;
   final List<Message> Function() getMessages;
+  final OfflineMessageQueue? Function()? offlineQueueResolver;
   final Logger _logger;
   final Duration _fallbackRetryDelay;
 
@@ -53,11 +56,25 @@ class ChatRetryHelper {
   void ensureRetryCoordinator() {
     if (_retryCoordinator != null) return;
     try {
+      final offlineQueue = offlineQueueResolver != null
+          ? offlineQueueResolver!()
+          : null;
+      final queue =
+          offlineQueue ??
+          (AppCore.instance.isInitialized
+              ? AppCore.instance.messageQueue
+              : null);
+      if (queue == null) {
+        _logger.fine(
+          'Offline queue unavailable; deferring MessageRetryCoordinator setup',
+        );
+        return;
+      }
+
       final meshService = ref.read(meshNetworkingServiceProvider);
-      final offlineQueue = AppCore.instance.messageQueue;
 
       _retryCoordinator = MessageRetryCoordinator(
-        offlineQueue: offlineQueue,
+        offlineQueue: queue,
         meshService: meshService,
       );
     } catch (e) {

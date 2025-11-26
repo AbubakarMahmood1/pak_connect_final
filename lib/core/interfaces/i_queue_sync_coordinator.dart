@@ -1,4 +1,4 @@
-import '../../core/messaging/offline_message_queue.dart';
+import '../../domain/entities/queued_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 
 /// Interface for queue synchronization coordination between peers

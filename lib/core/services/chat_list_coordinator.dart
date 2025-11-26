@@ -188,15 +188,11 @@ class ChatListCoordinator implements IChatListCoordinator {
 
   @override
   void setupPeriodicRefresh() {
+    // Convert periodic refresh to event-driven: rely on BLE/service listeners
+    // set up in setupGlobalMessageListener and setupDiscoveryDataListener.
     _refreshTimer?.cancel();
-    _refreshTimer = Timer.periodic(Duration(seconds: 10), (_) async {
-      if (!_isLoading) {
-        await loadChats(
-          searchQuery: _searchQuery.isEmpty ? null : _searchQuery,
-        );
-      }
-    });
-    _logger.info('⏱️ Periodic refresh started (10s interval)');
+    _refreshTimer = null;
+    _logger.info('⏱️ Periodic refresh disabled (event-driven updates active)');
   }
 
   @override

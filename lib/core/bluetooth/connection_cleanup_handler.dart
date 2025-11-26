@@ -169,10 +169,10 @@ class ConnectionCleanupHandler {
   /// This is the ONLY periodic cleanup - active connections are cleaned in real-time.
   void _startPeriodicCleanup() {
     _periodicCleanupTimer?.cancel();
-
-    _periodicCleanupTimer = Timer.periodic(_cleanupInterval, (_) {
-      _cleanupExpiredPendingConnections();
-    });
+    _periodicCleanupTimer = Timer.periodic(
+      _cleanupInterval,
+      (_) => _cleanupExpiredPendingConnections(),
+    );
   }
 
   /// 🗑️ Clean up expired pending connections

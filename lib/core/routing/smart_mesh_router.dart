@@ -5,6 +5,7 @@ import 'route_calculator.dart';
 import 'network_topology_analyzer.dart';
 import 'connection_quality_monitor.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../models/message_priority.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Intelligent mesh router that makes optimal routing decisions

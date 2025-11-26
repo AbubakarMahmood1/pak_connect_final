@@ -15,6 +15,7 @@ import '../../core/models/mesh_relay_models.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/spy_mode_info.dart';
 import '../../core/models/ble_server_connection.dart';
+import '../../core/bluetooth/handshake_coordinator.dart';
 import 'ble_connection_service.dart';
 import 'ble_messaging_service.dart';
 import 'ble_message_handler_facade_impl.dart';
@@ -712,6 +713,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   @override
   Stream<String> get hintMatchesStream =>
       _getDiscoveryService().hintMatchesStream;
+
+  @override
+  Stream<ConnectionPhase> get handshakePhaseStream =>
+      _getHandshakeService().handshakePhaseStream;
 
   // ============================================================================
   // DELEGATION TO SUB-SERVICES (IBLEAdvertisingService)
