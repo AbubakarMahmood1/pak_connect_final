@@ -8,6 +8,7 @@ import '../../core/interfaces/i_connection_service.dart';
 import '../../core/interfaces/i_mesh_networking_service.dart';
 import '../../core/messaging/message_router.dart';
 import '../../core/messaging/offline_message_queue.dart';
+import '../../core/models/connection_info.dart';
 import '../../core/security/message_security.dart';
 import '../../core/services/message_retry_coordinator.dart';
 import '../../core/services/persistent_chat_state_manager.dart';
@@ -16,6 +17,7 @@ import '../../domain/entities/message.dart';
 import '../../domain/services/notification_service.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../controllers/chat_retry_helper.dart';
+import '../controllers/chat_pairing_dialog_controller.dart';
 import '../models/chat_ui_state.dart';
 import '../viewmodels/chat_session_view_model.dart';
 
@@ -27,19 +29,25 @@ class ChatSessionLifecycle {
     required this.viewModel,
     required this.connectionService,
     required this.meshService,
-    required this.messageRouter,
+    this.messageRouter,
     required this.messageSecurity,
     required this.messageRepository,
     this.retryCoordinator,
     this.offlineQueue,
     this.notificationService,
     Logger? logger,
-  }) : _logger = logger ?? Logger('ChatSessionLifecycle');
+  }) : _logger = logger ?? Logger('ChatSessionLifecycle') {
+    if (messageRouter == null) {
+      _logger.warning(
+        'MessageRouter unavailable; lifecycle routing hooks will be disabled',
+      );
+    }
+  }
 
   final ChatSessionViewModel viewModel;
   final IConnectionService connectionService;
   final IMeshNetworkingService meshService;
-  final MessageRouter messageRouter;
+  final MessageRouter? messageRouter;
   final MessageSecurity messageSecurity;
   final MessageRepository messageRepository;
   final MessageRetryCoordinator? retryCoordinator;
@@ -47,6 +55,7 @@ class ChatSessionLifecycle {
   final NotificationService? notificationService;
   final Logger _logger;
   ChatRetryHelper? retryHelper;
+  ChatPairingDialogController? pairingController;
 
   final List<StreamSubscription<dynamic>> _managedSubscriptions = [];
   StreamSubscription<String>? _deliverySubscription;
@@ -140,8 +149,7 @@ class ChatSessionLifecycle {
         if (status.isInitialized && isCurrentlyInitializing) {
           _initializationTimeoutTimer?.cancel();
           updateState(
-            (state) => viewModel.applyMeshState(
-              state,
+            (state) => state.copyWith(
               meshInitializing: false,
               initializationStatus: 'Ready',
             ),
@@ -149,16 +157,14 @@ class ChatSessionLifecycle {
           onSuccessMessage('Mesh networking ready');
         } else if (!status.isInitialized && !isCurrentlyInitializing) {
           updateState(
-            (state) =>
-                viewModel.applyInitializationStatus(state, 'Initializing...'),
+            (state) => state.copyWith(initializationStatus: 'Initializing...'),
           );
         }
       },
       loading: () {
         if (!isCurrentlyInitializing) {
           updateState(
-            (state) => viewModel.applyMeshState(
-              state,
+            (state) => state.copyWith(
               meshInitializing: true,
               initializationStatus: 'Initializing mesh network...',
             ),
@@ -167,8 +173,7 @@ class ChatSessionLifecycle {
       },
       error: (error, stack) {
         updateState(
-          (state) => viewModel.applyMeshState(
-            state,
+          (state) => state.copyWith(
             meshInitializing: false,
             initializationStatus: 'Initialization failed',
           ),
@@ -196,8 +201,7 @@ class ChatSessionLifecycle {
       if (disposed() || !stillInitializing()) return;
       _logger.info('Mesh initialization timeout reached - hiding banner');
       updateState(
-        (state) => viewModel.applyMeshState(
-          state,
+        (state) => state.copyWith(
           meshInitializing: false,
           initializationStatus: 'Ready (timeout fallback)',
         ),
@@ -244,6 +248,157 @@ class ChatSessionLifecycle {
 
   void ensureRetryCoordinator() {
     retryHelper?.ensureRetryCoordinator();
+  }
+
+  bool hasMessagesQueuedForRelay(String? recipientPublicKey) {
+    if (recipientPublicKey == null || recipientPublicKey.isEmpty) return false;
+    try {
+      final queue =
+          offlineQueue ??
+          (AppCore.instance.isInitialized
+              ? AppCore.instance.messageQueue
+              : null);
+      if (queue == null) return false;
+      final queuedMessages = queue.getPendingMessages();
+      final chatMessages = queuedMessages.where(
+        (msg) => msg.recipientPublicKey == recipientPublicKey,
+      );
+      return chatMessages.isNotEmpty;
+    } catch (e) {
+      _logger.warning('Error checking relay queue: $e');
+      return false;
+    }
+  }
+
+  void handleConnectionChange({
+    required ConnectionInfo? previous,
+    required ConnectionInfo? current,
+    required bool Function() disposed,
+    required Future<void> Function() onIdentityReceived,
+    required void Function(String message) onSuccessMessage,
+    required void Function(String message) onErrorMessage,
+    required String? contactPublicKey,
+    void Function(String message)? onInfoMessage,
+  }) {
+    if (disposed()) return;
+
+    final wasConnected = previous?.isConnected ?? false;
+    final isConnected = current?.isConnected ?? false;
+    final wasReady = previous?.isReady ?? false;
+    final isReady = current?.isReady ?? false;
+
+    if (!wasConnected && isConnected) {
+      onSuccessMessage('Connected to device!');
+    } else if (wasConnected && !isConnected) {
+      onErrorMessage('Device disconnected');
+    } else if (isConnected && !wasReady && isReady) {
+      onSuccessMessage('Identity exchange complete!');
+      scheduleAutoRetry(
+        delay: const Duration(milliseconds: 1000),
+        disposed: disposed,
+        onRetry: autoRetryFailedMessages,
+      );
+    }
+
+    if (current?.otherUserName != null &&
+        current!.otherUserName!.isNotEmpty &&
+        previous?.otherUserName != current.otherUserName) {
+      unawaited(onIdentityReceived());
+    }
+
+    if (isConnected) {
+      scheduleAutoRetry(
+        delay: const Duration(milliseconds: 2500),
+        disposed: disposed,
+        onRetry: autoRetryFailedMessages,
+      );
+    } else {
+      if (!connectionService.isPeripheralMode) {
+        if (hasMessagesQueuedForRelay(contactPublicKey)) {
+          (onInfoMessage ?? onSuccessMessage)(
+            'Messages queued for relay - maintaining connection',
+          );
+        } else {
+          connectionService.startConnectionMonitoring();
+        }
+      }
+    }
+  }
+
+  Future<void> manualReconnection({
+    required bool Function() disposed,
+    required void Function(String message) onSuccessMessage,
+    required void Function(String message) onErrorMessage,
+  }) async {
+    if (disposed()) return;
+    if (connectionService.isConnected) {
+      onSuccessMessage('Already connected');
+      return;
+    }
+
+    onSuccessMessage('Manually searching for device...');
+
+    try {
+      final foundDevice = await connectionService.scanForSpecificDevice(
+        timeout: const Duration(seconds: 10),
+      );
+
+      if (foundDevice != null) {
+        if (connectionService.connectedDevice?.uuid == foundDevice.uuid) {
+          onSuccessMessage('Already connected to this device');
+          return;
+        }
+
+        await connectionService.connectToDevice(foundDevice);
+        onSuccessMessage('Manual reconnection successful!');
+      } else {
+        onErrorMessage(
+          'Device not found - ensure other device is in discoverable mode',
+        );
+      }
+    } catch (e) {
+      final errorMsg = e.toString();
+      if (errorMsg.contains('1049')) {
+        onSuccessMessage('Already connected to device');
+      } else {
+        onErrorMessage(
+          'Manual reconnection failed: ${errorMsg.split(':').last}',
+        );
+      }
+    }
+  }
+
+  Future<void> requestPairing({
+    required ConnectionInfo? connectionInfo,
+    required void Function(String message) onErrorMessage,
+  }) async {
+    if (connectionInfo == null || !connectionInfo.isConnected) {
+      onErrorMessage('Not connected - cannot pair');
+      return;
+    }
+
+    if (pairingController == null) {
+      onErrorMessage('Pairing unavailable - controller not attached');
+      return;
+    }
+
+    await pairingController!.userRequestedPairing();
+  }
+
+  Future<void> handleAsymmetricContact(
+    String publicKey,
+    String displayName,
+  ) async {
+    if (pairingController == null) return;
+    await pairingController!.handleAsymmetricContact(publicKey, displayName);
+  }
+
+  Future<void> addAsVerifiedContact(
+    String publicKey,
+    String displayName,
+  ) async {
+    if (pairingController == null) return;
+    await pairingController!.addAsVerifiedContact(publicKey, displayName);
   }
 
   /// Register persistent chat listener when available.

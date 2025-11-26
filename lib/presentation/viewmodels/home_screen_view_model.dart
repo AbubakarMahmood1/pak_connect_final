@@ -4,7 +4,9 @@ import 'dart:io' show Platform;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
+import 'package:state_notifier/state_notifier.dart';
 
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/interfaces/i_chats_repository.dart';
@@ -20,7 +22,32 @@ import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../providers/home_screen_providers.dart';
 
-class HomeScreenViewModel extends Notifier<HomeScreenState> {
+class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
+  HomeScreenViewModel(this._ref, this.args) : super(const HomeScreenState()) {
+    _chatsRepository = args.chatsRepository;
+    _chatManagementService = args.chatManagementService;
+    _homeScreenFacade =
+        args.homeScreenFacade ?? _ref.read(homeScreenFacadeProvider(args));
+    _disposeFacadeOnTearDown = args.homeScreenFacade != null;
+    _logger = args.logger ?? Logger('HomeScreenViewModel');
+    _listController =
+        args.chatListController ?? _ref.read(chatListControllerProvider);
+
+    _ref.onDispose(() {
+      _peripheralConnectionSubscription?.cancel();
+      _connectionInfoSubscription?.cancel();
+      _discoveryDataSubscription?.cancel();
+      _globalMessageSubscription?.cancel();
+      if (_disposeFacadeOnTearDown) {
+        unawaited(_homeScreenFacade.dispose());
+      }
+    });
+
+    unawaited(_initialize());
+  }
+
+  final Ref _ref;
+  final HomeScreenProviderArgs args;
   static const int _pageSize = 50;
 
   late final IChatsRepository _chatsRepository;
@@ -28,7 +55,8 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
   late final HomeScreenFacade _homeScreenFacade;
   late final Logger _logger;
   final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
-  final ChatListController _listController = ChatListController();
+  late final ChatListController _listController;
+  late final bool _disposeFacadeOnTearDown;
 
   bool _initialized = false;
   bool _isPaging = false;
@@ -41,33 +69,9 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
   StreamSubscription? _discoveryDataSubscription;
   StreamSubscription? _globalMessageSubscription;
 
-  @override
-  HomeScreenState build() {
-    // Get dependencies from provider args - will be wired in provider definition
-    // For now, using a placeholder pattern that will be replaced
-    _chatsRepository = ref.watch(chatsRepositoryProvider);
-    _chatManagementService = ChatManagementService();
-    _homeScreenFacade = HomeScreenFacade();
-    _logger = Logger('HomeScreenViewModel');
-
-    ref.onDispose(() {
-      _peripheralConnectionSubscription?.cancel();
-      _connectionInfoSubscription?.cancel();
-      _discoveryDataSubscription?.cancel();
-      _globalMessageSubscription?.cancel();
-      _chatManagementService.dispose();
-      _homeScreenFacade.dispose();
-    });
-
-    if (!_initialized) {
-      _initialized = true;
-      _initialize();
-    }
-
-    return const HomeScreenState();
-  }
-
   Future<void> _initialize() async {
+    if (_initialized) return;
+    _initialized = true;
     await Future.wait([
       _chatManagementService.initialize(),
       _homeScreenFacade.initialize(),
@@ -92,7 +96,7 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
     }
 
     final nearbyDevices = await _getNearbyDevices();
-    final discoveryDataAsync = ref.read(discoveryDataProvider);
+    final discoveryDataAsync = _ref.read(discoveryDataProvider);
     final discoveryData = discoveryDataAsync.maybeWhen(
       data: (data) => data,
       orElse: () => <String, DiscoveredEventArgs>{},
@@ -169,7 +173,7 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
   Future<void> updateSingleChatItem() async {
     try {
       final nearbyDevices = await _getNearbyDevices();
-      final discoveryDataAsync = ref.read(discoveryDataProvider);
+      final discoveryDataAsync = _ref.read(discoveryDataProvider);
       final discoveryData = discoveryDataAsync.maybeWhen(
         data: (data) => data,
         orElse: () => <String, DiscoveredEventArgs>{},
@@ -224,6 +228,10 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
   bool isChatPinned(String chatId) =>
       _chatManagementService.isChatPinned(chatId);
 
+  Future<void> markChatAsRead(String chatId) async {
+    await _homeScreenFacade.markChatAsRead(chatId);
+  }
+
   Future<void> toggleChatPin(ChatListItem chat) async {
     await _homeScreenFacade.toggleChatPin(chat);
     await loadChats();
@@ -237,7 +245,7 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
 
   void _setupGlobalMessageListener() {
     try {
-      final bleService = ref.read(connectionServiceProvider);
+      final bleService = _ref.read(connectionServiceProvider);
 
       _globalMessageSubscription = bleService.receivedMessages.listen((
         _,
@@ -254,7 +262,7 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
   }
 
   Future<List<Peripheral>?> _getNearbyDevices() async {
-    final devicesAsync = ref.read(discoveredDevicesProvider);
+    final devicesAsync = _ref.read(discoveredDevicesProvider);
     return devicesAsync.maybeWhen(
       data: (devices) => devices,
       orElse: () => null,
@@ -264,7 +272,7 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
   void _setupPeripheralConnectionListener() {
     if (!Platform.isAndroid) return;
 
-    final bleService = ref.read(connectionServiceProvider);
+    final bleService = _ref.read(connectionServiceProvider);
 
     _peripheralConnectionSubscription = bleService.peripheralConnectionChanges
         .distinct(
@@ -289,7 +297,7 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
   }
 
   void _setupDiscoveryListener() {
-    _discoveryDataSubscription = ref
+    _discoveryDataSubscription = _ref
         .read(connectionServiceProvider)
         .discoveryData
         .listen((_) {
@@ -327,6 +335,8 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
 
   Future<void> openContacts() => Future.sync(_homeScreenFacade.openContacts);
 
+  Future<void> openArchives() => Future.sync(_homeScreenFacade.openArchives);
+
   Future<void> openSettings() => Future.sync(_homeScreenFacade.openSettings);
 
   Future<void> openProfile() => Future.sync(_homeScreenFacade.openProfile);
@@ -357,8 +367,7 @@ class HomeScreenViewModel extends Notifier<HomeScreenState> {
   }
 }
 
-// Placeholder provider - will be properly wired with dependencies
-final homeScreenViewModelProvider =
-    NotifierProvider<HomeScreenViewModel, HomeScreenState>(
-      HomeScreenViewModel.new,
+final homeScreenViewModelProvider = StateNotifierProvider.autoDispose
+    .family<HomeScreenViewModel, HomeScreenState, HomeScreenProviderArgs>(
+      (ref, args) => HomeScreenViewModel(ref, args),
     );

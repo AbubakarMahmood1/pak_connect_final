@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../../core/interfaces/i_connection_service.dart';
 import '../../core/interfaces/i_mesh_networking_service.dart';
@@ -46,6 +47,14 @@ final chatSessionOwnedStateNotifierProvider = NotifierProvider.autoDispose
       ChatUIState,
       ChatScreenControllerArgs
     >(ChatSessionOwnedStateNotifier.new);
+
+final chatSessionStateStoreProvider = StateNotifierProvider.autoDispose
+    .family<ChatSessionStateStore, ChatUIState, ChatScreenControllerArgs>(
+      (ref, args) => ChatSessionStateStore(),
+    );
+
+/// Preferred state provider for migrated consumers.
+// Preferred state provider exported via chat_session_state_provider.dart.
 
 /// Simple action facade backed by ChatScreenController (for migration).
 class ChatSessionActions {
@@ -113,7 +122,7 @@ class ChatSessionLifecycleArgs {
     required this.viewModel,
     required this.connectionService,
     required this.meshService,
-    required this.messageRouter,
+    this.messageRouter,
     required this.messageSecurity,
     required this.messageRepository,
     this.retryCoordinator,
@@ -124,7 +133,7 @@ class ChatSessionLifecycleArgs {
   final ChatSessionViewModel viewModel;
   final IConnectionService connectionService;
   final IMeshNetworkingService meshService;
-  final MessageRouter messageRouter;
+  final MessageRouter? messageRouter;
   final MessageSecurity messageSecurity;
   final MessageRepository messageRepository;
   final MessageRetryCoordinator? retryCoordinator;

@@ -9,12 +9,13 @@ import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../domain/entities/message.dart';
+import '../notifiers/chat_session_state_notifier.dart';
 
 /// Planned Riverpod-backed ViewModel for ChatScreen state and commands.
 /// This is scaffolding only; logic will migrate from ChatScreenController
 /// in later milestones without altering current behavior.
 class ChatSessionViewModel {
-  const ChatSessionViewModel({
+  ChatSessionViewModel({
     required this.config,
     required this.messageRepository,
     required this.contactRepository,
@@ -35,6 +36,11 @@ class ChatSessionViewModel {
   final ChatSearchController searchController;
   final ChatPairingDialogController pairingDialogController;
   final MessageRetryCoordinator? retryCoordinator;
+  ChatSessionStateStore? stateStore;
+
+  void bindStateStore(ChatSessionStateStore store) {
+    stateStore = store;
+  }
 
   /// Compute new state with an updated message status.
   ChatUIState applyMessageStatus(
@@ -119,4 +125,19 @@ class ChatSessionViewModel {
     ChatUIState state,
     String initializationStatus,
   ) => state.copyWith(initializationStatus: initializationStatus);
+
+  /// Toggle search mode and persist the state flag.
+  void toggleSearchMode() {
+    searchController.toggleSearchMode();
+  }
+
+  /// Update the search query text within the state store.
+  void updateSearchQuery(String query) {
+    stateStore?.setSearchQuery(query);
+  }
+
+  /// Navigate to a search result while keeping scroll behavior encapsulated.
+  void navigateToSearchResult(int messageIndex, int totalMessages) {
+    searchController.navigateToSearchResult(messageIndex, totalMessages);
+  }
 }

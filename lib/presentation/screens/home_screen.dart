@@ -22,10 +22,10 @@ import 'profile_screen.dart';
 import 'settings_screen.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/services/home_screen_facade.dart';
 import '../../domain/services/chat_management_service.dart';
-import '../controllers/home_screen_controller.dart';
-import '../services/chat_interaction_handler.dart';
+import '../providers/home_screen_providers.dart';
+import '../models/home_screen_state.dart';
+import '../viewmodels/home_screen_view_model.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Menu actions for home screen
@@ -43,22 +43,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _logger = Logger('HomeScreen');
   late final IChatsRepository _chatsRepository;
   final ChatManagementService _chatManagementService = ChatManagementService();
-  late final HomeScreenControllerArgs _controllerArgs;
+  late final HomeScreenProviderArgs _viewModelArgs;
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _listScrollController = ScrollController();
-  HomeScreenController get _controller =>
-      ref.read(homeScreenControllerProvider(_controllerArgs));
+  HomeScreenViewModel get _viewModel =>
+      ref.read(homeScreenViewModelProvider(_viewModelArgs).notifier);
 
   // Tab controller for Chats and Relay Queue
   late TabController _tabController;
 
-  List<ChatListItem> _chats(HomeScreenController controller) =>
-      controller.chats;
-  bool _isLoading(HomeScreenController controller) => controller.isLoading;
-  String _searchQuery(HomeScreenController controller) =>
-      controller.searchQuery;
-  Stream<int>? _unreadCountStream(HomeScreenController controller) =>
-      controller.unreadCountStream;
+  List<ChatListItem> _chats(HomeScreenState state) => state.chats;
+  bool _isLoading(HomeScreenState state) => state.isLoading;
+  String _searchQuery(HomeScreenState state) => state.searchQuery;
+  Stream<int>? _unreadCountStream(HomeScreenState state) =>
+      state.unreadCountStream;
   bool _showDiscoveryOverlay = false;
 
   @override
@@ -70,29 +68,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _onTabChanged,
     ); // Listen for tab changes to update FAB
     _listScrollController.addListener(_onScroll);
-    _controllerArgs = HomeScreenControllerArgs(
+    _viewModelArgs = HomeScreenProviderArgs(
       context: context,
       ref: ref,
       chatsRepository: _chatsRepository,
       chatManagementService: _chatManagementService,
       logger: _logger,
-      homeScreenFacade: HomeScreenFacade(
-        chatsRepository: _chatsRepository,
-        bleService: ref.read(connectionServiceProvider),
-        chatManagementService: _chatManagementService,
-        context: context,
-        ref: ref,
-        enableListCoordinatorInitialization: false,
-        interactionHandlerBuilder:
-            ({context, ref, chatsRepository, chatManagementService}) {
-              return ChatInteractionHandler(
-                context: context,
-                ref: ref,
-                chatsRepository: chatsRepository,
-                chatManagementService: chatManagementService,
-              );
-            },
-      ),
     );
   }
 
@@ -100,7 +81,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!_listScrollController.hasClients) return;
     final position = _listScrollController.position;
     if (position.maxScrollExtent - position.pixels <= 200) {
-      _controller.loadMoreChats();
+      _viewModel.loadMoreChats();
     }
   }
 
@@ -111,15 +92,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  Future<void> _loadChats(HomeScreenController controller) =>
-      controller.loadChats();
-
-  Future<void> _updateSingleChatItem(HomeScreenController controller) =>
-      controller.updateSingleChatItem();
+  Future<void> _loadChats(HomeScreenViewModel viewModel) =>
+      viewModel.loadChats();
 
   @override
   Widget build(BuildContext context) {
-    final controller = ref.watch(homeScreenControllerProvider(_controllerArgs));
+    final state = ref.watch(homeScreenViewModelProvider(_viewModelArgs));
+    final viewModel = ref.read(
+      homeScreenViewModelProvider(_viewModelArgs).notifier,
+    );
     final bleStateAsync = ref.watch(bleStateProvider);
     ref.watch(connectionInfoProvider);
     ref.watch(discoveredDevicesProvider);
@@ -167,11 +148,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               Stack(
                 children: [
                   IconButton(
-                    onPressed: () => _showSearch(controller),
+                    onPressed: () => _showSearch(state, viewModel),
                     icon: Icon(Icons.search),
                   ),
                   StreamBuilder<int>(
-                    stream: _unreadCountStream(controller),
+                    stream: _unreadCountStream(state),
                     builder: (context, snapshot) {
                       final count = snapshot.data ?? 0;
                       if (count == 0) return SizedBox.shrink();
@@ -270,7 +251,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   controller: _tabController,
                   children: [
                     // Tab 1: Chats (existing functionality)
-                    _buildChatsTab(controller),
+                    _buildChatsTab(state, viewModel),
 
                     // Tab 2: Relay Queue (new functionality)
                     _buildRelayQueueTab(),
@@ -310,27 +291,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   /// Build the chats tab (existing functionality moved to separate method)
-  Widget _buildChatsTab(HomeScreenController controller) {
+  Widget _buildChatsTab(HomeScreenState state, HomeScreenViewModel viewModel) {
     return Column(
       children: [
-        if (_searchQuery(controller).isNotEmpty) _buildSearchBar(controller),
+        if (_searchQuery(state).isNotEmpty) _buildSearchBar(viewModel),
 
         Expanded(
-          child: _isLoading(controller)
+          child: _isLoading(state)
               ? Center(child: CircularProgressIndicator())
-              : _chats(controller).isEmpty
-              ? _buildEmptyState(controller)
+              : _chats(state).isEmpty
+              ? _buildEmptyState()
               : RefreshIndicator(
-                  onRefresh: () async => _loadChats(controller),
+                  onRefresh: () async => _loadChats(viewModel),
                   child: ListView.builder(
                     controller: _listScrollController,
                     itemCount:
-                        _chats(controller).length +
-                        ((controller.isPaging && controller.hasMore) ? 1 : 0),
+                        _chats(state).length +
+                        ((state.isPaging && state.hasMore) ? 1 : 0),
                     itemBuilder: (context, index) {
-                      final chats = _chats(controller);
+                      final chats = _chats(state);
                       final showPagingIndicator =
-                          controller.isPaging && controller.hasMore;
+                          state.isPaging && state.hasMore;
                       if (showPagingIndicator && index == chats.length) {
                         return Padding(
                           padding: const EdgeInsets.all(16),
@@ -341,7 +322,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       // 🎯 Use ValueKey for efficient widget reuse (prevents unnecessary rebuilds)
                       return _buildSwipeableChatTile(
                         chat,
-                        controller: controller,
+                        viewModel: viewModel,
                         key: ValueKey(chat.chatId),
                       );
                     },
@@ -374,15 +355,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  Widget _buildChatTile(ChatListItem chat, HomeScreenController controller) {
+  Widget _buildChatTile(ChatListItem chat, HomeScreenViewModel viewModel) {
     // Get live connection status
     final connectionInfo = ref.watch(connectionInfoProvider).value;
     final discoveredDevices = ref.watch(discoveredDevicesProvider).value ?? [];
     final deduplicatedDevices =
         ref.watch(deduplicatedDevicesProvider).value ?? {};
 
-    // 🎯 Use controller facade for connection status
-    final connectionStatus = controller.determineConnectionStatus(
+    // 🎯 Use view model facade for connection status
+    final connectionStatus = viewModel.determineConnectionStatus(
       contactPublicKey: chat.contactPublicKey,
       contactName: chat.contactName,
       currentConnectionInfo: connectionInfo,
@@ -534,7 +515,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ],
         ),
         onTap: () => _openChat(chat),
-        onLongPress: () => _showChatContextMenu(chat, controller),
+        onLongPress: () => _showChatContextMenu(chat, viewModel),
       ),
     );
   }
@@ -544,7 +525,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget _buildSwipeableChatTile(
     ChatListItem chat, {
     Key? key,
-    required HomeScreenController controller,
+    required HomeScreenViewModel viewModel,
   }) {
     return Dismissible(
       key:
@@ -606,10 +587,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
           // Left swipe: Archive
-          return await _showArchiveConfirmation(chat);
+          return await _showArchiveConfirmation(chat, viewModel);
         } else if (direction == DismissDirection.endToStart) {
           // Right swipe: Delete
-          return await _showDeleteConfirmation(chat);
+          return await _showDeleteConfirmation(chat, viewModel);
         }
         return false;
       },
@@ -619,17 +600,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
         if (direction == DismissDirection.startToEnd) {
           // Left swipe: Archive
-          await _archiveChat(chat);
+          await _archiveChat(chat, viewModel);
         } else if (direction == DismissDirection.endToStart) {
           // Right swipe: Delete
-          await _deleteChat(chat);
+          await _deleteChat(chat, viewModel);
         }
       },
-      child: _buildChatTile(chat, controller),
+      child: _buildChatTile(chat, viewModel),
     );
   }
 
-  Widget _buildEmptyState(HomeScreenController controller) {
+  Widget _buildEmptyState() {
     final devicesAsync = ref.watch(discoveredDevicesProvider);
     final hasNearbyDevices = devicesAsync.maybeWhen(
       data: (devices) => devices.isNotEmpty,
@@ -695,7 +676,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  Widget _buildSearchBar(HomeScreenController controller) {
+  Widget _buildSearchBar(HomeScreenViewModel viewModel) {
     return Container(
       padding: EdgeInsets.all(12),
       child: TextField(
@@ -710,7 +691,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(25)),
         ),
         onChanged: (query) {
-          controller.onSearchChanged(query);
+          viewModel.onSearchChanged(query);
         },
       ),
     );
@@ -719,17 +700,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _onDeviceSelected(Peripheral device) async {
     setState(() => _showDiscoveryOverlay = false);
     _logger.info('Connecting to device: ${device.uuid.toString().shortId(8)}');
-    await _controller.handleDeviceSelected(device);
+    await _viewModel.handleDeviceSelected(device);
   }
 
   void _openChat(ChatListItem chat) async {
-    await _controller.openChat(chat);
+    await _viewModel.openChat(chat);
   }
 
-  void _showSearch(HomeScreenController controller) {
+  void _showSearch(HomeScreenState state, HomeScreenViewModel viewModel) {
     setState(() {
-      if (_searchQuery(controller).isEmpty) {
-        controller.onSearchChanged(' ');
+      if (_searchQuery(state).isEmpty) {
+        viewModel.onSearchChanged(' ');
       } else {
         _clearSearch();
       }
@@ -738,15 +719,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _clearSearch() {
     _searchController.clear();
-    _controller.clearSearch();
+    _viewModel.clearSearch();
   }
 
   void _showSettings() {
-    _controller.openSettings();
+    _viewModel.openSettings();
   }
 
   void _openProfile() {
-    _controller.openProfile();
+    _viewModel.openProfile();
   }
 
   void _editDisplayName() async {
@@ -756,7 +737,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Check mounted after async
     if (!mounted) return;
 
-    await _controller.editDisplayName(currentName);
+    await _viewModel.editDisplayName(currentName);
   }
 
   String _formatTime(DateTime time) {
@@ -793,29 +774,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  void _openContacts() => _controller.openContacts();
+  void _openContacts() => _viewModel.openContacts();
 
-  void _openArchives() => _controller.openArchives();
+  void _openArchives() => _viewModel.openArchives();
 
-  Future<bool> _showArchiveConfirmation(ChatListItem chat) =>
-      _controller.showArchiveConfirmation(chat);
-
-  Future<void> _archiveChat(ChatListItem chat) async {
-    await _controller.archiveChat(chat);
-  }
-
-  Future<bool> _showDeleteConfirmation(ChatListItem chat) =>
-      _controller.showDeleteConfirmation(chat);
-
-  Future<void> _deleteChat(ChatListItem chat) async {
-    await _controller.deleteChat(chat);
-  }
-
-  void _showChatContextMenu(
+  Future<bool> _showArchiveConfirmation(
     ChatListItem chat,
-    HomeScreenController controller,
-  ) {
-    final isPinned = _chatManagementService.isChatPinned(chat.chatId);
+    HomeScreenViewModel viewModel,
+  ) => viewModel.showArchiveConfirmation(chat);
+
+  Future<void> _archiveChat(
+    ChatListItem chat,
+    HomeScreenViewModel viewModel,
+  ) async {
+    await viewModel.archiveChat(chat);
+  }
+
+  Future<bool> _showDeleteConfirmation(
+    ChatListItem chat,
+    HomeScreenViewModel viewModel,
+  ) => viewModel.showDeleteConfirmation(chat);
+
+  Future<void> _deleteChat(
+    ChatListItem chat,
+    HomeScreenViewModel viewModel,
+  ) async {
+    await viewModel.deleteChat(chat);
+  }
+
+  void _showChatContextMenu(ChatListItem chat, HomeScreenViewModel viewModel) {
+    final isPinned = viewModel.isChatPinned(chat.chatId);
     final hasUnread = chat.unreadCount > 0;
 
     showMenu<String>(
@@ -887,18 +875,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
       switch (value) {
         case 'archive':
-          if (await _showArchiveConfirmation(chat)) {
-            await _archiveChat(chat);
+          if (await _showArchiveConfirmation(chat, viewModel)) {
+            await _archiveChat(chat, viewModel);
           }
           break;
         case 'delete':
-          if (await _showDeleteConfirmation(chat)) {
-            await _deleteChat(chat);
+          if (await _showDeleteConfirmation(chat, viewModel)) {
+            await _deleteChat(chat, viewModel);
           }
           break;
         case 'mark_read':
-          await _chatsRepository.markChatAsRead(chat.chatId);
-          _loadChats(_controller);
+          await viewModel.markChatAsRead(chat.chatId);
+          _loadChats(viewModel);
           break;
         case 'mark_unread':
           // Note: This would require implementing markChatAsUnread in repository
@@ -906,14 +894,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           break;
         case 'pin':
         case 'unpin':
-          await _toggleChatPin(chat);
+          await _toggleChatPin(chat, viewModel);
           break;
       }
     });
   }
 
-  Future<void> _toggleChatPin(ChatListItem chat) async {
-    await _controller.toggleChatPin(chat);
+  Future<void> _toggleChatPin(
+    ChatListItem chat,
+    HomeScreenViewModel viewModel,
+  ) async {
+    await viewModel.toggleChatPin(chat);
   }
 
   @override
