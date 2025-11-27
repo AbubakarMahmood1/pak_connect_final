@@ -18,36 +18,18 @@ void main() {
       stateManager = BLEStateManager();
     });
 
-    test(
-      'UserPreferences should update username and notify listeners',
-      () async {
-        // Setup
-        final String testUsername =
-            'TestUser${DateTime.now().millisecondsSinceEpoch}';
-        String? receivedUsername;
+    test('UserPreferences should update username storage', () async {
+      // Setup
+      final String testUsername =
+          'TestUser${DateTime.now().millisecondsSinceEpoch}';
 
-        // Listen to username stream
-        final subscription = UserPreferences.usernameStream.listen((username) {
-          receivedUsername = username;
-        });
+      // Test
+      await userPreferences.setUserName(testUsername);
 
-        // Test
-        await userPreferences.setUserName(testUsername);
-
-        // Allow stream to emit
-        await Future.delayed(Duration(milliseconds: 100));
-
-        // Verify
-        expect(receivedUsername, equals(testUsername));
-
-        // Verify storage
-        final storedUsername = await userPreferences.getUserName();
-        expect(storedUsername, equals(testUsername));
-
-        // Cleanup
-        await subscription.cancel();
-      },
-    );
+      // Verify storage
+      final storedUsername = await userPreferences.getUserName();
+      expect(storedUsername, equals(testUsername));
+    });
 
     test(
       'BLEStateManager should trigger callback on username change',

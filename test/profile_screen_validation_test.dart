@@ -35,7 +35,6 @@ void main() {
     });
 
     tearDown(() async {
-      UserPreferences.dispose();
       await TestSetup.nukeDatabase();
     });
 
@@ -54,24 +53,17 @@ void main() {
       expect(retrievedName, equals(testUsername));
     });
 
-    test('Username updates are reactive via stream', () async {
+    test('Username updates are reactive via provider', () async {
       // Arrange
       const testUsername = 'ReactiveUser';
-      final streamValues = <String>[];
+      final container = ProviderContainer();
 
       // Act
-      final subscription = UserPreferences.usernameStream.listen(
-        (username) => streamValues.add(username),
-      );
-
       await userPreferences.setUserName(testUsername);
-      await Future.delayed(Duration(milliseconds: 100)); // Allow stream to emit
+      final username = await container.read(usernameProvider.future);
 
       // Assert
-      expect(streamValues, contains(testUsername));
-
-      // Cleanup
-      await subscription.cancel();
+      expect(username, equals(testUsername));
     });
 
     test('UsernameNotifier updates correctly', () async {
