@@ -7,13 +7,31 @@ import 'package:pak_connect/core/security/noise/primitives/cipher_state.dart';
 void main() {
   group('CipherState', () {
     late CipherState cipher;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       cipher = CipherState();
     });
 
     tearDown(() {
       cipher.destroy();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('initialization with key', () {

@@ -13,8 +13,13 @@ void main() {
 
   group('AdaptiveEncryptionStrategy', () {
     late AdaptiveEncryptionStrategy strategy;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       // Clear SharedPreferences before each test
       SharedPreferences.setMockInitialValues({});
       await PerformanceMonitor.reset();
@@ -25,6 +30,19 @@ void main() {
     tearDown(() async {
       strategy.setDebugOverride(null); // Clear debug override
       await PerformanceMonitor.reset();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('initialization starts with sync mode (no metrics)', () async {

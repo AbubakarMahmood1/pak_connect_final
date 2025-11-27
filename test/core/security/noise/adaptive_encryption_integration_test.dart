@@ -15,8 +15,13 @@ void main() {
   group('Adaptive Encryption Integration', () {
     late CipherState cipher;
     late AdaptiveEncryptionStrategy strategy;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       SharedPreferences.setMockInitialValues({});
       await PerformanceMonitor.reset();
 
@@ -29,6 +34,19 @@ void main() {
       cipher.destroy();
       strategy.setDebugOverride(null);
       await PerformanceMonitor.reset();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('CipherState uses sync path when debug override is false', () async {
