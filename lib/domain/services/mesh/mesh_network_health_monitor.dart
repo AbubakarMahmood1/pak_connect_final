@@ -12,14 +12,10 @@ import 'package:pak_connect/domain/models/mesh_network_models.dart';
 /// Manages mesh network status streams and late-subscriber delivery.
 class MeshNetworkHealthMonitor {
   final Logger _logger;
-  final StreamController<MeshNetworkStatus> _meshStatusController =
-      StreamController<MeshNetworkStatus>.broadcast();
-  final StreamController<RelayStatistics> _relayStatsController =
-      StreamController<RelayStatistics>.broadcast();
-  final StreamController<QueueSyncManagerStats> _queueStatsController =
-      StreamController<QueueSyncManagerStats>.broadcast();
-  final StreamController<String> _messageDeliveryController =
-      StreamController<String>.broadcast();
+  final Set<void Function(MeshNetworkStatus)> _meshStatusListeners = {};
+  final Set<void Function(RelayStatistics)> _relayStatsListeners = {};
+  final Set<void Function(QueueSyncManagerStats)> _queueStatsListeners = {};
+  final Set<void Function(String)> _messageDeliveryListeners = {};
 
   MeshNetworkStatus? _lastMeshStatus;
 
@@ -31,18 +27,46 @@ class MeshNetworkHealthMonitor {
       controller.add(_lastMeshStatus!);
     }
 
-    final subscription = _meshStatusController.stream.listen(
-      controller.add,
-      onError: controller.addError,
-      onDone: controller.close,
-    );
+    void listener(MeshNetworkStatus status) {
+      controller.add(status);
+    }
 
-    controller.onCancel = subscription.cancel;
+    _meshStatusListeners.add(listener);
+    controller.onCancel = () {
+      _meshStatusListeners.remove(listener);
+    };
   });
 
-  Stream<RelayStatistics> get relayStats => _relayStatsController.stream;
-  Stream<QueueSyncManagerStats> get queueStats => _queueStatsController.stream;
-  Stream<String> get messageDeliveryStream => _messageDeliveryController.stream;
+  Stream<RelayStatistics> get relayStats => Stream.multi((controller) {
+    void listener(RelayStatistics stats) {
+      controller.add(stats);
+    }
+
+    _relayStatsListeners.add(listener);
+    controller.onCancel = () {
+      _relayStatsListeners.remove(listener);
+    };
+  });
+  Stream<QueueSyncManagerStats> get queueStats => Stream.multi((controller) {
+    void listener(QueueSyncManagerStats stats) {
+      controller.add(stats);
+    }
+
+    _queueStatsListeners.add(listener);
+    controller.onCancel = () {
+      _queueStatsListeners.remove(listener);
+    };
+  });
+  Stream<String> get messageDeliveryStream => Stream.multi((controller) {
+    void listener(String messageId) {
+      controller.add(messageId);
+    }
+
+    _messageDeliveryListeners.add(listener);
+    controller.onCancel = () {
+      _messageDeliveryListeners.remove(listener);
+    };
+  });
 
   void broadcastInitialStatus() {
     _emitStatus(
@@ -150,7 +174,7 @@ class MeshNetworkHealthMonitor {
   }) {
     try {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!isInitialized() && !_meshStatusController.isClosed) {
+        if (!isInitialized() && _meshStatusListeners.isNotEmpty) {
           _logger.fine('🔄 Post-frame mesh status refresh scheduled');
           broadcastInProgressStatus(
             isConnected: isConnectedProvider(),
@@ -166,28 +190,66 @@ class MeshNetworkHealthMonitor {
   }
 
   void emitRelayStats(RelayStatistics stats) {
-    _relayStatsController.add(stats);
+    for (final listener in List.of(_relayStatsListeners)) {
+      try {
+        listener(stats);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying relay stats listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
   }
 
   void emitQueueStats(QueueSyncManagerStats stats) {
-    _queueStatsController.add(stats);
+    for (final listener in List.of(_queueStatsListeners)) {
+      try {
+        listener(stats);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying queue stats listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
   }
 
   void notifyMessageDelivered(String messageId) {
-    _messageDeliveryController.add(messageId);
+    for (final listener in List.of(_messageDeliveryListeners)) {
+      try {
+        listener(messageId);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying message delivery listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
   }
 
   void dispose() {
-    _meshStatusController.close();
-    _relayStatsController.close();
-    _queueStatsController.close();
-    _messageDeliveryController.close();
+    _meshStatusListeners.clear();
+    _relayStatsListeners.clear();
+    _queueStatsListeners.clear();
+    _messageDeliveryListeners.clear();
   }
 
   void _emitStatus(MeshNetworkStatus status) {
     _lastMeshStatus = status;
-    if (!_meshStatusController.isClosed) {
-      _meshStatusController.add(status);
+    for (final listener in List.of(_meshStatusListeners)) {
+      try {
+        listener(status);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying mesh status listener: $e',
+          e,
+          stackTrace,
+        );
+      }
     }
   }
 }

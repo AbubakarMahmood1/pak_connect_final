@@ -83,19 +83,35 @@ class ArchiveSearchService {
   // Configuration (kept in facade per Codex recommendation)
   SearchServiceConfig _config = SearchServiceConfig.defaultConfig();
 
-  // Event streams
-  final _searchUpdatesController =
-      StreamController<ArchiveSearchEvent>.broadcast();
-  final _suggestionUpdatesController =
-      StreamController<SearchSuggestionEvent>.broadcast();
+  // Event listeners
+  final Set<void Function(ArchiveSearchEvent)> _searchUpdateListeners = {};
+  final Set<void Function(SearchSuggestionEvent)> _suggestionListeners = {};
 
   /// Stream of search events
   Stream<ArchiveSearchEvent> get searchUpdates =>
-      _searchUpdatesController.stream;
+      Stream<ArchiveSearchEvent>.multi((controller) {
+        void listener(ArchiveSearchEvent event) {
+          controller.add(event);
+        }
+
+        _searchUpdateListeners.add(listener);
+        controller.onCancel = () {
+          _searchUpdateListeners.remove(listener);
+        };
+      });
 
   /// Stream of suggestion events
   Stream<SearchSuggestionEvent> get suggestionUpdates =>
-      _suggestionUpdatesController.stream;
+      Stream<SearchSuggestionEvent>.multi((controller) {
+        void listener(SearchSuggestionEvent event) {
+          controller.add(event);
+        }
+
+        _suggestionListeners.add(listener);
+        controller.onCancel = () {
+          _suggestionListeners.remove(listener);
+        };
+      });
 
   bool _isInitialized = false;
 
@@ -171,7 +187,7 @@ class ArchiveSearchService {
       }
 
       // Emit search started event
-      _searchUpdatesController.add(ArchiveSearchEvent.started(searchId, query));
+      _emitSearchUpdate(ArchiveSearchEvent.started(searchId, query));
 
       // Execute search strategy
       final searchStrategy = _queryBuilder.determineStrategy(
@@ -220,9 +236,7 @@ class ArchiveSearchService {
       );
 
       // Emit search completed event
-      _searchUpdatesController.add(
-        ArchiveSearchEvent.completed(searchId, advancedResult),
-      );
+      _emitSearchUpdate(ArchiveSearchEvent.completed(searchId, advancedResult));
 
       _logger.info(
         'Search completed: ${advancedResult.totalResults} results in ${advancedResult.formattedSearchTime}',
@@ -234,7 +248,7 @@ class ArchiveSearchService {
       _logger.severe('Search failed for "$query": $e');
 
       // Emit search failed event
-      _searchUpdatesController.add(
+      _emitSearchUpdate(
         ArchiveSearchEvent.failed(searchId, query, e.toString()),
       );
 
@@ -295,7 +309,7 @@ class ArchiveSearchService {
       _cacheManager.cacheSuggestions(cacheKey, limitedSuggestions);
 
       // Emit suggestion event
-      _suggestionUpdatesController.add(
+      _emitSuggestionUpdate(
         SearchSuggestionEvent.generated(partialQuery, limitedSuggestions),
       );
 
@@ -515,14 +529,37 @@ class ArchiveSearchService {
   /// Dispose and cleanup
   Future<void> dispose() async {
     await _analyticsTracker.forceSave();
-    await _searchUpdatesController.close();
-    await _suggestionUpdatesController.close();
+    _searchUpdateListeners.clear();
+    _suggestionListeners.clear();
 
     _isInitialized = false;
     _logger.info('Archive search service disposed');
   }
 
   // Private methods
+  void _emitSearchUpdate(ArchiveSearchEvent event) {
+    for (final listener in List.of(_searchUpdateListeners)) {
+      try {
+        listener(event);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying search listener: $e', e, stackTrace);
+      }
+    }
+  }
+
+  void _emitSuggestionUpdate(SearchSuggestionEvent event) {
+    for (final listener in List.of(_suggestionListeners)) {
+      try {
+        listener(event);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying suggestion listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
+  }
 
   Future<ArchiveSearchResult> _executeSearch(
     SearchStrategy strategy,

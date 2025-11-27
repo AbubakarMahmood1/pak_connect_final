@@ -20,6 +20,12 @@
 
 **Solution**: Bridge service StreamControllers through Riverpod `StreamProvider`, consume via `ref.listen` in Notifiers.
 
+### Current Status (Phase 6 cleanup)
+- BLE stack (connection/handshake/messaging/discovery/hints): listener sets + `Stream.multi`; no controllers.
+- HomeScreen intent stream: listener set + `Stream.multi`; `_NullChatInteractionHandler` updated.
+- PinningService: listener set + `Stream.multi`; emits on star/unstar, clears listeners on dispose.
+- Archive providers: singleton services exposed via `StreamProvider`; no manual controllers in core code.
+
 ### When to Keep StreamControllers vs Migrate
 
 **✅ KEEP StreamController** (expose via StreamProvider):

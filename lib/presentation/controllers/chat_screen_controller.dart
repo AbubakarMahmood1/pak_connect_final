@@ -37,7 +37,6 @@ import '../../presentation/providers/security_state_provider.dart';
 import '../providers/chat_session_providers.dart';
 import '../viewmodels/chat_session_view_model.dart';
 import '../notifiers/chat_session_state_notifier.dart';
-import '../widgets/chat_search_bar.dart' show SearchResult;
 import 'chat_retry_helper.dart';
 
 class ChatScreenControllerArgs {
@@ -122,8 +121,6 @@ class ChatScreenController extends ChangeNotifier {
       _injectedMessageRouter = args.messageRouter,
       _injectedPairingController = args.pairingDialogController,
       _initialRetryCoordinator = args.retryCoordinator {
-    _repositoryRetryHandler =
-        args.repositoryRetryHandler ?? _retryRepositoryMessage;
     _chatId = _calculateInitialChatId();
     _cachedContactPublicKey = _contactPublicKey;
     _stateStore = ref.read(chatSessionStateStoreProvider(_args).notifier);
@@ -139,6 +136,9 @@ class ChatScreenController extends ChangeNotifier {
       fireImmediately: false,
     );
     _initializeControllers(messagingViewModel: args.messagingViewModel);
+    _repositoryRetryHandler =
+        _args.repositoryRetryHandler ??
+        _sessionViewModel.retryRepositoryMessage;
     _sessionViewModel.bindStateStore(_stateStore);
     _retryHelper = ChatRetryHelper(
       ref: ref,
@@ -151,7 +151,7 @@ class ChatScreenController extends ChangeNotifier {
       showSuccess: _showSuccess,
       showError: _showError,
       showInfo: _showInfo,
-      scrollToBottom: scrollToBottom,
+      scrollToBottom: _sessionViewModel.scrollToBottom,
       getMessages: () => state.messages,
       logger: _logger,
       initialCoordinator: args.retryCoordinator,
@@ -266,14 +266,16 @@ class ChatScreenController extends ChangeNotifier {
       chatId: _chatId,
       onScrollToBottom: () => _stateStore.clearNewWhileScrolledUp(),
       onUnreadCountChanged: (count) => _stateStore.setUnreadCount(count),
-      onStateChanged: _syncScrollState,
+      onStateChanged: () => _sessionViewModel.onScrollStateChanged(),
     );
 
     _searchController = ChatSearchController(
       onSearchModeToggled: (isSearchMode) =>
           _stateStore.setSearchMode(isSearchMode),
-      onSearchResultsChanged: _onSearch,
-      onNavigateToResult: _navigateToSearchResult,
+      onSearchResultsChanged: (query, _) =>
+          _sessionViewModel.onSearchResultsChanged(query),
+      onNavigateToResult: (messageIndex) =>
+          _sessionViewModel.onNavigateToSearchResultIndex(messageIndex),
       scrollController: _scrollingController.scrollController,
     );
 
@@ -312,11 +314,30 @@ class ChatScreenController extends ChangeNotifier {
       displayContactNameFn: () => displayContactName,
       getContactPublicKeyFn: () => _contactPublicKey,
       getChatIdFn: () => _chatId,
-      onScrollToBottom: scrollToBottom,
+      onChatIdUpdated: (newChatId) => _chatId = newChatId,
+      onContactPublicKeyUpdated: (newKey) => _cachedContactPublicKey = newKey,
+      onScrollToBottom: () => _scrollingController.scrollToBottom(),
       onShowError: _showError,
       onShowSuccess: _showSuccess,
       onShowInfo: _showInfo,
       isDisposedFn: () => _disposed,
+      onControllersRebound:
+          ({
+            required messagingViewModel,
+            required scrollingController,
+            required searchController,
+            ChatMessagingViewModel? previousMessagingViewModel,
+            chat_controller.ChatScrollingController?
+            previousScrollingController,
+            ChatSearchController? previousSearchController,
+          }) => _handleControllersRebound(
+            messagingViewModel: messagingViewModel,
+            scrollingController: scrollingController,
+            searchController: searchController,
+            previousMessagingViewModel: previousMessagingViewModel,
+            previousScrollingController: previousScrollingController,
+            previousSearchController: previousSearchController,
+          ),
       // Phase 6B: Wire up callbacks for message listener management
       getConnectionServiceFn: () => ref.read(connectionServiceProvider),
       getPersistentChatManagerFn: () => _persistentChatManager,
@@ -472,7 +493,7 @@ class ChatScreenController extends ChangeNotifier {
     _setupMeshNetworking();
     _setupDeliveryListener();
     _sessionLifecycle.ensureRetryCoordinator();
-    _setupSecurityStateListener();
+    _setupContactRequestHandling();
     _initialized = true;
   }
 
@@ -498,13 +519,44 @@ class ChatScreenController extends ChangeNotifier {
     });
   }
 
-  void _syncScrollState() {
-    // Phase 6A: Delegate to ViewModel
-    final currentState = _stateStore.state;
-    if (currentState != null) {
-      final newState = _sessionViewModel.syncScrollState(currentState);
-      _stateStore.setMessages(newState.messages); // Sync the full state
+  void _handleControllersRebound({
+    required ChatMessagingViewModel messagingViewModel,
+    required chat_controller.ChatScrollingController scrollingController,
+    required ChatSearchController searchController,
+    ChatMessagingViewModel? previousMessagingViewModel,
+    chat_controller.ChatScrollingController? previousScrollingController,
+    ChatSearchController? previousSearchController,
+  }) {
+    final scrollChanged =
+        previousScrollingController != null &&
+        previousScrollingController != scrollingController;
+    final searchChanged =
+        previousSearchController != null &&
+        previousSearchController != searchController;
+    final messagingChanged =
+        previousMessagingViewModel != null &&
+        previousMessagingViewModel != messagingViewModel;
+
+    _messagingViewModel = messagingViewModel;
+    _scrollingController = scrollingController;
+    _searchController = searchController;
+
+    if (!scrollChanged && !searchChanged && !messagingChanged) {
+      return;
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      if (searchChanged) {
+        previousSearchController!.clear();
+      }
+      if (scrollChanged) {
+        previousScrollingController!.dispose();
+      }
+      if (messagingChanged) {
+        previousMessagingViewModel!.dispose();
+      }
+    });
   }
 
   Future<void> _logChatOpenState() async {
@@ -547,7 +599,6 @@ class ChatScreenController extends ChangeNotifier {
     final connectionInfo = ref.read(connectionInfoProvider).value;
     if (connectionInfo?.isConnected == true) {
       _setupMessageListener();
-      _setupContactRequestListener();
     }
   }
 
@@ -602,28 +653,24 @@ class ChatScreenController extends ChangeNotifier {
 
   void _updateMessageStatus(String messageId, MessageStatus newStatus) {
     // Phase 6A: Delegate to ViewModel
-    final currentState = _stateStore.state;
-    if (currentState != null) {
-      final newState = _sessionViewModel.applyMessageStatus(
-        currentState,
-        messageId,
-        newStatus,
-      );
-      _stateStore.setMessages(newState.messages);
-    }
+    final currentState = _stateStore.current;
+    final newState = _sessionViewModel.applyMessageStatus(
+      currentState,
+      messageId,
+      newStatus,
+    );
+    _stateStore.setMessages(newState.messages);
   }
 
   @visibleForTesting
   void applyMessageUpdate(Message updatedMessage) {
     // Phase 6A: Delegate to ViewModel
-    final currentState = _stateStore.state;
-    if (currentState != null) {
-      final newState = _sessionViewModel.applyMessageUpdate(
-        currentState,
-        updatedMessage,
-      );
-      _stateStore.setMessages(newState.messages);
-    }
+    final currentState = _stateStore.current;
+    final newState = _sessionViewModel.applyMessageUpdate(
+      currentState,
+      updatedMessage,
+    );
+    _stateStore.setMessages(newState.messages);
   }
 
   void handleMeshInitializationStatusChange(
@@ -639,13 +686,17 @@ class ChatScreenController extends ChangeNotifier {
     );
   }
 
-  void _setupSecurityStateListener() {
-    final connectionService = ref.read(connectionServiceProvider);
-    connectionService.setContactRequestCompletedListener((success) {
-      if (success && securityStateKey != null) {
-        ref.invalidate(securityStateProvider(securityStateKey));
-      }
-    });
+  void _setupContactRequestHandling() {
+    _sessionLifecycle.setupContactRequestHandling(
+      context: context,
+      mounted: () => context.mounted,
+      onSecurityStateInvalidate: () {
+        final key = securityStateKey;
+        if (key != null) {
+          ref.invalidate(securityStateProvider(key));
+        }
+      },
+    );
   }
 
   Future<void> userRequestedPairing() async {
@@ -678,77 +729,6 @@ class ChatScreenController extends ChangeNotifier {
   Future<void> _autoRetryFailedMessages() async {
     // Phase 6A: Delegate to ViewModel
     await _sessionViewModel.autoRetryFailedMessages();
-  }
-
-  Future<void> _retryRepositoryMessage(Message message) async {
-    try {
-      final retryMessage = message.copyWith(status: MessageStatus.sending);
-      await messageRepository.updateMessage(retryMessage);
-      _stateStore.updateMessage(retryMessage);
-
-      bool success = false;
-      final connectionInfo = ref.read(connectionInfoProvider).value;
-      final isConnected = connectionInfo?.isConnected ?? false;
-      final isReady = connectionInfo?.isReady ?? false;
-
-      try {
-        final router = MessageRouter.instance;
-        final result = await router.sendMessage(
-          content: message.content,
-          recipientId: _contactPublicKey ?? _chatId,
-          messageId: message.id,
-          recipientName: displayContactName,
-        );
-
-        success = result.isSentDirectly;
-
-        if (result.isQueued) {
-          _showInfo('Message queued - will send when peer comes online');
-        }
-      } catch (e) {
-        if (isConnected && isReady) {
-          final connectionService = ref.read(connectionServiceProvider);
-
-          if (config.isCentralMode) {
-            success = await connectionService.sendMessage(
-              message.content,
-              messageId: message.id,
-            );
-          } else {
-            success = await connectionService.sendPeripheralMessage(
-              message.content,
-              messageId: message.id,
-            );
-          }
-        }
-      }
-
-      if (!success && _contactPublicKey != null) {
-        try {
-          final meshController = ref.read(meshNetworkingControllerProvider);
-          final meshResult = await meshController.sendMeshMessage(
-            content: message.content,
-            recipientPublicKey: _contactPublicKey!,
-          );
-
-          if (meshResult.isSuccess) {
-            success = true;
-          }
-        } catch (_) {}
-      }
-
-      final newStatus = success
-          ? MessageStatus.delivered
-          : MessageStatus.failed;
-      final updatedMessage = retryMessage.copyWith(status: newStatus);
-      await messageRepository.updateMessage(updatedMessage);
-      _stateStore.updateMessage(updatedMessage);
-    } catch (e) {
-      final failedAgain = message.copyWith(status: MessageStatus.failed);
-      await messageRepository.updateMessage(failedAgain);
-      _stateStore.updateMessage(failedAgain);
-      rethrow;
-    }
   }
 
   Future<void> _fallbackRetryFailedMessages() =>
@@ -798,95 +778,29 @@ class ChatScreenController extends ChangeNotifier {
     await _sessionViewModel.deleteMessage(messageId, deleteForEveryone);
   }
 
-  void scrollToBottom() {
-    _scrollingController.scrollToBottom();
-  }
-
   String _calculateInitialChatId() {
-    // Phase 6A: Delegate to ViewModel
-    return _sessionViewModel.calculateInitialChatId();
+    // Fallback calculation that does not depend on ViewModel initialization
+    if (config.isRepositoryMode && config.chatId != null) {
+      return config.chatId!;
+    }
+
+    final explicitKey = config.contactPublicKey;
+    if (explicitKey != null && explicitKey.isNotEmpty) {
+      return ChatUtils.generateChatId(explicitKey);
+    }
+
+    final connectionService = ref.read(connectionServiceProvider);
+    final sessionId = connectionService.currentSessionId;
+    if (sessionId != null && sessionId.isNotEmpty) {
+      return ChatUtils.generateChatId(sessionId);
+    }
+
+    // Last resort: empty string (will be set once identity is resolved)
+    return '';
   }
 
   Future<void> handleIdentityReceived() async {
-    final connectionService = ref.read(connectionServiceProvider);
-    final otherPersistentId = connectionService.theirPersistentPublicKey;
-    if (otherPersistentId == null) return;
-
-    final newChatId = ChatUtils.generateChatId(otherPersistentId);
-    if (newChatId == _chatId) return;
-
-    final oldChatId = _chatId;
-    final messagesToMigrate = await messageRepository.getMessages(oldChatId);
-    if (messagesToMigrate.isNotEmpty) {
-      await _migrateMessages(oldChatId, newChatId);
-    }
-    _chatId = newChatId;
-    _cachedContactPublicKey = otherPersistentId;
-    _messagingViewModel = ChatMessagingViewModel(
-      chatId: _chatId,
-      contactPublicKey: otherPersistentId,
-      messageRepository: messageRepository,
-      contactRepository: contactRepository,
-    );
-
-    // Defer disposing the old scroll/search controllers until after the next
-    // frame so the ListView has detached from the old ScrollController. This
-    // avoids "ScrollController was disposed with one or more ScrollPositions
-    // attached" when identity swap happens mid-frame.
-    final oldScrollingController = _scrollingController;
-    final oldSearchController = _searchController;
-
-    _scrollingController = chat_controller.ChatScrollingController(
-      chatsRepository: chatsRepository,
-      chatId: _chatId,
-      onScrollToBottom: () => _stateStore.clearNewWhileScrolledUp(),
-      onUnreadCountChanged: (count) => _stateStore.setUnreadCount(count),
-      onStateChanged: _syncScrollState,
-    );
-
-    _searchController = ChatSearchController(
-      onSearchModeToggled: (isSearchMode) =>
-          _stateStore.setSearchMode(isSearchMode),
-      onSearchResultsChanged: _onSearch,
-      onNavigateToResult: _navigateToSearchResult,
-      scrollController: _scrollingController.scrollController,
-    );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_disposed) return;
-      oldSearchController.clear();
-      oldScrollingController.dispose();
-    });
-
-    _persistentChatManager?.unregisterChatScreen(oldChatId);
-    _persistentChatManager?.registerChatScreen(
-      _chatId,
-      _handlePersistentMessage,
-    );
-
-    _stateStore.setMessages([]);
-    await _loadMessages();
-  }
-
-  Future<void> _migrateMessages(String oldChatId, String newChatId) async {
-    final oldMessages = await messageRepository.getMessages(oldChatId);
-
-    for (final message in oldMessages) {
-      final migratedMessage = Message(
-        id: message.id,
-        chatId: newChatId,
-        content: message.content,
-        timestamp: message.timestamp,
-        isFromMe: message.isFromMe,
-        status: message.status,
-      );
-      await messageRepository.saveMessage(migratedMessage);
-    }
-
-    await messageRepository.clearMessages(oldChatId);
-    _logger.info(
-      'Migrated ${oldMessages.length} messages from $oldChatId to $newChatId',
-    );
+    await _sessionViewModel.handleIdentityReceived();
   }
 
   void handleConnectionChange(
@@ -905,54 +819,6 @@ class ChatScreenController extends ChangeNotifier {
     );
   }
 
-  void _setupContactRequestListener() {
-    final connectionService = ref.read(connectionServiceProvider);
-
-    connectionService.setContactRequestCompletedListener((success) {
-      if (success && securityStateKey != null) {
-        ref.invalidate(securityStateProvider(securityStateKey));
-      }
-    });
-
-    connectionService.setContactRequestReceivedListener((
-      publicKey,
-      displayName,
-    ) {
-      if (!context.mounted) return;
-
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Contact Request'),
-          content: Text(
-            '$displayName wants to add you as a trusted contact. This enables enhanced encryption.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                connectionService.rejectContactRequest();
-                Navigator.pop(dialogContext);
-              },
-              child: const Text('Decline'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                Navigator.pop(dialogContext);
-                await connectionService.acceptContactRequest();
-              },
-              child: const Text('Accept'),
-            ),
-          ],
-        ),
-      );
-    });
-
-    connectionService.setAsymmetricContactListener((publicKey, displayName) {
-      handleAsymmetricContact(publicKey, displayName);
-    });
-  }
-
   Future<void> handleAsymmetricContact(
     String publicKey,
     String displayName,
@@ -962,21 +828,6 @@ class ChatScreenController extends ChangeNotifier {
 
   Future<void> addAsVerifiedContact(String publicKey, String displayName) =>
       _sessionLifecycle.addAsVerifiedContact(publicKey, displayName);
-
-  void toggleSearchMode() {
-    _sessionViewModel.toggleSearchMode();
-  }
-
-  void _onSearch(String query, List<SearchResult> results) {
-    _sessionViewModel.updateSearchQuery(query);
-  }
-
-  void _navigateToSearchResult(int messageIndex) {
-    _sessionViewModel.navigateToSearchResult(
-      messageIndex,
-      state.messages.length,
-    );
-  }
 
   Future<void> manualReconnection() => _manualReconnection();
 

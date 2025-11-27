@@ -18,11 +18,22 @@ class DeviceDeduplicationManager {
   static const _noHintValue = 'NO_HINT';
 
   static final Map<String, DiscoveredDevice> _uniqueDevices = {};
-  static final StreamController<Map<String, DiscoveredDevice>>
-  _devicesController = StreamController.broadcast();
+  static final Set<void Function(Map<String, DiscoveredDevice>)>
+  _deviceListeners = {};
 
   static Stream<Map<String, DiscoveredDevice>> get uniqueDevicesStream =>
-      _devicesController.stream;
+      Stream<Map<String, DiscoveredDevice>>.multi((controller) {
+        controller.add(Map.from(_uniqueDevices));
+
+        void listener(Map<String, DiscoveredDevice> devices) {
+          controller.add(devices);
+        }
+
+        _deviceListeners.add(listener);
+        controller.onCancel = () {
+          _deviceListeners.remove(listener);
+        };
+      });
 
   /// Expose the placeholder used when no hint payload is present.
   static String get noHintValue => _noHintValue;
@@ -100,6 +111,7 @@ class DeviceDeduplicationManager {
         '✅ [DEDUP] Device $deviceIdShort... added to unique devices map - calling _verifyContactAsync()',
       );
       _verifyContactAsync(newDevice); // This will trigger auto-connect
+      _notifyListeners();
     } else {
       // ✅ EXISTING DEVICE - Update metadata
       _logger.fine(
@@ -147,9 +159,10 @@ class DeviceDeduplicationManager {
           );
         }
       }
+
+      _notifyListeners();
     }
 
-    _devicesController.add(Map.from(_uniqueDevices));
     _logger.fine(
       '📡 [DEDUP] Emitted updated device map (${_uniqueDevices.length} unique devices)',
     );
@@ -195,7 +208,7 @@ class DeviceDeduplicationManager {
       }
 
       await _triggerAutoConnect(device, contactName);
-      _devicesController.add(Map.from(_uniqueDevices));
+      _notifyListeners();
       _logger.info('✅ [VERIFY-P1] Verification complete - device map updated');
       return;
     }
@@ -227,7 +240,7 @@ class DeviceDeduplicationManager {
           }
 
           await _triggerAutoConnect(device, contactName);
-          _devicesController.add(Map.from(_uniqueDevices));
+          _notifyListeners();
           _logger.info(
             '✅ [VERIFY-P2] Verification complete - device map updated',
           );
@@ -252,7 +265,7 @@ class DeviceDeduplicationManager {
     _logger.info('👤 [VERIFY-P4] Unknown device: $deviceId... (no hint match)');
     _logger.info('⏭️ [VERIFY-P4] Auto-connect skipped for unknown device');
 
-    _devicesController.add(Map.from(_uniqueDevices));
+    _notifyListeners();
     _logger.info('✅ [VERIFY-P4] Verification complete - device map updated');
   }
 
@@ -321,7 +334,7 @@ class DeviceDeduplicationManager {
   static void removeDevice(String deviceId) {
     final removed = _uniqueDevices.remove(deviceId);
     if (removed != null) {
-      _devicesController.add(Map.from(_uniqueDevices));
+      _notifyListeners();
       Logger(
         'DeviceDeduplicationManager',
       ).fine('🗑️ Removed device: $deviceId');
@@ -398,18 +411,16 @@ class DeviceDeduplicationManager {
     _uniqueDevices.removeWhere(
       (deviceId, device) => device.lastSeen.isBefore(cutoff),
     );
-    _devicesController.add(Map.from(_uniqueDevices));
+    _notifyListeners();
   }
 
   static void clearAll() {
     _uniqueDevices.clear();
-    _devicesController.add({});
+    _notifyListeners();
   }
 
   static void dispose() {
-    if (!_devicesController.isClosed) {
-      _devicesController.close();
-    }
+    _deviceListeners.clear();
     clearAll();
   }
 
@@ -424,7 +435,18 @@ class DeviceDeduplicationManager {
     _uniqueDevices.removeWhere(
       (deviceId, device) => device.lastSeen.isBefore(cutoff),
     );
-    _devicesController.add(Map.from(_uniqueDevices));
+    _notifyListeners();
+  }
+
+  static void _notifyListeners() {
+    final snapshot = Map<String, DiscoveredDevice>.from(_uniqueDevices);
+    for (final listener in List.of(_deviceListeners)) {
+      try {
+        listener(snapshot);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying dedup listeners: $e', e, stackTrace);
+      }
+    }
   }
 }
 

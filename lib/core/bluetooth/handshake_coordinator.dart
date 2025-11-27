@@ -47,8 +47,20 @@ class HandshakeCoordinator {
 
   // State management
   ConnectionPhase _phase = ConnectionPhase.bleConnected;
-  final _phaseController = StreamController<ConnectionPhase>.broadcast();
-  Stream<ConnectionPhase> get phaseStream => _phaseController.stream;
+  final Set<void Function(ConnectionPhase)> _phaseListeners = {};
+  Stream<ConnectionPhase> get phaseStream =>
+      Stream<ConnectionPhase>.multi((controller) {
+        controller.add(_phase);
+
+        void listener(ConnectionPhase phase) {
+          controller.add(phase);
+        }
+
+        _phaseListeners.add(listener);
+        controller.onCancel = () {
+          _phaseListeners.remove(listener);
+        };
+      });
   ConnectionPhase get currentPhase => _phase;
   final HandshakePeerState _peerState = HandshakePeerState();
 
@@ -213,7 +225,7 @@ class HandshakeCoordinator {
   Future<void> _advanceToReadySent() async {
     _logger.info('📤 Phase 0: Sending connectionReady');
     _phase = ConnectionPhase.readySent;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     final message = ProtocolMessage.connectionReady(
       deviceId: _myPublicKey,
@@ -265,7 +277,7 @@ class HandshakeCoordinator {
   Future<void> _advanceToReadyComplete() async {
     _logger.info('✅ Phase 0 Complete: Both devices ready');
     _phase = ConnectionPhase.readyComplete;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     // Only initiator sends identity first, responder waits
     if (_isInitiator) {
@@ -284,7 +296,7 @@ class HandshakeCoordinator {
       '📤 Phase 1: Sending identity (ephemeral ID only - privacy-preserving)',
     );
     _phase = ConnectionPhase.identitySent;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     // SECURITY: Send ephemeral ID, NOT persistent public key
     // Persistent keys are only exchanged AFTER pairing succeeds
@@ -346,7 +358,7 @@ class HandshakeCoordinator {
   Future<void> _advanceToIdentityComplete() async {
     _logger.info('✅ Phase 1 Complete: Identity exchange done');
     _phase = ConnectionPhase.identityComplete;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     // ✅ FIX: Only initiator (central) sends noiseHandshake1
     // Responder (peripheral) waits to receive it
@@ -364,7 +376,7 @@ class HandshakeCoordinator {
   Future<void> _advanceToNoiseHandshake1Sent() async {
     _logger.info('📤 Phase 1.5: Initiating Noise handshake');
     _phase = ConnectionPhase.noiseHandshake1Sent;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     try {
       final plan = await _noiseDriver.prepareHandshake1(
@@ -436,7 +448,7 @@ class HandshakeCoordinator {
 
       // Send message 2
       _phase = ConnectionPhase.noiseHandshake2Sent;
-      _phaseController.add(_phase);
+      _emitPhase(_phase);
 
       final response = ProtocolMessage.noiseHandshake2(
         handshakeData: result.message2,
@@ -554,7 +566,7 @@ class HandshakeCoordinator {
   Future<void> _advanceToNoiseHandshakeComplete() async {
     _logger.info('✅ Phase 1.5 Complete: Noise session established');
     _phase = ConnectionPhase.noiseHandshakeComplete;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     // FIX-008: Wait for peer's static public key with retry logic
     // This prevents Phase 2 from starting before Noise session is fully ready
@@ -666,7 +678,7 @@ class HandshakeCoordinator {
   Future<void> _advanceToContactStatusSent() async {
     _logger.info('📤 Phase 2: Sending contact status');
     _phase = ConnectionPhase.contactStatusSent;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     // SECURITY NOTE: We only have their ephemeral ID at this point.
     // Contact status will be determined AFTER pairing when we exchange persistent keys.
@@ -774,7 +786,7 @@ class HandshakeCoordinator {
   Future<void> _advanceToContactStatusComplete() async {
     _logger.info('✅ Phase 2 Complete: Contact status exchange done');
     _phase = ConnectionPhase.contactStatusComplete;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     // Complete the handshake
     await _advanceToComplete();
@@ -791,7 +803,7 @@ class HandshakeCoordinator {
     _timeoutManager.cancelTimeout();
 
     _phase = ConnectionPhase.complete;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     // Notify: Handshake complete (resume health checks)
     onHandshakeStateChanged?.call(false);
@@ -850,7 +862,7 @@ class HandshakeCoordinator {
     _timeoutManager.cancelTimeout();
 
     _phase = ConnectionPhase.failed;
-    _phaseController.add(_phase);
+    _emitPhase(_phase);
 
     // Notify: Handshake failed (resume health checks)
     onHandshakeStateChanged?.call(false);
@@ -930,6 +942,7 @@ class HandshakeCoordinator {
 
       // Reset to identity complete and retry
       _phase = ConnectionPhase.identityComplete;
+      _emitPhase(_phase);
       _peerState.markAttemptedPattern(NoisePattern.xx);
 
       await _advanceToNoiseHandshake1Sent();
@@ -945,7 +958,7 @@ class HandshakeCoordinator {
 
   void dispose() {
     _timeoutManager.dispose();
-    _phaseController.close();
+    _phaseListeners.clear();
   }
 
   // ========== GETTERS ==========
@@ -959,4 +972,14 @@ class HandshakeCoordinator {
   bool get isComplete => _phase == ConnectionPhase.complete;
   bool get hasFailed =>
       _phase == ConnectionPhase.failed || _phase == ConnectionPhase.timeout;
+
+  void _emitPhase(ConnectionPhase phase) {
+    for (final listener in List.of(_phaseListeners)) {
+      try {
+        listener(phase);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying phase listener: $e', e, stackTrace);
+      }
+    }
+  }
 }

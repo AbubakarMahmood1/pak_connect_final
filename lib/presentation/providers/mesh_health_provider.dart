@@ -8,11 +8,13 @@ final _logger = Logger('MeshHealthProvider');
 
 /// ✅ Phase 6D: Riverpod provider for MeshNetworkHealthMonitor
 /// Manages lifecycle and provides Riverpod access to mesh health monitoring
-final meshHealthMonitorProvider = Provider<MeshNetworkHealthMonitor>((ref) {
-  final monitor = getIt<MeshNetworkHealthMonitor>();
-  _logger.fine('✅ MeshNetworkHealthMonitor provider accessed');
-  return monitor;
-});
+final meshHealthMonitorProvider =
+    Provider.autoDispose<MeshNetworkHealthMonitor>((ref) {
+      final monitor = getIt<MeshNetworkHealthMonitor>();
+      _logger.fine('✅ MeshNetworkHealthMonitor provider accessed');
+      ref.onDispose(monitor.dispose);
+      return monitor;
+    });
 
 /// ✅ Phase 6D: StreamProvider for mesh network status
 /// Emits mesh connectivity and relay status changes

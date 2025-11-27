@@ -59,8 +59,8 @@ class BLEHandshakeService implements IBLEHandshakeService {
     String? noiseKey,
   )
   _onHandshakeCompleteCallback;
-  final StreamController<SpyModeInfo> _spyModeDetectedController;
-  final StreamController<String> _identityRevealedController;
+  final Set<void Function(SpyModeInfo)> _spyModeListeners = {};
+  final Set<void Function(String)> _identityRevealedListeners = {};
   final IntroHintRepository _introHintRepo;
   final List<dynamic> _messageBuffer; // List<_BufferedMessage> from facade
   final bool Function()? _connectionStatusProvider;
@@ -68,12 +68,23 @@ class BLEHandshakeService implements IBLEHandshakeService {
   // ===== Handshake State =====
   HandshakeCoordinator? _handshakeCoordinator;
   StreamSubscription<ConnectionPhase>? _handshakePhaseSubscription;
-  final _handshakePhaseController =
-      StreamController<ConnectionPhase>.broadcast();
+  final Set<void Function(ConnectionPhase)> _handshakePhaseListeners = {};
 
   @override
   Stream<ConnectionPhase> get handshakePhaseStream =>
-      _handshakePhaseController.stream;
+      Stream<ConnectionPhase>.multi((controller) {
+        final phase = _handshakeCoordinator?.currentPhase;
+        if (phase != null) controller.add(phase);
+
+        void listener(ConnectionPhase newPhase) {
+          controller.add(newPhase);
+        }
+
+        _handshakePhaseListeners.add(listener);
+        controller.onCancel = () {
+          _handshakePhaseListeners.remove(listener);
+        };
+      });
 
   BLEHandshakeService({
     required IBLEStateManagerFacade stateManager,
@@ -97,8 +108,6 @@ class BLEHandshakeService implements IBLEHandshakeService {
       String? noiseKey,
     )
     onHandshakeCompleteCallback,
-    required StreamController<SpyModeInfo> spyModeDetectedController,
-    required StreamController<String> identityRevealedController,
     required IntroHintRepository introHintRepo,
     required List<dynamic> messageBuffer,
     bool Function()? connectionStatusProvider,
@@ -112,8 +121,6 @@ class BLEHandshakeService implements IBLEHandshakeService {
        _processPendingMessages = processPendingMessages,
        _startGossipSync = startGossipSync,
        _onHandshakeCompleteCallback = onHandshakeCompleteCallback,
-       _spyModeDetectedController = spyModeDetectedController,
-       _identityRevealedController = identityRevealedController,
        _introHintRepo = introHintRepo,
        _messageBuffer = messageBuffer,
        _connectionStatusProvider = connectionStatusProvider;
@@ -195,7 +202,17 @@ class BLEHandshakeService implements IBLEHandshakeService {
       _handshakePhaseSubscription = _handshakeCoordinator!.phaseStream.listen((
         phase,
       ) async {
-        _handshakePhaseController.add(phase);
+        for (final listener in List.of(_handshakePhaseListeners)) {
+          try {
+            listener(phase);
+          } catch (e, stackTrace) {
+            _logger.warning(
+              'Error notifying handshake phase listener: $e',
+              e,
+              stackTrace,
+            );
+          }
+        }
         _logger.info('🤝 Handshake phase: $phase');
         _updateConnectionInfo(statusMessage: _getPhaseMessage(phase));
 
@@ -277,6 +294,11 @@ class BLEHandshakeService implements IBLEHandshakeService {
       _handshakeCoordinator!.dispose();
       _handshakeCoordinator = null;
     }
+
+    // Clear listeners to avoid leaks between sessions
+    _handshakePhaseListeners.clear();
+    _spyModeListeners.clear();
+    _identityRevealedListeners.clear();
   }
 
   @override
@@ -366,12 +388,60 @@ class BLEHandshakeService implements IBLEHandshakeService {
 
   @override
   Stream<SpyModeInfo> get spyModeDetectedStream {
-    return _spyModeDetectedController.stream;
+    return Stream<SpyModeInfo>.multi((controller) {
+      void listener(SpyModeInfo info) {
+        controller.add(info);
+      }
+
+      _spyModeListeners.add(listener);
+      controller.onCancel = () {
+        _spyModeListeners.remove(listener);
+      };
+    });
   }
 
   @override
   Stream<String> get identityRevealedStream {
-    return _identityRevealedController.stream;
+    return Stream<String>.multi((controller) {
+      void listener(String identity) {
+        controller.add(identity);
+      }
+
+      _identityRevealedListeners.add(listener);
+      controller.onCancel = () {
+        _identityRevealedListeners.remove(listener);
+      };
+    });
+  }
+
+  @override
+  void emitSpyModeDetected(SpyModeInfo info) {
+    _emitSpyMode(info);
+  }
+
+  @override
+  void emitIdentityRevealed(String contactId) {
+    _emitIdentity(contactId);
+  }
+
+  void _emitSpyMode(SpyModeInfo info) {
+    for (final listener in List.of(_spyModeListeners)) {
+      try {
+        listener(info);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying spy mode listener: $e', e, stackTrace);
+      }
+    }
+  }
+
+  void _emitIdentity(String identity) {
+    for (final listener in List.of(_identityRevealedListeners)) {
+      try {
+        listener(identity);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying identity listener: $e', e, stackTrace);
+      }
+    }
   }
 
   @override

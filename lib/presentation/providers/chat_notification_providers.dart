@@ -46,16 +46,17 @@ final messageUpdatesStreamProvider = StreamProvider<MessageUpdateEvent>((ref) {
 
 // Phase 6D: NetworkTopologyAnalyzer provider wrapper (M3)
 /// Provides access to network topology analyzer stream for Riverpod lifecycle management
-final networkTopologyAnalyzerUpdatesProvider = StreamProvider<NetworkTopology>((
-  ref,
-) {
-  final analyzer = NetworkTopologyAnalyzer();
-  return analyzer.topologyUpdates;
-});
+final networkTopologyAnalyzerUpdatesProvider =
+    StreamProvider.autoDispose<NetworkTopology>((ref) {
+      final analyzer = NetworkTopologyAnalyzer();
+      ref.onDispose(analyzer.dispose);
+      return analyzer.topologyUpdates;
+    });
 
 // Phase 6D: PinningService provider wrapper (M4)
 /// Provides access to pinning service message updates for Riverpod lifecycle management
-final pinningServiceUpdatesProvider = StreamProvider<void>((ref) {
+final pinningServiceUpdatesProvider = StreamProvider.autoDispose<void>((ref) {
   final service = PinningService();
+  ref.onDispose(() => unawaited(service.dispose()));
   return service.messageUpdates;
 });

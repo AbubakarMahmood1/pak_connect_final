@@ -1173,6 +1173,13 @@ final class _StubHandshakeService implements IBLEHandshakeService {
   Stream<String> get identityRevealedStream => _identityController.stream;
 
   @override
+  void emitSpyModeDetected(SpyModeInfo info) => _spyModeController.add(info);
+
+  @override
+  void emitIdentityRevealed(String contactId) =>
+      _identityController.add(contactId);
+
+  @override
   Stream<ConnectionPhase> get handshakePhaseStream => _phaseController.stream;
 
   @override

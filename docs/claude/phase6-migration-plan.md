@@ -4,7 +4,8 @@
 
 **Status**: Codex assessment CONFIRMED via code audit
 - ChatScreen migration: 33% complete (564/1,693 LOC extracted)
-- StreamController usage: 147 occurrences across 33 files (high)
+- StreamController usage: **0 in core/app layers** (BLE stack, HomeScreen, Pinning all migrated)
+  - Remaining: archive providers wrap singleton streams via `StreamProvider` (no manual controllers)
 
 **Goal**: Complete ChatScreen ViewModel/Lifecycle extraction + reduce StreamController usage to <10 justified instances
 

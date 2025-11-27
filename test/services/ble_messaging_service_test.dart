@@ -3,8 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'dart:async';
-
 import 'package:pak_connect/data/services/ble_messaging_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
@@ -31,7 +29,6 @@ void main() {
     late MockContactRepository mockContactRepository;
     late MockCentralManager mockCentralManager;
     late MockPeripheralManager mockPeripheralManager;
-    late StreamController<String> messagesController;
     late List<LogRecord> logRecords;
     late Set<Pattern> allowedSevere;
 
@@ -46,7 +43,6 @@ void main() {
       mockContactRepository = MockContactRepository();
       mockCentralManager = MockCentralManager();
       mockPeripheralManager = MockPeripheralManager();
-      messagesController = StreamController<String>.broadcast();
 
       // Setup default mocks
       when(mockStateManager.myUserName).thenReturn('TestUser');
@@ -67,7 +63,6 @@ void main() {
         contactRepository: mockContactRepository,
         getCentralManager: () => mockCentralManager as dynamic,
         getPeripheralManager: () => mockPeripheralManager as dynamic,
-        messagesController: messagesController,
         getConnectedCentral: () => null,
         getPeripheralMessageCharacteristic: () => null,
         getPeripheralMtuReady: () => false,
@@ -78,8 +73,6 @@ void main() {
     void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
-      messagesController.close();
-
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
       final unexpected = severe.where(
         (l) => !allowedSevere.any(
@@ -125,12 +118,12 @@ void main() {
 
     test('receivedMessagesStream is connected to controller', () {
       expect(service.receivedMessagesStream, isNotNull);
-      expect(service.receivedMessagesStream, equals(messagesController.stream));
+      expect(service.receivedMessagesStream, isA<Stream<String>>());
     });
 
     test('Messages can be published to the stream', () async {
       expect(service.receivedMessagesStream, emits('Hello World'));
-      messagesController.add('Hello World');
+      service.debugEmitReceivedMessage('Hello World');
     });
 
     // =========================================================================
@@ -185,7 +178,6 @@ void main() {
         contactRepository: mockContactRepository,
         getCentralManager: () => mockCentralManager as dynamic,
         getPeripheralManager: () => mockPeripheralManager as dynamic,
-        messagesController: messagesController,
         getConnectedCentral: () => null,
         getPeripheralMessageCharacteristic: () => null,
         getPeripheralMtuReady: () => false,
@@ -235,7 +227,6 @@ void main() {
           contactRepository: mockContactRepository,
           getCentralManager: () => mockCentralManager as dynamic,
           getPeripheralManager: () => mockPeripheralManager as dynamic,
-          messagesController: messagesController,
           getConnectedCentral: () => null,
           getPeripheralMessageCharacteristic: () => null,
           getPeripheralMtuReady: () => false,

@@ -66,14 +66,10 @@ class AppCore {
   bool _isInitialized = false;
   Completer<void>? _initializationCompleter;
   DateTime? _initializationTime;
-  StreamController<AppStatus>? _statusController;
+  final Set<void Function(AppStatus)> _statusListeners = {};
   @visibleForTesting
   static Future<void> Function()? initializationOverride;
-
-  AppCore._() {
-    // Initialize the status controller immediately
-    _statusController = StreamController<AppStatus>.broadcast();
-  }
+  AppCore._();
 
   /// Get singleton instance
   static AppCore get instance {
@@ -90,8 +86,18 @@ class AppCore {
       !_initializationCompleter!.isCompleted;
 
   /// Stream of app status changes
-  Stream<AppStatus> get statusStream =>
-      _statusController?.stream ?? Stream.empty();
+  Stream<AppStatus> get statusStream => Stream<AppStatus>.multi((controller) {
+    controller.add(AppStatus.initializing);
+
+    void listener(AppStatus status) {
+      controller.add(status);
+    }
+
+    _statusListeners.add(listener);
+    controller.onCancel = () {
+      _statusListeners.remove(listener);
+    };
+  });
 
   /// Initialize the entire application core
   Future<void> initialize() async {
@@ -117,9 +123,6 @@ class AppCore {
     try {
       _logger.info('🚀 Starting application core initialization...');
       final startTime = DateTime.now();
-
-      // Ensure status controller exists
-      _statusController ??= StreamController<AppStatus>.broadcast();
 
       _emitStatus(AppStatus.initializing);
 
@@ -642,13 +645,13 @@ class AppCore {
 
   /// Emit app status change
   void _emitStatus(AppStatus status) {
-    if (_statusController != null && !_statusController!.isClosed) {
-      _statusController!.add(status);
-      _logger.info('📡 Status emitted: $status');
-    } else {
-      _logger.warning(
-        'Status controller is null or closed, cannot emit status: $status',
-      );
+    for (final listener in List.of(_statusListeners)) {
+      try {
+        listener(status);
+        _logger.info('📡 Status emitted: $status');
+      } catch (e, stackTrace) {
+        _logger.warning('Status listener threw: $e', e, stackTrace);
+      }
     }
   }
 
@@ -692,7 +695,7 @@ class AppCore {
         _logger.warning('Error disposing notification service: $e');
       }
 
-      _statusController?.close();
+      _statusListeners.clear();
 
       _logger.info('App core disposed');
     } catch (e) {
@@ -702,7 +705,6 @@ class AppCore {
 
   @visibleForTesting
   static void resetForTesting() {
-    _instance?._statusController?.close();
     _instance = null;
   }
 }
