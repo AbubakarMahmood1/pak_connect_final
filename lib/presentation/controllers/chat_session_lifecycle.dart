@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
@@ -20,6 +21,7 @@ import '../controllers/chat_retry_helper.dart';
 import '../controllers/chat_pairing_dialog_controller.dart';
 import '../models/chat_ui_state.dart';
 import '../viewmodels/chat_session_view_model.dart';
+import '../widgets/contact_request_dialog.dart';
 
 /// Planned lifecycle manager for ChatScreen orchestration.
 /// Responsible for subscriptions, buffering, retry coordination, pairing hooks,
@@ -270,6 +272,70 @@ class ChatSessionLifecycle {
     }
   }
 
+  /// Retry sending a repository-backed message using router → direct → mesh.
+  Future<bool> sendRepositoryMessage({
+    required Message message,
+    required String fallbackRecipientId,
+    required String displayContactName,
+    String? contactPublicKey,
+    void Function(String message)? onInfoMessage,
+  }) async {
+    bool success = false;
+
+    try {
+      if (messageRouter != null) {
+        final routeResult = await messageRouter!.sendMessage(
+          content: message.content,
+          recipientId: contactPublicKey ?? fallbackRecipientId,
+          messageId: message.id,
+          recipientName: displayContactName,
+        );
+
+        success = routeResult.isSentDirectly;
+
+        if (routeResult.isQueued) {
+          onInfoMessage?.call(
+            'Message queued - will send when peer comes online',
+          );
+        }
+      }
+    } catch (e) {
+      _logger.fine('MessageRouter send failed; falling back: $e');
+    }
+
+    final connectionInfo = connectionService.currentConnectionInfo;
+    final isConnected = connectionInfo.isConnected;
+    final isReady = connectionInfo.isReady;
+
+    if (!success && isConnected && isReady) {
+      try {
+        if (connectionService.isPeripheralMode) {
+          success = await connectionService.sendPeripheralMessage(
+            message.content,
+            messageId: message.id,
+          );
+        } else {
+          success = await connectionService.sendMessage(
+            message.content,
+            messageId: message.id,
+          );
+        }
+      } catch (_) {}
+    }
+
+    if (!success && contactPublicKey != null && contactPublicKey.isNotEmpty) {
+      try {
+        final meshResult = await meshService.sendMeshMessage(
+          content: message.content,
+          recipientPublicKey: contactPublicKey,
+        );
+        success = meshResult.isSuccess;
+      } catch (_) {}
+    }
+
+    return success;
+  }
+
   void handleConnectionChange({
     required ConnectionInfo? previous,
     required ConnectionInfo? current,
@@ -399,6 +465,48 @@ class ChatSessionLifecycle {
   ) async {
     if (pairingController == null) return;
     await pairingController!.addAsVerifiedContact(publicKey, displayName);
+  }
+
+  /// Register contact-request listeners and dialog flow in one place.
+  void setupContactRequestHandling({
+    required BuildContext context,
+    required VoidCallback onSecurityStateInvalidate,
+    required bool Function() mounted,
+  }) {
+    connectionService.setContactRequestCompletedListener((success) {
+      if (success) {
+        onSecurityStateInvalidate();
+      }
+    });
+
+    connectionService.setContactRequestReceivedListener((
+      publicKey,
+      displayName,
+    ) {
+      if (!mounted()) return;
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => ContactRequestDialog(
+          senderName: displayName,
+          senderPublicKey: publicKey,
+          onAccept: () async {
+            Navigator.of(dialogContext).pop();
+            await connectionService.acceptContactRequest();
+            onSecurityStateInvalidate();
+          },
+          onReject: () {
+            Navigator.of(dialogContext).pop();
+            connectionService.rejectContactRequest();
+          },
+        ),
+      );
+    });
+
+    connectionService.setAsymmetricContactListener((publicKey, displayName) {
+      unawaited(handleAsymmetricContact(publicKey, displayName));
+    });
   }
 
   /// Register persistent chat listener when available.

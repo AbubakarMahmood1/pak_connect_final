@@ -47,21 +47,21 @@ final archiveSearchServiceProvider = Provider<ArchiveSearchService>((ref) {
 });
 
 /// Archive update events stream (bridged through Riverpod)
-/// ✅ Phase 6: StreamController exposed via StreamProvider for proper lifecycle management
+/// ✅ Phase 6: Archive updates exposed via StreamProvider for proper lifecycle management
 final archiveUpdatesProvider = StreamProvider<ArchiveUpdateEvent>((ref) {
   final service = ref.watch(archiveManagementServiceProvider);
   return service.archiveUpdates;
 });
 
 /// Archive policy update events stream (bridged through Riverpod)
-/// ✅ Phase 6: StreamController exposed via StreamProvider
+/// ✅ Phase 6: Archive policy updates exposed via StreamProvider
 final archivePolicyUpdatesProvider = StreamProvider<ArchivePolicyEvent>((ref) {
   final service = ref.watch(archiveManagementServiceProvider);
   return service.policyUpdates;
 });
 
 /// Archive maintenance events stream (bridged through Riverpod)
-/// ✅ Phase 6: StreamController exposed via StreamProvider
+/// ✅ Phase 6: Archive maintenance updates exposed via StreamProvider
 final archiveMaintenanceUpdatesProvider =
     StreamProvider<ArchiveMaintenanceEvent>((ref) {
       final service = ref.watch(archiveManagementServiceProvider);

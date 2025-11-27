@@ -38,11 +38,14 @@ class ChatSessionViewModel {
     this.displayContactNameFn,
     this.getContactPublicKeyFn,
     this.getChatIdFn,
+    this.onChatIdUpdated,
+    this.onContactPublicKeyUpdated,
     this.onScrollToBottom,
     this.onShowError,
     this.onShowSuccess,
     this.onShowInfo,
     this.isDisposedFn,
+    this.onControllersRebound,
     // Phase 6B: Message listener callbacks
     this.getConnectionServiceFn,
     this.getPersistentChatManagerFn,
@@ -52,9 +55,9 @@ class ChatSessionViewModel {
   final MessageRepository messageRepository;
   final ContactRepository contactRepository;
   final ChatsRepository chatsRepository;
-  final ChatMessagingViewModel messagingViewModel;
-  final chat_controller.ChatScrollingController scrollingController;
-  final ChatSearchController searchController;
+  ChatMessagingViewModel messagingViewModel;
+  chat_controller.ChatScrollingController scrollingController;
+  ChatSearchController searchController;
   final ChatPairingDialogController pairingDialogController;
   final MessageRetryCoordinator? retryCoordinator;
   ChatSessionLifecycle? sessionLifecycle;
@@ -63,11 +66,22 @@ class ChatSessionViewModel {
   final String Function()? displayContactNameFn;
   final String? Function()? getContactPublicKeyFn;
   final String Function()? getChatIdFn;
+  final void Function(String)? onChatIdUpdated;
+  final void Function(String?)? onContactPublicKeyUpdated;
   final Function()? onScrollToBottom;
   final void Function(String)? onShowError;
   final void Function(String)? onShowSuccess;
   final void Function(String)? onShowInfo;
   final bool Function()? isDisposedFn;
+  final void Function({
+    required ChatMessagingViewModel messagingViewModel,
+    required chat_controller.ChatScrollingController scrollingController,
+    required ChatSearchController searchController,
+    ChatMessagingViewModel? previousMessagingViewModel,
+    chat_controller.ChatScrollingController? previousScrollingController,
+    ChatSearchController? previousSearchController,
+  })?
+  onControllersRebound;
 
   // Phase 6B: Callbacks for lifecycle message listener management
   final IConnectionService Function()? getConnectionServiceFn;
@@ -78,6 +92,64 @@ class ChatSessionViewModel {
 
   void bindStateStore(ChatSessionStateStore store) {
     stateStore = store;
+  }
+
+  /// Public hook for scroll state changes (wired to scrolling controller).
+  void onScrollStateChanged() => _syncScrollStateFromController();
+
+  /// Scroll to bottom of the conversation list.
+  void scrollToBottom() {
+    unawaited(scrollingController.scrollToBottom());
+  }
+
+  /// Handle search mode toggle.
+  void onSearchModeToggled(bool isSearchMode) {
+    stateStore?.setSearchMode(isSearchMode);
+  }
+
+  /// Handle search query updates from search controller.
+  void onSearchResultsChanged(String query) {
+    updateSearchQuery(query);
+  }
+
+  /// Navigate to a search result index (uses current state length).
+  void onNavigateToSearchResultIndex(int messageIndex) {
+    navigateToSearchResult(
+      messageIndex,
+      stateStore?.current.messages.length ?? 0,
+    );
+  }
+
+  /// Update controller references and notify the owning controller when they
+  /// change (used for identity swaps).
+  void rebindControllers({
+    required ChatMessagingViewModel messagingViewModel,
+    required chat_controller.ChatScrollingController scrollingController,
+    required ChatSearchController searchController,
+  }) {
+    final previousMessaging = this.messagingViewModel;
+    final previousScrolling = this.scrollingController;
+    final previousSearch = this.searchController;
+
+    this.messagingViewModel = messagingViewModel;
+    this.scrollingController = scrollingController;
+    this.searchController = searchController;
+
+    onControllersRebound?.call(
+      messagingViewModel: messagingViewModel,
+      scrollingController: scrollingController,
+      searchController: searchController,
+      previousMessagingViewModel: previousMessaging,
+      previousScrollingController: previousScrolling,
+      previousSearchController: previousSearch,
+    );
+  }
+
+  void _syncScrollStateFromController() {
+    final currentState = stateStore?.current;
+    if (currentState == null) return;
+    final newState = syncScrollState(currentState);
+    stateStore?.setMessages(newState.messages);
   }
 
   /// Compute new state with an updated message status.
@@ -240,7 +312,7 @@ class ChatSessionViewModel {
 
       if (config.isRepositoryMode) {
         await scrollingController.syncUnreadCount(messages: allMessages);
-        final newState = stateStore?.state;
+        final newState = stateStore?.current;
         if (newState != null) {
           // Update state in store - apply scroll state sync
           final updated = syncScrollState(newState);
@@ -277,10 +349,23 @@ class ChatSessionViewModel {
       await messageRepository.updateMessage(retryMessage);
       stateStore?.updateMessage(retryMessage);
 
-      // Note: Router/connection logic deferred - controller provides context
-      // This is a simplified version; controller may need to handle complex routing
-      final newStatus = MessageStatus.delivered;
-      final updatedMessage = retryMessage.copyWith(status: newStatus);
+      final contactPublicKey = getContactPublicKeyFn?.call();
+      final fallbackRecipientId = contactPublicKey ?? getChatIdFn?.call() ?? '';
+      final displayName = displayContactNameFn?.call() ?? 'Unknown';
+
+      final success =
+          await sessionLifecycle?.sendRepositoryMessage(
+            message: retryMessage,
+            contactPublicKey: contactPublicKey,
+            fallbackRecipientId: fallbackRecipientId,
+            displayContactName: displayName,
+            onInfoMessage: onShowInfo,
+          ) ??
+          false;
+
+      final updatedMessage = retryMessage.copyWith(
+        status: success ? MessageStatus.delivered : MessageStatus.failed,
+      );
       await messageRepository.updateMessage(updatedMessage);
       stateStore?.updateMessage(updatedMessage);
     } catch (e) {
@@ -305,7 +390,7 @@ class ChatSessionViewModel {
       secureMessageId,
     );
     if (existingMessage != null) {
-      final currentState = stateStore?.state;
+      final currentState = stateStore?.current;
       if (currentState != null) {
         final inUiList = currentState.messages.any(
           (m) => m.id == secureMessageId,
@@ -355,12 +440,99 @@ class ChatSessionViewModel {
 
   /// Handle identity received (persistent key discovery) (extracted from ChatScreenController)
   Future<void> handleIdentityReceived() async {
-    final chatId = getChatIdFn?.call() ?? '';
-    final contactPublicKey = getContactPublicKeyFn?.call();
+    final connectionService = getConnectionServiceFn?.call();
+    if (connectionService == null) {
+      _logger.warning(
+        'ConnectionService unavailable; cannot handle identity swap',
+      );
+      return;
+    }
 
-    // This is complex logic that needs controller context
-    // Controller will implement full logic; ViewModel provides hook
-    _logger.info('handleIdentityReceived called for chat $chatId');
+    final otherPersistentId = connectionService.theirPersistentPublicKey;
+    if (otherPersistentId == null || otherPersistentId.isEmpty) {
+      return;
+    }
+
+    final currentChatId = getChatIdFn?.call() ?? '';
+    final newChatId = ChatUtils.generateChatId(otherPersistentId);
+    if (newChatId == currentChatId) return;
+
+    final messagesToMigrate = await messageRepository.getMessages(
+      currentChatId,
+    );
+    if (messagesToMigrate.isNotEmpty) {
+      await _migrateMessages(currentChatId, newChatId);
+    }
+
+    onChatIdUpdated?.call(newChatId);
+    onContactPublicKeyUpdated?.call(otherPersistentId);
+
+    final newMessagingViewModel = ChatMessagingViewModel(
+      chatId: newChatId,
+      contactPublicKey: otherPersistentId,
+      messageRepository: messageRepository,
+      contactRepository: contactRepository,
+    );
+
+    final newScrollingController = chat_controller.ChatScrollingController(
+      chatsRepository: chatsRepository,
+      chatId: newChatId,
+      onScrollToBottom: () => stateStore?.clearNewWhileScrolledUp(),
+      onUnreadCountChanged: (count) => stateStore?.setUnreadCount(count),
+      onStateChanged: onScrollStateChanged,
+    );
+
+    final newSearchController = ChatSearchController(
+      onSearchModeToggled: (isSearchMode) =>
+          stateStore?.setSearchMode(isSearchMode),
+      onSearchResultsChanged: (query, _) => updateSearchQuery(query),
+      onNavigateToResult: (messageIndex) => navigateToSearchResult(
+        messageIndex,
+        stateStore?.current.messages.length ?? 0,
+      ),
+      scrollController: newScrollingController.scrollController,
+    );
+
+    rebindControllers(
+      messagingViewModel: newMessagingViewModel,
+      scrollingController: newScrollingController,
+      searchController: newSearchController,
+    );
+
+    final persistentManager = getPersistentChatManagerFn?.call();
+    if (persistentManager != null) {
+      sessionLifecycle?.persistentChatManager = persistentManager;
+      sessionLifecycle?.unregisterPersistentListener(currentChatId);
+      sessionLifecycle?.registerPersistentListener(
+        chatId: newChatId,
+        incomingStream: () => connectionService.receivedMessages,
+        onMessage: (content) => addReceivedMessage(content),
+      );
+    }
+
+    stateStore?.setMessages([]);
+    await loadMessages();
+  }
+
+  Future<void> _migrateMessages(String oldChatId, String newChatId) async {
+    final oldMessages = await messageRepository.getMessages(oldChatId);
+
+    for (final message in oldMessages) {
+      final migratedMessage = Message(
+        id: message.id,
+        chatId: newChatId,
+        content: message.content,
+        timestamp: message.timestamp,
+        isFromMe: message.isFromMe,
+        status: message.status,
+      );
+      await messageRepository.saveMessage(migratedMessage);
+    }
+
+    await messageRepository.clearMessages(oldChatId);
+    _logger.info(
+      'Migrated ${oldMessages.length} messages from $oldChatId to $newChatId',
+    );
   }
 
   /// Calculate initial chat ID (extracted from ChatScreenController)

@@ -75,19 +75,15 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     isReady: false,
     statusMessage: 'Ready',
   );
-  final StreamController<ConnectionInfo> _connectionInfoController =
-      StreamController<ConnectionInfo>.broadcast();
-  final StreamController<List<Peripheral>> _discoveredDevicesController =
-      StreamController<List<Peripheral>>.broadcast();
-  final StreamController<String> _hintMatchesController =
-      StreamController<String>.broadcast();
+  final Set<void Function(ConnectionInfo)> _connectionInfoListeners = {};
+  final Set<void Function(List<Peripheral>)> _discoveredDevicesListeners = {};
+  final Set<void Function(String)> _hintMatchListeners = {};
   Future<bool> Function(QueueSyncMessage message, String fromNodeId)?
   _queueSyncHandler;
   final List<dynamic> _handshakeMessageBuffer = [];
-  final StreamController<SpyModeInfo> _handshakeSpyModeController =
-      StreamController<SpyModeInfo>.broadcast();
-  final StreamController<String> _handshakeIdentityController =
-      StreamController<String>.broadcast();
+  final Set<void Function(SpyModeInfo)> _spyModeListeners = {};
+  final Set<void Function(String)> _identityListeners = {};
+  StreamSubscription<ConnectionInfo>? _connectionInfoSubscription;
 
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
@@ -168,32 +164,59 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   /// Get or create connection service (lazy singleton)
   BLEConnectionService _getConnectionService() {
-    return _connectionService ??= BLEConnectionService(
+    if (_connectionService != null) return _connectionService!;
+
+    final service = BLEConnectionService(
       stateManager: _stateManager,
       connectionManager: _connectionManager,
       centralManager: _platformHost.centralManager,
       bluetoothStateMonitor: _bluetoothStateMonitor,
       onUpdateConnectionInfo: _updateConnectionInfo,
-    )..connectionInfoController = _connectionInfoController;
+    );
+
+    _connectionInfoSubscription = service.connectionInfoStream.listen((
+      connectionInfo,
+    ) {
+      for (final listener in List.of(_connectionInfoListeners)) {
+        try {
+          listener(connectionInfo);
+        } catch (e, stackTrace) {
+          _logger.warning(
+            'Error notifying connection info listener: $e',
+            e,
+            stackTrace,
+          );
+        }
+      }
+    });
+
+    _connectionService = service;
+    return _connectionService!;
   }
 
   /// Get or create discovery service (lazy singleton)
   IBLEDiscoveryService _getDiscoveryService() {
-    return _discoveryService ??=
-        BLEDiscoveryService(
-            centralManager: _platformHost.centralManager,
-            stateManager: _stateManager,
-            hintScanner: _hintScanner,
-            onUpdateConnectionInfo: _updateConnectionInfo,
-            isAdvertising: () => _getAdvertisingService().isAdvertising,
-            isConnected: () => _getConnectionService().isConnected,
-          )
-          ..devicesController = _discoveredDevicesController
-          ..hintMatchController = _hintMatchesController;
+    return _discoveryService ??= BLEDiscoveryService(
+      centralManager: _platformHost.centralManager,
+      stateManager: _stateManager,
+      hintScanner: _hintScanner,
+      onUpdateConnectionInfo: _updateConnectionInfo,
+      isAdvertising: () => _getAdvertisingService().isAdvertising,
+      isConnected: () => _getConnectionService().isConnected,
+    );
   }
 
   @override
-  Stream<String> get hintMatches => _hintMatchesController.stream;
+  Stream<String> get hintMatches => Stream<String>.multi((controller) {
+    void listener(String hint) {
+      controller.add(hint);
+    }
+
+    _hintMatchListeners.add(listener);
+    controller.onCancel = () {
+      _hintMatchListeners.remove(listener);
+    };
+  });
 
   /// Get or create advertising service (lazy singleton)
   IBLEAdvertisingService _getAdvertisingService() {
@@ -216,7 +239,6 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       contactRepository: _contactRepository,
       getCentralManager: () => _platformHost.centralManager,
       getPeripheralManager: () => _platformHost.peripheralManager,
-      messagesController: StreamController<String>.broadcast(),
       getConnectedCentral: () => _getConnectionService().connectedCentral,
       getPeripheralMessageCharacteristic: () =>
           _getConnectionService().connectedCharacteristic,
@@ -242,8 +264,6 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       processPendingMessages: _processPendingHandshakeMessages,
       startGossipSync: _startGossipSync,
       onHandshakeCompleteCallback: _handleHandshakeComplete,
-      spyModeDetectedController: _handshakeSpyModeController,
-      identityRevealedController: _handshakeIdentityController,
       introHintRepo: _introHintRepository,
       messageBuffer: _handshakeMessageBuffer,
       connectionStatusProvider: () =>
@@ -307,21 +327,13 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     } catch (e, stack) {
       _logger.severe('❌ Disposal error', e, stack);
     } finally {
-      if (!_connectionInfoController.isClosed) {
-        await _connectionInfoController.close();
-      }
-      if (!_discoveredDevicesController.isClosed) {
-        await _discoveredDevicesController.close();
-      }
-      if (!_hintMatchesController.isClosed) {
-        await _hintMatchesController.close();
-      }
-      if (!_handshakeSpyModeController.isClosed) {
-        await _handshakeSpyModeController.close();
-      }
-      if (!_handshakeIdentityController.isClosed) {
-        await _handshakeIdentityController.close();
-      }
+      _spyModeListeners.clear();
+      _identityListeners.clear();
+      _connectionInfoListeners.clear();
+      _discoveredDevicesListeners.clear();
+      _hintMatchListeners.clear();
+      await _connectionInfoSubscription?.cancel();
+      _connectionInfoSubscription = null;
     }
   }
 
@@ -494,6 +506,9 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       _getConnectionService().stopConnectionMonitoring();
 
   @override
+  void disposeConnection() => _getConnectionService().disposeConnection();
+
+  @override
   void setHandshakeInProgress(bool isInProgress) =>
       _getConnectionService().setHandshakeInProgress(isInProgress);
 
@@ -511,7 +526,18 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   @override
   Stream<ConnectionInfo> get connectionInfoStream =>
-      _getConnectionService().connectionInfoStream;
+      Stream<ConnectionInfo>.multi((controller) {
+        controller.add(_currentConnectionInfo);
+
+        void listener(ConnectionInfo info) {
+          controller.add(info);
+        }
+
+        _connectionInfoListeners.add(listener);
+        controller.onCancel = () {
+          _connectionInfoListeners.remove(listener);
+        };
+      });
 
   @override
   Stream<ConnectionInfo> get connectionInfo => connectionInfoStream;
@@ -693,7 +719,18 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   @override
   Stream<List<Peripheral>> get discoveredDevicesStream =>
-      _getDiscoveryService().discoveredDevicesStream;
+      Stream<List<Peripheral>>.multi((controller) {
+        controller.add(_connectionManager.activeConnections);
+
+        void listener(List<Peripheral> devices) {
+          controller.add(devices);
+        }
+
+        _discoveredDevicesListeners.add(listener);
+        controller.onCancel = () {
+          _discoveredDevicesListeners.remove(listener);
+        };
+      });
 
   @override
   List<Peripheral> get currentDiscoveredDevices =>
@@ -785,15 +822,62 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   @override
   Stream<SpyModeInfo> get spyModeDetected =>
-      _getHandshakeService().spyModeDetectedStream;
+      Stream<SpyModeInfo>.multi((controller) {
+        void listener(SpyModeInfo info) {
+          controller.add(info);
+        }
+
+        _spyModeListeners.add(listener);
+        controller.onCancel = () {
+          _spyModeListeners.remove(listener);
+        };
+      });
 
   @override
   Stream<String> get identityRevealedStream =>
-      _getHandshakeService().identityRevealedStream;
+      Stream<String>.multi((controller) {
+        void listener(String identity) {
+          controller.add(identity);
+        }
+
+        _identityListeners.add(listener);
+        controller.onCancel = () {
+          _identityListeners.remove(listener);
+        };
+      });
 
   @override
-  Stream<String> get identityRevealed =>
-      _getHandshakeService().identityRevealedStream;
+  Stream<String> get identityRevealed => identityRevealedStream;
+
+  @override
+  void emitSpyModeDetected(SpyModeInfo info) {
+    _stateManager.onSpyModeDetected?.call(info);
+    for (final listener in List.of(_spyModeListeners)) {
+      try {
+        listener(info);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying spy mode listener: $e', e, stackTrace);
+      }
+    }
+    if (_handshakeService != null) {
+      _handshakeService!.emitSpyModeDetected(info);
+    }
+  }
+
+  @override
+  void emitIdentityRevealed(String contactId) {
+    _stateManager.onIdentityRevealed?.call(contactId);
+    for (final listener in List.of(_identityListeners)) {
+      try {
+        listener(contactId);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying identity listener: $e', e, stackTrace);
+      }
+    }
+    if (_handshakeService != null) {
+      _handshakeService!.emitIdentityRevealed(contactId);
+    }
+  }
 
   @override
   Future<String?> buildLocalCollisionHint() =>
@@ -869,8 +953,16 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       isAdvertising: isAdvertising,
       isReconnecting: isReconnecting,
     );
-    if (!_connectionInfoController.isClosed) {
-      _connectionInfoController.add(_currentConnectionInfo);
+    for (final listener in List.of(_connectionInfoListeners)) {
+      try {
+        listener(_currentConnectionInfo);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying connection info listener: $e',
+          e,
+          stackTrace,
+        );
+      }
     }
   }
 
@@ -948,19 +1040,12 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     _logger.warning(
       '🕵️ Spy mode detected with ${info.contactName ?? 'unknown contact'}',
     );
-    // Notify state manager + any registered listeners
-    _stateManager.onSpyModeDetected?.call(info);
-    if (!_handshakeSpyModeController.isClosed) {
-      _handshakeSpyModeController.add(info);
-    }
+    emitSpyModeDetected(info);
   }
 
   void _handleIdentityRevealed(String contactId) {
     _logger.info('🪪 Identity revealed to contact: $contactId');
-    _stateManager.onIdentityRevealed?.call(contactId);
-    if (!_handshakeIdentityController.isClosed) {
-      _handshakeIdentityController.add(contactId);
-    }
+    emitIdentityRevealed(contactId);
   }
 
   // ============================================================================

@@ -4,6 +4,7 @@ import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/services/ble_connection_service.dart';
+import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
@@ -200,7 +201,7 @@ void main() {
       createService();
 
       service.disposeConnection();
-      expect(service.connectionInfoController, isNull);
+      verify(mockConnectionManager.stopConnectionMonitoring()).called(1);
     });
 
     test('getConnectionInfo() returns current state', () {
@@ -224,8 +225,7 @@ void main() {
 
       createService();
 
-      final stream = service.connectionInfoStream;
-      expect(stream, isNotNull);
+      expect(service.connectionInfoStream, emits(isA<ConnectionInfo>()));
     });
 
     test('has peripheral connection property', () {

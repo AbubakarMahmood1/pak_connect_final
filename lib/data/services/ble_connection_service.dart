@@ -38,8 +38,8 @@ class BLEConnectionService implements IBLEConnectionService {
   })
   onUpdateConnectionInfo;
 
-  // Stream controller for connection info (set by facade)
-  StreamController<ConnectionInfo>? connectionInfoController;
+  // Listener set for connection info updates (replaces manual controller)
+  final Set<void Function(ConnectionInfo)> _connectionInfoListeners = {};
 
   // Connection state
   ConnectionInfo _currentConnectionInfo = ConnectionInfo(
@@ -79,7 +79,8 @@ class BLEConnectionService implements IBLEConnectionService {
   }
 
   void disposeConnection() {
-    connectionInfoController = null;
+    stopConnectionMonitoring();
+    _connectionInfoListeners.clear();
   }
 
   // ============================================================================
@@ -283,7 +284,17 @@ class BLEConnectionService implements IBLEConnectionService {
     if (_shouldEmitConnectionInfo(newInfo)) {
       _currentConnectionInfo = newInfo;
       _lastEmittedConnectionInfo = newInfo;
-      connectionInfoController?.add(_currentConnectionInfo);
+      for (final listener in List.of(_connectionInfoListeners)) {
+        try {
+          listener(_currentConnectionInfo);
+        } catch (e, stackTrace) {
+          _logger.warning(
+            'Error notifying connection info listener: $e',
+            e,
+            stackTrace,
+          );
+        }
+      }
       _logger.fine('✅ Connection info emitted: ${newInfo.statusMessage}');
     }
 
@@ -496,7 +507,18 @@ class BLEConnectionService implements IBLEConnectionService {
 
   @override
   Stream<ConnectionInfo> get connectionInfoStream =>
-      connectionInfoController?.stream ?? Stream.empty();
+      Stream<ConnectionInfo>.multi((controller) {
+        controller.add(_currentConnectionInfo);
+
+        void listener(ConnectionInfo info) {
+          controller.add(info);
+        }
+
+        _connectionInfoListeners.add(listener);
+        controller.onCancel = () {
+          _connectionInfoListeners.remove(listener);
+        };
+      });
 
   @override
   ConnectionInfo get currentConnectionInfo => _currentConnectionInfo;

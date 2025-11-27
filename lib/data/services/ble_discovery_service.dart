@@ -36,11 +36,9 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   })
   onUpdateConnectionInfo;
 
-  // Stream controller for discovered devices (set by facade)
-  StreamController<List<Peripheral>>? devicesController;
-
-  // Stream controller for hint matches (set by facade)
-  StreamController<String>? hintMatchController;
+  // Listener sets for discovery/hint events
+  final Set<void Function(List<Peripheral>)> _deviceListeners = {};
+  final Set<void Function(String)> _hintListeners = {};
 
   // Discovery state
   List<Peripheral> _discoveredDevices = [];
@@ -75,7 +73,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
           _discoveredDevices = uniqueDevices.values
               .map((d) => d.peripheral)
               .toList();
-          devicesController?.add(List.from(_discoveredDevices));
+          _notifyDevices(List.from(_discoveredDevices));
 
           _logger.fine(
             '📡 Deduplicated devices updated: ${uniqueDevices.length} unique devices',
@@ -107,8 +105,8 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
     _logger.info('🧹 Disposing BLEDiscoveryService');
     await stopScanning();
     disposeDeduplicationListener();
-    devicesController?.close();
-    hintMatchController?.close();
+    _deviceListeners.clear();
+    _hintListeners.clear();
   }
 
   // ============================================================================
@@ -154,7 +152,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
     }
 
     _discoveredDevices.clear();
-    devicesController?.add([]);
+    _notifyDevices([]);
     _currentScanningSource = source;
 
     _logger.info('🔍 Starting ${source.name} BLE scan...');
@@ -262,7 +260,18 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
 
   @override
   Stream<List<Peripheral>> get discoveredDevices {
-    return devicesController?.stream ?? Stream.empty();
+    return Stream<List<Peripheral>>.multi((controller) {
+      controller.add(List.from(_discoveredDevices));
+
+      void listener(List<Peripheral> devices) {
+        controller.add(devices);
+      }
+
+      _deviceListeners.add(listener);
+      controller.onCancel = () {
+        _deviceListeners.remove(listener);
+      };
+    });
   }
 
   @override
@@ -273,7 +282,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
 
   @override
   Stream<List<Peripheral>> get discoveredDevicesStream {
-    return devicesController?.stream ?? Stream.empty();
+    return discoveredDevices;
   }
 
   @override
@@ -294,7 +303,36 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
 
   @override
   Stream<String> get hintMatchesStream {
-    return hintMatchController?.stream ?? Stream.empty();
+    return Stream<String>.multi((controller) {
+      void listener(String hint) {
+        controller.add(hint);
+      }
+
+      _hintListeners.add(listener);
+      controller.onCancel = () {
+        _hintListeners.remove(listener);
+      };
+    });
+  }
+
+  void _notifyDevices(List<Peripheral> devices) {
+    for (final listener in List.of(_deviceListeners)) {
+      try {
+        listener(devices);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying devices listener: $e', e, stackTrace);
+      }
+    }
+  }
+
+  void _notifyHint(String hint) {
+    for (final listener in List.of(_hintListeners)) {
+      try {
+        listener(hint);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying hint listener: $e', e, stackTrace);
+      }
+    }
   }
 
   @override

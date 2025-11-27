@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -11,11 +13,15 @@ final _logger = Logger('BLEServiceFacadeProvider');
 
 /// ✅ Phase 6D: Riverpod provider for BLEServiceFacade
 /// Accesses the service locator singleton and exposes lifecycle management
-/// Note: BLEServiceFacade manages 7+ StreamControllers internally
+/// Note: BLEServiceFacade manages multiple internal streams
 /// This provider provides Riverpod-managed access to the singleton
-final bleServiceFacadeProvider = Provider<IBLEServiceFacade>((ref) {
+final bleServiceFacadeProvider = Provider.autoDispose<IBLEServiceFacade>((ref) {
   final facade = getIt<IBLEServiceFacade>();
   _logger.fine('✅ BLEServiceFacade provider accessed');
+  ref.onDispose(() {
+    // Dispose facade when provider is torn down to avoid leaked controllers.
+    unawaited(facade.dispose());
+  });
   return facade;
 });
 

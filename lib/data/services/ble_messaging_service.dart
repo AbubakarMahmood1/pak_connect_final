@@ -1,6 +1,7 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
 import '../../core/interfaces/i_ble_messaging_service.dart';
 import '../../core/models/protocol_message.dart';
@@ -39,7 +40,7 @@ class BLEMessagingService implements IBLEMessagingService {
   final PeripheralManager Function() _getPeripheralManager;
 
   // State (provided by facade)
-  late final StreamController<String> _messagesController;
+  final Set<void Function(String)> _messageListeners = {};
   String? extractedMessageId;
 
   // Central/peripheral connection state (from facade)
@@ -66,7 +67,6 @@ class BLEMessagingService implements IBLEMessagingService {
     required ContactRepository contactRepository,
     required CentralManager Function() getCentralManager,
     required PeripheralManager Function() getPeripheralManager,
-    required StreamController<String> messagesController,
     required Function() getConnectedCentral,
     required Function() getPeripheralMessageCharacteristic,
     required Function() getPeripheralMtuReady,
@@ -78,11 +78,16 @@ class BLEMessagingService implements IBLEMessagingService {
        _contactRepository = contactRepository,
        _getCentralManager = getCentralManager,
        _getPeripheralManager = getPeripheralManager,
-       _messagesController = messagesController,
        _getConnectedCentral = getConnectedCentral,
        _getPeripheralMessageCharacteristic = getPeripheralMessageCharacteristic,
        _getPeripheralMtuReady = getPeripheralMtuReady,
-       _getPeripheralNegotiatedMtu = getPeripheralNegotiatedMtu;
+       _getPeripheralNegotiatedMtu = getPeripheralNegotiatedMtu {
+    // Relay messages from handler into internal listeners.
+    _messageHandler.onRelayMessageReceived =
+        (String _, String content, String __) {
+          _emitReceivedMessage(content);
+        };
+  }
 
   // ============================================================================
   // MESSAGE SENDING (CENTRAL ROLE)
@@ -464,10 +469,38 @@ class BLEMessagingService implements IBLEMessagingService {
   // ============================================================================
 
   @override
-  Stream<String> get receivedMessagesStream => _messagesController.stream;
+  Stream<String> get receivedMessagesStream =>
+      Stream<String>.multi((controller) {
+        void listener(String message) {
+          controller.add(message);
+        }
+
+        _messageListeners.add(listener);
+        controller
+          ..onListen = () {
+            // No-op: listeners are fed via _messageListeners bridge
+          }
+          ..onCancel = () {
+            _messageListeners.remove(listener);
+          };
+      }).asBroadcastStream();
 
   @override
   String? get lastExtractedMessageId => extractedMessageId;
+
+  @visibleForTesting
+  void debugEmitReceivedMessage(String message) =>
+      _emitReceivedMessage(message);
+
+  void _emitReceivedMessage(String message) {
+    for (final listener in List.of(_messageListeners)) {
+      try {
+        listener(message);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying message listener: $e', e, stackTrace);
+      }
+    }
+  }
 
   // ============================================================================
   // MESH RELAY INTEGRATION

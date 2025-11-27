@@ -224,8 +224,14 @@ void main() {
     late ContactRepository contactRepo;
     late OfflineMessageQueue messageQueue;
     late SpamPreventionManager spamPrevention;
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
 
     setUp(() async {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       contactRepo = ContactRepository();
       messageQueue = OfflineMessageQueue();
       await messageQueue.initialize();
@@ -243,6 +249,36 @@ void main() {
       final config = RelayConfigManager.instance;
       await config.resetToDefaults();
       await config.enableRelay();
+    });
+
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+    tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
     });
 
     test('Should reject non-relay-eligible message types', () async {

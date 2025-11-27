@@ -11,7 +11,6 @@ import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../providers/security_state_provider.dart';
 import '../providers/chat_session_providers.dart';
-import '../notifiers/chat_session_state_provider.dart';
 import '../widgets/chat_screen_helpers.dart';
 import '../widgets/chat_search_bar.dart';
 import '../widgets/message_bubble.dart';
@@ -22,7 +21,6 @@ class ChatScreen extends ConsumerStatefulWidget {
   final String? chatId; // For repository mode (stored data)
   final String? contactName; // Contact display name
   final String? contactPublicKey; // Contact public key
-  final bool useSessionProviders; // Opt-in to provider-backed session wiring
 
   const ChatScreen({
     super.key,
@@ -31,7 +29,6 @@ class ChatScreen extends ConsumerStatefulWidget {
     this.chatId,
     this.contactName,
     this.contactPublicKey,
-    this.useSessionProviders = true,
   }) : assert(
          (device != null || central != null) ||
              (chatId != null && contactName != null),
@@ -43,7 +40,6 @@ class ChatScreen extends ConsumerStatefulWidget {
     required this.chatId,
     required this.contactName,
     required this.contactPublicKey,
-    this.useSessionProviders = true,
   }) : device = null,
        central = null;
 
@@ -57,11 +53,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool get _isRepositoryMode => widget.chatId != null;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
-  ChatScreenController get _controller =>
-      ref.read(chatScreenControllerProvider(_controllerArgs));
-  ChatSessionActions? get _sessionActions => widget.useSessionProviders
-      ? ref.read(chatSessionActionsFromControllerProvider(_controllerArgs))
-      : null;
 
   @override
   void initState() {
@@ -89,30 +80,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = ref.watch(chatScreenControllerProvider(_controllerArgs));
-    final sessionHandle = widget.useSessionProviders
-        ? ref.watch(chatSessionHandleProvider(_controllerArgs))
-        : null;
-    final sessionActions = sessionHandle?.actions ?? _sessionActions;
-    final ChatUIState uiState =
-        sessionHandle?.state ??
-        ref.watch(chatSessionStateProvider(_controllerArgs));
-    final searchController =
-        sessionHandle?.viewModel.searchController ??
-        controller.searchController;
-    final scrollingController =
-        sessionHandle?.viewModel.scrollingController ??
-        controller.scrollingController;
+    final sessionHandle = ref.watch(chatSessionHandleProvider(_controllerArgs));
+    final sessionActions = sessionHandle.actions;
+    final ChatUIState uiState = sessionHandle.state;
+    final searchController = sessionHandle.viewModel.searchController;
+    final scrollingController = sessionHandle.viewModel.scrollingController;
 
     ref.listen(connectionInfoProvider, (previous, next) {
-      (sessionActions?.handleConnectionChange ??
-          controller.handleConnectionChange)(previous?.value, next.value);
+      sessionActions.handleConnectionChange(previous?.value, next.value);
     });
     ref.listen(meshNetworkStatusProvider, (previous, next) {
-      (sessionActions?.handleMeshInitializationStatusChange ??
-          controller.handleMeshInitializationStatusChange)(previous, next);
-      if (widget.useSessionProviders) {
-        ref.watch(chatSessionLifecycleFromControllerProvider(_controllerArgs));
-      }
+      sessionActions.handleMeshInitializationStatusChange(previous, next);
+      ref.watch(chatSessionLifecycleFromControllerProvider(_controllerArgs));
     });
 
     final connectionInfo = ref.watch(connectionInfoProvider).value;
@@ -221,11 +200,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               .length;
                           return RetryIndicator(
                             failedCount: failedCount,
-                            onRetry: () {
-                              ((sessionActions ?? _sessionActions)
-                                      ?.retryFailedMessages ??
-                                  controller.retryFailedMessages)();
-                            },
+                            onRetry: () => sessionActions.retryFailedMessages(),
                           );
                         }
 
@@ -287,8 +262,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: FloatingActionButton(
                 mini: true,
                 onPressed: () {
-                  ((sessionActions ?? _sessionActions)?.scrollToBottom ??
-                      controller.scrollToBottom)();
+                  sessionActions.scrollToBottom();
                   scrollingController.scheduleMarkAsRead();
                 },
                 child: Stack(
@@ -388,8 +362,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.lock_open),
         onPressed: () {
-          (_sessionActions?.requestPairing ??
-              _controller.userRequestedPairing)();
+          ref
+              .read(chatSessionHandleProvider(_controllerArgs))
+              .actions
+              .requestPairing();
         },
         tooltip: 'Secure Chat',
       );
@@ -397,8 +373,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.person_add),
         onPressed: () {
-          (_sessionActions?.requestPairing ??
-              _controller.userRequestedPairing)();
+          ref
+              .read(chatSessionHandleProvider(_controllerArgs))
+              .actions
+              .requestPairing();
         },
         tooltip: 'Add Contact',
       );
@@ -406,9 +384,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.sync),
         onPressed: () {
-          final handle =
-              _sessionActions?.handleAsymmetricContact ??
-              _controller.handleAsymmetricContact;
+          final handle = ref
+              .read(chatSessionHandleProvider(_controllerArgs))
+              .actions
+              .handleAsymmetricContact;
           handle(
             securityState.otherPublicKey ?? '',
             securityState.otherUserName ?? 'Unknown',
@@ -424,7 +403,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     _messageController.clear();
-    ((_sessionActions)?.sendMessage ?? _controller.sendMessage).call(text);
+    ref
+        .read(chatSessionHandleProvider(_controllerArgs))
+        .actions
+        .sendMessage(text);
   }
 
   String _getMessageHintText(ConnectionInfo? connectionInfo) {
@@ -444,18 +426,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _deleteMessage(String messageId, bool deleteForEveryone) {
-    return ((_sessionActions)?.deleteMessage ?? _controller.deleteMessage)(
-      messageId,
-      deleteForEveryone,
-    );
+    final actions = ref
+        .read(chatSessionHandleProvider(_controllerArgs))
+        .actions;
+    return actions.deleteMessage(messageId, deleteForEveryone);
   }
 
   void _toggleSearchMode() {
-    ((_sessionActions)?.toggleSearchMode ?? _controller.toggleSearchMode)();
+    ref
+        .read(chatSessionHandleProvider(_controllerArgs))
+        .actions
+        .toggleSearchMode();
   }
 
   Future<void> _manualReconnect() {
-    return ((_sessionActions)?.manualReconnection ??
-        _controller.manualReconnection)();
+    return ref
+        .read(chatSessionHandleProvider(_controllerArgs))
+        .actions
+        .manualReconnection();
   }
 }

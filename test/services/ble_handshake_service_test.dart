@@ -143,8 +143,6 @@ void main() {
       processPendingMessages: () async {},
       startGossipSync: () async {},
       onHandshakeCompleteCallback: (_, __, ___) async {},
-      spyModeDetectedController: spyModeController,
-      identityRevealedController: identityController,
       introHintRepo: mockIntroHintRepository,
       messageBuffer: [],
     );
@@ -248,8 +246,6 @@ void main() {
       processPendingMessages: () async {},
       startGossipSync: () async {},
       onHandshakeCompleteCallback: (_, __, ___) async {},
-      spyModeDetectedController: spyModeController,
-      identityRevealedController: identityController,
       introHintRepo: mockIntroHintRepository,
       messageBuffer: buffer,
     );
@@ -261,14 +257,16 @@ void main() {
 
   test('spyModeDetectedStream relays controller events', () async {
     final future = service.spyModeDetectedStream.first;
-    spyModeController.add(SpyModeInfo(contactName: 'spy', ephemeralID: 'id'));
+    service.emitSpyModeDetected(
+      SpyModeInfo(contactName: 'spy', ephemeralID: 'id'),
+    );
     final event = await future;
     expect(event.contactName, 'spy');
   });
 
   test('identityRevealedStream relays controller events', () async {
     final future = service.identityRevealedStream.first;
-    identityController.add('peer');
+    service.emitIdentityRevealed('peer');
     final value = await future;
     expect(value, 'peer');
   });

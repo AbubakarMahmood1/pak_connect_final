@@ -60,6 +60,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
 
   bool _initialized = false;
   StreamSubscription? _intentSubscription;
+  final Set<void Function(ChatInteractionIntent)> _intentListeners = {};
 
   HomeScreenFacade({
     IChatsRepository? chatsRepository,
@@ -103,17 +104,9 @@ class HomeScreenFacade implements IHomeScreenFacade {
     // Listen to interaction intents and refresh chat list when needed.
     // When Riverpod manages the listener (preferred), this opt-in can be disabled.
     if (_enableInternalIntentListener) {
-      _intentSubscription = _interactionHandler.interactionIntentStream.listen((
-        intent,
-      ) async {
-        if (intent is ChatOpenedIntent ||
-            intent is ChatArchivedIntent ||
-            intent is ChatDeletedIntent ||
-            intent is ChatPinToggleIntent) {
-          _logger.fine('🔄 Interaction triggered refresh');
-          await _listCoordinator.loadChats();
-        }
-      });
+      _intentSubscription = _interactionHandler.interactionIntentStream.listen(
+        (intent) => _handleInteractionIntent(intent),
+      );
     }
   }
 
@@ -267,10 +260,30 @@ class HomeScreenFacade implements IHomeScreenFacade {
   Future<void> markChatAsRead(String chatId) =>
       _interactionHandler.markChatAsRead(chatId);
 
+  void _handleInteractionIntent(ChatInteractionIntent intent) async {
+    for (final listener in List.of(_intentListeners)) {
+      try {
+        listener(intent);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying intent listener: $e', e, stackTrace);
+      }
+    }
+
+    if (intent is ChatOpenedIntent ||
+        intent is ChatArchivedIntent ||
+        intent is ChatDeletedIntent ||
+        intent is ChatPinToggleIntent) {
+      _logger.fine('🔄 Interaction triggered refresh');
+      await _listCoordinator.loadChats();
+    }
+  }
+
   @override
   Future<void> dispose() async {
     try {
       await _intentSubscription?.cancel();
+      _intentSubscription = null;
+      _intentListeners.clear();
       await _listCoordinator.dispose();
       await _connectionManager.dispose();
       await _interactionHandler.dispose();
@@ -283,19 +296,27 @@ class HomeScreenFacade implements IHomeScreenFacade {
 }
 
 class _NullChatInteractionHandler implements IChatInteractionHandler {
-  final StreamController<ChatInteractionIntent> _controller =
-      StreamController.broadcast();
+  final Set<void Function(ChatInteractionIntent)> _intentListeners = {};
 
   @override
   Future<void> initialize() async {}
 
   @override
   Stream<ChatInteractionIntent> get interactionIntentStream =>
-      _controller.stream;
+      Stream<ChatInteractionIntent>.multi((controller) {
+        void listener(ChatInteractionIntent intent) {
+          controller.add(intent);
+        }
+
+        _intentListeners.add(listener);
+        controller.onCancel = () {
+          _intentListeners.remove(listener);
+        };
+      });
 
   @override
   Future<void> dispose() async {
-    await _controller.close();
+    _intentListeners.clear();
   }
 
   @override
@@ -348,4 +369,19 @@ class _NullChatInteractionHandler implements IChatInteractionHandler {
 
   @override
   Future<void> markChatAsRead(String chatId) async {}
+
+  void _handleInteractionIntent(ChatInteractionIntent intent) =>
+      _emitIntent(intent);
+
+  void _emitIntent(ChatInteractionIntent intent) {
+    for (final listener in List.of(_intentListeners)) {
+      try {
+        listener(intent);
+      } catch (e, stackTrace) {
+        Logger(
+          'NullChatInteractionHandler',
+        ).warning('Error notifying intent listener: $e', e, stackTrace);
+      }
+    }
+  }
 }

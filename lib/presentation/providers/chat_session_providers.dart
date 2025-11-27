@@ -210,19 +210,20 @@ final chatSessionStateNotifierProvider = NotifierProvider.autoDispose
 final chatSessionActionsFromControllerProvider =
     Provider.family<ChatSessionActions, ChatScreenControllerArgs>((ref, args) {
       final controller = ref.watch(chatScreenControllerProvider(args));
+      final viewModel = controller.sessionViewModel;
       return ChatSessionActions(
-        sendMessage: controller.sendMessage,
-        deleteMessage: controller.deleteMessage,
-        retryFailedMessages: controller.retryFailedMessages,
+        sendMessage: viewModel.sendMessage,
+        deleteMessage: viewModel.deleteMessage,
+        retryFailedMessages: viewModel.retryFailedMessages,
         manualReconnection: controller.manualReconnection,
-        retryFailedMessagesInline: controller.retryFailedMessages,
+        retryFailedMessagesInline: viewModel.retryFailedMessages,
         requestPairing: controller.userRequestedPairing,
         handleAsymmetricContact: controller.handleAsymmetricContact,
         handleConnectionChange: controller.handleConnectionChange,
         handleMeshInitializationStatusChange:
             controller.handleMeshInitializationStatusChange,
-        scrollToBottom: controller.scrollToBottom,
-        toggleSearchMode: controller.toggleSearchMode,
+        scrollToBottom: viewModel.scrollToBottom,
+        toggleSearchMode: viewModel.toggleSearchMode,
       );
     });
 

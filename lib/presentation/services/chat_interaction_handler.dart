@@ -50,9 +50,8 @@ class ChatInteractionHandler implements IChatInteractionHandler {
        _chatsRepository = chatsRepository,
        _chatManagementService = chatManagementService;
 
-  /// Stream controller for interaction intents
-  final StreamController<ChatInteractionIntent> _intentController =
-      StreamController.broadcast();
+  /// Listener set for interaction intents
+  final Set<void Function(ChatInteractionIntent)> _intentListeners = {};
 
   @override
   Future<void> initialize() async {
@@ -61,7 +60,16 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
   @override
   Stream<ChatInteractionIntent> get interactionIntentStream =>
-      _intentController.stream;
+      Stream<ChatInteractionIntent>.multi((controller) {
+        void listener(ChatInteractionIntent intent) {
+          controller.add(intent);
+        }
+
+        _intentListeners.add(listener);
+        controller.onCancel = () {
+          _intentListeners.remove(listener);
+        };
+      });
 
   @override
   Future<void> openChat(ChatListItem chat) async {
@@ -82,7 +90,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
           ),
         ),
       ).then((_) {
-        _intentController.add(ChatOpenedIntent(chat.chatId));
+        _emitIntent(ChatOpenedIntent(chat.chatId));
       });
 
       _logger.info('✅ Opened chat: ${chat.contactName}');
@@ -93,19 +101,19 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
   @override
   void toggleSearch() {
-    _intentController.add(SearchToggleIntent(true));
+    _emitIntent(SearchToggleIntent(true));
     _logger.fine('🔍 Search toggled');
   }
 
   @override
   void showSearch() {
-    _intentController.add(SearchToggleIntent(true));
+    _emitIntent(SearchToggleIntent(true));
     _logger.fine('🔍 Search shown');
   }
 
   @override
   void clearSearch() {
-    _intentController.add(SearchToggleIntent(false));
+    _emitIntent(SearchToggleIntent(false));
     _logger.fine('✅ Search cleared');
   }
 
@@ -118,7 +126,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
         _context!,
         MaterialPageRoute(builder: (context) => const SettingsScreen()),
       );
-      _intentController.add(NavigationIntent('settings'));
+      _emitIntent(NavigationIntent('settings'));
       _logger.info('✅ Opened settings screen');
     } catch (e) {
       _logger.severe('❌ Error opening settings: $e');
@@ -134,7 +142,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
         _context!,
         MaterialPageRoute(builder: (context) => const ProfileScreen()),
       );
-      _intentController.add(NavigationIntent('profile'));
+      _emitIntent(NavigationIntent('profile'));
       _logger.info('✅ Opened profile screen');
     } catch (e) {
       _logger.severe('❌ Error opening profile: $e');
@@ -263,7 +271,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
         _context!,
         MaterialPageRoute(builder: (context) => const ContactsScreen()),
       );
-      _intentController.add(NavigationIntent('contacts'));
+      _emitIntent(NavigationIntent('contacts'));
       _logger.info('✅ Opened contacts screen');
     } catch (e) {
       _logger.severe('❌ Error opening contacts: $e');
@@ -279,7 +287,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
         _context!,
         MaterialPageRoute(builder: (context) => ArchiveScreen()),
       );
-      _intentController.add(NavigationIntent('archives'));
+      _emitIntent(NavigationIntent('archives'));
       _logger.info('✅ Opened archives screen');
     } catch (e) {
       _logger.severe('❌ Error opening archives: $e');
@@ -382,7 +390,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
         _logger.info('✅ Chat archived: ${chat.contactName}');
         _ref!.invalidate(archiveListProvider);
         _ref!.invalidate(archiveStatisticsProvider);
-        _intentController.add(ChatArchivedIntent(chat.chatId));
+        _emitIntent(ChatArchivedIntent(chat.chatId));
       } else {
         _logger.warning('⚠️ Failed to archive: ${result.message}');
       }
@@ -473,7 +481,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
       if (result?.success ?? false) {
         _logger.info('✅ Chat deleted: ${chat.contactName}');
-        _intentController.add(ChatDeletedIntent(chat.chatId));
+        _emitIntent(ChatDeletedIntent(chat.chatId));
       } else {
         _logger.warning('⚠️ Failed to delete: ${result?.message}');
       }
@@ -592,7 +600,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
       if (result?.success ?? false) {
         _logger.info('✅ Chat pin toggled: ${result?.message}');
-        _intentController.add(ChatPinToggleIntent(chat.chatId));
+        _emitIntent(ChatPinToggleIntent(chat.chatId));
       } else {
         _logger.warning('⚠️ Failed to toggle pin: ${result?.message}');
       }
@@ -632,7 +640,17 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
   @override
   Future<void> dispose() async {
-    await _intentController.close();
+    _intentListeners.clear();
     _logger.info('♻️ ChatInteractionHandler disposed');
+  }
+
+  void _emitIntent(ChatInteractionIntent intent) {
+    for (final listener in List.of(_intentListeners)) {
+      try {
+        listener(intent);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying intent listener: $e', e, stackTrace);
+      }
+    }
   }
 }

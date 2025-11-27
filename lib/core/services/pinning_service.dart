@@ -30,13 +30,21 @@ class PinningService {
   final Set<String> _starredMessageIds = {};
   final Set<String> _pinnedChats = {};
 
-  // Event stream
-  final _messageUpdatesController =
-      StreamController<MessageUpdateEvent>.broadcast();
+  // Event listeners (replaces manual controller)
+  final Set<void Function(MessageUpdateEvent)> _messageUpdateListeners = {};
 
   /// Stream of message updates
   Stream<MessageUpdateEvent> get messageUpdates =>
-      _messageUpdatesController.stream;
+      Stream<MessageUpdateEvent>.multi((controller) {
+        void listener(MessageUpdateEvent event) {
+          controller.add(event);
+        }
+
+        _messageUpdateListeners.add(listener);
+        controller.onCancel = () {
+          _messageUpdateListeners.remove(listener);
+        };
+      });
 
   /// Constructor with optional dependency injection
   PinningService({
@@ -68,12 +76,12 @@ class PinningService {
       if (_starredMessageIds.contains(messageId)) {
         _starredMessageIds.remove(messageId);
         await _saveStarredMessages();
-        _messageUpdatesController.add(MessageUpdateEvent.unstarred(messageId));
+        _emitUpdate(MessageUpdateEvent.unstarred(messageId));
         return ChatOperationResult.success('Message unstarred');
       } else {
         _starredMessageIds.add(messageId);
         await _saveStarredMessages();
-        _messageUpdatesController.add(MessageUpdateEvent.starred(messageId));
+        _emitUpdate(MessageUpdateEvent.starred(messageId));
         return ChatOperationResult.success('Message starred');
       }
     } catch (e) {
@@ -226,7 +234,17 @@ class PinningService {
 
   /// Dispose of resources
   Future<void> dispose() async {
-    await _messageUpdatesController.close();
+    _messageUpdateListeners.clear();
     _logger.info('Pinning service disposed');
+  }
+
+  void _emitUpdate(MessageUpdateEvent event) {
+    for (final listener in List.of(_messageUpdateListeners)) {
+      try {
+        listener(event);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying pinning listener: $e', e, stackTrace);
+      }
+    }
   }
 }

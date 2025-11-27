@@ -25,11 +25,22 @@ class TopologyManager {
   String? _currentNodeId;
   final DateTime _startTime = DateTime.now();
 
-  // Update stream for UI
-  final StreamController<NetworkTopology> _topologyStreamController =
-      StreamController<NetworkTopology>.broadcast();
+  // Update listeners for UI/consumers (listener set, no manual controllers)
+  final Set<void Function(NetworkTopology)> _listeners = {};
   Stream<NetworkTopology> get topologyStream =>
-      _topologyStreamController.stream;
+      Stream<NetworkTopology>.multi((controller) {
+        // Emit current topology immediately for late subscribers.
+        controller.add(getTopology());
+
+        void listener(NetworkTopology topology) {
+          controller.add(topology);
+        }
+
+        _listeners.add(listener);
+        controller.onCancel = () {
+          _listeners.remove(listener);
+        };
+      });
   Duration _cleanupInterval = const Duration(minutes: 1);
 
   // Cleanup timer
@@ -356,8 +367,13 @@ class TopologyManager {
 
   /// Notify listeners of topology update
   void _notifyUpdate() {
-    if (!_topologyStreamController.isClosed) {
-      _topologyStreamController.add(getTopology());
+    final topology = getTopology();
+    for (final listener in List.of(_listeners)) {
+      try {
+        listener(topology);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying topology listener: $e', e, stackTrace);
+      }
     }
   }
 
@@ -383,7 +399,7 @@ class TopologyManager {
   /// Dispose resources
   void dispose() {
     _cleanupTimer?.cancel();
-    _topologyStreamController.close();
+    _listeners.clear();
     _logger.info('TopologyManager disposed');
   }
 }
