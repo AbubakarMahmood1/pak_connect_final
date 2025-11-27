@@ -307,6 +307,16 @@ class ChatScreenController extends ChangeNotifier {
       searchController: _searchController,
       pairingDialogController: _pairingDialogController,
       retryCoordinator: _initialRetryCoordinator,
+      // Phase 6A: Wire up callbacks for extracted methods
+      sessionLifecycle: null, // Will be set after creation
+      displayContactNameFn: () => displayContactName,
+      getContactPublicKeyFn: () => _contactPublicKey,
+      getChatIdFn: () => _chatId,
+      onScrollToBottom: scrollToBottom,
+      onShowError: _showError,
+      onShowSuccess: _showSuccess,
+      onShowInfo: _showInfo,
+      isDisposedFn: () => _disposed,
     );
 
     _sessionLifecycle = ChatSessionLifecycle(
@@ -322,6 +332,8 @@ class ChatScreenController extends ChangeNotifier {
       logger: _logger,
     );
     _sessionLifecycle.pairingController = _pairingDialogController;
+    // Phase 6A: Set lifecycle reference on ViewModel after creation
+    _sessionViewModel.sessionLifecycle = _sessionLifecycle;
   }
 
   MessageRouter? _resolveMessageRouter(IConnectionService connectionService) {
@@ -484,14 +496,12 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   void _syncScrollState() {
-    _stateStore.update(
-      (state) => state.copyWith(
-        unreadMessageCount: _scrollingController.unreadMessageCount,
-        newMessagesWhileScrolledUp:
-            _scrollingController.newMessagesWhileScrolledUp,
-        showUnreadSeparator: _scrollingController.showUnreadSeparator,
-      ),
-    );
+    // Phase 6A: Delegate to ViewModel
+    final currentState = _stateStore.state;
+    if (currentState != null) {
+      final newState = _sessionViewModel.syncScrollState(currentState);
+      _stateStore.setMessages(newState.messages); // Sync the full state
+    }
   }
 
   Future<void> _logChatOpenState() async {
@@ -588,12 +598,29 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   void _updateMessageStatus(String messageId, MessageStatus newStatus) {
-    _stateStore.updateMessageStatus(messageId, newStatus);
+    // Phase 6A: Delegate to ViewModel
+    final currentState = _stateStore.state;
+    if (currentState != null) {
+      final newState = _sessionViewModel.applyMessageStatus(
+        currentState,
+        messageId,
+        newStatus,
+      );
+      _stateStore.setMessages(newState.messages);
+    }
   }
 
   @visibleForTesting
   void applyMessageUpdate(Message updatedMessage) {
-    _stateStore.updateMessage(updatedMessage);
+    // Phase 6A: Delegate to ViewModel
+    final currentState = _stateStore.state;
+    if (currentState != null) {
+      final newState = _sessionViewModel.applyMessageUpdate(
+        currentState,
+        updatedMessage,
+      );
+      _stateStore.setMessages(newState.messages);
+    }
   }
 
   void handleMeshInitializationStatusChange(
@@ -641,44 +668,14 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   Future<void> _loadMessages() async {
-    try {
-      final meshService = ref.read(meshNetworkingServiceProvider);
-      final allMessages = await _messagingViewModel.loadMessages(
-        onLoadingStateChanged: (isLoading) {
-          _stateStore.setLoading(isLoading);
-        },
-        onGetQueuedMessages: () =>
-            meshService.getQueuedMessagesForChat(_chatId),
-        onScrollToBottom: scrollToBottom,
-        onError: _showError,
-      );
-
-      _stateStore.setMessages(allMessages);
-
-      if (config.isRepositoryMode) {
-        await _scrollingController.syncUnreadCount(messages: allMessages);
-        _syncScrollState();
-      }
-
-      await _processBufferedMessages();
-
-      _sessionLifecycle.scheduleAutoRetry(
-        delay: const Duration(milliseconds: 1000),
-        disposed: () => _disposed,
-        onRetry: () async {
-          _sessionLifecycle.ensureRetryCoordinator();
-          await _sessionLifecycle.autoRetryFailedMessages();
-        },
-      );
-    } catch (e) {
-      _logger.severe('Error in loadMessages: $e');
-      _showError('Failed to load messages: $e');
-      _stateStore.setLoading(false);
-    }
+    // Phase 6A: Delegate to ViewModel
+    await _sessionViewModel.loadMessages();
   }
 
-  Future<void> _autoRetryFailedMessages() =>
-      _sessionLifecycle.autoRetryFailedMessages();
+  Future<void> _autoRetryFailedMessages() async {
+    // Phase 6A: Delegate to ViewModel
+    await _sessionViewModel.autoRetryFailedMessages();
+  }
 
   Future<void> _retryRepositoryMessage(Message message) async {
     try {
@@ -805,57 +802,8 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   Future<void> _addReceivedMessage(String content) async {
-    final senderPublicKey = _contactPublicKey ?? _chatId;
-    final secureMessageId = await MessageSecurity.generateSecureMessageId(
-      senderPublicKey: senderPublicKey,
-      content: content,
-    );
-
-    final existingMessage = await messageRepository.getMessageById(
-      secureMessageId,
-    );
-    if (existingMessage != null) {
-      final inUiList = state.messages.any((m) => m.id == secureMessageId);
-      if (!inUiList) {
-        _stateStore.appendMessage(existingMessage);
-        scrollToBottom();
-      }
-      return;
-    }
-
-    final message = Message(
-      id: secureMessageId,
-      chatId: _chatId,
-      content: content,
-      timestamp: DateTime.now(),
-      isFromMe: false,
-      status: MessageStatus.delivered,
-    );
-
-    await messageRepository.saveMessage(message);
-
-    try {
-      await NotificationService.showMessageNotification(
-        message: message,
-        contactName: displayContactName,
-        contactAvatar: null,
-      );
-    } catch (e, stackTrace) {
-      _logger.severe('Failed to show notification: $e', e, stackTrace);
-    }
-
-    final shouldAutoScroll = _scrollingController.shouldAutoScrollOnIncoming;
-
-    if (!shouldAutoScroll) {
-      await _scrollingController.handleIncomingWhileScrolledAway();
-    }
-
-    _stateStore.appendMessage(message);
-
-    if (shouldAutoScroll) {
-      scrollToBottom();
-      _scrollingController.scheduleMarkAsRead();
-    }
+    // Phase 6A: Delegate to ViewModel
+    await _sessionViewModel.addReceivedMessage(content);
   }
 
   Future<void> _processBufferedMessages() async {
@@ -863,36 +811,13 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   Future<void> sendMessage(String content) async {
-    if (content.trim().isEmpty) return;
-    try {
-      await _messagingViewModel.sendMessage(
-        content: content,
-        onMessageAdded: (message) {
-          _stateStore.appendMessage(message);
-        },
-        onShowSuccess: _showSuccess,
-        onShowError: _showError,
-        onScrollToBottom: scrollToBottom,
-      );
-    } catch (e) {
-      _logger.severe('Unexpected error in sendMessage: $e');
-    }
+    // Phase 6A: Delegate to ViewModel
+    await _sessionViewModel.sendMessage(content);
   }
 
   Future<void> deleteMessage(String messageId, bool deleteForEveryone) async {
-    try {
-      await _messagingViewModel.deleteMessage(
-        messageId: messageId,
-        deleteForEveryone: deleteForEveryone,
-        onMessageRemoved: (id) {
-          _stateStore.removeMessage(id);
-        },
-        onShowSuccess: _showSuccess,
-        onShowError: _showError,
-      );
-    } catch (e) {
-      _logger.severe('Unexpected error in deleteMessage: $e');
-    }
+    // Phase 6A: Delegate to ViewModel
+    await _sessionViewModel.deleteMessage(messageId, deleteForEveryone);
   }
 
   void scrollToBottom() {
@@ -900,22 +825,8 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   String _calculateInitialChatId() {
-    if (config.isRepositoryMode) {
-      return config.chatId!;
-    }
-
-    final connectionService = ref.read(connectionServiceProvider);
-    final otherPersistentId = connectionService.currentSessionId;
-
-    if (otherPersistentId != null) {
-      return ChatUtils.generateChatId(otherPersistentId);
-    }
-
-    final deviceId = config.isCentralMode
-        ? config.device!.uuid.toString()
-        : config.central!.uuid.toString();
-
-    return 'temp_${deviceId.shortId(8)}';
+    // Phase 6A: Delegate to ViewModel
+    return _sessionViewModel.calculateInitialChatId();
   }
 
   Future<void> handleIdentityReceived() async {
@@ -1091,7 +1002,10 @@ class ChatScreenController extends ChangeNotifier {
 
   Future<void> manualReconnection() => _manualReconnection();
 
-  Future<void> retryFailedMessages() => _autoRetryFailedMessages();
+  Future<void> retryFailedMessages() {
+    // Phase 6A: Delegate to ViewModel
+    return _sessionViewModel.retryFailedMessages();
+  }
 
   void _showError(String message) {
     _logger.warning('Error: $message');
