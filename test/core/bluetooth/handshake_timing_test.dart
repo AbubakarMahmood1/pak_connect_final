@@ -7,6 +7,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
@@ -52,8 +53,30 @@ class _MockSecurityManager {
 
 void main() {
   group('FIX-008: Handshake Phase Timing', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       _MockSecurityManager.reset();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('waits for peer Noise key before advancing to Phase 2', () {
@@ -307,6 +330,31 @@ void main() {
   });
 
   group('FIX-008: Integration Scenarios', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('XX pattern initiator waits for remote static key', () async {
       // Arrange: Simulate XX handshake completion sequence
       // In real flow: processHandshakeMessage(msg2) -> _completeHandshake() -> _advanceToNoiseHandshakeComplete()

@@ -7,6 +7,8 @@ import '../../test_helpers/test_setup.dart';
 void main() {
   group('ISeenMessageStore Abstraction Contract', () {
     late ISeenMessageStore seenMessageStore;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUpAll(() async {
       // Only initialize once for the entire group
@@ -16,12 +18,28 @@ void main() {
     });
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       seenMessageStore = TestSetup.getService<ISeenMessageStore>();
       await seenMessageStore.clear();
     });
 
     tearDown(() async {
       await seenMessageStore.clear();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     tearDownAll(() {
