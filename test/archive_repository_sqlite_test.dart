@@ -8,6 +8,9 @@ import 'package:pak_connect/core/models/archive_models.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  late List<LogRecord> logRecords;
+  late Set<String> allowedSevere;
+
   // Initialize test environment and clean database from previous runs
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
@@ -18,7 +21,27 @@ void main() {
 
   // Reset database before each test
   setUp(() async {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.fullDatabaseReset();
+  });
+
+  tearDown(() {
+    final severeErrors = logRecords
+        .where((log) => log.level >= Level.SEVERE)
+        .where(
+          (log) =>
+              !allowedSevere.any((pattern) => log.message.contains(pattern)),
+        )
+        .toList();
+    expect(
+      severeErrors,
+      isEmpty,
+      reason:
+          'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
   });
 
   // Helper method to create a chat with messages

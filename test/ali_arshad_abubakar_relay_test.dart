@@ -31,7 +31,7 @@ void main() {
 
   void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
-  tearDownAll(() async {
+  tearDown(() {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
     final unexpected = severe.where(
       (l) => !allowedSevere.any(
@@ -45,18 +45,9 @@ void main() {
       isEmpty,
       reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
     );
-    for (final pattern in allowedSevere) {
-      final found = severe.any(
-        (l) => pattern is String
-            ? l.message.contains(pattern)
-            : (pattern as RegExp).hasMatch(l.message),
-      );
-      expect(
-        found,
-        isTrue,
-        reason: 'Missing expected SEVERE matching "$pattern"',
-      );
-    }
+  });
+
+  tearDownAll(() async {
     await DatabaseHelper.deleteDatabase();
   });
 

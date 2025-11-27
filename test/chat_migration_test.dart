@@ -27,11 +27,32 @@ void main() {
     late ChatMigrationService migrationService;
     late MessageRepository messageRepository;
     late ChatsRepository chatsRepository;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       migrationService = ChatMigrationService();
       messageRepository = MessageRepository();
       chatsRepository = ChatsRepository();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     // Helper to create test messages in an ephemeral chat
