@@ -8,6 +8,31 @@ import 'package:pak_connect/core/security/noise/encryption_isolate.dart';
 /// Tests correctness, nonce handling, MAC verification, and error cases.
 void main() {
   group('EncryptionIsolate', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('encryptInIsolate produces ciphertext with MAC', () async {
       final key = Uint8List(32);
       for (var i = 0; i < 32; i++) {
