@@ -37,9 +37,7 @@ class ChatListCoordinator implements IChatListCoordinator {
   StreamSubscription? _connectionStatusSubscription;
   Map<String, DiscoveredEventArgs>? _lastDiscoveryData;
 
-  // Unread count stream controller
-  final StreamController<int> _unreadCountController =
-      StreamController.broadcast();
+  // ✅ Phase 6D: Periodic unread count stream (no controller needed)
   Stream<int>? _unreadCountStream;
 
   // Optional connection status stream for triggering refreshes
@@ -166,15 +164,11 @@ class ChatListCoordinator implements IChatListCoordinator {
 
   @override
   void refreshUnreadCount() async {
-    try {
-      final repo = _chatsRepository;
-      if (repo == null) return;
-      final count = await repo.getTotalUnreadCount();
-      _unreadCountController.add(count);
-      _logger.fine('🔢 Unread count updated: $count');
-    } catch (e) {
-      _logger.warning('⚠️ Error refreshing unread count: $e');
-    }
+    // ✅ Phase 6D: Periodic stream handles unread count updates
+    // No need to manually add to controller - periodic polling will refresh on next cycle (3s)
+    _logger.fine(
+      '🔢 Unread count refresh triggered (will update on next poll cycle)',
+    );
   }
 
   @override
@@ -314,7 +308,7 @@ class ChatListCoordinator implements IChatListCoordinator {
     await _globalMessageSubscription?.cancel();
     await _discoveryDataSubscription?.cancel();
     await _connectionStatusSubscription?.cancel();
-    await _unreadCountController.close();
+    // ✅ Phase 6D: No controller to close (using periodic stream)
     _logger.info('♻️ ChatListCoordinator disposed');
   }
 }
