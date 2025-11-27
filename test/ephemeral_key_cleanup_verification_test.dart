@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/core/utils/chat_utils.dart';

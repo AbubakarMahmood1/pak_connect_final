@@ -1,6 +1,7 @@
 // Test database query optimizer
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/database/database_query_optimizer.dart';
 import 'test_helpers/test_setup.dart';

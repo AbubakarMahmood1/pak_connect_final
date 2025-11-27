@@ -2,6 +2,7 @@
 // Tests all backend implementations and UI functionality
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/data/repositories/user_preferences.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';

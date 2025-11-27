@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/session_service.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:mockito/mockito.dart';

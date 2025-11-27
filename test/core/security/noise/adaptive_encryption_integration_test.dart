@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pak_connect/core/security/noise/primitives/cipher_state.dart';
 import 'package:pak_connect/core/security/noise/adaptive_encryption_strategy.dart';

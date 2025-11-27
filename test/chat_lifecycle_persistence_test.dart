@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/core/services/persistent_chat_state_manager.dart';
 import 'test_helpers/test_setup.dart';

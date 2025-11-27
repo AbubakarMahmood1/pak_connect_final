@@ -1,6 +1,7 @@
 // Test database initialization and schema creation
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'test_helpers/test_setup.dart';
