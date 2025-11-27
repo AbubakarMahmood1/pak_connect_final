@@ -11,6 +11,8 @@ import '../controllers/chat_session_lifecycle.dart';
 import '../../core/services/message_retry_coordinator.dart';
 import '../../core/security/message_security.dart';
 import '../../core/utils/chat_utils.dart';
+import '../../core/interfaces/i_connection_service.dart';
+import '../../core/services/persistent_chat_state_manager.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/chats_repository.dart';
@@ -41,6 +43,9 @@ class ChatSessionViewModel {
     this.onShowSuccess,
     this.onShowInfo,
     this.isDisposedFn,
+    // Phase 6B: Message listener callbacks
+    this.getConnectionServiceFn,
+    this.getPersistentChatManagerFn,
   });
 
   final ChatScreenConfig config;
@@ -63,6 +68,10 @@ class ChatSessionViewModel {
   final void Function(String)? onShowSuccess;
   final void Function(String)? onShowInfo;
   final bool Function()? isDisposedFn;
+
+  // Phase 6B: Callbacks for lifecycle message listener management
+  final IConnectionService Function()? getConnectionServiceFn;
+  final PersistentChatStateManager? Function()? getPersistentChatManagerFn;
 
   ChatSessionStateStore? stateStore;
   final _logger = Logger('ChatSessionViewModel');
@@ -361,5 +370,71 @@ class ChatSessionViewModel {
     }
     // Controller will provide implementation with ref access
     return getChatIdFn?.call() ?? '';
+  }
+
+  // ===== PHASE 6B EXTRACTED METHODS =====
+
+  /// Activate message listener with persistent or stream-based delivery (extracted from ChatScreenController)
+  Future<void> activateMessageListener() async {
+    if (sessionLifecycle == null || sessionLifecycle!.messageListenerActive) {
+      return;
+    }
+
+    sessionLifecycle!.messageListenerActive = true;
+    final connectionService = getConnectionServiceFn?.call();
+    if (connectionService == null) {
+      _logger.warning(
+        'ConnectionService not available; message listener disabled',
+      );
+      return;
+    }
+
+    final persistentChatManager = getPersistentChatManagerFn?.call();
+    final chatId = getChatIdFn?.call() ?? '';
+
+    if (persistentChatManager != null &&
+        !persistentChatManager.hasActiveListener(chatId)) {
+      // Phase 6B: Use persistent listener if available
+      sessionLifecycle!.registerPersistentListener(
+        chatId: chatId,
+        incomingStream: () => connectionService.receivedMessages,
+        onMessage: (content) async => addReceivedMessage(content),
+      );
+      _logger.info('📡 Message listener activated (persistent mode)');
+    } else if (persistentChatManager != null &&
+        persistentChatManager.hasActiveListener(chatId)) {
+      // Already registered
+      _logger.fine('Message listener already active (persistent)');
+    } else {
+      // Phase 6B: Use stream-based listener with buffering
+      sessionLifecycle!.attachMessageStream(
+        stream: connectionService.receivedMessages,
+        disposed: () => isDisposedFn?.call() ?? false,
+        isActive: () => sessionLifecycle?.messageListenerActive ?? false,
+        onMessage: (content) async {
+          sessionLifecycle?.messageBuffer.add(content);
+          await processBufferedMessages();
+        },
+      );
+      _logger.info('📡 Message listener activated (stream mode)');
+    }
+  }
+
+  /// Process buffered messages from message listener (extracted from ChatScreenController)
+  Future<void> processBufferedMessages() async {
+    if (sessionLifecycle == null) {
+      _logger.warning(
+        'Lifecycle not initialized; cannot process buffered messages',
+      );
+      return;
+    }
+
+    try {
+      await sessionLifecycle!.processBufferedMessages(
+        (content) => addReceivedMessage(content),
+      );
+    } catch (e) {
+      _logger.severe('Error processing buffered messages: $e');
+    }
   }
 }

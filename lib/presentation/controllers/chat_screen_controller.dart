@@ -317,6 +317,9 @@ class ChatScreenController extends ChangeNotifier {
       onShowSuccess: _showSuccess,
       onShowInfo: _showInfo,
       isDisposedFn: () => _disposed,
+      // Phase 6B: Wire up callbacks for message listener management
+      getConnectionServiceFn: () => ref.read(connectionServiceProvider),
+      getPersistentChatManagerFn: () => _persistentChatManager,
     );
 
     _sessionLifecycle = ChatSessionLifecycle(
@@ -767,34 +770,8 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   void _activateMessageListener() {
-    if (_sessionLifecycle.messageListenerActive || _messageListenerActive) {
-      return;
-    }
-    _sessionLifecycle.messageListenerActive = true;
-    _messageListenerActive = true;
-    final connectionService = ref.read(connectionServiceProvider);
-
-    if (_persistentChatManager != null &&
-        !_persistentChatManager!.hasActiveListener(_chatId)) {
-      _sessionLifecycle.registerPersistentListener(
-        chatId: _chatId,
-        incomingStream: () => connectionService.receivedMessages,
-        onMessage: _addReceivedMessage,
-      );
-    } else if (_persistentChatManager != null &&
-        _persistentChatManager!.hasActiveListener(_chatId)) {
-      return;
-    } else {
-      _sessionLifecycle.attachMessageStream(
-        stream: connectionService.receivedMessages,
-        disposed: () => _disposed,
-        isActive: () => _sessionLifecycle.messageListenerActive,
-        onMessage: (content) async {
-          _sessionLifecycle.messageBuffer.add(content);
-          await _processBufferedMessages();
-        },
-      );
-    }
+    // Phase 6B: Delegate to ViewModel
+    unawaited(_sessionViewModel.activateMessageListener());
   }
 
   void _setupMessageListener() {
@@ -807,7 +784,8 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   Future<void> _processBufferedMessages() async {
-    await _sessionLifecycle.processBufferedMessages(_addReceivedMessage);
+    // Phase 6B: Delegate to ViewModel
+    await _sessionViewModel.processBufferedMessages();
   }
 
   Future<void> sendMessage(String content) async {
