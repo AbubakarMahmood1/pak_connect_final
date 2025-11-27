@@ -1,5 +1,6 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
@@ -29,6 +30,8 @@ void main() {
     late List<RelayDecision> relayDecisions;
     late List<RelayStatistics> relayStats;
     late List<String> deliveredMessages;
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
 
     MeshRelayCoordinator buildCoordinator({MeshRelayEngineFactory? factory}) {
       return MeshRelayCoordinator(
@@ -42,12 +45,47 @@ void main() {
     }
 
     setUp(() {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+
       bleService = _FakeMeshBleService();
       messageQueue = _RecordingOfflineQueue();
       spamManager = _StubSpamPreventionManager();
       relayDecisions = [];
       relayStats = [];
       deliveredMessages = [];
+    });
+
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+    tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
     });
 
     test('initialize wires relay engine via injected factory', () async {

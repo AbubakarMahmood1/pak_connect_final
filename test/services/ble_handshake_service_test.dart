@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
@@ -100,6 +101,8 @@ void main() {
   late StreamController<String> identityController;
   late List<ProtocolMessage> sentMessages;
   late BLEHandshakeService service;
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
 
   void _stubDefaults() {
     mockStateManager
@@ -111,6 +114,11 @@ void main() {
   }
 
   setUp(() {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
+
     mockStateManager = _StubStateManager();
     mockIntroHintRepository = MockIntroHintRepository();
     spyModeController = StreamController<SpyModeInfo>.broadcast();
@@ -142,9 +150,37 @@ void main() {
     );
   });
 
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
   tearDown(() async {
     await spyModeController.close();
     await identityController.close();
+
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
   });
 
   test('requestIdentityExchange does nothing when not connected', () async {

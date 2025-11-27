@@ -7,6 +7,7 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
@@ -127,6 +128,46 @@ void main() {
   });
 
   group('Noise End-to-End Integration Tests', () {
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
+
+    setUp(() {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+    tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
+    });
+
     test(
       'Complete BLE handshake establishes Noise session and saves to database',
       () async {
