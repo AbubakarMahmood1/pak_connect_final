@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/utils/message_fragmenter.dart';
 import 'package:pak_connect/data/services/message_fragmentation_handler.dart';
 

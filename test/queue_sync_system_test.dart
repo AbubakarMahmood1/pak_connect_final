@@ -1,6 +1,7 @@
 // Comprehensive tests for the queue hash synchronization system
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 
 // Import the classes we're testing
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';

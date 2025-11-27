@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/repositories/user_preferences.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'test_helpers/test_setup.dart';

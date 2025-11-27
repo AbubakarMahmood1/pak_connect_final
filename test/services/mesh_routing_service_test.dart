@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/mesh_routing_service.dart';
 import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';

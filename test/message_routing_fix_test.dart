@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 
 import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pinenacl/api.dart';
 import 'package:pak_connect/core/security/noise/primitives/dh_state.dart';
 

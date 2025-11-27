@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/compression/compression_config.dart';
 import 'package:pak_connect/core/compression/compression_stats.dart';
 import 'package:pak_connect/core/compression/compression_util.dart';

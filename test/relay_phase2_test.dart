@@ -2,6 +2,7 @@
 // Verifies message type passing from BLE layer to relay engine
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/relay_config_manager.dart';
 import 'package:pak_connect/core/messaging/relay_policy.dart';

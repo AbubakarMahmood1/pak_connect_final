@@ -2,6 +2,7 @@
 // Tests schema upgrades, data preservation, and FTS5 integrity
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart' hide equals;
 import 'test_helpers/test_setup.dart';

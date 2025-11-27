@@ -10,6 +10,7 @@
 // 6. Connection limits per power mode
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/power/adaptive_power_manager.dart';
 import 'package:pak_connect/core/messaging/gossip_sync_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
