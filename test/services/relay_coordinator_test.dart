@@ -59,13 +59,46 @@ class _FakeOfflineQueue extends OfflineMessageQueue {
 void main() {
   group('RelayCoordinator', () {
     late RelayCoordinator coordinator;
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
 
     setUp(() {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       coordinator = RelayCoordinator();
       coordinator.setMessageQueue(_FakeOfflineQueue());
     });
 
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
     tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
       coordinator.dispose();
     });
 
