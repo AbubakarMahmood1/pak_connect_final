@@ -187,6 +187,17 @@ Phase 3: 10-12 hours
 - Confidence: MEDIUM (architectural pattern less established)
 - Examples: ChatConnectionManager, ChatInteractionHandler, (likely) MeshNetworkHealthMonitor, BLEServiceFacade
 
+### Completed Work
+
+**Commit d9d6268**: ChatListCoordinator dead code removal (15 min)
+- Removed unused _unreadCountController
+- Tests passing
+
+**Commit b9625c0**: Provider wrapper pattern established (45 min)
+- Created chat_connection_provider.dart
+- Established replicable pattern for remaining files
+- Pattern: Provider.autoDispose + StreamProvider wrapper + ref.onDispose
+
 ### Recommendations for Continued Execution
 
 **Option 1** (RECOMMENDED - Pragmatic): Two-Phase Approach
