@@ -16,8 +16,48 @@ import 'test_helpers/ble/fake_ble_service.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'widget');
+  });
+
+  setUp(() {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
+  });
+
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+  tearDown(() {
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
   });
 
   Future<void> _pumpApp(WidgetTester tester) async {
