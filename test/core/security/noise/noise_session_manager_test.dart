@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/security/noise/noise_session_manager.dart';
 import 'package:pak_connect/core/security/noise/noise_session.dart';
 
@@ -11,7 +12,16 @@ void main() {
     late Uint8List bobStaticPrivate;
     late Uint8List bobStaticPublic;
 
+    // Log capture for asserting no unexpected SEVERE errors
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
+
     setUp(() {
+      // Initialize log capture
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       // Alice static key pair
       aliceStaticPrivate = Uint8List.fromList([
         0x77,
@@ -151,6 +161,43 @@ void main() {
         0x2b,
         0x4f,
       ]);
+    });
+
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+    tearDown(() {
+      // Find all SEVERE logs
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+
+      // Filter out allowed SEVEREs
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+
+      // Assert no unexpected SEVEREs
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+
+      // Assert expected SEVEREs are present
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
     });
 
     test('creates manager with keys', () {
@@ -381,6 +428,9 @@ void main() {
     });
 
     test('cannot decrypt without session', () {
+      // This test intentionally attempts decryption without a session
+      allowSevere('No session found for Bob');
+
       final manager = NoiseSessionManager(
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,
@@ -395,6 +445,9 @@ void main() {
     });
 
     test('handshake failure triggers callback', () async {
+      // This test intentionally sends invalid handshake messages
+      allowSevere('Handshake failed');
+
       final manager = NoiseSessionManager(
         localStaticPrivateKey: aliceStaticPrivate,
         localStaticPublicKey: aliceStaticPublic,

@@ -1,5 +1,6 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/bluetooth/advertising_manager.dart';
@@ -18,6 +19,8 @@ import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'ble_advertising_service_test.mocks.dart';
 
 void main() {
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
   late MockIBLEStateManagerFacade mockStateManager;
   late MockBLEConnectionManager mockConnectionManager;
   late MockAdvertisingManager mockAdvertisingManager;
@@ -27,6 +30,11 @@ void main() {
   Map<String, dynamic>? lastConnectionUpdate;
 
   setUp(() {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
+
     mockStateManager = MockIBLEStateManagerFacade();
     mockConnectionManager = MockBLEConnectionManager();
     mockAdvertisingManager = MockAdvertisingManager();
@@ -88,6 +96,36 @@ void main() {
     );
   });
 
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+  tearDown(() {
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
+  });
+
   group('startAsPeripheral', () {
     test('returns early when already advertising', () async {
       when(mockAdvertisingManager.isAdvertising).thenReturn(true);
@@ -136,6 +174,8 @@ void main() {
     });
 
     test('throws when GATT service addition fails', () async {
+      allowSevere('Failed to add GATT service');
+
       when(
         mockPeripheralInitializer.safelyAddService(
           any,
@@ -148,6 +188,8 @@ void main() {
     });
 
     test('throws when advertising manager fails to start', () async {
+      allowSevere('Failed to start advertising');
+
       when(
         mockAdvertisingManager.startAdvertising(
           myPublicKey: anyNamed('myPublicKey'),

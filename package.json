@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "@tavily/core": "^0.5.12"
+    "@tavily/core": "^0.5.12",
+    "gemini-mcp-tool": "^1.1.4"
   }
 }

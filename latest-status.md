@@ -11,7 +11,7 @@
 | --- | --- | --- |
 | Bundle/provide `libsqlite3.so` for tests | ✅ | `NativeSqliteLoader` (`test/test_helpers/sqlite/native_sqlite_loader.dart`) locates a system or vendored SQLite build before `sqflite_common_ffi` starts, and honors `SQLITE_FFI_LIB_PATH`. |
 | Mock `flutter_secure_storage` in tests | ✅ | `InMemorySecureStorage` (`test/test_helpers/mocks/in_memory_secure_storage.dart`) is registered in `TestSetup.initializeTestEnvironment()` so protocol/security suites no longer throw `MissingPluginException`. |
-| Triage analyzer warnings (Noise tests) | ⚠️ | Global `flutter analyze lib` is clean. Targeted linting of `test/core/security/noise/**` still needs to run—sandbox rejected the dedicated `flutter analyze test/core/security/noise` command, so we need approval (or a manual review) before marking this item fully done. |
+| Triage analyzer warnings (Noise tests) | ✅ | `flutter analyze test/core/security/noise/** --no-pub` now completes cleanly (run locally). |
 
 ## Outstanding Work
 - **Device-required suites**: `integration_test/`, BLE dual-role soak tests, and the “real SharedPreferences export” migration replay still need phones or tablets. We will tackle these during the upcoming hardware pass.
