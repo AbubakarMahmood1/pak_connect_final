@@ -149,6 +149,68 @@ Phase 3: 10-12 hours
 
 ---
 
+## Phase 2-3 Progress
+
+### Completed (File 1/28)
+✅ **chatlist_coordinator.dart** (Commit d9d6268)
+- Type: Dead Code Removal
+- Change: Removed unused _unreadCountController
+- Result: 1 StreamController removed, tests passing
+- Time: 15 minutes
+
+### Analyzed (Not Yet Migrated)
+🔍 **chat_connection_manager.dart** - Active event broadcaster
+- Uses: StreamController to emit ConnectionStatus events
+- Consumers: ChatListCoordinator, HomeScreenFacade
+- Pattern: Requires provider wrapping (complex)
+- Issue: Would need StateNotifier + StreamProvider + consumer updates
+
+🔍 **chat_interaction_handler.dart** - Action intent emitter
+- Uses: StreamController to emit ChatInteractionIntent events
+- Consumers: Various UI handlers
+- Pattern: Requires provider wrapping (complex)
+- Issue: Multiple intent types, event-driven architecture
+
+### Key Insight: Two Migration Patterns Identified
+
+**Pattern A: Dead Code** (Simple, 30-60 min/file)
+- Characteristics: StreamController created but never exposed or used
+- Solution: Remove controller, simplify method implementations
+- Risk: LOW
+- Confidence: HIGH
+- Examples: ChatListCoordinator
+
+**Pattern B: Active Event Broadcasters** (Complex, 2-3 hours/file)
+- Characteristics: StreamController actively used to emit events from listeners
+- Solution: Create StateNotifier, wrap with StreamProvider, update consumers
+- Risk: MEDIUM-HIGH (must find all consumers, update call sites)
+- Confidence: MEDIUM (architectural pattern less established)
+- Examples: ChatConnectionManager, ChatInteractionHandler, (likely) MeshNetworkHealthMonitor, BLEServiceFacade
+
+### Recommendations for Continued Execution
+
+**Option 1** (RECOMMENDED - Pragmatic): Two-Phase Approach
+- Phase 2A (2-3 hours): Find and remove all "dead code" StreamControllers first
+  - Use Codex or pattern search to identify unused controllers
+  - Quick wins, confidence in changes high
+  - Build momentum with clear successes
+- Phase 2B (12-14 hours): Migrate active event broadcasters
+  - Establish StateNotifier + StreamProvider pattern in first file
+  - Apply pattern repetitively to remaining files
+  - Test thoroughly at each step
+
+**Option 2** (Faster): Focus on specific high-impact files
+- Identify top 3-5 StreamController consumers (e.g., BLEServiceFacade with 7 controllers)
+- Consolidate multiple controllers into single unified provider
+- Skip lower-impact files for now
+
+**Option 3** (Current pace): Careful step-by-step migration
+- Continue file-by-file analysis
+- Estimate 3-4 hours per complex file
+- Results in highest quality but longest timeline
+
+---
+
 ## Execution Rules
 
 1. **Quality First**: Run `flutter analyze` + `flutter test` after each file
