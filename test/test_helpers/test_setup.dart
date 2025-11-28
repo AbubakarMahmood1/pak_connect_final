@@ -124,7 +124,19 @@ class TestSetup {
     bool resetGraph = false,
   }) async {
     final locator = GetIt.instance;
-    if (resetGraph) {
+
+    // Determine if we should use default mocks (when called with no overrides)
+    final useDefaultMocks =
+        contactRepository == null &&
+        messageRepository == null &&
+        seenMessageStore == null &&
+        connectionService == null &&
+        chatsRepository == null &&
+        archiveRepository == null &&
+        databaseProvider == null;
+
+    // Reset GetIt if explicitly requested OR if using default mocks
+    if (resetGraph || useDefaultMocks) {
       await resetDIServiceLocator();
       await di_service_locator.setupServiceLocator();
     }
@@ -136,16 +148,22 @@ class TestSetup {
       locator.registerSingleton<T>(instance);
     }
 
-    if (contactRepository != null) {
-      override<IContactRepository>(contactRepository);
-      if (contactRepository is ContactRepository) {
-        override<ContactRepository>(contactRepository);
+    // Use provided repositories or default to mocks
+    final contactRepo =
+        contactRepository ?? (useDefaultMocks ? MockContactRepository() : null);
+    final messageRepo =
+        messageRepository ?? (useDefaultMocks ? MockMessageRepository() : null);
+
+    if (contactRepo != null) {
+      override<IContactRepository>(contactRepo);
+      if (contactRepo is ContactRepository) {
+        override<ContactRepository>(contactRepo);
       }
     }
-    if (messageRepository != null) {
-      override<IMessageRepository>(messageRepository);
-      if (messageRepository is MessageRepository) {
-        override<MessageRepository>(messageRepository);
+    if (messageRepo != null) {
+      override<IMessageRepository>(messageRepo);
+      if (messageRepo is MessageRepository) {
+        override<MessageRepository>(messageRepo);
       }
     }
     if (databaseProvider != null) {
@@ -175,14 +193,14 @@ class TestSetup {
       override<IArchiveRepository>(archiveRepository);
     }
 
-    // If repositories were overridden, update repository provider to use them.
-    if (contactRepository != null || messageRepository != null) {
-      final contactRepo = locator<IContactRepository>();
-      final messageRepo = locator<IMessageRepository>();
+    // Update repository provider if we registered any repositories
+    if (contactRepo != null || messageRepo != null) {
+      final finalContactRepo = locator<IContactRepository>();
+      final finalMessageRepo = locator<IMessageRepository>();
       override<IRepositoryProvider>(
         RepositoryProviderImpl(
-          contactRepository: contactRepo,
-          messageRepository: messageRepo,
+          contactRepository: finalContactRepo,
+          messageRepository: finalMessageRepo,
         ),
       );
     }
