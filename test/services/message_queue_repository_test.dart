@@ -6,11 +6,33 @@ import 'package:pak_connect/core/services/message_queue_repository.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('MessageQueueRepository', () {
     late MessageQueueRepository repository;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       repository = MessageQueueRepository();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('getAllMessages returns combined direct and relay messages', () {

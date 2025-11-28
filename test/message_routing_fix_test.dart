@@ -15,6 +15,12 @@ void main() {
   });
 
   group('Message Routing Fix Tests', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {
+      'DECRYPT: All methods failed',
+      'Decryption failed',
+    };
+
     late BLEMessageHandler messageHandler;
     late ContactRepository contactRepository;
 
@@ -22,6 +28,9 @@ void main() {
     const String arshadPublicKey = 'arshad_public_key_67890';
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(label: 'message_routing_fix');
       TestSetup.resetSharedPreferences();
       await EphemeralKeyManager.initialize('test_private_key_1234567890');
@@ -32,6 +41,19 @@ void main() {
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       await TestSetup.nukeDatabase();
     });
 

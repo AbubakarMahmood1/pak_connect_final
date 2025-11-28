@@ -36,6 +36,9 @@ void main() {
   }
 
   group('SearchCacheManager', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     final config = SearchServiceConfig(
       enableFuzzySearch: false,
       maxCacheSize: 2,
@@ -44,6 +47,28 @@ void main() {
       enableSuggestions: true,
       fuzzyThreshold: 0.7,
     );
+
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
 
     test('caches results and evicts oldest when max size exceeded', () {
       final manager = SearchCacheManager(getConfig: () => config);
@@ -76,6 +101,9 @@ void main() {
   });
 
   group('SearchHistoryManager', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     final config = SearchServiceConfig(
       enableFuzzySearch: false,
       maxCacheSize: 5,
@@ -86,7 +114,26 @@ void main() {
     );
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       SharedPreferences.setMockInitialValues({});
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('trims history to maxHistorySize', () async {
@@ -123,8 +170,30 @@ void main() {
   });
 
   group('SearchAnalyticsTracker', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       SharedPreferences.setMockInitialValues({});
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('records searches and produces reports', () async {

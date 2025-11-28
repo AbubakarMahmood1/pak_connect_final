@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/interfaces/i_mesh_networking_service.dart';
@@ -41,7 +42,32 @@ import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('ChatSessionViewModel retry pipeline', () {
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     testWidgets('marks message delivered when lifecycle send succeeds', (
       tester,
     ) async {
@@ -92,6 +118,28 @@ void main() {
   });
 
   group('ChatSessionViewModel identity swap', () {
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     testWidgets('migrates messages and re-registers persistent listener', (
       tester,
     ) async {
@@ -130,6 +178,28 @@ void main() {
   });
 
   group('ChatSessionViewModel message listener activation', () {
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     testWidgets('registers persistent listener when available', (tester) async {
       final persistentManager = PersistentChatStateManager();
       persistentManager.cleanupAll();

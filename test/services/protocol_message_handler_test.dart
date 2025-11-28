@@ -3,11 +3,33 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/protocol_message_handler.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('ProtocolMessageHandler', () {
     late ProtocolMessageHandler handler;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       handler = ProtocolMessageHandler();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('creates instance successfully', () {

@@ -11,6 +11,31 @@ import 'package:pak_connect/core/utils/chat_utils.dart';
 
 void main() {
   group('ChatUtils.extractContactKey', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     group('Production Format (Simple)', () {
       test('returns chatId as-is for simple production format', () {
         expect(ChatUtils.extractContactKey('alice', 'mykey'), equals('alice'));

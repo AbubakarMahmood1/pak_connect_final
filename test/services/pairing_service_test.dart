@@ -4,14 +4,36 @@ import 'package:pak_connect/data/services/pairing_service.dart';
 import 'package:mockito/mockito.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('PairingService', () {
     late PairingService pairingService;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       pairingService = PairingService(
         getMyPersistentId: () async => 'my_id_123',
         getTheirSessionId: () => 'their_session_123',
         getTheirDisplayName: () => 'Alice',
+      );
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
       );
     });
 

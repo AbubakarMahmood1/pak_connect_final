@@ -5,6 +5,9 @@ import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'username_propagation');
   });
@@ -14,8 +17,27 @@ void main() {
     late BLEStateManager stateManager;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       userPreferences = UserPreferences();
       stateManager = BLEStateManager();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('UserPreferences should update username storage', () async {

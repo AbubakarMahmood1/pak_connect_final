@@ -32,13 +32,35 @@ import '../test_helpers/mocks/mock_connection_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('ChatScreenController', () {
     late MockConnectionService connectionService;
     late _FakeMeshNetworkingService meshService;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       connectionService = MockConnectionService();
       meshService = _FakeMeshNetworkingService();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     final _readyStatus = MeshNetworkStatus(

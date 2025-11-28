@@ -12,6 +12,9 @@ import 'dart:convert';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
       dbLabel: 'profile_screen_validation',
@@ -29,12 +32,28 @@ void main() {
     late ChatsRepository chatsRepository;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       userPreferences = UserPreferences();
       contactRepository = ContactRepository();
       chatsRepository = ChatsRepository();
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       await TestSetup.nukeDatabase();
     });
 

@@ -88,6 +88,31 @@ ChatListItem _chat(
 
 void main() {
   group('ChatListCoordinator', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('loadChats populates state and tracks search query', () async {
       final repo = _ScriptedChatsRepository([
         [_chat('a')],

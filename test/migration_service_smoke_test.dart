@@ -11,6 +11,9 @@ import 'test_helpers/test_setup.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
       dbLabel: 'migration_service_smoke',
@@ -18,11 +21,27 @@ void main() {
   });
 
   setUp(() async {
+    logRecords.clear();
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.configureTestDatabase(label: 'migration_service_smoke');
     TestSetup.resetSharedPreferences();
   });
 
   tearDown(() async {
+    final severeErrors = logRecords
+        .where((log) => log.level >= Level.SEVERE)
+        .where(
+          (log) =>
+              !allowedSevere.any((pattern) => log.message.contains(pattern)),
+        )
+        .toList();
+    expect(
+      severeErrors,
+      isEmpty,
+      reason:
+          'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
     await TestSetup.nukeDatabase();
   });
 

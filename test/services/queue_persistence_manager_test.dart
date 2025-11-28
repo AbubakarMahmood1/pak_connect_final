@@ -6,6 +6,9 @@ import 'package:pak_connect/data/database/database_helper.dart';
 import '../test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'queue_persistence');
   });
@@ -14,12 +17,28 @@ void main() {
     late QueuePersistenceManager manager;
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.fullDatabaseReset();
       manager = QueuePersistenceManager();
     });
 
     tearDown(() async {
       await TestSetup.completeCleanup();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     group('createQueueTablesIfNotExist', () {

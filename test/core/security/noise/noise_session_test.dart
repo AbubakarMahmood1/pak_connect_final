@@ -10,8 +10,13 @@ void main() {
     late Uint8List aliceStaticPublic;
     late Uint8List bobStaticPrivate;
     late Uint8List bobStaticPublic;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       // Alice static key pair (hex from previous tests)
       aliceStaticPrivate = Uint8List.fromList([
         0x77,
@@ -151,6 +156,29 @@ void main() {
         0x2b,
         0x4f,
       ]);
+    });
+
+    tearDown(() {
+      // Allow SEVERE logs from intentional error-handling tests
+      allowedSevere.addAll([
+        'Invalid message size',
+        'State mismatch',
+        'Initiator must call startHandshake',
+        'Invalid argument',
+      ]);
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('creates initiator session', () {

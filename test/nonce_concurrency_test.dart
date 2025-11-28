@@ -124,6 +124,8 @@ class MockSecureStorage implements FlutterSecureStorage {
 void main() {
   late MockSecureStorage mockStorage;
   final logger = Logger('NonceTest');
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
 
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'nonce_concurrency');
@@ -135,11 +137,27 @@ void main() {
   });
 
   setUp(() async {
+    logRecords.clear();
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.fullDatabaseReset();
     TestSetup.resetSharedPreferences();
   });
 
   tearDown(() async {
+    final severeErrors = logRecords
+        .where((log) => log.level >= Level.SEVERE)
+        .where(
+          (log) =>
+              !allowedSevere.any((pattern) => log.message.contains(pattern)),
+        )
+        .toList();
+    expect(
+      severeErrors,
+      isEmpty,
+      reason:
+          'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
     await TestSetup.completeCleanup();
   });
 
