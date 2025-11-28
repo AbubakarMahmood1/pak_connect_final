@@ -22,6 +22,9 @@ void main() {
   });
 
   group('Message Retry Coordination Tests', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     late MessageRepository messageRepository;
     late OfflineMessageQueue offlineQueue;
     late MessageRetryCoordinator coordinator;
@@ -30,6 +33,9 @@ void main() {
     late IRepositoryProvider repositoryProvider;
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.fullDatabaseReset();
       TestSetup.resetSharedPreferences();
 
@@ -52,6 +58,19 @@ void main() {
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       offlineQueue.dispose();
       await TestSetup.completeCleanup();
     });

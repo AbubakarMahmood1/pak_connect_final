@@ -18,7 +18,32 @@ import 'package:pak_connect/core/models/protocol_message.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('STEP 4: Protocol Message Validation', () {
+    setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('persistentKeyExchange message has correct type', () {
       const testKey = 'test_persistent_public_key';
 
@@ -115,6 +140,28 @@ void main() {
   });
 
   group('STEP 4: Message Type Ordering', () {
+    setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('persistentKeyExchange comes after pairing messages in protocol', () {
       final types = ProtocolMessageType.values;
       final pairingRequestIndex = types.indexOf(

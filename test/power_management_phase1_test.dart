@@ -16,7 +16,32 @@ import 'package:pak_connect/core/messaging/gossip_sync_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('Phase 1: Duty Cycle Scanning Tests', () {
+    setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('Power modes map correctly to duty cycles', () {
       // BitChat pattern verification
       expect(PowerMode.performance.toString(), contains('performance'));
@@ -155,10 +180,29 @@ void main() {
     late OfflineMessageQueue messageQueue;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       messageQueue = OfflineMessageQueue();
       syncManager = GossipSyncManager(
         myNodeId: 'test-node-id',
         messageQueue: messageQueue,
+      );
+    });
+
+    tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
       );
     });
 
@@ -227,6 +271,28 @@ void main() {
   });
 
   group('Phase 1: Power Mode Transitions Tests', () {
+    setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('Power mode determined correctly from battery + background state', () async {
       final powerManager = AdaptivePowerManager();
       await powerManager.initialize();
@@ -258,6 +324,28 @@ void main() {
   });
 
   group('Phase 1: Integration Tests', () {
+    setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('PowerManagementStats serializes to string correctly', () {
       final stats = PowerManagementStats(
         currentScanInterval: 60000,

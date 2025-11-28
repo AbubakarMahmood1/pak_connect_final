@@ -34,6 +34,12 @@ void main() {
   });
 
   group('Message Encryption and Routing Tests', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {
+      'DECRYPT: All methods failed',
+      'Decryption failed',
+    };
+
     late BLEMessageHandler messageHandler;
     late StubContactRepository stubContactRepository;
 
@@ -44,6 +50,9 @@ void main() {
         'abubakar_public_key_12345678901234567890123456789012';
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(
         label: 'message_encryption_routing',
       );
@@ -55,6 +64,19 @@ void main() {
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       messageHandler.dispose();
       await TestSetup.nukeDatabase();
     });

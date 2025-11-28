@@ -216,73 +216,100 @@ class _TestHomeScreenController extends HomeScreenController {
 }
 
 void main() {
-  testWidgets('search sentinel shows bar and clears with reload', (
-    tester,
-  ) async {
-    late _TestHomeScreenController controller;
-    final fakeRepo = _FakeChatsRepository();
-    final fakeMessageRepo = _FakeMessageRepository();
-    final fakeArchiveRepo = _FakeArchiveRepository();
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
 
-    await TestSetup.configureTestDI(
-      messageRepository: fakeMessageRepo,
-      chatsRepository: fakeRepo,
-      archiveRepository: fakeArchiveRepo,
-      seenMessageStore: _InMemorySeenMessageStore(),
-    );
-    addTearDown(() async {
-      await TestSetup.resetDIServiceLocator();
+  group('HomeScreenController', () {
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
     });
 
-    await tester.pumpWidget(
-      ProviderScope(
-        child: MaterialApp(
-          home: Builder(
-            builder: (context) {
-              return Consumer(
-                builder: (context, ref, _) {
-                  controller = _TestHomeScreenController(
-                    HomeScreenControllerArgs(
-                      context: context,
-                      ref: ref,
-                      chatsRepository: fakeRepo,
-                      chatManagementService: ChatManagementService(),
-                      homeScreenFacade: HomeScreenFacade(
-                        chatsRepository: fakeRepo,
-                        bleService: null,
-                        chatManagementService: null,
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
+    testWidgets('search sentinel shows bar and clears with reload', (
+      tester,
+    ) async {
+      late _TestHomeScreenController controller;
+      final fakeRepo = _FakeChatsRepository();
+      final fakeMessageRepo = _FakeMessageRepository();
+      final fakeArchiveRepo = _FakeArchiveRepository();
+
+      await TestSetup.configureTestDI(
+        messageRepository: fakeMessageRepo,
+        chatsRepository: fakeRepo,
+        archiveRepository: fakeArchiveRepo,
+        seenMessageStore: _InMemorySeenMessageStore(),
+      );
+      addTearDown(() async {
+        await TestSetup.resetDIServiceLocator();
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                return Consumer(
+                  builder: (context, ref, _) {
+                    controller = _TestHomeScreenController(
+                      HomeScreenControllerArgs(
                         context: context,
                         ref: ref,
-                        enableListCoordinatorInitialization: false,
+                        chatsRepository: fakeRepo,
+                        chatManagementService: ChatManagementService(),
+                        homeScreenFacade: HomeScreenFacade(
+                          chatsRepository: fakeRepo,
+                          bleService: null,
+                          chatManagementService: null,
+                          context: context,
+                          ref: ref,
+                          enableListCoordinatorInitialization: false,
+                        ),
                       ),
-                    ),
-                  );
-                  return const SizedBox.shrink();
-                },
-              );
-            },
+                    );
+                    return const SizedBox.shrink();
+                  },
+                );
+              },
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    // Sentinel should only show the search bar without triggering a reload.
-    controller.onSearchChanged(' ');
-    expect(controller.searchQuery, ' ');
-    expect(controller.loadCount, 0);
+      // Sentinel should only show the search bar without triggering a reload.
+      controller.onSearchChanged(' ');
+      expect(controller.searchQuery, ' ');
+      expect(controller.loadCount, 0);
 
-    // Typing a real query schedules a debounced reload.
-    controller.onSearchChanged('hello');
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(controller.searchQuery, 'hello');
-    expect(controller.loadCount, 1);
+      // Typing a real query schedules a debounced reload.
+      controller.onSearchChanged('hello');
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(controller.searchQuery, 'hello');
+      expect(controller.loadCount, 1);
 
-    // Clearing the query should trigger an immediate reload.
-    controller.onSearchChanged('');
-    await tester.pump();
-    expect(controller.searchQuery, '');
-    expect(controller.loadCount, 2);
+      // Clearing the query should trigger an immediate reload.
+      controller.onSearchChanged('');
+      await tester.pump();
+      expect(controller.searchQuery, '');
+      expect(controller.loadCount, 2);
 
-    controller.dispose();
+      controller.dispose();
+    });
   });
 }

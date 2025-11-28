@@ -68,6 +68,9 @@ class _MockContactRepository extends Mock implements ContactRepository {
 
 void main() {
   group('PairingFlowController verification', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     late PairingFlowController controller;
     late _MockContactRepository contactRepository;
     late IdentitySessionState identityState;
@@ -76,7 +79,9 @@ void main() {
     late Contact contact;
 
     setUp(() async {
-      Logger.root.level = Level.OFF;
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       TestWidgetsFlutterBinding.ensureInitialized();
       SharedPreferences.setMockInitialValues({});
       await EphemeralKeyManager.initialize('my-private-key');
@@ -132,6 +137,24 @@ void main() {
       identityState.currentSessionId = 'peer';
       identityState.theirPersistentKey = 'persist';
       controller.onPairingCancelled = () => cancelledCalled = true;
+    });
+
+    tearDown(() {
+      // Allow SEVERE logs from intentional error-handling tests
+      allowedSevere.addAll(['Hash mismatch', 'verification failed']);
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('mismatch revokes secrets and marks pairing failed', () async {

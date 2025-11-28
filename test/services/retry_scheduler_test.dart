@@ -5,15 +5,34 @@ import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('RetryScheduler', () {
     late RetryScheduler scheduler;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       scheduler = RetryScheduler();
     });
 
     tearDown(() {
       scheduler.dispose();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     group('calculateBackoffDelay', () {

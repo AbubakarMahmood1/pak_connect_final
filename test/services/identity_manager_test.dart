@@ -5,13 +5,35 @@ import 'package:pak_connect/data/repositories/user_preferences.dart';
 import 'package:mockito/mockito.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('IdentityManager', () {
     late IdentityManager identityManager;
     late MockUserPreferences mockUserPreferences;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       mockUserPreferences = MockUserPreferences();
       identityManager = IdentityManager(userPreferences: mockUserPreferences);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('initializes with null username initially', () {

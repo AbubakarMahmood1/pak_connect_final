@@ -25,10 +25,32 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Ephemeral Key Cleanup Verification', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       // Clear SharedPreferences before each test
       SharedPreferences.setMockInitialValues({});
       await SharedPreferences.getInstance().then((prefs) => prefs.clear());
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test(

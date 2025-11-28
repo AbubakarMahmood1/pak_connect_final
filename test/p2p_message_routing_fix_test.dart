@@ -12,6 +12,9 @@ import 'test_helpers/message_handler_test_utils.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
       dbLabel: 'p2p_message_routing_fix',
@@ -23,6 +26,9 @@ void main() {
     late ContactRepository mockContactRepository;
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(label: 'p2p_message_routing_fix');
       TestSetup.resetSharedPreferences();
       await EphemeralKeyManager.initialize('test_private_key_1234567890');
@@ -33,6 +39,19 @@ void main() {
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       handler.dispose();
       await TestSetup.nukeDatabase();
     });
@@ -206,6 +225,9 @@ void main() {
     late ContactRepository mockContactRepository;
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(
         label: 'p2p_message_routing_fix_edge',
       );
@@ -217,6 +239,19 @@ void main() {
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       handler.dispose();
       await TestSetup.nukeDatabase();
     });
