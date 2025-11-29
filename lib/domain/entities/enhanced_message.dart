@@ -116,6 +116,11 @@ class EnhancedMessage extends Message {
   /// Create copy with updated status
   @override
   EnhancedMessage copyWith({
+    MessageId? id,
+    String? chatId,
+    String? content,
+    DateTime? timestamp,
+    bool? isFromMe,
     MessageStatus? status,
     MessageDeliveryReceipt? deliveryReceipt,
     MessageReadReceipt? readReceipt,
@@ -125,12 +130,21 @@ class EnhancedMessage extends Message {
     DateTime? editedAt,
     MessageEncryptionInfo? encryptionInfo,
   }) {
+    // Handle content updates: 'editedContent' triggers edit history logic,
+    // 'content' just updates the field (e.g. migration/copy).
+    final finalContent = editedContent ?? content ?? this.content;
+
+    // If we are editing (editedContent provided), preserve original content if not already saved
+    final finalOriginalContent = editedContent != null
+        ? (originalContent ?? this.content)
+        : originalContent;
+
     return EnhancedMessage(
-      id: id,
-      chatId: chatId,
-      content: editedContent ?? content,
-      timestamp: timestamp,
-      isFromMe: isFromMe,
+      id: id ?? this.id,
+      chatId: chatId ?? this.chatId,
+      content: finalContent,
+      timestamp: timestamp ?? this.timestamp,
+      isFromMe: isFromMe ?? this.isFromMe,
       status: status ?? this.status,
       replyToMessageId: replyToMessageId,
       threadId: threadId,
@@ -142,9 +156,7 @@ class EnhancedMessage extends Message {
       isForwarded: isForwarded,
       priority: priority,
       editedAt: editedAt ?? this.editedAt,
-      originalContent: editedContent != null
-          ? (originalContent ?? content)
-          : originalContent,
+      originalContent: finalOriginalContent,
       attachments: attachments,
       encryptionInfo: encryptionInfo ?? this.encryptionInfo,
     );

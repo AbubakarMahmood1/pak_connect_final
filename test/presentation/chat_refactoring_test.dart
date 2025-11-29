@@ -80,6 +80,15 @@ class MockMessageRepository implements MessageRepository {
   @override
   Future<List<Message>> getMessagesForContact(String publicKey) async =>
       _messages;
+
+  @override
+  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+    for (var i = 0; i < _messages.length; i++) {
+      if (_messages[i].chatId == oldChatId) {
+        _messages[i] = _messages[i].copyWith(chatId: newChatId);
+      }
+    }
+  }
 }
 
 class MockChatsRepository implements IChatsRepository {

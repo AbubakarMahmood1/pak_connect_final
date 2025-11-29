@@ -521,24 +521,14 @@ class ChatSessionViewModel {
   }
 
   Future<void> _migrateMessages(String oldChatId, String newChatId) async {
-    final oldMessages = await messageRepository.getMessages(oldChatId);
-
-    for (final message in oldMessages) {
-      final migratedMessage = Message(
-        id: message.id,
-        chatId: newChatId,
-        content: message.content,
-        timestamp: message.timestamp,
-        isFromMe: message.isFromMe,
-        status: message.status,
+    try {
+      await messageRepository.migrateChatId(oldChatId, newChatId);
+      _logger.info(
+        'Migrated messages from $oldChatId to $newChatId via repository',
       );
-      await messageRepository.saveMessage(migratedMessage);
+    } catch (e) {
+      _logger.severe('Failed to migrate messages: $e');
     }
-
-    await messageRepository.clearMessages(oldChatId);
-    _logger.info(
-      'Migrated ${oldMessages.length} messages from $oldChatId to $newChatId',
-    );
   }
 
   /// Calculate initial chat ID (extracted from ChatScreenController)
@@ -558,7 +548,6 @@ class ChatSessionViewModel {
       return;
     }
 
-    sessionLifecycle!.messageListenerActive = true;
     final connectionService = getConnectionServiceFn?.call();
     if (connectionService == null) {
       _logger.warning(
@@ -567,6 +556,7 @@ class ChatSessionViewModel {
       return;
     }
 
+    sessionLifecycle!.messageListenerActive = true;
     final persistentChatManager = getPersistentChatManagerFn?.call();
     final chatId = getChatIdFn?.call() ?? '';
 

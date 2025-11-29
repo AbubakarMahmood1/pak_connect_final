@@ -36,12 +36,19 @@ class Message {
     status: MessageStatus.values[json['status']],
   );
 
-  Message copyWith({MessageStatus? status}) => Message(
-    id: id,
-    chatId: chatId,
-    content: content,
-    timestamp: timestamp,
-    isFromMe: isFromMe,
+  Message copyWith({
+    MessageId? id,
+    String? chatId,
+    String? content,
+    DateTime? timestamp,
+    bool? isFromMe,
+    MessageStatus? status,
+  }) => Message(
+    id: id ?? this.id,
+    chatId: chatId ?? this.chatId,
+    content: content ?? this.content,
+    timestamp: timestamp ?? this.timestamp,
+    isFromMe: isFromMe ?? this.isFromMe,
     status: status ?? this.status,
   );
 }

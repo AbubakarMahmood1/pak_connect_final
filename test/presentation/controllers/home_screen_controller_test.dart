@@ -91,6 +91,9 @@ class _FakeMessageRepository implements IMessageRepository {
 
   @override
   Future<void> updateMessage(Message message) async {}
+
+  @override
+  Future<void> migrateChatId(String oldChatId, String newChatId) async {}
 }
 
 class _FakeArchiveRepository implements IArchiveRepository {
