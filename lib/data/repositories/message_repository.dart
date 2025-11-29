@@ -185,6 +185,33 @@ class MessageRepository implements IMessageRepository {
     }
   }
 
+  @override
+  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+    try {
+      final db = await DatabaseHelper.database;
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      // Ensure the new chat exists before migration
+      await _ensureChatExists(db, newChatId, now);
+
+      // Atomic update of all messages
+      final count = await db.update(
+        'messages',
+        {'chat_id': newChatId, 'updated_at': now},
+        where: 'chat_id = ?',
+        whereArgs: [oldChatId],
+      );
+
+      // Clean up old chat entry (optional, but keeps DB clean)
+      await db.delete('chats', where: 'chat_id = ?', whereArgs: [oldChatId]);
+
+      _logger.info('✅ Migrated $count messages from $oldChatId to $newChatId');
+    } catch (e) {
+      _logger.severe('❌ Failed to migrate chat ID: $e');
+      rethrow;
+    }
+  }
+
   // ========================================
   // PRIVATE HELPER METHODS
   // ========================================

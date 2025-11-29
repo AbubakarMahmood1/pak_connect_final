@@ -33,4 +33,7 @@ abstract class IMessageRepository {
 
   /// Get messages for a specific contact (by public key/chat ID)
   Future<List<Message>> getMessagesForContact(String publicKey);
+
+  /// Migrate messages from one chat ID to another
+  Future<void> migrateChatId(String oldChatId, String newChatId);
 }

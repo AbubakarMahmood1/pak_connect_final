@@ -799,6 +799,14 @@ class ChatScreenController extends ChangeNotifier {
       return ChatUtils.generateChatId(sessionId);
     }
 
+    // Fallback to device/central UUIDs if available (prevents collision)
+    if (config.isCentralMode && config.device != null) {
+      return ChatUtils.generateChatId(config.device!.uuid.toString());
+    }
+    if (config.isPeripheralMode && config.central != null) {
+      return ChatUtils.generateChatId(config.central!.uuid.toString());
+    }
+
     // Last resort: empty string (will be set once identity is resolved)
     return '';
   }
