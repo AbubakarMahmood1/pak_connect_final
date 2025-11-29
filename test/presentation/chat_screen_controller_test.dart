@@ -669,6 +669,18 @@ class _FakeMessageRepository extends MessageRepository {
   }
 
   @override
+  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+    final messages = _store[oldChatId];
+    if (messages != null) {
+      final migratedMessages = messages
+          .map((m) => m.copyWith(chatId: newChatId))
+          .toList();
+      _store[newChatId] = migratedMessages;
+      _store.remove(oldChatId);
+    }
+  }
+
+  @override
   Future<List<Message>> getAllMessages() async =>
       _store.values.expand((m) => m).toList();
 

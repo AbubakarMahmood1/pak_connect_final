@@ -430,6 +430,19 @@ class _FakeMessageRepository extends MessageRepository {
   Future<void> clearMessages(String chatId) async {
     messages.removeWhere((_, msg) => msg.chatId == chatId);
   }
+
+  @override
+  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+    final keysToMigrate = messages.entries
+        .where((e) => e.value.chatId == oldChatId)
+        .map((e) => e.key)
+        .toList();
+
+    for (final key in keysToMigrate) {
+      final msg = messages[key]!;
+      messages[key] = msg.copyWith(chatId: newChatId);
+    }
+  }
 }
 
 class _FakeContactRepository extends ContactRepository {}

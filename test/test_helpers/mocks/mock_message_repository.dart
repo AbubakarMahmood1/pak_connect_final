@@ -28,4 +28,17 @@ class MockMessageRepository extends MessageRepository {
     }
     return false;
   }
+
+  @override
+  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+    final keysToMigrate = _messages.entries
+        .where((e) => e.value.chatId == oldChatId)
+        .map((e) => e.key)
+        .toList();
+
+    for (final key in keysToMigrate) {
+      final msg = _messages[key]!;
+      _messages[key] = msg.copyWith(chatId: newChatId);
+    }
+  }
 }
