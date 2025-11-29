@@ -1,4 +1,5 @@
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Interface for message repository operations
 ///
@@ -13,7 +14,7 @@ abstract class IMessageRepository {
   Future<List<Message>> getMessages(String chatId);
 
   /// Get a single message by ID (for duplicate checking)
-  Future<Message?> getMessageById(String messageId);
+  Future<Message?> getMessageById(MessageId messageId);
 
   /// Save a new message (with duplicate prevention)
   Future<void> saveMessage(Message message);
@@ -25,7 +26,7 @@ abstract class IMessageRepository {
   Future<void> clearMessages(String chatId);
 
   /// Delete a specific message by ID
-  Future<bool> deleteMessage(String messageId);
+  Future<bool> deleteMessage(MessageId messageId);
 
   /// Get all messages for interaction calculations
   Future<List<Message>> getAllMessages();

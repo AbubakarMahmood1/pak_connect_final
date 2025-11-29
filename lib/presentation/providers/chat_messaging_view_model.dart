@@ -8,6 +8,8 @@ import '../../core/services/security_manager.dart';
 import '../../core/messaging/message_router.dart';
 import '../../core/messaging/offline_message_queue.dart';
 
+import 'package:pak_connect/domain/values/id_types.dart';
+
 /// Callback type for UI message additions
 typedef OnMessageAddedCallback = void Function(Message message);
 
@@ -94,7 +96,7 @@ class ChatMessagingViewModel {
       final pendingMessages = queuedMessages
           .map(
             (qm) => Message(
-              id: qm.id,
+              id: MessageId(qm.id),
               chatId: qm.chatId,
               content: qm.content,
               timestamp: qm.queuedAt,
@@ -195,7 +197,7 @@ class ChatMessagingViewModel {
       // Create temporary UI message to show immediately
       // (will be replaced by queue data on reload)
       final tempMessage = Message(
-        id: secureMessageId,
+        id: MessageId(secureMessageId),
         chatId: chatId,
         content: content,
         timestamp: DateTime.now(),
@@ -273,7 +275,9 @@ class ChatMessagingViewModel {
       );
 
       // Delete from local repository
-      final success = await messageRepository.deleteMessage(messageId);
+      final success = await messageRepository.deleteMessage(
+        MessageId(messageId),
+      );
 
       if (success) {
         // Notify UI to remove message immediately (optimistic update)
@@ -333,14 +337,14 @@ class ChatMessagingViewModel {
 
   /// Add a received message to the list
   bool addReceivedMessage(Message message) {
-    _logger.info('📥 Received message: ${message.id}');
+    _logger.info('📥 Received message: ${message.id.value}');
 
-    if (_messageBuffer.contains(message.id)) {
-      _logger.info('⚠️ Duplicate message, ignoring: ${message.id}');
+    if (_messageBuffer.contains(message.id.value)) {
+      _logger.info('⚠️ Duplicate message, ignoring: ${message.id.value}');
       return false;
     }
 
-    _messageBuffer.add(message.id);
+    _messageBuffer.add(message.id.value);
     return _messageListenerActive;
   }
 

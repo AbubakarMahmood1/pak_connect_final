@@ -38,6 +38,7 @@ import 'package:pak_connect/presentation/notifiers/chat_session_state_notifier.d
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -84,7 +85,7 @@ void main() {
       await viewModel.retryRepositoryMessage(_failedMessage);
 
       expect(
-        messageRepo.messages[_failedMessage.id]!.status,
+        messageRepo.messages[_failedMessage.id.value]!.status,
         MessageStatus.delivered,
       );
       expect(stateStore.current.messages.first.status, MessageStatus.delivered);
@@ -110,7 +111,7 @@ void main() {
       await viewModel.retryRepositoryMessage(_failedMessage);
 
       expect(
-        messageRepo.messages[_failedMessage.id]!.status,
+        messageRepo.messages[_failedMessage.id.value]!.status,
         MessageStatus.failed,
       );
       expect(stateStore.current.messages.first.status, MessageStatus.failed);
@@ -166,7 +167,7 @@ void main() {
       final stateStore = _FakeStateStore()..setMessages([_deliveredMessage]);
       viewModel.bindStateStore(stateStore);
       viewModel.sessionLifecycle = lifecycle;
-      messageRepo.messages[_deliveredMessage.id] = _deliveredMessage;
+      messageRepo.messages[_deliveredMessage.id.value] = _deliveredMessage;
 
       await viewModel.handleIdentityReceived();
 
@@ -310,7 +311,7 @@ Future<ChatSessionViewModel> _buildViewModel({
 }
 
 final _failedMessage = Message(
-  id: 'failed-1',
+  id: MessageId('failed-1'),
   chatId: 'chat-1',
   content: 'fail me',
   timestamp: DateTime(2024, 1, 1),
@@ -319,7 +320,7 @@ final _failedMessage = Message(
 );
 
 final _deliveredMessage = Message(
-  id: 'delivered-1',
+  id: MessageId('delivered-1'),
   chatId: 'chat-1',
   content: 'hi',
   timestamp: DateTime(2024, 1, 1),
@@ -409,12 +410,12 @@ class _FakeMessageRepository extends MessageRepository {
 
   @override
   Future<void> saveMessage(Message message) async {
-    messages[message.id] = message;
+    messages[message.id.value] = message;
   }
 
   @override
   Future<void> updateMessage(Message message) async {
-    messages[message.id] = message;
+    messages[message.id.value] = message;
   }
 
   @override
@@ -423,7 +424,7 @@ class _FakeMessageRepository extends MessageRepository {
   }
 
   @override
-  Future<Message?> getMessageById(String id) async => messages[id];
+  Future<Message?> getMessageById(MessageId id) async => messages[id.value];
 
   @override
   Future<void> clearMessages(String chatId) async {

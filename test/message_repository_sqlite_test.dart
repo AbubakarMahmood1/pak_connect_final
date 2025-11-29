@@ -4,6 +4,7 @@ import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
@@ -77,7 +78,7 @@ void main() {
       await createChat('chat_001');
 
       final message = Message(
-        id: 'msg_001',
+        id: MessageId('msg_001'),
         chatId: 'chat_001',
         content: 'Hello, World!',
         timestamp: DateTime.now(),
@@ -89,7 +90,7 @@ void main() {
 
       final messages = await repository.getMessages('chat_001');
       expect(messages.length, 1);
-      expect(messages.first.id, 'msg_001');
+      expect(messages.first.id.value, 'msg_001');
       expect(messages.first.content, 'Hello, World!');
       expect(messages.first.isFromMe, true);
       expect(messages.first.status, MessageStatus.sent);
@@ -102,7 +103,7 @@ void main() {
       await createChat('chat_001');
 
       final enhancedMessage = EnhancedMessage(
-        id: 'msg_002',
+        id: MessageId('msg_002'),
         chatId: 'chat_001',
         content: 'Enhanced message',
         timestamp: DateTime.now(),
@@ -159,7 +160,7 @@ void main() {
       expect(messages.length, 1);
 
       final retrieved = messages.first as EnhancedMessage;
-      expect(retrieved.id, 'msg_002');
+      expect(retrieved.id.value, 'msg_002');
       expect(retrieved.content, 'Enhanced message');
       expect(retrieved.replyToMessageId, 'msg_001');
       expect(retrieved.threadId, 'thread_001');
@@ -187,7 +188,7 @@ void main() {
 
         final now = DateTime.now();
         final message1 = Message(
-          id: 'msg_001',
+          id: MessageId('msg_001'),
           chatId: 'chat_001',
           content: 'First',
           timestamp: now.subtract(const Duration(hours: 2)),
@@ -196,7 +197,7 @@ void main() {
         );
 
         final message2 = Message(
-          id: 'msg_002',
+          id: MessageId('msg_002'),
           chatId: 'chat_001',
           content: 'Second',
           timestamp: now.subtract(const Duration(hours: 1)),
@@ -205,7 +206,7 @@ void main() {
         );
 
         final message3 = Message(
-          id: 'msg_003',
+          id: MessageId('msg_003'),
           chatId: 'chat_001',
           content: 'Third',
           timestamp: now,
@@ -233,7 +234,7 @@ void main() {
       await createChat('chat_001');
 
       final message = Message(
-        id: 'msg_001',
+        id: MessageId('msg_001'),
         chatId: 'chat_001',
         content: 'Original content',
         timestamp: DateTime.now(),
@@ -258,7 +259,7 @@ void main() {
       await createChat('chat_001');
 
       final message = EnhancedMessage(
-        id: 'msg_001',
+        id: MessageId('msg_001'),
         chatId: 'chat_001',
         content: 'Message with reactions',
         timestamp: DateTime.now(),
@@ -294,7 +295,7 @@ void main() {
       await createChat('chat_001');
 
       final message = Message(
-        id: 'msg_001',
+        id: MessageId('msg_001'),
         chatId: 'chat_001',
         content: 'To be deleted',
         timestamp: DateTime.now(),
@@ -305,14 +306,14 @@ void main() {
       await repository.saveMessage(message);
       expect(await repository.getMessages('chat_001'), hasLength(1));
 
-      final deleted = await repository.deleteMessage('msg_001');
+      final deleted = await repository.deleteMessage(MessageId('msg_001'));
       expect(deleted, true);
       expect(await repository.getMessages('chat_001'), isEmpty);
     });
 
     test('Delete non-existent message returns false', () async {
       final repository = MessageRepository();
-      final deleted = await repository.deleteMessage('non_existent');
+      final deleted = await repository.deleteMessage(MessageId('non_existent'));
       expect(deleted, false);
     });
 
@@ -326,7 +327,7 @@ void main() {
       // Add messages to two different chats
       await repository.saveMessage(
         Message(
-          id: 'msg_001',
+          id: MessageId('msg_001'),
           chatId: 'chat_001',
           content: 'Chat 1 Message 1',
           timestamp: DateTime.now(),
@@ -337,7 +338,7 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_002',
+          id: MessageId('msg_002'),
           chatId: 'chat_001',
           content: 'Chat 1 Message 2',
           timestamp: DateTime.now(),
@@ -348,7 +349,7 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_003',
+          id: MessageId('msg_003'),
           chatId: 'chat_002',
           content: 'Chat 2 Message 1',
           timestamp: DateTime.now(),
@@ -373,7 +374,7 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_001',
+          id: MessageId('msg_001'),
           chatId: 'chat_001',
           content: 'Chat 1',
           timestamp: DateTime.now().subtract(const Duration(hours: 1)),
@@ -384,7 +385,7 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_002',
+          id: MessageId('msg_002'),
           chatId: 'chat_002',
           content: 'Chat 2',
           timestamp: DateTime.now(),
@@ -408,7 +409,7 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_001',
+          id: MessageId('msg_001'),
           chatId: 'public_key_001',
           content: 'Message 1',
           timestamp: DateTime.now(),
@@ -419,7 +420,7 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_002',
+          id: MessageId('msg_002'),
           chatId: 'public_key_002',
           content: 'Message 2',
           timestamp: DateTime.now(),
@@ -448,7 +449,7 @@ void main() {
       // Create EnhancedMessage with just one enhanced field set (isStarred)
       // This ensures it's saved and retrieved as EnhancedMessage
       final enhancedMessage = EnhancedMessage(
-        id: 'msg_001',
+        id: MessageId('msg_001'),
         chatId: 'chat_001',
         content: 'Starred message',
         timestamp: DateTime.now(),
@@ -481,7 +482,7 @@ void main() {
       await createChat('chat_001');
 
       final message = Message(
-        id: 'msg_001',
+        id: MessageId('msg_001'),
         chatId: 'chat_001',
         content: 'Original',
         timestamp: DateTime.now(),
@@ -514,7 +515,7 @@ void main() {
       // Add messages to different chats
       await repository.saveMessage(
         Message(
-          id: 'msg_001',
+          id: MessageId('msg_001'),
           chatId: 'chat_001',
           content: 'Chat 1',
           timestamp: DateTime.now(),
@@ -525,7 +526,7 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_002',
+          id: MessageId('msg_002'),
           chatId: 'chat_002',
           content: 'Chat 2',
           timestamp: DateTime.now(),
@@ -536,7 +537,7 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_003',
+          id: MessageId('msg_003'),
           chatId: 'chat_003',
           content: 'Chat 3',
           timestamp: DateTime.now(),

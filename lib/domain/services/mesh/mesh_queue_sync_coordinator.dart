@@ -12,6 +12,7 @@ import 'package:pak_connect/core/utils/mesh_debug_logger.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 import 'mesh_network_health_monitor.dart';
 
@@ -299,7 +300,7 @@ class MeshQueueSyncCoordinator {
 
     try {
       final deliveredMessage = Message(
-        id: message.id,
+        id: MessageId(message.id),
         chatId: message.chatId,
         content: message.content,
         timestamp: message.queuedAt,

@@ -17,6 +17,7 @@ import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/presentation/controllers/home_screen_controller.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import '../../test_helpers/test_setup.dart';
 
 class _FakeChatsRepository implements IChatsRepository {
@@ -70,13 +71,13 @@ class _FakeMessageRepository implements IMessageRepository {
   Future<void> clearMessages(String chatId) async {}
 
   @override
-  Future<bool> deleteMessage(String messageId) async => true;
+  Future<bool> deleteMessage(MessageId messageId) async => true;
 
   @override
   Future<List<Message>> getAllMessages() async => <Message>[];
 
   @override
-  Future<Message?> getMessageById(String messageId) async => null;
+  Future<Message?> getMessageById(MessageId messageId) async => null;
 
   @override
   Future<List<Message>> getMessages(String chatId) async => <Message>[];

@@ -20,6 +20,8 @@ import '../../domain/entities/message.dart';
 import '../../domain/services/notification_service.dart';
 import '../notifiers/chat_session_state_notifier.dart';
 
+import 'package:pak_connect/domain/values/id_types.dart';
+
 /// Planned Riverpod-backed ViewModel for ChatScreen state and commands.
 /// This is scaffolding only; logic will migrate from ChatScreenController
 /// in later milestones without altering current behavior.
@@ -159,7 +161,7 @@ class ChatSessionViewModel {
     MessageStatus newStatus,
   ) {
     final messages = [...state.messages];
-    final index = messages.indexWhere((m) => m.id == messageId);
+    final index = messages.indexWhere((m) => m.id.value == messageId);
     if (index != -1) {
       messages[index] = messages[index].copyWith(status: newStatus);
     }
@@ -211,7 +213,7 @@ class ChatSessionViewModel {
       state.copyWith(messages: [...state.messages, message]);
 
   /// Remove a message by id from the UI list.
-  ChatUIState removeMessageById(ChatUIState state, String messageId) =>
+  ChatUIState removeMessageById(ChatUIState state, MessageId messageId) =>
       state.copyWith(
         messages: state.messages.where((m) => m.id != messageId).toList(),
       );
@@ -272,10 +274,14 @@ class ChatSessionViewModel {
   }
 
   /// Delete a message (extracted from ChatScreenController)
-  Future<void> deleteMessage(String messageId, bool deleteForEveryone) async {
+  Future<void> deleteMessage(
+    MessageId messageId,
+    bool deleteForEveryone,
+  ) async {
     try {
       await messagingViewModel.deleteMessage(
-        messageId: messageId,
+        messageId:
+            messageId.value, // String is expected by ChatMessagingViewModel
         deleteForEveryone: deleteForEveryone,
         onMessageRemoved: (id) {
           stateStore?.removeMessage(id);
@@ -387,13 +393,13 @@ class ChatSessionViewModel {
     );
 
     final existingMessage = await messageRepository.getMessageById(
-      secureMessageId,
+      MessageId(secureMessageId),
     );
     if (existingMessage != null) {
       final currentState = stateStore?.current;
       if (currentState != null) {
         final inUiList = currentState.messages.any(
-          (m) => m.id == secureMessageId,
+          (m) => m.id.value == secureMessageId,
         );
         if (!inUiList) {
           stateStore?.appendMessage(existingMessage);
@@ -404,7 +410,7 @@ class ChatSessionViewModel {
     }
 
     final message = Message(
-      id: secureMessageId,
+      id: MessageId(secureMessageId),
       chatId: chatId,
       content: content,
       timestamp: DateTime.now(),

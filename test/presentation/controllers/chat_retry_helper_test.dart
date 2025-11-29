@@ -7,6 +7,7 @@ import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/presentation/controllers/chat_retry_helper.dart';
 import 'package:pak_connect/presentation/models/chat_screen_config.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 class _FakeMessageRepository extends MessageRepository {
   final List<Message> updatedMessages = [];
@@ -50,7 +51,7 @@ void main() {
       final repo = _FakeMessageRepository();
       final messages = <Message>[
         Message(
-          id: 'm1',
+          id: MessageId('m1'),
           chatId: 'chat-1',
           content: 'hello',
           timestamp: DateTime.now(),

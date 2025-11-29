@@ -5,6 +5,7 @@ import 'package:pak_connect/data/repositories/archive_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/core/models/archive_models.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
@@ -65,7 +66,7 @@ void main() {
     final messageRepo = MessageRepository();
     for (int i = 0; i < messageCount; i++) {
       final message = Message(
-        id: 'msg_${chatId}_$i',
+        id: MessageId('msg_${chatId}_$i'),
         chatId: chatId,
         content: 'Test message $i for $contactName',
         timestamp: DateTime.now().subtract(Duration(hours: messageCount - i)),

@@ -11,6 +11,7 @@ class ArchiveSearchPagination {
       return result;
     }
 
+    // Use take() to safely limit results without index out-of-bounds errors
     final limitedMessages = result.messages.take(limit).toList();
     final limitedChats = result.chats.take(limit).toList();
     final messagesByChat = _groupMessagesByChat(limitedMessages);

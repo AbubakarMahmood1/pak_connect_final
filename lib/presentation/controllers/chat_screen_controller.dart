@@ -37,6 +37,7 @@ import '../../presentation/providers/security_state_provider.dart';
 import '../providers/chat_session_providers.dart';
 import '../viewmodels/chat_session_view_model.dart';
 import '../notifiers/chat_session_state_notifier.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'chat_retry_helper.dart';
 
 class ChatScreenControllerArgs {
@@ -773,7 +774,10 @@ class ChatScreenController extends ChangeNotifier {
     await _sessionViewModel.sendMessage(content);
   }
 
-  Future<void> deleteMessage(String messageId, bool deleteForEveryone) async {
+  Future<void> deleteMessage(
+    MessageId messageId,
+    bool deleteForEveryone,
+  ) async {
     // Phase 6A: Delegate to ViewModel
     await _sessionViewModel.deleteMessage(messageId, deleteForEveryone);
   }

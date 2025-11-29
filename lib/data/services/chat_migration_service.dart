@@ -103,7 +103,7 @@ class ChatMigrationService {
           'messages',
           {'chat_id': newChatId},
           where: 'id = ?',
-          whereArgs: [message.id],
+          whereArgs: [message.id.value],
         );
 
         migratedCount++;

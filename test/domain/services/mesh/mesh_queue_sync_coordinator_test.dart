@@ -108,7 +108,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(messageRepository.savedMessages.length, 1);
-      expect(messageRepository.savedMessages.single.id, messageId);
+      expect(messageRepository.savedMessages.single.id.value, messageId);
       expect(deliveryIds, contains(messageId));
       expect(statusRefreshes, greaterThan(0));
 

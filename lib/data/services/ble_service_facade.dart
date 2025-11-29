@@ -76,7 +76,6 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     statusMessage: 'Ready',
   );
   final Set<void Function(ConnectionInfo)> _connectionInfoListeners = {};
-  final Set<void Function(List<Peripheral>)> _discoveredDevicesListeners = {};
   final Set<void Function(String)> _hintMatchListeners = {};
   Future<bool> Function(QueueSyncMessage message, String fromNodeId)?
   _queueSyncHandler;
@@ -330,7 +329,6 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       _spyModeListeners.clear();
       _identityListeners.clear();
       _connectionInfoListeners.clear();
-      _discoveredDevicesListeners.clear();
       _hintMatchListeners.clear();
       await _connectionInfoSubscription?.cancel();
       _connectionInfoSubscription = null;
@@ -722,15 +720,19 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       Stream<List<Peripheral>>.multi((controller) {
         controller.add(_connectionManager.activeConnections);
 
-        void listener(List<Peripheral> devices) {
-          controller.add(devices);
-        }
+        final subscription = _getDiscoveryService().discoveredDevices.listen(
+          (devices) {
+            controller.add(devices);
+          },
+          onError: (error, stackTrace) {
+            controller.addError(error, stackTrace);
+          },
+        );
 
-        _discoveredDevicesListeners.add(listener);
         controller.onCancel = () {
-          _discoveredDevicesListeners.remove(listener);
+          subscription.cancel();
         };
-      });
+      }, isBroadcast: true);
 
   @override
   List<Peripheral> get currentDiscoveredDevices =>

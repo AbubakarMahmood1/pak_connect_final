@@ -212,7 +212,7 @@ class MessageBubble extends StatelessWidget {
       builder: (context) => DeleteConfirmationDialog(
         message: message,
         onConfirm: (deleteForEveryone) {
-          onDelete?.call(message.id, deleteForEveryone);
+          onDelete?.call(message.id.value, deleteForEveryone);
         },
       ),
     );

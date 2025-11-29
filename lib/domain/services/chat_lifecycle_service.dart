@@ -14,6 +14,8 @@ import 'chat_management_models.dart';
 import 'chat_notification_service.dart';
 import 'chat_sync_service.dart';
 
+import 'package:pak_connect/domain/values/id_types.dart';
+
 /// Chat lifecycle operations: archive/pin/star, delete, export, analytics
 class ChatLifecycleService {
   final _logger = Logger('ChatLifecycleService');
@@ -42,20 +44,20 @@ class ChatLifecycleService {
        _notificationService = notificationService,
        _syncService = syncService;
 
-  Future<ChatOperationResult> toggleMessageStar(String messageId) async {
+  Future<ChatOperationResult> toggleMessageStar(MessageId messageId) async {
     try {
-      if (_cacheState.starredMessageIds.contains(messageId)) {
-        _cacheState.starredMessageIds.remove(messageId);
+      if (_cacheState.starredMessageIds.contains(messageId.value)) {
+        _cacheState.starredMessageIds.remove(messageId.value);
         await _syncService.saveStarredMessages();
         _notificationService.emitMessageUpdate(
-          MessageUpdateEvent.unstarred(messageId),
+          MessageUpdateEvent.unstarred(messageId.value),
         );
         return ChatOperationResult.success('Message unstarred');
       } else {
-        _cacheState.starredMessageIds.add(messageId);
+        _cacheState.starredMessageIds.add(messageId.value);
         await _syncService.saveStarredMessages();
         _notificationService.emitMessageUpdate(
-          MessageUpdateEvent.starred(messageId),
+          MessageUpdateEvent.starred(messageId.value),
         );
         return ChatOperationResult.success('Message starred');
       }
@@ -72,7 +74,7 @@ class ChatLifecycleService {
       for (final chat in allChats) {
         final messages = await _messageRepository.getMessages(chat.chatId);
         for (final message in messages) {
-          if (_cacheState.starredMessageIds.contains(message.id)) {
+          if (_cacheState.starredMessageIds.contains(message.id.value)) {
             final enhanced = EnhancedMessage.fromMessage(
               message,
             ).copyWith(isStarred: true);
@@ -90,7 +92,7 @@ class ChatLifecycleService {
   }
 
   Future<ChatOperationResult> deleteMessages({
-    required List<String> messageIds,
+    required List<MessageId> messageIds,
     bool deleteForEveryone = false,
   }) async {
     try {
@@ -110,9 +112,9 @@ class ChatLifecycleService {
               found = true;
               await _deleteMessageFromRepository(messageId, chat.chatId);
 
-              _cacheState.starredMessageIds.remove(messageId);
+              _cacheState.starredMessageIds.remove(messageId.value);
               _notificationService.emitMessageUpdate(
-                MessageUpdateEvent.deleted(messageId, chat.chatId),
+                MessageUpdateEvent.deleted(messageId.value, chat.chatId),
               );
               successCount++;
               break;
@@ -241,7 +243,7 @@ class ChatLifecycleService {
     try {
       final chatMessages = await _messageRepository.getMessages(chatId);
       for (final message in chatMessages) {
-        _cacheState.starredMessageIds.remove(message.id);
+        _cacheState.starredMessageIds.remove(message.id.value);
       }
 
       await _messageRepository.clearMessages(chatId);
@@ -265,7 +267,7 @@ class ChatLifecycleService {
     try {
       final chatMessages = await _messageRepository.getMessages(chatId);
       for (final message in chatMessages) {
-        _cacheState.starredMessageIds.remove(message.id);
+        _cacheState.starredMessageIds.remove(message.id.value);
       }
 
       await _messageRepository.clearMessages(chatId);
@@ -292,7 +294,7 @@ class ChatLifecycleService {
       final myMessages = enhancedMessages.where((m) => m.isFromMe).length;
       final theirMessages = totalMessages - myMessages;
       final starredCount = enhancedMessages
-          .where((m) => _cacheState.starredMessageIds.contains(m.id))
+          .where((m) => _cacheState.starredMessageIds.contains(m.id.value))
           .length;
 
       final firstMessage = enhancedMessages.isNotEmpty
@@ -491,7 +493,7 @@ class ChatLifecycleService {
 
       if (includeMetadata) {
         buffer.writeln('  Status: ${message.status.name}');
-        if (_cacheState.starredMessageIds.contains(message.id)) {
+        if (_cacheState.starredMessageIds.contains(message.id.value)) {
           buffer.writeln('  ⭐ Starred');
         }
       }
@@ -518,7 +520,7 @@ class ChatLifecycleService {
         final data = message.toJson();
         if (includeMetadata) {
           data['is_starred'] = _cacheState.starredMessageIds.contains(
-            message.id,
+            message.id.value,
           );
         }
         return data;
@@ -550,7 +552,9 @@ class ChatLifecycleService {
       var row = [timestamp, sender, content, status];
       if (includeMetadata) {
         row.add(
-          _cacheState.starredMessageIds.contains(message.id) ? 'Yes' : 'No',
+          _cacheState.starredMessageIds.contains(message.id.value)
+              ? 'Yes'
+              : 'No',
         );
       }
 
@@ -561,15 +565,19 @@ class ChatLifecycleService {
   }
 
   Future<void> _deleteMessageFromRepository(
-    String messageId,
+    MessageId messageId,
     String chatId,
   ) async {
     try {
       final success = await _messageRepository.deleteMessage(messageId);
       if (success) {
-        _logger.info('Successfully deleted message: $messageId from $chatId');
+        _logger.info(
+          'Successfully deleted message: ${messageId.value} from $chatId',
+        );
       } else {
-        _logger.warning('Failed to delete message - not found: $messageId');
+        _logger.warning(
+          'Failed to delete message - not found: ${messageId.value}',
+        );
         throw Exception('Message not found');
       }
     } catch (e) {

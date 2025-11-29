@@ -147,7 +147,7 @@ class ChatRetryHelper {
       await repositoryRetryHandler(retryMessage);
     } catch (e) {
       _logger.warning(
-        'Repository retry failed for ${message.id.shortId()}: $e',
+        'Repository retry failed for ${message.id.value.shortId()}: $e',
       );
       rethrow;
     }

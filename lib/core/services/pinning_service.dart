@@ -99,7 +99,7 @@ class PinningService {
       for (final chat in allChats) {
         final messages = await _messageRepository.getMessages(chat.chatId);
         for (final message in messages) {
-          if (_starredMessageIds.contains(message.id)) {
+          if (_starredMessageIds.contains(message.id.value)) {
             final enhanced = EnhancedMessage.fromMessage(
               message,
             ).copyWith(isStarred: true);

@@ -18,6 +18,8 @@ import '../../core/compression/compression_util.dart';
 import 'archive_data_helper.dart';
 import 'archive_storage_utils.dart';
 
+import 'package:pak_connect/domain/values/id_types.dart';
+
 /// Repository for managing archived chats with SQLite and FTS5 search
 /// Singleton pattern to prevent multiple instances and redundant initialization
 class ArchiveRepository implements IArchiveRepository {
@@ -910,7 +912,7 @@ class ArchiveRepository implements IArchiveRepository {
   ArchivedMessage _mapToArchivedMessage(Map<String, dynamic> row) {
     return ArchivedMessage(
       // Message base fields
-      id: row['id'] as String,
+      id: MessageId(row['id'] as String),
       chatId: row['chat_id'] as String,
       content: row['content'] as String,
       timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
@@ -999,7 +1001,7 @@ class ArchiveRepository implements IArchiveRepository {
           ? DateTime.fromMillisecondsSinceEpoch(row['last_message_time'] as int)
           : null,
       messageCount: row['message_count'] as int,
-      estimatedSize: row['estimated_size'] as int,
+      estimatedSize: row['estimated_size'] as int? ?? 0,
       isCompressed: (row['is_compressed'] as int? ?? 0) == 1,
       tags: [], // Tags can be extracted from metadata_json if needed
       isSearchable: true, // All archives searchable with FTS5
