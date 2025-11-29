@@ -81,14 +81,16 @@ class ChatSessionStateStore extends StateNotifier<ChatUIState> {
   void updateMessageStatus(String messageId, MessageStatus newStatus) {
     state = state.copyWith(
       messages: state.messages
-          .map((m) => m.id == messageId ? m.copyWith(status: newStatus) : m)
+          .map(
+            (m) => m.id.value == messageId ? m.copyWith(status: newStatus) : m,
+          )
           .toList(),
     );
   }
 
   void removeMessage(String messageId) {
     state = state.copyWith(
-      messages: state.messages.where((m) => m.id != messageId).toList(),
+      messages: state.messages.where((m) => m.id.value != messageId).toList(),
     );
   }
 

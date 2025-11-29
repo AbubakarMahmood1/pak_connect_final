@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/models/security_state.dart';
 import '../../domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import '../controllers/chat_screen_controller.dart';
 import '../models/chat_screen_config.dart';
 import '../models/chat_ui_state.dart';
@@ -429,7 +430,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final actions = ref
         .read(chatSessionHandleProvider(_controllerArgs))
         .actions;
-    return actions.deleteMessage(messageId, deleteForEveryone);
+    return actions.deleteMessage(MessageId(messageId), deleteForEveryone);
   }
 
   void _toggleSearchMode() {

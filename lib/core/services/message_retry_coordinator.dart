@@ -107,7 +107,7 @@ class MessageRetryCoordinator {
         repoAttempted++;
         try {
           _logger.info(
-            '🔄 Retrying repository message: ${message.id.shortId(8)}...',
+            '🔄 Retrying repository message: ${message.id.value.shortId(8)}...',
           );
           await onRepositoryMessageRetry(message);
           repoSucceeded++;

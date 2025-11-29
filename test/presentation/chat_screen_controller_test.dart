@@ -27,6 +27,7 @@ import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/presentation/controllers/chat_pairing_dialog_controller.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import '../test_helpers/mocks/mock_connection_service.dart';
 
 void main() {
@@ -87,7 +88,7 @@ void main() {
       final fakeMessageRepo = _FakeMessageRepository();
       await fakeMessageRepo.saveMessage(
         Message(
-          id: 'm1',
+          id: MessageId('m1'),
           chatId: initialChatId,
           content: 'hello',
           timestamp: DateTime.now(),
@@ -185,7 +186,7 @@ void main() {
       final fakeMessageRepo = _FakeMessageRepository();
       await fakeMessageRepo.saveMessage(
         Message(
-          id: 'msg-1',
+          id: MessageId('msg-1'),
           chatId: 'chat-1',
           content: 'pending',
           timestamp: DateTime.now(),
@@ -269,7 +270,7 @@ void main() {
       });
 
       final updated = controller.state.messages
-          .firstWhere((m) => m.id == 'msg-1')
+          .firstWhere((m) => m.id.value == 'msg-1')
           .status;
       expect(updated, MessageStatus.delivered);
     });
@@ -277,7 +278,7 @@ void main() {
     testWidgets('retry orchestration updates failed messages', (tester) async {
       final fakeMessageRepo = _FakeMessageRepository();
       final failedMessage = Message(
-        id: 'failed-1',
+        id: MessageId('failed-1'),
         chatId: 'chat-1',
         content: 'fail me',
         timestamp: DateTime.now(),
@@ -399,7 +400,7 @@ void main() {
       });
 
       final updated = controller.state.messages
-          .firstWhere((m) => m.id == 'failed-1')
+          .firstWhere((m) => m.id.value == 'failed-1')
           .status;
       expect(updated, MessageStatus.delivered);
     });
@@ -621,7 +622,7 @@ class _FakeMessageRepository extends MessageRepository {
       List<Message>.from(_store[chatId] ?? []);
 
   @override
-  Future<Message?> getMessageById(String messageId) async {
+  Future<Message?> getMessageById(MessageId messageId) async {
     for (final entry in _store.values) {
       for (final message in entry) {
         if (message.id == messageId) return message;
@@ -649,7 +650,7 @@ class _FakeMessageRepository extends MessageRepository {
   }
 
   @override
-  Future<bool> deleteMessage(String messageId) async {
+  Future<bool> deleteMessage(MessageId messageId) async {
     var removed = false;
     _store.updateAll((key, value) {
       final before = value.length;

@@ -5,6 +5,7 @@ import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
@@ -291,7 +292,7 @@ void main() {
       final now = DateTime.now();
       await messageRepo.saveMessage(
         Message(
-          id: 'msg1',
+          id: MessageId('msg1'),
           chatId: 'alice_key',
           content: 'Hello from Alice',
           timestamp: now,
@@ -301,7 +302,7 @@ void main() {
       );
       await messageRepo.saveMessage(
         Message(
-          id: 'msg2',
+          id: MessageId('msg2'),
           chatId: 'bob_key',
           content: 'Hello from Bob',
           timestamp: now,

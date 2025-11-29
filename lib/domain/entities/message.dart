@@ -1,5 +1,7 @@
+import '../values/id_types.dart';
+
 class Message {
-  final String id;
+  final MessageId id;
   final String chatId; // device UUID for now, group ID later
   final String content;
   final DateTime timestamp;
@@ -17,7 +19,7 @@ class Message {
 
   // Convert to/from JSON for storage
   Map<String, dynamic> toJson() => {
-    'id': id,
+    'id': id.value,
     'chatId': chatId,
     'content': content,
     'timestamp': timestamp.millisecondsSinceEpoch,
@@ -26,7 +28,7 @@ class Message {
   };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
-    id: json['id'],
+    id: MessageId(json['id']),
     chatId: json['chatId'],
     content: json['content'],
     timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),

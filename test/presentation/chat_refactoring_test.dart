@@ -8,6 +8,7 @@ import 'package:pak_connect/presentation/models/chat_ui_state.dart';
 import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 // Mock implementations
 class MockMessageRepository implements MessageRepository {
@@ -23,14 +24,14 @@ class MockMessageRepository implements MessageRepository {
 
   @override
   Future<void> updateMessage(Message message) async {
-    final index = _messages.indexWhere((m) => m.id == message.id);
+    final index = _messages.indexWhere((m) => m.id.value == message.id.value);
     if (index >= 0) {
       _messages[index] = message;
     }
   }
 
   @override
-  Future<bool> deleteMessage(String messageId) async {
+  Future<bool> deleteMessage(MessageId messageId) async {
     _messages.removeWhere((m) => m.id == messageId);
     return true;
   }
@@ -44,7 +45,7 @@ class MockMessageRepository implements MessageRepository {
   Future<void> markChatAsRead(String chatId) async {}
 
   @override
-  Future<void> markMessageAsRead(String messageId) async {}
+  Future<void> markMessageAsRead(MessageId messageId) async {}
 
   @override
   Future<void> deleteChat(String chatId) async {}
@@ -58,7 +59,7 @@ class MockMessageRepository implements MessageRepository {
   Future<List<Message>> getOfflineMessages() async => [];
 
   @override
-  Future<void> markOfflineMessageAsSent(String messageId) async {}
+  Future<void> markOfflineMessageAsSent(MessageId messageId) async {}
 
   @override
   Future<int> getTotalMessageCount() async => _messages.length;
@@ -70,7 +71,7 @@ class MockMessageRepository implements MessageRepository {
   Future<List<Message>> getAllMessages() async => _messages;
 
   @override
-  Future<Message?> getMessageById(String messageId) async =>
+  Future<Message?> getMessageById(MessageId messageId) async =>
       _messages.firstWhere((m) => m.id == messageId);
 
   @override
@@ -187,7 +188,7 @@ void main() {
     test('should create with custom values', () {
       final messages = [
         Message(
-          id: '1',
+          id: MessageId('1'),
           chatId: 'chat1',
           content: 'Hello',
           isFromMe: false,
@@ -302,7 +303,7 @@ void main() {
 
       final messages = [
         Message(
-          id: '1',
+          id: MessageId('1'),
           chatId: 'chat-1',
           content: 'Hello',
           isFromMe: false,
@@ -310,7 +311,7 @@ void main() {
           status: MessageStatus.delivered,
         ),
         Message(
-          id: '2',
+          id: MessageId('2'),
           chatId: 'chat-1',
           content: 'Again',
           isFromMe: true,
@@ -318,7 +319,7 @@ void main() {
           status: MessageStatus.delivered,
         ),
         Message(
-          id: '3',
+          id: MessageId('3'),
           chatId: 'chat-1',
           content: 'More',
           isFromMe: false,

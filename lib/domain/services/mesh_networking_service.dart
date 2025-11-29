@@ -32,6 +32,8 @@ import 'mesh/mesh_queue_sync_coordinator.dart';
 import 'mesh/mesh_relay_coordinator.dart';
 import '../../core/utils/chat_utils.dart';
 
+import 'package:pak_connect/domain/values/id_types.dart';
+
 /// Main orchestrator service for mesh networking functionality
 /// Coordinates all mesh components behind a clean application-facing API
 class MeshNetworkingService implements IMeshNetworkingService {
@@ -500,7 +502,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
 
       // Create message with proper attribution to original sender
       final message = Message(
-        id: originalMessageId,
+        id: MessageId(originalMessageId),
         chatId: chatId,
         content: content,
         timestamp: DateTime.now(),

@@ -9,6 +9,7 @@ import '../../core/compression/compression_util.dart';
 import '../../core/utils/chat_utils.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 class MessageRepository implements IMessageRepository {
   static final _logger = Logger('MessageRepository');
@@ -33,14 +34,14 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Get a single message by ID (for duplicate checking)
-  Future<Message?> getMessageById(String messageId) async {
+  Future<Message?> getMessageById(MessageId messageId) async {
     try {
       final db = await DatabaseHelper.database;
 
       final results = await db.query(
         'messages',
         where: 'id = ?',
-        whereArgs: [messageId],
+        whereArgs: [messageId.value],
         limit: 1,
       );
 
@@ -50,7 +51,7 @@ class MessageRepository implements IMessageRepository {
 
       return _fromDatabase(results.first);
     } catch (e) {
-      _logger.severe('❌ Failed to get message by ID $messageId: $e');
+      _logger.severe('❌ Failed to get message by ID ${messageId.value}: $e');
       return null;
     }
   }
@@ -72,7 +73,7 @@ class MessageRepository implements IMessageRepository {
         conflictAlgorithm: ConflictAlgorithm.ignore, // Prevent duplicates
       );
 
-      _logger.fine('✅ Saved message ${message.id}');
+      _logger.fine('✅ Saved message ${message.id.value}');
     } catch (e) {
       _logger.severe('❌ Failed to save message: $e');
       rethrow;
@@ -90,7 +91,7 @@ class MessageRepository implements IMessageRepository {
         'messages',
         columns: ['created_at'],
         where: 'id = ?',
-        whereArgs: [message.id],
+        whereArgs: [message.id.value],
         limit: 1,
       );
 
@@ -102,10 +103,10 @@ class MessageRepository implements IMessageRepository {
         'messages',
         _toDatabase(message, createdAt, now),
         where: 'id = ?',
-        whereArgs: [message.id],
+        whereArgs: [message.id.value],
       );
 
-      _logger.fine('✅ Updated message ${message.id}');
+      _logger.fine('✅ Updated message ${message.id.value}');
     } catch (e) {
       _logger.severe('❌ Failed to update message: $e');
       rethrow;
@@ -127,21 +128,21 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Delete a specific message by ID
-  Future<bool> deleteMessage(String messageId) async {
+  Future<bool> deleteMessage(MessageId messageId) async {
     try {
       final db = await DatabaseHelper.database;
 
       final rowsDeleted = await db.delete(
         'messages',
         where: 'id = ?',
-        whereArgs: [messageId],
+        whereArgs: [messageId.value],
       );
 
       final wasDeleted = rowsDeleted > 0;
       if (wasDeleted) {
-        _logger.fine('✅ Deleted message $messageId');
+        _logger.fine('✅ Deleted message ${messageId.value}');
       } else {
-        _logger.warning('⚠️ Message $messageId not found');
+        _logger.warning('⚠️ Message ${messageId.value} not found');
       }
 
       return wasDeleted;
@@ -276,7 +277,7 @@ class MessageRepository implements IMessageRepository {
     if (!hasEnhancedFields) {
       // Return base Message
       return Message(
-        id: row['id'] as String,
+        id: MessageId(row['id'] as String),
         chatId: row['chat_id'] as String,
         content: row['content'] as String,
         timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
@@ -287,7 +288,7 @@ class MessageRepository implements IMessageRepository {
 
     // Return EnhancedMessage
     return EnhancedMessage(
-      id: row['id'] as String,
+      id: MessageId(row['id'] as String),
       chatId: row['chat_id'] as String,
       content: row['content'] as String,
       timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
@@ -333,7 +334,7 @@ class MessageRepository implements IMessageRepository {
     int updatedAt,
   ) {
     final Map<String, Object?> baseData = {
-      'id': message.id,
+      'id': message.id.value,
       'chat_id': message.chatId,
       'content': message.content,
       'timestamp': message.timestamp.millisecondsSinceEpoch,

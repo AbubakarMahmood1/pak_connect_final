@@ -10,6 +10,7 @@ import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
@@ -86,7 +87,7 @@ void main() {
 
         for (int j = 0; j < messagesPerContact; j++) {
           final message = Message(
-            id: 'msg_${i}_$j',
+            id: MessageId('msg_${i}_$j'),
             chatId: chatId,
             content: 'Test message $j from $contactName',
             timestamp: DateTime.now().subtract(Duration(minutes: j)),

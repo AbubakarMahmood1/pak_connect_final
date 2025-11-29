@@ -3,6 +3,7 @@
 import 'package:logging/logging.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/message.dart';
+import '../values/id_types.dart';
 
 /// Archived message extending EnhancedMessage with archive-specific metadata
 class ArchivedMessage extends EnhancedMessage {
@@ -292,7 +293,8 @@ class ArchivedMessage extends EnhancedMessage {
     EnhancedMessage message,
     DateTime archiveTime,
   ) {
-    final hash = '${message.id}_${archiveTime.millisecondsSinceEpoch}'.hashCode
+    final hash = '${message.id.value}_${archiveTime.millisecondsSinceEpoch}'
+        .hashCode
         .abs();
     return 'archived_msg_$hash';
   }
@@ -386,7 +388,7 @@ class ArchiveMessageMetadata {
 
 /// Message restoration information
 class MessageRestorationInfo {
-  final String messageId;
+  final MessageId messageId;
   final bool canRestore;
   final List<String> warnings;
   final DateTime originalTimestamp;

@@ -5,6 +5,8 @@ import 'chat_management_service.dart';
 import 'archive_search_service.dart';
 import 'chat_management_models.dart';
 
+import 'package:pak_connect/domain/values/id_types.dart';
+
 /// Facade providing backward-compatible ChatManagementService interface
 /// Internally delegates to ChatManagementService and keeps APIs stable
 class ChatManagementFacade implements IChatManagement {
@@ -96,7 +98,7 @@ class ChatManagementFacade implements IChatManagement {
   @override
   Future<ChatOperationResult> toggleMessageStar(String messageId) async {
     await _ensureInitialized();
-    return _chatManagementService.toggleMessageStar(messageId);
+    return _chatManagementService.toggleMessageStar(MessageId(messageId));
   }
 
   @override

@@ -437,7 +437,7 @@ class ChatSyncService {
       }
 
       if (filter.isStarred != null &&
-          _cacheState.starredMessageIds.contains(message.id) !=
+          _cacheState.starredMessageIds.contains(message.id.value) !=
               filter.isStarred) {
         return false;
       }
@@ -488,7 +488,7 @@ class ChatSyncService {
         (m) => ArchivedMessage.fromEnhancedMessage(
           m,
           m.timestamp,
-          customArchiveId: 'live_${m.id}',
+          customArchiveId: 'live_${m.id.value}',
           additionalMetadata: {'source': 'live'},
         ),
       ),

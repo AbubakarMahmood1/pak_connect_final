@@ -38,6 +38,8 @@ import '../core/messaging/message_router.dart';
 import 'di/service_locator.dart';
 import 'interfaces/i_connection_service.dart';
 
+import '../domain/values/id_types.dart';
+
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
   static final _logger = Logger('AppCore');
@@ -97,7 +99,7 @@ class AppCore {
     controller.onCancel = () {
       _statusListeners.remove(listener);
     };
-  });
+  }, isBroadcast: true);
 
   /// Initialize the entire application core
   Future<void> initialize() async {
@@ -525,7 +527,7 @@ class AppCore {
     try {
       // Create repository message with delivered status
       final repoMessage = Message(
-        id: queuedMessage.id, // Same ID as queue (secure ID)
+        id: MessageId(queuedMessage.id), // Same ID as queue (secure ID)
         chatId: queuedMessage.chatId,
         content: queuedMessage.content,
         timestamp: queuedMessage.queuedAt,

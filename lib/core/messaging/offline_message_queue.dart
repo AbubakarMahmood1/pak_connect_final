@@ -58,9 +58,18 @@ class OfflineMessageQueue {
   IMessageQueueRepository? _queueRepository;
   IQueuePersistenceManager? _queuePersistenceManager;
   IRetryScheduler? _retryScheduler;
-  IQueueSyncCoordinator? _queueSyncCoordinator;
-  QueuePolicyManager? _policyManager;
-  QueueBandwidthAllocator? _bandwidthAllocator;
+
+  // Late final fields - initialized on first access, safe from null dereference
+  late final IQueueSyncCoordinator _sync = QueueSyncCoordinator(
+    repository: _repo,
+    deletedMessageIds: _deletedMessageIds,
+  );
+
+  late final QueuePolicyManager _policy = QueuePolicyManager(
+    repositoryProvider: _repositoryProvider,
+  );
+
+  late final QueueBandwidthAllocator _bandwidth = QueueBandwidthAllocator();
 
   // Bandwidth allocation constant
   static const double _directBandwidthRatio =
@@ -124,27 +133,6 @@ class OfflineMessageQueue {
   IRetryScheduler get _scheduler {
     _retryScheduler ??= RetryScheduler();
     return _retryScheduler!;
-  }
-
-  IQueueSyncCoordinator get _sync {
-    final repo = _repo;
-    _queueSyncCoordinator ??= QueueSyncCoordinator(
-      repository: repo,
-      deletedMessageIds: _deletedMessageIds,
-    );
-    return _queueSyncCoordinator!;
-  }
-
-  QueuePolicyManager get _policy {
-    _policyManager ??= QueuePolicyManager(
-      repositoryProvider: _repositoryProvider,
-    );
-    return _policyManager!;
-  }
-
-  QueueBandwidthAllocator get _bandwidth {
-    _bandwidthAllocator ??= QueueBandwidthAllocator();
-    return _bandwidthAllocator!;
   }
 
   /// Initialize the offline message queue
@@ -250,7 +238,8 @@ class OfflineMessageQueue {
         recipientPublicKey: recipientPublicKey,
         currentPriority: priority,
       );
-      priority = boostResult.priority;
+      // Use boosted priority without mutating parameter
+      final effectivePriority = boostResult.priority;
 
       // Validate per-peer queue limits
       final validation = await _policy.validateQueueLimit(
@@ -280,13 +269,13 @@ class OfflineMessageQueue {
         content: content,
         recipientPublicKey: recipientPublicKey,
         senderPublicKey: senderPublicKey,
-        priority: priority,
+        priority: effectivePriority,
         queuedAt: now,
         replyToMessageId: replyToMessageId,
         attachments: attachments,
         attempts: 0,
-        maxRetries: _getMaxRetriesForPriority(priority),
-        expiresAt: _calculateExpiryTime(now, priority),
+        maxRetries: _getMaxRetriesForPriority(effectivePriority),
+        expiresAt: _calculateExpiryTime(now, effectivePriority),
       );
 
       // Add to queue with priority ordering
@@ -302,7 +291,7 @@ class OfflineMessageQueue {
       final favoriteTag = boostResult.isFavorite ? ' ⭐' : '';
       final queueType = queuedMessage.isRelayMessage ? 'relay' : 'direct';
       _logger.info(
-        'Message queued [$queueType]: ${messageId.shortId()}... (priority: ${priority.name}, peer: ${validation.currentCount + 1}/${validation.limit})$favoriteTag',
+        'Message queued [$queueType]: ${messageId.shortId()}... (priority: ${effectivePriority.name}, peer: ${validation.currentCount + 1}/${validation.limit})$favoriteTag',
       );
 
       // Attempt immediate delivery if online

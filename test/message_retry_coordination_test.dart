@@ -10,6 +10,7 @@ import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/core/di/repository_provider_impl.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
 /// Test to verify the message retry coordination functionality
@@ -90,7 +91,7 @@ void main() {
 
         // Add failed messages to repository
         final repoMessage1 = Message(
-          id: 'repo_msg_1',
+          id: MessageId('repo_msg_1'),
           chatId: chatId,
           content: 'Repository failed message 1',
           timestamp: DateTime.now().subtract(Duration(minutes: 5)),
@@ -99,7 +100,7 @@ void main() {
         );
 
         final repoMessage2 = Message(
-          id: 'repo_msg_2',
+          id: MessageId('repo_msg_2'),
           chatId: chatId,
           content: 'Repository failed message 2',
           timestamp: DateTime.now().subtract(Duration(minutes: 3)),
@@ -141,7 +142,7 @@ void main() {
 
       // Add a failed repository message
       final repoMessage = Message(
-        id: 'coord_repo_msg',
+        id: MessageId('coord_repo_msg'),
         chatId: chatId,
         content: 'Test coordination message',
         timestamp: DateTime.now().subtract(Duration(minutes: 2)),
@@ -160,7 +161,7 @@ void main() {
         chatId: chatId,
         onRepositoryMessageRetry: (Message message) async {
           repoRetryWasCalled = true;
-          expect(message.id, equals('coord_repo_msg'));
+          expect(message.id.value, equals('coord_repo_msg'));
 
           // Simulate successful retry by updating the message
           final successMessage = message.copyWith(
@@ -183,7 +184,7 @@ void main() {
       // Verify message was updated in repository
       final updatedMessages = await messageRepository.getMessages(chatId);
       final updatedMessage = updatedMessages.firstWhere(
-        (m) => m.id == 'coord_repo_msg',
+        (m) => m.id.value == 'coord_repo_msg',
       );
       expect(updatedMessage.status, MessageStatus.delivered);
     });
@@ -197,7 +198,7 @@ void main() {
       // Add multiple failed messages
       final messages = [
         Message(
-          id: 'mixed_msg_1',
+          id: MessageId('mixed_msg_1'),
           chatId: chatId,
           content: 'Will succeed',
           timestamp: DateTime.now().subtract(Duration(minutes: 5)),
@@ -205,7 +206,7 @@ void main() {
           status: MessageStatus.failed,
         ),
         Message(
-          id: 'mixed_msg_2',
+          id: MessageId('mixed_msg_2'),
           chatId: chatId,
           content: 'Will fail',
           timestamp: DateTime.now().subtract(Duration(minutes: 3)),
@@ -222,13 +223,13 @@ void main() {
       final retryResult = await coordinator.retryAllFailedMessages(
         chatId: chatId,
         onRepositoryMessageRetry: (Message message) async {
-          if (message.id == 'mixed_msg_1') {
+          if (message.id.value == 'mixed_msg_1') {
             // Simulate success
             final successMessage = message.copyWith(
               status: MessageStatus.delivered,
             );
             await messageRepository.updateMessage(successMessage);
-          } else if (message.id == 'mixed_msg_2') {
+          } else if (message.id.value == 'mixed_msg_2') {
             // Simulate failure by throwing exception
             throw Exception('Simulated delivery failure');
           }
@@ -245,10 +246,10 @@ void main() {
       // Verify only the successful message was updated
       final finalMessages = await messageRepository.getMessages(chatId);
       final successfulMessage = finalMessages.firstWhere(
-        (m) => m.id == 'mixed_msg_1',
+        (m) => m.id.value == 'mixed_msg_1',
       );
       final failedMessage = finalMessages.firstWhere(
-        (m) => m.id == 'mixed_msg_2',
+        (m) => m.id.value == 'mixed_msg_2',
       );
 
       expect(successfulMessage.status, MessageStatus.delivered);
@@ -264,7 +265,7 @@ void main() {
       // Add a mix of delivered and failed messages
       final messages = [
         Message(
-          id: 'health_delivered_1',
+          id: MessageId('health_delivered_1'),
           chatId: chatId,
           content: 'Delivered message 1',
           timestamp: DateTime.now().subtract(Duration(minutes: 10)),
@@ -272,7 +273,7 @@ void main() {
           status: MessageStatus.delivered,
         ),
         Message(
-          id: 'health_delivered_2',
+          id: MessageId('health_delivered_2'),
           chatId: chatId,
           content: 'Delivered message 2',
           timestamp: DateTime.now().subtract(Duration(minutes: 8)),
@@ -280,7 +281,7 @@ void main() {
           status: MessageStatus.delivered,
         ),
         Message(
-          id: 'health_failed_1',
+          id: MessageId('health_failed_1'),
           chatId: chatId,
           content: 'Failed message 1',
           timestamp: DateTime.now().subtract(Duration(minutes: 5)),
@@ -355,7 +356,7 @@ void main() {
 
         // Test basic repository operations still work
         final message = Message(
-          id: 'compat_test_msg',
+          id: MessageId('compat_test_msg'),
           chatId: chatId,
           content: 'Compatibility test message',
           timestamp: DateTime.now(),
@@ -367,7 +368,7 @@ void main() {
 
         final retrievedMessages = await repository.getMessages(chatId);
         expect(retrievedMessages, hasLength(1));
-        expect(retrievedMessages.first.id, equals('compat_test_msg'));
+        expect(retrievedMessages.first.id.value, equals('compat_test_msg'));
         expect(retrievedMessages.first.status, MessageStatus.delivered);
       },
     );

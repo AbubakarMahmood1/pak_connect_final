@@ -24,6 +24,7 @@ import '../notifiers/chat_session_state_notifier.dart';
 import '../notifiers/chat_session_state_provider.dart';
 import '../providers/chat_messaging_view_model.dart';
 import '../viewmodels/chat_session_view_model.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'ble_providers.dart';
 
 /// Aggregated handle for provider-backed session consumption.
@@ -73,7 +74,7 @@ class ChatSessionActions {
   });
 
   final Future<void> Function(String content) sendMessage;
-  final Future<void> Function(String messageId, bool deleteForEveryone)
+  final Future<void> Function(MessageId messageId, bool deleteForEveryone)
   deleteMessage;
   final Future<void> Function() retryFailedMessages;
   final Future<void> Function() manualReconnection;

@@ -5,6 +5,7 @@ import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
@@ -64,7 +65,7 @@ void main() {
 
       for (int i = 0; i < messageCount; i++) {
         final message = Message(
-          id: 'msg_${ephemeralId}_$i',
+          id: MessageId('msg_${ephemeralId}_$i'),
           chatId: ephemeralId,
           content: 'Test message $i',
           timestamp: DateTime.now().add(Duration(seconds: i)),
@@ -175,7 +176,7 @@ void main() {
 
       // Create messages with different properties
       final sentMessage = Message(
-        id: 'sent_msg',
+        id: MessageId('sent_msg'),
         chatId: ephemeralId,
         content: 'Sent message',
         timestamp: DateTime.now(),
@@ -184,7 +185,7 @@ void main() {
       );
 
       final receivedMessage = Message(
-        id: 'received_msg',
+        id: MessageId('received_msg'),
         chatId: ephemeralId,
         content: 'Received message',
         timestamp: DateTime.now().add(const Duration(seconds: 1)),
@@ -205,13 +206,13 @@ void main() {
       final messages = await messageRepository.getMessages(persistentKey);
       expect(messages.length, 2);
 
-      final migratedSent = messages.firstWhere((m) => m.id == 'sent_msg');
+      final migratedSent = messages.firstWhere((m) => m.id.value == 'sent_msg');
       expect(migratedSent.isFromMe, true);
       expect(migratedSent.status, MessageStatus.sent);
       expect(migratedSent.content, 'Sent message');
 
       final migratedReceived = messages.firstWhere(
-        (m) => m.id == 'received_msg',
+        (m) => m.id.value == 'received_msg',
       );
       expect(migratedReceived.isFromMe, false);
       expect(migratedReceived.status, MessageStatus.delivered);
@@ -228,7 +229,7 @@ void main() {
       // Create persistent chat with existing messages
       await chatsRepository.markChatAsRead(persistentKey);
       final existingMessage = Message(
-        id: 'existing_msg',
+        id: MessageId('existing_msg'),
         chatId: persistentKey,
         content: 'Existing message',
         timestamp: DateTime.now(),
@@ -255,7 +256,7 @@ void main() {
       expect(messages.length, 4); // 1 existing + 3 ephemeral = 4
 
       // Verify all messages are present
-      final messageIds = messages.map((m) => m.id).toList();
+      final messageIds = messages.map((m) => m.id.value).toList();
       expect(messageIds.contains('existing_msg'), true);
     });
 
@@ -269,7 +270,7 @@ void main() {
       // Create persistent chat with messages
       await chatsRepository.markChatAsRead(persistentChat);
       final msg = Message(
-        id: 'persistent_msg',
+        id: MessageId('persistent_msg'),
         chatId: persistentChat,
         content: 'Test',
         timestamp: DateTime.now(),
@@ -298,7 +299,7 @@ void main() {
         // Create persistent chat (should be ignored)
         await chatsRepository.markChatAsRead('persistent_chat');
         final msg = Message(
-          id: 'persistent_msg',
+          id: MessageId('persistent_msg'),
           chatId: 'persistent_chat',
           content: 'Test',
           timestamp: DateTime.now(),
@@ -379,7 +380,7 @@ void main() {
 
       final now = DateTime.now();
       final msg1 = Message(
-        id: 'msg_1',
+        id: MessageId('msg_1'),
         chatId: ephemeralId,
         content: 'First',
         timestamp: now.subtract(const Duration(hours: 2)),
@@ -388,7 +389,7 @@ void main() {
       );
 
       final msg2 = Message(
-        id: 'msg_2',
+        id: MessageId('msg_2'),
         chatId: ephemeralId,
         content: 'Second',
         timestamp: now.subtract(const Duration(hours: 1)),
@@ -397,7 +398,7 @@ void main() {
       );
 
       final msg3 = Message(
-        id: 'msg_3',
+        id: MessageId('msg_3'),
         chatId: ephemeralId,
         content: 'Latest',
         timestamp: now,
@@ -434,7 +435,7 @@ void main() {
       await chatsRepository.markChatAsRead(ephemeralId);
 
       final specialMessage = Message(
-        id: 'special_msg',
+        id: MessageId('special_msg'),
         chatId: ephemeralId,
         content: '🔒 Test émojis & spëcial çhars: "quotes" \'apostrophes\' 你好',
         timestamp: DateTime.now(),

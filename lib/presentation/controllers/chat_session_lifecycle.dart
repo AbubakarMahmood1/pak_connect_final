@@ -75,7 +75,9 @@ class ChatSessionLifecycle {
 
   /// Placeholder send hook; will orchestrate routing and retry later.
   Future<void> onSend(Message message) async {
-    _logger.fine('ChatSessionLifecycle onSend (scaffold) for ${message.id}');
+    _logger.fine(
+      'ChatSessionLifecycle onSend (scaffold) for ${message.id.value}',
+    );
   }
 
   /// Subscribe to mesh delivery stream and notify caller on delivery.
@@ -287,7 +289,7 @@ class ChatSessionLifecycle {
         final routeResult = await messageRouter!.sendMessage(
           content: message.content,
           recipientId: contactPublicKey ?? fallbackRecipientId,
-          messageId: message.id,
+          messageId: message.id.value,
           recipientName: displayContactName,
         );
 
@@ -312,12 +314,12 @@ class ChatSessionLifecycle {
         if (connectionService.isPeripheralMode) {
           success = await connectionService.sendPeripheralMessage(
             message.content,
-            messageId: message.id,
+            messageId: message.id.value,
           );
         } else {
           success = await connectionService.sendMessage(
             message.content,
-            messageId: message.id,
+            messageId: message.id.value,
           );
         }
       } catch (_) {}

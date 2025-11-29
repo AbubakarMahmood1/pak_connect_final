@@ -2,6 +2,7 @@
 
 import '../../domain/entities/message.dart';
 import '../../core/models/message_priority.dart';
+import '../../domain/values/id_types.dart';
 
 // Re-export MessagePriority for backward compatibility
 export '../../core/models/message_priority.dart' show MessagePriority;
@@ -171,7 +172,7 @@ class EnhancedMessage extends Message {
   /// Create from JSON
   factory EnhancedMessage.fromJson(Map<String, dynamic> json) =>
       EnhancedMessage(
-        id: json['id'],
+        id: MessageId(json['id']),
         chatId: json['chatId'],
         content: json['content'],
         timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
