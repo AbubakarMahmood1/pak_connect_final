@@ -117,8 +117,8 @@ class TestSetup {
   }) async {
     final locator = GetIt.instance;
 
-    // Determine if we should use default mocks (when called with no overrides)
-    final useDefaultMocks =
+    // Detect if no overrides were provided so we can optionally reset to a clean graph
+    final noOverridesProvided =
         contactRepository == null &&
         messageRepository == null &&
         seenMessageStore == null &&
@@ -127,8 +127,8 @@ class TestSetup {
         archiveRepository == null &&
         databaseProvider == null;
 
-    // Reset GetIt if explicitly requested OR if using default mocks
-    if (resetGraph || useDefaultMocks) {
+    // Reset GetIt if explicitly requested or when no overrides are provided to start from a clean graph
+    if (resetGraph || noOverridesProvided) {
       await resetDIServiceLocator();
       await di_service_locator.setupServiceLocator();
     }
@@ -141,10 +141,8 @@ class TestSetup {
     }
 
     // Use provided repositories or default to mocks
-    final contactRepo =
-        contactRepository ?? (useDefaultMocks ? MockContactRepository() : null);
-    final messageRepo =
-        messageRepository ?? (useDefaultMocks ? MockMessageRepository() : null);
+    final contactRepo = contactRepository ?? MockContactRepository();
+    final messageRepo = messageRepository ?? MockMessageRepository();
 
     if (contactRepo != null) {
       override<IContactRepository>(contactRepo);
