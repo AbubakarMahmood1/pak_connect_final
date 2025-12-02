@@ -11,7 +11,7 @@ class MockMessageRepository extends MessageRepository {
   }
 
   @override
-  Future<List<Message>> getMessages(String chatId) async {
+  Future<List<Message>> getMessages(ChatId chatId) async {
     return _messages.values.where((m) => m.chatId == chatId).toList();
   }
 
@@ -30,7 +30,7 @@ class MockMessageRepository extends MessageRepository {
   }
 
   @override
-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
     final keysToMigrate = _messages.entries
         .where((e) => e.value.chatId == oldChatId)
         .map((e) => e.key)

@@ -6,6 +6,7 @@ import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/utils/message_fragmenter.dart';
+import '../../domain/values/id_types.dart';
 
 /// Handles queue synchronization messages and callbacks so BLEMessageHandler
 /// can delegate the protocol-specific work.
@@ -17,6 +18,8 @@ class QueueSyncProcessor {
 
   Function(QueueSyncMessage syncMessage, String fromNodeId)?
   onQueueSyncReceived;
+  Function(QueueSyncMessage syncMessage, ChatId fromNodeId)?
+  onQueueSyncReceivedIds;
   Function(List<QueuedMessage> messages, String toNodeId)? onSendQueueMessages;
   Function(String nodeId, QueueSyncResult result)? onQueueSyncCompleted;
 
@@ -33,13 +36,18 @@ class QueueSyncProcessor {
         return null;
       }
 
+      final messageIds = queueSyncMessage.messageIdValues;
+      final messageHashes = queueSyncMessage.messageHashValues?.map(
+        (key, value) => MapEntry(key.value, value),
+      );
+
       final syncMessage = QueueSyncMessage(
         queueHash: queueSyncMessage.queueHash,
-        messageIds: queueSyncMessage.messageIds,
+        messageIds: messageIds.map((id) => id.value).toList(),
         syncTimestamp: queueSyncMessage.syncTimestamp,
         nodeId: senderPublicKey,
         syncType: queueSyncMessage.syncType,
-        messageHashes: queueSyncMessage.messageHashes,
+        messageHashes: messageHashes,
         queueStats: queueSyncMessage.queueStats,
         gcsFilter: queueSyncMessage.gcsFilter,
       );
@@ -49,6 +57,9 @@ class QueueSyncProcessor {
       );
 
       onQueueSyncReceived?.call(syncMessage, senderPublicKey);
+      if (onQueueSyncReceivedIds != null) {
+        onQueueSyncReceivedIds!(syncMessage, ChatId(senderPublicKey));
+      }
     } catch (e) {
       _logger.severe('🔄 QUEUE SYNC: Failed to handle sync message: $e');
     }
@@ -61,6 +72,9 @@ class QueueSyncProcessor {
     required String fromNodeId,
   }) {
     onQueueSyncReceived?.call(syncMessage, fromNodeId);
+    if (onQueueSyncReceivedIds != null) {
+      onQueueSyncReceivedIds!(syncMessage, ChatId(fromNodeId));
+    }
     _logger.info(
       '🔄 QUEUE SYNC: Dispatch handler triggered from ${_preview(fromNodeId)}',
     );

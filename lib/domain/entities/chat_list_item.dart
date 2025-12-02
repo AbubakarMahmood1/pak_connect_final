@@ -1,5 +1,7 @@
+import '../values/id_types.dart';
+
 class ChatListItem {
-  final String chatId;
+  final ChatId chatId;
   final String contactName;
   final String? contactPublicKey;
   final String? lastMessage;

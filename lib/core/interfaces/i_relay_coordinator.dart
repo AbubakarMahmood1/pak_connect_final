@@ -2,6 +2,7 @@ import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/messaging/queue_sync_manager.dart';
+import '../../domain/values/id_types.dart';
 
 /// Interface for relay coordination between BLE and mesh networking
 ///
@@ -179,6 +180,10 @@ abstract interface class IRelayCoordinator {
   /// Registers callback for relay messages received
   void onRelayMessageReceived(
     Function(String originalMessageId, String content, String originalSender)
+    callback,
+  );
+  void onRelayMessageReceivedIds(
+    Function(MessageId originalMessageId, String content, String originalSender)
     callback,
   );
 

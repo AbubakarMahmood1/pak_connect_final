@@ -2,6 +2,7 @@ import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Result of sending a mesh message.
 class MeshSendResult {
@@ -20,6 +21,9 @@ class MeshSendResult {
 
   factory MeshSendResult.error(String error) =>
       MeshSendResult._(MeshSendType.error, null, null, error);
+
+  MessageId? get messageIdValue =>
+      messageId != null ? MessageId(messageId!) : null;
 
   bool get isSuccess => type != MeshSendType.error;
   bool get isDirect => type == MeshSendType.direct;

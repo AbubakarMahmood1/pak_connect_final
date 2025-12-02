@@ -9,6 +9,7 @@ import '../database/database_helper.dart';
 import 'message_repository.dart';
 import 'contact_repository.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 class ChatsRepository implements IChatsRepository {
   static final _logger = Logger('ChatsRepository');
@@ -154,7 +155,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Mark chat as read (reset unread count)
-  Future<void> markChatAsRead(String chatId) async {
+  Future<void> markChatAsRead(ChatId chatId) async {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -162,7 +163,7 @@ class ChatsRepository implements IChatsRepository {
     final existing = await db.query(
       'chats',
       where: 'chat_id = ?',
-      whereArgs: [chatId],
+      whereArgs: [chatId.value],
     );
 
     if (existing.isNotEmpty) {
@@ -171,12 +172,12 @@ class ChatsRepository implements IChatsRepository {
         'chats',
         {'unread_count': 0, 'updated_at': now},
         where: 'chat_id = ?',
-        whereArgs: [chatId],
+        whereArgs: [chatId.value],
       );
     } else {
       // Create new chat entry with 0 unread count
       await db.insert('chats', {
-        'chat_id': chatId,
+        'chat_id': chatId.value,
         'contact_public_key': null,
         'contact_name': 'Unknown',
         'unread_count': 0,
@@ -187,7 +188,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Increment unread count for received message
-  Future<void> incrementUnreadCount(String chatId) async {
+  Future<void> incrementUnreadCount(ChatId chatId) async {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -195,7 +196,7 @@ class ChatsRepository implements IChatsRepository {
     final existing = await db.query(
       'chats',
       where: 'chat_id = ?',
-      whereArgs: [chatId],
+      whereArgs: [chatId.value],
     );
 
     if (existing.isNotEmpty) {
@@ -205,12 +206,12 @@ class ChatsRepository implements IChatsRepository {
         'chats',
         {'unread_count': currentCount + 1, 'updated_at': now},
         where: 'chat_id = ?',
-        whereArgs: [chatId],
+        whereArgs: [chatId.value],
       );
     } else {
       // Create new chat entry with count = 1
       await db.insert('chats', {
-        'chat_id': chatId,
+        'chat_id': chatId.value,
         'contact_public_key': null,
         'contact_name': 'Unknown',
         'unread_count': 1,
@@ -268,10 +269,10 @@ class ChatsRepository implements IChatsRepository {
 
   // PRIVATE HELPERS
 
-  String _generateChatId(String otherPublicKey) {
+  ChatId _generateChatId(String otherPublicKey) {
     // Use the exact same logic as ChatUtils.generateChatId
     // chatId = theirId (simple and elegant)
-    return otherPublicKey;
+    return ChatId(otherPublicKey);
   }
 
   /// Online detection using public key hash matching

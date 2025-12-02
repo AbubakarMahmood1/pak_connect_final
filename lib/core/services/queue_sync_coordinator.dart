@@ -5,6 +5,7 @@ import '../../core/interfaces/i_queue_sync_coordinator.dart';
 import '../../core/interfaces/i_message_queue_repository.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/models/mesh_relay_models.dart';
+import '../../domain/values/id_types.dart';
 
 /// Queue synchronization coordinator for peer-to-peer sync
 ///
@@ -30,20 +31,20 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
   DateTime? _lastHashCalculation;
 
   // Deleted message tracking
-  final Set<String> _deletedMessageIds;
+  final Set<MessageId> _deletedMessageIds;
 
   // Statistics
   int _syncRequestsCount = 0;
 
   QueueSyncCoordinator({
     IMessageQueueRepository? repository,
-    Set<String>? deletedMessageIds,
+    Set<MessageId>? deletedMessageIds,
   }) : _repository = repository,
        _deletedMessageIds = deletedMessageIds ?? {};
 
   /// Load initial sync state from storage
   Future<void> initialize({required Set<String> deletedIds}) async {
-    _deletedMessageIds.addAll(deletedIds);
+    _deletedMessageIds.addAll(deletedIds.map(MessageId.new));
     _logger.info(
       '🔄 QueueSyncCoordinator initialized with ${_deletedMessageIds.length} deleted IDs',
     );
@@ -84,7 +85,8 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     }
 
     // Add deleted message IDs (sorted)
-    final sortedDeletedIds = _deletedMessageIds.toList()..sort();
+    final sortedDeletedIds = _deletedMessageIds.map((id) => id.value).toList()
+      ..sort();
     hashComponents.addAll(sortedDeletedIds.map((id) => 'deleted:$id'));
 
     // Calculate hash
@@ -129,16 +131,16 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
         )
         .toList();
 
-    final messageIds = syncableMessages.map((m) => m.id).toList();
-    final messageHashes = <String, String>{};
+    final messageIds = syncableMessages.map((m) => MessageId(m.id)).toList();
+    final messageHashes = <MessageId, String>{};
 
     for (final message in syncableMessages) {
       if (message.messageHash != null) {
-        messageHashes[message.id] = message.messageHash!;
+        messageHashes[MessageId(message.id)] = message.messageHash!;
       }
     }
 
-    return QueueSyncMessage.createRequest(
+    return QueueSyncMessage.createRequestWithIds(
       messageIds: messageIds,
       nodeId: nodeId,
       messageHashes: messageHashes.isNotEmpty ? messageHashes : null,
@@ -154,7 +156,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
   @override
   Future<bool> addSyncedMessage(QueuedMessage message) async {
     // Skip if previously deleted
-    if (_deletedMessageIds.contains(message.id)) {
+    if (_deletedMessageIds.contains(MessageId(message.id))) {
       _logger.fine('Sync skip - message was deleted locally');
       return false;
     }
@@ -191,19 +193,26 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
               m.status != QueuedMessageStatus.delivered &&
               m.status != QueuedMessageStatus.failed,
         )
-        .map((m) => m.id)
+        .map((m) => MessageId(m.id))
         .toSet();
 
-    return otherMessageIds
+    final otherIds = otherMessageIds
+        .map((id) => MessageId(id.toString()))
+        .toSet();
+
+    return otherIds
         .where(
           (id) => !currentIds.contains(id) && !_deletedMessageIds.contains(id),
         )
+        .map((id) => id.value)
         .toList();
   }
 
   @override
   List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
-    final otherIdSet = otherMessageIds.toSet();
+    final otherIdSet = otherMessageIds
+        .map((id) => MessageId(id.toString()))
+        .toSet();
     final allMessages = _repository?.getAllMessages() ?? [];
 
     return allMessages
@@ -211,15 +220,16 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
           (m) =>
               m.status != QueuedMessageStatus.delivered &&
               m.status != QueuedMessageStatus.failed &&
-              !otherIdSet.contains(m.id),
+              !otherIdSet.contains(MessageId(m.id)),
         )
         .toList();
   }
 
   @override
   Future<void> markMessageDeleted(String messageId) async {
-    _deletedMessageIds.add(messageId);
-    await _repository?.markMessageDeleted(messageId);
+    final msgId = MessageId(messageId);
+    _deletedMessageIds.add(msgId);
+    await _repository?.markMessageDeleted(msgId.value);
     invalidateHashCache();
 
     _logger.info('Message marked deleted: ${_previewId(messageId)}...');
@@ -227,7 +237,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
 
   @override
   bool isMessageDeleted(String messageId) {
-    return _deletedMessageIds.contains(messageId);
+    return _deletedMessageIds.contains(MessageId(messageId));
   }
 
   @override
@@ -235,9 +245,12 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     final initialCount = _deletedMessageIds.length;
 
     if (_deletedMessageIds.length > _cleanupThreshold) {
-      final deletedList = _deletedMessageIds.toList()..sort();
+      final deletedList = _deletedMessageIds.map((id) => id.value).toList()
+        ..sort();
       _deletedMessageIds.clear();
-      _deletedMessageIds.addAll(deletedList.take(_maxDeletedIdsToKeep));
+      _deletedMessageIds.addAll(
+        deletedList.take(_maxDeletedIdsToKeep).map(MessageId.new),
+      );
 
       _logger.info(
         'Cleaned up ${initialCount - _deletedMessageIds.length} old deleted IDs',
@@ -260,7 +273,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
 
   @override
   Set<String> getDeletedMessageIds() {
-    return Set.from(_deletedMessageIds);
+    return _deletedMessageIds.map((id) => id.value).toSet();
   }
 
   @override

@@ -11,7 +11,7 @@ import 'package:pak_connect/domain/values/id_types.dart';
 /// **Phase 1 Note**: Interface defines all public methods from MessageRepository
 abstract class IMessageRepository {
   /// Get all messages for a specific chat, sorted by timestamp
-  Future<List<Message>> getMessages(String chatId);
+  Future<List<Message>> getMessages(ChatId chatId);
 
   /// Get a single message by ID (for duplicate checking)
   Future<Message?> getMessageById(MessageId messageId);
@@ -23,7 +23,7 @@ abstract class IMessageRepository {
   Future<void> updateMessage(Message message);
 
   /// Clear all messages for a specific chat
-  Future<void> clearMessages(String chatId);
+  Future<void> clearMessages(ChatId chatId);
 
   /// Delete a specific message by ID
   Future<bool> deleteMessage(MessageId messageId);
@@ -35,5 +35,5 @@ abstract class IMessageRepository {
   Future<List<Message>> getMessagesForContact(String publicKey);
 
   /// Migrate messages from one chat ID to another
-  Future<void> migrateChatId(String oldChatId, String newChatId);
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId);
 }

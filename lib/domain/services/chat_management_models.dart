@@ -3,6 +3,7 @@
 import '../entities/archived_message.dart';
 import '../entities/enhanced_message.dart';
 import '../../core/models/archive_models.dart';
+import '../values/id_types.dart';
 
 /// Sorting options for chat lists
 enum ChatSortOption { name, lastMessage, unreadCount }
@@ -56,19 +57,19 @@ extension DateTimeRangeExtension on DateTimeRange {
 
 /// In-memory cache container for chat state
 class ChatCacheState {
-  final Set<String> starredMessageIds;
-  final Set<String> archivedChats;
-  final Set<String> pinnedChats;
+  final Set<MessageId> starredMessageIds;
+  final Set<ChatId> archivedChats;
+  final Set<ChatId> pinnedChats;
   final List<String> messageSearchHistory;
 
   ChatCacheState({
-    Set<String>? starredMessageIds,
-    Set<String>? archivedChats,
-    Set<String>? pinnedChats,
+    Set<MessageId>? starredMessageIds,
+    Set<ChatId>? archivedChats,
+    Set<ChatId>? pinnedChats,
     List<String>? messageSearchHistory,
-  }) : starredMessageIds = starredMessageIds ?? <String>{},
-       archivedChats = archivedChats ?? <String>{},
-       pinnedChats = pinnedChats ?? <String>{},
+  }) : starredMessageIds = starredMessageIds ?? <MessageId>{},
+       archivedChats = archivedChats ?? <ChatId>{},
+       pinnedChats = pinnedChats ?? <ChatId>{},
        messageSearchHistory = messageSearchHistory ?? <String>[];
 }
 
@@ -118,7 +119,7 @@ class ChatOperationResult {
 
 /// Basic analytics for a single chat
 class ChatAnalytics {
-  final String chatId;
+  final ChatId chatId;
   final int totalMessages;
   final int myMessages;
   final int theirMessages;
@@ -145,7 +146,7 @@ class ChatAnalytics {
   });
 
   factory ChatAnalytics.empty(String chatId) => ChatAnalytics(
-    chatId: chatId,
+    chatId: ChatId(chatId),
     totalMessages: 0,
     myMessages: 0,
     theirMessages: 0,
@@ -165,70 +166,70 @@ class ChatAnalytics {
 
 /// Chat-level update event
 abstract class ChatUpdateEvent {
-  final String chatId;
+  final ChatId chatId;
   final DateTime timestamp;
 
   const ChatUpdateEvent(this.chatId, this.timestamp);
 
-  factory ChatUpdateEvent.archived(String chatId) => _ChatArchived(chatId);
-  factory ChatUpdateEvent.unarchived(String chatId) => _ChatUnarchived(chatId);
-  factory ChatUpdateEvent.pinned(String chatId) => _ChatPinned(chatId);
-  factory ChatUpdateEvent.unpinned(String chatId) => _ChatUnpinned(chatId);
-  factory ChatUpdateEvent.deleted(String chatId) => _ChatDeleted(chatId);
-  factory ChatUpdateEvent.messagesCleared(String chatId) =>
+  factory ChatUpdateEvent.archived(ChatId chatId) => _ChatArchived(chatId);
+  factory ChatUpdateEvent.unarchived(ChatId chatId) => _ChatUnarchived(chatId);
+  factory ChatUpdateEvent.pinned(ChatId chatId) => _ChatPinned(chatId);
+  factory ChatUpdateEvent.unpinned(ChatId chatId) => _ChatUnpinned(chatId);
+  factory ChatUpdateEvent.deleted(ChatId chatId) => _ChatDeleted(chatId);
+  factory ChatUpdateEvent.messagesCleared(ChatId chatId) =>
       _ChatMessagesCleared(chatId);
 }
 
 class _ChatArchived extends ChatUpdateEvent {
-  _ChatArchived(String chatId) : super(chatId, DateTime.now());
+  _ChatArchived(ChatId chatId) : super(chatId, DateTime.now());
 }
 
 class _ChatUnarchived extends ChatUpdateEvent {
-  _ChatUnarchived(String chatId) : super(chatId, DateTime.now());
+  _ChatUnarchived(ChatId chatId) : super(chatId, DateTime.now());
 }
 
 class _ChatPinned extends ChatUpdateEvent {
-  _ChatPinned(String chatId) : super(chatId, DateTime.now());
+  _ChatPinned(ChatId chatId) : super(chatId, DateTime.now());
 }
 
 class _ChatUnpinned extends ChatUpdateEvent {
-  _ChatUnpinned(String chatId) : super(chatId, DateTime.now());
+  _ChatUnpinned(ChatId chatId) : super(chatId, DateTime.now());
 }
 
 class _ChatDeleted extends ChatUpdateEvent {
-  _ChatDeleted(String chatId) : super(chatId, DateTime.now());
+  _ChatDeleted(ChatId chatId) : super(chatId, DateTime.now());
 }
 
 class _ChatMessagesCleared extends ChatUpdateEvent {
-  _ChatMessagesCleared(String chatId) : super(chatId, DateTime.now());
+  _ChatMessagesCleared(ChatId chatId) : super(chatId, DateTime.now());
 }
 
 /// Message-level update event
 abstract class MessageUpdateEvent {
-  final String messageId;
+  final MessageId messageId;
   final DateTime timestamp;
 
   const MessageUpdateEvent(this.messageId, this.timestamp);
 
-  factory MessageUpdateEvent.starred(String messageId) =>
+  factory MessageUpdateEvent.starred(MessageId messageId) =>
       _MessageStarred(messageId);
-  factory MessageUpdateEvent.unstarred(String messageId) =>
+  factory MessageUpdateEvent.unstarred(MessageId messageId) =>
       _MessageUnstarred(messageId);
-  factory MessageUpdateEvent.deleted(String messageId, String chatId) =>
+  factory MessageUpdateEvent.deleted(MessageId messageId, ChatId chatId) =>
       _MessageDeleted(messageId, chatId);
 }
 
 class _MessageStarred extends MessageUpdateEvent {
-  _MessageStarred(String messageId) : super(messageId, DateTime.now());
+  _MessageStarred(MessageId messageId) : super(messageId, DateTime.now());
 }
 
 class _MessageUnstarred extends MessageUpdateEvent {
-  _MessageUnstarred(String messageId) : super(messageId, DateTime.now());
+  _MessageUnstarred(MessageId messageId) : super(messageId, DateTime.now());
 }
 
 class _MessageDeleted extends MessageUpdateEvent {
-  final String chatId;
-  _MessageDeleted(String messageId, this.chatId)
+  final ChatId chatId;
+  _MessageDeleted(MessageId messageId, this.chatId)
     : super(messageId, DateTime.now());
 }
 

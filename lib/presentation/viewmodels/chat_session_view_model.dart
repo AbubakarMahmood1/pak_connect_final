@@ -12,7 +12,6 @@ import '../../core/services/message_retry_coordinator.dart';
 import '../../core/security/message_security.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../core/interfaces/i_connection_service.dart';
-import '../../core/services/persistent_chat_state_manager.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/chats_repository.dart';
@@ -50,7 +49,6 @@ class ChatSessionViewModel {
     this.onControllersRebound,
     // Phase 6B: Message listener callbacks
     this.getConnectionServiceFn,
-    this.getPersistentChatManagerFn,
   });
 
   final ChatScreenConfig config;
@@ -87,7 +85,6 @@ class ChatSessionViewModel {
 
   // Phase 6B: Callbacks for lifecycle message listener management
   final IConnectionService Function()? getConnectionServiceFn;
-  final PersistentChatStateManager? Function()? getPersistentChatManagerFn;
 
   ChatSessionStateStore? stateStore;
   final _logger = Logger('ChatSessionViewModel');
@@ -157,11 +154,11 @@ class ChatSessionViewModel {
   /// Compute new state with an updated message status.
   ChatUIState applyMessageStatus(
     ChatUIState state,
-    String messageId,
+    MessageId messageId,
     MessageStatus newStatus,
   ) {
     final messages = [...state.messages];
-    final index = messages.indexWhere((m) => m.id.value == messageId);
+    final index = messages.indexWhere((m) => m.id == messageId);
     if (index != -1) {
       messages[index] = messages[index].copyWith(status: newStatus);
     }
@@ -280,8 +277,7 @@ class ChatSessionViewModel {
   ) async {
     try {
       await messagingViewModel.deleteMessage(
-        messageId:
-            messageId.value, // String is expected by ChatMessagingViewModel
+        messageId: messageId,
         deleteForEveryone: deleteForEveryone,
         onMessageRemoved: (id) {
           stateStore?.removeMessage(id);
@@ -309,7 +305,7 @@ class ChatSessionViewModel {
         onLoadingStateChanged: (isLoading) {
           stateStore?.setLoading(isLoading);
         },
-        onGetQueuedMessages: () => [], // Will be connected by controller
+        onGetQueuedMessages: sessionLifecycle?.getQueuedMessagesForChat,
         onScrollToBottom: onScrollToBottom,
         onError: onShowError,
       );
@@ -384,8 +380,9 @@ class ChatSessionViewModel {
 
   /// Add a received message (extracted from ChatScreenController)
   Future<void> addReceivedMessage(String content) async {
-    final chatId = getChatIdFn?.call() ?? '';
-    final contactPublicKey = getContactPublicKeyFn?.call() ?? chatId;
+    final chatIdValue = getChatIdFn?.call() ?? '';
+    final chatId = ChatId(chatIdValue);
+    final contactPublicKey = getContactPublicKeyFn?.call() ?? chatId.value;
     final senderPublicKey = contactPublicKey;
     final secureMessageId = await MessageSecurity.generateSecureMessageId(
       senderPublicKey: senderPublicKey,
@@ -460,17 +457,18 @@ class ChatSessionViewModel {
     }
 
     final currentChatId = getChatIdFn?.call() ?? '';
-    final newChatId = ChatUtils.generateChatId(otherPersistentId);
-    if (newChatId == currentChatId) return;
+    final currentTypedId = ChatId(currentChatId);
+    final newChatId = ChatId(ChatUtils.generateChatId(otherPersistentId));
+    if (newChatId == currentTypedId) return;
 
     final messagesToMigrate = await messageRepository.getMessages(
-      currentChatId,
+      currentTypedId,
     );
     if (messagesToMigrate.isNotEmpty) {
-      await _migrateMessages(currentChatId, newChatId);
+      await _migrateMessages(currentChatId, newChatId.value);
     }
 
-    onChatIdUpdated?.call(newChatId);
+    onChatIdUpdated?.call(newChatId.value);
     onContactPublicKeyUpdated?.call(otherPersistentId);
 
     final newMessagingViewModel = ChatMessagingViewModel(
@@ -505,10 +503,9 @@ class ChatSessionViewModel {
       searchController: newSearchController,
     );
 
-    final persistentManager = getPersistentChatManagerFn?.call();
+    final persistentManager = sessionLifecycle?.persistentChatManager;
     if (persistentManager != null) {
-      sessionLifecycle?.persistentChatManager = persistentManager;
-      sessionLifecycle?.unregisterPersistentListener(currentChatId);
+      sessionLifecycle?.unregisterPersistentListener(ChatId(currentChatId));
       sessionLifecycle?.registerPersistentListener(
         chatId: newChatId,
         incomingStream: () => connectionService.receivedMessages,
@@ -522,7 +519,10 @@ class ChatSessionViewModel {
 
   Future<void> _migrateMessages(String oldChatId, String newChatId) async {
     try {
-      await messageRepository.migrateChatId(oldChatId, newChatId);
+      await messageRepository.migrateChatId(
+        ChatId(oldChatId),
+        ChatId(newChatId),
+      );
       _logger.info(
         'Migrated messages from $oldChatId to $newChatId via repository',
       );
@@ -556,36 +556,18 @@ class ChatSessionViewModel {
       return;
     }
 
-    sessionLifecycle!.messageListenerActive = true;
-    final persistentChatManager = getPersistentChatManagerFn?.call();
-    final chatId = getChatIdFn?.call() ?? '';
+    final chatIdValue = getChatIdFn?.call() ?? '';
+    final chatId = ChatId(chatIdValue);
 
-    if (persistentChatManager != null &&
-        !persistentChatManager.hasActiveListener(chatId)) {
-      // Phase 6B: Use persistent listener if available
-      sessionLifecycle!.registerPersistentListener(
-        chatId: chatId,
-        incomingStream: () => connectionService.receivedMessages,
-        onMessage: (content) async => addReceivedMessage(content),
-      );
-      _logger.info('📡 Message listener activated (persistent mode)');
-    } else if (persistentChatManager != null &&
-        persistentChatManager.hasActiveListener(chatId)) {
-      // Already registered
-      _logger.fine('Message listener already active (persistent)');
-    } else {
-      // Phase 6B: Use stream-based listener with buffering
-      sessionLifecycle!.attachMessageStream(
-        stream: connectionService.receivedMessages,
-        disposed: () => isDisposedFn?.call() ?? false,
-        isActive: () => sessionLifecycle?.messageListenerActive ?? false,
-        onMessage: (content) async {
-          sessionLifecycle?.messageBuffer.add(content);
-          await processBufferedMessages();
-        },
-      );
-      _logger.info('📡 Message listener activated (stream mode)');
-    }
+    await sessionLifecycle!.startMessageListener(
+      chatId: chatId,
+      incomingStream: () => connectionService.receivedMessages,
+      persistentManager: sessionLifecycle?.persistentChatManager,
+      disposed: () => isDisposedFn?.call() ?? false,
+      onMessage: (content) async => addReceivedMessage(content),
+    );
+
+    await processBufferedMessages();
   }
 
   /// Process buffered messages from message listener (extracted from ChatScreenController)

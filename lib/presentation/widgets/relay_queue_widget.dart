@@ -7,6 +7,7 @@ import '../../core/utils/mesh_debug_logger.dart';
 import '../../core/utils/app_logger.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Widget for displaying and managing relay message queue
 /// Shows pending messages, delivery status, and manual retry options
@@ -566,10 +567,11 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
 
   void _retryRealMessage(QueuedMessage message) async {
     try {
-      final success = await widget.meshService.retryMessage(message.id);
-      final messageIdShort = message.id.length > 16
-          ? message.id.shortId()
-          : message.id;
+      final messageId = MessageId(message.id);
+      final success = await widget.meshService.retryMessageById(messageId);
+      final messageIdShort = messageId.value.length > 16
+          ? messageId.value.shortId()
+          : messageId.value;
 
       if (!mounted) return;
 
@@ -602,13 +604,14 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
 
   void _setPriorityReal(QueuedMessage message) async {
     try {
-      final success = await widget.meshService.setPriority(
-        message.id,
+      final messageId = MessageId(message.id);
+      final success = await widget.meshService.setPriorityById(
+        messageId,
         MessagePriority.high,
       );
-      final messageIdShort = message.id.length > 16
-          ? message.id.shortId()
-          : message.id;
+      final messageIdShort = messageId.value.length > 16
+          ? messageId.value.shortId()
+          : messageId.value;
 
       if (!mounted) return;
 
@@ -641,10 +644,11 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
 
   void _removeRealMessage(QueuedMessage message) async {
     try {
-      final success = await widget.meshService.removeMessage(message.id);
-      final messageIdShort = message.id.length > 16
-          ? message.id.shortId()
-          : message.id;
+      final messageId = MessageId(message.id);
+      final success = await widget.meshService.removeMessageById(messageId);
+      final messageIdShort = messageId.value.length > 16
+          ? messageId.value.shortId()
+          : messageId.value;
 
       if (!mounted) return;
 

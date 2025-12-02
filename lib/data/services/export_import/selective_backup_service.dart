@@ -240,7 +240,11 @@ class SelectiveBackupService {
 
     final batch = targetDb.batch();
     for (final chat in chats) {
-      batch.insert('chats', chat);
+      final normalizedChat = Map<String, Object?>.from(chat);
+      normalizedChat['chat_id'] = chat['chat_id']?.toString();
+      normalizedChat['contact_public_key'] = chat['contact_public_key']
+          ?.toString();
+      batch.insert('chats', normalizedChat);
     }
     await batch.commit(noResult: true);
 
@@ -255,7 +259,12 @@ class SelectiveBackupService {
 
     final batch2 = targetDb.batch();
     for (final message in messages) {
-      batch2.insert('messages', message);
+      final normalizedMessage = Map<String, Object?>.from(message);
+      normalizedMessage['id'] = message['id']?.toString();
+      normalizedMessage['chat_id'] = message['chat_id']?.toString();
+      normalizedMessage['reply_to_message_id'] = message['reply_to_message_id']
+          ?.toString();
+      batch2.insert('messages', normalizedMessage);
     }
     await batch2.commit(noResult: true);
 

@@ -8,6 +8,7 @@ import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../core/models/archive_models.dart';
+import '../../domain/values/id_types.dart';
 import 'archive_policy_engine.dart';
 import 'archive_maintenance.dart';
 import 'archive_management_models.dart';
@@ -175,7 +176,7 @@ class ArchiveManagementService {
 
       // Business logic validation
       final validationResult = await _policyEngine.validateArchiveRequest(
-        chatId,
+        ChatId(chatId),
         force,
       );
       if (!validationResult.isValid) {
@@ -209,7 +210,9 @@ class ArchiveManagementService {
         ...?metadata,
         'archiveReason': reason ?? 'User initiated',
         'businessContext': await _gatherBusinessContext(chatId),
-        'archivePolicy': _policyEngine.findApplicablePolicy(chatId)?.name,
+        'archivePolicy': _policyEngine
+            .findApplicablePolicy(ChatId(chatId))
+            ?.name,
         'storageOptimization': _config.enableCompression,
         'timestamp': DateTime.now().toIso8601String(),
       };
@@ -258,7 +261,7 @@ class ArchiveManagementService {
 
   /// Restore a chat with validation and conflict resolution
   Future<ArchiveOperationResult> restoreChat({
-    required String archiveId,
+    required ArchiveId archiveId,
     bool overwriteExisting = false,
     String? targetChatId,
   }) async {
@@ -299,7 +302,7 @@ class ArchiveManagementService {
       if (!overwriteExisting) {
         final conflictCheck = await _policyEngine.checkRestoreConflicts(
           archive,
-          targetChatId,
+          targetChatId != null ? ChatId(targetChatId) : null,
         );
         if (conflictCheck.hasConflicts) {
           return ArchiveOperationResult.failure(
@@ -321,7 +324,7 @@ class ArchiveManagementService {
 
         // Emit update event
         _emitArchiveUpdate(
-          ArchiveUpdateEvent.restored(archiveId, archive.originalChatId),
+          ArchiveUpdateEvent.restored(archiveId, archive.originalChatId.value),
         );
 
         // Update metrics
@@ -811,21 +814,21 @@ class ArchiveManagementService {
     return {'source': 'user_initiated'};
   }
 
-  ArchivePolicy? _findApplicablePolicy(String chatId) {
+  ArchivePolicy? _findApplicablePolicy(ChatId chatId) {
     // Implementation would find applicable policy
     return null;
   }
 
   Future<void> _handlePostArchiveActions(
     String chatId,
-    String archiveId,
+    ArchiveId archiveId,
     ArchiveOperationResult result,
   ) async {
     // Implementation would handle post-archive actions
   }
 
   Future<void> _handlePostRestoreActions(
-    String archiveId,
+    ArchiveId archiveId,
     ArchivedChat archive,
     ArchiveOperationResult result,
   ) async {
@@ -840,7 +843,7 @@ class ArchiveManagementService {
   }
 
   Future<ArchiveBusinessMetadata> _getArchiveBusinessMetadata(
-    String archiveId,
+    ArchiveId archiveId,
   ) async {
     // Implementation would get business metadata
     return ArchiveBusinessMetadata.empty();

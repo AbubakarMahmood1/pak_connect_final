@@ -7,6 +7,7 @@ import '../../core/models/spy_mode_info.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/entities/contact.dart';
+import '../../domain/values/id_types.dart';
 import 'ble_state_coordinator.dart';
 import 'ble_state_manager.dart';
 import 'identity_manager.dart';
@@ -436,6 +437,14 @@ class BLEStateManagerFacade implements IBLEStateManagerFacade {
   @override
   set onMessageSent(void Function(String messageId, bool success)? value) =>
       _legacyStateManager.onMessageSent = value;
+
+  @override
+  void Function(MessageId messageId, bool success)? get onMessageSentIds =>
+      _legacyStateManager.onMessageSentIds;
+  @override
+  set onMessageSentIds(
+    void Function(MessageId messageId, bool success)? value,
+  ) => _legacyStateManager.onMessageSentIds = value;
 
   @override
   void Function(String? newName)? get onNameChanged =>

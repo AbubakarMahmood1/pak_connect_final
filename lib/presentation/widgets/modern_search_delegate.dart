@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/services/chat_management_service.dart' as chat_service;
+import '../../domain/values/id_types.dart';
 import 'modern_message_bubble.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Modern search delegate with advanced filtering and suggestions
 class ModernSearchDelegate extends SearchDelegate<String> {
   final chat_service.ChatManagementService _chatService;
-  final String? chatId;
+  final ChatId? chatId;
 
   // Search state
   chat_service.MessageSearchFilter? _currentFilter;
@@ -177,7 +178,7 @@ class ModernSearchDelegate extends SearchDelegate<String> {
   Future<chat_service.MessageSearchResult> _performSearch() async {
     return await _chatService.searchMessages(
       query: query,
-      chatId: chatId,
+      chatId: chatId?.value,
       filter: _currentFilter,
       limit: 50,
     );

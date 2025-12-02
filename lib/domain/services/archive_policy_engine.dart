@@ -2,6 +2,7 @@ import 'package:logging/logging.dart';
 import '../../core/interfaces/i_archive_repository.dart';
 import '../../core/models/archive_models.dart';
 import '../../domain/entities/archived_chat.dart';
+import '../values/id_types.dart';
 import 'archive_management_models.dart';
 
 /// Evaluates and applies archive policies
@@ -60,7 +61,7 @@ class ArchivePolicyEngine {
   }
 
   Future<ArchiveValidationResult> validateArchiveRequest(
-    String chatId,
+    ChatId chatId,
     bool force,
   ) async {
     return ArchiveValidationResult.valid();
@@ -75,12 +76,12 @@ class ArchivePolicyEngine {
 
   Future<RestoreConflictCheck> checkRestoreConflicts(
     ArchivedChat archive,
-    String? targetChatId,
+    ChatId? targetChatId,
   ) async {
     return RestoreConflictCheck(false, []);
   }
 
-  ArchivePolicy? findApplicablePolicy(String chatId) {
+  ArchivePolicy? findApplicablePolicy(ChatId chatId) {
     return null; // Stubbed
   }
 }

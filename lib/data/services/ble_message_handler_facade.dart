@@ -12,6 +12,7 @@ import '../../core/security/spam_prevention_manager.dart';
 import 'message_fragmentation_handler.dart';
 import 'protocol_message_handler.dart';
 import 'relay_coordinator.dart';
+import '../../domain/values/id_types.dart';
 
 /// Public API facade for BLE message handling
 ///
@@ -465,6 +466,21 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     _ensureInitialized();
     if (callback != null) {
       _relayCoordinator.onRelayMessageReceived(callback);
+    }
+  }
+
+  @override
+  set onRelayMessageReceivedIds(
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    callback,
+  ) {
+    _ensureInitialized();
+    if (callback != null) {
+      _relayCoordinator.onRelayMessageReceivedIds(callback);
     }
   }
 

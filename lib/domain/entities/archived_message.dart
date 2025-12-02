@@ -11,7 +11,7 @@ class ArchivedMessage extends EnhancedMessage {
 
   final DateTime archivedAt;
   final DateTime originalTimestamp; // Preserved original timestamp
-  final String archiveId;
+  final ArchiveId archiveId;
   final ArchiveMessageMetadata archiveMetadata;
   final String? originalSearchableText; // Cached for search performance
   final Map<String, dynamic>? preservedState; // Original message state
@@ -48,7 +48,7 @@ class ArchivedMessage extends EnhancedMessage {
   factory ArchivedMessage.fromEnhancedMessage(
     EnhancedMessage message,
     DateTime archiveTime, {
-    String? customArchiveId,
+    ArchiveId? customArchiveId,
     Map<String, dynamic>? additionalMetadata,
   }) {
     // Generate searchable text for indexing
@@ -106,7 +106,7 @@ class ArchivedMessage extends EnhancedMessage {
   factory ArchivedMessage.fromMessage(
     Message message,
     DateTime archiveTime, {
-    String? customArchiveId,
+    ArchiveId? customArchiveId,
   }) {
     final enhanced = EnhancedMessage.fromMessage(message);
     return ArchivedMessage.fromEnhancedMessage(
@@ -151,7 +151,7 @@ class ArchivedMessage extends EnhancedMessage {
   }
 
   /// Create a restored EnhancedMessage
-  EnhancedMessage toRestoredMessage({String? newChatId}) {
+  EnhancedMessage toRestoredMessage({ChatId? newChatId}) {
     return EnhancedMessage(
       id: id,
       chatId: newChatId ?? chatId,
@@ -218,7 +218,7 @@ class ArchivedMessage extends EnhancedMessage {
     json.addAll({
       'archivedAt': archivedAt.millisecondsSinceEpoch,
       'originalTimestamp': originalTimestamp.millisecondsSinceEpoch,
-      'archiveId': archiveId,
+      'archiveId': archiveId.value,
       'archiveMetadata': archiveMetadata.toJson(),
       'originalSearchableText': originalSearchableText,
       'preservedState': preservedState,
@@ -255,7 +255,7 @@ class ArchivedMessage extends EnhancedMessage {
         originalTimestamp: DateTime.fromMillisecondsSinceEpoch(
           json['originalTimestamp'],
         ),
-        archiveId: json['archiveId'],
+        archiveId: ArchiveId(json['archiveId'] as String),
         archiveMetadata: ArchiveMessageMetadata.fromJson(
           json['archiveMetadata'],
         ),
@@ -289,14 +289,14 @@ class ArchivedMessage extends EnhancedMessage {
     return buffer.toString().toLowerCase().trim();
   }
 
-  static String _generateArchiveMessageId(
+  static ArchiveId _generateArchiveMessageId(
     EnhancedMessage message,
     DateTime archiveTime,
   ) {
     final hash = '${message.id.value}_${archiveTime.millisecondsSinceEpoch}'
         .hashCode
         .abs();
-    return 'archived_msg_$hash';
+    return ArchiveId('archived_msg_$hash');
   }
 
   static int _estimateMessageSize(EnhancedMessage message) {

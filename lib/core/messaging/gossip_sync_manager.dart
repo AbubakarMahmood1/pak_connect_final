@@ -19,6 +19,7 @@ import '../models/mesh_relay_models.dart';
 import '../utils/gcs_filter.dart';
 import 'offline_message_queue.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Gossip-based synchronization manager
 ///
@@ -53,6 +54,8 @@ class GossipSyncManager {
   Function(String peerID, QueueSyncMessage syncRequest)? onSendSyncToPeer;
   Function(String peerID, MeshRelayMessage message)? onSendMessageToPeer;
   Function(String nodeId)? onGetPeerStatus; // Returns true if peer is online
+  Function(String peerID, MessageId messageId, MeshRelayMessage message)?
+  onSendMessageToPeerIds;
 
   // Announcements: only keep latest per sender node
   // Note: Regular messages are tracked by OfflineMessageQueue
@@ -150,6 +153,7 @@ class GossipSyncManager {
 
     final tracked = _TrackedMessage(
       messageId: messageId,
+      messageIdValue: MessageId(messageId),
       message: message,
       messageType: messageType,
       timestamp: message.relayedAt,
@@ -440,8 +444,8 @@ class GossipSyncManager {
     final announcementHashes = <String, String>{};
 
     for (final entry in _latestAnnouncementByNode.entries) {
-      announcementIds.add(entry.value.messageId);
-      announcementHashes[entry.value.messageId] =
+      announcementIds.add(entry.value.messageIdValue.value);
+      announcementHashes[entry.value.messageIdValue.value] =
           entry.value.message.relayMetadata.messageHash;
     }
 
@@ -542,12 +546,14 @@ enum MessageType { announce, broadcast }
 /// Internal class for tracking messages
 class _TrackedMessage {
   final String messageId;
+  final MessageId messageIdValue;
   final MeshRelayMessage message;
   final MessageType messageType;
   final DateTime timestamp;
 
   const _TrackedMessage({
     required this.messageId,
+    required this.messageIdValue,
     required this.message,
     required this.messageType,
     required this.timestamp,

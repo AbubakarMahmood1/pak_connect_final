@@ -4,13 +4,14 @@ import 'package:logging/logging.dart';
 import '../../core/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Handles all scroll-related logic for ChatScreen
 /// Manages unread message state, scroll position tracking, and mark-as-read logic
 class ChatScrollingController {
   final _logger = Logger('ChatScrollingController');
   final IChatsRepository chatsRepository;
-  final String chatId;
+  final ChatId chatId;
   final VoidCallback onScrollToBottom;
   final Function(int) onUnreadCountChanged;
   final VoidCallback onStateChanged;
@@ -48,7 +49,7 @@ class ChatScrollingController {
       final currentChat = chats.firstWhere(
         (chat) => chat.chatId == chatId,
         orElse: () => ChatListItem(
-          chatId: '',
+          chatId: chatId,
           contactName: '',
           contactPublicKey: null,
           lastMessage: null,

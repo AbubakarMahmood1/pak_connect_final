@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'message_priority.dart';
 import '../utils/gcs_filter.dart';
 import 'protocol_message.dart'; // PHASE 2: For ProtocolMessageType
@@ -189,6 +190,7 @@ class RelayMetadata {
 class MeshRelayMessage {
   /// Original message ID
   final String originalMessageId;
+  MessageId get originalMessageIdValue => MessageId(originalMessageId);
 
   /// Original message content
   final String originalContent;
@@ -237,6 +239,23 @@ class MeshRelayMessage {
       originalMessageType: originalMessageType, // PHASE 2
     );
   }
+
+  /// Create relay message with typed message ID (emits string ID on wire)
+  factory MeshRelayMessage.createRelayWithId({
+    required MessageId originalMessageId,
+    required String originalContent,
+    required RelayMetadata metadata,
+    required String relayNodeId,
+    String? encryptedPayload,
+    ProtocolMessageType? originalMessageType,
+  }) => MeshRelayMessage.createRelay(
+    originalMessageId: originalMessageId.value,
+    originalContent: originalContent,
+    metadata: metadata,
+    relayNodeId: relayNodeId,
+    encryptedPayload: encryptedPayload,
+    originalMessageType: originalMessageType,
+  );
 
   /// Create next hop relay message
   MeshRelayMessage nextHop(String nextRelayNodeId) {
@@ -299,6 +318,7 @@ class QueueSyncMessage {
 
   /// List of message IDs in the queue (legacy mode, or fallback)
   final List<String> messageIds;
+  List<MessageId> get messageIdValues => messageIds.map(MessageId.new).toList();
 
   /// Timestamp of synchronization
   final DateTime syncTimestamp;
@@ -311,6 +331,8 @@ class QueueSyncMessage {
 
   /// Optional: Specific message hashes for verification
   final Map<String, String>? messageHashes;
+  Map<MessageId, String>? get messageHashValues =>
+      messageHashes?.map((key, value) => MapEntry(MessageId(key), value));
 
   /// Queue statistics for optimization
   final QueueSyncStats? queueStats;
@@ -338,15 +360,47 @@ class QueueSyncMessage {
     String? queueHash, // Optional: pre-calculated queue hash for optimization
     GCSFilterParams? gcsFilter, // Optional: GCS filter for efficient sync
   }) {
-    final hash = queueHash ?? _generateQueueHash(messageIds);
+    final normalizedIds = messageIds
+        .map((id) => id.toString())
+        .toSet()
+        .toList();
+    final normalizedHashes = messageHashes != null
+        ? Map<String, String>.fromEntries(
+            messageHashes.entries.map(
+              (e) => MapEntry(e.key.toString(), e.value.toString()),
+            ),
+          )
+        : null;
+    final hash = queueHash ?? _generateQueueHash(normalizedIds);
 
     return QueueSyncMessage(
       queueHash: hash,
-      messageIds: messageIds,
+      messageIds: normalizedIds,
       syncTimestamp: DateTime.now(),
       nodeId: nodeId,
       syncType: QueueSyncType.request,
-      messageHashes: messageHashes,
+      messageHashes: normalizedHashes,
+      gcsFilter: gcsFilter,
+    );
+  }
+
+  /// Create queue sync request with typed IDs (keeps wire payload stringly)
+  factory QueueSyncMessage.createRequestWithIds({
+    required List<MessageId> messageIds,
+    required String nodeId,
+    Map<MessageId, String>? messageHashes,
+    String? queueHash, // Optional: pre-calculated queue hash for optimization
+    GCSFilterParams? gcsFilter, // Optional: GCS filter for efficient sync
+  }) {
+    final stringIds = messageIds.map((id) => id.value).toList();
+    final stringHashes = messageHashes?.map(
+      (key, value) => MapEntry(key.value, value),
+    );
+    return QueueSyncMessage.createRequest(
+      messageIds: stringIds,
+      nodeId: nodeId,
+      messageHashes: stringHashes,
+      queueHash: queueHash,
       gcsFilter: gcsFilter,
     );
   }
@@ -358,16 +412,46 @@ class QueueSyncMessage {
     required QueueSyncStats stats,
     Map<String, String>? messageHashes,
   }) {
-    final queueHash = _generateQueueHash(messageIds);
+    final normalizedIds = messageIds
+        .map((id) => id.toString())
+        .toSet()
+        .toList();
+    final normalizedHashes = messageHashes != null
+        ? Map<String, String>.fromEntries(
+            messageHashes.entries.map(
+              (e) => MapEntry(e.key.toString(), e.value.toString()),
+            ),
+          )
+        : null;
+    final queueHash = _generateQueueHash(normalizedIds);
 
     return QueueSyncMessage(
       queueHash: queueHash,
-      messageIds: messageIds,
+      messageIds: normalizedIds,
       syncTimestamp: DateTime.now(),
       nodeId: nodeId,
       syncType: QueueSyncType.response,
-      messageHashes: messageHashes,
+      messageHashes: normalizedHashes,
       queueStats: stats,
+    );
+  }
+
+  /// Create queue sync response with typed IDs (keeps wire payload stringly)
+  factory QueueSyncMessage.createResponseWithIds({
+    required List<MessageId> messageIds,
+    required String nodeId,
+    required QueueSyncStats stats,
+    Map<MessageId, String>? messageHashes,
+  }) {
+    final stringIds = messageIds.map((id) => id.value).toList();
+    final stringHashes = messageHashes?.map(
+      (key, value) => MapEntry(key.value, value),
+    );
+    return QueueSyncMessage.createResponse(
+      messageIds: stringIds,
+      nodeId: nodeId,
+      stats: stats,
+      messageHashes: stringHashes,
     );
   }
 
@@ -396,14 +480,20 @@ class QueueSyncMessage {
   factory QueueSyncMessage.fromJson(Map<String, dynamic> json) =>
       QueueSyncMessage(
         queueHash: json['queueHash'],
-        messageIds: List<String>.from(json['messageIds']),
+        messageIds: (json['messageIds'] as List<dynamic>)
+            .map((id) => id.toString())
+            .toList(),
         syncTimestamp: DateTime.fromMillisecondsSinceEpoch(
           json['syncTimestamp'],
         ),
         nodeId: json['nodeId'],
         syncType: QueueSyncType.values[json['syncType']],
         messageHashes: json['messageHashes'] != null
-            ? Map<String, String>.from(json['messageHashes'])
+            ? Map<String, String>.from(
+                (json['messageHashes'] as Map).map(
+                  (key, value) => MapEntry(key.toString(), value.toString()),
+                ),
+              )
             : null,
         queueStats: json['queueStats'] != null
             ? QueueSyncStats.fromJson(json['queueStats'])

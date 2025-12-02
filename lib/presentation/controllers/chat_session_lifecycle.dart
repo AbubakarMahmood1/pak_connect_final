@@ -15,11 +15,13 @@ import '../../core/services/message_retry_coordinator.dart';
 import '../../core/services/persistent_chat_state_manager.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../domain/entities/message.dart';
-import '../../domain/services/notification_service.dart';
 import '../../domain/models/mesh_network_models.dart';
+import '../../domain/values/id_types.dart';
+import '../models/chat_screen_config.dart';
 import '../controllers/chat_retry_helper.dart';
 import '../controllers/chat_pairing_dialog_controller.dart';
 import '../models/chat_ui_state.dart';
+import '../notifiers/chat_session_state_notifier.dart';
 import '../viewmodels/chat_session_view_model.dart';
 import '../widgets/contact_request_dialog.dart';
 
@@ -31,30 +33,25 @@ class ChatSessionLifecycle {
     required this.viewModel,
     required this.connectionService,
     required this.meshService,
-    this.messageRouter,
+    MessageRouter? messageRouter,
     required this.messageSecurity,
     required this.messageRepository,
     this.retryCoordinator,
     this.offlineQueue,
-    this.notificationService,
     Logger? logger,
   }) : _logger = logger ?? Logger('ChatSessionLifecycle') {
-    if (messageRouter == null) {
-      _logger.warning(
-        'MessageRouter unavailable; lifecycle routing hooks will be disabled',
-      );
-    }
+    this.messageRouter =
+        messageRouter ?? _resolveMessageRouter(connectionService);
   }
 
   final ChatSessionViewModel viewModel;
   final IConnectionService connectionService;
   final IMeshNetworkingService meshService;
-  final MessageRouter? messageRouter;
+  late final MessageRouter? messageRouter;
   final MessageSecurity messageSecurity;
   final MessageRepository messageRepository;
   final MessageRetryCoordinator? retryCoordinator;
   final OfflineMessageQueue? offlineQueue;
-  final NotificationService? notificationService;
   final Logger _logger;
   ChatRetryHelper? retryHelper;
   ChatPairingDialogController? pairingController;
@@ -67,6 +64,9 @@ class ChatSessionLifecycle {
   Timer? _initializationTimeoutTimer;
   Timer? _delayedRetryTimer;
   PersistentChatStateManager? persistentChatManager;
+  OfflineMessageQueue? _fallbackOfflineQueue;
+  bool _fallbackQueueInitialized = false;
+  Future<void>? _fallbackQueueInitFuture;
 
   /// Placeholder init hook; real logic will move here during migration.
   Future<void> initialize() async {
@@ -82,11 +82,11 @@ class ChatSessionLifecycle {
 
   /// Subscribe to mesh delivery stream and notify caller on delivery.
   void setupDeliveryListener({
-    required void Function(String messageId) onDelivered,
+    required void Function(MessageId messageId) onDelivered,
   }) {
     try {
       _deliverySubscription = meshService.messageDeliveryStream.listen(
-        onDelivered,
+        (id) => onDelivered(MessageId(id)),
       );
       _managedSubscriptions.add(_deliverySubscription!);
     } catch (e) {
@@ -220,6 +220,7 @@ class ChatSessionLifecycle {
     _messageSubscription?.cancel();
     _initializationTimeoutTimer?.cancel();
     _delayedRetryTimer?.cancel();
+    messageListenerActive = false;
     retryHelper?.dispose();
     for (final sub in _managedSubscriptions) {
       sub.cancel();
@@ -257,11 +258,7 @@ class ChatSessionLifecycle {
   bool hasMessagesQueuedForRelay(String? recipientPublicKey) {
     if (recipientPublicKey == null || recipientPublicKey.isEmpty) return false;
     try {
-      final queue =
-          offlineQueue ??
-          (AppCore.instance.isInitialized
-              ? AppCore.instance.messageQueue
-              : null);
+      final queue = offlineQueue ?? resolveOfflineQueue();
       if (queue == null) return false;
       final queuedMessages = queue.getPendingMessages();
       final chatMessages = queuedMessages.where(
@@ -272,6 +269,302 @@ class ChatSessionLifecycle {
       _logger.warning('Error checking relay queue: $e');
       return false;
     }
+  }
+
+  OfflineMessageQueue? resolveOfflineQueue() {
+    if (offlineQueue != null) {
+      return offlineQueue;
+    }
+    final appCoreQueue = _tryResolveAppCoreQueue();
+    if (appCoreQueue != null) {
+      return appCoreQueue;
+    }
+
+    try {
+      return MessageRouter.instance.offlineQueue;
+    } catch (_) {}
+
+    _logger.fine('Using standalone OfflineMessageQueue fallback');
+    return _getFallbackQueue();
+  }
+
+  OfflineMessageQueue? _tryResolveAppCoreQueue() {
+    final appCore = AppCore.instance;
+    if (!appCore.isInitialized && !appCore.isInitializing) {
+      _logger.fine('AppCore not initialized; offline queue unavailable');
+      return null;
+    }
+
+    try {
+      return appCore.messageQueue;
+    } catch (error) {
+      _logger.warning('Failed to access offline queue: $error');
+      return null;
+    }
+  }
+
+  Future<OfflineMessageQueue> _buildFallbackOfflineQueue() async {
+    final queue = _getFallbackQueue(ensureInitialized: true);
+    if (_fallbackQueueInitFuture != null) {
+      try {
+        await _fallbackQueueInitFuture;
+      } catch (error, stack) {
+        _logger.warning(
+          'Fallback offline queue initialization failed: $error',
+          stack,
+        );
+      }
+    }
+    return queue;
+  }
+
+  OfflineMessageQueue _getFallbackQueue({bool ensureInitialized = false}) {
+    _fallbackOfflineQueue ??= OfflineMessageQueue();
+    if (_fallbackQueueInitFuture == null && !_fallbackQueueInitialized) {
+      _fallbackQueueInitialized = true;
+      _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
+      if (!ensureInitialized) {
+        _fallbackQueueInitFuture!.catchError((error, stack) {
+          _logger.warning(
+            'Fallback offline queue initialization failed: $error',
+            stack,
+          );
+        });
+      }
+    } else if (ensureInitialized && _fallbackQueueInitFuture == null) {
+      _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
+    }
+    return _fallbackOfflineQueue!;
+  }
+
+  Future<OfflineMessageQueue> buildFallbackOfflineQueue() =>
+      _buildFallbackOfflineQueue();
+
+  MessageRouter? _resolveMessageRouter(IConnectionService connectionService) {
+    try {
+      return MessageRouter.instance;
+    } on StateError {
+      _logger.warning(
+        'MessageRouter not initialized; attempting on-demand initialization',
+      );
+      try {
+        final fallbackQueue = resolveOfflineQueue();
+        unawaited(
+          MessageRouter.initialize(
+            connectionService,
+            offlineQueue: fallbackQueue,
+            fallbackQueueBuilder: _buildFallbackOfflineQueue,
+          ),
+        );
+        return MessageRouter.instance;
+      } catch (error, stack) {
+        _logger.warning(
+          'MessageRouter initialization failed; routing hooks disabled: $error',
+          stack,
+        );
+        if (AppCore.instance.isInitialized) {
+          _logger.warning(
+            'AppCore initialized but MessageRouter still unavailable',
+          );
+        }
+        return null;
+      }
+    }
+  }
+
+  List<QueuedMessage> getQueuedMessagesForChat() {
+    try {
+      final queue = resolveOfflineQueue();
+      if (queue == null) return const [];
+      return queue.getPendingMessages();
+    } catch (e) {
+      _logger.fine('Unable to fetch queued messages: $e');
+      return const [];
+    }
+  }
+
+  void configureRetryHelper({
+    required WidgetRef ref,
+    required ChatScreenConfig config,
+    required String Function() chatId,
+    required String? Function() contactPublicKey,
+    required String Function() displayContactName,
+    required MessageRepository messageRepository,
+    required Future<void> Function(Message message) repositoryRetryHandler,
+    required void Function(String) showSuccess,
+    required void Function(String) showError,
+    required void Function(String) showInfo,
+    required void Function() scrollToBottom,
+    required List<Message> Function() getMessages,
+    Duration? fallbackRetryDelay,
+  }) {
+    retryHelper = ChatRetryHelper(
+      ref: ref,
+      config: config,
+      chatId: chatId,
+      contactPublicKey: contactPublicKey,
+      displayContactName: displayContactName,
+      messageRepository: messageRepository,
+      repositoryRetryHandler: repositoryRetryHandler,
+      showSuccess: showSuccess,
+      showError: showError,
+      showInfo: showInfo,
+      scrollToBottom: scrollToBottom,
+      getMessages: getMessages,
+      offlineQueueResolver: resolveOfflineQueue,
+      logger: _logger,
+      initialCoordinator: retryCoordinator,
+      fallbackRetryDelay: fallbackRetryDelay,
+    );
+  }
+
+  Future<void> startSession({
+    required ChatId chatId,
+    required ChatSessionStateStore stateStore,
+    required Stream<String> Function() incomingStream,
+    required BuildContext context,
+    required bool Function() disposed,
+    required bool Function() mounted,
+    required VoidCallback onSecurityStateInvalidate,
+    required AsyncValue<MeshNetworkStatus> meshStatusAsync,
+    required AsyncValue<ConnectionInfo> connectionInfoAsync,
+    required void Function(String message) onSuccessMessage,
+    required Future<void> Function(String content) onMessage,
+    required Future<void> Function() onProcessBufferedMessages,
+    required void Function(MessageId messageId, MessageStatus status)
+    onDelivered,
+  }) async {
+    if (disposed()) return;
+
+    _setupMeshNetworking(
+      meshStatusAsync: meshStatusAsync,
+      stateStore: stateStore,
+      disposed: disposed,
+      onSuccessMessage: onSuccessMessage,
+    );
+
+    setupDeliveryListener(
+      onDelivered: (messageId) =>
+          onDelivered(messageId, MessageStatus.delivered),
+    );
+
+    setupContactRequestHandling(
+      context: context,
+      onSecurityStateInvalidate: onSecurityStateInvalidate,
+      mounted: mounted,
+    );
+
+    ensureRetryCoordinator();
+
+    if (persistentChatManager != null &&
+        !persistentChatManager!.hasActiveListener(chatId.value)) {
+      registerPersistentListener(
+        chatId: chatId,
+        incomingStream: incomingStream,
+        onMessage: onMessage,
+      );
+    }
+
+    final isConnected =
+        connectionInfoAsync.value?.isConnected ??
+        connectionService.currentConnectionInfo.isConnected;
+    if (isConnected) {
+      await startMessageListener(
+        chatId: chatId,
+        incomingStream: incomingStream,
+        persistentManager: persistentChatManager,
+        disposed: disposed,
+        onMessage: onMessage,
+      );
+      await onProcessBufferedMessages();
+    }
+  }
+
+  void _setupMeshNetworking({
+    required AsyncValue<MeshNetworkStatus> meshStatusAsync,
+    required ChatSessionStateStore stateStore,
+    required bool Function() disposed,
+    required void Function(String) onSuccessMessage,
+  }) {
+    try {
+      handleMeshStatus(
+        statusAsync: meshStatusAsync,
+        isCurrentlyInitializing: stateStore.current.meshInitializing,
+        updateState: stateStore.update,
+        onSuccessMessage: onSuccessMessage,
+        onWarningMessage: (msg) => _logger.warning(msg),
+      );
+      meshStatusAsync.when(
+        data: (status) {
+          if (!status.isInitialized) {
+            startInitializationTimeout(
+              isCheckingStatus: false,
+              disposed: disposed,
+              stillInitializing: () => stateStore.current.meshInitializing,
+              updateState: stateStore.update,
+              onSuccessMessage: onSuccessMessage,
+            );
+          }
+        },
+        loading: () {
+          startInitializationTimeout(
+            isCheckingStatus: true,
+            disposed: disposed,
+            stillInitializing: () => stateStore.current.meshInitializing,
+            updateState: stateStore.update,
+            onSuccessMessage: onSuccessMessage,
+          );
+        },
+        error: (error, stack) {},
+      );
+    } catch (e) {
+      _logger.warning('Failed to set up mesh networking: $e');
+      stateStore.setMeshState(
+        meshInitializing: false,
+        initializationStatus: 'Failed to initialize',
+      );
+    }
+  }
+
+  Future<void> startMessageListener({
+    required ChatId chatId,
+    required Stream<String> Function() incomingStream,
+    required PersistentChatStateManager? persistentManager,
+    required bool Function() disposed,
+    required Future<void> Function(String content) onMessage,
+  }) async {
+    if (messageListenerActive) return;
+
+    messageListenerActive = true;
+    persistentChatManager = persistentManager ?? persistentChatManager;
+
+    if (persistentChatManager != null &&
+        !persistentChatManager!.hasActiveListener(chatId.value)) {
+      registerPersistentListener(
+        chatId: chatId,
+        incomingStream: incomingStream,
+        onMessage: onMessage,
+      );
+      _logger.info('📡 Message listener activated (persistent mode)');
+      return;
+    }
+
+    if (persistentChatManager != null &&
+        persistentChatManager!.hasActiveListener(chatId.value)) {
+      _logger.fine('Message listener already active (persistent)');
+      return;
+    }
+
+    attachMessageStream(
+      stream: incomingStream(),
+      disposed: disposed,
+      isActive: () => messageListenerActive,
+      onMessage: (content) async {
+        messageBuffer.add(content);
+        await processBufferedMessages(onMessage);
+      },
+    );
+    _logger.info('📡 Message listener activated (stream mode)');
   }
 
   /// Retry sending a repository-backed message using router → direct → mesh.
@@ -513,19 +806,22 @@ class ChatSessionLifecycle {
 
   /// Register persistent chat listener when available.
   void registerPersistentListener({
-    required String chatId,
+    required ChatId chatId,
     required Stream<String> Function() incomingStream,
     required Future<void> Function(String content) onMessage,
   }) {
     persistentChatManager ??= PersistentChatStateManager();
-    persistentChatManager?.registerChatScreen(chatId, (content) {
+    persistentChatManager?.registerChatScreen(chatId.value, (content) {
       unawaited(onMessage(content));
     });
-    persistentChatManager?.setupPersistentListener(chatId, incomingStream());
+    persistentChatManager?.setupPersistentListener(
+      chatId.value,
+      incomingStream(),
+    );
   }
 
-  void unregisterPersistentListener(String chatId) {
+  void unregisterPersistentListener(ChatId chatId) {
     persistentChatManager ??= PersistentChatStateManager();
-    persistentChatManager?.unregisterChatScreen(chatId);
+    persistentChatManager?.unregisterChatScreen(chatId.value);
   }
 }

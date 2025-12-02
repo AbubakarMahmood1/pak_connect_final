@@ -10,6 +10,7 @@ import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart' as app_entities;
 import '../../domain/interfaces/i_notification_handler.dart';
 import '../../core/services/navigation_service.dart';
+import '../../domain/values/id_types.dart';
 
 /// Background notification handler implementation
 ///
@@ -492,9 +493,12 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
           final contactPublicKey = payloadData['contactPublicKey'] as String?;
 
           if (chatId != null && contactName != null) {
-            _logger.info('Navigating to chat: $chatId ($contactName)');
+            final typedChatId = ChatId(chatId);
+            _logger.info(
+              'Navigating to chat: ${typedChatId.value} ($contactName)',
+            );
             NavigationService.instance.navigateToChatById(
-              chatId: chatId,
+              chatId: typedChatId.value,
               contactName: contactName,
               contactPublicKey: contactPublicKey,
             );

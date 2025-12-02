@@ -9,6 +9,7 @@ import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_message_repository.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/values/id_types.dart';
 
 /// Service for managing message starring and chat pinning
 class PinningService {
@@ -27,7 +28,7 @@ class PinningService {
   static const String _pinnedChatsKey = 'pinned_chats';
 
   // In-memory state
-  final Set<String> _starredMessageIds = {};
+  final Set<MessageId> _starredMessageIds = {};
   final Set<String> _pinnedChats = {};
 
   // Event listeners (replaces manual controller)
@@ -71,7 +72,7 @@ class PinningService {
   }
 
   /// Star/unstar message
-  Future<ChatOperationResult> toggleMessageStar(String messageId) async {
+  Future<ChatOperationResult> toggleMessageStar(MessageId messageId) async {
     try {
       if (_starredMessageIds.contains(messageId)) {
         _starredMessageIds.remove(messageId);
@@ -99,7 +100,7 @@ class PinningService {
       for (final chat in allChats) {
         final messages = await _messageRepository.getMessages(chat.chatId);
         for (final message in messages) {
-          if (_starredMessageIds.contains(message.id.value)) {
+          if (_starredMessageIds.contains(message.id)) {
             final enhanced = EnhancedMessage.fromMessage(
               message,
             ).copyWith(isStarred: true);
@@ -141,7 +142,7 @@ class PinningService {
   }
 
   /// Check if message is starred
-  bool isMessageStarred(String messageId) =>
+  bool isMessageStarred(MessageId messageId) =>
       _starredMessageIds.contains(messageId);
 
   /// Check if chat is pinned
@@ -174,7 +175,7 @@ class PinningService {
   /// Internal: Remove starred message IDs for deleted chat
   void removeStarredMessagesForChat(List<String> messageIds) {
     for (final messageId in messageIds) {
-      _starredMessageIds.remove(messageId);
+      _starredMessageIds.remove(MessageId(messageId));
     }
   }
 
@@ -191,7 +192,7 @@ class PinningService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
         _starredMessagesKey,
-        _starredMessageIds.toList(),
+        _starredMessageIds.map((id) => id.value).toList(),
       );
     } catch (e) {
       _logger.warning('⚠️ Failed to save starred messages: $e');
@@ -204,7 +205,7 @@ class PinningService {
       final prefs = await SharedPreferences.getInstance();
       final starredList = prefs.getStringList(_starredMessagesKey) ?? [];
       _starredMessageIds.clear();
-      _starredMessageIds.addAll(starredList);
+      _starredMessageIds.addAll(starredList.map(MessageId.new));
     } catch (e) {
       _logger.warning('⚠️ Failed to load starred messages: $e');
     }

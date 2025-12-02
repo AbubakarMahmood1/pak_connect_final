@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
-import '../../core/app_core.dart';
 import '../../core/interfaces/i_connection_service.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/messaging/message_router.dart';
@@ -22,7 +21,7 @@ import '../../data/repositories/message_repository.dart';
 import '../../data/services/ble_state_manager.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/models/mesh_network_models.dart';
-import '../../domain/services/notification_service.dart';
+import '../../core/interfaces/i_mesh_networking_service.dart';
 import '../models/chat_screen_config.dart';
 import '../../presentation/controllers/chat_pairing_dialog_controller.dart';
 import '../../presentation/controllers/chat_scrolling_controller.dart'
@@ -34,40 +33,124 @@ import '../../presentation/providers/ble_providers.dart';
 import '../../presentation/providers/chat_messaging_view_model.dart';
 import '../../presentation/providers/mesh_networking_provider.dart';
 import '../../presentation/providers/security_state_provider.dart';
+import '../widgets/chat_search_bar.dart' show SearchResult;
 import '../providers/chat_session_providers.dart';
 import '../viewmodels/chat_session_view_model.dart';
 import '../notifiers/chat_session_state_notifier.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-import 'chat_retry_helper.dart';
 
 class ChatScreenControllerArgs {
   const ChatScreenControllerArgs({
     required this.ref,
     required this.context,
     required this.config,
-    this.messageRepository,
-    this.contactRepository,
-    this.chatsRepository,
+    required this.messageRepository,
+    required this.contactRepository,
+    required this.chatsRepository,
     this.persistentChatManager,
     this.retryCoordinator,
     this.messagingViewModel,
     this.repositoryRetryHandler,
     this.pairingDialogController,
     this.messageRouter,
+    this.sessionViewModel,
+    this.sessionLifecycle,
+    this.stateStore,
+    required this.messagingViewModelFactory,
+    required this.scrollingControllerFactory,
+    required this.searchControllerFactory,
+    required this.pairingControllerFactory,
+    required this.sessionViewModelFactory,
+    required this.sessionLifecycleFactory,
   });
 
   final WidgetRef ref;
   final BuildContext context;
   final ChatScreenConfig config;
-  final MessageRepository? messageRepository;
-  final ContactRepository? contactRepository;
-  final ChatsRepository? chatsRepository;
+  final MessageRepository messageRepository;
+  final ContactRepository contactRepository;
+  final ChatsRepository chatsRepository;
   final PersistentChatStateManager? persistentChatManager;
   final MessageRetryCoordinator? retryCoordinator;
   final ChatMessagingViewModel? messagingViewModel;
   final Future<void> Function(Message message)? repositoryRetryHandler;
   final ChatPairingDialogController? pairingDialogController;
   final MessageRouter? messageRouter;
+  final ChatSessionViewModel? sessionViewModel;
+  final ChatSessionLifecycle? sessionLifecycle;
+  final ChatSessionStateStore? stateStore;
+  final ChatMessagingViewModel Function(ChatId chatId, String contactPublicKey)
+  messagingViewModelFactory;
+  final chat_controller.ChatScrollingController Function(
+    ChatId chatId,
+    VoidCallback onScrollToBottom,
+    Function(int) onUnreadCountChanged,
+    VoidCallback onStateChanged,
+  )
+  scrollingControllerFactory;
+  final ChatSearchController Function(
+    void Function(bool) onSearchModeToggled,
+    void Function(String, List<SearchResult>) onSearchResultsChanged,
+    void Function(int) onNavigateToResult,
+    ScrollController scrollController,
+  )
+  searchControllerFactory;
+  final ChatPairingDialogController Function(
+    BuildContext context,
+    IConnectionService connectionService,
+    ContactRepository contactRepository,
+    NavigatorState navigator,
+    BLEStateManager stateManager,
+    void Function(bool success) onPairingCompleted,
+    void Function(String) onPairingError,
+    void Function(String) onPairingSuccess,
+  )
+  pairingControllerFactory;
+  final ChatSessionViewModel Function({
+    required ChatScreenConfig config,
+    required MessageRepository messageRepository,
+    required ContactRepository contactRepository,
+    required ChatsRepository chatsRepository,
+    required ChatMessagingViewModel messagingViewModel,
+    required chat_controller.ChatScrollingController scrollingController,
+    required ChatSearchController searchController,
+    required ChatPairingDialogController pairingDialogController,
+    MessageRetryCoordinator? retryCoordinator,
+    ChatSessionLifecycle? sessionLifecycle,
+    String Function()? displayContactNameFn,
+    String? Function()? getContactPublicKeyFn,
+    String Function()? getChatIdFn,
+    void Function(String)? onChatIdUpdated,
+    void Function(String?)? onContactPublicKeyUpdated,
+    void Function()? onScrollToBottom,
+    void Function(String)? onShowError,
+    void Function(String)? onShowSuccess,
+    void Function(String)? onShowInfo,
+    bool Function()? isDisposedFn,
+    void Function({
+      required ChatMessagingViewModel messagingViewModel,
+      required chat_controller.ChatScrollingController scrollingController,
+      required ChatSearchController searchController,
+      ChatMessagingViewModel? previousMessagingViewModel,
+      chat_controller.ChatScrollingController? previousScrollingController,
+      ChatSearchController? previousSearchController,
+    })?
+    onControllersRebound,
+    IConnectionService Function()? getConnectionServiceFn,
+  })
+  sessionViewModelFactory;
+  final ChatSessionLifecycle Function({
+    required ChatSessionViewModel viewModel,
+    required IConnectionService connectionService,
+    required IMeshNetworkingService meshService,
+    MessageRouter? messageRouter,
+    required MessageSecurity messageSecurity,
+    required MessageRepository messageRepository,
+    MessageRetryCoordinator? retryCoordinator,
+    OfflineMessageQueue? offlineQueue,
+    Logger? logger,
+  })
+  sessionLifecycleFactory;
 }
 
 /// Coordinates all non-UI chat behaviors so the widget can stay lean.
@@ -91,22 +174,13 @@ class ChatScreenController extends ChangeNotifier {
   late ChatPairingDialogController _pairingDialogController;
   late ChatSessionViewModel _sessionViewModel;
   late ChatSessionLifecycle _sessionLifecycle;
-  late ChatRetryHelper _retryHelper;
-  PersistentChatStateManager? _persistentChatManager;
   late final ChatSessionStateStore _stateStore;
 
   bool _initialized = false;
 
-  // Primary source of truth for controller state (legacy path).
-  // Also published to provider for opt-in migration path.
-  ChatUIState _state = const ChatUIState();
-  String _chatId = '';
+  ChatId _chatId = ChatId('pending_chat_id');
   String? _cachedContactPublicKey;
   bool _disposed = false;
-  bool _messageListenerActive = false;
-  OfflineMessageQueue? _fallbackOfflineQueue;
-  bool _fallbackQueueInitialized = false;
-  Future<void>? _fallbackQueueInitFuture;
   void Function(ChatUIState)? _stateListener;
   void Function()? _disposeStateListener;
 
@@ -115,20 +189,25 @@ class ChatScreenController extends ChangeNotifier {
       ref = args.ref,
       context = args.context,
       config = args.config,
-      messageRepository = args.messageRepository ?? MessageRepository(),
-      contactRepository = args.contactRepository ?? ContactRepository(),
-      chatsRepository = args.chatsRepository ?? ChatsRepository(),
-      _persistentChatManager = args.persistentChatManager,
+      messageRepository =
+          args.messageRepository ??
+          (throw ArgumentError('messageRepository is required')),
+      contactRepository =
+          args.contactRepository ??
+          (throw ArgumentError('contactRepository is required')),
+      chatsRepository =
+          args.chatsRepository ??
+          (throw ArgumentError('chatsRepository is required')),
       _injectedMessageRouter = args.messageRouter,
       _injectedPairingController = args.pairingDialogController,
       _initialRetryCoordinator = args.retryCoordinator {
     _chatId = _calculateInitialChatId();
     _cachedContactPublicKey = _contactPublicKey;
-    _stateStore = ref.read(chatSessionStateStoreProvider(_args).notifier);
-    _state = _stateStore.current;
+    _stateStore =
+        args.stateStore ??
+        ref.read(chatSessionStateStoreProvider(_args).notifier);
     _stateListener = (newState) {
       if (_disposed) return;
-      _state = newState;
       _publishStateToOwnedNotifier(newState);
       notifyListeners();
     };
@@ -141,10 +220,10 @@ class ChatScreenController extends ChangeNotifier {
         _args.repositoryRetryHandler ??
         _sessionViewModel.retryRepositoryMessage;
     _sessionViewModel.bindStateStore(_stateStore);
-    _retryHelper = ChatRetryHelper(
+    _sessionLifecycle.configureRetryHelper(
       ref: ref,
       config: config,
-      chatId: () => _chatId,
+      chatId: () => _chatId.value,
       contactPublicKey: () => _contactPublicKey,
       displayContactName: () => displayContactName,
       messageRepository: messageRepository,
@@ -154,16 +233,15 @@ class ChatScreenController extends ChangeNotifier {
       showInfo: _showInfo,
       scrollToBottom: _sessionViewModel.scrollToBottom,
       getMessages: () => state.messages,
-      logger: _logger,
-      initialCoordinator: args.retryCoordinator,
-      offlineQueueResolver: _resolveOfflineQueue,
     );
-    _sessionLifecycle.retryHelper = _retryHelper;
+    _sessionLifecycle.persistentChatManager =
+        _args.persistentChatManager ??
+        ref.read(persistentChatStateManagerProvider);
     _publishInitialState();
   }
 
-  ChatUIState get state => _state;
-  String get chatId => _chatId;
+  ChatUIState get state => _stateStore.current;
+  String get chatId => _chatId.value;
   chat_controller.ChatScrollingController get scrollingController =>
       _scrollingController;
   ChatSearchController get searchController => _searchController;
@@ -172,39 +250,6 @@ class ChatScreenController extends ChangeNotifier {
   ChatSessionViewModel get sessionViewModel => _sessionViewModel;
   ChatSessionLifecycle get sessionLifecycle => _sessionLifecycle;
   ChatScreenControllerArgs get args => _args;
-
-  /// Legacy-style constructor kept for compatibility in tests and widgets that
-  /// still pass named parameters directly.
-  @visibleForTesting
-  ChatScreenController.deprecated({
-    required WidgetRef ref,
-    required BuildContext context,
-    required ChatScreenConfig config,
-    MessageRepository? messageRepository,
-    ContactRepository? contactRepository,
-    ChatsRepository? chatsRepository,
-    PersistentChatStateManager? persistentChatManager,
-    MessageRetryCoordinator? retryCoordinator,
-    ChatMessagingViewModel? messagingViewModel,
-    Future<void> Function(Message message)? repositoryRetryHandler,
-    ChatPairingDialogController? pairingDialogController,
-    MessageRouter? messageRouter,
-  }) : this(
-         ChatScreenControllerArgs(
-           ref: ref,
-           context: context,
-           config: config,
-           messageRepository: messageRepository,
-           contactRepository: contactRepository,
-           chatsRepository: chatsRepository,
-           persistentChatManager: persistentChatManager,
-           retryCoordinator: retryCoordinator,
-           messagingViewModel: messagingViewModel,
-           repositoryRetryHandler: repositoryRetryHandler,
-           pairingDialogController: pairingDialogController,
-           messageRouter: messageRouter,
-         ),
-       );
 
   String get displayContactName {
     if (config.isRepositoryMode) {
@@ -252,212 +297,126 @@ class ChatScreenController extends ChangeNotifier {
     return _cachedContactPublicKey;
   }
 
+  UserId? get _contactUserId {
+    final key = _contactPublicKey;
+    if (key == null || key.isEmpty) return null;
+    return UserId(key);
+  }
+
+  ChatId get _chatIdValue => _chatId;
+
   void _initializeControllers({ChatMessagingViewModel? messagingViewModel}) {
     _messagingViewModel =
         messagingViewModel ??
-        ChatMessagingViewModel(
-          chatId: _chatId,
-          contactPublicKey: _contactPublicKey ?? '',
-          messageRepository: messageRepository,
-          contactRepository: contactRepository,
-        );
+        _args.messagingViewModel ??
+        _args.messagingViewModelFactory?.call(
+          _chatId,
+          _contactPublicKey ?? '',
+        ) ??
+        (throw ArgumentError('ChatMessagingViewModel factory not provided'));
 
-    _scrollingController = chat_controller.ChatScrollingController(
-      chatsRepository: chatsRepository,
-      chatId: _chatId,
-      onScrollToBottom: () => _stateStore.clearNewWhileScrolledUp(),
-      onUnreadCountChanged: (count) => _stateStore.setUnreadCount(count),
-      onStateChanged: () => _sessionViewModel.onScrollStateChanged(),
-    );
+    _scrollingController =
+        _args.scrollingControllerFactory?.call(
+          _chatId,
+          () => _stateStore.clearNewWhileScrolledUp(),
+          (count) => _stateStore.setUnreadCount(count),
+          () => _sessionViewModel.onScrollStateChanged(),
+        ) ??
+        (throw ArgumentError('ChatScrollingController factory not provided'));
 
-    _searchController = ChatSearchController(
-      onSearchModeToggled: (isSearchMode) =>
-          _stateStore.setSearchMode(isSearchMode),
-      onSearchResultsChanged: (query, _) =>
-          _sessionViewModel.onSearchResultsChanged(query),
-      onNavigateToResult: (messageIndex) =>
-          _sessionViewModel.onNavigateToSearchResultIndex(messageIndex),
-      scrollController: _scrollingController.scrollController,
-    );
+    _searchController =
+        _args.searchControllerFactory?.call(
+          (isSearchMode) => _stateStore.setSearchMode(isSearchMode),
+          (query, _) => _sessionViewModel.onSearchResultsChanged(query),
+          (messageIndex) =>
+              _sessionViewModel.onNavigateToSearchResultIndex(messageIndex),
+          _scrollingController.scrollController,
+        ) ??
+        (throw ArgumentError('ChatSearchController factory not provided'));
 
     final connectionService = ref.read(connectionServiceProvider);
     _pairingDialogController =
         _injectedPairingController ??
-        ChatPairingDialogController(
-          stateManager: _resolvePairingStateManager(connectionService),
-          connectionService: connectionService,
-          contactRepository: contactRepository,
-          context: context,
-          navigator: Navigator.of(context),
-          getTheirPersistentKey: () =>
-              connectionService.theirPersistentPublicKey,
-          onPairingCompleted: (success) {
+        _args.pairingControllerFactory?.call(
+          context,
+          connectionService,
+          contactRepository,
+          Navigator.of(context),
+          _resolvePairingStateManager(connectionService),
+          (success) {
             if (success && securityStateKey != null) {
               ref.invalidate(securityStateProvider(securityStateKey));
             }
           },
-          onPairingError: _showError,
-          onPairingSuccess: _showSuccess,
-        );
+          _showError,
+          _showSuccess,
+        ) ??
+        (throw ArgumentError(
+          'ChatPairingDialogController factory not provided',
+        ));
 
-    _sessionViewModel = ChatSessionViewModel(
-      config: config,
-      messageRepository: messageRepository,
-      contactRepository: contactRepository,
-      chatsRepository: chatsRepository,
-      messagingViewModel: _messagingViewModel,
-      scrollingController: _scrollingController,
-      searchController: _searchController,
-      pairingDialogController: _pairingDialogController,
-      retryCoordinator: _initialRetryCoordinator,
-      // Phase 6A: Wire up callbacks for extracted methods
-      sessionLifecycle: null, // Will be set after creation
-      displayContactNameFn: () => displayContactName,
-      getContactPublicKeyFn: () => _contactPublicKey,
-      getChatIdFn: () => _chatId,
-      onChatIdUpdated: (newChatId) => _chatId = newChatId,
-      onContactPublicKeyUpdated: (newKey) => _cachedContactPublicKey = newKey,
-      onScrollToBottom: () => _scrollingController.scrollToBottom(),
-      onShowError: _showError,
-      onShowSuccess: _showSuccess,
-      onShowInfo: _showInfo,
-      isDisposedFn: () => _disposed,
-      onControllersRebound:
-          ({
-            required messagingViewModel,
-            required scrollingController,
-            required searchController,
-            ChatMessagingViewModel? previousMessagingViewModel,
-            chat_controller.ChatScrollingController?
-            previousScrollingController,
-            ChatSearchController? previousSearchController,
-          }) => _handleControllersRebound(
-            messagingViewModel: messagingViewModel,
-            scrollingController: scrollingController,
-            searchController: searchController,
-            previousMessagingViewModel: previousMessagingViewModel,
-            previousScrollingController: previousScrollingController,
-            previousSearchController: previousSearchController,
-          ),
-      // Phase 6B: Wire up callbacks for message listener management
-      getConnectionServiceFn: () => ref.read(connectionServiceProvider),
-      getPersistentChatManagerFn: () => _persistentChatManager,
-    );
+    _sessionViewModel =
+        _args.sessionViewModel ??
+        _args.sessionViewModelFactory?.call(
+          config: config,
+          messageRepository: messageRepository,
+          contactRepository: contactRepository,
+          chatsRepository: chatsRepository,
+          messagingViewModel: _messagingViewModel,
+          scrollingController: _scrollingController,
+          searchController: _searchController,
+          pairingDialogController: _pairingDialogController,
+          retryCoordinator: _initialRetryCoordinator,
+          sessionLifecycle: null,
+          displayContactNameFn: () => displayContactName,
+          getContactPublicKeyFn: () => _contactPublicKey,
+          getChatIdFn: () => _chatId.value,
+          onChatIdUpdated: (newChatId) => _chatId = ChatId(newChatId),
+          onContactPublicKeyUpdated: (newKey) =>
+              _cachedContactPublicKey = newKey,
+          onScrollToBottom: () => _scrollingController.scrollToBottom(),
+          onShowError: _showError,
+          onShowSuccess: _showSuccess,
+          onShowInfo: _showInfo,
+          isDisposedFn: () => _disposed,
+          onControllersRebound:
+              ({
+                required messagingViewModel,
+                required scrollingController,
+                required searchController,
+                ChatMessagingViewModel? previousMessagingViewModel,
+                chat_controller.ChatScrollingController?
+                previousScrollingController,
+                ChatSearchController? previousSearchController,
+              }) => _handleControllersRebound(
+                messagingViewModel: messagingViewModel,
+                scrollingController: scrollingController,
+                searchController: searchController,
+                previousMessagingViewModel: previousMessagingViewModel,
+                previousScrollingController: previousScrollingController,
+                previousSearchController: previousSearchController,
+              ),
+          getConnectionServiceFn: () => ref.read(connectionServiceProvider),
+        ) ??
+        (throw ArgumentError('ChatSessionViewModel factory not provided'));
 
-    _sessionLifecycle = ChatSessionLifecycle(
-      viewModel: _sessionViewModel,
-      connectionService: connectionService,
-      meshService: ref.read(meshNetworkingServiceProvider),
-      messageRouter: _resolveMessageRouter(connectionService),
-      messageSecurity: MessageSecurity(),
-      messageRepository: messageRepository,
-      retryCoordinator: _initialRetryCoordinator,
-      offlineQueue: _resolveOfflineQueue(),
-      notificationService: NotificationService(),
-      logger: _logger,
-    );
+    _sessionLifecycle =
+        _args.sessionLifecycle ??
+        _args.sessionLifecycleFactory?.call(
+          viewModel: _sessionViewModel,
+          connectionService: connectionService,
+          meshService: ref.read(meshNetworkingServiceProvider),
+          messageRouter: _injectedMessageRouter,
+          messageSecurity: MessageSecurity(),
+          messageRepository: messageRepository,
+          retryCoordinator: _initialRetryCoordinator,
+          offlineQueue: null,
+          logger: _logger,
+        ) ??
+        (throw ArgumentError('ChatSessionLifecycle factory not provided'));
     _sessionLifecycle.pairingController = _pairingDialogController;
     // Phase 6A: Set lifecycle reference on ViewModel after creation
     _sessionViewModel.sessionLifecycle = _sessionLifecycle;
-  }
-
-  MessageRouter? _resolveMessageRouter(IConnectionService connectionService) {
-    if (_injectedMessageRouter != null) {
-      return _injectedMessageRouter;
-    }
-
-    try {
-      return MessageRouter.instance;
-    } on StateError {
-      _logger.warning(
-        'MessageRouter not initialized; attempting on-demand initialization',
-      );
-      try {
-        final fallbackQueue = _resolveOfflineQueue();
-        unawaited(
-          MessageRouter.initialize(
-            connectionService,
-            offlineQueue: fallbackQueue,
-            fallbackQueueBuilder: _buildFallbackOfflineQueue,
-          ),
-        );
-        return MessageRouter.instance;
-      } catch (error, stack) {
-        _logger.warning(
-          'MessageRouter initialization failed; routing hooks disabled: $error',
-          stack,
-        );
-        if (AppCore.instance.isInitialized) {
-          _logger.warning(
-            'AppCore initialized but MessageRouter still unavailable',
-          );
-        }
-        return null;
-      }
-    }
-  }
-
-  OfflineMessageQueue? _resolveOfflineQueue() {
-    final appCoreQueue = _tryResolveAppCoreQueue();
-    if (appCoreQueue != null) {
-      return appCoreQueue;
-    }
-
-    try {
-      return MessageRouter.instance.offlineQueue;
-    } catch (_) {}
-
-    _logger.fine('Using standalone OfflineMessageQueue fallback');
-    return _getFallbackQueue();
-  }
-
-  OfflineMessageQueue? _tryResolveAppCoreQueue() {
-    final appCore = AppCore.instance;
-    if (!appCore.isInitialized && !appCore.isInitializing) {
-      _logger.fine('AppCore not initialized; offline queue unavailable');
-      return null;
-    }
-
-    try {
-      return appCore.messageQueue;
-    } catch (error) {
-      _logger.warning('Failed to access offline queue: $error');
-      return null;
-    }
-  }
-
-  Future<OfflineMessageQueue> _buildFallbackOfflineQueue() async {
-    final queue = _getFallbackQueue(ensureInitialized: true);
-    if (_fallbackQueueInitFuture != null) {
-      try {
-        await _fallbackQueueInitFuture;
-      } catch (error, stack) {
-        _logger.warning(
-          'Fallback offline queue initialization failed: $error',
-          stack,
-        );
-      }
-    }
-    return queue;
-  }
-
-  OfflineMessageQueue _getFallbackQueue({bool ensureInitialized = false}) {
-    _fallbackOfflineQueue ??= OfflineMessageQueue();
-    if (_fallbackQueueInitFuture == null && !_fallbackQueueInitialized) {
-      _fallbackQueueInitialized = true;
-      _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
-      if (!ensureInitialized) {
-        _fallbackQueueInitFuture!.catchError((error, stack) {
-          _logger.warning(
-            'Fallback offline queue initialization failed: $error',
-            stack,
-          );
-        });
-      }
-    } else if (ensureInitialized && _fallbackQueueInitFuture == null) {
-      _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
-    }
-    return _fallbackOfflineQueue!;
   }
 
   BLEStateManager _resolvePairingStateManager(
@@ -489,12 +448,32 @@ class ChatScreenController extends ChangeNotifier {
       await _logChatOpenState();
     }
     await _loadMessages();
-    _setupPersistentChatManager();
-    _checkAndSetupLiveMessaging();
-    _setupMeshNetworking();
-    _setupDeliveryListener();
-    _sessionLifecycle.ensureRetryCoordinator();
-    _setupContactRequestHandling();
+    final connectionInfoAsync = ref.read(connectionInfoProvider);
+    final meshStatusAsync = ref.read(meshNetworkStatusProvider);
+
+    await _sessionLifecycle.startSession(
+      chatId: _chatId,
+      stateStore: _stateStore,
+      incomingStream: () =>
+          ref.read(connectionServiceProvider).receivedMessages,
+      context: context,
+      disposed: () => _disposed,
+      mounted: () => context.mounted,
+      onSecurityStateInvalidate: () {
+        final key = securityStateKey;
+        if (key != null) {
+          ref.invalidate(securityStateProvider(key));
+        }
+      },
+      meshStatusAsync: meshStatusAsync,
+      connectionInfoAsync: connectionInfoAsync,
+      onSuccessMessage: _showSuccess,
+      onMessage: (content) => _sessionViewModel.addReceivedMessage(content),
+      onProcessBufferedMessages: () =>
+          _sessionViewModel.processBufferedMessages(),
+      onDelivered: (messageId, status) =>
+          _updateMessageStatus(messageId, status),
+    );
     _initialized = true;
   }
 
@@ -561,19 +540,23 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   Future<void> _logChatOpenState() async {
-    final publicKey = config.contactPublicKey ?? _chatId;
-    if (publicKey == null) {
+    final configKey = config.contactPublicKey;
+    final userId =
+        _contactUserId ??
+        (configKey != null && configKey.isNotEmpty ? UserId(configKey) : null);
+    final publicKey = userId?.value ?? _chatId.value;
+    if (userId == null) {
       _logger.warning('Chat open with no public key available');
       return;
     }
 
-    final contact = await contactRepository.getContact(publicKey);
+    final contact = await contactRepository.getContactByUserId(userId);
     final securityLevel = await SecurityManager.instance.getCurrentLevel(
-      publicKey,
+      userId.value,
       contactRepository,
     );
     final encryptionMethod = await SecurityManager.instance.getEncryptionMethod(
-      publicKey,
+      userId.value,
       contactRepository,
     );
 
@@ -596,63 +579,7 @@ class ChatScreenController extends ChangeNotifier {
     );
   }
 
-  void _checkAndSetupLiveMessaging() {
-    final connectionInfo = ref.read(connectionInfoProvider).value;
-    if (connectionInfo?.isConnected == true) {
-      _setupMessageListener();
-    }
-  }
-
-  void _setupMeshNetworking() {
-    try {
-      final meshStatusAsync = ref.read(meshNetworkStatusProvider);
-      _sessionLifecycle.handleMeshStatus(
-        statusAsync: meshStatusAsync,
-        isCurrentlyInitializing: _stateStore.current.meshInitializing,
-        updateState: _stateStore.update,
-        onSuccessMessage: _showSuccess,
-        onWarningMessage: (msg) => _logger.warning(msg),
-      );
-      meshStatusAsync.when(
-        data: (status) {
-          if (!status.isInitialized) {
-            _sessionLifecycle.startInitializationTimeout(
-              isCheckingStatus: false,
-              disposed: () => _disposed,
-              stillInitializing: () => _stateStore.current.meshInitializing,
-              updateState: _stateStore.update,
-              onSuccessMessage: _showSuccess,
-            );
-          }
-        },
-        loading: () {
-          _sessionLifecycle.startInitializationTimeout(
-            isCheckingStatus: true,
-            disposed: () => _disposed,
-            stillInitializing: () => _stateStore.current.meshInitializing,
-            updateState: _stateStore.update,
-            onSuccessMessage: _showSuccess,
-          );
-        },
-        error: (error, stack) {},
-      );
-    } catch (e) {
-      _logger.warning('Failed to set up mesh networking: $e');
-      _stateStore.setMeshState(
-        meshInitializing: false,
-        initializationStatus: 'Failed to initialize',
-      );
-    }
-  }
-
-  void _setupDeliveryListener() {
-    _sessionLifecycle.setupDeliveryListener(
-      onDelivered: (messageId) =>
-          _updateMessageStatus(messageId, MessageStatus.delivered),
-    );
-  }
-
-  void _updateMessageStatus(String messageId, MessageStatus newStatus) {
+  void _updateMessageStatus(MessageId messageId, MessageStatus newStatus) {
     // Phase 6A: Delegate to ViewModel
     final currentState = _stateStore.current;
     final newState = _sessionViewModel.applyMessageStatus(
@@ -732,41 +659,9 @@ class ChatScreenController extends ChangeNotifier {
     await _sessionViewModel.autoRetryFailedMessages();
   }
 
-  Future<void> _fallbackRetryFailedMessages() =>
-      _sessionLifecycle.fallbackRetryFailedMessages();
-
-  void _setupPersistentChatManager() {
-    _persistentChatManager ??= ref.read(persistentChatStateManagerProvider);
-    _sessionLifecycle.persistentChatManager = _persistentChatManager;
-    _sessionLifecycle.registerPersistentListener(
-      chatId: _chatId,
-      incomingStream: () =>
-          ref.read(connectionServiceProvider).receivedMessages,
-      onMessage: _addReceivedMessage,
-    );
-  }
-
-  void _handlePersistentMessage(String content) async {
-    await _addReceivedMessage(content);
-  }
-
-  void _activateMessageListener() {
-    // Phase 6B: Delegate to ViewModel
-    unawaited(_sessionViewModel.activateMessageListener());
-  }
-
-  void _setupMessageListener() {
-    _activateMessageListener();
-  }
-
   Future<void> _addReceivedMessage(String content) async {
     // Phase 6A: Delegate to ViewModel
     await _sessionViewModel.addReceivedMessage(content);
-  }
-
-  Future<void> _processBufferedMessages() async {
-    // Phase 6B: Delegate to ViewModel
-    await _sessionViewModel.processBufferedMessages();
   }
 
   Future<void> sendMessage(String content) async {
@@ -782,33 +677,33 @@ class ChatScreenController extends ChangeNotifier {
     await _sessionViewModel.deleteMessage(messageId, deleteForEveryone);
   }
 
-  String _calculateInitialChatId() {
+  ChatId _calculateInitialChatId() {
     // Fallback calculation that does not depend on ViewModel initialization
     if (config.isRepositoryMode && config.chatId != null) {
-      return config.chatId!;
+      return ChatId(config.chatId!);
     }
 
     final explicitKey = config.contactPublicKey;
     if (explicitKey != null && explicitKey.isNotEmpty) {
-      return ChatUtils.generateChatId(explicitKey);
+      return ChatId(ChatUtils.generateChatId(explicitKey));
     }
 
     final connectionService = ref.read(connectionServiceProvider);
     final sessionId = connectionService.currentSessionId;
     if (sessionId != null && sessionId.isNotEmpty) {
-      return ChatUtils.generateChatId(sessionId);
+      return ChatId(ChatUtils.generateChatId(sessionId));
     }
 
     // Fallback to device/central UUIDs if available (prevents collision)
     if (config.isCentralMode && config.device != null) {
-      return ChatUtils.generateChatId(config.device!.uuid.toString());
+      return ChatId(ChatUtils.generateChatId(config.device!.uuid.toString()));
     }
     if (config.isPeripheralMode && config.central != null) {
-      return ChatUtils.generateChatId(config.central!.uuid.toString());
+      return ChatId(ChatUtils.generateChatId(config.central!.uuid.toString()));
     }
 
-    // Last resort: empty string (will be set once identity is resolved)
-    return '';
+    // Last resort: placeholder ID (will be replaced once identity is resolved)
+    return ChatId('pending_chat_id');
   }
 
   Future<void> handleIdentityReceived() async {
@@ -826,9 +721,25 @@ class ChatScreenController extends ChangeNotifier {
       onIdentityReceived: handleIdentityReceived,
       onSuccessMessage: _showSuccess,
       onErrorMessage: _showError,
-      contactPublicKey: _contactPublicKey ?? _chatId,
+      contactPublicKey: _contactPublicKey ?? _chatId.value,
       onInfoMessage: _showInfo,
     );
+    if (current?.isConnected == true &&
+        !_sessionLifecycle.messageListenerActive) {
+      unawaited(
+        _sessionLifecycle
+            .startMessageListener(
+              chatId: _chatId,
+              incomingStream: () =>
+                  ref.read(connectionServiceProvider).receivedMessages,
+              persistentManager: _sessionLifecycle.persistentChatManager,
+              disposed: () => _disposed,
+              onMessage: (content) =>
+                  _sessionViewModel.addReceivedMessage(content),
+            )
+            .then((_) => _sessionViewModel.processBufferedMessages()),
+      );
+    }
   }
 
   Future<void> handleAsymmetricContact(
@@ -866,7 +777,6 @@ class ChatScreenController extends ChangeNotifier {
     _disposeStateListener?.call();
     _sessionLifecycle.unregisterPersistentListener(_chatId);
     _sessionLifecycle.messageListenerActive = false;
-    _messageListenerActive = false;
     _scrollingController.dispose();
     _messagingViewModel.dispose();
     _searchController.clear();

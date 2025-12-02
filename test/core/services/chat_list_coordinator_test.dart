@@ -10,8 +10,11 @@ import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 import '../../test_helpers/mocks/mock_connection_service.dart';
+
+ChatId _cid(String value) => ChatId(value);
 
 class _ScriptedChatsRepository implements IChatsRepository {
   final List<List<ChatListItem>> responses;
@@ -58,10 +61,10 @@ class _ScriptedChatsRepository implements IChatsRepository {
   Future<int> getTotalUnreadCount() async => totalUnreadCount;
 
   @override
-  Future<void> incrementUnreadCount(String chatId) async {}
+  Future<void> incrementUnreadCount(ChatId chatId) async {}
 
   @override
-  Future<void> markChatAsRead(String chatId) async {}
+  Future<void> markChatAsRead(ChatId chatId) async {}
 
   @override
   Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {}
@@ -75,7 +78,7 @@ ChatListItem _chat(
   DateTime? lastMessageTime,
   bool online = false,
 }) => ChatListItem(
-  chatId: id,
+  chatId: _cid(id),
   contactName: 'User $id',
   contactPublicKey: 'pk-$id',
   lastMessage: 'hi',
@@ -123,7 +126,7 @@ void main() {
 
       expect(repo.loadCount, 1);
       expect(chats, isNotEmpty);
-      expect(coordinator.currentChats.first.chatId, 'a');
+      expect(coordinator.currentChats.first.chatId.value, 'a');
       expect(coordinator.isLoading, isFalse);
     });
 
@@ -140,7 +143,7 @@ void main() {
       await coordinator.updateSingleChatItem();
 
       expect(repo.loadCount, 2);
-      expect(coordinator.currentChats.first.chatId, 'new');
+      expect(coordinator.currentChats.first.chatId.value, 'new');
     });
 
     test('incoming messages trigger surgical refresh via BLE stream', () async {
@@ -163,7 +166,7 @@ void main() {
       await Future<void>.delayed(Duration(milliseconds: 10));
 
       expect(repo.loadCount, before + 1);
-      expect(coordinator.currentChats.first.chatId, 'updated');
+      expect(coordinator.currentChats.first.chatId.value, 'updated');
 
       await coordinator.dispose();
     });

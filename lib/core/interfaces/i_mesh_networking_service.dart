@@ -4,6 +4,7 @@ import 'package:pak_connect/core/messaging/queue_sync_manager.dart'
     show QueueSyncManagerStats, QueueSyncResult;
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Interface for mesh networking service operations
 ///
@@ -82,4 +83,23 @@ abstract class IMeshNetworkingService {
 
   /// Refresh mesh status
   void refreshMeshStatus();
+}
+
+/// Typed helpers to keep MessageId usage in UI/service layers while
+/// maintaining string-based mesh/queue interfaces.
+extension MeshNetworkingServiceIds on IMeshNetworkingService {
+  Future<bool> retryMessageById(MessageId messageId) =>
+      retryMessage(messageId.value);
+
+  Future<bool> removeMessageById(MessageId messageId) =>
+      removeMessage(messageId.value);
+
+  Future<bool> setPriorityById(MessageId messageId, MessagePriority priority) =>
+      setPriority(messageId.value, priority);
+
+  List<QueuedMessage> getQueuedMessagesForChatId(ChatId chatId) =>
+      getQueuedMessagesForChat(chatId.value);
+
+  Stream<MessageId> get messageDeliveryStreamIds =>
+      messageDeliveryStream.map(MessageId.new);
 }

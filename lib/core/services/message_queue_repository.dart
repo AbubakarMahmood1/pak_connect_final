@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/values/id_types.dart';
 import '../interfaces/i_message_queue_repository.dart';
 import '../interfaces/i_database_provider.dart';
 import '../messaging/offline_message_queue.dart';
@@ -22,14 +23,14 @@ class MessageQueueRepository implements IMessageQueueRepository {
   // In-memory queues
   final List<QueuedMessage> directMessageQueue;
   final List<QueuedMessage> relayMessageQueue;
-  final Set<String> deletedMessageIds;
+  final Set<MessageId> deletedMessageIds;
   final IDatabaseProvider? _databaseProvider;
   IDatabaseProvider? _resolvedDatabaseProvider;
 
   MessageQueueRepository({
     List<QueuedMessage>? directMessageQueue,
     List<QueuedMessage>? relayMessageQueue,
-    Set<String>? deletedMessageIds,
+    Set<MessageId>? deletedMessageIds,
     IDatabaseProvider? databaseProvider,
   }) : directMessageQueue = directMessageQueue ?? [],
        relayMessageQueue = relayMessageQueue ?? [],
@@ -106,12 +107,13 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   Future<void> deleteMessageFromStorage(String messageId) async {
     try {
+      final id = MessageId(messageId);
       final db = await _getDatabase();
 
       await db.delete(
         'offline_message_queue',
         where: 'message_id = ?',
-        whereArgs: [messageId],
+        whereArgs: [id.value],
       );
     } catch (e) {
       _logger.warning('Failed to delete message ${messageId.shortId()}...: $e');
@@ -155,7 +157,8 @@ class MessageQueueRepository implements IMessageQueueRepository {
 
       deletedMessageIds.clear();
       for (final row in results) {
-        deletedMessageIds.add(row['message_id'] as String);
+        final raw = row['message_id'] as String;
+        deletedMessageIds.add(MessageId(raw));
       }
 
       _logger.info('Loaded ${deletedMessageIds.length} deleted message IDs');
@@ -176,7 +179,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
 
         for (final messageId in deletedMessageIds) {
           await txn.insert('deleted_message_ids', {
-            'message_id': messageId,
+            'message_id': messageId.value,
             'deleted_at': DateTime.now().millisecondsSinceEpoch,
           });
         }
@@ -189,8 +192,9 @@ class MessageQueueRepository implements IMessageQueueRepository {
   /// Get message by ID
   @override
   QueuedMessage? getMessageById(String messageId) {
+    final id = MessageId(messageId);
     return getAllMessages()
-        .where((m) => m.id == messageId)
+        .where((m) => MessageId(m.id) == id)
         .cast<QueuedMessage?>()
         .firstWhere((m) => m != null, orElse: () => null);
   }
@@ -261,20 +265,22 @@ class MessageQueueRepository implements IMessageQueueRepository {
   /// Remove message from queue
   @override
   void removeMessageFromQueue(String messageId) {
-    directMessageQueue.removeWhere((m) => m.id == messageId);
-    relayMessageQueue.removeWhere((m) => m.id == messageId);
+    final id = MessageId(messageId);
+    directMessageQueue.removeWhere((m) => MessageId(m.id) == id);
+    relayMessageQueue.removeWhere((m) => MessageId(m.id) == id);
   }
 
   /// Check if message was previously deleted
   @override
   bool isMessageDeleted(String messageId) {
-    return deletedMessageIds.contains(messageId);
+    return deletedMessageIds.contains(MessageId(messageId));
   }
 
   /// Mark message as deleted for sync purposes
   @override
   Future<void> markMessageDeleted(String messageId) async {
-    deletedMessageIds.add(messageId);
+    final msgId = MessageId(messageId);
+    deletedMessageIds.add(msgId);
     await saveDeletedMessageIds();
 
     // Remove from active queue if present
@@ -290,10 +296,14 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   Map<String, dynamic> queuedMessageToDb(QueuedMessage message) {
     final now = DateTime.now().millisecondsSinceEpoch;
+    final replyId = message.replyToMessageId != null
+        ? MessageId(message.replyToMessageId!)
+        : null;
+    final chat = ChatId(message.chatId);
     return {
       'queue_id': message.id,
       'message_id': message.id,
-      'chat_id': message.chatId,
+      'chat_id': chat.value,
       'content': message.content,
       'recipient_public_key': message.recipientPublicKey,
       'sender_public_key': message.senderPublicKey,
@@ -316,7 +326,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
       'relay_metadata_json': message.relayMetadata != null
           ? jsonEncode(message.relayMetadata!.toJson())
           : null,
-      'reply_to_message_id': message.replyToMessageId,
+      'reply_to_message_id': replyId?.value ?? message.replyToMessageId,
       'attachments_json': message.attachments.isNotEmpty
           ? jsonEncode(message.attachments)
           : null,
@@ -329,16 +339,19 @@ class MessageQueueRepository implements IMessageQueueRepository {
   /// Convert database row to QueuedMessage
   @override
   QueuedMessage queuedMessageFromDb(Map<String, dynamic> row) {
+    final replyId = row['reply_to_message_id'] as String?;
+    final chatId = row['chat_id'] as String;
+
     return QueuedMessage(
       id: row['message_id'] as String,
-      chatId: row['chat_id'] as String,
+      chatId: ChatId(chatId).value,
       content: row['content'] as String,
       recipientPublicKey: row['recipient_public_key'] as String,
       senderPublicKey: row['sender_public_key'] as String,
       priority: MessagePriority.values[row['priority'] as int],
       queuedAt: DateTime.fromMillisecondsSinceEpoch(row['queued_at'] as int),
       maxRetries: row['max_retries'] as int,
-      replyToMessageId: row['reply_to_message_id'] as String?,
+      replyToMessageId: replyId != null ? MessageId(replyId).value : null,
       attachments: row['attachments_json'] != null
           ? List<String>.from(jsonDecode(row['attachments_json'] as String))
           : [],

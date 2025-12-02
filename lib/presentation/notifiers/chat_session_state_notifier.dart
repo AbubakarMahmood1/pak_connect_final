@@ -4,6 +4,7 @@ import 'package:state_notifier/state_notifier.dart';
 import '../controllers/chat_screen_controller.dart';
 import '../models/chat_ui_state.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/values/id_types.dart';
 
 /// State notifier that mirrors ChatScreenController state for provider reads.
 class ChatSessionStateNotifier extends Notifier<ChatUIState> {
@@ -78,19 +79,17 @@ class ChatSessionStateStore extends StateNotifier<ChatUIState> {
     );
   }
 
-  void updateMessageStatus(String messageId, MessageStatus newStatus) {
+  void updateMessageStatus(MessageId messageId, MessageStatus newStatus) {
     state = state.copyWith(
       messages: state.messages
-          .map(
-            (m) => m.id.value == messageId ? m.copyWith(status: newStatus) : m,
-          )
+          .map((m) => m.id == messageId ? m.copyWith(status: newStatus) : m)
           .toList(),
     );
   }
 
-  void removeMessage(String messageId) {
+  void removeMessage(MessageId messageId) {
     state = state.copyWith(
-      messages: state.messages.where((m) => m.id.value != messageId).toList(),
+      messages: state.messages.where((m) => m.id != messageId).toList(),
     );
   }
 

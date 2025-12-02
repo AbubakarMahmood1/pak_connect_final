@@ -1,4 +1,6 @@
 /// Identity Manager Interface
+import '../../domain/values/id_types.dart';
+
 ///
 /// Manages user and contact identity:
 /// - User's own username and persistent public key (Ed25519)
@@ -90,4 +92,34 @@ abstract class IIdentityManager {
 
   /// Callback when my username changes
   void Function(String newName)? onMyUsernameChanged;
+}
+
+/// Typed `UserId`/`ChatId` helpers for identity access without changing string APIs.
+extension IdentityManagerUserIds on IIdentityManager {
+  UserId? get myUserId {
+    final id = getMyPersistentId();
+    return id != null ? UserId(id) : null;
+  }
+
+  /// Typed setter for peer persistent key while preserving string API.
+  void setTheirPersistentUserId(UserId persistentId, {String? ephemeralId}) =>
+      setTheirPersistentKey(persistentId.value, ephemeralId: ephemeralId);
+
+  /// Typed setter for peer ephemeral ID (requires display name to match base API).
+  void setTheirEphemeralUserId(UserId ephemeralId, String displayName) =>
+      setTheirEphemeralId(ephemeralId.value, displayName);
+
+  /// Typed setter for current session ID (ephemeral or persistent).
+  void setCurrentSessionUserId(UserId? sessionId) =>
+      setCurrentSessionId(sessionId?.value);
+
+  UserId? get theirUserId {
+    final id = theirPersistentKey;
+    return id != null ? UserId(id) : null;
+  }
+
+  ChatId? get currentSessionChatId {
+    final id = currentSessionId;
+    return id != null ? ChatId(id) : null;
+  }
 }

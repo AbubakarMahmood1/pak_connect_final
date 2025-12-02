@@ -3,6 +3,7 @@ import '../repositories/contact_repository.dart';
 import '../repositories/message_repository.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../domain/entities/contact.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Cleans up ephemeral contacts with no chat history (called on disconnect)
 class EphemeralContactCleaner {
@@ -30,7 +31,7 @@ class EphemeralContactCleaner {
       }
 
       final chatId = ChatUtils.generateChatId(contactId);
-      final messages = await messageRepo.getMessages(chatId);
+      final messages = await messageRepo.getMessages(ChatId(chatId));
 
       if (messages.isEmpty) {
         final deleted = await contactRepo.deleteContact(contactId);

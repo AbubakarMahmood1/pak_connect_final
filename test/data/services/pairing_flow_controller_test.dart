@@ -12,6 +12,7 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/pairing_flow_controller.dart';
 import 'package:pak_connect/data/services/pairing_lifecycle_service.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -56,6 +57,13 @@ class _MockContactRepository extends Mock implements ContactRepository {
     ),
     returnValue: Future<void>.value(),
     returnValueForMissingStub: Future<void>.value(),
+  );
+
+  @override
+  Future<Contact?> getContactByUserId(UserId userId) => super.noSuchMethod(
+    Invocation.method(#getContactByUserId, [userId]),
+    returnValue: Future<Contact?>.value(null),
+    returnValueForMissingStub: Future<Contact?>.value(null),
   );
 
   @override
@@ -106,6 +114,12 @@ void main() {
       ).thenAnswer((_) async => contact);
       when(
         contactRepository.getContactByAnyId('peer'),
+      ).thenAnswer((_) async => contact);
+      when(
+        contactRepository.getContactByUserId(const UserId('peer')),
+      ).thenAnswer((_) async => contact);
+      when(
+        contactRepository.getContactByUserId(const UserId('persist')),
       ).thenAnswer((_) async => contact);
 
       identityState = IdentitySessionState();

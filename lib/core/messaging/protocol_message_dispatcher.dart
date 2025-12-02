@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import '../models/mesh_relay_models.dart';
 import '../models/protocol_message.dart';
 import 'message_ack_tracker.dart';
+import '../../domain/values/id_types.dart';
 
 /// Routes protocol messages to the appropriate handlers to keep
 /// BLEMessageHandler lean (parsing/dispatch separate from fragmentation).
@@ -22,12 +23,20 @@ class ProtocolMessageDispatcher {
       List<String>? ackRoutingPath,
     })?
     onRelayAck,
+    Future<void> Function({
+      required MessageId originalMessageId,
+      required String relayNode,
+      required bool delivered,
+      List<String>? ackRoutingPath,
+    })?
+    onRelayAckIds,
     void Function(QueueSyncMessage syncMessage, String fromNodeId)?
     onQueueSyncReceived,
     Logger? logger,
   }) : _ackTracker = ackTracker,
        _onUnhandledMessage = onUnhandledMessage,
        _onRelayAck = onRelayAck,
+       _onRelayAckIds = onRelayAckIds,
        _onQueueSyncReceived = onQueueSyncReceived,
        _logger = logger ?? Logger('ProtocolMessageDispatcher');
 
@@ -46,6 +55,13 @@ class ProtocolMessageDispatcher {
     List<String>? ackRoutingPath,
   })?
   _onRelayAck;
+  final Future<void> Function({
+    required MessageId originalMessageId,
+    required String relayNode,
+    required bool delivered,
+    List<String>? ackRoutingPath,
+  })?
+  _onRelayAckIds;
   final void Function(QueueSyncMessage syncMessage, String fromNodeId)?
   _onQueueSyncReceived;
 
@@ -65,11 +81,12 @@ class ProtocolMessageDispatcher {
           return null;
         }
 
-        final completed = _ackTracker.complete(originalId);
+        final messageId = MessageId(originalId);
+        final completed = _ackTracker.complete(messageId.value);
         if (completed) {
-          _logger.info('Received protocol ACK for: $originalId');
+          _logger.info('Received protocol ACK for: ${messageId.value}');
         } else {
-          _logger.fine('Protocol ACK for unknown message: $originalId');
+          _logger.fine('Protocol ACK for unknown message: ${messageId.value}');
         }
         return null;
 
@@ -89,9 +106,18 @@ class ProtocolMessageDispatcher {
           return null;
         }
 
-        if (_onRelayAck != null) {
+        final messageId = MessageId(originalMessageId);
+
+        if (_onRelayAckIds != null) {
+          await _onRelayAckIds!(
+            originalMessageId: messageId,
+            relayNode: relayNode,
+            delivered: delivered,
+            ackRoutingPath: ackRoutingPath?.cast<String>(),
+          );
+        } else if (_onRelayAck != null) {
           await _onRelayAck!(
-            originalMessageId: originalMessageId,
+            originalMessageId: messageId.value,
             relayNode: relayNode,
             delivered: delivered,
             ackRoutingPath: ackRoutingPath?.cast<String>(),

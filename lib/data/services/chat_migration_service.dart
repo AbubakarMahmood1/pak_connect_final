@@ -4,6 +4,7 @@ import '../../core/utils/chat_utils.dart';
 import '../repositories/message_repository.dart';
 import '../database/database_helper.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Service responsible for migrating chats from ephemeral IDs to persistent public keys
 ///
@@ -46,7 +47,9 @@ class ChatMigrationService {
       );
 
       // Get messages from ephemeral chat
-      final messages = await _messageRepository.getMessages(ephemeralId);
+      final messages = await _messageRepository.getMessages(
+        ChatId(ephemeralId),
+      );
 
       if (messages.isEmpty) {
         _logger.info('✅ STEP 6: No messages to migrate - chat is empty');
@@ -56,9 +59,9 @@ class ChatMigrationService {
       _logger.info('📦 STEP 6: Found ${messages.length} messages to migrate');
 
       // Generate new persistent chat ID
-      final newChatId = ChatUtils.generateChatId(persistentPublicKey);
+      final newChatId = ChatId(ChatUtils.generateChatId(persistentPublicKey));
 
-      if (newChatId == ephemeralId) {
+      if (newChatId.value == ephemeralId) {
         _logger.warning(
           '⚠️ STEP 6: Chat IDs are identical - skipping migration',
         );
@@ -101,7 +104,7 @@ class ChatMigrationService {
         // This is more efficient than delete+insert and avoids UNIQUE constraint issues
         await db.update(
           'messages',
-          {'chat_id': newChatId},
+          {'chat_id': newChatId.value},
           where: 'id = ?',
           whereArgs: [message.id.value],
         );
@@ -129,7 +132,7 @@ class ChatMigrationService {
 
       _logger.info('✅ STEP 6: Chat migration complete!');
       _logger.info('   Old chat ID: $ephemeralId (deleted)');
-      _logger.info('   New chat ID: $newChatId');
+      _logger.info('   New chat ID: ${newChatId.value}');
       _logger.info('   Messages migrated: $migratedCount');
 
       return true; // Return true if we had messages to process
@@ -167,7 +170,7 @@ class ChatMigrationService {
       return false;
     }
 
-    final messages = await _messageRepository.getMessages(chatId);
+    final messages = await _messageRepository.getMessages(ChatId(chatId));
     return messages.isNotEmpty;
   }
 
@@ -200,7 +203,7 @@ class ChatMigrationService {
 
   /// Update chat metadata after migration
   Future<void> _updateChatMetadata({
-    required String chatId,
+    required ChatId chatId,
     required String publicKey,
     String? contactName,
     required List<Message> messages,
@@ -222,7 +225,7 @@ class ChatMigrationService {
     final existing = await db.query(
       'chats',
       where: 'chat_id = ?',
-      whereArgs: [chatId],
+      whereArgs: [chatId.value],
     );
 
     if (existing.isNotEmpty) {
@@ -238,14 +241,14 @@ class ChatMigrationService {
           'updated_at': now,
         },
         where: 'chat_id = ?',
-        whereArgs: [chatId],
+        whereArgs: [chatId.value],
       );
     } else {
       // Create new chat entry
       // Note: contact_public_key is set to NULL initially to avoid foreign key constraints
       // It will be updated later when the contact exists in the contacts table
       await db.insert('chats', {
-        'chat_id': chatId,
+        'chat_id': chatId.value,
         'contact_public_key':
             null, // Set to NULL to avoid foreign key constraint
         'contact_name': contactName ?? 'User',
@@ -257,7 +260,7 @@ class ChatMigrationService {
       });
     }
 
-    _logger.fine('   Updated chat metadata for $chatId');
+    _logger.fine('   Updated chat metadata for ${chatId.value}');
   }
 
   /// Clean up ephemeral chat after successful migration

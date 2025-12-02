@@ -37,7 +37,7 @@ class ArchiveSearchPagination {
     final grouped = <String, List<ArchivedMessage>>{};
 
     for (final message in messages) {
-      grouped.putIfAbsent(message.chatId, () => []).add(message);
+      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
     }
 
     return grouped;

@@ -15,14 +15,14 @@ class MessageRepository implements IMessageRepository {
   static final _logger = Logger('MessageRepository');
 
   /// Get all messages for a specific chat, sorted by timestamp
-  Future<List<Message>> getMessages(String chatId) async {
+  Future<List<Message>> getMessages(ChatId chatId) async {
     try {
       final db = await DatabaseHelper.database;
 
       final results = await db.query(
         'messages',
         where: 'chat_id = ?',
-        whereArgs: [chatId],
+        whereArgs: [chatId.value],
         orderBy: 'timestamp ASC',
       );
 
@@ -114,13 +114,17 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Clear all messages for a specific chat
-  Future<void> clearMessages(String chatId) async {
+  Future<void> clearMessages(ChatId chatId) async {
     try {
       final db = await DatabaseHelper.database;
 
-      await db.delete('messages', where: 'chat_id = ?', whereArgs: [chatId]);
+      await db.delete(
+        'messages',
+        where: 'chat_id = ?',
+        whereArgs: [chatId.value],
+      );
 
-      _logger.info('✅ Cleared messages for chat $chatId');
+      _logger.info('✅ Cleared messages for chat ${chatId.value}');
     } catch (e) {
       _logger.severe('❌ Failed to clear messages: $e');
       rethrow;
@@ -180,13 +184,15 @@ class MessageRepository implements IMessageRepository {
 
       return results.map(_fromDatabase).toList();
     } catch (e) {
-      _logger.severe('❌ Failed to get messages for contact $publicKey: $e');
+      _logger.severe(
+        '❌ Failed to get messages for contact ${publicKey.shortId(8)}...: $e',
+      );
       return [];
     }
   }
 
   @override
-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
     try {
       final db = await DatabaseHelper.database;
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -197,15 +203,21 @@ class MessageRepository implements IMessageRepository {
       // Atomic update of all messages
       final count = await db.update(
         'messages',
-        {'chat_id': newChatId, 'updated_at': now},
+        {'chat_id': newChatId.value, 'updated_at': now},
         where: 'chat_id = ?',
-        whereArgs: [oldChatId],
+        whereArgs: [oldChatId.value],
       );
 
       // Clean up old chat entry (optional, but keeps DB clean)
-      await db.delete('chats', where: 'chat_id = ?', whereArgs: [oldChatId]);
+      await db.delete(
+        'chats',
+        where: 'chat_id = ?',
+        whereArgs: [oldChatId.value],
+      );
 
-      _logger.info('✅ Migrated $count messages from $oldChatId to $newChatId');
+      _logger.info(
+        '✅ Migrated $count messages from ${oldChatId.value} to ${newChatId.value}',
+      );
     } catch (e) {
       _logger.severe('❌ Failed to migrate chat ID: $e');
       rethrow;
@@ -220,7 +232,7 @@ class MessageRepository implements IMessageRepository {
   /// This prevents foreign key constraint violations while keeping ChatsScreen clean
   Future<void> _ensureChatExists(
     Database db,
-    String chatId,
+    ChatId chatId,
     int timestamp,
   ) async {
     // Check if chat already exists
@@ -228,7 +240,7 @@ class MessageRepository implements IMessageRepository {
       'chats',
       columns: ['chat_id'],
       where: 'chat_id = ?',
-      whereArgs: [chatId],
+      whereArgs: [chatId.value],
       limit: 1,
     );
 
@@ -242,12 +254,12 @@ class MessageRepository implements IMessageRepository {
       // 🔥 FIX: Use ChatUtils.extractContactKey() to handle all formats robustly
       // Note: We don't have myPublicKey here, so pass empty string for test compatibility
       // The helper handles this case by returning the first key
-      contactPublicKey = ChatUtils.extractContactKey(chatId, '');
+      contactPublicKey = ChatUtils.extractContactKey(chatId.value, '');
 
-      if (chatId.startsWith('persistent_chat_')) {
-        contactName = 'Chat ${chatId.shortId(20)}...';
-      } else if (chatId.startsWith('temp_')) {
-        contactName = 'Device ${chatId.substring(5, 20)}...';
+      if (chatId.value.startsWith('persistent_chat_')) {
+        contactName = 'Chat ${chatId.value.shortId(20)}...';
+      } else if (chatId.value.startsWith('temp_')) {
+        contactName = 'Device ${chatId.value.substring(5, 20)}...';
       }
 
       if (contactPublicKey != null) {
@@ -267,7 +279,7 @@ class MessageRepository implements IMessageRepository {
       await db.insert(
         'chats',
         {
-          'chat_id': chatId,
+          'chat_id': chatId.value,
           'contact_public_key': contactPublicKey,
           'contact_name': contactName,
           'unread_count': 0,
@@ -281,7 +293,7 @@ class MessageRepository implements IMessageRepository {
             ConflictAlgorithm.ignore, // Prevent duplicates if concurrent
       );
 
-      _logger.info('✅ Created chat entry for: $chatId');
+      _logger.info('✅ Created chat entry for: ${chatId.value}');
     }
   }
 
@@ -305,7 +317,7 @@ class MessageRepository implements IMessageRepository {
       // Return base Message
       return Message(
         id: MessageId(row['id'] as String),
-        chatId: row['chat_id'] as String,
+        chatId: ChatId(row['chat_id'] as String),
         content: row['content'] as String,
         timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
         isFromMe: (row['is_from_me'] as int) == 1,
@@ -316,12 +328,14 @@ class MessageRepository implements IMessageRepository {
     // Return EnhancedMessage
     return EnhancedMessage(
       id: MessageId(row['id'] as String),
-      chatId: row['chat_id'] as String,
+      chatId: ChatId(row['chat_id'] as String),
       content: row['content'] as String,
       timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
       isFromMe: (row['is_from_me'] as int) == 1,
       status: MessageStatus.values[row['status'] as int],
-      replyToMessageId: row['reply_to_message_id'] as String?,
+      replyToMessageId: row['reply_to_message_id'] != null
+          ? MessageId(row['reply_to_message_id'] as String)
+          : null,
       threadId: row['thread_id'] as String?,
       isStarred: (row['is_starred'] as int?) == 1,
       isForwarded: (row['is_forwarded'] as int?) == 1,
@@ -362,7 +376,7 @@ class MessageRepository implements IMessageRepository {
   ) {
     final Map<String, Object?> baseData = {
       'id': message.id.value,
-      'chat_id': message.chatId,
+      'chat_id': message.chatId.value,
       'content': message.content,
       'timestamp': message.timestamp.millisecondsSinceEpoch,
       'is_from_me': message.isFromMe ? 1 : 0,
@@ -374,7 +388,7 @@ class MessageRepository implements IMessageRepository {
     // If this is an EnhancedMessage, add enhanced fields
     if (message is EnhancedMessage) {
       baseData.addAll(<String, Object?>{
-        'reply_to_message_id': message.replyToMessageId,
+        'reply_to_message_id': message.replyToMessageId?.value,
         'thread_id': message.threadId,
         'is_starred': message.isStarred ? 1 : 0,
         'is_forwarded': message.isForwarded ? 1 : 0,

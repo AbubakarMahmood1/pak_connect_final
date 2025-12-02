@@ -3,15 +3,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/models/security_state.dart';
+import '../../core/interfaces/i_connection_service.dart';
+import '../../core/services/message_retry_coordinator.dart';
+import '../../data/repositories/chats_repository.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../data/repositories/message_repository.dart';
+import '../../data/services/ble_state_manager.dart';
 import '../../domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import '../controllers/chat_pairing_dialog_controller.dart';
+import '../controllers/chat_scrolling_controller.dart' as chat_controller;
+import '../controllers/chat_search_controller.dart';
+import '../controllers/chat_session_lifecycle.dart';
 import '../controllers/chat_screen_controller.dart';
 import '../models/chat_screen_config.dart';
 import '../models/chat_ui_state.dart';
+import '../providers/chat_messaging_view_model.dart';
 import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../providers/security_state_provider.dart';
 import '../providers/chat_session_providers.dart';
+import '../viewmodels/chat_session_view_model.dart';
 import '../widgets/chat_screen_helpers.dart';
 import '../widgets/chat_search_bar.dart';
 import '../widgets/message_bubble.dart';
@@ -69,6 +81,129 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         contactName: widget.contactName,
         contactPublicKey: widget.contactPublicKey,
       ),
+      messageRepository: MessageRepository(),
+      contactRepository: ContactRepository(),
+      chatsRepository: ChatsRepository(),
+      messagingViewModelFactory: (chatId, contactPublicKey) =>
+          ChatMessagingViewModel(
+            chatId: chatId,
+            contactPublicKey: contactPublicKey,
+            messageRepository: MessageRepository(),
+            contactRepository: ContactRepository(),
+          ),
+      scrollingControllerFactory:
+          (chatId, onScrollToBottom, onUnreadCountChanged, onStateChanged) =>
+              chat_controller.ChatScrollingController(
+                chatsRepository: ChatsRepository(),
+                chatId: chatId,
+                onScrollToBottom: onScrollToBottom,
+                onUnreadCountChanged: onUnreadCountChanged,
+                onStateChanged: onStateChanged,
+              ),
+      searchControllerFactory:
+          (
+            onSearchModeToggled,
+            onSearchResultsChanged,
+            onNavigateToResult,
+            scrollController,
+          ) => ChatSearchController(
+            onSearchModeToggled: onSearchModeToggled,
+            onSearchResultsChanged: onSearchResultsChanged,
+            onNavigateToResult: onNavigateToResult,
+            scrollController: scrollController,
+          ),
+      pairingControllerFactory:
+          (
+            ctx,
+            connectionService,
+            contactRepo,
+            navigator,
+            stateManager,
+            onCompleted,
+            onError,
+            onSuccess,
+          ) => ChatPairingDialogController(
+            stateManager: stateManager,
+            connectionService: connectionService,
+            contactRepository: contactRepo,
+            context: ctx,
+            navigator: navigator,
+            getTheirPersistentKey: () =>
+                connectionService.theirPersistentPublicKey,
+            onPairingCompleted: onCompleted,
+            onPairingError: onError,
+            onPairingSuccess: onSuccess,
+          ),
+      sessionViewModelFactory:
+          ({
+            required config,
+            required messageRepository,
+            required contactRepository,
+            required chatsRepository,
+            required messagingViewModel,
+            required scrollingController,
+            required searchController,
+            required pairingDialogController,
+            MessageRetryCoordinator? retryCoordinator,
+            sessionLifecycle,
+            String Function()? displayContactNameFn,
+            String? Function()? getContactPublicKeyFn,
+            String Function()? getChatIdFn,
+            void Function(String)? onChatIdUpdated,
+            void Function(String?)? onContactPublicKeyUpdated,
+            void Function()? onScrollToBottom,
+            void Function(String)? onShowError,
+            void Function(String)? onShowSuccess,
+            void Function(String)? onShowInfo,
+            bool Function()? isDisposedFn,
+            onControllersRebound,
+            IConnectionService Function()? getConnectionServiceFn,
+          }) => ChatSessionViewModel(
+            config: config,
+            messageRepository: messageRepository,
+            contactRepository: contactRepository,
+            chatsRepository: chatsRepository,
+            messagingViewModel: messagingViewModel,
+            scrollingController: scrollingController,
+            searchController: searchController,
+            pairingDialogController: pairingDialogController,
+            retryCoordinator: retryCoordinator,
+            sessionLifecycle: sessionLifecycle,
+            displayContactNameFn: displayContactNameFn,
+            getContactPublicKeyFn: getContactPublicKeyFn,
+            getChatIdFn: getChatIdFn,
+            onChatIdUpdated: onChatIdUpdated,
+            onContactPublicKeyUpdated: onContactPublicKeyUpdated,
+            onScrollToBottom: onScrollToBottom,
+            onShowError: onShowError,
+            onShowSuccess: onShowSuccess,
+            onShowInfo: onShowInfo,
+            isDisposedFn: isDisposedFn,
+            onControllersRebound: onControllersRebound,
+            getConnectionServiceFn: getConnectionServiceFn,
+          ),
+      sessionLifecycleFactory:
+          ({
+            required viewModel,
+            required connectionService,
+            required meshService,
+            messageRouter,
+            required messageSecurity,
+            required messageRepository,
+            retryCoordinator,
+            offlineQueue,
+            logger,
+          }) => ChatSessionLifecycle(
+            viewModel: viewModel,
+            connectionService: connectionService,
+            meshService: meshService,
+            messageRouter: messageRouter,
+            messageSecurity: messageSecurity,
+            messageRepository: messageRepository,
+            retryCoordinator: retryCoordinator,
+            offlineQueue: offlineQueue,
+            logger: logger,
+          ),
     );
   }
 
@@ -426,11 +561,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return 'Type a message...';
   }
 
-  Future<void> _deleteMessage(String messageId, bool deleteForEveryone) {
+  Future<void> _deleteMessage(MessageId messageId, bool deleteForEveryone) {
     final actions = ref
         .read(chatSessionHandleProvider(_controllerArgs))
         .actions;
-    return actions.deleteMessage(MessageId(messageId), deleteForEveryone);
+    return actions.deleteMessage(messageId, deleteForEveryone);
   }
 
   void _toggleSearchMode() {

@@ -18,6 +18,7 @@ import '../../data/repositories/contact_repository.dart';
 import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../services/ble_state_manager_facade.dart';
 import '../services/ble_state_manager.dart';
+import '../../domain/values/id_types.dart';
 import 'ble_message_handler.dart';
 import 'ble_message_handler_facade.dart';
 import 'ble_connection_manager.dart';
@@ -400,6 +401,19 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   ) {
     _handler.onRelayMessageReceived = callback;
     _splitFacade.onRelayMessageReceived = callback;
+  }
+
+  @override
+  set onRelayMessageReceivedIds(
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    callback,
+  ) {
+    _handler.onRelayMessageReceivedIds = callback;
+    _splitFacade.onRelayMessageReceivedIds = callback;
   }
 
   @override

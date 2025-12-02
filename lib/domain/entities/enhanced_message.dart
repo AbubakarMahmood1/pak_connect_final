@@ -9,7 +9,7 @@ export '../../core/models/message_priority.dart' show MessagePriority;
 
 /// Enhanced message with comprehensive state tracking and metadata
 class EnhancedMessage extends Message {
-  final String? replyToMessageId;
+  final MessageId? replyToMessageId;
   final String? threadId;
   final Map<String, dynamic>? metadata;
   final MessageDeliveryReceipt? deliveryReceipt;
@@ -109,7 +109,7 @@ class EnhancedMessage extends Message {
   }
 
   /// Check if user reacted with specific emoji
-  bool hasUserReaction(String userId, String emoji) {
+  bool hasUserReaction(UserId userId, String emoji) {
     return reactions.any((r) => r.userId == userId && r.emoji == emoji);
   }
 
@@ -117,7 +117,7 @@ class EnhancedMessage extends Message {
   @override
   EnhancedMessage copyWith({
     MessageId? id,
-    String? chatId,
+    ChatId? chatId,
     String? content,
     DateTime? timestamp,
     bool? isFromMe,
@@ -166,7 +166,7 @@ class EnhancedMessage extends Message {
   @override
   Map<String, dynamic> toJson() => {
     ...super.toJson(),
-    'replyToMessageId': replyToMessageId,
+    'replyToMessageId': replyToMessageId?.value,
     'threadId': threadId,
     'metadata': metadata,
     'deliveryReceipt': deliveryReceipt?.toJson(),
@@ -185,12 +185,14 @@ class EnhancedMessage extends Message {
   factory EnhancedMessage.fromJson(Map<String, dynamic> json) =>
       EnhancedMessage(
         id: MessageId(json['id']),
-        chatId: json['chatId'],
+        chatId: ChatId(json['chatId']),
         content: json['content'],
         timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
         isFromMe: json['isFromMe'],
         status: MessageStatus.values[json['status']],
-        replyToMessageId: json['replyToMessageId'],
+        replyToMessageId: json['replyToMessageId'] != null
+            ? MessageId(json['replyToMessageId'])
+            : null,
         threadId: json['threadId'],
         metadata: json['metadata'],
         deliveryReceipt: json['deliveryReceipt'] != null
@@ -273,7 +275,7 @@ class MessageReadReceipt {
 /// Message reaction
 class MessageReaction {
   final String emoji;
-  final String userId;
+  final UserId userId;
   final DateTime reactedAt;
 
   const MessageReaction({
@@ -284,14 +286,14 @@ class MessageReaction {
 
   Map<String, dynamic> toJson() => {
     'emoji': emoji,
-    'userId': userId,
+    'userId': userId.value,
     'reactedAt': reactedAt.millisecondsSinceEpoch,
   };
 
   factory MessageReaction.fromJson(Map<String, dynamic> json) =>
       MessageReaction(
         emoji: json['emoji'],
-        userId: json['userId'],
+        userId: UserId(json['userId']),
         reactedAt: DateTime.fromMillisecondsSinceEpoch(json['reactedAt']),
       );
 }
