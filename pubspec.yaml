@@ -72,6 +72,9 @@ dependencies:
   # Dependency Injection (Phase 1 - P2 Refactoring)
   get_it: ^7.6.0
 
+  state_notifier: any
+  collection: any
+  sqflite_common_ffi: any
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -84,7 +87,6 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   build_runner: ^2.5.4
   riverpod_generator: ^3.0.0
-  sqflite_common_ffi: ^2.3.4
   sqlite3: ^2.7.6
 
   # Mock generation for testing (Phase 1 - P2 Refactoring)
@@ -94,6 +96,8 @@ dev_dependencies:
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
+  flutter_secure_storage_platform_interface: any
+  bluetooth_low_energy_platform_interface: any
 flutter:
 
   # The following line ensures that the Material Icons font is
