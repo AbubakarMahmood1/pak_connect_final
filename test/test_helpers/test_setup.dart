@@ -73,15 +73,7 @@ class TestSetup {
     await resetDIServiceLocator();
     await di_service_locator.setupServiceLocator();
 
-    if (configureDiWithMocks &&
-        [
-          contactRepository,
-          messageRepository,
-          seenMessageStore,
-          connectionService,
-          chatsRepository,
-          archiveRepository,
-        ].any((element) => element != null)) {
+    if (configureDiWithMocks) {
       await configureTestDI(
         contactRepository: contactRepository,
         messageRepository: messageRepository,
