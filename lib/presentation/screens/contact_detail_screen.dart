@@ -12,6 +12,7 @@ import '../widgets/security_level_badge.dart' as security_badge;
 import '../widgets/trust_status_badge.dart' as trust_badge;
 import 'chat_screen.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 class ContactDetailScreen extends ConsumerStatefulWidget {
   final String publicKey;
@@ -25,6 +26,7 @@ class ContactDetailScreen extends ConsumerStatefulWidget {
 
 class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
   bool _isDeleting = false;
+  UserId get _userId => UserId(widget.publicKey);
 
   Future<void> _verifyContact() async {
     final messenger = ScaffoldMessenger.of(context);
@@ -73,7 +75,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
         ),
       );
       // Refresh the detail view
-      ref.invalidate(contactDetailProvider(widget.publicKey));
+      ref.invalidate(contactDetailByUserIdProvider(_userId));
     } else {
       messenger.showSnackBar(
         const SnackBar(
@@ -183,7 +185,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
     try {
       final repository = ref.read(contactRepositoryProvider);
       final success = await repository.resetContactSecurity(
-        widget.publicKey,
+        _userId.value,
         'User-initiated security reset',
       );
 
@@ -194,7 +196,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
           const SnackBar(content: Text('Security reset to low level')),
         );
         // Refresh the detail view
-        ref.invalidate(contactDetailProvider(widget.publicKey));
+        ref.invalidate(contactDetailByUserIdProvider(_userId));
       } else {
         messenger.showSnackBar(
           const SnackBar(
@@ -236,7 +238,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final contactAsync = ref.watch(contactDetailProvider(widget.publicKey));
+    final contactAsync = ref.watch(contactDetailByUserIdProvider(_userId));
 
     return Scaffold(
       appBar: AppBar(

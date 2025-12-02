@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import '../../core/utils/message_fragmenter.dart';
 import '../../core/models/protocol_message.dart';
+import '../../domain/values/id_types.dart';
 
 /// Interface for message fragmentation and reassembly handling
 ///
@@ -41,10 +42,17 @@ abstract interface class IMessageFragmentationHandler {
     required Duration timeout,
   });
 
+  Future<bool> registerMessageAckWithId({
+    required MessageId messageId,
+    required Duration timeout,
+  });
+
   /// Acknowledges successful message receipt
   ///
   /// Called when ACK is received for a previously sent message
   void acknowledgeMessage(String messageId);
+
+  void acknowledgeMessageWithId(MessageId messageId);
 
   /// Gets current reassembly state for debugging
   ///

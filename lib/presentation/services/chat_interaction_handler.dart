@@ -6,6 +6,7 @@ import '../../core/interfaces/i_chat_interaction_handler.dart';
 import '../../core/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
+import '../../domain/values/id_types.dart';
 import '../providers/archive_provider.dart';
 import '../providers/ble_providers.dart';
 import '../screens/chat_screen.dart';
@@ -84,13 +85,13 @@ class ChatInteractionHandler implements IChatInteractionHandler {
         _context!,
         MaterialPageRoute(
           builder: (context) => ChatScreen.fromChatData(
-            chatId: chat.chatId,
+            chatId: chat.chatId.value,
             contactName: chat.contactName,
             contactPublicKey: chat.contactPublicKey ?? '',
           ),
         ),
       ).then((_) {
-        _emitIntent(ChatOpenedIntent(chat.chatId));
+        _emitIntent(ChatOpenedIntent(chat.chatId.value));
       });
 
       _logger.info('✅ Opened chat: ${chat.contactName}');
@@ -390,7 +391,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
         _logger.info('✅ Chat archived: ${chat.contactName}');
         _ref!.invalidate(archiveListProvider);
         _ref!.invalidate(archiveStatisticsProvider);
-        _emitIntent(ChatArchivedIntent(chat.chatId));
+        _emitIntent(ChatArchivedIntent(chat.chatId.value));
       } else {
         _logger.warning('⚠️ Failed to archive: ${result.message}');
       }
@@ -477,11 +478,13 @@ class ChatInteractionHandler implements IChatInteractionHandler {
   @override
   Future<void> deleteChat(ChatListItem chat) async {
     try {
-      final result = await _chatManagementService?.deleteChat(chat.chatId);
+      final result = await _chatManagementService?.deleteChat(
+        chat.chatId.value,
+      );
 
       if (result?.success ?? false) {
         _logger.info('✅ Chat deleted: ${chat.contactName}');
-        _emitIntent(ChatDeletedIntent(chat.chatId));
+        _emitIntent(ChatDeletedIntent(chat.chatId.value));
       } else {
         _logger.warning('⚠️ Failed to delete: ${result?.message}');
       }
@@ -600,7 +603,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
       if (result?.success ?? false) {
         _logger.info('✅ Chat pin toggled: ${result?.message}');
-        _emitIntent(ChatPinToggleIntent(chat.chatId));
+        _emitIntent(ChatPinToggleIntent(chat.chatId.value));
       } else {
         _logger.warning('⚠️ Failed to toggle pin: ${result?.message}');
       }
@@ -610,10 +613,10 @@ class ChatInteractionHandler implements IChatInteractionHandler {
   }
 
   @override
-  Future<void> markChatAsRead(String chatId) async {
+  Future<void> markChatAsRead(ChatId chatId) async {
     try {
       await _chatsRepository?.markChatAsRead(chatId);
-      _logger.info('✅ Chat marked as read: $chatId');
+      _logger.info('✅ Chat marked as read: ${chatId.value}');
     } catch (e) {
       _logger.severe('❌ Error marking chat as read: $e');
     }

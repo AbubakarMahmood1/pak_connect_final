@@ -10,6 +10,7 @@ import '../../domain/entities/enhanced_message.dart';
 import './offline_message_queue.dart';
 import '../interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Routes messages with offline queue support (based on BitChat's MessageRouter)
 ///
@@ -127,6 +128,19 @@ class MessageRouter {
     }
   }
 
+  /// Typed overload for MessageId/ChatId callers; unwraps to string at the boundary.
+  Future<MessageRouteResult> sendMessageWithIds({
+    required String content,
+    required ChatId recipientId,
+    MessageId? messageId,
+    String? recipientName,
+  }) => sendMessage(
+    content: content,
+    recipientId: recipientId.value,
+    messageId: messageId?.value,
+    recipientName: recipientName,
+  );
+
   /// Flush queued messages for a specific peer
   ///
   /// **DELEGATED** to OfflineMessageQueue for unified queue management.
@@ -150,6 +164,8 @@ class MessageRouter {
       _logger.warning('⚠️ Flush delegation failed: $e');
     }
   }
+
+  Future<void> flushOutboxForId(ChatId peerId) => flushOutboxFor(peerId.value);
 
   /// Flush all queued messages (for all peers)
   ///
@@ -306,9 +322,20 @@ class MessageRouteResult {
         errorMessage: error,
       );
 
+  /// Typed factories to keep value-object callers on the happy path.
+  factory MessageRouteResult.sentDirectlyId(MessageId messageId) =>
+      MessageRouteResult.sentDirectly(messageId.value);
+
+  factory MessageRouteResult.queuedId(MessageId messageId) =>
+      MessageRouteResult.queued(messageId.value);
+
+  factory MessageRouteResult.failedId(MessageId messageId, String error) =>
+      MessageRouteResult.failed(messageId.value, error);
+
   bool get isSuccess => status != MessageRouteStatus.failed;
   bool get isQueued => status == MessageRouteStatus.queued;
   bool get isSentDirectly => status == MessageRouteStatus.sentDirectly;
+  MessageId get messageIdValue => MessageId(messageId);
 }
 
 /// Message routing status

@@ -13,6 +13,7 @@ import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_seen_message_store.dart';
 import '../interfaces/i_identity_manager.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/values/id_types.dart';
 import '../services/security_manager.dart';
 import 'offline_message_queue.dart';
 import '../security/spam_prevention_manager.dart';
@@ -58,6 +59,8 @@ class MeshRelayEngine {
   Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage;
   Function(String originalMessageId, String content, String originalSender)?
   onDeliverToSelf;
+  Function(MessageId originalMessageId, String content, String originalSender)?
+  onDeliverToSelfIds;
   Function(RelayDecision decision)? onRelayDecision;
   Function(RelayStatistics stats)? onStatsUpdated;
 
@@ -114,6 +117,12 @@ class MeshRelayEngine {
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
     Function(String originalMessageId, String content, String originalSender)?
     onDeliverToSelf,
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    onDeliverToSelfIds,
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,
   }) async {
@@ -145,6 +154,7 @@ class MeshRelayEngine {
     );
     this.onRelayMessage = onRelayMessage;
     this.onDeliverToSelf = onDeliverToSelf;
+    this.onDeliverToSelfIds = onDeliverToSelfIds;
     this.onRelayDecision = onRelayDecision;
     this.onStatsUpdated = onStatsUpdated;
 
@@ -181,6 +191,7 @@ class MeshRelayEngine {
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
           ? relayMessage.originalMessageId.shortId()
           : relayMessage.originalMessageId;
+      final originalMessageIdValue = relayMessage.originalMessageIdValue;
       final truncatedFromNode = fromNodeId.length > 8
           ? fromNodeId.shortId(8)
           : fromNodeId;
@@ -210,7 +221,7 @@ class MeshRelayEngine {
       }
 
       // Step 0C: Deduplication check (FIRST - before spam prevention)
-      if (_decisionEngine.isDuplicate(relayMessage.originalMessageId)) {
+      if (_decisionEngine.isDuplicateId(originalMessageIdValue)) {
         _totalDropped++;
         _logger.info(
           '⏭️  Duplicate message detected (already delivered): $truncatedMessageId...',
@@ -230,7 +241,7 @@ class MeshRelayEngine {
       if (!spamCheck.allowed) {
         _totalDropped++;
         final decision = RelayDecision.blocked(
-          messageId: relayMessage.originalMessageId,
+          messageId: originalMessageIdValue.value,
           reason: spamCheck.reason,
           spamScore: spamCheck.spamScore,
         );
@@ -397,6 +408,13 @@ class MeshRelayEngine {
     originalMessageType, // PHASE 2: Message type for filtering
   }) async {
     try {
+      if (originalMessageId.isEmpty || finalRecipientPublicKey.isEmpty) {
+        _logger.warning(
+          'Cannot create relay: missing message id or recipient (msgId: "$originalMessageId", recipient: "$finalRecipientPublicKey")',
+        );
+        return null;
+      }
+
       // PHASE 2: Check message type eligibility before creating relay
       if (originalMessageType != null &&
           !RelayPolicy.isRelayEligibleMessageType(originalMessageType)) {
@@ -537,6 +555,7 @@ class MeshRelayEngine {
       // Extract original content
       final originalContent = relayMessage.originalContent;
       final originalSender = relayMessage.relayMetadata.originalSender;
+      final messageId = relayMessage.originalMessageIdValue;
 
       // Notify delivery
       onDeliverToSelf?.call(
@@ -544,6 +563,7 @@ class MeshRelayEngine {
         originalContent,
         originalSender,
       );
+      onDeliverToSelfIds?.call(messageId, originalContent, originalSender);
     } catch (e) {
       _logger.severe('Failed to deliver message to self: $e');
     }
@@ -693,6 +713,8 @@ class RelayDecision {
     reason: reason,
     spamScore: spamScore,
   );
+
+  MessageId get messageIdValue => MessageId(messageId);
 }
 
 /// Type of relay decision

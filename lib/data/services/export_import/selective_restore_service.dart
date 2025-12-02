@@ -158,6 +158,7 @@ class SelectiveRestoreService {
 
     final batch1 = targetDb.batch();
     for (final chat in chats) {
+      final chatId = chat['chat_id']?.toString();
       batch1.rawInsert(
         '''
         INSERT OR REPLACE INTO chats (
@@ -168,8 +169,8 @@ class SelectiveRestoreService {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''',
         [
-          chat['chat_id'],
-          chat['contact_public_key'],
+          chatId,
+          chat['contact_public_key']?.toString(),
           chat['contact_name'],
           chat['last_message'],
           chat['last_message_time'],
@@ -207,13 +208,13 @@ class SelectiveRestoreService {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''',
         [
-          message['id'],
-          message['chat_id'],
+          message['id']?.toString(),
+          message['chat_id']?.toString(),
           message['content'],
           message['timestamp'],
           message['is_from_me'],
           message['status'],
-          message['reply_to_message_id'],
+          message['reply_to_message_id']?.toString(),
           message['thread_id'],
           message['is_starred'],
           message['is_forwarded'],

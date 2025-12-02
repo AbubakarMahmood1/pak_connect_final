@@ -503,7 +503,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
       // Create message with proper attribution to original sender
       final message = Message(
         id: MessageId(originalMessageId),
-        chatId: chatId,
+        chatId: ChatId(chatId),
         content: content,
         timestamp: DateTime.now(),
         isFromMe: false, // ✅ Message is from original sender, not current user

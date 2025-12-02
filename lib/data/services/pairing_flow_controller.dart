@@ -16,6 +16,7 @@ import 'pairing_service.dart';
 import 'pairing_failure_handler.dart';
 import 'pairing_request_coordinator.dart';
 import 'pairing_ui_orchestrator.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Handles pairing flows, persistent key exchange, and security upgrades
 /// so BLEStateManager can delegate.
@@ -204,7 +205,13 @@ class PairingFlowController {
   }
 
   Future<void> ensureContactMaximumSecurity(String contactPublicKey) async {
-    if (SimpleCrypto.hasConversationKey(contactPublicKey)) {
+    final userId = _toUserId(contactPublicKey);
+    if (userId == null) {
+      _logger.warning('ensureContactMaximumSecurity called with empty key');
+      return;
+    }
+
+    if (SimpleCrypto.hasConversationKey(userId.value)) {
       _logger.info('✅ Contact already has maximum security (ECDH + Pairing)');
       return;
     }
@@ -214,14 +221,14 @@ class PairingFlowController {
     );
 
     final cachedSecret = await _contactRepository.getCachedSharedSecret(
-      contactPublicKey,
+      userId.value,
     );
     if (cachedSecret != null) {
       final myId = await _getMyPersistentId();
-      final conversationSeed = cachedSecret + myId + contactPublicKey;
+      final conversationSeed = cachedSecret + myId + userId.value;
 
-      SimpleCrypto.initializeConversation(contactPublicKey, conversationSeed);
-      _conversationKeys[contactPublicKey] = conversationSeed;
+      SimpleCrypto.initializeConversation(userId.value, conversationSeed);
+      _conversationKeys[userId.value] = conversationSeed;
 
       _logger.info('✅ Enhanced security initialized for contact');
     }
@@ -239,19 +246,27 @@ class PairingFlowController {
     String publicKey,
     SecurityLevel newLevel,
   ) async {
+    final userId = _toUserId(publicKey);
+    if (userId == null) {
+      _logger.warning('confirmSecurityUpgrade called with empty key');
+      return false;
+    }
+
     print(
-      '[BLEStateManager] 🔧 DEBUG: confirmSecurityUpgrade called for ${_truncateId(publicKey)} to ${newLevel.name}',
+      '[BLEStateManager] 🔧 DEBUG: confirmSecurityUpgrade called for ${_truncateId(userId.value)} to ${newLevel.name}',
     );
 
     try {
-      final existingContact = await _contactRepository.getContact(publicKey);
+      final existingContact = await _contactRepository.getContactByUserId(
+        userId,
+      );
 
       if (existingContact == null) {
         print(
           '[BLEStateManager] 🔧 DEBUG: No existing contact - creating new with ${newLevel.name} level',
         );
         await _contactRepository.saveContactWithSecurity(
-          publicKey,
+          userId.value,
           'Unknown',
           newLevel,
         );
@@ -269,7 +284,7 @@ class PairingFlowController {
             '🔧 DEBUG: Contact already has ECDH (high security) - pairing unnecessary',
           );
 
-          await _initializeCryptoForLevel(publicKey, SecurityLevel.high);
+          await _initializeCryptoForLevel(userId.value, SecurityLevel.high);
 
           onContactRequestCompleted?.call(true);
           return true;
@@ -280,7 +295,7 @@ class PairingFlowController {
         print(
           '🔧 DEBUG: Already at ${newLevel.name} level - re-initializing crypto',
         );
-        await _initializeCryptoForLevel(publicKey, newLevel);
+        await _initializeCryptoForLevel(userId.value, newLevel);
         onContactRequestCompleted?.call(true);
         return true;
       }
@@ -290,11 +305,11 @@ class PairingFlowController {
           '🔧 DEBUG: Valid upgrade from ${existingContact.securityLevel.name} to ${newLevel.name}',
         );
         final success = await _contactRepository.upgradeContactSecurity(
-          publicKey,
+          userId.value,
           newLevel,
         );
         if (success) {
-          await _initializeCryptoForLevel(publicKey, newLevel);
+          await _initializeCryptoForLevel(userId.value, newLevel);
           onContactRequestCompleted?.call(true);
         }
         return success;
@@ -310,16 +325,22 @@ class PairingFlowController {
   }
 
   Future<bool> resetContactSecurity(String publicKey, String reason) async {
+    final userId = _toUserId(publicKey);
+    if (userId == null) {
+      _logger.warning('resetContactSecurity called with empty key');
+      return false;
+    }
+
     print('🔧 SECURITY RESET: Resetting $publicKey due to: $reason');
 
     try {
       final success = await _contactRepository.resetContactSecurity(
-        publicKey,
+        userId.value,
         reason,
       );
 
       if (success) {
-        SimpleCrypto.clearConversationKey(publicKey);
+        SimpleCrypto.clearConversationKey(userId.value);
         onContactRequestCompleted?.call(true);
       }
 
@@ -475,5 +496,10 @@ class PairingFlowController {
     if (id == null) return 'null';
     if (id.length <= maxLength) return id;
     return '${id.substring(0, maxLength)}...';
+  }
+
+  UserId? _toUserId(String publicKey) {
+    if (publicKey.isEmpty) return null;
+    return UserId(publicKey);
   }
 }

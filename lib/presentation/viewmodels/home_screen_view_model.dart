@@ -16,6 +16,7 @@ import '../../core/performance/performance_monitor.dart';
 import '../../core/services/home_screen_facade.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
+import '../../domain/values/id_types.dart';
 import '../controllers/chat_list_controller.dart';
 import '../models/home_screen_state.dart';
 import '../providers/ble_providers.dart';
@@ -220,10 +221,10 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
     await loadChats();
   }
 
-  bool isChatPinned(String chatId) =>
+  bool isChatPinned(ChatId chatId) =>
       _chatManagementService.isChatPinned(chatId);
 
-  Future<void> markChatAsRead(String chatId) async {
+  Future<void> markChatAsRead(ChatId chatId) async {
     await _homeScreenFacade.markChatAsRead(chatId);
   }
 

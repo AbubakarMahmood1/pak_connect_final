@@ -12,6 +12,7 @@ import '../database/database_helper.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/interfaces/i_contact_repository.dart';
 import '../../domain/entities/contact.dart';
+import '../../domain/values/id_types.dart';
 
 export '../../domain/entities/contact.dart';
 
@@ -25,12 +26,13 @@ class ContactRepository implements IContactRepository {
 
   /// Save or update a contact
   Future<void> saveContact(String publicKey, String displayName) async {
-    final existing = await getContact(publicKey);
+    final userId = UserId(publicKey);
+    final existing = await getContactByUserId(userId);
     final now = DateTime.now();
 
     if (existing == null) {
       final contact = Contact(
-        publicKey: publicKey,
+        publicKey: userId.value,
         displayName: displayName,
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
@@ -40,7 +42,7 @@ class ContactRepository implements IContactRepository {
       await _storeContact(contact);
     } else {
       final updated = Contact(
-        publicKey: publicKey,
+        publicKey: userId.value,
         displayName: displayName,
         trustStatus: existing.trustStatus,
         securityLevel: existing.securityLevel,
@@ -72,6 +74,10 @@ class ContactRepository implements IContactRepository {
     return Contact.fromDatabase(results.first);
   }
 
+  @override
+  Future<Contact?> getContactByUserId(UserId userId) =>
+      getContact(userId.value);
+
   /// 🔧 NEW MODEL: Get contact by persistent public key (MEDIUM+ identity)
   Future<Contact?> getContactByPersistentKey(String persistentPublicKey) async {
     final db = await _db;
@@ -87,6 +93,10 @@ class ContactRepository implements IContactRepository {
 
     return Contact.fromDatabase(results.first);
   }
+
+  @override
+  Future<Contact?> getContactByPersistentUserId(UserId persistentUserId) =>
+      getContactByPersistentKey(persistentUserId.value);
 
   /// 🔧 NEW MODEL: Get contact by current ephemeral ID (session-specific identifier)
   /// Used when looking up contacts by their active session ID
@@ -259,7 +269,9 @@ class ContactRepository implements IContactRepository {
     try {
       return Uint8List.fromList(base64Decode(base64Seed));
     } catch (e) {
-      _logger.warning('Failed to decode shared seed for $publicKey: $e');
+      _logger.warning(
+        'Failed to decode shared seed for ${publicKey.shortId(8)}...: $e',
+      );
       return null;
     }
   }
@@ -286,7 +298,9 @@ class ContactRepository implements IContactRepository {
 
       final updatedContact = contact.copyWithSecurityLevel(newLevel);
       await _storeContact(updatedContact);
-      _logger.info('🔧 SECURITY: Updated $publicKey to ${newLevel.name} level');
+      _logger.info(
+        '🔧 SECURITY: Updated ${publicKey.shortId(8)}... to ${newLevel.name} level',
+      );
     } else {
       _logger.warning(
         '🔧 REPO DEBUG: Cannot update security level - contact not found',
@@ -324,7 +338,9 @@ class ContactRepository implements IContactRepository {
   ) async {
     final contact = await getContact(publicKey);
     if (contact != null && contact.securityLevel != SecurityLevel.low) {
-      _logger.info('🔒 SECURITY DOWNGRADE: $publicKey due to $reason');
+      _logger.info(
+        '🔒 SECURITY DOWNGRADE: ${publicKey.shortId(8)}... due to $reason',
+      );
       await updateContactSecurityLevel(publicKey, SecurityLevel.low);
 
       // Also clear any cached secrets
@@ -386,7 +402,9 @@ class ContactRepository implements IContactRepository {
 
   /// Reset contact security
   Future<bool> resetContactSecurity(String publicKey, String reason) async {
-    _logger.info('🔧 SECURITY RESET: $publicKey due to: $reason');
+    _logger.info(
+      '🔧 SECURITY RESET: ${publicKey.shortId(8)}... due to: $reason',
+    );
 
     // Clear all security artifacts
     await clearCachedSecrets(publicKey);
@@ -424,7 +442,9 @@ class ContactRepository implements IContactRepository {
       final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
       final key = _sharedSecretPrefix + keyHash.shortId();
       await _secureStorage.delete(key: key);
-      _logger.info('🔒 SECURITY: Cleared cached secrets for $publicKey');
+      _logger.info(
+        '🔒 SECURITY: Cleared cached secrets for ${publicKey.shortId(8)}...',
+      );
     } catch (e) {
       _logger.warning('🔒 SECURITY WARNING: Failed to clear secrets: $e');
     }

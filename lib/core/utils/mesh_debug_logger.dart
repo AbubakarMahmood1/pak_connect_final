@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'app_logger.dart';
+import '../../domain/values/id_types.dart';
 
 /// Enhanced debug logging utility for mesh relay operations
 /// Provides emoji-based, structured logging for clear debugging
@@ -20,6 +21,12 @@ class MeshDebugLogger {
     );
   }
 
+  static void relayStartId(
+    MessageId messageId,
+    String fromNode,
+    String toNode,
+  ) => relayStart(messageId.value, fromNode, toNode);
+
   /// Log successful relay forwarding
   static void relaySuccess(
     String messageId,
@@ -32,6 +39,12 @@ class MeshDebugLogger {
     );
   }
 
+  static void relaySuccessId(
+    MessageId messageId,
+    String nextHop, {
+    String? routeScore,
+  }) => relaySuccess(messageId.value, nextHop, routeScore: routeScore);
+
   /// Log relay delivered to final recipient
   static void relayDelivered(
     String messageId,
@@ -42,6 +55,12 @@ class MeshDebugLogger {
       '🎯 RELAY DELIVERED: ${_truncate(messageId)}... from ${_truncate(originalSender, _nodeIdTruncateLength)}... to ${_truncate(recipient, _nodeIdTruncateLength)}...',
     );
   }
+
+  static void relayDeliveredId(
+    MessageId messageId,
+    String originalSender,
+    String recipient,
+  ) => relayDelivered(messageId.value, originalSender, recipient);
 
   /// Log relay blocked by spam prevention or TTL
   static void relayBlocked(
@@ -64,6 +83,15 @@ class MeshDebugLogger {
     );
   }
 
+  static void relayBlockedId(
+    MessageId messageId,
+    String reason, {
+    double? spamScore,
+  }) => relayBlocked(messageId.value, reason, spamScore: spamScore);
+
+  static void relayDroppedId(MessageId messageId, String reason) =>
+      relayDropped(messageId.value, reason);
+
   // 📤 MESSAGE QUEUING
 
   /// Log message added to queue
@@ -77,12 +105,21 @@ class MeshDebugLogger {
     );
   }
 
+  static void messageQueuedId(
+    MessageId messageId,
+    String recipient,
+    String priority,
+  ) => messageQueued(messageId.value, recipient, priority);
+
   /// Log message removed from queue for delivery
   static void messageDequeued(String messageId, String recipient) {
     _logger.fine(
       '📥 MESSAGE DEQUEUED: ${_truncate(messageId)}... to ${_truncate(recipient, _nodeIdTruncateLength)}... for delivery',
     );
   }
+
+  static void messageDequeuedId(MessageId messageId, String recipient) =>
+      messageDequeued(messageId.value, recipient);
 
   /// Log message delivery attempt
   static void deliveryAttempt(String messageId, int attempt, int maxRetries) {
@@ -91,12 +128,21 @@ class MeshDebugLogger {
     );
   }
 
+  static void deliveryAttemptId(
+    MessageId messageId,
+    int attempt,
+    int maxRetries,
+  ) => deliveryAttempt(messageId.value, attempt, maxRetries);
+
   /// Log message delivery success
   static void deliverySuccess(String messageId, String recipient) {
     _logger.info(
       '✅ DELIVERY SUCCESS: ${_truncate(messageId)}... to ${_truncate(recipient, _nodeIdTruncateLength)}...',
     );
   }
+
+  static void deliverySuccessId(MessageId messageId, String recipient) =>
+      deliverySuccess(messageId.value, recipient);
 
   /// Log message delivery failure
   static void deliveryFailed(
@@ -109,6 +155,13 @@ class MeshDebugLogger {
       '❌ DELIVERY FAILED: ${_truncate(messageId)}... reason: $reason (attempt $attempt/$maxRetries)',
     );
   }
+
+  static void deliveryFailedId(
+    MessageId messageId,
+    String reason,
+    int attempt,
+    int maxRetries,
+  ) => deliveryFailed(messageId.value, reason, attempt, maxRetries);
 
   // 🌐 CONNECTION EVENTS
 
@@ -136,6 +189,9 @@ class MeshDebugLogger {
     );
   }
 
+  static void queueDeliveryTriggeredId(ChatId deviceId, int messageCount) =>
+      queueDeliveryTriggered(deviceId.value, messageCount);
+
   /// Log queue delivery completion
   static void queueDeliveryComplete(
     String deviceId,
@@ -148,6 +204,13 @@ class MeshDebugLogger {
     );
   }
 
+  static void queueDeliveryCompleteId(
+    ChatId deviceId,
+    int processed,
+    int successful,
+    int failed,
+  ) => queueDeliveryComplete(deviceId.value, processed, successful, failed);
+
   // 💾 CHAT STORAGE
 
   /// Log chat message saved
@@ -156,6 +219,12 @@ class MeshDebugLogger {
       '💾 MESSAGE SAVED: ${_truncate(messageId)}... in chat ${_truncate(chatId)}... from ${_truncate(sender, _nodeIdTruncateLength)}...',
     );
   }
+
+  static void chatMessageSavedId(
+    MessageId messageId,
+    String chatId,
+    String sender,
+  ) => chatMessageSaved(messageId.value, chatId, sender);
 
   /// Log chat ID generation
   static void chatIdGenerated(String chatId, String user1, String user2) {
@@ -172,11 +241,23 @@ class MeshDebugLogger {
     _logger.severe('❌ ERROR in $operation: $error$msgText');
   }
 
+  static void errorId(
+    String operation,
+    String errorMessage, {
+    MessageId? messageId,
+  }) => error(operation, errorMessage, messageId: messageId?.value);
+
   /// Log warning conditions
   static void warning(String operation, String warning, {String? messageId}) {
     final msgText = messageId != null ? ' (msg: ${_truncate(messageId)})' : '';
     _logger.warning('⚠️ WARNING in $operation: $warning$msgText');
   }
+
+  static void warningId(
+    String operation,
+    String warningMessage, {
+    MessageId? messageId,
+  }) => warning(operation, warningMessage, messageId: messageId?.value);
 
   // 🔧 UTILITY & FORMATTING
 

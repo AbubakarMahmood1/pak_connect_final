@@ -13,6 +13,8 @@ import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
+ChatId _cid(String value) => ChatId(value);
+
 void main() {
   final List<LogRecord> logRecords = [];
   final Set<String> allowedSevere = {};
@@ -88,7 +90,7 @@ void main() {
         for (int j = 0; j < messagesPerContact; j++) {
           final message = Message(
             id: MessageId('msg_${i}_$j'),
-            chatId: chatId,
+            chatId: _cid(chatId),
             content: 'Test message $j from $contactName',
             timestamp: DateTime.now().subtract(Duration(minutes: j)),
             isFromMe: j % 2 == 0, // Alternate sender

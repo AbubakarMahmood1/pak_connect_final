@@ -2,7 +2,7 @@ import '../values/id_types.dart';
 
 class Message {
   final MessageId id;
-  final String chatId; // device UUID for now, group ID later
+  final ChatId chatId; // device UUID for now, group ID later
   final String content;
   final DateTime timestamp;
   final bool isFromMe;
@@ -20,7 +20,7 @@ class Message {
   // Convert to/from JSON for storage
   Map<String, dynamic> toJson() => {
     'id': id.value,
-    'chatId': chatId,
+    'chatId': chatId.value,
     'content': content,
     'timestamp': timestamp.millisecondsSinceEpoch,
     'isFromMe': isFromMe,
@@ -29,7 +29,7 @@ class Message {
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
     id: MessageId(json['id']),
-    chatId: json['chatId'],
+    chatId: ChatId(json['chatId']),
     content: json['content'],
     timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
     isFromMe: json['isFromMe'],
@@ -38,7 +38,7 @@ class Message {
 
   Message copyWith({
     MessageId? id,
-    String? chatId,
+    ChatId? chatId,
     String? content,
     DateTime? timestamp,
     bool? isFromMe,

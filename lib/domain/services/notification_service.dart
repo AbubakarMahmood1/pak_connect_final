@@ -74,7 +74,7 @@ class ForegroundNotificationHandler implements INotificationHandler {
       body: message.content,
       channel: NotificationChannel.messages,
       priority: NotificationPriority.high,
-      payload: message.chatId,
+      payload: message.chatId.value,
     );
   }
 

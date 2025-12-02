@@ -40,6 +40,9 @@ import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
+ChatId _cid(String value) => ChatId(value);
+MessageId _mid(String value) => MessageId(value);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -163,6 +166,7 @@ void main() {
         onContactPublicKeyUpdated: (key) => updatedContactKey = key,
       );
       final lifecycle = _RecordingLifecycle(viewModel: viewModel);
+      lifecycle.persistentChatManager = persistentManager;
 
       final stateStore = _FakeStateStore()..setMessages([_deliveredMessage]);
       viewModel.bindStateStore(stateStore);
@@ -174,7 +178,7 @@ void main() {
       final newChatId = ChatUtils.generateChatId('persistent-key');
       expect(updatedChatId, newChatId);
       expect(updatedContactKey, 'persistent-key');
-      expect(messageRepo.messages.values.first.chatId, newChatId);
+      expect(messageRepo.messages.values.first.chatId.value, newChatId);
     });
   });
 
@@ -211,6 +215,7 @@ void main() {
         connectionService: connectionService,
       );
       final lifecycle = _RecordingLifecycle(viewModel: viewModel);
+      lifecycle.persistentChatManager = persistentManager;
       viewModel.sessionLifecycle = lifecycle;
 
       await viewModel.activateMessageListener();
@@ -263,7 +268,7 @@ Future<ChatSessionViewModel> _buildViewModel({
         builder: (context) {
           final scrollingController = chat_controller.ChatScrollingController(
             chatsRepository: resolvedChatsRepo,
-            chatId: 'chat-1',
+            chatId: ChatId('chat-1'),
             onScrollToBottom: () {},
             onUnreadCountChanged: (_) {},
             onStateChanged: () {},
@@ -281,7 +286,7 @@ Future<ChatSessionViewModel> _buildViewModel({
             contactRepository: resolvedContactRepo,
             chatsRepository: resolvedChatsRepo,
             messagingViewModel: _StubMessagingViewModel(
-              chatId: 'chat-1',
+              chatId: _cid('chat-1'),
               contactPublicKey: 'contact-1',
               messageRepository: resolvedMessageRepo,
               contactRepository: resolvedContactRepo,
@@ -296,7 +301,6 @@ Future<ChatSessionViewModel> _buildViewModel({
             getChatIdFn: () => 'chat-1',
             getConnectionServiceFn: () =>
                 connectionService ?? _FakeConnectionService(),
-            getPersistentChatManagerFn: () => persistentManager,
             onChatIdUpdated: onChatIdUpdated,
             onContactPublicKeyUpdated: onContactPublicKeyUpdated,
           );
@@ -311,8 +315,8 @@ Future<ChatSessionViewModel> _buildViewModel({
 }
 
 final _failedMessage = Message(
-  id: MessageId('failed-1'),
-  chatId: 'chat-1',
+  id: _mid('failed-1'),
+  chatId: _cid('chat-1'),
   content: 'fail me',
   timestamp: DateTime(2024, 1, 1),
   isFromMe: true,
@@ -320,8 +324,8 @@ final _failedMessage = Message(
 );
 
 final _deliveredMessage = Message(
-  id: MessageId('delivered-1'),
-  chatId: 'chat-1',
+  id: _mid('delivered-1'),
+  chatId: _cid('chat-1'),
   content: 'hi',
   timestamp: DateTime(2024, 1, 1),
   isFromMe: true,
@@ -346,12 +350,12 @@ class _RecordingLifecycle extends ChatSessionLifecycle {
 
   @override
   void registerPersistentListener({
-    required String chatId,
+    required ChatId chatId,
     required Stream<String> Function() incomingStream,
     required Future<void> Function(String content) onMessage,
   }) {
     persistentChatManager ??= PersistentChatStateManager();
-    persistentChatManager!.registerChatScreen(chatId, (content) {});
+    persistentChatManager!.registerChatScreen(chatId.value, (content) {});
   }
 
   @override
@@ -419,7 +423,7 @@ class _FakeMessageRepository extends MessageRepository {
   }
 
   @override
-  Future<List<Message>> getMessages(String chatId) async {
+  Future<List<Message>> getMessages(ChatId chatId) async {
     return messages.values.where((m) => m.chatId == chatId).toList();
   }
 
@@ -427,12 +431,12 @@ class _FakeMessageRepository extends MessageRepository {
   Future<Message?> getMessageById(MessageId id) async => messages[id.value];
 
   @override
-  Future<void> clearMessages(String chatId) async {
+  Future<void> clearMessages(ChatId chatId) async {
     messages.removeWhere((_, msg) => msg.chatId == chatId);
   }
 
   @override
-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
     final keysToMigrate = messages.entries
         .where((e) => e.value.chatId == oldChatId)
         .map((e) => e.key)
@@ -460,10 +464,10 @@ class _FakeChatsRepository extends ChatsRepository implements IChatsRepository {
   }) async => _chats;
 
   @override
-  Future<void> incrementUnreadCount(String chatId) async {}
+  Future<void> incrementUnreadCount(ChatId chatId) async {}
 
   @override
-  Future<void> markChatAsRead(String chatId) async {}
+  Future<void> markChatAsRead(ChatId chatId) async {}
 
   @override
   Future<List<Contact>> getContactsWithoutChats() async => [];

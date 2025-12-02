@@ -21,6 +21,7 @@ import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {
   group('MeshRelayCoordinator', () {
@@ -324,6 +325,12 @@ class _FakeRelayEngine extends MeshRelayEngine {
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
     Function(String originalMessageId, String content, String originalSender)?
     onDeliverToSelf,
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    onDeliverToSelfIds,
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,
   }) async {

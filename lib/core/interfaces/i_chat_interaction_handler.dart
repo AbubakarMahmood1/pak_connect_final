@@ -1,4 +1,5 @@
 import '../../domain/entities/chat_list_item.dart';
+import '../../domain/values/id_types.dart';
 
 /// Interface for handling user interactions in home screen
 ///
@@ -80,7 +81,7 @@ abstract class IChatInteractionHandler {
   Future<void> toggleChatPin(ChatListItem chat);
 
   /// Mark a chat as read
-  Future<void> markChatAsRead(String chatId);
+  Future<void> markChatAsRead(ChatId chatId);
 
   /// Get stream of interaction intents/events
   /// Facade listens to this to know when to refresh chat list

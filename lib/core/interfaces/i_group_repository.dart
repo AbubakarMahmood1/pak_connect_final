@@ -1,4 +1,5 @@
 import '../../core/models/contact_group.dart';
+import '../../domain/values/id_types.dart';
 
 /// Interface for group repository operations
 ///
@@ -43,4 +44,25 @@ abstract class IGroupRepository {
 
   /// Get group statistics
   Future<Map<String, int>> getStatistics();
+}
+
+extension GroupRepositoryIds on IGroupRepository {
+  Future<ContactGroup?> getGroupById(ChatId groupId) => getGroup(groupId.value);
+
+  Future<void> deleteGroupById(ChatId groupId) => deleteGroup(groupId.value);
+
+  Future<void> updateDeliveryStatusByIds(
+    MessageId messageId,
+    ChatId memberKey,
+    MessageDeliveryStatus status,
+  ) => updateDeliveryStatus(messageId.value, memberKey.value, status);
+
+  Future<void> updateDeliveryStatusById(
+    MessageId messageId,
+    String memberKey,
+    MessageDeliveryStatus status,
+  ) => updateDeliveryStatus(messageId.value, memberKey, status);
+
+  Future<GroupMessage?> getMessageById(MessageId messageId) =>
+      getMessage(messageId.value);
 }

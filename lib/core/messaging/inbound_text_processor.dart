@@ -4,6 +4,7 @@ import '../interfaces/i_contact_repository.dart';
 import '../services/security_manager.dart';
 import '../security/signing_manager.dart';
 import '../models/protocol_message.dart';
+import '../../domain/values/id_types.dart';
 
 /// Handles routing, decryption, and signature verification for inbound text messages.
 class InboundTextProcessor {
@@ -36,6 +37,7 @@ class InboundTextProcessor {
     }
 
     final messageId = protocolMessage.textMessageId!;
+    final messageIdValue = MessageId(messageId);
     final content = protocolMessage.textContent!;
     final intendedRecipient =
         protocolMessage.payload['intendedRecipient'] as String?;

@@ -7,6 +7,7 @@ import 'package:pak_connect/core/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/core/models/archive_models.dart';
 import 'package:pak_connect/domain/entities/archived_chat.dart';
 import 'package:pak_connect/domain/services/archive_search_service.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 class _FakeArchiveRepository implements IArchiveRepository {
   int searchCalls = 0;
@@ -37,7 +38,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
 
   // The remaining repository methods are not needed for these tests.
   @override
-  Future<void> permanentlyDeleteArchive(String archivedChatId) async =>
+  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async =>
       throw UnimplementedError();
 
   @override
@@ -49,7 +50,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }) async => throw UnimplementedError();
 
   @override
-  Future<ArchiveOperationResult> restoreChat(String archiveId) async =>
+  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
       throw UnimplementedError();
 
   @override
@@ -68,7 +69,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   ) async => throw UnimplementedError();
 
   @override
-  Future<ArchivedChat?> getArchivedChat(String archiveId) async => null;
+  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async => null;
 
   @override
   Future<ArchiveStatistics?> getArchiveStatistics() async =>

@@ -19,6 +19,7 @@ import 'pairing_lifecycle_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/models/spy_mode_info.dart';
 import '../../core/bluetooth/identity_session_state.dart';
+import '../../domain/values/id_types.dart';
 
 class BLEStateManager {
   final _logger = Logger('BLEStateManager');
@@ -156,6 +157,7 @@ class BLEStateManager {
 
   // Additional BLE integration callbacks
   Function(String messageId, bool success)? onMessageSent;
+  Function(MessageId messageId, bool success)? onMessageSentIds;
   Function(dynamic device, int? rssi)? onDeviceDiscovered;
 
   // USERNAME PROPAGATION FIX: Username change callback
@@ -686,7 +688,9 @@ class BLEStateManager {
       );
 
       if (cachedSecret != null) {
-        _logger.info('Found cached pairing/ECDH secret for $publicKey');
+        _logger.info(
+          'Found cached pairing/ECDH secret for ${publicKey.shortId(8)}...',
+        );
 
         // Restore it in SimpleCrypto
         await SimpleCrypto.restoreConversationKey(publicKey, cachedSecret);

@@ -1,5 +1,6 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../../domain/entities/chat_list_item.dart';
+import '../../domain/values/id_types.dart';
 import '../../core/models/connection_status.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
@@ -86,7 +87,7 @@ abstract class IHomeScreenFacade {
   Future<void> toggleChatPin(ChatListItem chat);
 
   /// Mark chat as read
-  Future<void> markChatAsRead(String chatId);
+  Future<void> markChatAsRead(ChatId chatId);
 
   // ============ Connection Status ============
 

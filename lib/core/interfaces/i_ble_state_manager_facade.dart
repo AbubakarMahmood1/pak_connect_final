@@ -2,6 +2,7 @@ import '../../core/models/protocol_message.dart';
 import '../../core/models/spy_mode_info.dart';
 import '../../domain/entities/contact.dart';
 import '../../core/services/security_manager.dart';
+import '../../domain/values/id_types.dart';
 
 /// BLE State Manager Facade Interface
 ///
@@ -269,6 +270,9 @@ abstract class IBLEStateManagerFacade {
   /// Callback when message successfully sent
   void Function(String messageId, bool success)? onMessageSent;
 
+  /// Typed callback when message successfully sent (wraps string payload)
+  void Function(MessageId messageId, bool success)? onMessageSentIds;
+
   /// Callback when user name changes
   void Function(String? newName)? onNameChanged;
   void Function(String newName)? onMyUsernameChanged;
@@ -324,4 +328,10 @@ abstract class IBLEStateManagerFacade {
 
   /// Callback to send persistent key exchange
   void Function(ProtocolMessage message)? onSendPersistentKeyExchange;
+}
+
+extension BleStateManagerFacadeIds on IBLEStateManagerFacade {
+  set onMessageSentIdCallback(
+    void Function(MessageId messageId, bool success)? callback,
+  ) => onMessageSentIds = callback;
 }

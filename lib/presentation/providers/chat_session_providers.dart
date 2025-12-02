@@ -12,7 +12,6 @@ import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../domain/models/mesh_network_models.dart';
-import '../../domain/services/notification_service.dart';
 import '../controllers/chat_pairing_dialog_controller.dart';
 import '../controllers/chat_scrolling_controller.dart' as chat_controller;
 import '../controllers/chat_search_controller.dart';
@@ -128,7 +127,6 @@ class ChatSessionLifecycleArgs {
     required this.messageRepository,
     this.retryCoordinator,
     this.offlineQueue,
-    this.notificationService,
   });
 
   final ChatSessionViewModel viewModel;
@@ -139,7 +137,6 @@ class ChatSessionLifecycleArgs {
   final MessageRepository messageRepository;
   final MessageRetryCoordinator? retryCoordinator;
   final OfflineMessageQueue? offlineQueue;
-  final NotificationService? notificationService;
 }
 
 /// Provider family for ChatSessionViewModel scaffolding.
@@ -170,7 +167,6 @@ final chatSessionLifecycleProvider =
         messageRepository: args.messageRepository,
         retryCoordinator: args.retryCoordinator,
         offlineQueue: args.offlineQueue,
-        notificationService: args.notificationService,
       ),
     );
 

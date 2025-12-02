@@ -178,6 +178,14 @@ _logger.severe('❌ Error occurred', error, stackTrace);
 - 🔄 Relay operations
 - 💾 Database operations
 
+### Log Level Guidelines
+- `severe`: crashes or data loss; always include error/stack.
+- `warning`: degradations, retries, or security anomalies that succeeded but need attention.
+- `info`: lifecycle transitions and high-level success/fail (1–2 per operation path); avoid per-item loops.
+- `fine`: chatty internals (cache hits/misses, pagination cursors, timer ticks); disabled in production by default.
+- `finer`/`finest`: temporary debug only; remove or guard with feature flags before release.
+- Default production root level should be `info`; bump to `warning`/`severe` in noise-sensitive builds.
+
 ## Integration Checklist
 
 When integrating new features:

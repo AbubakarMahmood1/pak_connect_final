@@ -6,6 +6,8 @@ import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
+import '../../domain/values/id_types.dart';
+import '../../domain/values/id_types.dart';
 
 /// Public API interface for BLE message handling
 ///
@@ -185,6 +187,14 @@ abstract interface class IBLEMessageHandlerFacade {
     Function(String originalMessageId, String content, String originalSender)?
     callback,
   );
+  set onRelayMessageReceivedIds(
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    callback,
+  );
 
   /// Called when relay decision made
   set onRelayDecisionMade(Function(RelayDecision decision)? callback);
@@ -205,4 +215,39 @@ abstract interface class IBLEMessageHandlerFacade {
 
   /// Cleanup: dispose all resources
   void dispose();
+}
+
+/// Typed helpers to keep wire payloads string-based while allowing callers to use value objects.
+extension BleMessageHandlerFacadeIds on IBLEMessageHandlerFacade {
+  Future<bool> sendMessageWithIds({
+    required ChatId recipientId,
+    required String content,
+    required Duration timeout,
+    MessageId? messageId,
+    ChatId? originalIntendedRecipient,
+  }) => sendMessage(
+    recipientKey: recipientId.value,
+    content: content,
+    timeout: timeout,
+    messageId: messageId?.value,
+    originalIntendedRecipient: originalIntendedRecipient?.value,
+  );
+
+  Future<bool> sendPeripheralMessageWithId({
+    required ChatId senderId,
+    required String content,
+    MessageId? messageId,
+  }) => sendPeripheralMessage(
+    senderKey: senderId.value,
+    content: content,
+    messageId: messageId?.value,
+  );
+
+  Future<bool> sendQueueSyncMessageWithIds({
+    required ChatId toNodeId,
+    required List<MessageId> messageIds,
+  }) => sendQueueSyncMessage(
+    toNodeId: toNodeId.value,
+    messageIds: messageIds.map((id) => id.value).toList(),
+  );
 }

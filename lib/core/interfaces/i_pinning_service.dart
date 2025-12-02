@@ -3,17 +3,18 @@
 
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/values/id_types.dart';
 
 /// Interface for message starring and pinning operations
 abstract class IPinningService {
   /// Star/unstar message
-  Future<ChatOperationResult> toggleMessageStar(String messageId);
+  Future<ChatOperationResult> toggleMessageStar(MessageId messageId);
 
   /// Get all starred messages
   Future<List<EnhancedMessage>> getStarredMessages();
 
   /// Check if message is starred
-  bool isMessageStarred(String messageId);
+  bool isMessageStarred(MessageId messageId);
 
   /// Get pinned chats count
   int get pinnedChatsCount;

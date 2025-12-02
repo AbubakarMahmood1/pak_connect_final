@@ -12,6 +12,7 @@ import '../../core/messaging/message_chunk_sender.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Handles outbound message preparation and sending for BLEMessageHandler.
 class OutboundMessageSender {
@@ -78,6 +79,8 @@ class OutboundMessageSender {
     required ContactRepository contactRepository,
     required BLEStateManager stateManager,
     Function(bool)? onMessageOperationChanged,
+    void Function(String messageId, bool success)? onMessageSent,
+    void Function(MessageId messageId, bool success)? onMessageSentIds,
   }) async {
     final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
 
@@ -252,10 +255,15 @@ class OutboundMessageSender {
       );
 
       _logger.info('All chunks sent for message: $msgId, waiting for ACK...');
-      return await ackCompleter.future;
+      final success = await ackCompleter.future;
+      onMessageSent?.call(msgId, success);
+      onMessageSentIds?.call(MessageId(msgId), success);
+      return success;
     } catch (e, stackTrace) {
       _logger.severe('Failed to send message: $e');
       _logger.severe('Stack trace: $stackTrace');
+      onMessageSent?.call(msgId, false);
+      onMessageSentIds?.call(MessageId(msgId), false);
       rethrow;
     } finally {
       _ackTracker.cancel(msgId);
@@ -278,6 +286,8 @@ class OutboundMessageSender {
     String? originalIntendedRecipient,
     required ContactRepository contactRepository,
     required BLEStateManager stateManager,
+    void Function(String messageId, bool success)? onMessageSent,
+    void Function(MessageId messageId, bool success)? onMessageSentIds,
   }) async {
     final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
 
@@ -423,10 +433,14 @@ class OutboundMessageSender {
       );
 
       _logger.info('All peripheral chunks sent for message: $msgId');
+      onMessageSent?.call(msgId, true);
+      onMessageSentIds?.call(MessageId(msgId), true);
       return true;
     } catch (e, stackTrace) {
       _logger.severe('Failed to send peripheral message: $e');
       _logger.severe('Stack trace: $stackTrace');
+      onMessageSent?.call(msgId, false);
+      onMessageSentIds?.call(MessageId(msgId), false);
       rethrow;
     }
   }

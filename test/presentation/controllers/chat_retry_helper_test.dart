@@ -52,7 +52,7 @@ void main() {
       final messages = <Message>[
         Message(
           id: MessageId('m1'),
-          chatId: 'chat-1',
+          chatId: ChatId('chat-1'),
           content: 'hello',
           timestamp: DateTime.now(),
           isFromMe: true,

@@ -113,6 +113,8 @@ class BleWriteAdapter {
         contactRepository: _contactRepository,
         stateManager: stateManager,
         onMessageOperationChanged: _onMessageOperationChanged,
+        onMessageSent: stateManager.onMessageSent,
+        onMessageSentIds: stateManager.onMessageSentIds,
       );
     } catch (e) {
       _logger.warning('⚠️ sendCentralMessage failed via adapter: $e');
@@ -157,6 +159,8 @@ class BleWriteAdapter {
         useEphemeralAddressing: !isPaired,
         contactRepository: _contactRepository,
         stateManager: stateManager,
+        onMessageSent: stateManager.onMessageSent,
+        onMessageSentIds: stateManager.onMessageSentIds,
       );
     } catch (e) {
       _logger.warning('⚠️ sendPeripheralMessage failed via adapter: $e');

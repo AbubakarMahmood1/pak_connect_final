@@ -8,6 +8,7 @@ import '../../domain/entities/enhanced_contact.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/security_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 final _logger = Logger('ContactProvider');
 
@@ -54,9 +55,22 @@ final contactDetailProvider = FutureProvider.family<EnhancedContact?, String>((
   ref,
   publicKey,
 ) async {
+  final userId = _toUserId(publicKey);
+  if (userId == null) {
+    _logger.warning('contactDetailProvider called with empty public key');
+    return null;
+  }
+
   final service = ref.watch(contactServiceProvider);
-  return await service.getEnhancedContact(publicKey);
+  return await service.getEnhancedContactById(userId);
 });
+
+/// Single contact provider by typed UserId
+final contactDetailByUserIdProvider =
+    FutureProvider.family<EnhancedContact?, UserId>((ref, userId) async {
+      final service = ref.watch(contactServiceProvider);
+      return await service.getEnhancedContactById(userId);
+    });
 
 /// Contact search state
 class ContactSearchState {
@@ -172,8 +186,13 @@ final deleteContactProvider =
       ref,
       publicKey,
     ) async {
+      final userId = _toUserId(publicKey);
+      if (userId == null) {
+        return ContactOperationResult.failure('Contact key is empty');
+      }
+
       final service = ref.watch(contactServiceProvider);
-      final result = await service.deleteContact(publicKey);
+      final result = await service.deleteContactById(userId);
 
       // Invalidate contacts list to trigger refresh
       if (result.success) {
@@ -189,18 +208,24 @@ final verifyContactProvider = FutureProvider.family<bool, String>((
   ref,
   publicKey,
 ) async {
+  final userId = _toUserId(publicKey);
+  if (userId == null) {
+    _logger.warning('verifyContactProvider called with empty public key');
+    return false;
+  }
+
   final repository = ref.watch(contactRepositoryProvider);
 
   try {
-    await repository.markContactVerified(publicKey);
+    await repository.markContactVerified(userId.value);
 
     // Invalidate to refresh
     ref.invalidate(contactsProvider);
     ref.invalidate(filteredContactsProvider);
-    ref.invalidate(contactDetailProvider(publicKey));
+    ref.invalidate(contactDetailProvider(userId.value));
 
     _logger.info(
-      '✓ Contact verified: ${publicKey.length > 16 ? '${publicKey.shortId()}...' : publicKey}',
+      '✓ Contact verified: ${userId.value.length > 16 ? '${userId.value.shortId()}...' : userId.value}',
     );
     return true;
   } catch (e) {
@@ -229,6 +254,11 @@ class ContactStats {
     activeContacts: 0,
     highSecurityContacts: 0,
   );
+}
+
+UserId? _toUserId(String publicKey) {
+  if (publicKey.isEmpty) return null;
+  return UserId(publicKey);
 }
 
 /// Quick contact stats provider for UI badges

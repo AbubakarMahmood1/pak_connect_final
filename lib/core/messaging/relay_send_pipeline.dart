@@ -3,6 +3,7 @@ import '../messaging/offline_message_queue.dart';
 import '../models/mesh_relay_models.dart';
 import '../security/spam_prevention_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Handles relay send pipeline (broadcast + next-hop delivery) independent of decision logic.
 class RelaySendPipeline {
@@ -22,6 +23,7 @@ class RelaySendPipeline {
     required MeshRelayMessage relayMessage,
     required String nextHopNodeId,
     Function(MeshRelayMessage, String)? onRelayMessage,
+    Function(MessageId, MeshRelayMessage, String)? onRelayMessageIds,
   }) async {
     try {
       final nextHopMessage = relayMessage.nextHop(nextHopNodeId);
@@ -33,15 +35,22 @@ class RelaySendPipeline {
         messageSize: relayMessage.messageSize,
       );
 
-      await _messageQueue.queueMessage(
-        chatId: 'mesh_relay_$nextHopNodeId',
+      await _messageQueue.queueMessageWithIds(
+        chatId: ChatId('mesh_relay_$nextHopNodeId'),
         content: nextHopMessage.originalContent,
-        recipientPublicKey: nextHopNodeId,
-        senderPublicKey: nextHopMessage.relayMetadata.originalSender,
+        recipientId: ChatId(nextHopNodeId),
+        senderId: ChatId(nextHopMessage.relayMetadata.originalSender),
         priority: nextHopMessage.relayMetadata.priority,
       );
 
       onRelayMessage?.call(nextHopMessage, nextHopNodeId);
+      if (onRelayMessageIds != null) {
+        onRelayMessageIds!(
+          nextHopMessage.originalMessageIdValue,
+          nextHopMessage,
+          nextHopNodeId,
+        );
+      }
 
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
           ? relayMessage.originalMessageId.shortId()
@@ -62,6 +71,7 @@ class RelaySendPipeline {
     required MeshRelayMessage relayMessage,
     required List<String> availableNeighbors,
     Function(MeshRelayMessage, String)? onRelayMessage,
+    Function(MessageId, MeshRelayMessage, String)? onRelayMessageIds,
   }) async {
     try {
       final validNeighbors = availableNeighbors
@@ -99,15 +109,22 @@ class RelaySendPipeline {
             messageSize: relayMessage.messageSize,
           );
 
-          await _messageQueue.queueMessage(
-            chatId: 'broadcast_relay_$neighborId',
+          await _messageQueue.queueMessageWithIds(
+            chatId: ChatId('broadcast_relay_$neighborId'),
             content: nextHopMessage.originalContent,
-            recipientPublicKey: neighborId,
-            senderPublicKey: nextHopMessage.relayMetadata.originalSender,
+            recipientId: ChatId(neighborId),
+            senderId: ChatId(nextHopMessage.relayMetadata.originalSender),
             priority: nextHopMessage.relayMetadata.priority,
           );
 
           onRelayMessage?.call(nextHopMessage, neighborId);
+          if (onRelayMessageIds != null) {
+            onRelayMessageIds!(
+              nextHopMessage.originalMessageIdValue,
+              nextHopMessage,
+              neighborId,
+            );
+          }
           successCount++;
 
           final truncatedNeighbor = neighborId.length > 8

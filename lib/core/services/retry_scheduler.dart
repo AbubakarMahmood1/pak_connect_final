@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../interfaces/i_retry_scheduler.dart';
 import '../messaging/offline_message_queue.dart';
+import '../../domain/values/id_types.dart';
 
 /// Retry scheduling service with exponential backoff logic
 ///
@@ -19,7 +20,7 @@ class RetryScheduler implements IRetryScheduler {
   static const Duration _maxDelay = Duration(minutes: 10);
 
   // Active retry timers
-  final Map<String, Timer> _activeRetries = {};
+  final Map<MessageId, Timer> _activeRetries = {};
 
   /// Calculate exponential backoff delay
   @override
@@ -150,11 +151,12 @@ class RetryScheduler implements IRetryScheduler {
     Duration delay,
     FutureOr<void> Function() callback,
   ) {
+    final id = MessageId(messageId);
     // Cancel existing timer if any
-    _activeRetries[messageId]?.cancel();
+    _activeRetries[id]?.cancel();
 
-    _activeRetries[messageId] = Timer(delay, () async {
-      _activeRetries.remove(messageId);
+    _activeRetries[id] = Timer(delay, () async {
+      _activeRetries.remove(id);
       await callback();
     });
 
@@ -166,8 +168,9 @@ class RetryScheduler implements IRetryScheduler {
   /// Cancel retry timer for specific message
   @override
   void cancelRetryTimer(String messageId) {
-    _activeRetries[messageId]?.cancel();
-    _activeRetries.remove(messageId);
+    final id = MessageId(messageId);
+    _activeRetries[id]?.cancel();
+    _activeRetries.remove(id);
     _logger.fine('Cancelled retry timer for message $messageId');
   }
 
@@ -184,13 +187,13 @@ class RetryScheduler implements IRetryScheduler {
   /// Get list of scheduled message IDs
   @override
   List<String> getScheduledMessageIds() {
-    return _activeRetries.keys.toList();
+    return _activeRetries.keys.map((id) => id.value).toList();
   }
 
   /// Check if message is scheduled
   @override
   bool isScheduled(String messageId) {
-    return _activeRetries.containsKey(messageId);
+    return _activeRetries.containsKey(MessageId(messageId));
   }
 
   /// Dispose all timers

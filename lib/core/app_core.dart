@@ -525,14 +525,17 @@ class AppCore {
     QueuedMessage queuedMessage,
   ) async {
     try {
-      // Create repository message with delivered status
-      final repoMessage = Message(
+      // Create repository message with delivered status; preserve reply linkage
+      final repoMessage = EnhancedMessage(
         id: MessageId(queuedMessage.id), // Same ID as queue (secure ID)
-        chatId: queuedMessage.chatId,
+        chatId: ChatId(queuedMessage.chatId),
         content: queuedMessage.content,
         timestamp: queuedMessage.queuedAt,
         isFromMe: true,
         status: MessageStatus.delivered, // Delivered successfully!
+        replyToMessageId: queuedMessage.replyToMessageId != null
+            ? MessageId(queuedMessage.replyToMessageId!)
+            : null,
       );
 
       // 🎯 OPTION B: Message should NOT exist in repository yet

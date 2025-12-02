@@ -185,7 +185,7 @@ class ChatManagementService {
   );
 
   /// Pin/unpin chat
-  Future<ChatOperationResult> toggleChatPin(String chatId) =>
+  Future<ChatOperationResult> toggleChatPin(ChatId chatId) =>
       _lifecycleService.toggleChatPin(chatId);
 
   /// Delete entire chat with all messages
@@ -220,14 +220,15 @@ class ChatManagementService {
       _syncService.clearMessageSearchHistory();
 
   /// Check if chat is archived
-  bool isChatArchived(String chatId) => _syncService.isChatArchived(chatId);
+  bool isChatArchived(String chatId) =>
+      _syncService.isChatArchived(ChatId(chatId));
 
   /// Check if chat is pinned
-  bool isChatPinned(String chatId) => _syncService.isChatPinned(chatId);
+  bool isChatPinned(ChatId chatId) => _syncService.isChatPinned(chatId);
 
   /// Check if message is starred
-  bool isMessageStarred(String messageId) =>
-      _syncService.isMessageStarred(messageId);
+  bool isMessageStarred(MessageId messageId) =>
+      _syncService.isMessageStarredById(messageId);
 
   /// Get pinned chats count
   int get pinnedChatsCount => _syncService.pinnedChatsCount;

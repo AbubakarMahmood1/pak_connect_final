@@ -4,6 +4,7 @@ import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/services/message_queue_repository.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {
   final List<LogRecord> logRecords = [];
@@ -262,7 +263,7 @@ void main() {
 
     test('isMessageDeleted returns true for deleted messages', () {
       // Arrange
-      repository.deletedMessageIds.add('msg-1');
+      repository.deletedMessageIds.add(const MessageId('msg-1'));
 
       // Act
       final deleted = repository.isMessageDeleted('msg-1');
@@ -298,7 +299,7 @@ void main() {
       // Act
       // Note: This would call saveDeletedMessageIds and saveQueueToStorage which are async
       // For this unit test, we're testing the in-memory logic
-      repository.deletedMessageIds.add(message.id);
+      repository.deletedMessageIds.add(MessageId(message.id));
       repository.removeMessageFromQueue(message.id);
 
       // Assert

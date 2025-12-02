@@ -2,11 +2,13 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../core/app_core.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/entities/enhanced_message.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/messaging/message_router.dart';
 import '../../core/messaging/offline_message_queue.dart';
+import '../../domain/services/chat_management_facade.dart';
 
 import 'package:pak_connect/domain/values/id_types.dart';
 
@@ -26,7 +28,7 @@ typedef OnScrollToBottomCallback = void Function();
 typedef OnClearInputFieldCallback = void Function();
 
 /// Callback type for message removal (deletion)
-typedef OnMessageRemovedCallback = void Function(String messageId);
+typedef OnMessageRemovedCallback = void Function(MessageId messageId);
 
 /// Callback type for loading state changes
 typedef OnLoadingStateChangedCallback = void Function(bool isLoading);
@@ -41,8 +43,9 @@ class ChatMessagingViewModel {
   final _logger = Logger('ChatMessagingViewModel');
   final MessageRepository messageRepository;
   final ContactRepository contactRepository;
-  final String chatId;
+  final ChatId chatId;
   final String contactPublicKey;
+  final ChatManagementFacade? chatManagementFacade;
 
   final List<String> _messageBuffer = [];
   bool _messageListenerActive = false;
@@ -52,13 +55,16 @@ class ChatMessagingViewModel {
     required this.contactPublicKey,
     required this.messageRepository,
     required this.contactRepository,
+    this.chatManagementFacade,
   }) {
     _initialize();
   }
 
   /// Initialize the view model
   void _initialize() {
-    _logger.info('🎯 Initializing ChatMessagingViewModel for chat: $chatId');
+    _logger.info(
+      '🎯 Initializing ChatMessagingViewModel for chat: ${chatId.value}',
+    );
   }
 
   /// Load messages from both repository and queue, merge and deduplicate
@@ -77,7 +83,7 @@ class ChatMessagingViewModel {
     OnShowErrorCallback? onError,
   }) async {
     try {
-      _logger.info('📋 Starting to load messages for chat: $chatId');
+      _logger.info('📋 Starting to load messages for chat: ${chatId.value}');
       onLoadingStateChanged?.call(true);
 
       // 1. Load delivered messages from repository
@@ -97,7 +103,7 @@ class ChatMessagingViewModel {
           .map(
             (qm) => Message(
               id: MessageId(qm.id),
-              chatId: qm.chatId,
+              chatId: ChatId(qm.chatId),
               content: qm.content,
               timestamp: qm.queuedAt,
               isFromMe: true, // Queued messages are always outgoing
@@ -187,7 +193,7 @@ class ChatMessagingViewModel {
 
       // Use AppCore to queue message (uses proper queue system)
       final secureMessageId = await AppCore.instance.sendSecureMessage(
-        chatId: chatId,
+        chatId: chatId.value,
         content: content,
         recipientPublicKey: contactPublicKey,
       );
@@ -211,8 +217,26 @@ class ChatMessagingViewModel {
       // Show success notification
       onShowSuccess?.call('✅ Message queued for delivery');
 
+      // If message was already starred in cache, reflect immediately
+      final isStarredCached =
+          chatManagementFacade?.isMessageStarredById(tempMessage.id) ?? false;
+      if (isStarredCached) {
+        onMessageAdded?.call(
+          EnhancedMessage.fromMessage(tempMessage).copyWith(isStarred: true),
+        );
+      }
+
       // Scroll to bottom to show new message
       onScrollToBottom?.call();
+
+      // If message was already starred in cache, reflect immediately
+      final isStarred =
+          chatManagementFacade?.isMessageStarredById(tempMessage.id) ?? false;
+      if (isStarred) {
+        onMessageAdded?.call(
+          EnhancedMessage.fromMessage(tempMessage).copyWith(isStarred: true),
+        );
+      }
 
       _logger.info('✅ Message sent successfully');
     } catch (e) {
@@ -263,7 +287,7 @@ class ChatMessagingViewModel {
   /// - onShowSuccess: Callback to show success message
   /// - onShowError: Callback to show error message
   Future<void> deleteMessage({
-    required String messageId,
+    required MessageId messageId,
     bool deleteForEveryone = false,
     OnMessageRemovedCallback? onMessageRemoved,
     OnShowSuccessCallback? onShowSuccess,
@@ -275,9 +299,7 @@ class ChatMessagingViewModel {
       );
 
       // Delete from local repository
-      final success = await messageRepository.deleteMessage(
-        MessageId(messageId),
-      );
+      final success = await messageRepository.deleteMessage(messageId);
 
       if (success) {
         // Notify UI to remove message immediately (optimistic update)
@@ -288,14 +310,14 @@ class ChatMessagingViewModel {
         if (deleteForEveryone) {
           try {
             // Send deletion request using MessageRouter (offline-reliable pattern)
-            final deletionMessage = 'DELETE_MESSAGE:$messageId';
+            final deletionMessage = 'DELETE_MESSAGE:${messageId.value}';
             final router = MessageRouter.instance;
 
             final result = await router.sendMessage(
               content: deletionMessage,
               recipientId: contactPublicKey.isNotEmpty
                   ? contactPublicKey
-                  : chatId,
+                  : chatId.value,
               recipientName:
                   'Unknown', // Don't have display name here, use placeholder
             );

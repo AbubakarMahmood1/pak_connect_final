@@ -14,6 +14,7 @@ import '../interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../interfaces/i_connection_service.dart';
 import '../../domain/services/chat_management_service.dart';
+import '../../domain/values/id_types.dart';
 
 typedef ChatInteractionHandlerBuilder =
     IChatInteractionHandler Function({
@@ -257,7 +258,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
       _interactionHandler.toggleChatPin(chat);
 
   @override
-  Future<void> markChatAsRead(String chatId) =>
+  Future<void> markChatAsRead(ChatId chatId) =>
       _interactionHandler.markChatAsRead(chatId);
 
   void _handleInteractionIntent(ChatInteractionIntent intent) async {
@@ -368,7 +369,7 @@ class _NullChatInteractionHandler implements IChatInteractionHandler {
   Future<void> toggleChatPin(ChatListItem chat) async {}
 
   @override
-  Future<void> markChatAsRead(String chatId) async {}
+  Future<void> markChatAsRead(ChatId chatId) async {}
 
   void _handleInteractionIntent(ChatInteractionIntent intent) =>
       _emitIntent(intent);

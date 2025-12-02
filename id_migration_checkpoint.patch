@@ -1,0 +1,4576 @@
+diff --git a/ID_TYPES_MIGRATION_SUMMARY.md b/ID_TYPES_MIGRATION_SUMMARY.md
+index 61a0041..d099a7c 100644
+--- a/ID_TYPES_MIGRATION_SUMMARY.md
++++ b/ID_TYPES_MIGRATION_SUMMARY.md
+@@ -1,22 +1,38 @@
+-# ID Types Migration Summary (Phase 1)
++# ID Types Migration Summary (Phase 3 Status)
+ 
+-## Status
+-**SUCCESS** - The codebase now compiles (`flutter analyze` clean) and key tests pass.
++## Current status
++- Phases 1–2 are delivered: value objects exist (`EntityId<T>`, `MessageId`, `ChatId`, `UserId`, `ArchiveId`), `Message`/`EnhancedMessage` accept `MessageId` and persist `.value`, and Archive flows use `ArchiveId` end-to-end. Core repos and DB mappers serialize via `.value`.
++- Analyzer baseline: `flutter analyze --no-pub` passes.
++- Safety net: `.progress_backup.patch` in repo root contains the last reverted attempt for queue retyping.
+ 
+-## Changes Implemented
+-1.  **Infrastructure**: Verified creation of `lib/domain/values/id_types.dart` containing:
+-    *   `EntityId<T>` (Base class)
+-    *   `MessageId`, `ChatId`, `UserId`, `ArchiveId`
+-2.  **Refactoring**:
+-    *   **`MessageRestorationInfo`**: Updated to use `MessageId` instead of `String` for `messageId` field.
+-    *   **`ArchivedMessage`**: Updated `getRestorationInfo` to pass `id` (which is `MessageId`) correctly.
+-    *   **`ChatSessionViewModel`**: Updated `addReceivedMessage` to wrap `secureMessageId` (String) into `MessageId` when calling `messageRepository.getMessageById`.
+-3.  **Verification**:
+-    *   `flutter analyze --no-pub`: **PASSED** (No issues found)
+-    *   `test/domain/values/id_types_test.dart`: **PASSED**
+-    *   `test/message_repository_sqlite_test.dart`: **PASSED**
+-    *   `test/archive_repository_sqlite_test.dart`: **PASSED**
++## Completed scope
++- Value object infrastructure + unit tests (`test/domain/values/id_types_test.dart`).
++- Archive domain/repo/UI use `ArchiveId` throughout.
++- Message/EnhancedMessage constructors take `MessageId`; repositories, DTOs, and migrations map to string storage; boundary serialization uses `.value`.
++- Queue → repository delivery paths now persist `reply_to_message_id` using `MessageId` (AppCore, MeshQueueSyncCoordinator) and queue persistence normalizes reply IDs before writing.
++- Queue persistence/migration: reply IDs coerced to strings in SP→SQLite import and export/restore; queue DB mapper wraps `reply_to_message_id` and `chat_id` through value objects before storing strings.
++- Several service/facade touchpoints already accept `ChatId`/`MessageId` where blast radius was contained (e.g., retry helper, some delivery callbacks).
+ 
+-## Next Steps (Phase 2 & 3)
+-*   **Phase 2 (Gradual)**: Update `ArchivedMessage` to use `ArchiveId` instead of `String` for its `archiveId` field. Update `ArchiveRepository` accordingly.
+-*   **Phase 3 (Complete)**: Update `Message` model to fully adopt `ChatId` and `UserId`, updating all repositories and ViewModels.
++## Remaining gaps (Phase 3)
++- UI/service layers still pass message IDs as strings in many paths (pinning/starred, chat session mutations, queue/retry callers).
++- Queue/mesh/sync subsystems mostly stringly typed; introducing value objects inside without boundary shims causes large fan-out.
++- `ChatId`/`UserId` are defined but largely unused; storage/DTOs and routing still use raw strings.
++- Transport/mesh/BLE DTOs, logging, and duplicate-detection utilities still assume string IDs.
++
++## Boundary strategy for Phase 3
++- Keep public queue/mesh interfaces string-based until >80% of consumers are migrated; wrap/unwrap at boundaries rather than changing signatures prematurely.
++- Migrate in tiny slices (one helper/mapper at a time). For each slice: add adapters to wrap incoming strings to `MessageId`/`ChatId` internally, unwrap with `.value` on outbound, then run `flutter analyze --no-pub` immediately.
++- Defer mesh/BLE DTO changes until queue/pinning/retry slices are stable to avoid multi-surface breakage.
++- Use `.progress_backup.patch` only as reference; do not reapply wholesale.
++
++## Suggested next slices
++1. Non-shared helpers/mappers with limited fan-out (e.g., a single queue mapper or retry helper) with boundary adapters added locally.
++2. Pinning/retry flows: accept `MessageId` internally, unwrap to string for storage/logging; keep public facade signatures string for now.
++3. Introduce `ChatId` at entity/repo layer (Message.chatId, ChatListItem, `IChatsRepository`) while persisting via `.value`; update controllers/providers incrementally.
++4. After queue/pinning stable, add adapters for mesh/BLE/transport DTOs so external payloads remain strings but the core uses value objects.
++
++## Progress estimate
++- Overall migration progress: roughly 55–60% complete; Phase 3 is the remaining work (UI/services/transport boundaries).
++
++## Testing guidance
++- Run `flutter analyze --no-pub` after each slice; for queue/pinning changes, also run the relevant tests (`test/message_repository_sqlite_test.dart`, `test/chats_repository_sqlite_test.dart`, queue/pinning suites) to catch regressions early.
+diff --git a/docs/claude/development-guide.md b/docs/claude/development-guide.md
+index f67eaab..8286409 100644
+--- a/docs/claude/development-guide.md
++++ b/docs/claude/development-guide.md
+@@ -178,6 +178,14 @@ _logger.severe('❌ Error occurred', error, stackTrace);
+ - 🔄 Relay operations
+ - 💾 Database operations
+ 
++### Log Level Guidelines
++- `severe`: crashes or data loss; always include error/stack.
++- `warning`: degradations, retries, or security anomalies that succeeded but need attention.
++- `info`: lifecycle transitions and high-level success/fail (1–2 per operation path); avoid per-item loops.
++- `fine`: chatty internals (cache hits/misses, pagination cursors, timer ticks); disabled in production by default.
++- `finer`/`finest`: temporary debug only; remove or guard with feature flags before release.
++- Default production root level should be `info`; bump to `warning`/`severe` in noise-sensitive builds.
++
+ ## Integration Checklist
+ 
+ When integrating new features:
+diff --git a/docs/refactoring/phases/phase6_state_management.md b/docs/refactoring/phases/phase6_state_management.md
+index d91745d..5d5258e 100644
+--- a/docs/refactoring/phases/phase6_state_management.md
++++ b/docs/refactoring/phases/phase6_state_management.md
+@@ -61,3 +61,28 @@
+ 
+ ## Next milestone (20% → Screen controller conversions)
+ - Target: move Home/Chat/Archive/Contacts timers/subscriptions into Riverpod `StateNotifier`/`AsyncNotifier` with `ref.onDispose`, and convert widgets to `ConsumerWidget` listeners to drop manual `StreamController`/`Timer` ownership in the UI layer.
++
++## ADR-006: Replace Manual StreamControllers with Riverpod Notifiers
++- **Status**: Accepted  
++- **Date**: 2026-02-09  
++- **Context**: 20+ services/widgets own `StreamController`/`StreamSubscription`/`Timer` lifecycles manually, leading to leaks when screens are recreated and complicating testing. Riverpod providers already wrap runtime state (`bleRuntimeProvider`, `meshRuntimeProvider`, etc.) with `ref.onDispose`.
++- **Decision**: New and refactored state flows should be exposed via Riverpod notifiers (StateNotifier/AsyncNotifier/StreamProvider) instead of ad-hoc `StreamController`. Controllers that must consume external streams should wrap them in providers and manage subscriptions with `ref.onDispose`.
++- **Rationale**: 
++  1) Lifecycle safety: provider scope handles dispose, reducing leaks.  
++  2) Testability: providers are override-friendly; no manual controller wiring in tests.  
++  3) Consistency: unified access pattern for UI and services; fewer bespoke listeners.  
++  4) Observability: provider-based state is easier to mock/trace in harness.
++- **Consequences**: 
++  - Migration effort to wrap existing controllers (BLE facade, chat/home controllers, archive services) in providers.  
++  - Temporary shims needed while legacy `StreamController` APIs remain; mark them `@visibleForTesting` or `@deprecated` once wrapped.  
++  - Provider scopes must be available in headless services (fallback: create scoped containers in service factories).
++- **Alternatives**: 
++  - Keep manual controllers and standardize disposal checklists (rejected: still leak-prone).  
++  - Introduce an event-bus wrapper (rejected: adds indirection without lifecycle guarantees).  
++  - Use `ValueNotifier`/`ChangeNotifier` only (rejected: less suitable for async/stream-heavy flows).
++- **Implementation Plan**:
++  1) Add provider wrappers for controller-like services (BLE facade, mesh health monitor, archive search) with `ref.onDispose`.  
++  2) Redirect UI/controllers to consume provider state instead of raw streams; delete direct `StreamController` fields.  
++  3) Deprecate legacy stream getters; keep thin adapters for backward compatibility during rollout.  
++  4) Update tests to override providers instead of injecting fake controllers; remove manual controller cleanup in fixtures.  
++  5) Lock production logging to provider state changes (riverpod observers) instead of per-message stream logs.
+diff --git a/lib/core/app_core.dart b/lib/core/app_core.dart
+index 2462e76..cd4b431 100644
+--- a/lib/core/app_core.dart
++++ b/lib/core/app_core.dart
+@@ -525,14 +525,17 @@ class AppCore {
+     QueuedMessage queuedMessage,
+   ) async {
+     try {
+-      // Create repository message with delivered status
+-      final repoMessage = Message(
++      // Create repository message with delivered status; preserve reply linkage
++      final repoMessage = EnhancedMessage(
+         id: MessageId(queuedMessage.id), // Same ID as queue (secure ID)
+-        chatId: queuedMessage.chatId,
++        chatId: ChatId(queuedMessage.chatId),
+         content: queuedMessage.content,
+         timestamp: queuedMessage.queuedAt,
+         isFromMe: true,
+         status: MessageStatus.delivered, // Delivered successfully!
++        replyToMessageId: queuedMessage.replyToMessageId != null
++            ? MessageId(queuedMessage.replyToMessageId!)
++            : null,
+       );
+ 
+       // 🎯 OPTION B: Message should NOT exist in repository yet
+diff --git a/lib/core/interfaces/i_archive_repository.dart b/lib/core/interfaces/i_archive_repository.dart
+index 3d17e61..d4bb9de 100644
+--- a/lib/core/interfaces/i_archive_repository.dart
++++ b/lib/core/interfaces/i_archive_repository.dart
+@@ -1,5 +1,6 @@
+ import '../../core/models/archive_models.dart';
+ import '../../domain/entities/archived_chat.dart';
++import '../../domain/values/id_types.dart';
+ 
+ /// Interface for archive repository operations
+ ///
+@@ -20,7 +21,7 @@ abstract class IArchiveRepository {
+   });
+ 
+   /// Restore a chat from archives
+-  Future<ArchiveOperationResult> restoreChat(String archiveId);
++  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId);
+ 
+   /// Get count of archived chats
+   Future<int> getArchivedChatsCount();
+@@ -36,7 +37,7 @@ abstract class IArchiveRepository {
+   Future<ArchivedChatSummary?> getArchivedChatByOriginalId(String chatId);
+ 
+   /// Get a specific archived chat (full details)
+-  Future<ArchivedChat?> getArchivedChat(String archiveId);
++  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId);
+ 
+   /// Search archived messages
+   Future<ArchiveSearchResult> searchArchives({
+@@ -47,7 +48,7 @@ abstract class IArchiveRepository {
+   });
+ 
+   /// Permanently delete an archive
+-  Future<void> permanentlyDeleteArchive(String archivedChatId);
++  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId);
+ 
+   /// Get archive statistics
+   Future<ArchiveStatistics?> getArchiveStatistics();
+diff --git a/lib/core/interfaces/i_chat_interaction_handler.dart b/lib/core/interfaces/i_chat_interaction_handler.dart
+index 586b93d..85a9c5c 100644
+--- a/lib/core/interfaces/i_chat_interaction_handler.dart
++++ b/lib/core/interfaces/i_chat_interaction_handler.dart
+@@ -1,4 +1,5 @@
+ import '../../domain/entities/chat_list_item.dart';
++import '../../domain/values/id_types.dart';
+ 
+ /// Interface for handling user interactions in home screen
+ ///
+@@ -80,7 +81,7 @@ abstract class IChatInteractionHandler {
+   Future<void> toggleChatPin(ChatListItem chat);
+ 
+   /// Mark a chat as read
+-  Future<void> markChatAsRead(String chatId);
++  Future<void> markChatAsRead(ChatId chatId);
+ 
+   /// Get stream of interaction intents/events
+   /// Facade listens to this to know when to refresh chat list
+diff --git a/lib/core/interfaces/i_chats_repository.dart b/lib/core/interfaces/i_chats_repository.dart
+index 8caf0b2..f91024b 100644
+--- a/lib/core/interfaces/i_chats_repository.dart
++++ b/lib/core/interfaces/i_chats_repository.dart
+@@ -1,6 +1,7 @@
+ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+ import '../../domain/entities/chat_list_item.dart';
+ import '../../domain/entities/contact.dart';
++import '../../domain/values/id_types.dart';
+ 
+ /// Interface for chats repository operations
+ ///
+@@ -22,10 +23,10 @@ abstract class IChatsRepository {
+   Future<List<Contact>> getContactsWithoutChats();
+ 
+   /// Mark a chat as read
+-  Future<void> markChatAsRead(String chatId);
++  Future<void> markChatAsRead(ChatId chatId);
+ 
+   /// Increment unread count for a chat
+-  Future<void> incrementUnreadCount(String chatId);
++  Future<void> incrementUnreadCount(ChatId chatId);
+ 
+   /// Update contact's last seen timestamp
+   Future<void> updateContactLastSeen(String publicKey);
+diff --git a/lib/core/interfaces/i_home_screen_facade.dart b/lib/core/interfaces/i_home_screen_facade.dart
+index bc2bb1e..c16a764 100644
+--- a/lib/core/interfaces/i_home_screen_facade.dart
++++ b/lib/core/interfaces/i_home_screen_facade.dart
+@@ -1,5 +1,6 @@
+ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+ import '../../domain/entities/chat_list_item.dart';
++import '../../domain/values/id_types.dart';
+ import '../../core/models/connection_status.dart';
+ import '../../core/models/connection_info.dart';
+ import '../../core/discovery/device_deduplication_manager.dart';
+@@ -86,7 +87,7 @@ abstract class IHomeScreenFacade {
+   Future<void> toggleChatPin(ChatListItem chat);
+ 
+   /// Mark chat as read
+-  Future<void> markChatAsRead(String chatId);
++  Future<void> markChatAsRead(ChatId chatId);
+ 
+   // ============ Connection Status ============
+ 
+diff --git a/lib/core/interfaces/i_message_repository.dart b/lib/core/interfaces/i_message_repository.dart
+index 84c63d2..0f1de59 100644
+--- a/lib/core/interfaces/i_message_repository.dart
++++ b/lib/core/interfaces/i_message_repository.dart
+@@ -11,7 +11,7 @@ import 'package:pak_connect/domain/values/id_types.dart';
+ /// **Phase 1 Note**: Interface defines all public methods from MessageRepository
+ abstract class IMessageRepository {
+   /// Get all messages for a specific chat, sorted by timestamp
+-  Future<List<Message>> getMessages(String chatId);
++  Future<List<Message>> getMessages(ChatId chatId);
+ 
+   /// Get a single message by ID (for duplicate checking)
+   Future<Message?> getMessageById(MessageId messageId);
+@@ -23,7 +23,7 @@ abstract class IMessageRepository {
+   Future<void> updateMessage(Message message);
+ 
+   /// Clear all messages for a specific chat
+-  Future<void> clearMessages(String chatId);
++  Future<void> clearMessages(ChatId chatId);
+ 
+   /// Delete a specific message by ID
+   Future<bool> deleteMessage(MessageId messageId);
+@@ -35,5 +35,5 @@ abstract class IMessageRepository {
+   Future<List<Message>> getMessagesForContact(String publicKey);
+ 
+   /// Migrate messages from one chat ID to another
+-  Future<void> migrateChatId(String oldChatId, String newChatId);
++  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId);
+ }
+diff --git a/lib/core/interfaces/i_pinning_service.dart b/lib/core/interfaces/i_pinning_service.dart
+index 28218f9..86ad8dc 100644
+--- a/lib/core/interfaces/i_pinning_service.dart
++++ b/lib/core/interfaces/i_pinning_service.dart
+@@ -3,17 +3,18 @@
+ 
+ import '../../domain/services/chat_management_service.dart';
+ import '../../domain/entities/enhanced_message.dart';
++import '../../domain/values/id_types.dart';
+ 
+ /// Interface for message starring and pinning operations
+ abstract class IPinningService {
+   /// Star/unstar message
+-  Future<ChatOperationResult> toggleMessageStar(String messageId);
++  Future<ChatOperationResult> toggleMessageStar(MessageId messageId);
+ 
+   /// Get all starred messages
+   Future<List<EnhancedMessage>> getStarredMessages();
+ 
+   /// Check if message is starred
+-  bool isMessageStarred(String messageId);
++  bool isMessageStarred(MessageId messageId);
+ 
+   /// Get pinned chats count
+   int get pinnedChatsCount;
+diff --git a/lib/core/messaging/offline_message_queue.dart b/lib/core/messaging/offline_message_queue.dart
+index c020bb6..09e9126 100644
+--- a/lib/core/messaging/offline_message_queue.dart
++++ b/lib/core/messaging/offline_message_queue.dart
+@@ -866,12 +866,16 @@ class OfflineMessageQueue {
+ 
+   /// Get missing messages compared to another queue
+   List<String> getMissingMessageIds(List<String> otherMessageIds) {
+-    return _sync.getMissingMessageIds(otherMessageIds);
++    final normalizedIds =
++        otherMessageIds.map((id) => id.toString()).toList();
++    return _sync.getMissingMessageIds(normalizedIds);
+   }
+ 
+   /// Get excess messages that the other queue doesn't have
+   List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
+-    return _sync.getExcessMessages(otherMessageIds);
++    final normalizedIds =
++        otherMessageIds.map((id) => id.toString()).toList();
++    return _sync.getExcessMessages(normalizedIds);
+   }
+ 
+   /// Mark message as deleted for sync purposes
+diff --git a/lib/core/models/archive_models.dart b/lib/core/models/archive_models.dart
+index 3d84789..890fdaa 100644
+--- a/lib/core/models/archive_models.dart
++++ b/lib/core/models/archive_models.dart
+@@ -1,5 +1,4 @@
+-// Core archive models and data structures for the pak_connect archive system
+-
++import '../../domain/values/id_types.dart';
+ import '../../domain/entities/archived_chat.dart';
+ import '../../domain/entities/archived_message.dart';
+ 
+@@ -60,7 +59,7 @@ class ArchiveSearchResult {
+     // Group messages by chat
+     final messagesByChat = <String, List<ArchivedMessage>>{};
+     for (final message in messages) {
+-      messagesByChat.putIfAbsent(message.chatId, () => []).add(message);
++      messagesByChat.putIfAbsent(message.chatId.value, () => []).add(message);
+     }
+ 
+     // Create metadata
+@@ -400,7 +399,7 @@ class ArchiveOperationResult {
+   final bool success;
+   final String message;
+   final ArchiveOperationType operationType;
+-  final String? archiveId;
++  final ArchiveId? archiveId;
+   final Duration operationTime;
+   final Map<String, dynamic>? metadata;
+   final List<String> warnings;
+@@ -421,7 +420,7 @@ class ArchiveOperationResult {
+   factory ArchiveOperationResult.success({
+     required String message,
+     required ArchiveOperationType operationType,
+-    String? archiveId,
++    ArchiveId? archiveId,
+     required Duration operationTime,
+     Map<String, dynamic>? metadata,
+     List<String> warnings = const [],
+diff --git a/lib/core/models/mesh_relay_models.dart b/lib/core/models/mesh_relay_models.dart
+index 461396f..125f979 100644
+--- a/lib/core/models/mesh_relay_models.dart
++++ b/lib/core/models/mesh_relay_models.dart
+@@ -338,15 +338,23 @@ class QueueSyncMessage {
+     String? queueHash, // Optional: pre-calculated queue hash for optimization
+     GCSFilterParams? gcsFilter, // Optional: GCS filter for efficient sync
+   }) {
+-    final hash = queueHash ?? _generateQueueHash(messageIds);
++    final normalizedIds = messageIds.map((id) => id.toString()).toSet().toList();
++    final normalizedHashes = messageHashes != null
++        ? Map<String, String>.fromEntries(
++            messageHashes.entries.map(
++              (e) => MapEntry(e.key.toString(), e.value.toString()),
++            ),
++          )
++        : null;
++    final hash = queueHash ?? _generateQueueHash(normalizedIds);
+ 
+     return QueueSyncMessage(
+       queueHash: hash,
+-      messageIds: messageIds,
++      messageIds: normalizedIds,
+       syncTimestamp: DateTime.now(),
+       nodeId: nodeId,
+       syncType: QueueSyncType.request,
+-      messageHashes: messageHashes,
++      messageHashes: normalizedHashes,
+       gcsFilter: gcsFilter,
+     );
+   }
+@@ -358,15 +366,23 @@ class QueueSyncMessage {
+     required QueueSyncStats stats,
+     Map<String, String>? messageHashes,
+   }) {
+-    final queueHash = _generateQueueHash(messageIds);
++    final normalizedIds = messageIds.map((id) => id.toString()).toSet().toList();
++    final normalizedHashes = messageHashes != null
++        ? Map<String, String>.fromEntries(
++            messageHashes.entries.map(
++              (e) => MapEntry(e.key.toString(), e.value.toString()),
++            ),
++          )
++        : null;
++    final queueHash = _generateQueueHash(normalizedIds);
+ 
+     return QueueSyncMessage(
+       queueHash: queueHash,
+-      messageIds: messageIds,
++      messageIds: normalizedIds,
+       syncTimestamp: DateTime.now(),
+       nodeId: nodeId,
+       syncType: QueueSyncType.response,
+-      messageHashes: messageHashes,
++      messageHashes: normalizedHashes,
+       queueStats: stats,
+     );
+   }
+@@ -396,14 +412,20 @@ class QueueSyncMessage {
+   factory QueueSyncMessage.fromJson(Map<String, dynamic> json) =>
+       QueueSyncMessage(
+         queueHash: json['queueHash'],
+-        messageIds: List<String>.from(json['messageIds']),
++        messageIds: (json['messageIds'] as List<dynamic>)
++            .map((id) => id.toString())
++            .toList(),
+         syncTimestamp: DateTime.fromMillisecondsSinceEpoch(
+           json['syncTimestamp'],
+         ),
+         nodeId: json['nodeId'],
+         syncType: QueueSyncType.values[json['syncType']],
+         messageHashes: json['messageHashes'] != null
+-            ? Map<String, String>.from(json['messageHashes'])
++            ? Map<String, String>.from(
++                (json['messageHashes'] as Map).map(
++                  (key, value) => MapEntry(key.toString(), value.toString()),
++                ),
++              )
+             : null,
+         queueStats: json['queueStats'] != null
+             ? QueueSyncStats.fromJson(json['queueStats'])
+diff --git a/lib/core/services/home_screen_facade.dart b/lib/core/services/home_screen_facade.dart
+index 0d6bdaa..a0c85e5 100644
+--- a/lib/core/services/home_screen_facade.dart
++++ b/lib/core/services/home_screen_facade.dart
+@@ -14,6 +14,7 @@ import '../interfaces/i_chats_repository.dart';
+ import '../../domain/entities/chat_list_item.dart';
+ import '../interfaces/i_connection_service.dart';
+ import '../../domain/services/chat_management_service.dart';
++import '../../domain/values/id_types.dart';
+ 
+ typedef ChatInteractionHandlerBuilder =
+     IChatInteractionHandler Function({
+@@ -257,7 +258,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
+       _interactionHandler.toggleChatPin(chat);
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) =>
++  Future<void> markChatAsRead(ChatId chatId) =>
+       _interactionHandler.markChatAsRead(chatId);
+ 
+   void _handleInteractionIntent(ChatInteractionIntent intent) async {
+@@ -368,7 +369,7 @@ class _NullChatInteractionHandler implements IChatInteractionHandler {
+   Future<void> toggleChatPin(ChatListItem chat) async {}
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {}
++  Future<void> markChatAsRead(ChatId chatId) async {}
+ 
+   void _handleInteractionIntent(ChatInteractionIntent intent) =>
+       _emitIntent(intent);
+diff --git a/lib/core/services/message_queue_repository.dart b/lib/core/services/message_queue_repository.dart
+index 167df0e..2c6533d 100644
+--- a/lib/core/services/message_queue_repository.dart
++++ b/lib/core/services/message_queue_repository.dart
+@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
+ import 'package:get_it/get_it.dart';
+ import 'package:sqflite_sqlcipher/sqflite.dart';
+ import '../../domain/entities/enhanced_message.dart';
++import '../../domain/values/id_types.dart';
+ import '../interfaces/i_message_queue_repository.dart';
+ import '../interfaces/i_database_provider.dart';
+ import '../messaging/offline_message_queue.dart';
+@@ -290,10 +291,14 @@ class MessageQueueRepository implements IMessageQueueRepository {
+   @override
+   Map<String, dynamic> queuedMessageToDb(QueuedMessage message) {
+     final now = DateTime.now().millisecondsSinceEpoch;
++    final replyId = message.replyToMessageId != null
++        ? MessageId(message.replyToMessageId!)
++        : null;
++    final chat = ChatId(message.chatId);
+     return {
+       'queue_id': message.id,
+       'message_id': message.id,
+-      'chat_id': message.chatId,
++      'chat_id': chat.value,
+       'content': message.content,
+       'recipient_public_key': message.recipientPublicKey,
+       'sender_public_key': message.senderPublicKey,
+@@ -316,7 +321,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
+       'relay_metadata_json': message.relayMetadata != null
+           ? jsonEncode(message.relayMetadata!.toJson())
+           : null,
+-      'reply_to_message_id': message.replyToMessageId,
++      'reply_to_message_id': replyId?.value ?? message.replyToMessageId,
+       'attachments_json': message.attachments.isNotEmpty
+           ? jsonEncode(message.attachments)
+           : null,
+@@ -329,16 +334,19 @@ class MessageQueueRepository implements IMessageQueueRepository {
+   /// Convert database row to QueuedMessage
+   @override
+   QueuedMessage queuedMessageFromDb(Map<String, dynamic> row) {
++    final replyId = row['reply_to_message_id'] as String?;
++    final chatId = row['chat_id'] as String;
++
+     return QueuedMessage(
+       id: row['message_id'] as String,
+-      chatId: row['chat_id'] as String,
++      chatId: ChatId(chatId).value,
+       content: row['content'] as String,
+       recipientPublicKey: row['recipient_public_key'] as String,
+       senderPublicKey: row['sender_public_key'] as String,
+       priority: MessagePriority.values[row['priority'] as int],
+       queuedAt: DateTime.fromMillisecondsSinceEpoch(row['queued_at'] as int),
+       maxRetries: row['max_retries'] as int,
+-      replyToMessageId: row['reply_to_message_id'] as String?,
++      replyToMessageId: replyId != null ? MessageId(replyId).value : null,
+       attachments: row['attachments_json'] != null
+           ? List<String>.from(jsonDecode(row['attachments_json'] as String))
+           : [],
+diff --git a/lib/core/services/message_retry_coordinator.dart b/lib/core/services/message_retry_coordinator.dart
+index e91de1a..2a86eb7 100644
+--- a/lib/core/services/message_retry_coordinator.dart
++++ b/lib/core/services/message_retry_coordinator.dart
+@@ -5,6 +5,7 @@ library;
+ import 'dart:async';
+ import 'package:logging/logging.dart';
+ import '../../domain/entities/message.dart';
++import '../../domain/values/id_types.dart';
+ import '../interfaces/i_repository_provider.dart';
+ import '../messaging/offline_message_queue.dart';
+ import '../interfaces/i_mesh_networking_service.dart';
+@@ -28,7 +29,7 @@ class MessageRetryCoordinator {
+        _offlineQueue = offlineQueue;
+ 
+   /// Get unified failed message count from both persistence systems
+-  Future<MessageRetryStatus> getFailedMessageStatus(String chatId) async {
++  Future<MessageRetryStatus> getFailedMessageStatus(ChatId chatId) async {
+     try {
+       // Get failed messages from repository (UI messages)
+       final repositoryMessages = await _repositoryProvider.messageRepository
+@@ -44,7 +45,7 @@ class MessageRetryCoordinator {
+ 
+       // Filter queue messages for this chat
+       final chatQueueFailedMessages = queueFailedMessages
+-          .where((qm) => qm.chatId == chatId)
++          .where((qm) => qm.chatId == chatId.value)
+           .toList();
+ 
+       _logger.info(
+@@ -73,13 +74,13 @@ class MessageRetryCoordinator {
+ 
+   /// Coordinate retry of all failed messages across both systems
+   Future<MessageRetryResult> retryAllFailedMessages({
+-    required String chatId,
+-    required Function(Message message) onRepositoryMessageRetry,
+-    required Function(QueuedMessage message) onQueueMessageRetry,
++    required ChatId chatId,
++    required Future<void> Function(Message message) onRepositoryMessageRetry,
++    required Future<void> Function(QueuedMessage message) onQueueMessageRetry,
+     bool allowPartialConnection = true,
+   }) async {
+     try {
+-      _logger.info('🔄 Starting coordinated retry for chat: $chatId');
++      _logger.info('🔄 Starting coordinated retry for chat: ${chatId.value}');
+ 
+       final status = await getFailedMessageStatus(chatId);
+ 
+@@ -137,7 +138,7 @@ class MessageRetryCoordinator {
+           // Check how many succeeded by counting remaining failed messages
+           final remainingFailed = _offlineQueue
+               .getMessagesByStatus(QueuedMessageStatus.failed)
+-              .where((qm) => qm.chatId == chatId)
++              .where((qm) => qm.chatId == chatId.value)
+               .length;
+ 
+           queueSucceeded = status.queueFailedMessages.length - remainingFailed;
+diff --git a/lib/core/services/pinning_service.dart b/lib/core/services/pinning_service.dart
+index 98731ba..a7ab989 100644
+--- a/lib/core/services/pinning_service.dart
++++ b/lib/core/services/pinning_service.dart
+@@ -9,6 +9,7 @@ import '../interfaces/i_chats_repository.dart';
+ import '../interfaces/i_message_repository.dart';
+ import '../../domain/services/chat_management_service.dart';
+ import '../../domain/entities/enhanced_message.dart';
++import '../../domain/values/id_types.dart';
+ 
+ /// Service for managing message starring and chat pinning
+ class PinningService {
+@@ -71,17 +72,18 @@ class PinningService {
+   }
+ 
+   /// Star/unstar message
+-  Future<ChatOperationResult> toggleMessageStar(String messageId) async {
++  Future<ChatOperationResult> toggleMessageStar(MessageId messageId) async {
+     try {
+-      if (_starredMessageIds.contains(messageId)) {
+-        _starredMessageIds.remove(messageId);
++      final value = messageId.value;
++      if (_starredMessageIds.contains(value)) {
++        _starredMessageIds.remove(value);
+         await _saveStarredMessages();
+-        _emitUpdate(MessageUpdateEvent.unstarred(messageId));
++        _emitUpdate(MessageUpdateEvent.unstarred(value));
+         return ChatOperationResult.success('Message unstarred');
+       } else {
+-        _starredMessageIds.add(messageId);
++        _starredMessageIds.add(value);
+         await _saveStarredMessages();
+-        _emitUpdate(MessageUpdateEvent.starred(messageId));
++        _emitUpdate(MessageUpdateEvent.starred(value));
+         return ChatOperationResult.success('Message starred');
+       }
+     } catch (e) {
+@@ -141,8 +143,8 @@ class PinningService {
+   }
+ 
+   /// Check if message is starred
+-  bool isMessageStarred(String messageId) =>
+-      _starredMessageIds.contains(messageId);
++  bool isMessageStarred(MessageId messageId) =>
++      _starredMessageIds.contains(messageId.value);
+ 
+   /// Check if chat is pinned
+   bool isChatPinned(String chatId) => _pinnedChats.contains(chatId);
+diff --git a/lib/core/services/queue_sync_coordinator.dart b/lib/core/services/queue_sync_coordinator.dart
+index 3dabfc7..11a80f4 100644
+--- a/lib/core/services/queue_sync_coordinator.dart
++++ b/lib/core/services/queue_sync_coordinator.dart
+@@ -194,7 +194,9 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
+         .map((m) => m.id)
+         .toSet();
+ 
+-    return otherMessageIds
++    final otherIds = otherMessageIds.map((id) => id.toString()).toSet();
++
++    return otherIds
+         .where(
+           (id) => !currentIds.contains(id) && !_deletedMessageIds.contains(id),
+         )
+@@ -203,7 +205,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
+ 
+   @override
+   List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
+-    final otherIdSet = otherMessageIds.toSet();
++    final otherIdSet = otherMessageIds.map((id) => id.toString()).toSet();
+     final allMessages = _repository?.getAllMessages() ?? [];
+ 
+     return allMessages
+diff --git a/lib/core/services/search_service.dart b/lib/core/services/search_service.dart
+index 947cdb3..cf76668 100644
+--- a/lib/core/services/search_service.dart
++++ b/lib/core/services/search_service.dart
+@@ -12,6 +12,7 @@ import '../../domain/services/chat_management_service.dart';
+ import '../../domain/entities/enhanced_message.dart';
+ import '../../domain/entities/archived_message.dart';
+ import '../../core/models/archive_models.dart';
++import 'package:pak_connect/domain/values/id_types.dart';
+ 
+ /// Service for searching messages across chats and archives
+ class SearchService {
+@@ -84,7 +85,7 @@ class SearchService {
+ 
+       if (chatId != null) {
+         // Search within specific chat
+-        final messages = await _messageRepository.getMessages(chatId);
++        final messages = await _messageRepository.getMessages(ChatId(chatId));
+         allMessages = messages
+             .map((m) => EnhancedMessage.fromMessage(m))
+             .toList();
+@@ -154,7 +155,7 @@ class SearchService {
+ 
+       if (chatId != null) {
+         // Search within specific chat
+-        final messages = await _messageRepository.getMessages(chatId);
++        final messages = await _messageRepository.getMessages(ChatId(chatId));
+         liveResults = messages
+             .map((m) => EnhancedMessage.fromMessage(m))
+             .toList();
+@@ -345,7 +346,7 @@ class SearchService {
+     final grouped = <String, List<EnhancedMessage>>{};
+ 
+     for (final message in results) {
+-      grouped.putIfAbsent(message.chatId, () => []).add(message);
++      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
+     }
+ 
+     return grouped;
+@@ -358,7 +359,7 @@ class SearchService {
+     final grouped = <String, List<ArchivedMessage>>{};
+ 
+     for (final message in results) {
+-      grouped.putIfAbsent(message.chatId, () => []).add(message);
++      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
+     }
+ 
+     return grouped;
+diff --git a/lib/data/database/migration_service.dart b/lib/data/database/migration_service.dart
+index 92e1abc..faf3361 100644
+--- a/lib/data/database/migration_service.dart
++++ b/lib/data/database/migration_service.dart
+@@ -336,8 +336,8 @@ class MigrationService {
+ 
+         // Basic message fields
+         final record = {
+-          'id': messageData['id'],
+-          'chat_id': messageData['chatId'],
++          'id': messageData['id']?.toString(),
++          'chat_id': messageData['chatId']?.toString(),
+           'content': messageData['content'],
+           'timestamp': messageData['timestamp'],
+           'is_from_me': (messageData['isFromMe'] ?? false) ? 1 : 0,
+@@ -349,10 +349,11 @@ class MigrationService {
+ 
+         // Enhanced message fields (if present)
+         if (messageData.containsKey('replyToMessageId')) {
+-          record['reply_to_message_id'] = messageData['replyToMessageId'];
++          record['reply_to_message_id'] =
++              messageData['replyToMessageId']?.toString();
+         }
+         if (messageData.containsKey('threadId')) {
+-          record['thread_id'] = messageData['threadId'];
++          record['thread_id'] = messageData['threadId']?.toString();
+         }
+         if (messageData.containsKey('isStarred')) {
+           record['is_starred'] = messageData['isStarred'] ? 1 : 0;
+@@ -436,6 +437,8 @@ class MigrationService {
+         final queueData = jsonDecode(json);
+         final now = DateTime.now().millisecondsSinceEpoch;
+ 
++        final replyToMessageId = queueData['replyToMessageId'];
++
+         await db.insert('offline_message_queue', {
+           'queue_id': queueData['id'] ?? 'queue_${now}_$count',
+           'message_id': queueData['id'],
+@@ -461,7 +464,7 @@ class MigrationService {
+           'relay_metadata_json': queueData['relayMetadata'] != null
+               ? jsonEncode(queueData['relayMetadata'])
+               : null,
+-          'reply_to_message_id': queueData['replyToMessageId'],
++          'reply_to_message_id': replyToMessageId?.toString(),
+           'attachments_json': queueData['attachments'] != null
+               ? jsonEncode(queueData['attachments'])
+               : null,
+diff --git a/lib/data/repositories/archive_data_helper.dart b/lib/data/repositories/archive_data_helper.dart
+index 33292de..093408c 100644
+--- a/lib/data/repositories/archive_data_helper.dart
++++ b/lib/data/repositories/archive_data_helper.dart
+@@ -1,6 +1,7 @@
+ import 'dart:convert';
+ import '../../domain/entities/archived_message.dart';
+ import '../../domain/entities/archived_chat.dart';
++import '../../domain/values/id_types.dart';
+ 
+ /// Helper for archive data transformations, compression, and serialization
+ class ArchiveDataHelper {
+@@ -8,18 +9,18 @@ class ArchiveDataHelper {
+ 
+   Map<String, dynamic> archivedMessageToMap(
+     ArchivedMessage message,
+-    String archiveId,
++    ArchiveId archiveId,
+   ) {
+     return {
+-      'id': message.id,
+-      'archive_id': archiveId,
+-      'original_message_id': message.id, // preserve original id
+-      'chat_id': message.chatId,
++      'id': message.id.value,
++      'archive_id': archiveId.value,
++      'original_message_id': message.id.value, // preserve original id
++      'chat_id': message.chatId.value,
+       'content': message.content,
+       'timestamp': message.timestamp.millisecondsSinceEpoch,
+       'is_from_me': message.isFromMe ? 1 : 0,
+       'status': message.status.index,
+-      'reply_to_message_id': message.replyToMessageId,
++      'reply_to_message_id': message.replyToMessageId?.value,
+       'thread_id': message.threadId,
+       'is_starred': message.isStarred ? 1 : 0,
+       'is_forwarded': message.isForwarded ? 1 : 0,
+@@ -67,7 +68,7 @@ class ArchiveDataHelper {
+     Map<String, dynamic>? customData,
+   ) {
+     return {
+-      'archive_id': archive.id,
++      'archive_id': archive.id.value,
+       'original_chat_id': originalChatId,
+       'contact_name': archive.contactName,
+       'contact_public_key': archive.contactPublicKey,
+diff --git a/lib/data/repositories/archive_repository.dart b/lib/data/repositories/archive_repository.dart
+index 72f450f..daf5f57 100644
+--- a/lib/data/repositories/archive_repository.dart
++++ b/lib/data/repositories/archive_repository.dart
+@@ -98,7 +98,7 @@ class ArchiveRepository implements IArchiveRepository {
+ 
+       // Get chat and messages
+       final chats = await _chatsRepository.getAllChats();
+-      final chatItem = chats.where((c) => c.chatId == chatId).firstOrNull;
++      final chatItem = chats.where((c) => c.chatId.value == chatId).firstOrNull;
+ 
+       if (chatItem == null) {
+         return ArchiveOperationResult.failure(
+@@ -108,7 +108,7 @@ class ArchiveRepository implements IArchiveRepository {
+         );
+       }
+ 
+-      final messages = await _messageRepository.getMessages(chatId);
++      final messages = await _messageRepository.getMessages(ChatId(chatId));
+       if (messages.isEmpty) {
+         return ArchiveOperationResult.failure(
+           message: 'No messages found for chat: $chatId',
+@@ -165,7 +165,7 @@ class ArchiveRepository implements IArchiveRepository {
+       });
+ 
+       // Clear original chat messages
+-      await _messageRepository.clearMessages(chatId);
++      await _messageRepository.clearMessages(ChatId(chatId));
+ 
+       final operationTime = DateTime.now().difference(startTime);
+       _storageUtils.recordOperationTime('archive', operationTime);
+@@ -213,7 +213,7 @@ class ArchiveRepository implements IArchiveRepository {
+   }
+ 
+   /// Restore an archived chat
+-  Future<ArchiveOperationResult> restoreChat(String archiveId) async {
++  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async {
+     final startTime = DateTime.now();
+ 
+     try {
+@@ -274,7 +274,7 @@ class ArchiveRepository implements IArchiveRepository {
+       await db.delete(
+         'archived_chats',
+         where: 'archive_id = ?',
+-        whereArgs: [archiveId],
++        whereArgs: [archiveId.value],
+       );
+       _logger.info('Archive $archiveId deleted after restoration');
+ 
+@@ -425,7 +425,7 @@ class ArchiveRepository implements IArchiveRepository {
+   }
+ 
+   /// Get specific archived chat with full data
+-  Future<ArchivedChat?> getArchivedChat(String archiveId) async {
++  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async {
+     try {
+       final db = await DatabaseHelper.database;
+ 
+@@ -433,7 +433,7 @@ class ArchiveRepository implements IArchiveRepository {
+       final archiveResults = await db.query(
+         'archived_chats',
+         where: 'archive_id = ?',
+-        whereArgs: [archiveId],
++        whereArgs: [archiveId.value],
+       );
+ 
+       if (archiveResults.isEmpty) {
+@@ -446,7 +446,7 @@ class ArchiveRepository implements IArchiveRepository {
+       final messageResults = await db.query(
+         'archived_messages',
+         where: 'archive_id = ?',
+-        whereArgs: [archiveId],
++        whereArgs: [archiveId.value],
+         orderBy: 'timestamp ASC',
+       );
+ 
+@@ -520,7 +520,7 @@ class ArchiveRepository implements IArchiveRepository {
+         final chatResult = await db.query(
+           'archived_chats',
+           where: 'archive_id = ?',
+-          whereArgs: [archiveId],
++          whereArgs: [archiveId.value],
+         );
+         if (chatResult.isNotEmpty) {
+           chatSummaries.add(_mapToArchivedChatSummary(chatResult.first));
+@@ -560,7 +560,7 @@ class ArchiveRepository implements IArchiveRepository {
+ 
+   /// Permanently delete an archived chat
+   Future<ArchiveOperationResult> permanentlyDeleteArchive(
+-    String archiveId,
++    ArchiveId archiveId,
+   ) async {
+     final startTime = DateTime.now();
+ 
+@@ -582,7 +582,7 @@ class ArchiveRepository implements IArchiveRepository {
+       await db.delete(
+         'archived_chats',
+         where: 'archive_id = ?',
+-        whereArgs: [archiveId],
++        whereArgs: [archiveId.value],
+       );
+ 
+       final operationTime = DateTime.now().difference(startTime);
+@@ -741,10 +741,10 @@ class ArchiveRepository implements IArchiveRepository {
+ 
+   // Private helper methods
+ 
+-  String _generateArchiveId(String chatId) {
++  ArchiveId _generateArchiveId(String chatId) {
+     final timestamp = DateTime.now().millisecondsSinceEpoch;
+     final hash = '${chatId}_$timestamp'.hashCode.abs();
+-    return 'archive_$hash';
++    return ArchiveId('archive_$hash');
+   }
+ 
+   Future<ArchivedChat> _compressArchive(ArchivedChat archive) async {
+@@ -904,7 +904,7 @@ class ArchiveRepository implements IArchiveRepository {
+ 
+   Map<String, dynamic> _archivedMessageToMap(
+     ArchivedMessage message,
+-    String archiveId,
++    ArchiveId archiveId,
+   ) {
+     return _dataHelper.archivedMessageToMap(message, archiveId);
+   }
+@@ -913,14 +913,16 @@ class ArchiveRepository implements IArchiveRepository {
+     return ArchivedMessage(
+       // Message base fields
+       id: MessageId(row['id'] as String),
+-      chatId: row['chat_id'] as String,
++      chatId: ChatId(row['chat_id'] as String),
+       content: row['content'] as String,
+       timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
+       isFromMe: (row['is_from_me'] as int) == 1,
+       status: MessageStatus.values[row['status'] as int],
+ 
+       // EnhancedMessage fields
+-      replyToMessageId: row['reply_to_message_id'] as String?,
++      replyToMessageId: row['reply_to_message_id'] != null
++          ? MessageId(row['reply_to_message_id'] as String)
++          : null,
+       threadId: row['thread_id'] as String?,
+       metadata: row['metadata_json'] != null
+           ? Map<String, dynamic>.from(
+@@ -967,7 +969,7 @@ class ArchiveRepository implements IArchiveRepository {
+       originalTimestamp: DateTime.fromMillisecondsSinceEpoch(
+         row['original_timestamp'] as int,
+       ),
+-      archiveId: row['archive_id'] as String,
++      archiveId: ArchiveId(row['archive_id'] as String),
+       archiveMetadata: row['archive_metadata_json'] != null
+           ? ArchiveMessageMetadata.fromJson(
+               jsonDecode(row['archive_metadata_json'] as String),
+@@ -991,7 +993,7 @@ class ArchiveRepository implements IArchiveRepository {
+ 
+   ArchivedChatSummary _mapToArchivedChatSummary(Map<String, dynamic> row) {
+     return ArchivedChatSummary(
+-      id: row['archive_id'] as String,
++      id: ArchiveId(row['archive_id'] as String),
+       originalChatId: row['original_chat_id'] as String,
+       contactName: row['contact_name'] as String,
+       archivedAt: DateTime.fromMillisecondsSinceEpoch(
+@@ -1016,7 +1018,7 @@ class ArchiveRepository implements IArchiveRepository {
+     final metadataJson = archiveRow['metadata_json'] as String?;
+ 
+     return ArchivedChat(
+-      id: archiveRow['archive_id'] as String,
++      id: ArchiveId(archiveRow['archive_id'] as String),
+       originalChatId: archiveRow['original_chat_id'] as String,
+       contactName: archiveRow['contact_name'] as String,
+       contactPublicKey: archiveRow['contact_public_key'] as String?,
+diff --git a/lib/data/repositories/chats_repository.dart b/lib/data/repositories/chats_repository.dart
+index 035bd40..39099b1 100644
+--- a/lib/data/repositories/chats_repository.dart
++++ b/lib/data/repositories/chats_repository.dart
+@@ -9,6 +9,7 @@ import '../database/database_helper.dart';
+ import 'message_repository.dart';
+ import 'contact_repository.dart';
+ import 'package:pak_connect/core/utils/string_extensions.dart';
++import 'package:pak_connect/domain/values/id_types.dart';
+ 
+ class ChatsRepository implements IChatsRepository {
+   static final _logger = Logger('ChatsRepository');
+@@ -154,7 +155,7 @@ class ChatsRepository implements IChatsRepository {
+   }
+ 
+   /// Mark chat as read (reset unread count)
+-  Future<void> markChatAsRead(String chatId) async {
++  Future<void> markChatAsRead(ChatId chatId) async {
+     final db = await DatabaseHelper.database;
+     final now = DateTime.now().millisecondsSinceEpoch;
+ 
+@@ -162,7 +163,7 @@ class ChatsRepository implements IChatsRepository {
+     final existing = await db.query(
+       'chats',
+       where: 'chat_id = ?',
+-      whereArgs: [chatId],
++      whereArgs: [chatId.value],
+     );
+ 
+     if (existing.isNotEmpty) {
+@@ -171,12 +172,12 @@ class ChatsRepository implements IChatsRepository {
+         'chats',
+         {'unread_count': 0, 'updated_at': now},
+         where: 'chat_id = ?',
+-        whereArgs: [chatId],
++        whereArgs: [chatId.value],
+       );
+     } else {
+       // Create new chat entry with 0 unread count
+       await db.insert('chats', {
+-        'chat_id': chatId,
++        'chat_id': chatId.value,
+         'contact_public_key': null,
+         'contact_name': 'Unknown',
+         'unread_count': 0,
+@@ -187,7 +188,7 @@ class ChatsRepository implements IChatsRepository {
+   }
+ 
+   /// Increment unread count for received message
+-  Future<void> incrementUnreadCount(String chatId) async {
++  Future<void> incrementUnreadCount(ChatId chatId) async {
+     final db = await DatabaseHelper.database;
+     final now = DateTime.now().millisecondsSinceEpoch;
+ 
+@@ -195,7 +196,7 @@ class ChatsRepository implements IChatsRepository {
+     final existing = await db.query(
+       'chats',
+       where: 'chat_id = ?',
+-      whereArgs: [chatId],
++      whereArgs: [chatId.value],
+     );
+ 
+     if (existing.isNotEmpty) {
+@@ -205,12 +206,12 @@ class ChatsRepository implements IChatsRepository {
+         'chats',
+         {'unread_count': currentCount + 1, 'updated_at': now},
+         where: 'chat_id = ?',
+-        whereArgs: [chatId],
++        whereArgs: [chatId.value],
+       );
+     } else {
+       // Create new chat entry with count = 1
+       await db.insert('chats', {
+-        'chat_id': chatId,
++        'chat_id': chatId.value,
+         'contact_public_key': null,
+         'contact_name': 'Unknown',
+         'unread_count': 1,
+@@ -268,10 +269,10 @@ class ChatsRepository implements IChatsRepository {
+ 
+   // PRIVATE HELPERS
+ 
+-  String _generateChatId(String otherPublicKey) {
++  ChatId _generateChatId(String otherPublicKey) {
+     // Use the exact same logic as ChatUtils.generateChatId
+     // chatId = theirId (simple and elegant)
+-    return otherPublicKey;
++    return ChatId(otherPublicKey);
+   }
+ 
+   /// Online detection using public key hash matching
+diff --git a/lib/data/repositories/message_repository.dart b/lib/data/repositories/message_repository.dart
+index c28165b..fbcd2ac 100644
+--- a/lib/data/repositories/message_repository.dart
++++ b/lib/data/repositories/message_repository.dart
+@@ -15,14 +15,14 @@ class MessageRepository implements IMessageRepository {
+   static final _logger = Logger('MessageRepository');
+ 
+   /// Get all messages for a specific chat, sorted by timestamp
+-  Future<List<Message>> getMessages(String chatId) async {
++  Future<List<Message>> getMessages(ChatId chatId) async {
+     try {
+       final db = await DatabaseHelper.database;
+ 
+       final results = await db.query(
+         'messages',
+         where: 'chat_id = ?',
+-        whereArgs: [chatId],
++        whereArgs: [chatId.value],
+         orderBy: 'timestamp ASC',
+       );
+ 
+@@ -114,13 +114,13 @@ class MessageRepository implements IMessageRepository {
+   }
+ 
+   /// Clear all messages for a specific chat
+-  Future<void> clearMessages(String chatId) async {
++  Future<void> clearMessages(ChatId chatId) async {
+     try {
+       final db = await DatabaseHelper.database;
+ 
+-      await db.delete('messages', where: 'chat_id = ?', whereArgs: [chatId]);
++      await db.delete('messages', where: 'chat_id = ?', whereArgs: [chatId.value]);
+ 
+-      _logger.info('✅ Cleared messages for chat $chatId');
++      _logger.info('✅ Cleared messages for chat ${chatId.value}');
+     } catch (e) {
+       _logger.severe('❌ Failed to clear messages: $e');
+       rethrow;
+@@ -186,7 +186,7 @@ class MessageRepository implements IMessageRepository {
+   }
+ 
+   @override
+-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
++  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
+     try {
+       final db = await DatabaseHelper.database;
+       final now = DateTime.now().millisecondsSinceEpoch;
+@@ -197,15 +197,15 @@ class MessageRepository implements IMessageRepository {
+       // Atomic update of all messages
+       final count = await db.update(
+         'messages',
+-        {'chat_id': newChatId, 'updated_at': now},
++        {'chat_id': newChatId.value, 'updated_at': now},
+         where: 'chat_id = ?',
+-        whereArgs: [oldChatId],
++        whereArgs: [oldChatId.value],
+       );
+ 
+       // Clean up old chat entry (optional, but keeps DB clean)
+-      await db.delete('chats', where: 'chat_id = ?', whereArgs: [oldChatId]);
++      await db.delete('chats', where: 'chat_id = ?', whereArgs: [oldChatId.value]);
+ 
+-      _logger.info('✅ Migrated $count messages from $oldChatId to $newChatId');
++      _logger.info('✅ Migrated $count messages from ${oldChatId.value} to ${newChatId.value}');
+     } catch (e) {
+       _logger.severe('❌ Failed to migrate chat ID: $e');
+       rethrow;
+@@ -220,7 +220,7 @@ class MessageRepository implements IMessageRepository {
+   /// This prevents foreign key constraint violations while keeping ChatsScreen clean
+   Future<void> _ensureChatExists(
+     Database db,
+-    String chatId,
++    ChatId chatId,
+     int timestamp,
+   ) async {
+     // Check if chat already exists
+@@ -228,7 +228,7 @@ class MessageRepository implements IMessageRepository {
+       'chats',
+       columns: ['chat_id'],
+       where: 'chat_id = ?',
+-      whereArgs: [chatId],
++      whereArgs: [chatId.value],
+       limit: 1,
+     );
+ 
+@@ -242,12 +242,12 @@ class MessageRepository implements IMessageRepository {
+       // 🔥 FIX: Use ChatUtils.extractContactKey() to handle all formats robustly
+       // Note: We don't have myPublicKey here, so pass empty string for test compatibility
+       // The helper handles this case by returning the first key
+-      contactPublicKey = ChatUtils.extractContactKey(chatId, '');
++      contactPublicKey = ChatUtils.extractContactKey(chatId.value, '');
+ 
+-      if (chatId.startsWith('persistent_chat_')) {
+-        contactName = 'Chat ${chatId.shortId(20)}...';
+-      } else if (chatId.startsWith('temp_')) {
+-        contactName = 'Device ${chatId.substring(5, 20)}...';
++      if (chatId.value.startsWith('persistent_chat_')) {
++        contactName = 'Chat ${chatId.value.shortId(20)}...';
++      } else if (chatId.value.startsWith('temp_')) {
++        contactName = 'Device ${chatId.value.substring(5, 20)}...';
+       }
+ 
+       if (contactPublicKey != null) {
+@@ -267,7 +267,7 @@ class MessageRepository implements IMessageRepository {
+       await db.insert(
+         'chats',
+         {
+-          'chat_id': chatId,
++          'chat_id': chatId.value,
+           'contact_public_key': contactPublicKey,
+           'contact_name': contactName,
+           'unread_count': 0,
+@@ -281,7 +281,7 @@ class MessageRepository implements IMessageRepository {
+             ConflictAlgorithm.ignore, // Prevent duplicates if concurrent
+       );
+ 
+-      _logger.info('✅ Created chat entry for: $chatId');
++      _logger.info('✅ Created chat entry for: ${chatId.value}');
+     }
+   }
+ 
+@@ -305,7 +305,7 @@ class MessageRepository implements IMessageRepository {
+       // Return base Message
+       return Message(
+         id: MessageId(row['id'] as String),
+-        chatId: row['chat_id'] as String,
++        chatId: ChatId(row['chat_id'] as String),
+         content: row['content'] as String,
+         timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
+         isFromMe: (row['is_from_me'] as int) == 1,
+@@ -316,12 +316,14 @@ class MessageRepository implements IMessageRepository {
+     // Return EnhancedMessage
+     return EnhancedMessage(
+       id: MessageId(row['id'] as String),
+-      chatId: row['chat_id'] as String,
++      chatId: ChatId(row['chat_id'] as String),
+       content: row['content'] as String,
+       timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
+       isFromMe: (row['is_from_me'] as int) == 1,
+       status: MessageStatus.values[row['status'] as int],
+-      replyToMessageId: row['reply_to_message_id'] as String?,
++      replyToMessageId: row['reply_to_message_id'] != null
++          ? MessageId(row['reply_to_message_id'] as String)
++          : null,
+       threadId: row['thread_id'] as String?,
+       isStarred: (row['is_starred'] as int?) == 1,
+       isForwarded: (row['is_forwarded'] as int?) == 1,
+@@ -362,7 +364,7 @@ class MessageRepository implements IMessageRepository {
+   ) {
+     final Map<String, Object?> baseData = {
+       'id': message.id.value,
+-      'chat_id': message.chatId,
++      'chat_id': message.chatId.value,
+       'content': message.content,
+       'timestamp': message.timestamp.millisecondsSinceEpoch,
+       'is_from_me': message.isFromMe ? 1 : 0,
+@@ -374,7 +376,7 @@ class MessageRepository implements IMessageRepository {
+     // If this is an EnhancedMessage, add enhanced fields
+     if (message is EnhancedMessage) {
+       baseData.addAll(<String, Object?>{
+-        'reply_to_message_id': message.replyToMessageId,
++        'reply_to_message_id': message.replyToMessageId?.value,
+         'thread_id': message.threadId,
+         'is_starred': message.isStarred ? 1 : 0,
+         'is_forwarded': message.isForwarded ? 1 : 0,
+@@ -382,9 +384,8 @@ class MessageRepository implements IMessageRepository {
+         'edited_at': message.editedAt?.millisecondsSinceEpoch,
+         'original_content': message.originalContent,
+         'has_media': message.attachments.isNotEmpty ? 1 : 0,
+-        'media_type': message.attachments.isNotEmpty
+-            ? message.attachments.first.type
+-            : null,
++        'media_type':
++            message.attachments.isNotEmpty ? message.attachments.first.type : null,
+         'metadata_json': _encodeJson(message.metadata),
+         'delivery_receipt_json': _encodeJson(message.deliveryReceipt?.toJson()),
+         'read_receipt_json': _encodeJson(message.readReceipt?.toJson()),
+diff --git a/lib/data/services/chat_migration_service.dart b/lib/data/services/chat_migration_service.dart
+index 50dc865..a713005 100644
+--- a/lib/data/services/chat_migration_service.dart
++++ b/lib/data/services/chat_migration_service.dart
+@@ -4,6 +4,7 @@ import '../../core/utils/chat_utils.dart';
+ import '../repositories/message_repository.dart';
+ import '../database/database_helper.dart';
+ import 'package:pak_connect/core/utils/string_extensions.dart';
++import 'package:pak_connect/domain/values/id_types.dart';
+ 
+ /// Service responsible for migrating chats from ephemeral IDs to persistent public keys
+ ///
+@@ -46,7 +47,8 @@ class ChatMigrationService {
+       );
+ 
+       // Get messages from ephemeral chat
+-      final messages = await _messageRepository.getMessages(ephemeralId);
++      final messages =
++          await _messageRepository.getMessages(ChatId(ephemeralId));
+ 
+       if (messages.isEmpty) {
+         _logger.info('✅ STEP 6: No messages to migrate - chat is empty');
+@@ -66,7 +68,8 @@ class ChatMigrationService {
+       }
+ 
+       // Check if new chat already has messages (merge scenario)
+-      final existingMessages = await _messageRepository.getMessages(newChatId);
++      final existingMessages =
++          await _messageRepository.getMessages(ChatId(newChatId));
+       final shouldMerge = existingMessages.isNotEmpty;
+ 
+       if (shouldMerge) {
+@@ -123,7 +126,7 @@ class ChatMigrationService {
+         publicKey: persistentPublicKey,
+         contactName: contactName,
+         messages: await _messageRepository.getMessages(
+-          newChatId,
++          ChatId(newChatId),
+         ), // Get all messages (old + new)
+       );
+ 
+@@ -167,7 +170,7 @@ class ChatMigrationService {
+       return false;
+     }
+ 
+-    final messages = await _messageRepository.getMessages(chatId);
++    final messages = await _messageRepository.getMessages(ChatId(chatId));
+     return messages.isNotEmpty;
+   }
+ 
+diff --git a/lib/data/services/ephemeral_contact_cleaner.dart b/lib/data/services/ephemeral_contact_cleaner.dart
+index 857e034..c7ef79a 100644
+--- a/lib/data/services/ephemeral_contact_cleaner.dart
++++ b/lib/data/services/ephemeral_contact_cleaner.dart
+@@ -3,6 +3,7 @@ import '../repositories/contact_repository.dart';
+ import '../repositories/message_repository.dart';
+ import '../../core/utils/chat_utils.dart';
+ import '../../domain/entities/contact.dart';
++import 'package:pak_connect/domain/values/id_types.dart';
+ 
+ /// Cleans up ephemeral contacts with no chat history (called on disconnect)
+ class EphemeralContactCleaner {
+@@ -30,7 +31,7 @@ class EphemeralContactCleaner {
+       }
+ 
+       final chatId = ChatUtils.generateChatId(contactId);
+-      final messages = await messageRepo.getMessages(chatId);
++      final messages = await messageRepo.getMessages(ChatId(chatId));
+ 
+       if (messages.isEmpty) {
+         final deleted = await contactRepo.deleteContact(contactId);
+diff --git a/lib/data/services/export_import/selective_backup_service.dart b/lib/data/services/export_import/selective_backup_service.dart
+index 0b850f4..7defd07 100644
+--- a/lib/data/services/export_import/selective_backup_service.dart
++++ b/lib/data/services/export_import/selective_backup_service.dart
+@@ -240,7 +240,11 @@ class SelectiveBackupService {
+ 
+     final batch = targetDb.batch();
+     for (final chat in chats) {
+-      batch.insert('chats', chat);
++      final normalizedChat = Map<String, Object?>.from(chat);
++      normalizedChat['chat_id'] = chat['chat_id']?.toString();
++      normalizedChat['contact_public_key'] =
++          chat['contact_public_key']?.toString();
++      batch.insert('chats', normalizedChat);
+     }
+     await batch.commit(noResult: true);
+ 
+@@ -255,7 +259,12 @@ class SelectiveBackupService {
+ 
+     final batch2 = targetDb.batch();
+     for (final message in messages) {
+-      batch2.insert('messages', message);
++      final normalizedMessage = Map<String, Object?>.from(message);
++      normalizedMessage['id'] = message['id']?.toString();
++      normalizedMessage['chat_id'] = message['chat_id']?.toString();
++      normalizedMessage['reply_to_message_id'] =
++          message['reply_to_message_id']?.toString();
++      batch2.insert('messages', normalizedMessage);
+     }
+     await batch2.commit(noResult: true);
+ 
+diff --git a/lib/data/services/export_import/selective_restore_service.dart b/lib/data/services/export_import/selective_restore_service.dart
+index 727d42c..9219050 100644
+--- a/lib/data/services/export_import/selective_restore_service.dart
++++ b/lib/data/services/export_import/selective_restore_service.dart
+@@ -158,6 +158,7 @@ class SelectiveRestoreService {
+ 
+     final batch1 = targetDb.batch();
+     for (final chat in chats) {
++      final chatId = chat['chat_id']?.toString();
+       batch1.rawInsert(
+         '''
+         INSERT OR REPLACE INTO chats (
+@@ -168,8 +169,8 @@ class SelectiveRestoreService {
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ''',
+         [
+-          chat['chat_id'],
+-          chat['contact_public_key'],
++          chatId,
++          chat['contact_public_key']?.toString(),
+           chat['contact_name'],
+           chat['last_message'],
+           chat['last_message_time'],
+@@ -207,13 +208,13 @@ class SelectiveRestoreService {
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ''',
+         [
+-          message['id'],
+-          message['chat_id'],
++          message['id']?.toString(),
++          message['chat_id']?.toString(),
+           message['content'],
+           message['timestamp'],
+           message['is_from_me'],
+           message['status'],
+-          message['reply_to_message_id'],
++          message['reply_to_message_id']?.toString(),
+           message['thread_id'],
+           message['is_starred'],
+           message['is_forwarded'],
+diff --git a/lib/data/services/queue_sync_processor.dart b/lib/data/services/queue_sync_processor.dart
+index 8ead09e..64cfb3f 100644
+--- a/lib/data/services/queue_sync_processor.dart
++++ b/lib/data/services/queue_sync_processor.dart
+@@ -35,7 +35,9 @@ class QueueSyncProcessor {
+ 
+       final syncMessage = QueueSyncMessage(
+         queueHash: queueSyncMessage.queueHash,
+-        messageIds: queueSyncMessage.messageIds,
++        messageIds: queueSyncMessage.messageIds
++            .map((id) => id.toString())
++            .toList(),
+         syncTimestamp: queueSyncMessage.syncTimestamp,
+         nodeId: senderPublicKey,
+         syncType: queueSyncMessage.syncType,
+diff --git a/lib/domain/entities/archived_chat.dart b/lib/domain/entities/archived_chat.dart
+index 93bf416..02fd10a 100644
+--- a/lib/domain/entities/archived_chat.dart
++++ b/lib/domain/entities/archived_chat.dart
+@@ -3,13 +3,14 @@
+ import 'package:logging/logging.dart';
+ import '../../domain/entities/chat_list_item.dart';
+ import '../../domain/entities/enhanced_message.dart';
++import '../values/id_types.dart';
+ import 'archived_message.dart';
+ 
+ /// Archived chat entity containing complete chat state and metadata
+ class ArchivedChat {
+   static final _logger = Logger('ArchivedChat');
+ 
+-  final String id; // Unique archive ID
++  final ArchiveId id; // Unique archive ID
+   final String originalChatId;
+   final String contactName;
+   final String? contactPublicKey;
+@@ -37,7 +38,7 @@ class ArchivedChat {
+ 
+   /// Create archived chat from chat list item and messages
+   factory ArchivedChat.fromChatAndMessages({
+-    required String archiveId,
++    required ArchiveId archiveId,
+     required ChatListItem chatItem,
+     required List<EnhancedMessage> messages,
+     String? archiveReason,
+@@ -45,7 +46,7 @@ class ArchivedChat {
+   }) {
+     final now = DateTime.now();
+     final archivedMessages = messages
+-        .map((m) => ArchivedMessage.fromEnhancedMessage(m, now))
++        .map((m) => ArchivedMessage.fromEnhancedMessage(m, now, customArchiveId: archiveId))
+         .toList();
+ 
+     // Calculate storage size estimate
+@@ -53,7 +54,7 @@ class ArchivedChat {
+ 
+     return ArchivedChat(
+       id: archiveId,
+-      originalChatId: chatItem.chatId,
++      originalChatId: chatItem.chatId.value,
+       contactName: chatItem.contactName,
+       contactPublicKey: chatItem.contactPublicKey,
+       archivedAt: now,
+@@ -161,7 +162,7 @@ class ArchivedChat {
+   /// Convert to JSON for storage
+   Map<String, dynamic> toJson() {
+     return {
+-      'id': id,
++      'id': id.value,
+       'originalChatId': originalChatId,
+       'contactName': contactName,
+       'contactPublicKey': contactPublicKey,
+@@ -179,7 +180,7 @@ class ArchivedChat {
+   factory ArchivedChat.fromJson(Map<String, dynamic> json) {
+     try {
+       return ArchivedChat(
+-        id: json['id'],
++        id: ArchiveId(json['id']),
+         originalChatId: json['originalChatId'],
+         contactName: json['contactName'],
+         contactPublicKey: json['contactPublicKey'],
+@@ -365,7 +366,7 @@ class ArchiveCompressionInfo {
+ 
+ /// Lightweight summary for archived chat lists
+ class ArchivedChatSummary {
+-  final String id;
++  final ArchiveId id;
+   final String originalChatId;
+   final String contactName;
+   final DateTime archivedAt;
+diff --git a/lib/domain/entities/archived_message.dart b/lib/domain/entities/archived_message.dart
+index 253a65c..f27aec8 100644
+--- a/lib/domain/entities/archived_message.dart
++++ b/lib/domain/entities/archived_message.dart
+@@ -11,7 +11,7 @@ class ArchivedMessage extends EnhancedMessage {
+ 
+   final DateTime archivedAt;
+   final DateTime originalTimestamp; // Preserved original timestamp
+-  final String archiveId;
++  final ArchiveId archiveId;
+   final ArchiveMessageMetadata archiveMetadata;
+   final String? originalSearchableText; // Cached for search performance
+   final Map<String, dynamic>? preservedState; // Original message state
+@@ -48,7 +48,7 @@ class ArchivedMessage extends EnhancedMessage {
+   factory ArchivedMessage.fromEnhancedMessage(
+     EnhancedMessage message,
+     DateTime archiveTime, {
+-    String? customArchiveId,
++    ArchiveId? customArchiveId,
+     Map<String, dynamic>? additionalMetadata,
+   }) {
+     // Generate searchable text for indexing
+@@ -106,7 +106,7 @@ class ArchivedMessage extends EnhancedMessage {
+   factory ArchivedMessage.fromMessage(
+     Message message,
+     DateTime archiveTime, {
+-    String? customArchiveId,
++    ArchiveId? customArchiveId,
+   }) {
+     final enhanced = EnhancedMessage.fromMessage(message);
+     return ArchivedMessage.fromEnhancedMessage(
+@@ -151,7 +151,7 @@ class ArchivedMessage extends EnhancedMessage {
+   }
+ 
+   /// Create a restored EnhancedMessage
+-  EnhancedMessage toRestoredMessage({String? newChatId}) {
++  EnhancedMessage toRestoredMessage({ChatId? newChatId}) {
+     return EnhancedMessage(
+       id: id,
+       chatId: newChatId ?? chatId,
+@@ -218,7 +218,7 @@ class ArchivedMessage extends EnhancedMessage {
+     json.addAll({
+       'archivedAt': archivedAt.millisecondsSinceEpoch,
+       'originalTimestamp': originalTimestamp.millisecondsSinceEpoch,
+-      'archiveId': archiveId,
++      'archiveId': archiveId.value,
+       'archiveMetadata': archiveMetadata.toJson(),
+       'originalSearchableText': originalSearchableText,
+       'preservedState': preservedState,
+@@ -255,7 +255,7 @@ class ArchivedMessage extends EnhancedMessage {
+         originalTimestamp: DateTime.fromMillisecondsSinceEpoch(
+           json['originalTimestamp'],
+         ),
+-        archiveId: json['archiveId'],
++        archiveId: ArchiveId(json['archiveId'] as String),
+         archiveMetadata: ArchiveMessageMetadata.fromJson(
+           json['archiveMetadata'],
+         ),
+@@ -289,14 +289,14 @@ class ArchivedMessage extends EnhancedMessage {
+     return buffer.toString().toLowerCase().trim();
+   }
+ 
+-  static String _generateArchiveMessageId(
++  static ArchiveId _generateArchiveMessageId(
+     EnhancedMessage message,
+     DateTime archiveTime,
+   ) {
+     final hash = '${message.id.value}_${archiveTime.millisecondsSinceEpoch}'
+         .hashCode
+         .abs();
+-    return 'archived_msg_$hash';
++    return ArchiveId('archived_msg_$hash');
+   }
+ 
+   static int _estimateMessageSize(EnhancedMessage message) {
+diff --git a/lib/domain/entities/chat_list_item.dart b/lib/domain/entities/chat_list_item.dart
+index 897996a..9c362cf 100644
+--- a/lib/domain/entities/chat_list_item.dart
++++ b/lib/domain/entities/chat_list_item.dart
+@@ -1,5 +1,7 @@
++import '../values/id_types.dart';
++
+ class ChatListItem {
+-  final String chatId;
++  final ChatId chatId;
+   final String contactName;
+   final String? contactPublicKey;
+   final String? lastMessage;
+diff --git a/lib/domain/entities/enhanced_message.dart b/lib/domain/entities/enhanced_message.dart
+index d12ef8e..8cffec0 100644
+--- a/lib/domain/entities/enhanced_message.dart
++++ b/lib/domain/entities/enhanced_message.dart
+@@ -9,7 +9,7 @@ export '../../core/models/message_priority.dart' show MessagePriority;
+ 
+ /// Enhanced message with comprehensive state tracking and metadata
+ class EnhancedMessage extends Message {
+-  final String? replyToMessageId;
++  final MessageId? replyToMessageId;
+   final String? threadId;
+   final Map<String, dynamic>? metadata;
+   final MessageDeliveryReceipt? deliveryReceipt;
+@@ -109,7 +109,7 @@ class EnhancedMessage extends Message {
+   }
+ 
+   /// Check if user reacted with specific emoji
+-  bool hasUserReaction(String userId, String emoji) {
++  bool hasUserReaction(UserId userId, String emoji) {
+     return reactions.any((r) => r.userId == userId && r.emoji == emoji);
+   }
+ 
+@@ -117,7 +117,7 @@ class EnhancedMessage extends Message {
+   @override
+   EnhancedMessage copyWith({
+     MessageId? id,
+-    String? chatId,
++    ChatId? chatId,
+     String? content,
+     DateTime? timestamp,
+     bool? isFromMe,
+@@ -166,7 +166,7 @@ class EnhancedMessage extends Message {
+   @override
+   Map<String, dynamic> toJson() => {
+     ...super.toJson(),
+-    'replyToMessageId': replyToMessageId,
++    'replyToMessageId': replyToMessageId?.value,
+     'threadId': threadId,
+     'metadata': metadata,
+     'deliveryReceipt': deliveryReceipt?.toJson(),
+@@ -185,12 +185,14 @@ class EnhancedMessage extends Message {
+   factory EnhancedMessage.fromJson(Map<String, dynamic> json) =>
+       EnhancedMessage(
+         id: MessageId(json['id']),
+-        chatId: json['chatId'],
++        chatId: ChatId(json['chatId']),
+         content: json['content'],
+         timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
+         isFromMe: json['isFromMe'],
+         status: MessageStatus.values[json['status']],
+-        replyToMessageId: json['replyToMessageId'],
++        replyToMessageId: json['replyToMessageId'] != null
++            ? MessageId(json['replyToMessageId'])
++            : null,
+         threadId: json['threadId'],
+         metadata: json['metadata'],
+         deliveryReceipt: json['deliveryReceipt'] != null
+@@ -273,7 +275,7 @@ class MessageReadReceipt {
+ /// Message reaction
+ class MessageReaction {
+   final String emoji;
+-  final String userId;
++  final UserId userId;
+   final DateTime reactedAt;
+ 
+   const MessageReaction({
+@@ -284,14 +286,14 @@ class MessageReaction {
+ 
+   Map<String, dynamic> toJson() => {
+     'emoji': emoji,
+-    'userId': userId,
++    'userId': userId.value,
+     'reactedAt': reactedAt.millisecondsSinceEpoch,
+   };
+ 
+   factory MessageReaction.fromJson(Map<String, dynamic> json) =>
+       MessageReaction(
+         emoji: json['emoji'],
+-        userId: json['userId'],
++        userId: UserId(json['userId']),
+         reactedAt: DateTime.fromMillisecondsSinceEpoch(json['reactedAt']),
+       );
+ }
+diff --git a/lib/domain/entities/message.dart b/lib/domain/entities/message.dart
+index 054539c..a13f6a0 100644
+--- a/lib/domain/entities/message.dart
++++ b/lib/domain/entities/message.dart
+@@ -2,7 +2,7 @@ import '../values/id_types.dart';
+ 
+ class Message {
+   final MessageId id;
+-  final String chatId; // device UUID for now, group ID later
++  final ChatId chatId; // device UUID for now, group ID later
+   final String content;
+   final DateTime timestamp;
+   final bool isFromMe;
+@@ -20,7 +20,7 @@ class Message {
+   // Convert to/from JSON for storage
+   Map<String, dynamic> toJson() => {
+     'id': id.value,
+-    'chatId': chatId,
++    'chatId': chatId.value,
+     'content': content,
+     'timestamp': timestamp.millisecondsSinceEpoch,
+     'isFromMe': isFromMe,
+@@ -29,7 +29,7 @@ class Message {
+ 
+   factory Message.fromJson(Map<String, dynamic> json) => Message(
+     id: MessageId(json['id']),
+-    chatId: json['chatId'],
++    chatId: ChatId(json['chatId']),
+     content: json['content'],
+     timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
+     isFromMe: json['isFromMe'],
+@@ -38,7 +38,7 @@ class Message {
+ 
+   Message copyWith({
+     MessageId? id,
+-    String? chatId,
++    ChatId? chatId,
+     String? content,
+     DateTime? timestamp,
+     bool? isFromMe,
+diff --git a/lib/domain/services/archive_management_models.dart b/lib/domain/services/archive_management_models.dart
+index 5e7efcc..837802b 100644
+--- a/lib/domain/services/archive_management_models.dart
++++ b/lib/domain/services/archive_management_models.dart
+@@ -1,5 +1,6 @@
+ import '../../core/models/archive_models.dart';
+ import '../../domain/entities/archived_chat.dart';
++import '../../domain/values/id_types.dart';
+ 
+ class ArchiveManagementConfig {
+   final bool enableCompression;
+@@ -377,7 +378,7 @@ class ArchiveUpdateEvent {
+   final DateTime timestamp;
+   final ArchiveUpdateEventType type;
+   final String chatId;
+-  final String archiveId;
++  final ArchiveId archiveId;
+   final String? reason;
+ 
+   ArchiveUpdateEvent.archived(this.chatId, this.archiveId, this.reason)
+diff --git a/lib/domain/services/archive_management_service.dart b/lib/domain/services/archive_management_service.dart
+index 7e58bea..3c4834e 100644
+--- a/lib/domain/services/archive_management_service.dart
++++ b/lib/domain/services/archive_management_service.dart
+@@ -8,6 +8,7 @@ import 'package:get_it/get_it.dart';
+ import '../../core/interfaces/i_archive_repository.dart';
+ import '../../domain/entities/archived_chat.dart';
+ import '../../core/models/archive_models.dart';
++import '../../domain/values/id_types.dart';
+ import 'archive_policy_engine.dart';
+ import 'archive_maintenance.dart';
+ import 'archive_management_models.dart';
+@@ -258,7 +259,7 @@ class ArchiveManagementService {
+ 
+   /// Restore a chat with validation and conflict resolution
+   Future<ArchiveOperationResult> restoreChat({
+-    required String archiveId,
++    required ArchiveId archiveId,
+     bool overwriteExisting = false,
+     String? targetChatId,
+   }) async {
+@@ -818,14 +819,14 @@ class ArchiveManagementService {
+ 
+   Future<void> _handlePostArchiveActions(
+     String chatId,
+-    String archiveId,
++    ArchiveId archiveId,
+     ArchiveOperationResult result,
+   ) async {
+     // Implementation would handle post-archive actions
+   }
+ 
+   Future<void> _handlePostRestoreActions(
+-    String archiveId,
++    ArchiveId archiveId,
+     ArchivedChat archive,
+     ArchiveOperationResult result,
+   ) async {
+@@ -840,7 +841,7 @@ class ArchiveManagementService {
+   }
+ 
+   Future<ArchiveBusinessMetadata> _getArchiveBusinessMetadata(
+-    String archiveId,
++    ArchiveId archiveId,
+   ) async {
+     // Implementation would get business metadata
+     return ArchiveBusinessMetadata.empty();
+diff --git a/lib/domain/services/archive_search_indexing.dart b/lib/domain/services/archive_search_indexing.dart
+index 86bca2c..7563621 100644
+--- a/lib/domain/services/archive_search_indexing.dart
++++ b/lib/domain/services/archive_search_indexing.dart
+@@ -58,13 +58,13 @@ class ArchiveSearchIndexing {
+   void _indexArchiveContent(ArchivedChat archive) {
+     final contactTerms = _tokenizeText(archive.contactName);
+     for (final term in contactTerms) {
+-      _termIndex.putIfAbsent(term, () => {}).add(archive.id);
++      _termIndex.putIfAbsent(term, () => {}).add(archive.id.value);
+     }
+ 
+     for (final message in archive.messages) {
+       final messageTerms = _tokenizeText(message.searchableText);
+       for (final term in messageTerms) {
+-        _termIndex.putIfAbsent(term, () => {}).add(archive.id);
++        _termIndex.putIfAbsent(term, () => {}).add(archive.id.value);
+       }
+     }
+   }
+diff --git a/lib/domain/services/archive_search_pagination.dart b/lib/domain/services/archive_search_pagination.dart
+index 999f5c4..8c69b5c 100644
+--- a/lib/domain/services/archive_search_pagination.dart
++++ b/lib/domain/services/archive_search_pagination.dart
+@@ -37,7 +37,7 @@ class ArchiveSearchPagination {
+     final grouped = <String, List<ArchivedMessage>>{};
+ 
+     for (final message in messages) {
+-      grouped.putIfAbsent(message.chatId, () => []).add(message);
++      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
+     }
+ 
+     return grouped;
+diff --git a/lib/domain/services/auto_archive_scheduler.dart b/lib/domain/services/auto_archive_scheduler.dart
+index 107e3cf..37c6abd 100644
+--- a/lib/domain/services/auto_archive_scheduler.dart
++++ b/lib/domain/services/auto_archive_scheduler.dart
+@@ -143,7 +143,7 @@ class AutoArchiveScheduler {
+         // Archive this inactive chat
+         try {
+           final result = await ArchiveManagementService.instance.archiveChat(
+-            chatId: chat.chatId,
++            chatId: chat.chatId.value,
+             reason: 'Auto-archived after $daysInactive days of inactivity',
+             metadata: {
+               'auto_archived': true,
+diff --git a/lib/domain/services/chat_lifecycle_service.dart b/lib/domain/services/chat_lifecycle_service.dart
+index 1e59a52..ece301c 100644
+--- a/lib/domain/services/chat_lifecycle_service.dart
++++ b/lib/domain/services/chat_lifecycle_service.dart
+@@ -110,11 +110,14 @@ class ChatLifecycleService {
+ 
+             if (messageIndex != -1) {
+               found = true;
+-              await _deleteMessageFromRepository(messageId, chat.chatId);
++              await _deleteMessageFromRepository(messageId, chat.chatId.value);
+ 
+               _cacheState.starredMessageIds.remove(messageId.value);
+               _notificationService.emitMessageUpdate(
+-                MessageUpdateEvent.deleted(messageId.value, chat.chatId),
++                MessageUpdateEvent.deleted(
++                  messageId.value,
++                  chat.chatId.value,
++                ),
+               );
+               successCount++;
+               break;
+@@ -241,12 +244,12 @@ class ChatLifecycleService {
+ 
+   Future<ChatOperationResult> deleteChat(String chatId) async {
+     try {
+-      final chatMessages = await _messageRepository.getMessages(chatId);
++      final chatMessages = await _messageRepository.getMessages(ChatId(chatId));
+       for (final message in chatMessages) {
+         _cacheState.starredMessageIds.remove(message.id.value);
+       }
+ 
+-      await _messageRepository.clearMessages(chatId);
++      await _messageRepository.clearMessages(ChatId(chatId));
+ 
+       _cacheState.archivedChats.remove(chatId);
+       _cacheState.pinnedChats.remove(chatId);
+@@ -265,12 +268,12 @@ class ChatLifecycleService {
+ 
+   Future<ChatOperationResult> clearChatMessages(String chatId) async {
+     try {
+-      final chatMessages = await _messageRepository.getMessages(chatId);
++      final chatMessages = await _messageRepository.getMessages(ChatId(chatId));
+       for (final message in chatMessages) {
+         _cacheState.starredMessageIds.remove(message.id.value);
+       }
+ 
+-      await _messageRepository.clearMessages(chatId);
++      await _messageRepository.clearMessages(ChatId(chatId));
+       await _syncService.saveStarredMessages();
+ 
+       _notificationService.emitChatUpdate(
+@@ -285,7 +288,7 @@ class ChatLifecycleService {
+ 
+   Future<ChatAnalytics> getChatAnalytics(String chatId) async {
+     try {
+-      final messages = await _messageRepository.getMessages(chatId);
++      final messages = await _messageRepository.getMessages(ChatId(chatId));
+       final enhancedMessages = messages
+           .map((m) => EnhancedMessage.fromMessage(m))
+           .toList();
+@@ -346,9 +349,9 @@ class ChatLifecycleService {
+     bool includeMetadata = false,
+   }) async {
+     try {
+-      final messages = await _messageRepository.getMessages(chatId);
++      final messages = await _messageRepository.getMessages(ChatId(chatId));
+       final chat = (await _chatsRepository.getAllChats())
+-          .where((c) => c.chatId == chatId)
++          .where((c) => c.chatId.value == chatId)
+           .firstOrNull;
+ 
+       if (chat == null) {
+@@ -619,10 +622,10 @@ class ChatLifecycleService {
+     final totalMessages = archive.messageCount;
+     final myMessages = archive.messages.where((m) => m.isFromMe).length;
+     final theirMessages = totalMessages - myMessages;
+-    final starredCount = archive.messages.where((m) => m.isStarred).length;
++      final starredCount = archive.messages.where((m) => m.isStarred).length;
+ 
+     return ArchivedChatAnalytics(
+-      archiveId: archive.id,
++      archiveId: archive.id.value,
+       totalMessages: totalMessages,
+       myMessages: myMessages,
+       theirMessages: theirMessages,
+diff --git a/lib/domain/services/chat_management_facade.dart b/lib/domain/services/chat_management_facade.dart
+index b7e0b0d..53884c5 100644
+--- a/lib/domain/services/chat_management_facade.dart
++++ b/lib/domain/services/chat_management_facade.dart
+@@ -83,13 +83,13 @@ class ChatManagementFacade implements IChatManagement {
+   // ========================= PINNING METHODS =========================
+ 
+   @override
+-  Future<ChatOperationResult> toggleChatPin(String chatId) async {
++  Future<ChatOperationResult> toggleChatPin(ChatId chatId) async {
+     await _ensureInitialized();
+     return _chatManagementService.toggleChatPin(chatId);
+   }
+ 
+   @override
+-  bool isChatPinned(String chatId) =>
++  bool isChatPinned(ChatId chatId) =>
+       _chatManagementService.isChatPinned(chatId);
+ 
+   @override
+@@ -103,7 +103,7 @@ class ChatManagementFacade implements IChatManagement {
+ 
+   @override
+   bool isMessageStarred(String messageId) =>
+-      _chatManagementService.isMessageStarred(messageId);
++      _chatManagementService.isMessageStarred(MessageId(messageId));
+ 
+   @override
+   int get starredMessagesCount => _chatManagementService.starredMessagesCount;
+@@ -215,8 +215,8 @@ abstract interface class IChatManagement {
+   });
+ 
+   // Pinning operations
+-  Future<ChatOperationResult> toggleChatPin(String chatId);
+-  bool isChatPinned(String chatId);
++  Future<ChatOperationResult> toggleChatPin(ChatId chatId);
++  bool isChatPinned(ChatId chatId);
+   int get pinnedChatsCount;
+   Future<ChatOperationResult> toggleMessageStar(String messageId);
+   bool isMessageStarred(String messageId);
+diff --git a/lib/domain/services/chat_management_service.dart b/lib/domain/services/chat_management_service.dart
+index e8592cd..2305c9c 100644
+--- a/lib/domain/services/chat_management_service.dart
++++ b/lib/domain/services/chat_management_service.dart
+@@ -185,8 +185,8 @@ class ChatManagementService {
+   );
+ 
+   /// Pin/unpin chat
+-  Future<ChatOperationResult> toggleChatPin(String chatId) =>
+-      _lifecycleService.toggleChatPin(chatId);
++  Future<ChatOperationResult> toggleChatPin(ChatId chatId) =>
++      _lifecycleService.toggleChatPin(chatId.value);
+ 
+   /// Delete entire chat with all messages
+   Future<ChatOperationResult> deleteChat(String chatId) =>
+@@ -223,11 +223,11 @@ class ChatManagementService {
+   bool isChatArchived(String chatId) => _syncService.isChatArchived(chatId);
+ 
+   /// Check if chat is pinned
+-  bool isChatPinned(String chatId) => _syncService.isChatPinned(chatId);
++  bool isChatPinned(ChatId chatId) => _syncService.isChatPinned(chatId.value);
+ 
+   /// Check if message is starred
+-  bool isMessageStarred(String messageId) =>
+-      _syncService.isMessageStarred(messageId);
++  bool isMessageStarred(MessageId messageId) =>
++      _syncService.isMessageStarredById(messageId);
+ 
+   /// Get pinned chats count
+   int get pinnedChatsCount => _syncService.pinnedChatsCount;
+diff --git a/lib/domain/services/chat_sync_service.dart b/lib/domain/services/chat_sync_service.dart
+index 68bfcc9..27cbe38 100644
+--- a/lib/domain/services/chat_sync_service.dart
++++ b/lib/domain/services/chat_sync_service.dart
+@@ -12,6 +12,7 @@ import '../entities/archived_message.dart';
+ import '../../core/models/archive_models.dart';
+ import 'archive_search_service.dart';
+ import 'chat_management_models.dart';
++import '../values/id_types.dart';
+ 
+ /// Handles cache persistence, search, and sync-related chat workflows
+ class ChatSyncService {
+@@ -67,6 +68,8 @@ class ChatSyncService {
+   bool isChatPinned(String chatId) => _cacheState.pinnedChats.contains(chatId);
+   bool isChatArchived(String chatId) =>
+       _cacheState.archivedChats.contains(chatId);
++  bool isMessageStarredById(MessageId messageId) =>
++      _cacheState.starredMessageIds.contains(messageId.value);
+   bool isMessageStarred(String messageId) =>
+       _cacheState.starredMessageIds.contains(messageId);
+ 
+@@ -108,7 +111,7 @@ class ChatSyncService {
+       List<EnhancedMessage> allMessages = [];
+ 
+       if (chatId != null) {
+-        final messages = await _messageRepository.getMessages(chatId);
++        final messages = await _messageRepository.getMessages(ChatId(chatId));
+         allMessages = messages
+             .map((m) => EnhancedMessage.fromMessage(m))
+             .toList();
+@@ -170,7 +173,7 @@ class ChatSyncService {
+       List<ArchivedMessage> archiveResults = [];
+ 
+       if (chatId != null) {
+-        final messages = await _messageRepository.getMessages(chatId);
++        final messages = await _messageRepository.getMessages(ChatId(chatId));
+         liveResults = messages
+             .map((m) => EnhancedMessage.fromMessage(m))
+             .toList();
+@@ -339,19 +342,26 @@ class ChatSyncService {
+ 
+     if (filter.hideArchived && !filter.onlyArchived) {
+       filteredChats = filteredChats
+-          .where((chat) => !_cacheState.archivedChats.contains(chat.chatId))
+-          .toList();
+-    } else if (filter.onlyArchived) {
+-      filteredChats = filteredChats
+-          .where((chat) => _cacheState.archivedChats.contains(chat.chatId))
+-          .toList();
+-    }
++              .where(
++                (chat) =>
++                    !_cacheState.archivedChats.contains(chat.chatId.value),
++              )
++              .toList();
++        } else if (filter.onlyArchived) {
++          filteredChats = filteredChats
++              .where(
++                (chat) => _cacheState.archivedChats.contains(chat.chatId.value),
++              )
++              .toList();
++        }
+ 
+-    if (filter.onlyPinned) {
+-      filteredChats = filteredChats
+-          .where((chat) => _cacheState.pinnedChats.contains(chat.chatId))
+-          .toList();
+-    }
++        if (filter.onlyPinned) {
++          filteredChats = filteredChats
++              .where(
++                (chat) => _cacheState.pinnedChats.contains(chat.chatId.value),
++              )
++              .toList();
++        }
+ 
+     if (filter.onlyUnread) {
+       filteredChats = filteredChats
+@@ -377,8 +387,8 @@ class ChatSyncService {
+       int comparison;
+ 
+       if (sortBy != ChatSortOption.name) {
+-        final aPinned = _cacheState.pinnedChats.contains(a.chatId);
+-        final bPinned = _cacheState.pinnedChats.contains(b.chatId);
++        final aPinned = _cacheState.pinnedChats.contains(a.chatId.value);
++        final bPinned = _cacheState.pinnedChats.contains(b.chatId.value);
+ 
+         if (aPinned && !bPinned) return -1;
+         if (!aPinned && bPinned) return 1;
+@@ -460,7 +470,7 @@ class ChatSyncService {
+     final grouped = <String, List<EnhancedMessage>>{};
+ 
+     for (final message in results) {
+-      grouped.putIfAbsent(message.chatId, () => []).add(message);
++      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
+     }
+ 
+     return grouped;
+@@ -472,7 +482,7 @@ class ChatSyncService {
+     final grouped = <String, List<ArchivedMessage>>{};
+ 
+     for (final message in results) {
+-      grouped.putIfAbsent(message.chatId, () => []).add(message);
++      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
+     }
+ 
+     return grouped;
+@@ -488,7 +498,7 @@ class ChatSyncService {
+         (m) => ArchivedMessage.fromEnhancedMessage(
+           m,
+           m.timestamp,
+-          customArchiveId: 'live_${m.id.value}',
++          customArchiveId: ArchiveId('live_${m.id.value}'),
+           additionalMetadata: {'source': 'live'},
+         ),
+       ),
+diff --git a/lib/domain/services/mesh/mesh_queue_sync_coordinator.dart b/lib/domain/services/mesh/mesh_queue_sync_coordinator.dart
+index 3c86558..fe869dd 100644
+--- a/lib/domain/services/mesh/mesh_queue_sync_coordinator.dart
++++ b/lib/domain/services/mesh/mesh_queue_sync_coordinator.dart
+@@ -299,13 +299,16 @@ class MeshQueueSyncCoordinator {
+     _logger.info('Message delivered: $truncatedId...');
+ 
+     try {
+-      final deliveredMessage = Message(
++      final deliveredMessage = EnhancedMessage(
+         id: MessageId(message.id),
+-        chatId: message.chatId,
++        chatId: ChatId(message.chatId),
+         content: message.content,
+         timestamp: message.queuedAt,
+         isFromMe: true,
+         status: MessageStatus.delivered,
++        replyToMessageId: message.replyToMessageId != null
++            ? MessageId(message.replyToMessageId!)
++            : null,
+       );
+ 
+       await _messageRepository.saveMessage(deliveredMessage);
+diff --git a/lib/domain/services/mesh_networking_service.dart b/lib/domain/services/mesh_networking_service.dart
+index 4283560..bf3e56c 100644
+--- a/lib/domain/services/mesh_networking_service.dart
++++ b/lib/domain/services/mesh_networking_service.dart
+@@ -503,7 +503,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
+       // Create message with proper attribution to original sender
+       final message = Message(
+         id: MessageId(originalMessageId),
+-        chatId: chatId,
++        chatId: ChatId(chatId),
+         content: content,
+         timestamp: DateTime.now(),
+         isFromMe: false, // ✅ Message is from original sender, not current user
+diff --git a/lib/domain/services/notification_service.dart b/lib/domain/services/notification_service.dart
+index 9cc56f0..eeb7a9f 100644
+--- a/lib/domain/services/notification_service.dart
++++ b/lib/domain/services/notification_service.dart
+@@ -74,7 +74,7 @@ class ForegroundNotificationHandler implements INotificationHandler {
+       body: message.content,
+       channel: NotificationChannel.messages,
+       priority: NotificationPriority.high,
+-      payload: message.chatId,
++      payload: message.chatId.value,
+     );
+   }
+ 
+diff --git a/lib/presentation/controllers/chat_retry_helper.dart b/lib/presentation/controllers/chat_retry_helper.dart
+index 95d95de..4e50eb0 100644
+--- a/lib/presentation/controllers/chat_retry_helper.dart
++++ b/lib/presentation/controllers/chat_retry_helper.dart
+@@ -6,6 +6,7 @@ import '../../core/models/connection_info.dart';
+ import '../../core/services/message_retry_coordinator.dart';
+ import '../../core/utils/string_extensions.dart';
+ import '../../domain/entities/message.dart';
++import '../../domain/values/id_types.dart';
+ import '../../data/repositories/message_repository.dart';
+ import '../../core/messaging/offline_message_queue.dart';
+ import '../models/chat_screen_config.dart';
+@@ -96,8 +97,9 @@ class ChatRetryHelper {
+         showSuccess('Connection available - retrying failed messages...');
+       }
+ 
++      final chatIdValue = ChatId(chatId());
+       final retryStatus = await _retryCoordinator!.getFailedMessageStatus(
+-        chatId(),
++        chatIdValue,
+       );
+ 
+       if (retryStatus.hasError) {
+@@ -114,10 +116,10 @@ class ChatRetryHelper {
+       );
+ 
+       final retryResult = await _retryCoordinator!.retryAllFailedMessages(
+-        chatId: chatId(),
++        chatId: chatIdValue,
+         allowPartialConnection: true,
+         onRepositoryMessageRetry: (message) => repositoryRetryHandler(message),
+-        onQueueMessageRetry: (queuedMessage) async {},
++        onQueueMessageRetry: (_) async {},
+       );
+ 
+       scrollToBottom();
+diff --git a/lib/presentation/controllers/chat_screen_controller.dart b/lib/presentation/controllers/chat_screen_controller.dart
+index a33402b..b91d5e4 100644
+--- a/lib/presentation/controllers/chat_screen_controller.dart
++++ b/lib/presentation/controllers/chat_screen_controller.dart
+@@ -256,7 +256,7 @@ class ChatScreenController extends ChangeNotifier {
+     _messagingViewModel =
+         messagingViewModel ??
+         ChatMessagingViewModel(
+-          chatId: _chatId,
++          chatId: ChatId(_chatId),
+           contactPublicKey: _contactPublicKey ?? '',
+           messageRepository: messageRepository,
+           contactRepository: contactRepository,
+@@ -652,7 +652,7 @@ class ChatScreenController extends ChangeNotifier {
+     );
+   }
+ 
+-  void _updateMessageStatus(String messageId, MessageStatus newStatus) {
++  void _updateMessageStatus(MessageId messageId, MessageStatus newStatus) {
+     // Phase 6A: Delegate to ViewModel
+     final currentState = _stateStore.current;
+     final newState = _sessionViewModel.applyMessageStatus(
+diff --git a/lib/presentation/controllers/chat_scrolling_controller.dart b/lib/presentation/controllers/chat_scrolling_controller.dart
+index 9e9a00d..a71d159 100644
+--- a/lib/presentation/controllers/chat_scrolling_controller.dart
++++ b/lib/presentation/controllers/chat_scrolling_controller.dart
+@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
+ import '../../core/interfaces/i_chats_repository.dart';
+ import '../../domain/entities/chat_list_item.dart';
+ import '../../domain/entities/message.dart';
++import 'package:pak_connect/domain/values/id_types.dart';
+ 
+ /// Handles all scroll-related logic for ChatScreen
+ /// Manages unread message state, scroll position tracking, and mark-as-read logic
+@@ -46,9 +47,9 @@ class ChatScrollingController {
+     try {
+       final chats = await chatsRepository.getAllChats();
+       final currentChat = chats.firstWhere(
+-        (chat) => chat.chatId == chatId,
++        (chat) => chat.chatId.value == chatId,
+         orElse: () => ChatListItem(
+-          chatId: '',
++          chatId: ChatId(''),
+           contactName: '',
+           contactPublicKey: null,
+           lastMessage: null,
+@@ -89,7 +90,7 @@ class ChatScrollingController {
+     _showUnreadSeparator = true;
+ 
+     try {
+-      await chatsRepository.incrementUnreadCount(chatId);
++      await chatsRepository.incrementUnreadCount(ChatId(chatId));
+     } catch (e) {
+       _logger.warning('⚠️ Failed to increment unread count: $e');
+     }
+@@ -184,7 +185,7 @@ class ChatScrollingController {
+       _newMessagesWhileScrolledUp = 0;
+       _hasScrolledAwayFromBottom = false;
+       onUnreadCountChanged(0);
+-      await chatsRepository.markChatAsRead(chatId);
++      await chatsRepository.markChatAsRead(ChatId(chatId));
+       _logger.info('✅ Marked messages as read');
+       _notifyStateChanged();
+     } catch (e) {
+diff --git a/lib/presentation/controllers/chat_session_lifecycle.dart b/lib/presentation/controllers/chat_session_lifecycle.dart
+index 815c6b4..5851ffd 100644
+--- a/lib/presentation/controllers/chat_session_lifecycle.dart
++++ b/lib/presentation/controllers/chat_session_lifecycle.dart
+@@ -17,6 +17,7 @@ import '../../data/repositories/message_repository.dart';
+ import '../../domain/entities/message.dart';
+ import '../../domain/services/notification_service.dart';
+ import '../../domain/models/mesh_network_models.dart';
++import '../../domain/values/id_types.dart';
+ import '../controllers/chat_retry_helper.dart';
+ import '../controllers/chat_pairing_dialog_controller.dart';
+ import '../models/chat_ui_state.dart';
+@@ -82,11 +83,11 @@ class ChatSessionLifecycle {
+ 
+   /// Subscribe to mesh delivery stream and notify caller on delivery.
+   void setupDeliveryListener({
+-    required void Function(String messageId) onDelivered,
++    required void Function(MessageId messageId) onDelivered,
+   }) {
+     try {
+       _deliverySubscription = meshService.messageDeliveryStream.listen(
+-        onDelivered,
++        (id) => onDelivered(MessageId(id)),
+       );
+       _managedSubscriptions.add(_deliverySubscription!);
+     } catch (e) {
+diff --git a/lib/presentation/controllers/home_screen_controller.dart b/lib/presentation/controllers/home_screen_controller.dart
+index 29b32f5..076d290 100644
+--- a/lib/presentation/controllers/home_screen_controller.dart
++++ b/lib/presentation/controllers/home_screen_controller.dart
+@@ -15,6 +15,7 @@ import '../../core/models/connection_status.dart';
+ import '../../core/services/home_screen_facade.dart';
+ import '../../domain/entities/chat_list_item.dart';
+ import '../../domain/services/chat_management_service.dart';
++import '../../domain/values/id_types.dart';
+ import '../providers/ble_providers.dart';
+ import '../providers/mesh_networking_provider.dart';
+ import '../../core/performance/performance_monitor.dart';
+@@ -251,7 +252,7 @@ class HomeScreenController extends ChangeNotifier {
+     await loadChats();
+   }
+ 
+-  bool isChatPinned(String chatId) =>
++  bool isChatPinned(ChatId chatId) =>
+       _chatManagementService.isChatPinned(chatId);
+ 
+   Future<void> toggleChatPin(ChatListItem chat) async {
+diff --git a/lib/presentation/notifiers/chat_session_state_notifier.dart b/lib/presentation/notifiers/chat_session_state_notifier.dart
+index 9580966..28595a9 100644
+--- a/lib/presentation/notifiers/chat_session_state_notifier.dart
++++ b/lib/presentation/notifiers/chat_session_state_notifier.dart
+@@ -4,6 +4,7 @@ import 'package:state_notifier/state_notifier.dart';
+ import '../controllers/chat_screen_controller.dart';
+ import '../models/chat_ui_state.dart';
+ import '../../domain/entities/message.dart';
++import '../../domain/values/id_types.dart';
+ 
+ /// State notifier that mirrors ChatScreenController state for provider reads.
+ class ChatSessionStateNotifier extends Notifier<ChatUIState> {
+@@ -78,19 +79,19 @@ class ChatSessionStateStore extends StateNotifier<ChatUIState> {
+     );
+   }
+ 
+-  void updateMessageStatus(String messageId, MessageStatus newStatus) {
++  void updateMessageStatus(MessageId messageId, MessageStatus newStatus) {
+     state = state.copyWith(
+       messages: state.messages
+           .map(
+-            (m) => m.id.value == messageId ? m.copyWith(status: newStatus) : m,
++            (m) => m.id == messageId ? m.copyWith(status: newStatus) : m,
+           )
+           .toList(),
+     );
+   }
+ 
+-  void removeMessage(String messageId) {
++  void removeMessage(MessageId messageId) {
+     state = state.copyWith(
+-      messages: state.messages.where((m) => m.id.value != messageId).toList(),
++      messages: state.messages.where((m) => m.id != messageId).toList(),
+     );
+   }
+ 
+diff --git a/lib/presentation/providers/archive_provider.dart b/lib/presentation/providers/archive_provider.dart
+index 85bce28..3b92acb 100644
+--- a/lib/presentation/providers/archive_provider.dart
++++ b/lib/presentation/providers/archive_provider.dart
+@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
+ import '../../domain/services/archive_management_service.dart';
+ import '../../domain/services/archive_search_service.dart';
+ import '../../domain/entities/archived_chat.dart';
++import '../../domain/values/id_types.dart';
+ import '../../core/models/archive_models.dart';
+ 
+ /// Logger for archive provider
+@@ -165,7 +166,7 @@ final archiveSearchSuggestionsProvider =
+     });
+ 
+ /// Individual archived chat provider
+-final archivedChatProvider = FutureProvider.family<ArchivedChat?, String>((
++final archivedChatProvider = FutureProvider.family<ArchivedChat?, ArchiveId>((
+   ref,
+   archiveId,
+ ) async {
+@@ -182,7 +183,7 @@ final archivedChatProvider = FutureProvider.family<ArchivedChat?, String>((
+ 
+     // For now, return a basic implementation - this would need proper API extension
+     return ArchivedChat.fromJson({
+-      'id': summary.summary.id,
++      'id': summary.summary.id.value,
+       'originalChatId': summary.summary.originalChatId,
+       'contactName': summary.summary.contactName,
+       'archivedAt': summary.summary.archivedAt.millisecondsSinceEpoch,
+@@ -358,7 +359,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
+   /// Restore a chat from archive
+   /// ✅ Phase 6: Uses ref.read to access service instead of storing instance
+   Future<ArchiveOperationResult> restoreChat({
+-    required String archiveId,
++    required ArchiveId archiveId,
+     bool overwriteExisting = false,
+   }) async {
+     state = state.copyWith(
+@@ -398,7 +399,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
+   }
+ 
+   /// Delete archived chat permanently
+-  Future<bool> deleteArchivedChat(String archiveId) async {
++  Future<bool> deleteArchivedChat(ArchiveId archiveId) async {
+     state = state.copyWith(
+       isDeleting: true,
+       currentOperation: 'Deleting archived chat...',
+@@ -530,7 +531,7 @@ class ArchiveUIState {
+   final bool isSearchMode;
+   final String searchQuery;
+   final ArchiveListFilter? currentFilter;
+-  final String? selectedArchiveId;
++  final ArchiveId? selectedArchiveId;
+   final bool showStatistics;
+ 
+   const ArchiveUIState({
+@@ -545,7 +546,7 @@ class ArchiveUIState {
+     bool? isSearchMode,
+     String? searchQuery,
+     ArchiveListFilter? currentFilter,
+-    String? selectedArchiveId,
++    ArchiveId? selectedArchiveId,
+     bool? showStatistics,
+   }) {
+     return ArchiveUIState(
+@@ -580,7 +581,7 @@ class ArchiveUIStateNotifier extends Notifier<ArchiveUIState> {
+     state = state.copyWith(currentFilter: filter);
+   }
+ 
+-  void selectArchive(String? archiveId) {
++  void selectArchive(ArchiveId? archiveId) {
+     state = state.copyWith(selectedArchiveId: archiveId);
+   }
+ 
+diff --git a/lib/presentation/providers/chat_messaging_view_model.dart b/lib/presentation/providers/chat_messaging_view_model.dart
+index 8119e17..0fde7d8 100644
+--- a/lib/presentation/providers/chat_messaging_view_model.dart
++++ b/lib/presentation/providers/chat_messaging_view_model.dart
+@@ -26,7 +26,7 @@ typedef OnScrollToBottomCallback = void Function();
+ typedef OnClearInputFieldCallback = void Function();
+ 
+ /// Callback type for message removal (deletion)
+-typedef OnMessageRemovedCallback = void Function(String messageId);
++typedef OnMessageRemovedCallback = void Function(MessageId messageId);
+ 
+ /// Callback type for loading state changes
+ typedef OnLoadingStateChangedCallback = void Function(bool isLoading);
+@@ -41,7 +41,7 @@ class ChatMessagingViewModel {
+   final _logger = Logger('ChatMessagingViewModel');
+   final MessageRepository messageRepository;
+   final ContactRepository contactRepository;
+-  final String chatId;
++  final ChatId chatId;
+   final String contactPublicKey;
+ 
+   final List<String> _messageBuffer = [];
+@@ -58,7 +58,7 @@ class ChatMessagingViewModel {
+ 
+   /// Initialize the view model
+   void _initialize() {
+-    _logger.info('🎯 Initializing ChatMessagingViewModel for chat: $chatId');
++    _logger.info('🎯 Initializing ChatMessagingViewModel for chat: ${chatId.value}');
+   }
+ 
+   /// Load messages from both repository and queue, merge and deduplicate
+@@ -77,7 +77,7 @@ class ChatMessagingViewModel {
+     OnShowErrorCallback? onError,
+   }) async {
+     try {
+-      _logger.info('📋 Starting to load messages for chat: $chatId');
++      _logger.info('📋 Starting to load messages for chat: ${chatId.value}');
+       onLoadingStateChanged?.call(true);
+ 
+       // 1. Load delivered messages from repository
+@@ -97,7 +97,7 @@ class ChatMessagingViewModel {
+           .map(
+             (qm) => Message(
+               id: MessageId(qm.id),
+-              chatId: qm.chatId,
++              chatId: ChatId(qm.chatId),
+               content: qm.content,
+               timestamp: qm.queuedAt,
+               isFromMe: true, // Queued messages are always outgoing
+@@ -187,7 +187,7 @@ class ChatMessagingViewModel {
+ 
+       // Use AppCore to queue message (uses proper queue system)
+       final secureMessageId = await AppCore.instance.sendSecureMessage(
+-        chatId: chatId,
++        chatId: chatId.value,
+         content: content,
+         recipientPublicKey: contactPublicKey,
+       );
+@@ -263,7 +263,7 @@ class ChatMessagingViewModel {
+   /// - onShowSuccess: Callback to show success message
+   /// - onShowError: Callback to show error message
+   Future<void> deleteMessage({
+-    required String messageId,
++    required MessageId messageId,
+     bool deleteForEveryone = false,
+     OnMessageRemovedCallback? onMessageRemoved,
+     OnShowSuccessCallback? onShowSuccess,
+@@ -276,7 +276,7 @@ class ChatMessagingViewModel {
+ 
+       // Delete from local repository
+       final success = await messageRepository.deleteMessage(
+-        MessageId(messageId),
++        messageId,
+       );
+ 
+       if (success) {
+@@ -288,14 +288,14 @@ class ChatMessagingViewModel {
+         if (deleteForEveryone) {
+           try {
+             // Send deletion request using MessageRouter (offline-reliable pattern)
+-            final deletionMessage = 'DELETE_MESSAGE:$messageId';
++            final deletionMessage = 'DELETE_MESSAGE:${messageId.value}';
+             final router = MessageRouter.instance;
+ 
+             final result = await router.sendMessage(
+               content: deletionMessage,
+               recipientId: contactPublicKey.isNotEmpty
+                   ? contactPublicKey
+-                  : chatId,
++                  : chatId.value,
+               recipientName:
+                   'Unknown', // Don't have display name here, use placeholder
+             );
+diff --git a/lib/presentation/providers/pinning_service_provider.dart b/lib/presentation/providers/pinning_service_provider.dart
+index b863a97..f9bf9f7 100644
+--- a/lib/presentation/providers/pinning_service_provider.dart
++++ b/lib/presentation/providers/pinning_service_provider.dart
+@@ -1,5 +1,6 @@
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import 'package:pak_connect/core/services/pinning_service.dart';
++import 'package:pak_connect/domain/services/chat_management_models.dart';
+ 
+ /// Provider for PinningService instance
+ final pinningServiceProvider = Provider.autoDispose<PinningService>((ref) {
+@@ -9,7 +10,7 @@ final pinningServiceProvider = Provider.autoDispose<PinningService>((ref) {
+ });
+ 
+ /// Stream provider for message update events
+-final messageUpdatesProvider = StreamProvider.autoDispose<dynamic>((
++final messageUpdatesProvider = StreamProvider.autoDispose<MessageUpdateEvent>((
+   ref,
+ ) async* {
+   final service = ref.watch(pinningServiceProvider);
+diff --git a/lib/presentation/screens/archive_detail_screen.dart b/lib/presentation/screens/archive_detail_screen.dart
+index 4ebf490..54ac974 100644
+--- a/lib/presentation/screens/archive_detail_screen.dart
++++ b/lib/presentation/screens/archive_detail_screen.dart
+@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ import '../../domain/entities/archived_chat.dart';
+ import '../../domain/entities/archived_message.dart';
++import '../../domain/values/id_types.dart';
+ import '../providers/archive_provider.dart';
+ import '../widgets/restore_confirmation_dialog.dart';
+ import '../widgets/archive_context_menu.dart';
+ 
+ /// Screen for viewing and managing individual archived chats
+ class ArchiveDetailScreen extends ConsumerStatefulWidget {
+-  final String archivedChatId;
++  final ArchiveId archivedChatId;
+ 
+   const ArchiveDetailScreen({super.key, required this.archivedChatId});
+ 
+@@ -69,7 +70,7 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
+       // For now, create a basic ArchivedChat from the summary
+       // In a real implementation, we'd have a proper method to get full archived chat
+       final archivedChat = ArchivedChat.fromJson({
+-        'id': summary.id,
++        'id': summary.id.value,
+         'originalChatId': summary.originalChatId,
+         'contactName': summary.contactName,
+         'archivedAt': summary.archivedAt.millisecondsSinceEpoch,
+diff --git a/lib/presentation/screens/archive_screen.dart b/lib/presentation/screens/archive_screen.dart
+index de0976f..f10081c 100644
+--- a/lib/presentation/screens/archive_screen.dart
++++ b/lib/presentation/screens/archive_screen.dart
+@@ -333,8 +333,8 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
+                   // This is a simplified version - in real implementation, we'd have better data structure
+                   return SearchResultArchivedChatTile(
+                     archive: ArchivedChatSummary(
+-                      id: message.chatId,
+-                      originalChatId: message.chatId,
++                      id: message.archiveId,
++                      originalChatId: message.chatId.value,
+                       contactName: 'Contact', // Would get from message metadata
+                       archivedAt: message.archivedAt,
+                       messageCount: 1,
+diff --git a/lib/presentation/screens/home_screen.dart b/lib/presentation/screens/home_screen.dart
+index e360d20..c1d0bf0 100644
+--- a/lib/presentation/screens/home_screen.dart
++++ b/lib/presentation/screens/home_screen.dart
+@@ -529,7 +529,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
+   }) {
+     return Dismissible(
+       key:
+-          key ?? Key('chat_${chat.chatId}'), // Use provided key or generate one
++          key ?? Key('chat_${chat.chatId.value}'), // Use provided key or generate one
+       direction: DismissDirection.horizontal,
+       dismissThresholds: const {
+         DismissDirection.startToEnd: 0.4, // 40% for archive
+diff --git a/lib/presentation/services/chat_interaction_handler.dart b/lib/presentation/services/chat_interaction_handler.dart
+index 3ec9c02..a9b2ea9 100644
+--- a/lib/presentation/services/chat_interaction_handler.dart
++++ b/lib/presentation/services/chat_interaction_handler.dart
+@@ -6,6 +6,7 @@ import '../../core/interfaces/i_chat_interaction_handler.dart';
+ import '../../core/interfaces/i_chats_repository.dart';
+ import '../../domain/entities/chat_list_item.dart';
+ import '../../domain/services/chat_management_service.dart';
++import '../../domain/values/id_types.dart';
+ import '../providers/archive_provider.dart';
+ import '../providers/ble_providers.dart';
+ import '../screens/chat_screen.dart';
+@@ -84,13 +85,13 @@ class ChatInteractionHandler implements IChatInteractionHandler {
+         _context!,
+         MaterialPageRoute(
+           builder: (context) => ChatScreen.fromChatData(
+-            chatId: chat.chatId,
++            chatId: chat.chatId.value,
+             contactName: chat.contactName,
+             contactPublicKey: chat.contactPublicKey ?? '',
+           ),
+         ),
+       ).then((_) {
+-        _emitIntent(ChatOpenedIntent(chat.chatId));
++        _emitIntent(ChatOpenedIntent(chat.chatId.value));
+       });
+ 
+       _logger.info('✅ Opened chat: ${chat.contactName}');
+@@ -377,7 +378,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
+       final result = await _ref!
+           .read(archiveOperationsProvider.notifier)
+           .archiveChat(
+-            chatId: chat.chatId,
++            chatId: chat.chatId.value,
+             reason: 'User archived from chat list',
+             metadata: {
+               'contactName': chat.contactName,
+@@ -390,7 +391,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
+         _logger.info('✅ Chat archived: ${chat.contactName}');
+         _ref!.invalidate(archiveListProvider);
+         _ref!.invalidate(archiveStatisticsProvider);
+-        _emitIntent(ChatArchivedIntent(chat.chatId));
++        _emitIntent(ChatArchivedIntent(chat.chatId.value));
+       } else {
+         _logger.warning('⚠️ Failed to archive: ${result.message}');
+       }
+@@ -477,11 +478,11 @@ class ChatInteractionHandler implements IChatInteractionHandler {
+   @override
+   Future<void> deleteChat(ChatListItem chat) async {
+     try {
+-      final result = await _chatManagementService?.deleteChat(chat.chatId);
++      final result = await _chatManagementService?.deleteChat(chat.chatId.value);
+ 
+       if (result?.success ?? false) {
+         _logger.info('✅ Chat deleted: ${chat.contactName}');
+-        _emitIntent(ChatDeletedIntent(chat.chatId));
++        _emitIntent(ChatDeletedIntent(chat.chatId.value));
+       } else {
+         _logger.warning('⚠️ Failed to delete: ${result?.message}');
+       }
+@@ -600,7 +601,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
+ 
+       if (result?.success ?? false) {
+         _logger.info('✅ Chat pin toggled: ${result?.message}');
+-        _emitIntent(ChatPinToggleIntent(chat.chatId));
++        _emitIntent(ChatPinToggleIntent(chat.chatId.value));
+       } else {
+         _logger.warning('⚠️ Failed to toggle pin: ${result?.message}');
+       }
+@@ -610,10 +611,10 @@ class ChatInteractionHandler implements IChatInteractionHandler {
+   }
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {
++  Future<void> markChatAsRead(ChatId chatId) async {
+     try {
+       await _chatsRepository?.markChatAsRead(chatId);
+-      _logger.info('✅ Chat marked as read: $chatId');
++      _logger.info('✅ Chat marked as read: ${chatId.value}');
+     } catch (e) {
+       _logger.severe('❌ Error marking chat as read: $e');
+     }
+diff --git a/lib/presentation/viewmodels/chat_session_view_model.dart b/lib/presentation/viewmodels/chat_session_view_model.dart
+index fdbbc73..2d0f337 100644
+--- a/lib/presentation/viewmodels/chat_session_view_model.dart
++++ b/lib/presentation/viewmodels/chat_session_view_model.dart
+@@ -157,11 +157,11 @@ class ChatSessionViewModel {
+   /// Compute new state with an updated message status.
+   ChatUIState applyMessageStatus(
+     ChatUIState state,
+-    String messageId,
++    MessageId messageId,
+     MessageStatus newStatus,
+   ) {
+     final messages = [...state.messages];
+-    final index = messages.indexWhere((m) => m.id.value == messageId);
++    final index = messages.indexWhere((m) => m.id == messageId);
+     if (index != -1) {
+       messages[index] = messages[index].copyWith(status: newStatus);
+     }
+@@ -280,8 +280,7 @@ class ChatSessionViewModel {
+   ) async {
+     try {
+       await messagingViewModel.deleteMessage(
+-        messageId:
+-            messageId.value, // String is expected by ChatMessagingViewModel
++        messageId: messageId,
+         deleteForEveryone: deleteForEveryone,
+         onMessageRemoved: (id) {
+           stateStore?.removeMessage(id);
+@@ -411,7 +410,7 @@ class ChatSessionViewModel {
+ 
+     final message = Message(
+       id: MessageId(secureMessageId),
+-      chatId: chatId,
++      chatId: ChatId(chatId),
+       content: content,
+       timestamp: DateTime.now(),
+       isFromMe: false,
+@@ -464,7 +463,7 @@ class ChatSessionViewModel {
+     if (newChatId == currentChatId) return;
+ 
+     final messagesToMigrate = await messageRepository.getMessages(
+-      currentChatId,
++      ChatId(currentChatId),
+     );
+     if (messagesToMigrate.isNotEmpty) {
+       await _migrateMessages(currentChatId, newChatId);
+@@ -474,7 +473,7 @@ class ChatSessionViewModel {
+     onContactPublicKeyUpdated?.call(otherPersistentId);
+ 
+     final newMessagingViewModel = ChatMessagingViewModel(
+-      chatId: newChatId,
++      chatId: ChatId(newChatId),
+       contactPublicKey: otherPersistentId,
+       messageRepository: messageRepository,
+       contactRepository: contactRepository,
+@@ -522,7 +521,7 @@ class ChatSessionViewModel {
+ 
+   Future<void> _migrateMessages(String oldChatId, String newChatId) async {
+     try {
+-      await messageRepository.migrateChatId(oldChatId, newChatId);
++      await messageRepository.migrateChatId(ChatId(oldChatId), ChatId(newChatId));
+       _logger.info(
+         'Migrated messages from $oldChatId to $newChatId via repository',
+       );
+diff --git a/lib/presentation/viewmodels/home_screen_view_model.dart b/lib/presentation/viewmodels/home_screen_view_model.dart
+index 6267a76..7255ab8 100644
+--- a/lib/presentation/viewmodels/home_screen_view_model.dart
++++ b/lib/presentation/viewmodels/home_screen_view_model.dart
+@@ -16,6 +16,7 @@ import '../../core/performance/performance_monitor.dart';
+ import '../../core/services/home_screen_facade.dart';
+ import '../../domain/entities/chat_list_item.dart';
+ import '../../domain/services/chat_management_service.dart';
++import '../../domain/values/id_types.dart';
+ import '../controllers/chat_list_controller.dart';
+ import '../models/home_screen_state.dart';
+ import '../providers/ble_providers.dart';
+@@ -220,10 +221,10 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
+     await loadChats();
+   }
+ 
+-  bool isChatPinned(String chatId) =>
++  bool isChatPinned(ChatId chatId) =>
+       _chatManagementService.isChatPinned(chatId);
+ 
+-  Future<void> markChatAsRead(String chatId) async {
++  Future<void> markChatAsRead(ChatId chatId) async {
+     await _homeScreenFacade.markChatAsRead(chatId);
+   }
+ 
+diff --git a/test/archive_repository_sqlite_test.dart b/test/archive_repository_sqlite_test.dart
+index 20c8d1a..7840b58 100644
+--- a/test/archive_repository_sqlite_test.dart
++++ b/test/archive_repository_sqlite_test.dart
+@@ -67,7 +67,7 @@ void main() {
+     for (int i = 0; i < messageCount; i++) {
+       final message = Message(
+         id: MessageId('msg_${chatId}_$i'),
+-        chatId: chatId,
++        chatId: ChatId(chatId),
+         content: 'Test message $i for $contactName',
+         timestamp: DateTime.now().subtract(Duration(hours: messageCount - i)),
+         isFromMe: i % 2 == 0,
+@@ -78,7 +78,7 @@ void main() {
+   }
+ 
+   // Helper method to create an archive directly in database (bypasses FlutterSecureStorage issues)
+-  Future<String> createArchiveDirectly(
++  Future<ArchiveId> createArchiveDirectly(
+     String chatId,
+     String contactName,
+     int messageCount,
+@@ -86,11 +86,11 @@ void main() {
+     final db = await DatabaseHelper.database;
+     final now = DateTime.now();
+     final timestamp = now.millisecondsSinceEpoch;
+-    final archiveId = 'archive_${chatId}_$timestamp';
++    final archiveId = ArchiveId('archive_${chatId}_$timestamp');
+ 
+     // Insert archive
+     await db.insert('archived_chats', {
+-      'archive_id': archiveId,
++      'archive_id': archiveId.value,
+       'original_chat_id': chatId,
+       'contact_name': contactName,
+       'contact_public_key': 'test_public_key',
+@@ -111,7 +111,7 @@ void main() {
+       final msgTime = now.subtract(Duration(hours: messageCount - i));
+       await db.insert('archived_messages', {
+         'id': 'archived_msg_${timestamp}_${chatId}_$i',
+-        'archive_id': archiveId,
++        'archive_id': archiveId.value,
+         'original_message_id': 'msg_${chatId}_$i',
+         'chat_id': chatId,
+         'content': 'Test message $i for $contactName',
+@@ -166,7 +166,7 @@ void main() {
+         'Charlie',
+         0,
+       ); // Create empty chat
+-      final clearedMessages = await messageRepo.getMessages('chat_003');
++      final clearedMessages = await messageRepo.getMessages(ChatId('chat_003'));
+       expect(clearedMessages.isEmpty, true);
+ 
+       // Restore the archive
+@@ -176,7 +176,7 @@ void main() {
+       expect(restoreResult.metadata?['restoredMessages'], 3);
+ 
+       // Verify messages were restored
+-      final restoredMessages = await messageRepo.getMessages('chat_003');
++      final restoredMessages = await messageRepo.getMessages(ChatId('chat_003'));
+       expect(restoredMessages.length, 3);
+     });
+ 
+@@ -184,7 +184,9 @@ void main() {
+       final repository = ArchiveRepository();
+       await repository.initialize();
+ 
+-      final result = await repository.restoreChat('non_existent_archive');
++      final result = await repository.restoreChat(
++        ArchiveId('non_existent_archive'),
++      );
+ 
+       expect(result.success, false);
+       expect(result.message, contains('not found'));
+@@ -396,7 +398,7 @@ void main() {
+       final messagesBefore = await db.query(
+         'archived_messages',
+         where: 'archive_id = ?',
+-        whereArgs: [archiveId],
++        whereArgs: [archiveId.value],
+       );
+       expect(messagesBefore.length, 5);
+ 
+@@ -407,7 +409,7 @@ void main() {
+       final messagesAfter = await db.query(
+         'archived_messages',
+         where: 'archive_id = ?',
+-        whereArgs: [archiveId],
++        whereArgs: [archiveId.value],
+       );
+       expect(messagesAfter.isEmpty, true);
+     });
+@@ -417,7 +419,7 @@ void main() {
+       await repository.initialize();
+ 
+       final result = await repository.permanentlyDeleteArchive(
+-        'non_existent_archive',
++        ArchiveId('non_existent_archive'),
+       );
+ 
+       expect(result.success, false);
+@@ -518,9 +520,11 @@ void main() {
+       final db = await DatabaseHelper.database;
+       final now = DateTime.now();
+ 
+-      final archiveId1 = 'archive_chat_026_${now.millisecondsSinceEpoch}';
++      final archiveId1 = ArchiveId(
++        'archive_chat_026_${now.millisecondsSinceEpoch}',
++      );
+       await db.insert('archived_chats', {
+-        'archive_id': archiveId1,
++        'archive_id': archiveId1.value,
+         'original_chat_id': 'chat_026',
+         'contact_name': 'Alice',
+         'contact_public_key': 'test_key',
+@@ -538,7 +542,7 @@ void main() {
+ 
+       await db.insert('archived_messages', {
+         'id': 'archived_msg_026',
+-        'archive_id': archiveId1,
++        'archive_id': archiveId1.value,
+         'original_message_id': 'msg_026',
+         'chat_id': 'chat_026',
+         'content': 'I love apple pie',
+@@ -556,9 +560,11 @@ void main() {
+       });
+ 
+       // Create second archive with "banana" keyword
+-      final archiveId2 = 'archive_chat_027_${now.millisecondsSinceEpoch + 1}';
++      final archiveId2 = ArchiveId(
++        'archive_chat_027_${now.millisecondsSinceEpoch + 1}',
++      );
+       await db.insert('archived_chats', {
+-        'archive_id': archiveId2,
++        'archive_id': archiveId2.value,
+         'original_chat_id': 'chat_027',
+         'contact_name': 'Bob',
+         'contact_public_key': 'test_key',
+@@ -576,7 +582,7 @@ void main() {
+ 
+       await db.insert('archived_messages', {
+         'id': 'archived_msg_027',
+-        'archive_id': archiveId2,
++        'archive_id': archiveId2.value,
+         'original_message_id': 'msg_027',
+         'chat_id': 'chat_027',
+         'content': 'I prefer banana bread',
+diff --git a/test/chat_migration_test.dart b/test/chat_migration_test.dart
+index 96c531c..c0a6ca3 100644
+--- a/test/chat_migration_test.dart
++++ b/test/chat_migration_test.dart
+@@ -8,6 +8,8 @@ import 'package:pak_connect/domain/entities/message.dart';
+ import 'package:pak_connect/domain/values/id_types.dart';
+ import 'test_helpers/test_setup.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++
+ void main() {
+   // Initialize test environment
+   setUpAll(() async {
+@@ -61,12 +63,12 @@ void main() {
+       String ephemeralId,
+       int messageCount,
+     ) async {
+-      await chatsRepository.markChatAsRead(ephemeralId); // Create chat entry
++      await chatsRepository.markChatAsRead(_cid(ephemeralId)); // Create chat entry
+ 
+       for (int i = 0; i < messageCount; i++) {
+         final message = Message(
+           id: MessageId('msg_${ephemeralId}_$i'),
+-          chatId: ephemeralId,
++          chatId: _cid(ephemeralId),
+           content: 'Test message $i',
+           timestamp: DateTime.now().add(Duration(seconds: i)),
+           isFromMe: i % 2 == 0,
+@@ -84,7 +86,9 @@ void main() {
+       await createEphemeralChat(ephemeralId, 5);
+ 
+       // Verify messages exist in ephemeral chat
+-      final beforeMessages = await messageRepository.getMessages(ephemeralId);
++      final beforeMessages = await messageRepository.getMessages(
++        _cid(ephemeralId),
++      );
+       expect(beforeMessages.length, 5);
+ 
+       // Perform migration
+@@ -97,14 +101,16 @@ void main() {
+       expect(success, true);
+ 
+       // Verify messages moved to persistent chat
+-      final afterMessages = await messageRepository.getMessages(persistentKey);
++      final afterMessages = await messageRepository.getMessages(
++        _cid(persistentKey),
++      );
+       expect(afterMessages.length, 5);
+       expect(afterMessages[0].content, 'Test message 0');
+       expect(afterMessages[4].content, 'Test message 4');
+ 
+       // Verify old ephemeral chat is deleted
+       final ephemeralMessages = await messageRepository.getMessages(
+-        ephemeralId,
++        _cid(ephemeralId),
+       );
+       expect(ephemeralMessages.isEmpty, true);
+ 
+@@ -129,7 +135,7 @@ void main() {
+       const persistentKey = 'persistent_key_empty789';
+ 
+       // Create empty chat (no messages)
+-      await chatsRepository.markChatAsRead(ephemeralId);
++      await chatsRepository.markChatAsRead(_cid(ephemeralId));
+ 
+       // Perform migration
+       final success = await migrationService.migrateChatToPersistentId(
+@@ -140,7 +146,7 @@ void main() {
+       expect(success, false); // No migration needed
+ 
+       // Verify no messages in persistent chat
+-      final messages = await messageRepository.getMessages(persistentKey);
++      final messages = await messageRepository.getMessages(_cid(persistentKey));
+       expect(messages.isEmpty, true);
+     });
+ 
+@@ -160,7 +166,7 @@ void main() {
+       expect(success, true);
+ 
+       // Verify message order preserved
+-      final messages = await messageRepository.getMessages(persistentKey);
++      final messages = await messageRepository.getMessages(_cid(persistentKey));
+       expect(messages.length, 10);
+ 
+       for (int i = 0; i < 10; i++) {
+@@ -172,12 +178,12 @@ void main() {
+       const ephemeralId = 'temp_props123';
+       const persistentKey = 'persistent_key_props789';
+ 
+-      await chatsRepository.markChatAsRead(ephemeralId);
++      await chatsRepository.markChatAsRead(_cid(ephemeralId));
+ 
+       // Create messages with different properties
+       final sentMessage = Message(
+         id: MessageId('sent_msg'),
+-        chatId: ephemeralId,
++        chatId: _cid(ephemeralId),
+         content: 'Sent message',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -186,7 +192,7 @@ void main() {
+ 
+       final receivedMessage = Message(
+         id: MessageId('received_msg'),
+-        chatId: ephemeralId,
++        chatId: _cid(ephemeralId),
+         content: 'Received message',
+         timestamp: DateTime.now().add(const Duration(seconds: 1)),
+         isFromMe: false,
+@@ -203,7 +209,7 @@ void main() {
+       );
+ 
+       // Verify properties preserved
+-      final messages = await messageRepository.getMessages(persistentKey);
++      final messages = await messageRepository.getMessages(_cid(persistentKey));
+       expect(messages.length, 2);
+ 
+       final migratedSent = messages.firstWhere((m) => m.id.value == 'sent_msg');
+@@ -227,10 +233,10 @@ void main() {
+       await createEphemeralChat(ephemeralId, 3);
+ 
+       // Create persistent chat with existing messages
+-      await chatsRepository.markChatAsRead(persistentKey);
++      await chatsRepository.markChatAsRead(_cid(persistentKey));
+       final existingMessage = Message(
+         id: MessageId('existing_msg'),
+-        chatId: persistentKey,
++        chatId: _cid(persistentKey),
+         content: 'Existing message',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -252,7 +258,7 @@ void main() {
+       expect(success, true);
+ 
+       // Verify merged correctly
+-      final messages = await messageRepository.getMessages(persistentKey);
++      final messages = await messageRepository.getMessages(_cid(persistentKey));
+       expect(messages.length, 4); // 1 existing + 3 ephemeral = 4
+ 
+       // Verify all messages are present
+@@ -268,10 +274,10 @@ void main() {
+       await createEphemeralChat(tempChat, 2);
+ 
+       // Create persistent chat with messages
+-      await chatsRepository.markChatAsRead(persistentChat);
++      await chatsRepository.markChatAsRead(_cid(persistentChat));
+       final msg = Message(
+         id: MessageId('persistent_msg'),
+-        chatId: persistentChat,
++        chatId: _cid(persistentChat),
+         content: 'Test',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -294,13 +300,13 @@ void main() {
+         // Create multiple temp chats
+         await createEphemeralChat('temp_1', 2);
+         await createEphemeralChat('temp_2', 3);
+-        await chatsRepository.markChatAsRead('temp_3'); // Empty temp chat
++        await chatsRepository.markChatAsRead(_cid('temp_3')); // Empty temp chat
+ 
+-        // Create persistent chat (should be ignored)
+-        await chatsRepository.markChatAsRead('persistent_chat');
+-        final msg = Message(
+-          id: MessageId('persistent_msg'),
+-          chatId: 'persistent_chat',
++      // Create persistent chat (should be ignored)
++      await chatsRepository.markChatAsRead(_cid('persistent_chat'));
++      final msg = Message(
++        id: MessageId('persistent_msg'),
++        chatId: _cid('persistent_chat'),
+           content: 'Test',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -344,29 +350,29 @@ void main() {
+ 
+       // Verify messages migrated
+       expect(
+-        (await messageRepository.getMessages('persistent_batch_1')).length,
++        (await messageRepository.getMessages(_cid('persistent_batch_1'))).length,
+         2,
+       );
+       expect(
+-        (await messageRepository.getMessages('persistent_batch_2')).length,
++        (await messageRepository.getMessages(_cid('persistent_batch_2'))).length,
+         3,
+       );
+       expect(
+-        (await messageRepository.getMessages('persistent_batch_3')).length,
++        (await messageRepository.getMessages(_cid('persistent_batch_3'))).length,
+         1,
+       );
+ 
+       // Verify old chats deleted
+       expect(
+-        (await messageRepository.getMessages('temp_batch_1')).isEmpty,
++        (await messageRepository.getMessages(_cid('temp_batch_1'))).isEmpty,
+         true,
+       );
+       expect(
+-        (await messageRepository.getMessages('temp_batch_2')).isEmpty,
++        (await messageRepository.getMessages(_cid('temp_batch_2'))).isEmpty,
+         true,
+       );
+       expect(
+-        (await messageRepository.getMessages('temp_batch_3')).isEmpty,
++        (await messageRepository.getMessages(_cid('temp_batch_3'))).isEmpty,
+         true,
+       );
+     });
+@@ -376,12 +382,12 @@ void main() {
+       const persistentKey = 'persistent_key_time789';
+ 
+       // Create chat with messages at different times
+-      await chatsRepository.markChatAsRead(ephemeralId);
++      await chatsRepository.markChatAsRead(_cid(ephemeralId));
+ 
+       final now = DateTime.now();
+       final msg1 = Message(
+         id: MessageId('msg_1'),
+-        chatId: ephemeralId,
++        chatId: _cid(ephemeralId),
+         content: 'First',
+         timestamp: now.subtract(const Duration(hours: 2)),
+         isFromMe: true,
+@@ -390,7 +396,7 @@ void main() {
+ 
+       final msg2 = Message(
+         id: MessageId('msg_2'),
+-        chatId: ephemeralId,
++        chatId: _cid(ephemeralId),
+         content: 'Second',
+         timestamp: now.subtract(const Duration(hours: 1)),
+         isFromMe: false,
+@@ -399,7 +405,7 @@ void main() {
+ 
+       final msg3 = Message(
+         id: MessageId('msg_3'),
+-        chatId: ephemeralId,
++        chatId: _cid(ephemeralId),
+         content: 'Latest',
+         timestamp: now,
+         isFromMe: true,
+@@ -432,11 +438,11 @@ void main() {
+       const ephemeralId = 'temp_special123';
+       const persistentKey = 'persistent_key_special789';
+ 
+-      await chatsRepository.markChatAsRead(ephemeralId);
++      await chatsRepository.markChatAsRead(_cid(ephemeralId));
+ 
+       final specialMessage = Message(
+         id: MessageId('special_msg'),
+-        chatId: ephemeralId,
++        chatId: _cid(ephemeralId),
+         content: '🔒 Test émojis & spëcial çhars: "quotes" \'apostrophes\' 你好',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -452,7 +458,7 @@ void main() {
+       );
+ 
+       // Verify content preserved
+-      final messages = await messageRepository.getMessages(persistentKey);
++      final messages = await messageRepository.getMessages(_cid(persistentKey));
+       expect(messages.length, 1);
+       expect(
+         messages.first.content,
+diff --git a/test/chats_repository_sqlite_test.dart b/test/chats_repository_sqlite_test.dart
+index 938a178..9342e43 100644
+--- a/test/chats_repository_sqlite_test.dart
++++ b/test/chats_repository_sqlite_test.dart
+@@ -8,6 +8,8 @@ import 'package:pak_connect/domain/entities/message.dart';
+ import 'package:pak_connect/domain/values/id_types.dart';
+ import 'test_helpers/test_setup.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++
+ void main() {
+   late List<LogRecord> logRecords;
+   late Set<String> allowedSevere;
+@@ -50,7 +52,7 @@ void main() {
+       const chatId = 'persistent_chat_alice_bob';
+ 
+       // Mark as read (should create chat entry with 0 unread)
+-      await repo.markChatAsRead(chatId);
++      await repo.markChatAsRead(_cid(chatId));
+ 
+       // Verify unread count is 0
+       final db = await DatabaseHelper.database;
+@@ -70,9 +72,9 @@ void main() {
+       const chatId = 'persistent_chat_alice_bob';
+ 
+       // First increment unread count
+-      await repo.incrementUnreadCount(chatId);
+-      await repo.incrementUnreadCount(chatId);
+-      await repo.incrementUnreadCount(chatId);
++      await repo.incrementUnreadCount(_cid(chatId));
++      await repo.incrementUnreadCount(_cid(chatId));
++      await repo.incrementUnreadCount(_cid(chatId));
+ 
+       // Verify count is 3
+       final db = await DatabaseHelper.database;
+@@ -84,7 +86,7 @@ void main() {
+       expect(rows.first['unread_count'], 3);
+ 
+       // Mark as read
+-      await repo.markChatAsRead(chatId);
++      await repo.markChatAsRead(_cid(chatId));
+ 
+       // Verify count is now 0
+       rows = await db.query('chats', where: 'chat_id = ?', whereArgs: [chatId]);
+@@ -96,7 +98,7 @@ void main() {
+       const chatId = 'persistent_chat_alice_bob';
+ 
+       // Increment unread count (should create chat with count = 1)
+-      await repo.incrementUnreadCount(chatId);
++      await repo.incrementUnreadCount(_cid(chatId));
+ 
+       // Verify
+       final db = await DatabaseHelper.database;
+@@ -115,11 +117,11 @@ void main() {
+       const chatId = 'persistent_chat_alice_bob';
+ 
+       // Increment multiple times
+-      await repo.incrementUnreadCount(chatId);
+-      await repo.incrementUnreadCount(chatId);
+-      await repo.incrementUnreadCount(chatId);
+-      await repo.incrementUnreadCount(chatId);
+-      await repo.incrementUnreadCount(chatId);
++      await repo.incrementUnreadCount(_cid(chatId));
++      await repo.incrementUnreadCount(_cid(chatId));
++      await repo.incrementUnreadCount(_cid(chatId));
++      await repo.incrementUnreadCount(_cid(chatId));
++      await repo.incrementUnreadCount(_cid(chatId));
+ 
+       // Verify count is 5
+       final db = await DatabaseHelper.database;
+@@ -143,17 +145,17 @@ void main() {
+       final repo = ChatsRepository();
+ 
+       // Create multiple chats with unread counts
+-      await repo.incrementUnreadCount('chat1');
+-      await repo.incrementUnreadCount('chat1');
+-      await repo.incrementUnreadCount('chat1'); // chat1: 3
++      await repo.incrementUnreadCount(_cid('chat1'));
++      await repo.incrementUnreadCount(_cid('chat1'));
++      await repo.incrementUnreadCount(_cid('chat1')); // chat1: 3
+ 
+-      await repo.incrementUnreadCount('chat2');
+-      await repo.incrementUnreadCount('chat2'); // chat2: 2
++      await repo.incrementUnreadCount(_cid('chat2'));
++      await repo.incrementUnreadCount(_cid('chat2')); // chat2: 2
+ 
+-      await repo.incrementUnreadCount('chat3'); // chat3: 1
++      await repo.incrementUnreadCount(_cid('chat3')); // chat3: 1
+ 
+       // Mark one as read
+-      await repo.markChatAsRead('chat2'); // chat2: 0
++      await repo.markChatAsRead(_cid('chat2')); // chat2: 0
+ 
+       final total = await repo.getTotalUnreadCount();
+       expect(total, 4); // 3 + 0 + 1 = 4
+@@ -290,10 +292,10 @@ void main() {
+       await contactRepo.saveContact('charlie_key', 'Charlie');
+ 
+       final now = DateTime.now();
+-      await messageRepo.saveMessage(
+-        Message(
+-          id: MessageId('msg1'),
+-          chatId: 'alice_key',
++        await messageRepo.saveMessage(
++          Message(
++            id: MessageId('msg1'),
++            chatId: _cid('alice_key'),
+           content: 'Hello from Alice',
+           timestamp: now,
+           isFromMe: false,
+@@ -303,7 +305,7 @@ void main() {
+       await messageRepo.saveMessage(
+         Message(
+           id: MessageId('msg2'),
+-          chatId: 'bob_key',
++          chatId: _cid('bob_key'),
+           content: 'Hello from Bob',
+           timestamp: now,
+           isFromMe: false,
+@@ -336,17 +338,17 @@ void main() {
+ 
+       // Chat 1: 5 unread
+       for (int i = 0; i < 5; i++) {
+-        await repo.incrementUnreadCount(chat1);
++        await repo.incrementUnreadCount(_cid(chat1));
+       }
+ 
+       // Chat 2: 2 unread
+       for (int i = 0; i < 2; i++) {
+-        await repo.incrementUnreadCount(chat2);
++        await repo.incrementUnreadCount(_cid(chat2));
+       }
+ 
+       // Chat 3: 0 unread (mark as read)
+-      await repo.incrementUnreadCount(chat3);
+-      await repo.markChatAsRead(chat3);
++      await repo.incrementUnreadCount(_cid(chat3));
++      await repo.markChatAsRead(_cid(chat3));
+ 
+       // Verify total
+       final total = await repo.getTotalUnreadCount();
+diff --git a/test/core/services/chat_list_coordinator_test.dart b/test/core/services/chat_list_coordinator_test.dart
+index 2f841b0..7ea653e 100644
+--- a/test/core/services/chat_list_coordinator_test.dart
++++ b/test/core/services/chat_list_coordinator_test.dart
+@@ -10,9 +10,12 @@ import 'package:pak_connect/core/interfaces/i_connection_service.dart';
+ import 'package:pak_connect/domain/entities/chat_list_item.dart';
+ import 'package:pak_connect/domain/entities/contact.dart';
+ import 'package:pak_connect/domain/entities/message.dart';
++import 'package:pak_connect/domain/values/id_types.dart';
+ 
+ import '../../test_helpers/mocks/mock_connection_service.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++
+ class _ScriptedChatsRepository implements IChatsRepository {
+   final List<List<ChatListItem>> responses;
+   int _index = 0;
+@@ -58,10 +61,10 @@ class _ScriptedChatsRepository implements IChatsRepository {
+   Future<int> getTotalUnreadCount() async => totalUnreadCount;
+ 
+   @override
+-  Future<void> incrementUnreadCount(String chatId) async {}
++  Future<void> incrementUnreadCount(ChatId chatId) async {}
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {}
++  Future<void> markChatAsRead(ChatId chatId) async {}
+ 
+   @override
+   Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {}
+@@ -75,7 +78,7 @@ ChatListItem _chat(
+   DateTime? lastMessageTime,
+   bool online = false,
+ }) => ChatListItem(
+-  chatId: id,
++  chatId: _cid(id),
+   contactName: 'User $id',
+   contactPublicKey: 'pk-$id',
+   lastMessage: 'hi',
+@@ -123,7 +126,7 @@ void main() {
+ 
+       expect(repo.loadCount, 1);
+       expect(chats, isNotEmpty);
+-      expect(coordinator.currentChats.first.chatId, 'a');
++      expect(coordinator.currentChats.first.chatId.value, 'a');
+       expect(coordinator.isLoading, isFalse);
+     });
+ 
+@@ -140,7 +143,7 @@ void main() {
+       await coordinator.updateSingleChatItem();
+ 
+       expect(repo.loadCount, 2);
+-      expect(coordinator.currentChats.first.chatId, 'new');
++      expect(coordinator.currentChats.first.chatId.value, 'new');
+     });
+ 
+     test('incoming messages trigger surgical refresh via BLE stream', () async {
+diff --git a/test/core/services/home_screen_facade_test.dart b/test/core/services/home_screen_facade_test.dart
+index 0b26690..7e190e7 100644
+--- a/test/core/services/home_screen_facade_test.dart
++++ b/test/core/services/home_screen_facade_test.dart
+@@ -12,9 +12,12 @@ import 'package:pak_connect/core/services/home_screen_facade.dart';
+ import 'package:pak_connect/domain/entities/chat_list_item.dart';
+ import 'package:pak_connect/domain/entities/contact.dart';
+ import 'package:pak_connect/domain/entities/message.dart';
++import 'package:pak_connect/domain/values/id_types.dart';
+ 
+ import '../../test_helpers/mocks/mock_connection_service.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++
+ class _FakeChatsRepository implements IChatsRepository {
+   int loadCount = 0;
+   int unreadCount = 0;
+@@ -51,10 +54,10 @@ class _FakeChatsRepository implements IChatsRepository {
+   Future<int> getTotalUnreadCount() async => unreadCount;
+ 
+   @override
+-  Future<void> incrementUnreadCount(String chatId) async {}
++  Future<void> incrementUnreadCount(ChatId chatId) async {}
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {}
++  Future<void> markChatAsRead(ChatId chatId) async {}
+ 
+   @override
+   Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {}
+@@ -144,7 +147,7 @@ class _FakeInteractionHandler implements IChatInteractionHandler {
+   Future<void> toggleChatPin(ChatListItem chat) async {}
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {}
++  Future<void> markChatAsRead(ChatId chatId) async {}
+ }
+ 
+ class _StubSeenStore implements ISeenMessageStore {
+@@ -171,7 +174,7 @@ class _StubSeenStore implements ISeenMessageStore {
+ }
+ 
+ ChatListItem _sampleChat() => ChatListItem(
+-  chatId: 'chat-1',
++  chatId: _cid('chat-1'),
+   contactName: 'Alice',
+   contactPublicKey: 'pk',
+   lastMessage: 'hi',
+@@ -285,7 +288,7 @@ void main() {
+       final loaded = await facade.loadChats(searchQuery: 'alice');
+       facade.refreshUnreadCount();
+ 
+-      expect(interactionHandler.openedChat?.chatId, 'chat-1');
++      expect(interactionHandler.openedChat?.chatId.value, 'chat-1');
+       expect(interactionHandler.searchToggled, isTrue);
+       expect(loaded, isNotEmpty);
+       expect(facade.chats, isNotEmpty);
+diff --git a/test/domain/services/archive_search_service_test.dart b/test/domain/services/archive_search_service_test.dart
+index b01fb1d..13afbac 100644
+--- a/test/domain/services/archive_search_service_test.dart
++++ b/test/domain/services/archive_search_service_test.dart
+@@ -7,6 +7,7 @@ import 'package:pak_connect/core/interfaces/i_archive_repository.dart';
+ import 'package:pak_connect/core/models/archive_models.dart';
+ import 'package:pak_connect/domain/entities/archived_chat.dart';
+ import 'package:pak_connect/domain/services/archive_search_service.dart';
++import 'package:pak_connect/domain/values/id_types.dart';
+ 
+ class _FakeArchiveRepository implements IArchiveRepository {
+   int searchCalls = 0;
+@@ -37,7 +38,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
+ 
+   // The remaining repository methods are not needed for these tests.
+   @override
+-  Future<void> permanentlyDeleteArchive(String archivedChatId) async =>
++  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async =>
+       throw UnimplementedError();
+ 
+   @override
+@@ -49,7 +50,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
+   }) async => throw UnimplementedError();
+ 
+   @override
+-  Future<ArchiveOperationResult> restoreChat(String archiveId) async =>
++  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
+       throw UnimplementedError();
+ 
+   @override
+@@ -68,7 +69,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
+   ) async => throw UnimplementedError();
+ 
+   @override
+-  Future<ArchivedChat?> getArchivedChat(String archiveId) async => null;
++  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async => null;
+ 
+   @override
+   Future<ArchiveStatistics?> getArchiveStatistics() async =>
+diff --git a/test/message_repository_sqlite_test.dart b/test/message_repository_sqlite_test.dart
+index f8ecc47..ad0b88b 100644
+--- a/test/message_repository_sqlite_test.dart
++++ b/test/message_repository_sqlite_test.dart
+@@ -7,6 +7,10 @@ import 'package:pak_connect/domain/entities/enhanced_message.dart';
+ import 'package:pak_connect/domain/values/id_types.dart';
+ import 'test_helpers/test_setup.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++MessageId _mid(String value) => MessageId(value);
++UserId _uid(String value) => UserId(value);
++
+ void main() {
+   late List<LogRecord> logRecords;
+   late Set<Pattern> allowedSevere;
+@@ -78,8 +82,8 @@ void main() {
+       await createChat('chat_001');
+ 
+       final message = Message(
+-        id: MessageId('msg_001'),
+-        chatId: 'chat_001',
++        id: _mid('msg_001'),
++        chatId: _cid('chat_001'),
+         content: 'Hello, World!',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -88,7 +92,7 @@ void main() {
+ 
+       await repository.saveMessage(message);
+ 
+-      final messages = await repository.getMessages('chat_001');
++      final messages = await repository.getMessages(_cid('chat_001'));
+       expect(messages.length, 1);
+       expect(messages.first.id.value, 'msg_001');
+       expect(messages.first.content, 'Hello, World!');
+@@ -103,13 +107,13 @@ void main() {
+       await createChat('chat_001');
+ 
+       final enhancedMessage = EnhancedMessage(
+-        id: MessageId('msg_002'),
+-        chatId: 'chat_001',
++        id: _mid('msg_002'),
++        chatId: _cid('chat_001'),
+         content: 'Enhanced message',
+         timestamp: DateTime.now(),
+         isFromMe: false,
+         status: MessageStatus.delivered,
+-        replyToMessageId: 'msg_001',
++        replyToMessageId: _mid('msg_001'),
+         threadId: 'thread_001',
+         isStarred: true,
+         isForwarded: false,
+@@ -130,7 +134,7 @@ void main() {
+         reactions: [
+           MessageReaction(
+             emoji: '👍',
+-            userId: 'user_001',
++            userId: _uid('user_001'),
+             reactedAt: DateTime.now(),
+           ),
+         ],
+@@ -156,13 +160,13 @@ void main() {
+ 
+       await repository.saveMessage(enhancedMessage);
+ 
+-      final messages = await repository.getMessages('chat_001');
++      final messages = await repository.getMessages(_cid('chat_001'));
+       expect(messages.length, 1);
+ 
+       final retrieved = messages.first as EnhancedMessage;
+       expect(retrieved.id.value, 'msg_002');
+       expect(retrieved.content, 'Enhanced message');
+-      expect(retrieved.replyToMessageId, 'msg_001');
++      expect(retrieved.replyToMessageId?.value, 'msg_001');
+       expect(retrieved.threadId, 'thread_001');
+       expect(retrieved.isStarred, true);
+       expect(retrieved.isForwarded, false);
+@@ -188,8 +192,8 @@ void main() {
+ 
+         final now = DateTime.now();
+         final message1 = Message(
+-          id: MessageId('msg_001'),
+-          chatId: 'chat_001',
++          id: _mid('msg_001'),
++          chatId: _cid('chat_001'),
+           content: 'First',
+           timestamp: now.subtract(const Duration(hours: 2)),
+           isFromMe: true,
+@@ -197,8 +201,8 @@ void main() {
+         );
+ 
+         final message2 = Message(
+-          id: MessageId('msg_002'),
+-          chatId: 'chat_001',
++          id: _mid('msg_002'),
++          chatId: _cid('chat_001'),
+           content: 'Second',
+           timestamp: now.subtract(const Duration(hours: 1)),
+           isFromMe: false,
+@@ -206,8 +210,8 @@ void main() {
+         );
+ 
+         final message3 = Message(
+-          id: MessageId('msg_003'),
+-          chatId: 'chat_001',
++          id: _mid('msg_003'),
++          chatId: _cid('chat_001'),
+           content: 'Third',
+           timestamp: now,
+           isFromMe: true,
+@@ -219,7 +223,7 @@ void main() {
+         await repository.saveMessage(message3);
+         await repository.saveMessage(message1);
+ 
+-        final messages = await repository.getMessages('chat_001');
++        final messages = await repository.getMessages(_cid('chat_001'));
+         expect(messages.length, 3);
+         expect(messages[0].content, 'First');
+         expect(messages[1].content, 'Second');
+@@ -234,8 +238,8 @@ void main() {
+       await createChat('chat_001');
+ 
+       final message = Message(
+-        id: MessageId('msg_001'),
+-        chatId: 'chat_001',
++        id: _mid('msg_001'),
++        chatId: _cid('chat_001'),
+         content: 'Original content',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -247,7 +251,7 @@ void main() {
+       final updatedMessage = message.copyWith(status: MessageStatus.delivered);
+       await repository.updateMessage(updatedMessage);
+ 
+-      final messages = await repository.getMessages('chat_001');
++      final messages = await repository.getMessages(_cid('chat_001'));
+       expect(messages.length, 1);
+       expect(messages.first.status, MessageStatus.delivered);
+     });
+@@ -259,8 +263,8 @@ void main() {
+       await createChat('chat_001');
+ 
+       final message = EnhancedMessage(
+-        id: MessageId('msg_001'),
+-        chatId: 'chat_001',
++        id: _mid('msg_001'),
++        chatId: _cid('chat_001'),
+         content: 'Message with reactions',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -273,7 +277,7 @@ void main() {
+         reactions: [
+           MessageReaction(
+             emoji: '❤️',
+-            userId: 'user_001',
++            userId: _uid('user_001'),
+             reactedAt: DateTime.now(),
+           ),
+         ],
+@@ -281,7 +285,7 @@ void main() {
+ 
+       await repository.updateMessage(updatedMessage);
+ 
+-      final messages = await repository.getMessages('chat_001');
++      final messages = await repository.getMessages(_cid('chat_001'));
+       expect(messages.length, 1);
+       final retrieved = messages.first as EnhancedMessage;
+       expect(retrieved.reactions.length, 1);
+@@ -295,8 +299,8 @@ void main() {
+       await createChat('chat_001');
+ 
+       final message = Message(
+-        id: MessageId('msg_001'),
+-        chatId: 'chat_001',
++        id: _mid('msg_001'),
++        chatId: _cid('chat_001'),
+         content: 'To be deleted',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -304,11 +308,11 @@ void main() {
+       );
+ 
+       await repository.saveMessage(message);
+-      expect(await repository.getMessages('chat_001'), hasLength(1));
++      expect(await repository.getMessages(_cid('chat_001')), hasLength(1));
+ 
+-      final deleted = await repository.deleteMessage(MessageId('msg_001'));
++      final deleted = await repository.deleteMessage(_mid('msg_001'));
+       expect(deleted, true);
+-      expect(await repository.getMessages('chat_001'), isEmpty);
++      expect(await repository.getMessages(_cid('chat_001')), isEmpty);
+     });
+ 
+     test('Delete non-existent message returns false', () async {
+@@ -327,8 +331,8 @@ void main() {
+       // Add messages to two different chats
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_001'),
+-          chatId: 'chat_001',
++          id: _mid('msg_001'),
++          chatId: _cid('chat_001'),
+           content: 'Chat 1 Message 1',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -338,8 +342,8 @@ void main() {
+ 
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_002'),
+-          chatId: 'chat_001',
++          id: _mid('msg_002'),
++          chatId: _cid('chat_001'),
+           content: 'Chat 1 Message 2',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -349,8 +353,8 @@ void main() {
+ 
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_003'),
+-          chatId: 'chat_002',
++          id: _mid('msg_003'),
++          chatId: _cid('chat_002'),
+           content: 'Chat 2 Message 1',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -359,10 +363,10 @@ void main() {
+       );
+ 
+       // Clear chat_001
+-      await repository.clearMessages('chat_001');
++      await repository.clearMessages(_cid('chat_001'));
+ 
+-      expect(await repository.getMessages('chat_001'), isEmpty);
+-      expect(await repository.getMessages('chat_002'), hasLength(1));
++      expect(await repository.getMessages(_cid('chat_001')), isEmpty);
++      expect(await repository.getMessages(_cid('chat_002')), hasLength(1));
+     });
+ 
+     test('Get all messages', () async {
+@@ -374,8 +378,8 @@ void main() {
+ 
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_001'),
+-          chatId: 'chat_001',
++          id: _mid('msg_001'),
++          chatId: _cid('chat_001'),
+           content: 'Chat 1',
+           timestamp: DateTime.now().subtract(const Duration(hours: 1)),
+           isFromMe: true,
+@@ -385,8 +389,8 @@ void main() {
+ 
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_002'),
+-          chatId: 'chat_002',
++          id: _mid('msg_002'),
++          chatId: _cid('chat_002'),
+           content: 'Chat 2',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -409,8 +413,8 @@ void main() {
+ 
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_001'),
+-          chatId: 'public_key_001',
++          id: _mid('msg_001'),
++          chatId: _cid('public_key_001'),
+           content: 'Message 1',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -420,8 +424,8 @@ void main() {
+ 
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_002'),
+-          chatId: 'public_key_002',
++          id: _mid('msg_002'),
++          chatId: _cid('public_key_002'),
+           content: 'Message 2',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -436,7 +440,9 @@ void main() {
+ 
+     test('Get messages for non-existent chat returns empty list', () async {
+       final repository = MessageRepository();
+-      final messages = await repository.getMessages('non_existent_chat');
++      final messages = await repository.getMessages(
++        _cid('non_existent_chat'),
++      );
+       expect(messages, isEmpty);
+     });
+ 
+@@ -449,8 +455,8 @@ void main() {
+       // Create EnhancedMessage with just one enhanced field set (isStarred)
+       // This ensures it's saved and retrieved as EnhancedMessage
+       final enhancedMessage = EnhancedMessage(
+-        id: MessageId('msg_001'),
+-        chatId: 'chat_001',
++        id: _mid('msg_001'),
++        chatId: _cid('chat_001'),
+         content: 'Starred message',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -460,7 +466,7 @@ void main() {
+ 
+       await repository.saveMessage(enhancedMessage);
+ 
+-      final messages = await repository.getMessages('chat_001');
++      final messages = await repository.getMessages(_cid('chat_001'));
+       expect(messages.length, 1);
+ 
+       final retrieved = messages.first as EnhancedMessage;
+@@ -482,8 +488,8 @@ void main() {
+       await createChat('chat_001');
+ 
+       final message = Message(
+-        id: MessageId('msg_001'),
+-        chatId: 'chat_001',
++        id: _mid('msg_001'),
++        chatId: _cid('chat_001'),
+         content: 'Original',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -499,7 +505,7 @@ void main() {
+       await repository.updateMessage(updatedMessage);
+ 
+       // The update should preserve the original created_at
+-      final messages = await repository.getMessages('chat_001');
++      final messages = await repository.getMessages(_cid('chat_001'));
+       expect(messages.length, 1);
+       expect(messages.first.status, MessageStatus.delivered);
+     });
+@@ -515,8 +521,8 @@ void main() {
+       // Add messages to different chats
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_001'),
+-          chatId: 'chat_001',
++          id: _mid('msg_001'),
++          chatId: _cid('chat_001'),
+           content: 'Chat 1',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -526,8 +532,8 @@ void main() {
+ 
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_002'),
+-          chatId: 'chat_002',
++          id: _mid('msg_002'),
++          chatId: _cid('chat_002'),
+           content: 'Chat 2',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -537,8 +543,8 @@ void main() {
+ 
+       await repository.saveMessage(
+         Message(
+-          id: MessageId('msg_003'),
+-          chatId: 'chat_003',
++          id: _mid('msg_003'),
++          chatId: _cid('chat_003'),
+           content: 'Chat 3',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -547,20 +553,20 @@ void main() {
+       );
+ 
+       // Verify each chat has only its messages
+-      expect(await repository.getMessages('chat_001'), hasLength(1));
+-      expect(await repository.getMessages('chat_002'), hasLength(1));
+-      expect(await repository.getMessages('chat_003'), hasLength(1));
++      expect(await repository.getMessages(_cid('chat_001')), hasLength(1));
++      expect(await repository.getMessages(_cid('chat_002')), hasLength(1));
++      expect(await repository.getMessages(_cid('chat_003')), hasLength(1));
+ 
+       expect(
+-        (await repository.getMessages('chat_001')).first.content,
++        (await repository.getMessages(_cid('chat_001'))).first.content,
+         'Chat 1',
+       );
+       expect(
+-        (await repository.getMessages('chat_002')).first.content,
++        (await repository.getMessages(_cid('chat_002'))).first.content,
+         'Chat 2',
+       );
+       expect(
+-        (await repository.getMessages('chat_003')).first.content,
++        (await repository.getMessages(_cid('chat_003'))).first.content,
+         'Chat 3',
+       );
+     });
+diff --git a/test/message_retry_coordination_test.dart b/test/message_retry_coordination_test.dart
+index 2bb1894..1d9d67e 100644
+--- a/test/message_retry_coordination_test.dart
++++ b/test/message_retry_coordination_test.dart
+@@ -13,6 +13,8 @@ import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
+ import 'package:pak_connect/domain/values/id_types.dart';
+ import 'test_helpers/test_setup.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++
+ /// Test to verify the message retry coordination functionality
+ /// This addresses the "retry all" bug by testing coordination between persistence systems
+ void main() {
+@@ -78,7 +80,7 @@ void main() {
+ 
+     /// Helper to create a test chat to satisfy foreign key constraints
+     Future<void> createTestChat(String chatId) async {
+-      await chatsRepository.markChatAsRead(chatId);
++      await chatsRepository.markChatAsRead(_cid(chatId));
+     }
+ 
+     test(
+@@ -92,7 +94,7 @@ void main() {
+         // Add failed messages to repository
+         final repoMessage1 = Message(
+           id: MessageId('repo_msg_1'),
+-          chatId: chatId,
++          chatId: _cid(chatId),
+           content: 'Repository failed message 1',
+           timestamp: DateTime.now().subtract(Duration(minutes: 5)),
+           isFromMe: true,
+@@ -101,7 +103,7 @@ void main() {
+ 
+         final repoMessage2 = Message(
+           id: MessageId('repo_msg_2'),
+-          chatId: chatId,
++          chatId: _cid(chatId),
+           content: 'Repository failed message 2',
+           timestamp: DateTime.now().subtract(Duration(minutes: 3)),
+           isFromMe: true,
+@@ -125,7 +127,9 @@ void main() {
+         expect(queueStats.pendingMessages, greaterThan(0));
+ 
+         // Test coordinator detection
+-        final retryStatus = await coordinator.getFailedMessageStatus(chatId);
++        final retryStatus = await coordinator.getFailedMessageStatus(
++          _cid(chatId),
++        );
+ 
+         expect(retryStatus.hasError, false);
+         expect(retryStatus.repositoryFailedMessages, hasLength(2));
+@@ -143,7 +147,7 @@ void main() {
+       // Add a failed repository message
+       final repoMessage = Message(
+         id: MessageId('coord_repo_msg'),
+-        chatId: chatId,
++        chatId: _cid(chatId),
+         content: 'Test coordination message',
+         timestamp: DateTime.now().subtract(Duration(minutes: 2)),
+         isFromMe: true,
+@@ -158,7 +162,7 @@ void main() {
+ 
+       // Execute coordinated retry
+       final retryResult = await coordinator.retryAllFailedMessages(
+-        chatId: chatId,
++        chatId: _cid(chatId),
+         onRepositoryMessageRetry: (Message message) async {
+           repoRetryWasCalled = true;
+           expect(message.id.value, equals('coord_repo_msg'));
+@@ -182,7 +186,7 @@ void main() {
+       expect(queueRetryWasCalled, false);
+ 
+       // Verify message was updated in repository
+-      final updatedMessages = await messageRepository.getMessages(chatId);
++      final updatedMessages = await messageRepository.getMessages(_cid(chatId));
+       final updatedMessage = updatedMessages.firstWhere(
+         (m) => m.id.value == 'coord_repo_msg',
+       );
+@@ -199,7 +203,7 @@ void main() {
+       final messages = [
+         Message(
+           id: MessageId('mixed_msg_1'),
+-          chatId: chatId,
++          chatId: _cid(chatId),
+           content: 'Will succeed',
+           timestamp: DateTime.now().subtract(Duration(minutes: 5)),
+           isFromMe: true,
+@@ -207,7 +211,7 @@ void main() {
+         ),
+         Message(
+           id: MessageId('mixed_msg_2'),
+-          chatId: chatId,
++          chatId: _cid(chatId),
+           content: 'Will fail',
+           timestamp: DateTime.now().subtract(Duration(minutes: 3)),
+           isFromMe: true,
+@@ -221,7 +225,7 @@ void main() {
+ 
+       // Execute retry with mixed results
+       final retryResult = await coordinator.retryAllFailedMessages(
+-        chatId: chatId,
++        chatId: _cid(chatId),
+         onRepositoryMessageRetry: (Message message) async {
+           if (message.id.value == 'mixed_msg_1') {
+             // Simulate success
+@@ -244,7 +248,7 @@ void main() {
+       expect(retryResult.successRate, 0.5);
+ 
+       // Verify only the successful message was updated
+-      final finalMessages = await messageRepository.getMessages(chatId);
++      final finalMessages = await messageRepository.getMessages(_cid(chatId));
+       final successfulMessage = finalMessages.firstWhere(
+         (m) => m.id.value == 'mixed_msg_1',
+       );
+@@ -266,7 +270,7 @@ void main() {
+       final messages = [
+         Message(
+           id: MessageId('health_delivered_1'),
+-          chatId: chatId,
++          chatId: _cid(chatId),
+           content: 'Delivered message 1',
+           timestamp: DateTime.now().subtract(Duration(minutes: 10)),
+           isFromMe: true,
+@@ -274,7 +278,7 @@ void main() {
+         ),
+         Message(
+           id: MessageId('health_delivered_2'),
+-          chatId: chatId,
++          chatId: _cid(chatId),
+           content: 'Delivered message 2',
+           timestamp: DateTime.now().subtract(Duration(minutes: 8)),
+           isFromMe: true,
+@@ -282,7 +286,7 @@ void main() {
+         ),
+         Message(
+           id: MessageId('health_failed_1'),
+-          chatId: chatId,
++          chatId: _cid(chatId),
+           content: 'Failed message 1',
+           timestamp: DateTime.now().subtract(Duration(minutes: 5)),
+           isFromMe: true,
+@@ -312,12 +316,14 @@ void main() {
+       const chatId = 'test_chat_empty';
+ 
+       // No failed messages - should handle gracefully
+-      final retryStatus = await coordinator.getFailedMessageStatus(chatId);
++      final retryStatus = await coordinator.getFailedMessageStatus(
++        _cid(chatId),
++      );
+       expect(retryStatus.hasFailedMessages, false);
+       expect(retryStatus.totalFailed, 0);
+ 
+       final retryResult = await coordinator.retryAllFailedMessages(
+-        chatId: chatId,
++        chatId: _cid(chatId),
+         onRepositoryMessageRetry: (Message message) async {
+           fail('Should not be called when no failed messages exist');
+         },
+@@ -342,7 +348,7 @@ void main() {
+ 
+     /// Helper to create a test chat to satisfy foreign key constraints
+     Future<void> createTestChat(String chatId) async {
+-      await chatsRepository.markChatAsRead(chatId);
++      await chatsRepository.markChatAsRead(_cid(chatId));
+     }
+ 
+     test(
+@@ -357,7 +363,7 @@ void main() {
+         // Test basic repository operations still work
+         final message = Message(
+           id: MessageId('compat_test_msg'),
+-          chatId: chatId,
++          chatId: _cid(chatId),
+           content: 'Compatibility test message',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -366,7 +372,7 @@ void main() {
+ 
+         await repository.saveMessage(message);
+ 
+-        final retrievedMessages = await repository.getMessages(chatId);
++        final retrievedMessages = await repository.getMessages(_cid(chatId));
+         expect(retrievedMessages, hasLength(1));
+         expect(retrievedMessages.first.id.value, equals('compat_test_msg'));
+         expect(retrievedMessages.first.status, MessageStatus.delivered);
+diff --git a/test/performance_getAllChats_benchmark_test.dart b/test/performance_getAllChats_benchmark_test.dart
+index bb30df1..7351aa3 100644
+--- a/test/performance_getAllChats_benchmark_test.dart
++++ b/test/performance_getAllChats_benchmark_test.dart
+@@ -13,6 +13,8 @@ import 'package:pak_connect/domain/entities/message.dart';
+ import 'package:pak_connect/domain/values/id_types.dart';
+ import 'test_helpers/test_setup.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++
+ void main() {
+   final List<LogRecord> logRecords = [];
+   final Set<String> allowedSevere = {};
+@@ -88,7 +90,7 @@ void main() {
+         for (int j = 0; j < messagesPerContact; j++) {
+           final message = Message(
+             id: MessageId('msg_${i}_$j'),
+-            chatId: chatId,
++            chatId: _cid(chatId),
+             content: 'Test message $j from $contactName',
+             timestamp: DateTime.now().subtract(Duration(minutes: j)),
+             isFromMe: j % 2 == 0, // Alternate sender
+diff --git a/test/presentation/chat_refactoring_test.dart b/test/presentation/chat_refactoring_test.dart
+index 38591b1..a40e10f 100644
+--- a/test/presentation/chat_refactoring_test.dart
++++ b/test/presentation/chat_refactoring_test.dart
+@@ -9,14 +9,14 @@ import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.d
+ import 'package:pak_connect/data/repositories/message_repository.dart';
+ import 'package:pak_connect/domain/entities/message.dart';
+ import 'package:pak_connect/domain/values/id_types.dart';
++import 'package:pak_connect/core/interfaces/i_message_repository.dart';
++
++ChatId _cid(String value) => ChatId(value);
+ 
+ // Mock implementations
+-class MockMessageRepository implements MessageRepository {
++class MockMessageRepository implements IMessageRepository {
+   List<Message> _messages = [];
+ 
+-  @override
+-  Future<List<Message>> getMessagesByChat(String chatId) async => _messages;
+-
+   @override
+   Future<void> saveMessage(Message message) async {
+     _messages.add(message);
+@@ -32,57 +32,37 @@ class MockMessageRepository implements MessageRepository {
+ 
+   @override
+   Future<bool> deleteMessage(MessageId messageId) async {
++    final before = _messages.length;
+     _messages.removeWhere((m) => m.id == messageId);
+-    return true;
+-  }
+-
+-  @override
+-  Future<int> getUnreadMessageCount(String chatId) async {
+-    return _messages.length;
++    return _messages.length != before;
+   }
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {}
+-
+-  @override
+-  Future<void> markMessageAsRead(MessageId messageId) async {}
+-
+-  @override
+-  Future<void> deleteChat(String chatId) async {}
+-
+-  @override
+-  Future<void> deleteAllMessages() async {
+-    _messages.clear();
++  Future<void> clearMessages(ChatId chatId) async {
++    _messages.removeWhere((m) => m.chatId == chatId);
+   }
+ 
+-  @override
+-  Future<List<Message>> getOfflineMessages() async => [];
+-
+-  @override
+-  Future<void> markOfflineMessageAsSent(MessageId messageId) async {}
+-
+-  @override
+-  Future<int> getTotalMessageCount() async => _messages.length;
+-
+-  @override
+-  Future<void> clearMessages(String chatId) async {}
+-
+   @override
+   Future<List<Message>> getAllMessages() async => _messages;
+ 
+   @override
+-  Future<Message?> getMessageById(MessageId messageId) async =>
+-      _messages.firstWhere((m) => m.id == messageId);
++  Future<Message?> getMessageById(MessageId messageId) async {
++    for (final message in _messages) {
++      if (message.id == messageId) return message;
++    }
++    return null;
++  }
+ 
+   @override
+-  Future<List<Message>> getMessages(String chatId) async => _messages;
++  Future<List<Message>> getMessages(ChatId chatId) async =>
++      _messages.where((m) => m.chatId == chatId).toList();
+ 
+   @override
+   Future<List<Message>> getMessagesForContact(String publicKey) async =>
+-      _messages;
++      _messages.where((m) => m.chatId.value == publicKey).toList();
+ 
+   @override
+-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
++  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
+     for (var i = 0; i < _messages.length; i++) {
+       if (_messages[i].chatId == oldChatId) {
+         _messages[i] = _messages[i].copyWith(chatId: newChatId);
+@@ -120,7 +100,7 @@ class MockChatsRepository implements IChatsRepository {
+             contactPublicKey: chat.contactPublicKey,
+             lastMessage: chat.lastMessage,
+             lastMessageTime: chat.lastMessageTime,
+-            unreadCount: _unreadByChat[chat.chatId] ?? chat.unreadCount,
++            unreadCount: _unreadByChat[chat.chatId.value] ?? chat.unreadCount,
+             isOnline: chat.isOnline,
+             hasUnsentMessages: chat.hasUnsentMessages,
+             lastSeen: chat.lastSeen,
+@@ -140,13 +120,17 @@ class MockChatsRepository implements IChatsRepository {
+       _unreadByChat.values.fold<int>(0, (total, count) => total + count);
+ 
+   @override
+-  Future<void> incrementUnreadCount(String chatId) async {
+-    _unreadByChat.update(chatId, (value) => value + 1, ifAbsent: () => 1);
++  Future<void> incrementUnreadCount(ChatId chatId) async {
++    _unreadByChat.update(
++      chatId.value,
++      (value) => value + 1,
++      ifAbsent: () => 1,
++    );
+   }
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {
+-    _unreadByChat[chatId] = 0;
++  Future<void> markChatAsRead(ChatId chatId) async {
++    _unreadByChat[chatId.value] = 0;
+   }
+ 
+   @override
+@@ -198,7 +182,7 @@ void main() {
+       final messages = [
+         Message(
+           id: MessageId('1'),
+-          chatId: 'chat1',
++          chatId: ChatId('chat1'),
+           content: 'Hello',
+           isFromMe: false,
+           timestamp: DateTime.now(),
+@@ -302,7 +286,7 @@ void main() {
+     test('should sync unread state from repository data', () async {
+       mockChatsRepository.chats = const [
+         ChatListItem(
+-          chatId: 'chat-1',
++          chatId: ChatId('chat-1'),
+           contactName: 'Alice',
+           unreadCount: 2,
+           isOnline: false,
+@@ -313,7 +297,7 @@ void main() {
+       final messages = [
+         Message(
+           id: MessageId('1'),
+-          chatId: 'chat-1',
++          chatId: ChatId('chat-1'),
+           content: 'Hello',
+           isFromMe: false,
+           timestamp: DateTime.now(),
+@@ -321,7 +305,7 @@ void main() {
+         ),
+         Message(
+           id: MessageId('2'),
+-          chatId: 'chat-1',
++          chatId: ChatId('chat-1'),
+           content: 'Again',
+           isFromMe: true,
+           timestamp: DateTime.now(),
+@@ -329,7 +313,7 @@ void main() {
+         ),
+         Message(
+           id: MessageId('3'),
+-          chatId: 'chat-1',
++          chatId: ChatId('chat-1'),
+           content: 'More',
+           isFromMe: false,
+           timestamp: DateTime.now(),
+@@ -457,7 +441,7 @@ void main() {
+       mockChatsRepository = MockChatsRepository()
+         ..chats = [
+           const ChatListItem(
+-            chatId: 'chat-1',
++            chatId: ChatId('chat-1'),
+             contactName: 'User',
+             unreadCount: 0,
+             isOnline: false,
+diff --git a/test/presentation/chat_screen_controller_test.dart b/test/presentation/chat_screen_controller_test.dart
+index cc21146..a976e29 100644
+--- a/test/presentation/chat_screen_controller_test.dart
++++ b/test/presentation/chat_screen_controller_test.dart
+@@ -89,7 +89,7 @@ void main() {
+       await fakeMessageRepo.saveMessage(
+         Message(
+           id: MessageId('m1'),
+-          chatId: initialChatId,
++          chatId: ChatId(initialChatId),
+           content: 'hello',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+@@ -173,10 +173,12 @@ void main() {
+       final expectedChatId = ChatUtils.generateChatId('persistent-key');
+       expect(controller.chatId, expectedChatId);
+       final migratedMessages = await fakeMessageRepo.getMessages(
+-        expectedChatId,
++        ChatId(expectedChatId),
+       );
+       expect(migratedMessages, isNotEmpty);
+-      final oldMessages = await fakeMessageRepo.getMessages(initialChatId);
++      final oldMessages = await fakeMessageRepo.getMessages(
++        ChatId(initialChatId),
++      );
+       expect(oldMessages, isEmpty);
+     });
+ 
+@@ -184,11 +186,11 @@ void main() {
+       tester,
+     ) async {
+       final fakeMessageRepo = _FakeMessageRepository();
+-      await fakeMessageRepo.saveMessage(
+-        Message(
+-          id: MessageId('msg-1'),
+-          chatId: 'chat-1',
+-          content: 'pending',
++          await fakeMessageRepo.saveMessage(
++            Message(
++              id: MessageId('msg-1'),
++              chatId: ChatId('chat-1'),
++              content: 'pending',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+           status: MessageStatus.sending,
+@@ -279,7 +281,7 @@ void main() {
+       final fakeMessageRepo = _FakeMessageRepository();
+       final failedMessage = Message(
+         id: MessageId('failed-1'),
+-        chatId: 'chat-1',
++        chatId: ChatId('chat-1'),
+         content: 'fail me',
+         timestamp: DateTime.now(),
+         isFromMe: true,
+@@ -618,8 +620,8 @@ class _FakeMessageRepository extends MessageRepository {
+   final Map<String, List<Message>> _store = {};
+ 
+   @override
+-  Future<List<Message>> getMessages(String chatId) async =>
+-      List<Message>.from(_store[chatId] ?? []);
++  Future<List<Message>> getMessages(ChatId chatId) async =>
++      List<Message>.from(_store[chatId.value] ?? []);
+ 
+   @override
+   Future<Message?> getMessageById(MessageId messageId) async {
+@@ -633,7 +635,7 @@ class _FakeMessageRepository extends MessageRepository {
+ 
+   @override
+   Future<void> saveMessage(Message message) async {
+-    final messages = _store.putIfAbsent(message.chatId, () => []);
++    final messages = _store.putIfAbsent(message.chatId.value, () => []);
+     if (!messages.any((m) => m.id == message.id)) {
+       messages.add(message);
+     }
+@@ -641,7 +643,7 @@ class _FakeMessageRepository extends MessageRepository {
+ 
+   @override
+   Future<void> updateMessage(Message message) async {
+-    final messages = _store[message.chatId];
++    final messages = _store[message.chatId.value];
+     if (messages == null) return;
+     final index = messages.indexWhere((m) => m.id == message.id);
+     if (index != -1) {
+@@ -664,19 +666,19 @@ class _FakeMessageRepository extends MessageRepository {
+   }
+ 
+   @override
+-  Future<void> clearMessages(String chatId) async {
+-    _store.remove(chatId);
++  Future<void> clearMessages(ChatId chatId) async {
++    _store.remove(chatId.value);
+   }
+ 
+   @override
+-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+-    final messages = _store[oldChatId];
++  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
++    final messages = _store[oldChatId.value];
+     if (messages != null) {
+       final migratedMessages = messages
+           .map((m) => m.copyWith(chatId: newChatId))
+           .toList();
+-      _store[newChatId] = migratedMessages;
+-      _store.remove(oldChatId);
++      _store[newChatId.value] = migratedMessages;
++      _store.remove(oldChatId.value);
+     }
+   }
+ 
+@@ -711,10 +713,10 @@ class _FakeChatsRepository extends ChatsRepository {
+   }
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {
+-    final existing = _chats[chatId];
++  Future<void> markChatAsRead(ChatId chatId) async {
++    final existing = _chats[chatId.value];
+     if (existing != null) {
+-      _chats[chatId] = ChatListItem(
++      _chats[chatId.value] = ChatListItem(
+         chatId: existing.chatId,
+         contactName: existing.contactName,
+         contactPublicKey: existing.contactPublicKey,
+@@ -729,9 +731,9 @@ class _FakeChatsRepository extends ChatsRepository {
+   }
+ 
+   @override
+-  Future<void> incrementUnreadCount(String chatId) async {
++  Future<void> incrementUnreadCount(ChatId chatId) async {
+     final existing =
+-        _chats[chatId] ??
++        _chats[chatId.value] ??
+         ChatListItem(
+           chatId: chatId,
+           contactName: 'Test',
+@@ -739,7 +741,7 @@ class _FakeChatsRepository extends ChatsRepository {
+           isOnline: false,
+           hasUnsentMessages: false,
+         );
+-    _chats[chatId] = ChatListItem(
++    _chats[chatId.value] = ChatListItem(
+       chatId: existing.chatId,
+       contactName: existing.contactName,
+       contactPublicKey: existing.contactPublicKey,
+@@ -841,15 +843,15 @@ class _FakeMessageRetryCoordinator extends MessageRetryCoordinator {
+        );
+ 
+   @override
+-  Future<MessageRetryStatus> getFailedMessageStatus(String chatId) async {
++  Future<MessageRetryStatus> getFailedMessageStatus(ChatId chatId) async {
+     return status;
+   }
+ 
+   @override
+   Future<MessageRetryResult> retryAllFailedMessages({
+-    required String chatId,
+-    required Function(Message message) onRepositoryMessageRetry,
+-    required Function(QueuedMessage message) onQueueMessageRetry,
++    required ChatId chatId,
++    required Future<void> Function(Message message) onRepositoryMessageRetry,
++    required Future<void> Function(QueuedMessage message) onQueueMessageRetry,
+     bool allowPartialConnection = true,
+   }) async {
+     for (final message in status.repositoryFailedMessages) {
+diff --git a/test/presentation/chat_session_view_model_test.dart b/test/presentation/chat_session_view_model_test.dart
+index 0fca550..72d14df 100644
+--- a/test/presentation/chat_session_view_model_test.dart
++++ b/test/presentation/chat_session_view_model_test.dart
+@@ -40,6 +40,9 @@ import 'package:pak_connect/domain/entities/contact.dart';
+ import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
+ import 'package:pak_connect/domain/values/id_types.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++MessageId _mid(String value) => MessageId(value);
++
+ void main() {
+   TestWidgetsFlutterBinding.ensureInitialized();
+ 
+@@ -174,7 +177,7 @@ void main() {
+       final newChatId = ChatUtils.generateChatId('persistent-key');
+       expect(updatedChatId, newChatId);
+       expect(updatedContactKey, 'persistent-key');
+-      expect(messageRepo.messages.values.first.chatId, newChatId);
++      expect(messageRepo.messages.values.first.chatId.value, newChatId);
+     });
+   });
+ 
+@@ -281,7 +284,7 @@ Future<ChatSessionViewModel> _buildViewModel({
+             contactRepository: resolvedContactRepo,
+             chatsRepository: resolvedChatsRepo,
+             messagingViewModel: _StubMessagingViewModel(
+-              chatId: 'chat-1',
++              chatId: _cid('chat-1'),
+               contactPublicKey: 'contact-1',
+               messageRepository: resolvedMessageRepo,
+               contactRepository: resolvedContactRepo,
+@@ -311,8 +314,8 @@ Future<ChatSessionViewModel> _buildViewModel({
+ }
+ 
+ final _failedMessage = Message(
+-  id: MessageId('failed-1'),
+-  chatId: 'chat-1',
++  id: _mid('failed-1'),
++  chatId: _cid('chat-1'),
+   content: 'fail me',
+   timestamp: DateTime(2024, 1, 1),
+   isFromMe: true,
+@@ -320,8 +323,8 @@ final _failedMessage = Message(
+ );
+ 
+ final _deliveredMessage = Message(
+-  id: MessageId('delivered-1'),
+-  chatId: 'chat-1',
++  id: _mid('delivered-1'),
++  chatId: _cid('chat-1'),
+   content: 'hi',
+   timestamp: DateTime(2024, 1, 1),
+   isFromMe: true,
+@@ -419,7 +422,7 @@ class _FakeMessageRepository extends MessageRepository {
+   }
+ 
+   @override
+-  Future<List<Message>> getMessages(String chatId) async {
++  Future<List<Message>> getMessages(ChatId chatId) async {
+     return messages.values.where((m) => m.chatId == chatId).toList();
+   }
+ 
+@@ -427,12 +430,12 @@ class _FakeMessageRepository extends MessageRepository {
+   Future<Message?> getMessageById(MessageId id) async => messages[id.value];
+ 
+   @override
+-  Future<void> clearMessages(String chatId) async {
++  Future<void> clearMessages(ChatId chatId) async {
+     messages.removeWhere((_, msg) => msg.chatId == chatId);
+   }
+ 
+   @override
+-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
++  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
+     final keysToMigrate = messages.entries
+         .where((e) => e.value.chatId == oldChatId)
+         .map((e) => e.key)
+@@ -460,10 +463,10 @@ class _FakeChatsRepository extends ChatsRepository implements IChatsRepository {
+   }) async => _chats;
+ 
+   @override
+-  Future<void> incrementUnreadCount(String chatId) async {}
++  Future<void> incrementUnreadCount(ChatId chatId) async {}
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {}
++  Future<void> markChatAsRead(ChatId chatId) async {}
+ 
+   @override
+   Future<List<Contact>> getContactsWithoutChats() async => [];
+diff --git a/test/presentation/controllers/chat_retry_helper_test.dart b/test/presentation/controllers/chat_retry_helper_test.dart
+index ed809ee..f97b8fe 100644
+--- a/test/presentation/controllers/chat_retry_helper_test.dart
++++ b/test/presentation/controllers/chat_retry_helper_test.dart
+@@ -52,7 +52,7 @@ void main() {
+       final messages = <Message>[
+         Message(
+           id: MessageId('m1'),
+-          chatId: 'chat-1',
++          chatId: ChatId('chat-1'),
+           content: 'hello',
+           timestamp: DateTime.now(),
+           isFromMe: true,
+diff --git a/test/presentation/controllers/home_screen_controller_test.dart b/test/presentation/controllers/home_screen_controller_test.dart
+index e8af49b..f3d6b22 100644
+--- a/test/presentation/controllers/home_screen_controller_test.dart
++++ b/test/presentation/controllers/home_screen_controller_test.dart
+@@ -20,6 +20,8 @@ import 'package:pak_connect/domain/services/chat_management_service.dart';
+ import 'package:pak_connect/domain/values/id_types.dart';
+ import '../../test_helpers/test_setup.dart';
+ 
++ChatId _cid(String value) => ChatId(value);
++
+ class _FakeChatsRepository implements IChatsRepository {
+   int totalUnreadCountCalls = 0;
+ 
+@@ -54,10 +56,10 @@ class _FakeChatsRepository implements IChatsRepository {
+   }
+ 
+   @override
+-  Future<void> incrementUnreadCount(String chatId) async {}
++  Future<void> incrementUnreadCount(ChatId chatId) async {}
+ 
+   @override
+-  Future<void> markChatAsRead(String chatId) async {}
++  Future<void> markChatAsRead(ChatId chatId) async {}
+ 
+   @override
+   Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {}
+@@ -68,7 +70,7 @@ class _FakeChatsRepository implements IChatsRepository {
+ 
+ class _FakeMessageRepository implements IMessageRepository {
+   @override
+-  Future<void> clearMessages(String chatId) async {}
++  Future<void> clearMessages(ChatId chatId) async {}
+ 
+   @override
+   Future<bool> deleteMessage(MessageId messageId) async => true;
+@@ -80,7 +82,7 @@ class _FakeMessageRepository implements IMessageRepository {
+   Future<Message?> getMessageById(MessageId messageId) async => null;
+ 
+   @override
+-  Future<List<Message>> getMessages(String chatId) async => <Message>[];
++  Future<List<Message>> getMessages(ChatId chatId) async => <Message>[];
+ 
+   @override
+   Future<List<Message>> getMessagesForContact(String publicKey) async =>
+@@ -93,7 +95,7 @@ class _FakeMessageRepository implements IMessageRepository {
+   Future<void> updateMessage(Message message) async {}
+ 
+   @override
+-  Future<void> migrateChatId(String oldChatId, String newChatId) async {}
++  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {}
+ }
+ 
+ class _FakeArchiveRepository implements IArchiveRepository {
+@@ -106,7 +108,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
+   }) async => ArchiveOperationResult.success(
+     message: 'ok',
+     operationType: ArchiveOperationType.archive,
+-    archiveId: chatId,
++    archiveId: ArchiveId(chatId),
+     operationTime: Duration.zero,
+   );
+ 
+@@ -117,7 +119,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
+   Future<ArchiveStatistics?> getArchiveStatistics() async => null;
+ 
+   @override
+-  Future<ArchivedChat?> getArchivedChat(String archiveId) async => null;
++  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async => null;
+ 
+   @override
+   Future<ArchivedChatSummary?> getArchivedChatByOriginalId(
+@@ -138,10 +140,10 @@ class _FakeArchiveRepository implements IArchiveRepository {
+   Future<void> initialize() async {}
+ 
+   @override
+-  Future<void> permanentlyDeleteArchive(String archivedChatId) async {}
++  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async {}
+ 
+   @override
+-  Future<ArchiveOperationResult> restoreChat(String archiveId) async =>
++  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
+       ArchiveOperationResult.success(
+         message: 'ok',
+         operationType: ArchiveOperationType.restore,
+diff --git a/test/test_helpers/mocks/mock_message_repository.dart b/test/test_helpers/mocks/mock_message_repository.dart
+index 2bf3d58..2fae20e 100644
+--- a/test/test_helpers/mocks/mock_message_repository.dart
++++ b/test/test_helpers/mocks/mock_message_repository.dart
+@@ -11,8 +11,10 @@ class MockMessageRepository extends MessageRepository {
+   }
+ 
+   @override
+-  Future<List<Message>> getMessages(String chatId) async {
+-    return _messages.values.where((m) => m.chatId == chatId).toList();
++  Future<List<Message>> getMessages(ChatId chatId) async {
++    return _messages.values
++        .where((m) => m.chatId == chatId)
++        .toList();
+   }
+ 
+   @override
+@@ -30,7 +32,7 @@ class MockMessageRepository extends MessageRepository {
+   }
+ 
+   @override
+-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
++  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
+     final keysToMigrate = _messages.entries
+         .where((e) => e.value.chatId == oldChatId)
+         .map((e) => e.key)

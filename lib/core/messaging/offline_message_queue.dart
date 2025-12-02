@@ -26,6 +26,7 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../domain/entities/queued_message.dart';
 import '../../domain/entities/queue_statistics.dart';
 import '../../domain/entities/queue_enums.dart';
+import '../../domain/values/id_types.dart';
 
 // Re-export domain entities for backward compatibility with existing imports
 // These have been extracted to domain/entities for better separation
@@ -80,7 +81,7 @@ class OfflineMessageQueue {
   IDatabaseProvider? _databaseProvider;
 
   // Queue hash synchronization
-  final Set<String> _deletedMessageIds = {};
+  final Set<MessageId> _deletedMessageIds = {};
 
   // Connection monitoring
   bool _isOnline = false;
@@ -211,7 +212,9 @@ class OfflineMessageQueue {
       }
     }
 
-    await _sync.initialize(deletedIds: _deletedMessageIds);
+    await _sync.initialize(
+      deletedIds: _deletedMessageIds.map((id) => id.value).toSet(),
+    );
     _startConnectivityMonitoring();
     _startPeriodicCleanup();
 
@@ -307,6 +310,28 @@ class OfflineMessageQueue {
       }
       throw MessageQueueException('Failed to queue message: $e');
     }
+  }
+
+  /// Typed overload: wraps ChatId/MessageId inputs while emitting string payloads on storage/transport boundaries.
+  Future<MessageId> queueMessageWithIds({
+    required ChatId chatId,
+    required String content,
+    required ChatId recipientId,
+    required ChatId senderId,
+    MessagePriority priority = MessagePriority.normal,
+    MessageId? replyToMessageId,
+    List<String> attachments = const [],
+  }) async {
+    final id = await queueMessage(
+      chatId: chatId.value,
+      content: content,
+      recipientPublicKey: recipientId.value,
+      senderPublicKey: senderId.value,
+      priority: priority,
+      replyToMessageId: replyToMessageId?.value,
+      attachments: attachments,
+    );
+    return MessageId(id);
   }
 
   /// Mark connection as online and attempt delivery of queued messages
@@ -415,19 +440,20 @@ class OfflineMessageQueue {
 
   /// Handle successful message delivery (called by BLE service)
   Future<void> markMessageDelivered(String messageId) async {
+    final id = MessageId(messageId);
     // PRIORITY 1 FIX: Search both queues
     final message = _getAllMessages()
-        .where((m) => m.id == messageId)
+        .where((m) => MessageId(m.id) == id)
         .firstOrNull;
     if (message == null) return;
 
     message.status = QueuedMessageStatus.delivered;
     message.deliveredAt = DateTime.now();
 
-    _cancelRetryTimer(messageId);
-    _removeMessageFromQueue(messageId);
+    _cancelRetryTimer(id);
+    _removeMessageFromQueue(id);
 
-    await _deleteMessageFromStorage(messageId);
+    await _deleteMessageFromStorage(id.value);
 
     _totalDelivered++;
     onMessageDelivered?.call(message);
@@ -441,9 +467,10 @@ class OfflineMessageQueue {
 
   /// Handle failed message delivery (called by BLE service)
   Future<void> markMessageFailed(String messageId, String reason) async {
+    final id = MessageId(messageId);
     // PRIORITY 1 FIX: Search both queues
     final message = _getAllMessages()
-        .where((m) => m.id == messageId)
+        .where((m) => MessageId(m.id) == id)
         .firstOrNull;
     if (message == null) return;
 
@@ -557,6 +584,38 @@ class OfflineMessageQueue {
     }
   }
 
+  /// Retry failed messages for a specific chat without touching other chats
+  Future<void> retryFailedMessagesForChat(String chatId) async {
+    final failedMessages = _getAllMessages()
+        .where(
+          (m) => m.status == QueuedMessageStatus.failed && m.chatId == chatId,
+        )
+        .toList();
+
+    if (failedMessages.isEmpty) {
+      _logger.info('No failed messages to retry for chat $chatId');
+      return;
+    }
+
+    _logger.info(
+      'Retrying ${failedMessages.length} failed messages for chat $chatId',
+    );
+
+    for (final message in failedMessages) {
+      message.status = QueuedMessageStatus.pending;
+      message.attempts = 0;
+      message.failureReason = null;
+      message.failedAt = null;
+      message.nextRetryAt = null;
+    }
+
+    await _saveQueueToStorage();
+
+    if (_isOnline) {
+      await _processQueue();
+    }
+  }
+
   /// Clear all messages from queue
   Future<void> clearQueue() async {
     _cancelAllActiveRetries();
@@ -588,9 +647,10 @@ class OfflineMessageQueue {
 
   /// Remove specific message from queue
   Future<void> removeMessage(String messageId) async {
-    _cancelRetryTimer(messageId);
-    _removeMessageFromQueue(messageId);
-    await _deleteMessageFromStorage(messageId);
+    final id = MessageId(messageId);
+    _cancelRetryTimer(id);
+    _removeMessageFromQueue(id);
+    await _deleteMessageFromStorage(id.value);
   }
 
   /// Flush queue for specific peer (trigger immediate delivery)
@@ -716,8 +776,8 @@ class OfflineMessageQueue {
 
   /// Remove message from queue
   /// PRIORITY 1 FIX: Remove from both queues
-  void _removeMessageFromQueue(String messageId) {
-    _repo.removeMessageFromQueue(messageId);
+  void _removeMessageFromQueue(MessageId messageId) {
+    _repo.removeMessageFromQueue(messageId.value);
   }
 
   /// Get all messages from both queues (helper for dual-queue operations)
@@ -759,8 +819,8 @@ class OfflineMessageQueue {
   }
 
   /// Cancel retry timer for specific message
-  void _cancelRetryTimer(String messageId) {
-    _scheduler.cancelRetryTimer(messageId);
+  void _cancelRetryTimer(MessageId messageId) {
+    _scheduler.cancelRetryTimer(messageId.value);
   }
 
   /// Calculate average delivery time
@@ -841,7 +901,7 @@ class OfflineMessageQueue {
   /// Insert a message received via queue synchronization
   Future<void> addSyncedMessage(QueuedMessage message) async {
     // Skip if message was previously deleted (e.g., aged out)
-    if (_deletedMessageIds.contains(message.id)) {
+    if (_deletedMessageIds.contains(MessageId(message.id))) {
       _logger.fine(
         'Sync skip - message ${message.id.shortId(8)}... was deleted locally',
       );
@@ -866,12 +926,14 @@ class OfflineMessageQueue {
 
   /// Get missing messages compared to another queue
   List<String> getMissingMessageIds(List<String> otherMessageIds) {
-    return _sync.getMissingMessageIds(otherMessageIds);
+    final normalizedIds = otherMessageIds.map((id) => id.toString()).toList();
+    return _sync.getMissingMessageIds(normalizedIds);
   }
 
   /// Get excess messages that the other queue doesn't have
   List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
-    return _sync.getExcessMessages(otherMessageIds);
+    final normalizedIds = otherMessageIds.map((id) => id.toString()).toList();
+    return _sync.getExcessMessages(normalizedIds);
   }
 
   /// Mark message as deleted for sync purposes
@@ -1053,12 +1115,12 @@ class OfflineMessageQueue {
 class _InMemoryQueueRepository implements IMessageQueueRepository {
   final List<QueuedMessage> directMessageQueue;
   final List<QueuedMessage> relayMessageQueue;
-  final Set<String> deletedMessageIds;
+  final Set<MessageId> deletedMessageIds;
 
   _InMemoryQueueRepository({
     List<QueuedMessage>? directMessageQueue,
     List<QueuedMessage>? relayMessageQueue,
-    Set<String>? deletedMessageIds,
+    Set<MessageId>? deletedMessageIds,
   }) : directMessageQueue = directMessageQueue ?? [],
        relayMessageQueue = relayMessageQueue ?? [],
        deletedMessageIds = deletedMessageIds ?? {};
@@ -1131,18 +1193,19 @@ class _InMemoryQueueRepository implements IMessageQueueRepository {
 
   @override
   void removeMessageFromQueue(String messageId) {
-    directMessageQueue.removeWhere((m) => m.id == messageId);
-    relayMessageQueue.removeWhere((m) => m.id == messageId);
+    final id = MessageId(messageId);
+    directMessageQueue.removeWhere((m) => MessageId(m.id) == id);
+    relayMessageQueue.removeWhere((m) => MessageId(m.id) == id);
   }
 
   @override
   bool isMessageDeleted(String messageId) {
-    return deletedMessageIds.contains(messageId);
+    return deletedMessageIds.contains(MessageId(messageId));
   }
 
   @override
   Future<void> markMessageDeleted(String messageId) async {
-    deletedMessageIds.add(messageId);
+    deletedMessageIds.add(MessageId(messageId));
     removeMessageFromQueue(messageId);
   }
 

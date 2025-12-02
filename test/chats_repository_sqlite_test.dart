@@ -8,6 +8,8 @@ import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
+ChatId _cid(String value) => ChatId(value);
+
 void main() {
   late List<LogRecord> logRecords;
   late Set<String> allowedSevere;
@@ -50,7 +52,7 @@ void main() {
       const chatId = 'persistent_chat_alice_bob';
 
       // Mark as read (should create chat entry with 0 unread)
-      await repo.markChatAsRead(chatId);
+      await repo.markChatAsRead(_cid(chatId));
 
       // Verify unread count is 0
       final db = await DatabaseHelper.database;
@@ -70,9 +72,9 @@ void main() {
       const chatId = 'persistent_chat_alice_bob';
 
       // First increment unread count
-      await repo.incrementUnreadCount(chatId);
-      await repo.incrementUnreadCount(chatId);
-      await repo.incrementUnreadCount(chatId);
+      await repo.incrementUnreadCount(_cid(chatId));
+      await repo.incrementUnreadCount(_cid(chatId));
+      await repo.incrementUnreadCount(_cid(chatId));
 
       // Verify count is 3
       final db = await DatabaseHelper.database;
@@ -84,7 +86,7 @@ void main() {
       expect(rows.first['unread_count'], 3);
 
       // Mark as read
-      await repo.markChatAsRead(chatId);
+      await repo.markChatAsRead(_cid(chatId));
 
       // Verify count is now 0
       rows = await db.query('chats', where: 'chat_id = ?', whereArgs: [chatId]);
@@ -96,7 +98,7 @@ void main() {
       const chatId = 'persistent_chat_alice_bob';
 
       // Increment unread count (should create chat with count = 1)
-      await repo.incrementUnreadCount(chatId);
+      await repo.incrementUnreadCount(_cid(chatId));
 
       // Verify
       final db = await DatabaseHelper.database;
@@ -115,11 +117,11 @@ void main() {
       const chatId = 'persistent_chat_alice_bob';
 
       // Increment multiple times
-      await repo.incrementUnreadCount(chatId);
-      await repo.incrementUnreadCount(chatId);
-      await repo.incrementUnreadCount(chatId);
-      await repo.incrementUnreadCount(chatId);
-      await repo.incrementUnreadCount(chatId);
+      await repo.incrementUnreadCount(_cid(chatId));
+      await repo.incrementUnreadCount(_cid(chatId));
+      await repo.incrementUnreadCount(_cid(chatId));
+      await repo.incrementUnreadCount(_cid(chatId));
+      await repo.incrementUnreadCount(_cid(chatId));
 
       // Verify count is 5
       final db = await DatabaseHelper.database;
@@ -143,17 +145,17 @@ void main() {
       final repo = ChatsRepository();
 
       // Create multiple chats with unread counts
-      await repo.incrementUnreadCount('chat1');
-      await repo.incrementUnreadCount('chat1');
-      await repo.incrementUnreadCount('chat1'); // chat1: 3
+      await repo.incrementUnreadCount(_cid('chat1'));
+      await repo.incrementUnreadCount(_cid('chat1'));
+      await repo.incrementUnreadCount(_cid('chat1')); // chat1: 3
 
-      await repo.incrementUnreadCount('chat2');
-      await repo.incrementUnreadCount('chat2'); // chat2: 2
+      await repo.incrementUnreadCount(_cid('chat2'));
+      await repo.incrementUnreadCount(_cid('chat2')); // chat2: 2
 
-      await repo.incrementUnreadCount('chat3'); // chat3: 1
+      await repo.incrementUnreadCount(_cid('chat3')); // chat3: 1
 
       // Mark one as read
-      await repo.markChatAsRead('chat2'); // chat2: 0
+      await repo.markChatAsRead(_cid('chat2')); // chat2: 0
 
       final total = await repo.getTotalUnreadCount();
       expect(total, 4); // 3 + 0 + 1 = 4
@@ -293,7 +295,7 @@ void main() {
       await messageRepo.saveMessage(
         Message(
           id: MessageId('msg1'),
-          chatId: 'alice_key',
+          chatId: _cid('alice_key'),
           content: 'Hello from Alice',
           timestamp: now,
           isFromMe: false,
@@ -303,7 +305,7 @@ void main() {
       await messageRepo.saveMessage(
         Message(
           id: MessageId('msg2'),
-          chatId: 'bob_key',
+          chatId: _cid('bob_key'),
           content: 'Hello from Bob',
           timestamp: now,
           isFromMe: false,
@@ -336,17 +338,17 @@ void main() {
 
       // Chat 1: 5 unread
       for (int i = 0; i < 5; i++) {
-        await repo.incrementUnreadCount(chat1);
+        await repo.incrementUnreadCount(_cid(chat1));
       }
 
       // Chat 2: 2 unread
       for (int i = 0; i < 2; i++) {
-        await repo.incrementUnreadCount(chat2);
+        await repo.incrementUnreadCount(_cid(chat2));
       }
 
       // Chat 3: 0 unread (mark as read)
-      await repo.incrementUnreadCount(chat3);
-      await repo.markChatAsRead(chat3);
+      await repo.incrementUnreadCount(_cid(chat3));
+      await repo.markChatAsRead(_cid(chat3));
 
       // Verify total
       final total = await repo.getTotalUnreadCount();

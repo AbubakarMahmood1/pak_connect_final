@@ -1,5 +1,4 @@
-// Core archive models and data structures for the pak_connect archive system
-
+import '../../domain/values/id_types.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 
@@ -60,7 +59,7 @@ class ArchiveSearchResult {
     // Group messages by chat
     final messagesByChat = <String, List<ArchivedMessage>>{};
     for (final message in messages) {
-      messagesByChat.putIfAbsent(message.chatId, () => []).add(message);
+      messagesByChat.putIfAbsent(message.chatId.value, () => []).add(message);
     }
 
     // Create metadata
@@ -400,7 +399,7 @@ class ArchiveOperationResult {
   final bool success;
   final String message;
   final ArchiveOperationType operationType;
-  final String? archiveId;
+  final ArchiveId? archiveId;
   final Duration operationTime;
   final Map<String, dynamic>? metadata;
   final List<String> warnings;
@@ -421,7 +420,7 @@ class ArchiveOperationResult {
   factory ArchiveOperationResult.success({
     required String message,
     required ArchiveOperationType operationType,
-    String? archiveId,
+    ArchiveId? archiveId,
     required Duration operationTime,
     Map<String, dynamic>? metadata,
     List<String> warnings = const [],

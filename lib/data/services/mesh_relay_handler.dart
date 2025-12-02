@@ -6,6 +6,7 @@ import '../../core/models/mesh_relay_models.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/utils/string_extensions.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/values/id_types.dart';
 
 /// Encapsulates mesh relay handling (ACKs, forwarding, delivery) so
 /// BLEMessageHandler can stay as a thin orchestrator.
@@ -21,6 +22,8 @@ class MeshRelayHandler {
 
   Function(String originalMessageId, String content, String originalSender)?
   onRelayMessageReceived;
+  Function(MessageId originalMessageId, String content, String originalSender)?
+  onRelayMessageReceivedIds;
   Function(RelayDecision decision)? onRelayDecisionMade;
   Function(RelayStatistics stats)? onRelayStatsUpdated;
   Function(ProtocolMessage message)? onSendAckMessage;
@@ -31,6 +34,12 @@ class MeshRelayHandler {
     required OfflineMessageQueue messageQueue,
     Function(String originalMessageId, String content, String originalSender)?
     onRelayMessageReceived,
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    onRelayMessageReceivedIds,
     Function(RelayDecision decision)? onRelayDecisionMade,
     Function(RelayStatistics stats)? onRelayStatsUpdated,
   }) async {
@@ -39,6 +48,9 @@ class MeshRelayHandler {
 
     if (onRelayMessageReceived != null) {
       this.onRelayMessageReceived = onRelayMessageReceived;
+    }
+    if (onRelayMessageReceivedIds != null) {
+      this.onRelayMessageReceivedIds = onRelayMessageReceivedIds;
     }
     if (onRelayDecisionMade != null) {
       this.onRelayDecisionMade = onRelayDecisionMade;
@@ -198,6 +210,11 @@ class MeshRelayHandler {
       if (queuedMessage != null) {
         _logger.info('✅ ACK for our originated message - marking as delivered');
         await _messageQueue?.markMessageDelivered(originalMessageId);
+        onRelayMessageReceivedIds?.call(
+          MessageId(originalMessageId),
+          queuedMessage.content,
+          queuedMessage.senderPublicKey,
+        );
         return;
       }
 
@@ -213,8 +230,8 @@ class MeshRelayHandler {
 
           _logger.info('⚡ Propagating ACK backward to $truncatedPrevHop');
 
-          final forwardAck = ProtocolMessage.relayAck(
-            originalMessageId: originalMessageId,
+          final forwardAck = ProtocolMessage.relayAckWithId(
+            originalMessageId: MessageId(originalMessageId),
             relayNode: _currentNodeId!,
             delivered: delivered,
           );
@@ -234,6 +251,18 @@ class MeshRelayHandler {
       _logger.severe('Failed to handle relay ACK: $e');
     }
   }
+
+  Future<void> handleRelayAckWithId({
+    required MessageId originalMessageId,
+    required String relayNode,
+    required bool delivered,
+    List<String>? ackRoutingPath,
+  }) => handleRelayAck(
+    originalMessageId: originalMessageId.value,
+    relayNode: relayNode,
+    delivered: delivered,
+    ackRoutingPath: ackRoutingPath,
+  );
 
   Future<MeshRelayMessage?> createOutgoingRelay({
     required String originalMessageId,
@@ -258,6 +287,18 @@ class MeshRelayHandler {
       return null;
     }
   }
+
+  Future<MeshRelayMessage?> createOutgoingRelayWithId({
+    required MessageId originalMessageId,
+    required String originalContent,
+    required String finalRecipientPublicKey,
+    MessagePriority priority = MessagePriority.normal,
+  }) => createOutgoingRelay(
+    originalMessageId: originalMessageId.value,
+    originalContent: originalContent,
+    finalRecipientPublicKey: finalRecipientPublicKey,
+    priority: priority,
+  );
 
   Future<bool> shouldAttemptDecryption({
     required String finalRecipientPublicKey,
@@ -375,7 +416,9 @@ class MeshRelayHandler {
         '🔀 RELAY DELIVERY: Message delivered to self from ${_preview(originalSender, 8)}',
       );
 
+      final id = MessageId(originalMessageId);
       onRelayMessageReceived?.call(originalMessageId, content, originalSender);
+      onRelayMessageReceivedIds?.call(id, content, originalSender);
     } catch (e) {
       _logger.severe('Failed to handle relay delivery to self: $e');
     }

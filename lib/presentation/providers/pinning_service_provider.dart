@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/core/services/pinning_service.dart';
+import 'package:pak_connect/domain/services/chat_management_models.dart';
 
 /// Provider for PinningService instance
 final pinningServiceProvider = Provider.autoDispose<PinningService>((ref) {
@@ -9,7 +10,7 @@ final pinningServiceProvider = Provider.autoDispose<PinningService>((ref) {
 });
 
 /// Stream provider for message update events
-final messageUpdatesProvider = StreamProvider.autoDispose<dynamic>((
+final messageUpdatesProvider = StreamProvider.autoDispose<MessageUpdateEvent>((
   ref,
 ) async* {
   final service = ref.watch(pinningServiceProvider);

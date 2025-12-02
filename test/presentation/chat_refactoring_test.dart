@@ -9,13 +9,13 @@ import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.d
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/core/interfaces/i_message_repository.dart';
+
+ChatId _cid(String value) => ChatId(value);
 
 // Mock implementations
-class MockMessageRepository implements MessageRepository {
+class MockMessageRepository implements IMessageRepository {
   List<Message> _messages = [];
-
-  @override
-  Future<List<Message>> getMessagesByChat(String chatId) async => _messages;
 
   @override
   Future<void> saveMessage(Message message) async {
@@ -32,57 +32,37 @@ class MockMessageRepository implements MessageRepository {
 
   @override
   Future<bool> deleteMessage(MessageId messageId) async {
+    final before = _messages.length;
     _messages.removeWhere((m) => m.id == messageId);
-    return true;
+    return _messages.length != before;
   }
 
   @override
-  Future<int> getUnreadMessageCount(String chatId) async {
-    return _messages.length;
+  Future<void> clearMessages(ChatId chatId) async {
+    _messages.removeWhere((m) => m.chatId == chatId);
   }
-
-  @override
-  Future<void> markChatAsRead(String chatId) async {}
-
-  @override
-  Future<void> markMessageAsRead(MessageId messageId) async {}
-
-  @override
-  Future<void> deleteChat(String chatId) async {}
-
-  @override
-  Future<void> deleteAllMessages() async {
-    _messages.clear();
-  }
-
-  @override
-  Future<List<Message>> getOfflineMessages() async => [];
-
-  @override
-  Future<void> markOfflineMessageAsSent(MessageId messageId) async {}
-
-  @override
-  Future<int> getTotalMessageCount() async => _messages.length;
-
-  @override
-  Future<void> clearMessages(String chatId) async {}
 
   @override
   Future<List<Message>> getAllMessages() async => _messages;
 
   @override
-  Future<Message?> getMessageById(MessageId messageId) async =>
-      _messages.firstWhere((m) => m.id == messageId);
+  Future<Message?> getMessageById(MessageId messageId) async {
+    for (final message in _messages) {
+      if (message.id == messageId) return message;
+    }
+    return null;
+  }
 
   @override
-  Future<List<Message>> getMessages(String chatId) async => _messages;
+  Future<List<Message>> getMessages(ChatId chatId) async =>
+      _messages.where((m) => m.chatId == chatId).toList();
 
   @override
   Future<List<Message>> getMessagesForContact(String publicKey) async =>
-      _messages;
+      _messages.where((m) => m.chatId.value == publicKey).toList();
 
   @override
-  Future<void> migrateChatId(String oldChatId, String newChatId) async {
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
     for (var i = 0; i < _messages.length; i++) {
       if (_messages[i].chatId == oldChatId) {
         _messages[i] = _messages[i].copyWith(chatId: newChatId);
@@ -120,7 +100,7 @@ class MockChatsRepository implements IChatsRepository {
             contactPublicKey: chat.contactPublicKey,
             lastMessage: chat.lastMessage,
             lastMessageTime: chat.lastMessageTime,
-            unreadCount: _unreadByChat[chat.chatId] ?? chat.unreadCount,
+            unreadCount: _unreadByChat[chat.chatId.value] ?? chat.unreadCount,
             isOnline: chat.isOnline,
             hasUnsentMessages: chat.hasUnsentMessages,
             lastSeen: chat.lastSeen,
@@ -140,13 +120,13 @@ class MockChatsRepository implements IChatsRepository {
       _unreadByChat.values.fold<int>(0, (total, count) => total + count);
 
   @override
-  Future<void> incrementUnreadCount(String chatId) async {
-    _unreadByChat.update(chatId, (value) => value + 1, ifAbsent: () => 1);
+  Future<void> incrementUnreadCount(ChatId chatId) async {
+    _unreadByChat.update(chatId.value, (value) => value + 1, ifAbsent: () => 1);
   }
 
   @override
-  Future<void> markChatAsRead(String chatId) async {
-    _unreadByChat[chatId] = 0;
+  Future<void> markChatAsRead(ChatId chatId) async {
+    _unreadByChat[chatId.value] = 0;
   }
 
   @override
@@ -198,7 +178,7 @@ void main() {
       final messages = [
         Message(
           id: MessageId('1'),
-          chatId: 'chat1',
+          chatId: ChatId('chat1'),
           content: 'Hello',
           isFromMe: false,
           timestamp: DateTime.now(),
@@ -264,7 +244,7 @@ void main() {
       mockChatsRepository = MockChatsRepository();
       controller = ChatScrollingController(
         chatsRepository: mockChatsRepository,
-        chatId: 'chat-1',
+        chatId: ChatId('chat-1'),
         onScrollToBottom: () {},
         onUnreadCountChanged: (_) {},
         onStateChanged: () {},
@@ -302,7 +282,7 @@ void main() {
     test('should sync unread state from repository data', () async {
       mockChatsRepository.chats = const [
         ChatListItem(
-          chatId: 'chat-1',
+          chatId: ChatId('chat-1'),
           contactName: 'Alice',
           unreadCount: 2,
           isOnline: false,
@@ -313,7 +293,7 @@ void main() {
       final messages = [
         Message(
           id: MessageId('1'),
-          chatId: 'chat-1',
+          chatId: ChatId('chat-1'),
           content: 'Hello',
           isFromMe: false,
           timestamp: DateTime.now(),
@@ -321,7 +301,7 @@ void main() {
         ),
         Message(
           id: MessageId('2'),
-          chatId: 'chat-1',
+          chatId: ChatId('chat-1'),
           content: 'Again',
           isFromMe: true,
           timestamp: DateTime.now(),
@@ -329,7 +309,7 @@ void main() {
         ),
         Message(
           id: MessageId('3'),
-          chatId: 'chat-1',
+          chatId: ChatId('chat-1'),
           content: 'More',
           isFromMe: false,
           timestamp: DateTime.now(),
@@ -386,14 +366,14 @@ void main() {
       mockChatsRepository = MockChatsRepository();
       controller1 = ChatScrollingController(
         chatsRepository: mockChatsRepository,
-        chatId: 'chat-1',
+        chatId: ChatId('chat-1'),
         onScrollToBottom: () {},
         onUnreadCountChanged: (_) {},
         onStateChanged: () {},
       );
       controller2 = ChatScrollingController(
         chatsRepository: mockChatsRepository,
-        chatId: 'chat-2',
+        chatId: ChatId('chat-2'),
         onScrollToBottom: () {},
         onUnreadCountChanged: (_) {},
         onStateChanged: () {},
@@ -457,7 +437,7 @@ void main() {
       mockChatsRepository = MockChatsRepository()
         ..chats = [
           const ChatListItem(
-            chatId: 'chat-1',
+            chatId: ChatId('chat-1'),
             contactName: 'User',
             unreadCount: 0,
             isOnline: false,
@@ -466,7 +446,7 @@ void main() {
         ];
       scrollController = ChatScrollingController(
         chatsRepository: mockChatsRepository,
-        chatId: 'chat-1',
+        chatId: ChatId('chat-1'),
         onScrollToBottom: () {},
         onUnreadCountChanged: (_) {},
         onStateChanged: () {},

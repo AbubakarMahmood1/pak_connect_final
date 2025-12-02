@@ -1,6 +1,7 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/entities/contact.dart';
+import '../../domain/values/id_types.dart';
 
 /// Interface for chats repository operations
 ///
@@ -22,10 +23,10 @@ abstract class IChatsRepository {
   Future<List<Contact>> getContactsWithoutChats();
 
   /// Mark a chat as read
-  Future<void> markChatAsRead(String chatId);
+  Future<void> markChatAsRead(ChatId chatId);
 
   /// Increment unread count for a chat
-  Future<void> incrementUnreadCount(String chatId);
+  Future<void> incrementUnreadCount(ChatId chatId);
 
   /// Update contact's last seen timestamp
   Future<void> updateContactLastSeen(String publicKey);

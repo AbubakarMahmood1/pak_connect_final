@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import '../../domain/entities/message.dart';
 import 'message_context_menu.dart';
 import 'delete_confirmation_dialog.dart';
@@ -11,7 +12,7 @@ class MessageBubble extends StatelessWidget {
   final String? searchQuery;
   final VoidCallback? onLongPress;
   final VoidCallback? onRetry;
-  final Function(String messageId, bool deleteForEveryone)? onDelete;
+  final Function(MessageId messageId, bool deleteForEveryone)? onDelete;
 
   const MessageBubble({
     super.key,
@@ -212,7 +213,7 @@ class MessageBubble extends StatelessWidget {
       builder: (context) => DeleteConfirmationDialog(
         message: message,
         onConfirm: (deleteForEveryone) {
-          onDelete?.call(message.id.value, deleteForEveryone);
+          onDelete?.call(message.id, deleteForEveryone);
         },
       ),
     );

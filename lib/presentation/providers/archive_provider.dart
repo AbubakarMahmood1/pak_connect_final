@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import '../../domain/services/archive_management_service.dart';
 import '../../domain/services/archive_search_service.dart';
 import '../../domain/entities/archived_chat.dart';
+import '../../domain/values/id_types.dart';
 import '../../core/models/archive_models.dart';
 
 /// Logger for archive provider
@@ -165,7 +166,7 @@ final archiveSearchSuggestionsProvider =
     });
 
 /// Individual archived chat provider
-final archivedChatProvider = FutureProvider.family<ArchivedChat?, String>((
+final archivedChatProvider = FutureProvider.family<ArchivedChat?, ArchiveId>((
   ref,
   archiveId,
 ) async {
@@ -182,8 +183,8 @@ final archivedChatProvider = FutureProvider.family<ArchivedChat?, String>((
 
     // For now, return a basic implementation - this would need proper API extension
     return ArchivedChat.fromJson({
-      'id': summary.summary.id,
-      'originalChatId': summary.summary.originalChatId,
+      'id': summary.summary.id.value,
+      'originalChatId': summary.summary.originalChatId.value,
       'contactName': summary.summary.contactName,
       'archivedAt': summary.summary.archivedAt.millisecondsSinceEpoch,
       'messageCount': summary.summary.messageCount,
@@ -314,7 +315,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
   /// Archive a chat
   /// ✅ Phase 6: Uses ref.read to access service instead of storing instance
   Future<ArchiveOperationResult> archiveChat({
-    required String chatId,
+    required ChatId chatId,
     String? reason,
     Map<String, dynamic>? metadata,
   }) async {
@@ -326,7 +327,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
     try {
       final managementService = ref.read(archiveManagementServiceProvider);
       final result = await managementService.archiveChat(
-        chatId: chatId,
+        chatId: chatId.value,
         reason: reason,
         metadata: metadata,
       );
@@ -358,7 +359,8 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
   /// Restore a chat from archive
   /// ✅ Phase 6: Uses ref.read to access service instead of storing instance
   Future<ArchiveOperationResult> restoreChat({
-    required String archiveId,
+    required ArchiveId archiveId,
+    String? targetChatId,
     bool overwriteExisting = false,
   }) async {
     state = state.copyWith(
@@ -371,6 +373,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
       final result = await managementService.restoreChat(
         archiveId: archiveId,
         overwriteExisting: overwriteExisting,
+        targetChatId: targetChatId,
       );
 
       if (!result.success) {
@@ -398,7 +401,7 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
   }
 
   /// Delete archived chat permanently
-  Future<bool> deleteArchivedChat(String archiveId) async {
+  Future<bool> deleteArchivedChat(ArchiveId archiveId) async {
     state = state.copyWith(
       isDeleting: true,
       currentOperation: 'Deleting archived chat...',
@@ -530,7 +533,7 @@ class ArchiveUIState {
   final bool isSearchMode;
   final String searchQuery;
   final ArchiveListFilter? currentFilter;
-  final String? selectedArchiveId;
+  final ArchiveId? selectedArchiveId;
   final bool showStatistics;
 
   const ArchiveUIState({
@@ -545,7 +548,7 @@ class ArchiveUIState {
     bool? isSearchMode,
     String? searchQuery,
     ArchiveListFilter? currentFilter,
-    String? selectedArchiveId,
+    ArchiveId? selectedArchiveId,
     bool? showStatistics,
   }) {
     return ArchiveUIState(
@@ -580,7 +583,7 @@ class ArchiveUIStateNotifier extends Notifier<ArchiveUIState> {
     state = state.copyWith(currentFilter: filter);
   }
 
-  void selectArchive(String? archiveId) {
+  void selectArchive(ArchiveId? archiveId) {
     state = state.copyWith(selectedArchiveId: archiveId);
   }
 

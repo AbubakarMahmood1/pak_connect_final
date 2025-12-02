@@ -15,6 +15,7 @@ import '../../core/models/connection_status.dart';
 import '../../core/services/home_screen_facade.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
+import '../../domain/values/id_types.dart';
 import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../../core/performance/performance_monitor.dart';
@@ -251,7 +252,7 @@ class HomeScreenController extends ChangeNotifier {
     await loadChats();
   }
 
-  bool isChatPinned(String chatId) =>
+  bool isChatPinned(ChatId chatId) =>
       _chatManagementService.isChatPinned(chatId);
 
   Future<void> toggleChatPin(ChatListItem chat) async {

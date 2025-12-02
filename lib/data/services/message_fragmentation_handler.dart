@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import '../../core/interfaces/i_message_fragmentation_handler.dart';
 import '../../core/utils/message_fragmenter.dart';
 import '../../core/models/protocol_message.dart';
+import '../../domain/values/id_types.dart';
 
 /// Handles message fragmentation, reassembly, and ACK management
 ///
@@ -163,6 +164,12 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
     }
   }
 
+  @override
+  Future<bool> registerMessageAckWithId({
+    required MessageId messageId,
+    required Duration timeout,
+  }) => registerMessageAck(messageId: messageId.value, timeout: timeout);
+
   /// Acknowledges successful message receipt
   @override
   void acknowledgeMessage(String messageId) {
@@ -175,6 +182,10 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
       _logger.fine('✅ ACK received for message: $messageId');
     }
   }
+
+  @override
+  void acknowledgeMessageWithId(MessageId messageId) =>
+      acknowledgeMessage(messageId.value);
 
   /// Gets current reassembly state for debugging
   @override

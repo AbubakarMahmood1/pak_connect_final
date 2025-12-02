@@ -20,6 +20,8 @@ import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import '../../test_helpers/test_setup.dart';
 
+ChatId _cid(String value) => ChatId(value);
+
 class _FakeChatsRepository implements IChatsRepository {
   int totalUnreadCountCalls = 0;
 
@@ -54,10 +56,10 @@ class _FakeChatsRepository implements IChatsRepository {
   }
 
   @override
-  Future<void> incrementUnreadCount(String chatId) async {}
+  Future<void> incrementUnreadCount(ChatId chatId) async {}
 
   @override
-  Future<void> markChatAsRead(String chatId) async {}
+  Future<void> markChatAsRead(ChatId chatId) async {}
 
   @override
   Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {}
@@ -68,7 +70,7 @@ class _FakeChatsRepository implements IChatsRepository {
 
 class _FakeMessageRepository implements IMessageRepository {
   @override
-  Future<void> clearMessages(String chatId) async {}
+  Future<void> clearMessages(ChatId chatId) async {}
 
   @override
   Future<bool> deleteMessage(MessageId messageId) async => true;
@@ -80,7 +82,7 @@ class _FakeMessageRepository implements IMessageRepository {
   Future<Message?> getMessageById(MessageId messageId) async => null;
 
   @override
-  Future<List<Message>> getMessages(String chatId) async => <Message>[];
+  Future<List<Message>> getMessages(ChatId chatId) async => <Message>[];
 
   @override
   Future<List<Message>> getMessagesForContact(String publicKey) async =>
@@ -93,7 +95,7 @@ class _FakeMessageRepository implements IMessageRepository {
   Future<void> updateMessage(Message message) async {}
 
   @override
-  Future<void> migrateChatId(String oldChatId, String newChatId) async {}
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {}
 }
 
 class _FakeArchiveRepository implements IArchiveRepository {
@@ -106,7 +108,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }) async => ArchiveOperationResult.success(
     message: 'ok',
     operationType: ArchiveOperationType.archive,
-    archiveId: chatId,
+    archiveId: ArchiveId(chatId),
     operationTime: Duration.zero,
   );
 
@@ -117,7 +119,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   Future<ArchiveStatistics?> getArchiveStatistics() async => null;
 
   @override
-  Future<ArchivedChat?> getArchivedChat(String archiveId) async => null;
+  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async => null;
 
   @override
   Future<ArchivedChatSummary?> getArchivedChatByOriginalId(
@@ -138,10 +140,10 @@ class _FakeArchiveRepository implements IArchiveRepository {
   Future<void> initialize() async {}
 
   @override
-  Future<void> permanentlyDeleteArchive(String archivedChatId) async {}
+  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async {}
 
   @override
-  Future<ArchiveOperationResult> restoreChat(String archiveId) async =>
+  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
       ArchiveOperationResult.success(
         message: 'ok',
         operationType: ArchiveOperationType.restore,

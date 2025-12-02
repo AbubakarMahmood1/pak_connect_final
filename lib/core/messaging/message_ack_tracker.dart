@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Tracks outbound message ACKs with timeout handling.
 class MessageAckTracker {
@@ -31,6 +32,14 @@ class MessageAckTracker {
     return completer;
   }
 
+  Completer<bool> trackId(
+    MessageId messageId, {
+    void Function(MessageId messageId)? onTimeout,
+  }) => track(
+    messageId.value,
+    onTimeout: onTimeout != null ? (id) => onTimeout(MessageId(id)) : null,
+  );
+
   /// Complete and clear an ACK if it's still pending.
   bool complete(String messageId, {bool success = true}) {
     final completer = _pendingAcks[messageId];
@@ -44,6 +53,13 @@ class MessageAckTracker {
     _cleanup(messageId);
     return true;
   }
+
+  bool completeId(MessageId messageId, {bool success = true}) =>
+      complete(messageId.value, success: success);
+
+  /// Checks if an ACK is still pending for the given message ID.
+  bool isPending(String messageId) => _pendingAcks.containsKey(messageId);
+  bool isPendingId(MessageId messageId) => isPending(messageId.value);
 
   /// Cancel tracking for a message without completing it.
   void cancel(String messageId) {

@@ -226,12 +226,12 @@ void main() {
       expect(store.hasDelivered('msg_1'), true);
     });
 
-    test('handles empty message IDs', () async {
+    test('ignores empty message IDs gracefully', () async {
       await store.markDelivered('');
-      expect(store.hasDelivered(''), true);
+      expect(store.hasDelivered(''), false);
 
       final stats = store.getStatistics();
-      expect(stats['deliveredCount'], 1);
+      expect(stats['deliveredCount'], 0);
     });
   });
 }

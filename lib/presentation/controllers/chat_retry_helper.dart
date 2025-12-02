@@ -6,6 +6,7 @@ import '../../core/models/connection_info.dart';
 import '../../core/services/message_retry_coordinator.dart';
 import '../../core/utils/string_extensions.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/values/id_types.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../models/chat_screen_config.dart';
@@ -87,6 +88,7 @@ class ChatRetryHelper {
     try {
       final connectionInfo = ref.read(connectionInfoProvider).value;
       final isConnected = connectionInfo?.isConnected ?? false;
+      final allowPartialConnection = isConnected;
 
       if (!isConnected) {
         showSuccess(
@@ -96,8 +98,9 @@ class ChatRetryHelper {
         showSuccess('Connection available - retrying failed messages...');
       }
 
+      final chatIdValue = ChatId(chatId());
       final retryStatus = await _retryCoordinator!.getFailedMessageStatus(
-        chatId(),
+        chatIdValue,
       );
 
       if (retryStatus.hasError) {
@@ -114,10 +117,10 @@ class ChatRetryHelper {
       );
 
       final retryResult = await _retryCoordinator!.retryAllFailedMessages(
-        chatId: chatId(),
-        allowPartialConnection: true,
+        chatId: chatIdValue,
+        allowPartialConnection: allowPartialConnection,
         onRepositoryMessageRetry: (message) => repositoryRetryHandler(message),
-        onQueueMessageRetry: (queuedMessage) async {},
+        onQueueMessageRetry: (_) async {},
       );
 
       scrollToBottom();
