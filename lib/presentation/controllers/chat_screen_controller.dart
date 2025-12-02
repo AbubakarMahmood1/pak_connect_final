@@ -309,14 +309,14 @@ class ChatScreenController extends ChangeNotifier {
     _messagingViewModel =
         messagingViewModel ??
         _args.messagingViewModel ??
-        _args.messagingViewModelFactory?.call(
+        _args.messagingViewModelFactory.call(
           _chatId,
           _contactPublicKey ?? '',
         ) ??
         (throw ArgumentError('ChatMessagingViewModel factory not provided'));
 
     _scrollingController =
-        _args.scrollingControllerFactory?.call(
+        _args.scrollingControllerFactory.call(
           _chatId,
           () => _stateStore.clearNewWhileScrolledUp(),
           (count) => _stateStore.setUnreadCount(count),
@@ -325,7 +325,7 @@ class ChatScreenController extends ChangeNotifier {
         (throw ArgumentError('ChatScrollingController factory not provided'));
 
     _searchController =
-        _args.searchControllerFactory?.call(
+        _args.searchControllerFactory.call(
           (isSearchMode) => _stateStore.setSearchMode(isSearchMode),
           (query, _) => _sessionViewModel.onSearchResultsChanged(query),
           (messageIndex) =>
@@ -337,7 +337,7 @@ class ChatScreenController extends ChangeNotifier {
     final connectionService = ref.read(connectionServiceProvider);
     _pairingDialogController =
         _injectedPairingController ??
-        _args.pairingControllerFactory?.call(
+        _args.pairingControllerFactory.call(
           context,
           connectionService,
           contactRepository,
@@ -357,7 +357,7 @@ class ChatScreenController extends ChangeNotifier {
 
     _sessionViewModel =
         _args.sessionViewModel ??
-        _args.sessionViewModelFactory?.call(
+        _args.sessionViewModelFactory.call(
           config: config,
           messageRepository: messageRepository,
           contactRepository: contactRepository,
@@ -402,7 +402,7 @@ class ChatScreenController extends ChangeNotifier {
 
     _sessionLifecycle =
         _args.sessionLifecycle ??
-        _args.sessionLifecycleFactory?.call(
+        _args.sessionLifecycleFactory.call(
           viewModel: _sessionViewModel,
           connectionService: connectionService,
           meshService: ref.read(meshNetworkingServiceProvider),
