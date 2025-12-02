@@ -140,22 +140,21 @@ class TestSetup {
       locator.registerSingleton<T>(instance);
     }
 
-    // Use provided repositories or default to mocks
+    // Use provided repositories or default to mocks; always override concrete registrations
     final contactRepo = contactRepository ?? MockContactRepository();
     final messageRepo = messageRepository ?? MockMessageRepository();
 
-    if (contactRepo != null) {
-      override<IContactRepository>(contactRepo);
-      if (contactRepo is ContactRepository) {
-        override<ContactRepository>(contactRepo);
-      }
-    }
-    if (messageRepo != null) {
-      override<IMessageRepository>(messageRepo);
-      if (messageRepo is MessageRepository) {
-        override<MessageRepository>(messageRepo);
-      }
-    }
+    override<IContactRepository>(contactRepo);
+    final contactConcrete = contactRepo is ContactRepository
+        ? contactRepo
+        : MockContactRepository();
+    override<ContactRepository>(contactConcrete);
+
+    override<IMessageRepository>(messageRepo);
+    final messageConcrete = messageRepo is MessageRepository
+        ? messageRepo
+        : MockMessageRepository();
+    override<MessageRepository>(messageConcrete);
     if (databaseProvider != null) {
       override<IDatabaseProvider>(databaseProvider);
     }
