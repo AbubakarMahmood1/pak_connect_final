@@ -1,6 +1,7 @@
 // Shared test harness utilities for pak_connect tests
 
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
@@ -16,6 +17,7 @@ import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/networking/topology_manager.dart';
+import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/database/database_encryption.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/database/database_provider.dart';
@@ -24,6 +26,9 @@ import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/services/seen_message_store.dart';
+import 'package:pak_connect/domain/entities/contact.dart';
+import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -142,23 +147,20 @@ class TestSetup {
 
     // Use provided repositories or default to mocks; always override concrete registrations
     final contactRepo = contactRepository ?? MockContactRepository();
-    if (contactRepo is! ContactRepository) {
-      throw ArgumentError(
-        'contactRepository override must implement ContactRepository for concrete lookups',
-      );
-    }
+    final contactConcrete = contactRepo is ContactRepository
+        ? contactRepo
+        : _ContactRepositoryAdapter(contactRepo);
+
     final messageRepo = messageRepository ?? MockMessageRepository();
-    if (messageRepo is! MessageRepository) {
-      throw ArgumentError(
-        'messageRepository override must implement MessageRepository for concrete lookups',
-      );
-    }
+    final messageConcrete = messageRepo is MessageRepository
+        ? messageRepo
+        : _MessageRepositoryAdapter(messageRepo);
 
     override<IContactRepository>(contactRepo);
-    override<ContactRepository>(contactRepo);
+    override<ContactRepository>(contactConcrete);
 
     override<IMessageRepository>(messageRepo);
-    override<MessageRepository>(messageRepo);
+    override<MessageRepository>(messageConcrete);
     if (databaseProvider != null) {
       override<IDatabaseProvider>(databaseProvider);
     }
@@ -276,4 +278,208 @@ class TestSetup {
 
   static String _sanitize(String input) =>
       input.replaceAll(RegExp('[^a-zA-Z0-9_]'), '_');
+}
+
+// Adapters allow interface-only overrides to satisfy concrete lookups without losing shared state.
+class _MessageRepositoryAdapter extends MessageRepository {
+  _MessageRepositoryAdapter(this._delegate);
+
+  final IMessageRepository _delegate;
+
+  @override
+  Future<void> clearMessages(ChatId chatId) => _delegate.clearMessages(chatId);
+
+  @override
+  Future<bool> deleteMessage(MessageId messageId) =>
+      _delegate.deleteMessage(messageId);
+
+  @override
+  Future<List<Message>> getAllMessages() => _delegate.getAllMessages();
+
+  @override
+  Future<Message?> getMessageById(MessageId messageId) =>
+      _delegate.getMessageById(messageId);
+
+  @override
+  Future<List<Message>> getMessages(ChatId chatId) =>
+      _delegate.getMessages(chatId);
+
+  @override
+  Future<List<Message>> getMessagesForContact(String publicKey) =>
+      _delegate.getMessagesForContact(publicKey);
+
+  @override
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) =>
+      _delegate.migrateChatId(oldChatId, newChatId);
+
+  @override
+  Future<void> saveMessage(Message message) => _delegate.saveMessage(message);
+
+  @override
+  Future<void> updateMessage(Message message) =>
+      _delegate.updateMessage(message);
+}
+
+class _ContactRepositoryAdapter extends ContactRepository {
+  _ContactRepositoryAdapter(this._delegate);
+
+  final IContactRepository _delegate;
+
+  @override
+  Future<void> cacheSharedSecret(String publicKey, String sharedSecret) =>
+      _delegate.cacheSharedSecret(publicKey, sharedSecret);
+
+  @override
+  Future<Uint8List?> getCachedSharedSeedBytes(String publicKey) =>
+      _delegate.getCachedSharedSeedBytes(publicKey);
+
+  @override
+  Future<String?> getCachedSharedSecret(String publicKey) =>
+      _delegate.getCachedSharedSecret(publicKey);
+
+  @override
+  Future<void> cacheSharedSeedBytes(String publicKey, Uint8List seedBytes) =>
+      _delegate.cacheSharedSeedBytes(publicKey, seedBytes);
+
+  @override
+  Future<void> clearCachedSecrets(String publicKey) =>
+      _delegate.clearCachedSecrets(publicKey);
+
+  @override
+  Future<bool> deleteContact(String publicKey) =>
+      _delegate.deleteContact(publicKey);
+
+  @override
+  Future<Contact?> getContact(String publicKey) =>
+      _delegate.getContact(publicKey);
+
+  @override
+  Future<Contact?> getContactByAnyId(String identifier) =>
+      _delegate.getContactByAnyId(identifier);
+
+  @override
+  Future<Contact?> getContactByCurrentEphemeralId(String ephemeralId) =>
+      _delegate.getContactByCurrentEphemeralId(ephemeralId);
+
+  @override
+  Future<Contact?> getContactByPersistentKey(String persistentPublicKey) =>
+      _delegate.getContactByPersistentKey(persistentPublicKey);
+
+  @override
+  Future<Contact?> getContactByPersistentUserId(UserId persistentPublicKey) =>
+      _delegate.getContactByPersistentUserId(persistentPublicKey);
+
+  @override
+  Future<Contact?> getContactByUserId(UserId userId) =>
+      _delegate.getContactByUserId(userId);
+
+  @override
+  Future<Map<String, Contact>> getAllContacts() => _delegate.getAllContacts();
+
+  @override
+  Future<void> markContactVerified(String publicKey) =>
+      _delegate.markContactVerified(publicKey);
+
+  @override
+  Future<void> saveContact(String publicKey, String displayName) =>
+      _delegate.saveContact(publicKey, displayName);
+
+  @override
+  Future<void> saveContactWithSecurity(
+    String publicKey,
+    String displayName,
+    SecurityLevel securityLevel, {
+    String? currentEphemeralId,
+    String? persistentPublicKey,
+  }) => _delegate.saveContactWithSecurity(
+    publicKey,
+    displayName,
+    securityLevel,
+    currentEphemeralId: currentEphemeralId,
+    persistentPublicKey: persistentPublicKey,
+  );
+
+  @override
+  Future<void> updateContactEphemeralId(
+    String publicKey,
+    String newEphemeralId,
+  ) => _delegate.updateContactEphemeralId(publicKey, newEphemeralId);
+
+  @override
+  Future<void> updateContactSecurityLevel(
+    String publicKey,
+    SecurityLevel newLevel,
+  ) => _delegate.updateContactSecurityLevel(publicKey, newLevel);
+
+  @override
+  Future<void> updateNoiseSession({
+    required String publicKey,
+    required String noisePublicKey,
+    required String sessionState,
+  }) => _delegate.updateNoiseSession(
+    publicKey: publicKey,
+    noisePublicKey: noisePublicKey,
+    sessionState: sessionState,
+  );
+
+  @override
+  Future<SecurityLevel> getContactSecurityLevel(String publicKey) =>
+      _delegate.getContactSecurityLevel(publicKey);
+
+  @override
+  Future<void> downgradeSecurityForDeletedContact(
+    String publicKey,
+    String reason,
+  ) => _delegate.downgradeSecurityForDeletedContact(publicKey, reason);
+
+  @override
+  Future<bool> upgradeContactSecurity(
+    String publicKey,
+    SecurityLevel newLevel,
+  ) => _delegate.upgradeContactSecurity(publicKey, newLevel);
+
+  @override
+  Future<bool> resetContactSecurity(String publicKey, String reason) =>
+      _delegate.resetContactSecurity(publicKey, reason);
+
+  @override
+  Future<String?> getContactName(String publicKey) =>
+      _delegate.getContactName(publicKey);
+
+  @override
+  Future<int> getContactCount() => _delegate.getContactCount();
+
+  @override
+  Future<int> getVerifiedContactCount() => _delegate.getVerifiedContactCount();
+
+  @override
+  Future<Map<SecurityLevel, int>> getContactsBySecurityLevel() =>
+      _delegate.getContactsBySecurityLevel();
+
+  @override
+  Future<int> getRecentlyActiveContactCount() =>
+      _delegate.getRecentlyActiveContactCount();
+
+  @override
+  Future<void> markContactFavorite(String publicKey) =>
+      _delegate.markContactFavorite(publicKey);
+
+  @override
+  Future<void> unmarkContactFavorite(String publicKey) =>
+      _delegate.unmarkContactFavorite(publicKey);
+
+  @override
+  Future<bool> toggleContactFavorite(String publicKey) =>
+      _delegate.toggleContactFavorite(publicKey);
+
+  @override
+  Future<List<Contact>> getFavoriteContacts() =>
+      _delegate.getFavoriteContacts();
+
+  @override
+  Future<int> getFavoriteContactCount() => _delegate.getFavoriteContactCount();
+
+  @override
+  Future<bool> isContactFavorite(String publicKey) =>
+      _delegate.isContactFavorite(publicKey);
 }
