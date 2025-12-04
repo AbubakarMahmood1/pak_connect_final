@@ -1,221 +1,164 @@
-# pak_connect
+# PakConnect 🛡️📡
 
-A secure, peer-to-peer messaging application built with Flutter, featuring mesh networking capabilities and advanced chat management features.
+[![Flutter](https://img.shields.io/badge/Flutter-3.9%2B-02569B?logo=flutter)](https://flutter.dev)
+[![Dart](https://img.shields.io/badge/Dart-3.9%2B-0175C2?logo=dart)](https://dart.dev)
+[![State Management](https://img.shields.io/badge/State-Riverpod_3.0-purple)](https://riverpod.dev)
+[![Security](https://img.shields.io/badge/Encryption-Noise_XX%2FKK-green)](https://noiseprotocol.org)
+[![Database](https://img.shields.io/badge/Storage-SQLCipher-blue)](https://www.zetetic.net/sqlcipher/)
+[![License](https://img.shields.io/badge/License-Proprietary-red)]()
 
-## Features
+> **Secure, decentralized, peer-to-peer messaging for off-grid communication.**
 
-### Core Messaging
-- **End-to-end encrypted messaging** with secure key exchange
-- **Mesh networking** for decentralized communication
-- **Offline message queuing** with automatic delivery
-- **Real-time message synchronization** across devices
-
-### Advanced Chat Management (Phase 3)
-- **📁 Archive System**: Organize chats with full search and restore capabilities
-- **🔍 In-Chat Search**: Find messages instantly within conversations
-- **👆 Swipe Actions**: Quick archive or delete with intuitive gestures
-- **📊 Archive Analytics**: Track chat statistics and storage usage
-
-### Security & Privacy
-- **Multi-layer spam prevention** with intelligent filtering
-- **Ephemeral messaging** with automatic cleanup
-- **Contact verification** and trust management
-- **Background security monitoring**
-
-## Project Status
-
-### ✅ Completed Phases
-- **Phase 1**: Quick UI wins (message deletion, unread badges)
-- **Phase 2**: Automatic mesh networking with smart routing
-- **Phase 3 (UI Complete)**: Advanced chat management features
-
-### 🔄 In Progress
-- **Database migration** for archive system persistence
-- **Advanced search features** (fuzzy search, highlighting)
-- **Performance optimization** for large datasets
-
-## Architecture
-
-```
-lib/
-├── core/                 # Core business logic and services
-│   ├── messaging/       # Mesh networking and relay engine
-│   ├── security/        # Encryption and spam prevention
-│   ├── routing/         # Smart mesh routing algorithms
-│   └── models/          # Data models and entities
-├── domain/              # Domain layer with business rules
-│   ├── entities/        # Business entities
-│   ├── services/        # Domain services
-│   └── repositories/    # Data access interfaces
-├── data/                # Data layer implementation
-│   ├── repositories/    # Repository implementations
-│   └── services/        # External service integrations
-├── presentation/        # UI layer
-│   ├── screens/         # Screen widgets
-│   ├── widgets/         # Reusable UI components
-│   └── providers/       # State management
-└── test/                # Comprehensive test suite
-```
-
-## Getting Started
-
-### Prerequisites
-- Flutter SDK (3.0 or higher)
-- Dart SDK (3.0 or higher)
-- Android Studio / VS Code with Flutter extensions
-- Android/iOS device or emulator
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd pak_connect
-   ```
-
-2. **Install dependencies**
-   ```bash
-   flutter pub get
-   ```
-
-3. **Run the app**
-   ```bash
-   flutter run
-   ```
-
-### Testing
-
-Run the comprehensive test suite:
-```bash
-flutter test
-```
-
-Run integration tests:
-```bash
-flutter test integration_test/
-```
-
-## Phase 3 Features
-
-### Archive System
-Organize your chats with advanced archiving capabilities:
-
-- **Smart Archiving**: Swipe to archive chats instantly
-- **Full Search**: Search across all archived conversations
-- **Easy Restore**: Restore archived chats with one tap
-- **Statistics**: Track archive usage and patterns
-
-**Status**: UI fully implemented, backend migration pending
-
-### In-Chat Search
-Find messages quickly within any conversation:
-
-- **Real-time Search**: Instant results as you type
-- **Result Navigation**: Jump between matches
-- **Context Preservation**: See messages in full context
-
-**Status**: Core functionality complete, advanced features pending
-
-### Swipe Actions
-Intuitive gesture-based chat management:
-
-- **Left Swipe**: Archive chat
-- **Right Swipe**: Delete chat
-- **Visual Feedback**: Clear action indicators
-- **Confirmation**: Prevent accidental actions
-
-**Status**: ✅ Fully implemented
-
-## Documentation
-
-- **[Technical Specifications](PAKCONNECT_TECHNICAL_SPECIFICATIONS.md)**: Comprehensive technical documentation
-- **[Archive System](docs/ARCHIVE_SYSTEM.md)**: Detailed archive functionality guide
-- **[Search System](docs/SEARCH_SYSTEM.md)**: Search capabilities documentation
-- **[Mesh Networking](MESH_NETWORKING_DOCUMENTATION.md)**: Networking architecture
-- **[Enhanced Features](ENHANCED_FEATURES_DOCUMENTATION.md)**: Additional features overview
-
-## Development Roadmap
-
-### Phase 3 Completion (Current Priority)
-- [ ] Database migration for archive persistence
-- [ ] Fuzzy search implementation
-- [ ] Message highlighting in search results
-- [ ] Performance optimization for large archives
-
-### Future Phases
-- **Phase 4**: Polish, testing, and performance optimization
-- **Phase 5**: Cloud backup and synchronization
-- **Phase 6**: Advanced analytics and insights
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Code Style
-- Follow Dart/Flutter best practices
-- Use meaningful variable and function names
-- Add comprehensive documentation
-- Write tests for new features
-
-## Testing Strategy
-
-### Test Coverage Goals
-- **Unit Tests**: >85% coverage for business logic
-- **Widget Tests**: >80% coverage for UI components
-- **Integration Tests**: >75% coverage for critical flows
-- **Performance Tests**: Benchmarking for key operations
-
-### Running Tests
-```bash
-# Run all tests
-flutter test
-
-# Run with coverage
-flutter test --coverage
-
-# Run specific test file
-flutter test test/path/to/test_file.dart
-```
-
-## Security
-
-pak_connect implements multiple layers of security:
-
-- **End-to-end encryption** for all messages
-- **Key exchange protocols** for secure communication
-- **Spam prevention** with intelligent filtering
-- **Contact verification** to prevent impersonation
-- **Regular security audits** and updates
-
-## Performance
-
-### Current Benchmarks
-- **Message delivery**: <500ms in mesh networks
-- **Search response**: <200ms for archive search
-- **Archive operations**: <1 second for typical chats
-- **Memory usage**: ~50MB baseline + ~10MB per 1000 messages
-
-### Optimization Areas
-- Database query optimization
-- Memory-efficient caching
-- Background processing
-- Network efficiency improvements
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Flutter team for the amazing framework
-- Dart community for excellent packages
-- Security researchers for encryption best practices
-- Open source contributors
+PakConnect is a cutting-edge Flutter application designed for environments where internet connectivity is unreliable or unavailable. It leverages **BLE (Bluetooth Low Energy) Mesh Networking** and the **Noise Protocol Framework** to deliver military-grade, end-to-end encrypted messaging without central servers.
 
 ---
 
-**Note**: This project is under active development. Phase 3 features are UI-complete but require backend completion for full functionality.
+## 🚀 Key Features
+
+### 🔐 **Zero-Trust Security**
+*   **End-to-End Encryption**: Implements **Noise Protocol (XX/KK patterns)** using X25519 and ChaCha20-Poly1305.
+*   **Perfect Forward Secrecy**: Ephemeral keys rotate per session; old messages remain secure even if long-term keys are compromised.
+*   **Secure Storage**: All local data is encrypted at rest using **SQLCipher**.
+*   **Identity Protection**: Dual-layer identity system (Immutable Public Key + Rotatable Ephemeral IDs) to prevent tracking.
+
+### 🕸️ **Smart Mesh Networking**
+*   **Off-Grid Communication**: Messages hop across devices (up to 5 hops) to reach their destination without internet.
+*   **Intelligent Routing**: Custom `MeshRelayEngine` with topology awareness, duplicate detection, and TTL management.
+*   **Dual-Role BLE**: Powered by `BLEServiceFacade` (`lib/data/services/ble_service_facade.dart`), acting as both Central and Peripheral.
+*   **Offline-First**: Robust store-and-forward queues ensure messages are delivered when paths become available.
+
+### 📱 **Modern User Experience**
+*   **Rich Messaging**: Text, emojis, and binary payloads.
+*   **Archive System**: Organize chats with swipe actions, search, and secure storage.
+*   **Network Visualization**: Real-time view of the mesh topology and connected peers.
+*   **Privacy Controls**: Toggle "Spy Mode," read receipts, and online status broadcasting.
+
+---
+
+## 🏗️ Architecture
+
+PakConnect follows a strict **Clean Layered Architecture** to ensure scalability, testability, and maintainability.
+
+```mermaid
+graph TD
+    subgraph Presentation ["🎨 Presentation Layer"]
+        UI[Screens & Widgets]
+        State[Riverpod Providers]
+    end
+
+    subgraph Domain ["🧠 Domain Layer"]
+        UseCase[Use Cases]
+        Entities[Business Entities]
+        Interfaces[Repository Interfaces]
+    end
+
+    subgraph Data ["💾 Data Layer"]
+        RepoImpl[Repository Implementations]
+        DataSource[Data Sources (SQLCipher, BLE)]
+        DTOs[Data Transfer Objects]
+    end
+
+    subgraph Core ["⚙️ Core Layer"]
+        Mesh[Mesh Relay Engine]
+        Noise[Noise Protocol Security]
+        Infra[Infrastructure & Utils]
+    end
+
+    UI --> State
+    State --> UseCase
+    UseCase --> Interfaces
+    RepoImpl --> Interfaces
+    RepoImpl --> DataSource
+    DataSource --> Core
+```
+
+### Tech Stack
+*   **Framework**: Flutter 3.9+ / Dart 3.9+
+*   **State Management**: Riverpod 3.0 (Code Generation)
+*   **Database**: `sqflite` + `SQLCipher` (Schema v9)
+*   **Cryptography**: `pinenacl` (X25519), `cryptography` (ChaCha20), `pointycastle`
+*   **Hardware**: `bluetooth_low_energy` (Dual-Role)
+
+---
+
+## 🛠️ Getting Started
+
+### Prerequisites
+*   **Flutter SDK**: 3.9 or higher.
+*   **Android/iOS Device**: Required for BLE features (Simulators do not support BLE).
+*   **Development Environment**: VS Code or Android Studio.
+
+### Installation
+
+1.  **Clone the repository**
+    ```bash
+    git clone https://github.com/yourusername/pak_connect.git
+    cd pak_connect
+    ```
+
+2.  **Install Dependencies**
+    ```bash
+    flutter pub get
+    ```
+
+3.  **Run the App**
+    *   **Physical Device (Recommended)**:
+        ```bash
+        flutter run
+        ```
+    *   **Testing (VM-Friendly)**:
+        ```bash
+        flutter test
+        ```
+
+---
+
+## 🚦 Project Status
+
+| Phase | Feature Set | Status |
+| :--- | :--- | :--- |
+| **Phase 1** | **Core Transport** (BLE, Noise, Basic Mesh) | ✅ Complete |
+| **Phase 2** | **Data Persistence** (SQLCipher, Migrations) | ✅ Complete |
+| **Phase 3** | **Advanced UI** (Archive, Search, Swipe Actions) | ⚠️ In Progress (Backend Migration) |
+| **Phase 4** | **Polish & Optimization** (Testing, Performance) | 🔄 Ongoing |
+
+> **Note**: The Archive system's backend migration (moving from SharedPreferences to SQLite) and Advanced Search logic (Fuzzy search) are currently in active development.
+
+---
+
+## 🧪 Testing Strategy
+
+We maintain a rigorous testing standard to ensure security and reliability.
+
+*   **Unit Tests**: Cover domain logic and core algorithms.
+*   **Integration Tests**: Verify database migrations and Noise handshake flows (`test/noise_end_to_end_test.dart`).
+*   **Soak Tests**: Long-running stability tests located in `integration_test/` (Requires Hardware).
+*   **Safe Test Run**:
+    ```bash
+    set -o pipefail; flutter test --coverage | tee flutter_test_latest.log
+    ```
+
+See `TESTING_STRATEGY.md` for detailed coverage goals and harness details.
+
+---
+
+## 📄 Documentation
+
+*   [**AGENTS.md**](AGENTS.md): Protocol for AI Agents.
+*   [**Technical Specifications**](PAKCONNECT_TECHNICAL_SPECIFICATIONS.md): Detailed roadmap and specs.
+*   [**Security Architecture**](docs/claude/NOISE_INTEGRATION_PLAN.md): Deep dive into the Noise Protocol integration.
+
+---
+
+## 🤝 Contribution
+
+This is a proprietary internal project. Access is restricted to authorized developers.
+
+1.  Follow the **Clean Architecture** principles.
+2.  **Never** use `print()`; use the `logging` package.
+3.  Ensure all new features are covered by tests.
+4.  Review `AGENTS.md` before making changes.
+
+---
+
+&copy; 2025 PakConnect. All rights reserved.
