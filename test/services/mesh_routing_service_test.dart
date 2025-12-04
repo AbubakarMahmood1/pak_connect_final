@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/mesh_routing_service.dart';
 import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
@@ -12,6 +13,8 @@ void main() {
   group('MeshRoutingService', () {
     late MeshRoutingService routingService;
     late NetworkTopologyAnalyzer topologyAnalyzer;
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
 
     const String nodeA = 'node_a_12345';
     const String nodeB = 'node_b_67890';
@@ -19,6 +22,10 @@ void main() {
     const String nodeD = 'node_d_fghij';
 
     setUp(() async {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(label: 'mesh_routing_service');
       topologyAnalyzer = NetworkTopologyAnalyzer();
       await topologyAnalyzer.initialize();
@@ -30,7 +37,34 @@ void main() {
       );
     });
 
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
     tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
       routingService.dispose();
       topologyAnalyzer.dispose();
     });

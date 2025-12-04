@@ -1,20 +1,42 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/models/connection_info.dart';
 import '../../core/models/security_state.dart';
+import '../../core/interfaces/i_connection_service.dart';
+import '../../core/services/message_retry_coordinator.dart';
+import '../../core/services/media_send_handler.dart';
+import '../../core/services/security_manager.dart';
+import '../../data/repositories/chats_repository.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../data/repositories/message_repository.dart';
+import '../../data/services/ble_state_manager.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/entities/enhanced_message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
+import '../controllers/chat_pairing_dialog_controller.dart';
+import '../controllers/chat_scrolling_controller.dart' as chat_controller;
+import '../controllers/chat_search_controller.dart';
+import '../controllers/chat_session_lifecycle.dart';
 import '../controllers/chat_screen_controller.dart';
 import '../models/chat_screen_config.dart';
 import '../models/chat_ui_state.dart';
+import '../providers/chat_messaging_view_model.dart';
 import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../providers/security_state_provider.dart';
 import '../providers/chat_session_providers.dart';
-import '../notifiers/chat_session_state_provider.dart';
+import '../viewmodels/chat_session_view_model.dart';
 import '../widgets/chat_screen_helpers.dart';
 import '../widgets/chat_search_bar.dart';
 import '../widgets/message_bubble.dart';
+import '../../core/utils/chat_utils.dart';
+import '../../domain/services/mesh_networking_service.dart'
+    show ReceivedBinaryEvent, PendingBinaryTransfer;
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device; // For central mode (live connection)
@@ -22,7 +44,6 @@ class ChatScreen extends ConsumerStatefulWidget {
   final String? chatId; // For repository mode (stored data)
   final String? contactName; // Contact display name
   final String? contactPublicKey; // Contact public key
-  final bool useSessionProviders; // Opt-in to provider-backed session wiring
 
   const ChatScreen({
     super.key,
@@ -31,7 +52,6 @@ class ChatScreen extends ConsumerStatefulWidget {
     this.chatId,
     this.contactName,
     this.contactPublicKey,
-    this.useSessionProviders = true,
   }) : assert(
          (device != null || central != null) ||
              (chatId != null && contactName != null),
@@ -43,7 +63,6 @@ class ChatScreen extends ConsumerStatefulWidget {
     required this.chatId,
     required this.contactName,
     required this.contactPublicKey,
-    this.useSessionProviders = true,
   }) : device = null,
        central = null;
 
@@ -57,11 +76,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool get _isRepositoryMode => widget.chatId != null;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
-  ChatScreenController get _controller =>
-      ref.read(chatScreenControllerProvider(_controllerArgs));
-  ChatSessionActions? get _sessionActions => widget.useSessionProviders
-      ? ref.read(chatSessionActionsFromControllerProvider(_controllerArgs))
-      : null;
 
   @override
   void initState() {
@@ -77,7 +91,139 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         contactName: widget.contactName,
         contactPublicKey: widget.contactPublicKey,
       ),
+      messageRepository: MessageRepository(),
+      contactRepository: ContactRepository(),
+      chatsRepository: ChatsRepository(),
+      messagingViewModelFactory: (chatId, contactPublicKey) =>
+          ChatMessagingViewModel(
+            chatId: chatId,
+            contactPublicKey: contactPublicKey,
+            messageRepository: MessageRepository(),
+            contactRepository: ContactRepository(),
+          ),
+      scrollingControllerFactory:
+          (chatId, onScrollToBottom, onUnreadCountChanged, onStateChanged) =>
+              chat_controller.ChatScrollingController(
+                chatsRepository: ChatsRepository(),
+                chatId: chatId,
+                onScrollToBottom: onScrollToBottom,
+                onUnreadCountChanged: onUnreadCountChanged,
+                onStateChanged: onStateChanged,
+              ),
+      searchControllerFactory:
+          (
+            onSearchModeToggled,
+            onSearchResultsChanged,
+            onNavigateToResult,
+            scrollController,
+          ) => ChatSearchController(
+            onSearchModeToggled: onSearchModeToggled,
+            onSearchResultsChanged: onSearchResultsChanged,
+            onNavigateToResult: onNavigateToResult,
+            scrollController: scrollController,
+          ),
+      pairingControllerFactory:
+          (
+            ctx,
+            connectionService,
+            contactRepo,
+            navigator,
+            stateManager,
+            onCompleted,
+            onError,
+            onSuccess,
+          ) => ChatPairingDialogController(
+            stateManager: stateManager,
+            connectionService: connectionService,
+            contactRepository: contactRepo,
+            context: ctx,
+            navigator: navigator,
+            getTheirPersistentKey: () =>
+                connectionService.theirPersistentPublicKey,
+            onPairingCompleted: onCompleted,
+            onPairingError: onError,
+            onPairingSuccess: onSuccess,
+          ),
+      sessionViewModelFactory:
+          ({
+            required config,
+            required messageRepository,
+            required contactRepository,
+            required chatsRepository,
+            required messagingViewModel,
+            required scrollingController,
+            required searchController,
+            required pairingDialogController,
+            MessageRetryCoordinator? retryCoordinator,
+            sessionLifecycle,
+            String Function()? displayContactNameFn,
+            String? Function()? getContactPublicKeyFn,
+            String Function()? getChatIdFn,
+            void Function(String)? onChatIdUpdated,
+            void Function(String?)? onContactPublicKeyUpdated,
+            void Function()? onScrollToBottom,
+            void Function(String)? onShowError,
+            void Function(String)? onShowSuccess,
+            void Function(String)? onShowInfo,
+            bool Function()? isDisposedFn,
+            onControllersRebound,
+            IConnectionService Function()? getConnectionServiceFn,
+          }) => ChatSessionViewModel(
+            config: config,
+            messageRepository: messageRepository,
+            contactRepository: contactRepository,
+            chatsRepository: chatsRepository,
+            messagingViewModel: messagingViewModel,
+            scrollingController: scrollingController,
+            searchController: searchController,
+            pairingDialogController: pairingDialogController,
+            retryCoordinator: retryCoordinator,
+            sessionLifecycle: sessionLifecycle,
+            displayContactNameFn: displayContactNameFn,
+            getContactPublicKeyFn: getContactPublicKeyFn,
+            getChatIdFn: getChatIdFn,
+            onChatIdUpdated: onChatIdUpdated,
+            onContactPublicKeyUpdated: onContactPublicKeyUpdated,
+            onScrollToBottom: onScrollToBottom,
+            onShowError: onShowError,
+            onShowSuccess: onShowSuccess,
+            onShowInfo: onShowInfo,
+            isDisposedFn: isDisposedFn,
+            onControllersRebound: onControllersRebound,
+            getConnectionServiceFn: getConnectionServiceFn,
+          ),
+      sessionLifecycleFactory:
+          ({
+            required viewModel,
+            required connectionService,
+            required meshService,
+            messageRouter,
+            required messageSecurity,
+            required messageRepository,
+            retryCoordinator,
+            offlineQueue,
+            logger,
+          }) => ChatSessionLifecycle(
+            viewModel: viewModel,
+            connectionService: connectionService,
+            meshService: meshService,
+            messageRouter: messageRouter,
+            messageSecurity: messageSecurity,
+            messageRepository: messageRepository,
+            retryCoordinator: retryCoordinator,
+            offlineQueue: offlineQueue,
+            logger: logger,
+          ),
     );
+    ref.listen<AsyncValue<ReceivedBinaryEvent>>(binaryPayloadStreamProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((event) async {
+        if (!_isRelevantBinary(event)) return;
+        await _refreshMessagesFromRepo();
+      });
+    });
   }
 
   @override
@@ -89,30 +235,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = ref.watch(chatScreenControllerProvider(_controllerArgs));
-    final sessionHandle = widget.useSessionProviders
-        ? ref.watch(chatSessionHandleProvider(_controllerArgs))
-        : null;
-    final sessionActions = sessionHandle?.actions ?? _sessionActions;
-    final ChatUIState uiState =
-        sessionHandle?.state ??
-        ref.watch(chatSessionStateProvider(_controllerArgs));
-    final searchController =
-        sessionHandle?.viewModel.searchController ??
-        controller.searchController;
-    final scrollingController =
-        sessionHandle?.viewModel.scrollingController ??
-        controller.scrollingController;
+    final sessionHandle = ref.watch(chatSessionHandleProvider(_controllerArgs));
+    final sessionActions = sessionHandle.actions;
+    final ChatUIState uiState = sessionHandle.state;
+    final searchController = sessionHandle.viewModel.searchController;
+    final scrollingController = sessionHandle.viewModel.scrollingController;
 
     ref.listen(connectionInfoProvider, (previous, next) {
-      (sessionActions?.handleConnectionChange ??
-          controller.handleConnectionChange)(previous?.value, next.value);
+      sessionActions.handleConnectionChange(previous?.value, next.value);
     });
     ref.listen(meshNetworkStatusProvider, (previous, next) {
-      (sessionActions?.handleMeshInitializationStatusChange ??
-          controller.handleMeshInitializationStatusChange)(previous, next);
-      if (widget.useSessionProviders) {
-        ref.watch(chatSessionLifecycleFromControllerProvider(_controllerArgs));
-      }
+      sessionActions.handleMeshInitializationStatusChange(previous, next);
+      ref.watch(chatSessionLifecycleFromControllerProvider(_controllerArgs));
     });
 
     final connectionInfo = ref.watch(connectionInfoProvider).value;
@@ -125,6 +259,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final actuallyConnected = connectionInfo?.isConnected ?? false;
     final messages = uiState.messages;
+    final binaryInbox = ref.watch(binaryPayloadInboxProvider);
+    final pendingTransfers = ref.watch(pendingBinaryTransfersProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -193,6 +329,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               InitializationStatusPanel(
                 statusText: uiState.initializationStatus,
               ),
+            if (pendingTransfers.isNotEmpty)
+              _PendingBinaryBanner(
+                transfers: pendingTransfers,
+                onRetryNow: () async {
+                  final service = ref.read(meshNetworkingServiceProvider);
+                  for (final t in pendingTransfers) {
+                    await service.retryBinaryMedia(
+                      transferId: t.transferId,
+                      recipientId: t.recipientId,
+                      originalType: t.originalType,
+                    );
+                  }
+                  setState(() {});
+                },
+              ),
+            if (binaryInbox.isNotEmpty)
+              _BinaryInboxList(
+                inbox: binaryInbox,
+                onDismiss: (id) => ref
+                    .read(binaryPayloadInboxProvider.notifier)
+                    .clearPayload(id),
+              ),
             if (searchController.isSearchMode)
               ChatSearchBar(
                 messages: messages,
@@ -221,15 +379,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               .length;
                           return RetryIndicator(
                             failedCount: failedCount,
-                            onRetry: () {
-                              ((sessionActions ?? _sessionActions)
-                                      ?.retryFailedMessages ??
-                                  controller.retryFailedMessages)();
-                            },
+                            onRetry: () => sessionActions.retryFailedMessages(),
                           );
                         }
 
                         final message = messages[index];
+                        final retryHandler = _retryHandlerFor(message);
                         Widget messageWidget = MessageBubble(
                           message: message,
                           showAvatar: true,
@@ -237,7 +392,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           searchQuery: searchController.isSearchMode
                               ? searchController.searchQuery
                               : null,
-                          onRetry: null,
+                          onRetry: retryHandler,
                           onDelete: (messageId, deleteForEveryone) =>
                               _deleteMessage(messageId, deleteForEveryone),
                         );
@@ -259,6 +414,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               padding: const EdgeInsets.all(8),
               child: Row(
                 children: [
+                  // Image picker button
+                  IconButton(
+                    icon: const Icon(Icons.image),
+                    tooltip: 'Send image',
+                    onPressed: actuallyConnected ? _pickAndSendImage : null,
+                  ),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: TextField(
                       controller: _messageController,
@@ -287,8 +449,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: FloatingActionButton(
                 mini: true,
                 onPressed: () {
-                  ((sessionActions ?? _sessionActions)?.scrollToBottom ??
-                      controller.scrollToBottom)();
+                  sessionActions.scrollToBottom();
                   scrollingController.scheduleMarkAsRead();
                 },
                 child: Stack(
@@ -388,8 +549,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.lock_open),
         onPressed: () {
-          (_sessionActions?.requestPairing ??
-              _controller.userRequestedPairing)();
+          ref
+              .read(chatSessionHandleProvider(_controllerArgs))
+              .actions
+              .requestPairing();
         },
         tooltip: 'Secure Chat',
       );
@@ -397,8 +560,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.person_add),
         onPressed: () {
-          (_sessionActions?.requestPairing ??
-              _controller.userRequestedPairing)();
+          ref
+              .read(chatSessionHandleProvider(_controllerArgs))
+              .actions
+              .requestPairing();
         },
         tooltip: 'Add Contact',
       );
@@ -406,9 +571,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return IconButton(
         icon: const Icon(Icons.sync),
         onPressed: () {
-          final handle =
-              _sessionActions?.handleAsymmetricContact ??
-              _controller.handleAsymmetricContact;
+          final handle = ref
+              .read(chatSessionHandleProvider(_controllerArgs))
+              .actions
+              .handleAsymmetricContact;
           handle(
             securityState.otherPublicKey ?? '',
             securityState.otherUserName ?? 'Unknown',
@@ -424,7 +590,214 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
     _messageController.clear();
-    ((_sessionActions)?.sendMessage ?? _controller.sendMessage).call(text);
+    ref
+        .read(chatSessionHandleProvider(_controllerArgs))
+        .actions
+        .sendMessage(text);
+  }
+
+  /// Pick and send an image using ImagePicker and MediaSendHandler
+  Future<void> _pickAndSendImage() async {
+    try {
+      // Pick image with quality/size constraints
+      final picker = ImagePicker();
+      final image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1920, // Limit resolution to save bandwidth
+        maxHeight: 1080,
+        imageQuality: 85, // Compress at picker level (0-100)
+      );
+
+      if (image == null) return; // User cancelled
+
+      // Get recipient ID (follow identity resolution invariant)
+      final meshService = ref.read(meshNetworkingServiceProvider);
+      final connection = ref.read(connectionServiceProvider);
+      final recipientId =
+          widget.contactPublicKey ??
+          connection.theirPersistentPublicKey ??
+          connection.currentSessionId;
+
+      if (recipientId == null || recipientId.isEmpty) {
+        // CRITICAL: Check if widget still mounted before showing UI
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot send: recipient unknown'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      // Show sending indicator
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Text('Sending image...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // Create handler and send (use XFile.mimeType for reliable type detection)
+      final handler = MediaSendHandler(
+        meshService: meshService,
+        securityManager: SecurityManager.instance,
+      );
+      await handler.sendImage(
+        file: File(image.path),
+        recipientId: recipientId,
+        knownMimeType: image.mimeType,
+      );
+
+      // Success - dismiss loading and show success
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Image queued for sending'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } on MediaSendException catch (e) {
+      // Handle known media send errors
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text(e.message)),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      // Handle unexpected errors
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Failed to send image: $e')),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  VoidCallback? _retryHandlerFor(Message message) {
+    if (message is! EnhancedMessage) return null;
+    if (!message.isFromMe) return null;
+    if (message.attachments.isEmpty) return null;
+    final transferId = message.attachments.first.id;
+    if (transferId.isEmpty) return null;
+    return () => _retryBinaryTransfer(transferId);
+  }
+
+  Future<void> _retryBinaryTransfer(String transferId) async {
+    final svc = ref.read(meshNetworkingServiceProvider);
+    final connection = ref.read(connectionServiceProvider);
+    final recipientId =
+        widget.contactPublicKey ??
+        connection.theirPersistentPublicKey ??
+        connection.currentSessionId;
+    if (recipientId == null || recipientId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Missing recipient for retry')),
+        );
+      }
+      return;
+    }
+    final ok = await svc.retryBinaryMedia(
+      transferId: transferId,
+      recipientId: recipientId,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Retry scheduled' : 'Retry failed'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  bool _isRelevantBinary(ReceivedBinaryEvent event) {
+    final contactKey = widget.contactPublicKey;
+    if (contactKey != null && contactKey.isNotEmpty) {
+      if (event.senderNodeId == contactKey) return true;
+      if (event.recipient == contactKey) return true;
+    }
+
+    final targetChatId =
+        widget.chatId ??
+        (contactKey != null && contactKey.isNotEmpty
+            ? ChatUtils.generateChatId(contactKey)
+            : null);
+
+    if (targetChatId != null) {
+      final senderChat =
+          (event.senderNodeId != null && event.senderNodeId!.isNotEmpty)
+          ? ChatUtils.generateChatId(event.senderNodeId!)
+          : null;
+      final recipientChat =
+          (event.recipient != null && event.recipient!.isNotEmpty)
+          ? ChatUtils.generateChatId(event.recipient!)
+          : null;
+      if (senderChat == targetChatId || recipientChat == targetChatId) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  Future<void> _refreshMessagesFromRepo() async {
+    final targetChatId =
+        widget.chatId ??
+        (widget.contactPublicKey != null && widget.contactPublicKey!.isNotEmpty
+            ? ChatUtils.generateChatId(widget.contactPublicKey!)
+            : null);
+    if (targetChatId == null) return;
+
+    final messages = await _controllerArgs.messageRepository.getMessages(
+      ChatId(targetChatId),
+    );
+    final notifier = ref.read(
+      chatSessionOwnedStateNotifierProvider(_controllerArgs).notifier,
+    );
+    final current = ref.read(
+      chatSessionOwnedStateNotifierProvider(_controllerArgs),
+    );
+    notifier.replace(current.copyWith(messages: messages));
   }
 
   String _getMessageHintText(ConnectionInfo? connectionInfo) {
@@ -443,19 +816,244 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return 'Type a message...';
   }
 
-  Future<void> _deleteMessage(String messageId, bool deleteForEveryone) {
-    return ((_sessionActions)?.deleteMessage ?? _controller.deleteMessage)(
-      messageId,
-      deleteForEveryone,
-    );
+  Future<void> _deleteMessage(MessageId messageId, bool deleteForEveryone) {
+    final actions = ref
+        .read(chatSessionHandleProvider(_controllerArgs))
+        .actions;
+    return actions.deleteMessage(messageId, deleteForEveryone);
   }
 
   void _toggleSearchMode() {
-    ((_sessionActions)?.toggleSearchMode ?? _controller.toggleSearchMode)();
+    ref
+        .read(chatSessionHandleProvider(_controllerArgs))
+        .actions
+        .toggleSearchMode();
   }
 
   Future<void> _manualReconnect() {
-    return ((_sessionActions)?.manualReconnection ??
-        _controller.manualReconnection)();
+    return ref
+        .read(chatSessionHandleProvider(_controllerArgs))
+        .actions
+        .manualReconnection();
+  }
+}
+
+class _BinaryInboxList extends StatelessWidget {
+  const _BinaryInboxList({required this.inbox, required this.onDismiss});
+
+  final Map<String, ReceivedBinaryEvent> inbox;
+  final void Function(String transferId) onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = inbox.values.toList()
+      ..sort((a, b) => b.size.compareTo(a.size));
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'New media received',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          SizedBox(height: 6),
+          ...items.map(
+            (e) => Card(
+              child: InkWell(
+                onTap: () => _openViewer(context, e),
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(
+                    _isImage(e.filePath)
+                        ? Icons.image
+                        : Icons.insert_drive_file,
+                  ),
+                  title: Text(
+                    'Media ${e.originalType} • ${_formatBytes(e.size)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    e.filePath,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.copy),
+                        tooltip: 'Copy path',
+                        onPressed: () =>
+                            Clipboard.setData(ClipboardData(text: e.filePath)),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.open_in_new),
+                        tooltip: 'Open',
+                        onPressed: () => _openViewer(context, e),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.check),
+                        onPressed: () => onDismiss(e.transferId),
+                        tooltip: 'Dismiss',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '$bytes B';
+  }
+
+  bool _isImage(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.png') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.webp');
+  }
+
+  void _openViewer(BuildContext context, ReceivedBinaryEvent event) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => _BinaryPayloadViewer(event: event)),
+    );
+  }
+}
+
+class _PendingBinaryBanner extends StatelessWidget {
+  const _PendingBinaryBanner({
+    required this.transfers,
+    required this.onRetryNow,
+  });
+
+  final List<PendingBinaryTransfer> transfers;
+  final Future<void> Function() onRetryNow;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_upload, size: 18),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Pending media sends: ${transfers.length}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+            TextButton(onPressed: onRetryNow, child: Text('Retry now')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BinaryPayloadViewer extends StatelessWidget {
+  const _BinaryPayloadViewer({required this.event});
+
+  final ReceivedBinaryEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final file = File(event.filePath);
+    final isImage = _isImage(event.filePath);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Media ${event.originalType}'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.copy),
+            tooltip: 'Copy path',
+            onPressed: () =>
+                Clipboard.setData(ClipboardData(text: event.filePath)),
+          ),
+          IconButton(
+            icon: Icon(Icons.delete_outline),
+            tooltip: 'Dismiss',
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'transferId: ${event.transferId}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            SizedBox(height: 6),
+            Text(
+              'TTL: ${event.ttl} • Recipient: ${event.recipient ?? "broadcast"}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            SizedBox(height: 12),
+            Text(
+              event.filePath,
+              style: Theme.of(context).textTheme.bodyMedium,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            SizedBox(height: 12),
+            if (isImage && file.existsSync())
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.file(file, fit: BoxFit.contain),
+                ),
+              )
+            else
+              Expanded(
+                child: Center(
+                  child: Icon(
+                    Icons.insert_drive_file,
+                    size: 48,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _isImage(String path) {
+    final lower = path.toLowerCase();
+    return lower.endsWith('.png') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.webp');
   }
 }

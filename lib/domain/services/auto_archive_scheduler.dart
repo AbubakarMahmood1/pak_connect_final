@@ -143,7 +143,7 @@ class AutoArchiveScheduler {
         // Archive this inactive chat
         try {
           final result = await ArchiveManagementService.instance.archiveChat(
-            chatId: chat.chatId,
+            chatId: chat.chatId.value,
             reason: 'Auto-archived after $daysInactive days of inactivity',
             metadata: {
               'auto_archived': true,

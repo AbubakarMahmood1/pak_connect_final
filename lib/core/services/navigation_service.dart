@@ -3,13 +3,14 @@
 
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
+import '../../domain/values/id_types.dart';
 
 /// Type definitions for screen builders
 /// These allow the presentation layer to register screen implementations
 /// without the core layer importing from presentation
 typedef ChatScreenBuilder =
     Widget Function({
-      required String chatId,
+      required ChatId chatId,
       required String contactName,
       required String contactPublicKey,
     });
@@ -100,12 +101,15 @@ class NavigationService {
     }
 
     try {
-      _logger.info('📱 Navigating to chat: $chatId ($contactName)');
+      final typedChatId = ChatId(chatId);
+      _logger.info(
+        '📱 Navigating to chat: ${typedChatId.value} ($contactName)',
+      );
 
       await navigator!.push(
         MaterialPageRoute(
           builder: (context) => _chatScreenBuilder!(
-            chatId: chatId,
+            chatId: typedChatId,
             contactName: contactName,
             contactPublicKey: contactPublicKey ?? '',
           ),

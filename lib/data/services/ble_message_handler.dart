@@ -28,6 +28,7 @@ import '../../domain/entities/enhanced_message.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// BLE Message Handler for processing incoming/outgoing messages
 /// TODO Phase 3B: Implement IBLEMessageHandlerFacade adapter wrapper
@@ -116,6 +117,16 @@ class BLEMessageHandler {
     Function(String originalMessageId, String content, String originalSender)?
     callback,
   ) => _meshRelayHandler.onRelayMessageReceived = callback;
+  Function(MessageId originalMessageId, String content, String originalSender)?
+  get onRelayMessageReceivedIds => _meshRelayHandler.onRelayMessageReceivedIds;
+  set onRelayMessageReceivedIds(
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    callback,
+  ) => _meshRelayHandler.onRelayMessageReceivedIds = callback;
   Function(RelayDecision decision)? get onRelayDecisionMade =>
       _meshRelayHandler.onRelayDecisionMade;
   set onRelayDecisionMade(Function(RelayDecision decision)? callback) =>
@@ -170,6 +181,20 @@ class BLEMessageHandler {
           }) async {
             await _meshRelayHandler.handleRelayAck(
               originalMessageId: originalMessageId,
+              relayNode: relayNode,
+              delivered: delivered,
+              ackRoutingPath: ackRoutingPath,
+            );
+          },
+      onRelayAckIds:
+          ({
+            required MessageId originalMessageId,
+            required String relayNode,
+            required bool delivered,
+            List<String>? ackRoutingPath,
+          }) async {
+            await _meshRelayHandler.handleRelayAck(
+              originalMessageId: originalMessageId.value,
               relayNode: relayNode,
               delivered: delivered,
               ackRoutingPath: ackRoutingPath,
@@ -247,6 +272,11 @@ class BLEMessageHandler {
     return _meshRelayHandler.getAvailableNextHops();
   }
 
+  /// Provide next-hop source from BLE connection manager (addresses/peer IDs)
+  void setNextHopsProvider(List<String> Function() provider) {
+    _meshRelayHandler.setNextHopsProvider(provider);
+  }
+
   Future<bool> sendMessage({
     required CentralManager centralManager,
     required Peripheral connectedDevice,
@@ -278,6 +308,8 @@ class BLEMessageHandler {
       contactRepository: contactRepository,
       stateManager: stateManager,
       onMessageOperationChanged: onMessageOperationChanged,
+      onMessageSent: stateManager.onMessageSent,
+      onMessageSentIds: stateManager.onMessageSentIds,
     );
   }
 
@@ -310,6 +342,8 @@ class BLEMessageHandler {
       originalIntendedRecipient: originalIntendedRecipient,
       contactRepository: contactRepository,
       stateManager: stateManager,
+      onMessageSent: stateManager.onMessageSent,
+      onMessageSentIds: stateManager.onMessageSentIds,
     );
   }
 

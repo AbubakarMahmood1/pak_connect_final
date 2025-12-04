@@ -9,6 +9,7 @@ import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_message_repository.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/values/id_types.dart';
 
 /// Service for managing message starring and chat pinning
 class PinningService {
@@ -27,16 +28,24 @@ class PinningService {
   static const String _pinnedChatsKey = 'pinned_chats';
 
   // In-memory state
-  final Set<String> _starredMessageIds = {};
+  final Set<MessageId> _starredMessageIds = {};
   final Set<String> _pinnedChats = {};
 
-  // Event stream
-  final _messageUpdatesController =
-      StreamController<MessageUpdateEvent>.broadcast();
+  // Event listeners (replaces manual controller)
+  final Set<void Function(MessageUpdateEvent)> _messageUpdateListeners = {};
 
   /// Stream of message updates
   Stream<MessageUpdateEvent> get messageUpdates =>
-      _messageUpdatesController.stream;
+      Stream<MessageUpdateEvent>.multi((controller) {
+        void listener(MessageUpdateEvent event) {
+          controller.add(event);
+        }
+
+        _messageUpdateListeners.add(listener);
+        controller.onCancel = () {
+          _messageUpdateListeners.remove(listener);
+        };
+      });
 
   /// Constructor with optional dependency injection
   PinningService({
@@ -63,17 +72,17 @@ class PinningService {
   }
 
   /// Star/unstar message
-  Future<ChatOperationResult> toggleMessageStar(String messageId) async {
+  Future<ChatOperationResult> toggleMessageStar(MessageId messageId) async {
     try {
       if (_starredMessageIds.contains(messageId)) {
         _starredMessageIds.remove(messageId);
         await _saveStarredMessages();
-        _messageUpdatesController.add(MessageUpdateEvent.unstarred(messageId));
+        _emitUpdate(MessageUpdateEvent.unstarred(messageId));
         return ChatOperationResult.success('Message unstarred');
       } else {
         _starredMessageIds.add(messageId);
         await _saveStarredMessages();
-        _messageUpdatesController.add(MessageUpdateEvent.starred(messageId));
+        _emitUpdate(MessageUpdateEvent.starred(messageId));
         return ChatOperationResult.success('Message starred');
       }
     } catch (e) {
@@ -133,7 +142,7 @@ class PinningService {
   }
 
   /// Check if message is starred
-  bool isMessageStarred(String messageId) =>
+  bool isMessageStarred(MessageId messageId) =>
       _starredMessageIds.contains(messageId);
 
   /// Check if chat is pinned
@@ -166,7 +175,7 @@ class PinningService {
   /// Internal: Remove starred message IDs for deleted chat
   void removeStarredMessagesForChat(List<String> messageIds) {
     for (final messageId in messageIds) {
-      _starredMessageIds.remove(messageId);
+      _starredMessageIds.remove(MessageId(messageId));
     }
   }
 
@@ -183,7 +192,7 @@ class PinningService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
         _starredMessagesKey,
-        _starredMessageIds.toList(),
+        _starredMessageIds.map((id) => id.value).toList(),
       );
     } catch (e) {
       _logger.warning('⚠️ Failed to save starred messages: $e');
@@ -196,7 +205,7 @@ class PinningService {
       final prefs = await SharedPreferences.getInstance();
       final starredList = prefs.getStringList(_starredMessagesKey) ?? [];
       _starredMessageIds.clear();
-      _starredMessageIds.addAll(starredList);
+      _starredMessageIds.addAll(starredList.map(MessageId.new));
     } catch (e) {
       _logger.warning('⚠️ Failed to load starred messages: $e');
     }
@@ -226,7 +235,17 @@ class PinningService {
 
   /// Dispose of resources
   Future<void> dispose() async {
-    await _messageUpdatesController.close();
+    _messageUpdateListeners.clear();
     _logger.info('Pinning service disposed');
+  }
+
+  void _emitUpdate(MessageUpdateEvent event) {
+    for (final listener in List.of(_messageUpdateListeners)) {
+      try {
+        listener(event);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying pinning listener: $e', e, stackTrace);
+      }
+    }
   }
 }

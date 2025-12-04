@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import '../../domain/entities/contact.dart';
+import '../../domain/values/id_types.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 
 /// Interface for contact repository operations
@@ -21,8 +22,14 @@ abstract class IContactRepository {
   /// Get a specific contact by public key
   Future<Contact?> getContact(String publicKey);
 
+  /// Typed accessor for getting a contact by user ID
+  Future<Contact?> getContactByUserId(UserId userId);
+
   /// Get contact by persistent public key (MEDIUM+ identity)
   Future<Contact?> getContactByPersistentKey(String persistentPublicKey);
+
+  /// Typed accessor for persistent public key
+  Future<Contact?> getContactByPersistentUserId(UserId persistentPublicKey);
 
   /// Get contact by current ephemeral ID (session-specific identifier)
   Future<Contact?> getContactByCurrentEphemeralId(String ephemeralId);

@@ -1,15 +1,48 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/services/message_queue_repository.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+  StreamSubscription<LogRecord>? logSub;
+  Level? previousLevel;
+
   group('MessageQueueRepository', () {
     late MessageQueueRepository repository;
 
     setUp(() {
+      logRecords.clear();
+      previousLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      logSub = Logger.root.onRecord.listen(logRecords.add);
       repository = MessageQueueRepository();
+    });
+
+    tearDown(() {
+      logSub?.cancel();
+      logSub = null;
+      if (previousLevel != null) {
+        Logger.root.level = previousLevel!;
+      }
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('getAllMessages returns combined direct and relay messages', () {
@@ -239,7 +272,7 @@ void main() {
 
     test('isMessageDeleted returns true for deleted messages', () {
       // Arrange
-      repository.deletedMessageIds.add('msg-1');
+      repository.deletedMessageIds.add(const MessageId('msg-1'));
 
       // Act
       final deleted = repository.isMessageDeleted('msg-1');
@@ -275,7 +308,7 @@ void main() {
       // Act
       // Note: This would call saveDeletedMessageIds and saveQueueToStorage which are async
       // For this unit test, we're testing the in-memory logic
-      repository.deletedMessageIds.add(message.id);
+      repository.deletedMessageIds.add(MessageId(message.id));
       repository.removeMessageFromQueue(message.id);
 
       // Assert

@@ -25,8 +25,7 @@ class ChatConnectionManager implements IChatConnectionManager {
   final _logger = Logger('ChatConnectionManager');
 
   final IConnectionService? _bleService;
-  final StreamController<ConnectionStatus> _connectionStatusController =
-      StreamController.broadcast();
+  final Set<void Function(ConnectionStatus)> _connectionStatusListeners = {};
 
   StreamSubscription? _peripheralConnectionSubscription;
   StreamSubscription? _discoveryDataSubscription;
@@ -141,7 +140,16 @@ class ChatConnectionManager implements IChatConnectionManager {
 
   @override
   Stream<ConnectionStatus> get connectionStatusStream =>
-      _connectionStatusController.stream;
+      Stream<ConnectionStatus>.multi((controller) {
+        void listener(ConnectionStatus status) {
+          controller.add(status);
+        }
+
+        _connectionStatusListeners.add(listener);
+        controller.onCancel = () {
+          _connectionStatusListeners.remove(listener);
+        };
+      });
 
   @override
   Future<void> setupPeripheralConnectionListener() async {
@@ -166,7 +174,7 @@ class ChatConnectionManager implements IChatConnectionManager {
             '🔌 Peripheral connection from ${event.central.uuid.toString().substring(0, 8)}',
           );
           // Emit connection status change
-          _connectionStatusController.add(ConnectionStatus.nearby);
+          _notify(ConnectionStatus.nearby);
         });
 
     _logger.info('✅ Peripheral connection listener set up');
@@ -184,7 +192,7 @@ class ChatConnectionManager implements IChatConnectionManager {
         '📡 Discovery data updated: ${discoveryData.length} devices',
       );
       // Emit that discovery changed (list coordinator will refresh)
-      _connectionStatusController.add(ConnectionStatus.nearby);
+      _notify(ConnectionStatus.nearby);
     });
 
     _logger.info('✅ Discovery data listener set up');
@@ -213,7 +221,21 @@ class ChatConnectionManager implements IChatConnectionManager {
   Future<void> dispose() async {
     await _peripheralConnectionSubscription?.cancel();
     await _discoveryDataSubscription?.cancel();
-    await _connectionStatusController.close();
+    _connectionStatusListeners.clear();
     _logger.info('♻️ ChatConnectionManager disposed');
+  }
+
+  void _notify(ConnectionStatus status) {
+    for (final listener in List.of(_connectionStatusListeners)) {
+      try {
+        listener(status);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying connection status listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
   }
 }

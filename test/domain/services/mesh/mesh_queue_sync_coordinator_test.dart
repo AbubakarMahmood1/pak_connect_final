@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,7 @@ import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart'
     show ScanningSource;
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
+import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart'
     show QueueSyncManagerStats, QueueSyncResult, QueueSyncResponse;
@@ -19,6 +21,7 @@ import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
+import 'package:logging/logging.dart';
 
 void main() {
   group('MeshQueueSyncCoordinator', () {
@@ -29,8 +32,14 @@ void main() {
     late _FakeQueueSyncManager fakeManager;
     late MeshQueueSyncCoordinator coordinator;
     late int statusRefreshes;
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
 
     setUp(() async {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       bleService = _TestMeshBleService();
       messageRepository = _FakeMessageRepository();
       monitor = MeshNetworkHealthMonitor();
@@ -53,6 +62,36 @@ void main() {
       );
     });
 
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+    tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
+    });
+
     test('retryMessage triggers immediate delivery + persistence', () async {
       bleService.simulateConnection(peerId: 'peer-1');
       final deliveryIds = <String>[];
@@ -71,7 +110,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(messageRepository.savedMessages.length, 1);
-      expect(messageRepository.savedMessages.single.id, messageId);
+      expect(messageRepository.savedMessages.single.id.value, messageId);
       expect(deliveryIds, contains(messageId));
       expect(statusRefreshes, greaterThan(0));
 
@@ -115,6 +154,12 @@ class _InMemoryQueue extends OfflineMessageQueue {
     MessagePriority priority = MessagePriority.normal,
     String? replyToMessageId,
     List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
   }) async {
     final id = 'msg_${_counter++}';
     final queued = QueuedMessage(
@@ -126,6 +171,13 @@ class _InMemoryQueue extends OfflineMessageQueue {
       priority: priority,
       queuedAt: DateTime.now(),
       maxRetries: 3,
+      replyToMessageId: replyToMessageId,
+      attachments: attachments,
+      isRelayMessage: isRelayMessage,
+      relayMetadata: relayMetadata,
+      originalMessageId: originalMessageId,
+      relayNodeId: relayNodeId,
+      messageHash: messageHash,
     );
     _messages[id] = queued;
     onMessageQueued?.call(queued);
@@ -292,6 +344,8 @@ class _FakeQueueSyncManager implements QueueSyncManagerContract {
 
 class _TestMeshBleService implements IConnectionService {
   final _connectionController = StreamController<ConnectionInfo>.broadcast();
+  final StreamController<BinaryPayload> _binaryController =
+      StreamController<BinaryPayload>.broadcast();
   ConnectionInfo _connectionInfo = const ConnectionInfo(
     isConnected: false,
     isReady: false,
@@ -491,6 +545,9 @@ class _TestMeshBleService implements IConnectionService {
   String? get theirPersistentPublicKey => null;
 
   @override
+  Stream<BinaryPayload> get receivedBinaryStream => _binaryController.stream;
+
+  @override
   void registerQueueSyncHandler(
     Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
   ) {
@@ -511,6 +568,22 @@ class _TestMeshBleService implements IConnectionService {
   }) async => _canSend;
 
   @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'fake-transfer';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
+
+  @override
   Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {
     if (_queueSyncHandler != null && _currentSessionId != null) {
       await _queueSyncHandler!(message, _currentSessionId!);
@@ -524,6 +597,11 @@ class _TestMeshBleService implements IConnectionService {
 
   @override
   Future<void> stopScanning() async {}
+
+  void dispose() {
+    _connectionController.close();
+    _binaryController.close();
+  }
 }
 
 class _FakeMessageRepository implements IMessageRepository {

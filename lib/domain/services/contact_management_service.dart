@@ -9,6 +9,7 @@ import '../../core/interfaces/i_message_repository.dart';
 import '../../core/services/security_manager.dart';
 import '../entities/contact.dart' show Contact, TrustStatus;
 import '../entities/enhanced_contact.dart';
+import '../values/id_types.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
 /// Comprehensive contact management service with advanced search and privacy features
@@ -149,10 +150,14 @@ class ContactManagementService {
     }
   }
 
-  /// Get contact by public key with enhanced information
-  Future<EnhancedContact?> getEnhancedContact(String publicKey) async {
+  /// Get contact by public key with enhanced information (string entry)
+  Future<EnhancedContact?> getEnhancedContact(String publicKey) =>
+      getEnhancedContactById(UserId(publicKey));
+
+  /// Typed overload for retrieving enhanced contact by user id
+  Future<EnhancedContact?> getEnhancedContactById(UserId userId) async {
     try {
-      final contact = await _contactRepository.getContact(publicKey);
+      final contact = await _contactRepository.getContactByUserId(userId);
       if (contact == null) return null;
 
       return await _enhanceContact(contact);
@@ -162,25 +167,32 @@ class ContactManagementService {
     }
   }
 
+  /// Shallow contact fetch by UserId (non-enhanced)
+  Future<Contact?> getContactById(UserId userId) =>
+      _contactRepository.getContactByUserId(userId);
+
   /// Delete contact with confirmation and cleanup
-  Future<ContactOperationResult> deleteContact(String publicKey) async {
+  Future<ContactOperationResult> deleteContact(String publicKey) =>
+      deleteContactById(UserId(publicKey));
+
+  Future<ContactOperationResult> deleteContactById(UserId userId) async {
     try {
-      final contact = await _contactRepository.getContact(publicKey);
+      final contact = await _contactRepository.getContactByUserId(userId);
       if (contact == null) {
         return ContactOperationResult.failure('Contact not found');
       }
 
       // Clear associated data
-      await _contactRepository.clearCachedSecrets(publicKey);
+      await _contactRepository.clearCachedSecrets(userId.value);
 
       // Remove from groups
-      await _removeContactFromAllGroups(publicKey);
+      await _removeContactFromAllGroups(userId);
 
       // Delete the contact (this will require implementing delete in IContactRepository)
-      await _deleteContactFromRepository(publicKey);
+      await _deleteContactFromRepository(userId);
 
       _logger.info(
-        'Contact deleted: ${contact.displayName} (${publicKey.shortId()}...)',
+        'Contact deleted: ${contact.displayName} (${userId.value.shortId()}...)',
       );
       return ContactOperationResult.success('Contact deleted successfully');
     } catch (e) {
@@ -196,7 +208,7 @@ class ContactManagementService {
     final List<String> failedDeletes = [];
 
     for (final publicKey in publicKeys) {
-      final result = await deleteContact(publicKey);
+      final result = await deleteContactById(UserId(publicKey));
       if (result.success) {
         successCount++;
       } else {
@@ -503,14 +515,16 @@ class ContactManagementService {
   }
 
   /// Delete contact from repository
-  Future<void> _deleteContactFromRepository(String publicKey) async {
+  Future<void> _deleteContactFromRepository(UserId userId) async {
     try {
-      final success = await _contactRepository.deleteContact(publicKey);
+      final success = await _contactRepository.deleteContact(userId.value);
       if (success) {
-        _logger.info('Successfully deleted contact: ${publicKey.shortId()}...');
+        _logger.info(
+          'Successfully deleted contact: ${userId.value.shortId()}...',
+        );
       } else {
         _logger.warning(
-          'Failed to delete contact - not found: ${publicKey.shortId()}...',
+          'Failed to delete contact - not found: ${userId.value.shortId()}...',
         );
       }
     } catch (e) {
@@ -520,10 +534,10 @@ class ContactManagementService {
   }
 
   /// Remove contact from all groups
-  Future<void> _removeContactFromAllGroups(String publicKey) async {
+  Future<void> _removeContactFromAllGroups(UserId userId) async {
     bool modified = false;
     for (final group in _contactGroups.values) {
-      if (group.memberPublicKeys.remove(publicKey)) {
+      if (group.memberPublicKeys.remove(userId.value)) {
         group.lastModified = DateTime.now();
         modified = true;
       }
@@ -790,6 +804,11 @@ class ContactManagementService {
     } catch (e) {
       _logger.warning('Failed to save exported data: $e');
     }
+  }
+
+  UserId? _toUserId(String publicKey) {
+    if (publicKey.isEmpty) return null;
+    return UserId(publicKey);
   }
 }
 

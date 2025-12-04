@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
@@ -100,6 +101,8 @@ void main() {
   late StreamController<String> identityController;
   late List<ProtocolMessage> sentMessages;
   late BLEHandshakeService service;
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
 
   void _stubDefaults() {
     mockStateManager
@@ -111,6 +114,11 @@ void main() {
   }
 
   setUp(() {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
+
     mockStateManager = _StubStateManager();
     mockIntroHintRepository = MockIntroHintRepository();
     spyModeController = StreamController<SpyModeInfo>.broadcast();
@@ -135,16 +143,42 @@ void main() {
       processPendingMessages: () async {},
       startGossipSync: () async {},
       onHandshakeCompleteCallback: (_, __, ___) async {},
-      spyModeDetectedController: spyModeController,
-      identityRevealedController: identityController,
       introHintRepo: mockIntroHintRepository,
       messageBuffer: [],
     );
   });
 
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
   tearDown(() async {
     await spyModeController.close();
     await identityController.close();
+
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
   });
 
   test('requestIdentityExchange does nothing when not connected', () async {
@@ -212,8 +246,6 @@ void main() {
       processPendingMessages: () async {},
       startGossipSync: () async {},
       onHandshakeCompleteCallback: (_, __, ___) async {},
-      spyModeDetectedController: spyModeController,
-      identityRevealedController: identityController,
       introHintRepo: mockIntroHintRepository,
       messageBuffer: buffer,
     );
@@ -225,14 +257,16 @@ void main() {
 
   test('spyModeDetectedStream relays controller events', () async {
     final future = service.spyModeDetectedStream.first;
-    spyModeController.add(SpyModeInfo(contactName: 'spy', ephemeralID: 'id'));
+    service.emitSpyModeDetected(
+      SpyModeInfo(contactName: 'spy', ephemeralID: 'id'),
+    );
     final event = await future;
     expect(event.contactName, 'spy');
   });
 
   test('identityRevealedStream relays controller events', () async {
     final future = service.identityRevealedStream.first;
-    identityController.add('peer');
+    service.emitIdentityRevealed('peer');
     final value = await future;
     expect(value, 'peer');
   });

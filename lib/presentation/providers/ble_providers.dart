@@ -321,15 +321,18 @@ final currentUsernameProvider = FutureProvider<String>((ref) async {
   return ref.watch(usernameProvider.future);
 });
 
-/// Legacy compatibility - redirect to modern provider
+/// Legacy compatibility - converts AsyncNotifier state to stream
 /// FIX-007: Added autoDispose to prevent memory leaks
 @Deprecated('Use usernameProvider instead')
 final usernameStreamProvider = StreamProvider.autoDispose<String>((ref) {
-  // Bridge the legacy UserPreferences.usernameStream to Riverpod for lifecycle
-  // management. This keeps existing stream semantics while allowing autoDispose
-  // to clean up listeners in the UI layer.
-  final stream = UserPreferences.usernameStream;
-  return stream;
+  // Convert usernameProvider AsyncValue<String> to a stream of String values
+  // Uses a stream controller to bridge AsyncValue updates into stream events
+  final asyncValue = ref.watch(usernameProvider);
+  return asyncValue.when(
+    data: (username) => Stream.value(username),
+    loading: () => const Stream.empty(),
+    error: (error, stackTrace) => Stream.error(error, stackTrace),
+  );
 });
 
 /// Legacy compatibility - use usernameProvider.notifier instead

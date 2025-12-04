@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/values/id_types.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../messaging/offline_message_queue.dart';
 import '../interfaces/i_mesh_networking_service.dart';
@@ -28,7 +29,7 @@ class MessageRetryCoordinator {
        _offlineQueue = offlineQueue;
 
   /// Get unified failed message count from both persistence systems
-  Future<MessageRetryStatus> getFailedMessageStatus(String chatId) async {
+  Future<MessageRetryStatus> getFailedMessageStatus(ChatId chatId) async {
     try {
       // Get failed messages from repository (UI messages)
       final repositoryMessages = await _repositoryProvider.messageRepository
@@ -44,7 +45,7 @@ class MessageRetryCoordinator {
 
       // Filter queue messages for this chat
       final chatQueueFailedMessages = queueFailedMessages
-          .where((qm) => qm.chatId == chatId)
+          .where((qm) => qm.chatId == chatId.value)
           .toList();
 
       _logger.info(
@@ -73,13 +74,23 @@ class MessageRetryCoordinator {
 
   /// Coordinate retry of all failed messages across both systems
   Future<MessageRetryResult> retryAllFailedMessages({
-    required String chatId,
-    required Function(Message message) onRepositoryMessageRetry,
-    required Function(QueuedMessage message) onQueueMessageRetry,
+    required ChatId chatId,
+    required Future<void> Function(Message message) onRepositoryMessageRetry,
+    required Future<void> Function(QueuedMessage message) onQueueMessageRetry,
     bool allowPartialConnection = true,
   }) async {
     try {
-      _logger.info('🔄 Starting coordinated retry for chat: $chatId');
+      _logger.info('🔄 Starting coordinated retry for chat: ${chatId.value}');
+
+      final queueStats = _offlineQueue.getStatistics();
+      final queueIsOnline = queueStats.isOnline;
+      final shouldAttemptImmediate = queueIsOnline || allowPartialConnection;
+
+      if (!shouldAttemptImmediate) {
+        _logger.info(
+          '🌐 No active connection detected; will requeue without immediate send',
+        );
+      }
 
       final status = await getFailedMessageStatus(chatId);
 
@@ -103,69 +114,104 @@ class MessageRetryCoordinator {
       int queueAttempted = 0, queueSucceeded = 0;
 
       // STEP 1: Retry repository messages (UI messages)
-      for (final message in status.repositoryFailedMessages) {
-        repoAttempted++;
-        try {
-          _logger.info(
-            '🔄 Retrying repository message: ${message.id.shortId(8)}...',
-          );
-          await onRepositoryMessageRetry(message);
-          repoSucceeded++;
-        } catch (e) {
-          _logger.warning('⚠️ Repository message retry failed: $e');
-        }
+      if (shouldAttemptImmediate) {
+        for (final message in status.repositoryFailedMessages) {
+          repoAttempted++;
+          try {
+            _logger.info(
+              '🔄 Retrying repository message: ${message.id.value.shortId(8)}...',
+            );
+            await onRepositoryMessageRetry(message);
+            repoSucceeded++;
+          } catch (e) {
+            _logger.warning('⚠️ Repository message retry failed: $e');
+          }
 
-        // Progressive delay between retries
-        if (repoAttempted < status.repositoryFailedMessages.length) {
-          await Future.delayed(Duration(milliseconds: 300));
+          // Progressive delay between retries
+          if (repoAttempted < status.repositoryFailedMessages.length) {
+            await Future.delayed(Duration(milliseconds: 300));
+          }
         }
+      } else {
+        _logger.info(
+          '⏳ Skipping repository retries until a connection is available',
+        );
       }
 
       // STEP 2: Retry queue messages using the queue's own retry mechanism
       if (status.queueFailedMessages.isNotEmpty) {
+        queueAttempted = status.queueFailedMessages.length;
+        int queueCallbackFailures = 0;
+
         try {
           _logger.info(
-            '📤 Retrying ${status.queueFailedMessages.length} queue messages',
+            '📤 Retrying ${status.queueFailedMessages.length} queue messages for chat ${chatId.value}',
           );
 
-          // Use the queue's built-in retry mechanism
-          await _offlineQueue.retryFailedMessages();
+          for (var i = 0; i < status.queueFailedMessages.length; i++) {
+            final queuedMessage = status.queueFailedMessages[i];
+            try {
+              _logger.info(
+                '📤 Retrying queue message: ${queuedMessage.id.shortId(8)}...',
+              );
+              await onQueueMessageRetry(queuedMessage);
+            } catch (e) {
+              queueCallbackFailures++;
+              _logger.warning(
+                '⚠️ Queue retry callback failed for ${queuedMessage.id.shortId(8)}: $e',
+              );
+            }
 
-          // For reporting purposes, assume all were attempted
-          queueAttempted = status.queueFailedMessages.length;
+            // Progressive delay between queue retries to avoid burst sends
+            if (i < status.queueFailedMessages.length - 1) {
+              await Future.delayed(Duration(milliseconds: 200));
+            }
+          }
 
-          // Check how many succeeded by counting remaining failed messages
+          // Retry only this chat's failed messages to avoid leaking retries to other chats
+          await _offlineQueue.retryFailedMessagesForChat(chatId.value);
+
           final remainingFailed = _offlineQueue
               .getMessagesByStatus(QueuedMessageStatus.failed)
-              .where((qm) => qm.chatId == chatId)
+              .where((qm) => qm.chatId == chatId.value)
               .length;
 
-          queueSucceeded = status.queueFailedMessages.length - remainingFailed;
+          queueSucceeded =
+              queueAttempted - queueCallbackFailures - remainingFailed;
+
+          if (queueSucceeded < 0) {
+            queueSucceeded = 0;
+          }
 
           _logger.info(
             '📤 Queue retry completed: $queueSucceeded/$queueAttempted succeeded',
           );
         } catch (e) {
           _logger.warning('⚠️ Queue retry failed: $e');
-          queueAttempted = status.queueFailedMessages.length;
-          queueSucceeded = 0;
+          queueSucceeded = queueAttempted - queueCallbackFailures;
+          if (queueSucceeded < 0) {
+            queueSucceeded = 0;
+          }
         }
       }
 
       final totalSucceeded = repoSucceeded + queueSucceeded;
       final totalAttempted = repoAttempted + queueAttempted;
+      final queuedForLater = !shouldAttemptImmediate && queueAttempted > 0;
 
       _logger.info(
         '🏁 Coordinated retry completed: $totalSucceeded/$totalAttempted messages succeeded',
       );
 
       return MessageRetryResult(
-        success: totalSucceeded > 0,
+        success: totalSucceeded > 0 || queuedForLater,
         repositoryAttempted: repoAttempted,
         repositorySucceeded: repoSucceeded,
         queueAttempted: queueAttempted,
         queueSucceeded: queueSucceeded,
-        message: totalSucceeded > 0
+        message: queuedForLater
+            ? 'Queued $queueAttempted message${queueAttempted > 1 ? 's' : ''} for delivery when a connection is available'
+            : totalSucceeded > 0
             ? 'Successfully delivered $totalSucceeded message${totalSucceeded > 1 ? 's' : ''}'
             : 'All retry attempts failed - messages will retry automatically when connection improves',
       );

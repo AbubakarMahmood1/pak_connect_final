@@ -9,6 +9,7 @@ import '../../data/repositories/contact_repository.dart';
 import '../../domain/services/group_messaging_service.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/offline_queue_facade.dart';
+import '../../domain/values/id_types.dart';
 
 final _logger = Logger('GroupProviders');
 
@@ -83,14 +84,14 @@ final groupMessagesProvider = FutureProvider.autoDispose
 final groupMessageByIdProvider = FutureProvider.autoDispose
     .family<GroupMessage?, String>((ref, messageId) async {
       final service = ref.watch(groupMessagingServiceProvider);
-      return await service.getMessage(messageId);
+      return await service.getMessage(MessageId(messageId));
     });
 
 /// Provider for delivery summary of a message
 final messageDeliverySummaryProvider = FutureProvider.autoDispose
     .family<Map<MessageDeliveryStatus, int>, String>((ref, messageId) async {
       final service = ref.watch(groupMessagingServiceProvider);
-      return await service.getDeliverySummary(messageId);
+      return await service.getDeliverySummary(MessageId(messageId));
     });
 
 /// Provider for groups that a specific member belongs to
@@ -212,7 +213,10 @@ final markMessageDeliveredProvider =
       final service = ref.watch(groupMessagingServiceProvider);
 
       return ({required String messageId, required String memberKey}) async {
-        await service.markDelivered(messageId, memberKey);
+        await service.markDeliveredForMember(
+          MessageId(messageId),
+          ChatId(memberKey),
+        );
 
         // Invalidate message to refresh delivery status
         ref.invalidate(groupMessageByIdProvider(messageId));
@@ -231,7 +235,10 @@ final markMessageFailedProvider =
       final service = ref.watch(groupMessagingServiceProvider);
 
       return ({required String messageId, required String memberKey}) async {
-        await service.markFailed(messageId, memberKey);
+        await service.markFailedForMember(
+          MessageId(messageId),
+          ChatId(memberKey),
+        );
 
         // Invalidate message to refresh delivery status
         ref.invalidate(groupMessageByIdProvider(messageId));

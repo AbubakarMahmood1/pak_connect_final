@@ -12,6 +12,7 @@ import 'package:pak_connect/core/utils/mesh_debug_logger.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 import 'mesh_network_health_monitor.dart';
 
@@ -124,8 +125,10 @@ class MeshQueueSyncCoordinator {
       throw StateError('Message queue not initialized');
     }
 
+    final typedChatId = ChatId(chatId);
+
     final messageId = await _messageQueue!.queueMessage(
-      chatId: chatId,
+      chatId: typedChatId.value,
       content: content,
       recipientPublicKey: recipientPublicKey,
       senderPublicKey: senderPublicKey,
@@ -223,6 +226,8 @@ class MeshQueueSyncCoordinator {
       return [];
     }
 
+    final typedChatId = ChatId(chatId);
+
     final statuses = [
       QueuedMessageStatus.pending,
       QueuedMessageStatus.sending,
@@ -233,7 +238,9 @@ class MeshQueueSyncCoordinator {
     final messages = <QueuedMessage>[];
     for (final status in statuses) {
       messages.addAll(
-        queue.getMessagesByStatus(status).where((m) => m.chatId == chatId),
+        queue
+            .getMessagesByStatus(status)
+            .where((m) => ChatId(m.chatId) == typedChatId),
       );
     }
 
@@ -298,13 +305,16 @@ class MeshQueueSyncCoordinator {
     _logger.info('Message delivered: $truncatedId...');
 
     try {
-      final deliveredMessage = Message(
-        id: message.id,
-        chatId: message.chatId,
+      final deliveredMessage = EnhancedMessage(
+        id: MessageId(message.id),
+        chatId: ChatId(message.chatId),
         content: message.content,
         timestamp: message.queuedAt,
         isFromMe: true,
         status: MessageStatus.delivered,
+        replyToMessageId: message.replyToMessageId != null
+            ? MessageId(message.replyToMessageId!)
+            : null,
       );
 
       await _messageRepository.saveMessage(deliveredMessage);

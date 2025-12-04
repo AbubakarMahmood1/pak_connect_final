@@ -1,5 +1,6 @@
 // Contact group models for secure multi-unicast messaging
 // Uses existing Noise sessions for encryption (no shared passwords)
+import '../../domain/values/id_types.dart';
 
 /// Contact group for sending messages to multiple verified contacts
 class ContactGroup {
@@ -9,6 +10,7 @@ class ContactGroup {
   final String? description;
   final DateTime created;
   final DateTime lastModified;
+  ChatId get idValue => ChatId(id);
 
   const ContactGroup({
     required this.id,
@@ -139,6 +141,8 @@ class GroupMessage {
   final DateTime timestamp;
   final Map<String, MessageDeliveryStatus>
   deliveryStatus; // memberKey -> status
+  MessageId get idValue => MessageId(id);
+  ChatId get groupIdValue => ChatId(groupId);
 
   const GroupMessage({
     required this.id,

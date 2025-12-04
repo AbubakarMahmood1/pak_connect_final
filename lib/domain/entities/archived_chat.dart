@@ -3,14 +3,15 @@
 import 'package:logging/logging.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../values/id_types.dart';
 import 'archived_message.dart';
 
 /// Archived chat entity containing complete chat state and metadata
 class ArchivedChat {
   static final _logger = Logger('ArchivedChat');
 
-  final String id; // Unique archive ID
-  final String originalChatId;
+  final ArchiveId id; // Unique archive ID
+  final ChatId originalChatId;
   final String contactName;
   final String? contactPublicKey;
   final DateTime archivedAt;
@@ -37,7 +38,7 @@ class ArchivedChat {
 
   /// Create archived chat from chat list item and messages
   factory ArchivedChat.fromChatAndMessages({
-    required String archiveId,
+    required ArchiveId archiveId,
     required ChatListItem chatItem,
     required List<EnhancedMessage> messages,
     String? archiveReason,
@@ -45,7 +46,13 @@ class ArchivedChat {
   }) {
     final now = DateTime.now();
     final archivedMessages = messages
-        .map((m) => ArchivedMessage.fromEnhancedMessage(m, now))
+        .map(
+          (m) => ArchivedMessage.fromEnhancedMessage(
+            m,
+            now,
+            customArchiveId: archiveId,
+          ),
+        )
         .toList();
 
     // Calculate storage size estimate
@@ -110,7 +117,7 @@ class ArchivedChat {
         .length;
 
     return ChatRestorationPreview(
-      chatId: originalChatId,
+      chatId: originalChatId.value,
       contactName: contactName,
       messageCount: messageCount,
       recentMessageCount: recentMessages,
@@ -161,8 +168,8 @@ class ArchivedChat {
   /// Convert to JSON for storage
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
-      'originalChatId': originalChatId,
+      'id': id.value,
+      'originalChatId': originalChatId.value,
       'contactName': contactName,
       'contactPublicKey': contactPublicKey,
       'archivedAt': archivedAt.millisecondsSinceEpoch,
@@ -179,8 +186,8 @@ class ArchivedChat {
   factory ArchivedChat.fromJson(Map<String, dynamic> json) {
     try {
       return ArchivedChat(
-        id: json['id'],
-        originalChatId: json['originalChatId'],
+        id: ArchiveId(json['id']),
+        originalChatId: ChatId(json['originalChatId']),
         contactName: json['contactName'],
         contactPublicKey: json['contactPublicKey'],
         archivedAt: DateTime.fromMillisecondsSinceEpoch(json['archivedAt']),
@@ -365,8 +372,8 @@ class ArchiveCompressionInfo {
 
 /// Lightweight summary for archived chat lists
 class ArchivedChatSummary {
-  final String id;
-  final String originalChatId;
+  final ArchiveId id;
+  final ChatId originalChatId;
   final String contactName;
   final DateTime archivedAt;
   final int messageCount;

@@ -4,25 +4,26 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'dart:async' as _i5;
-import 'dart:typed_data' as _i18;
+import 'dart:typed_data' as _i19;
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as _i2;
 import 'package:logging/logging.dart' as _i3;
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:mockito/src/dummies.dart' as _i8;
-import 'package:pak_connect/core/bluetooth/advertising_manager.dart' as _i16;
-import 'package:pak_connect/core/bluetooth/peripheral_initializer.dart' as _i17;
+import 'package:mockito/src/dummies.dart' as _i9;
+import 'package:pak_connect/core/bluetooth/advertising_manager.dart' as _i17;
+import 'package:pak_connect/core/bluetooth/peripheral_initializer.dart' as _i18;
 import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart'
     as _i4;
-import 'package:pak_connect/core/models/ble_server_connection.dart' as _i14;
-import 'package:pak_connect/core/models/connection_state.dart' as _i12;
-import 'package:pak_connect/core/models/protocol_message.dart' as _i6;
-import 'package:pak_connect/core/models/spy_mode_info.dart' as _i7;
-import 'package:pak_connect/core/power/adaptive_power_manager.dart' as _i15;
-import 'package:pak_connect/core/services/security_manager.dart' as _i10;
-import 'package:pak_connect/data/models/ble_client_connection.dart' as _i13;
-import 'package:pak_connect/data/services/ble_connection_manager.dart' as _i11;
-import 'package:pak_connect/domain/entities/contact.dart' as _i9;
+import 'package:pak_connect/core/models/ble_server_connection.dart' as _i15;
+import 'package:pak_connect/core/models/connection_state.dart' as _i13;
+import 'package:pak_connect/core/models/protocol_message.dart' as _i7;
+import 'package:pak_connect/core/models/spy_mode_info.dart' as _i8;
+import 'package:pak_connect/core/power/adaptive_power_manager.dart' as _i16;
+import 'package:pak_connect/core/services/security_manager.dart' as _i11;
+import 'package:pak_connect/data/models/ble_client_connection.dart' as _i14;
+import 'package:pak_connect/data/services/ble_connection_manager.dart' as _i12;
+import 'package:pak_connect/domain/entities/contact.dart' as _i10;
+import 'package:pak_connect/domain/values/id_types.dart' as _i6;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -129,6 +130,13 @@ class MockIBLEStateManagerFacade extends _i1.Mock
       );
 
   @override
+  set onMessageSentIds(void Function(_i6.MessageId, bool)? _onMessageSentIds) =>
+      super.noSuchMethod(
+        Invocation.setter(#onMessageSentIds, _onMessageSentIds),
+        returnValueForMissingStub: null,
+      );
+
+  @override
   set onNameChanged(void Function(String?)? _onNameChanged) =>
       super.noSuchMethod(
         Invocation.setter(#onNameChanged, _onNameChanged),
@@ -198,7 +206,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
 
   @override
   set onSendContactStatus(
-    void Function(_i6.ProtocolMessage)? _onSendContactStatus,
+    void Function(_i7.ProtocolMessage)? _onSendContactStatus,
   ) => super.noSuchMethod(
     Invocation.setter(#onSendContactStatus, _onSendContactStatus),
     returnValueForMissingStub: null,
@@ -224,7 +232,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   );
 
   @override
-  set onSpyModeDetected(void Function(_i7.SpyModeInfo)? _onSpyModeDetected) =>
+  set onSpyModeDetected(void Function(_i8.SpyModeInfo)? _onSpyModeDetected) =>
       super.noSuchMethod(
         Invocation.setter(#onSpyModeDetected, _onSpyModeDetected),
         returnValueForMissingStub: null,
@@ -239,7 +247,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
 
   @override
   set onSendPairingRequest(
-    void Function(_i6.ProtocolMessage)? _onSendPairingRequest,
+    void Function(_i7.ProtocolMessage)? _onSendPairingRequest,
   ) => super.noSuchMethod(
     Invocation.setter(#onSendPairingRequest, _onSendPairingRequest),
     returnValueForMissingStub: null,
@@ -247,7 +255,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
 
   @override
   set onSendPairingAccept(
-    void Function(_i6.ProtocolMessage)? _onSendPairingAccept,
+    void Function(_i7.ProtocolMessage)? _onSendPairingAccept,
   ) => super.noSuchMethod(
     Invocation.setter(#onSendPairingAccept, _onSendPairingAccept),
     returnValueForMissingStub: null,
@@ -255,7 +263,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
 
   @override
   set onSendPairingCancel(
-    void Function(_i6.ProtocolMessage)? _onSendPairingCancel,
+    void Function(_i7.ProtocolMessage)? _onSendPairingCancel,
   ) => super.noSuchMethod(
     Invocation.setter(#onSendPairingCancel, _onSendPairingCancel),
     returnValueForMissingStub: null,
@@ -270,7 +278,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
 
   @override
   set onSendPersistentKeyExchange(
-    void Function(_i6.ProtocolMessage)? _onSendPersistentKeyExchange,
+    void Function(_i7.ProtocolMessage)? _onSendPersistentKeyExchange,
   ) => super.noSuchMethod(
     Invocation.setter(
       #onSendPersistentKeyExchange,
@@ -302,13 +310,13 @@ class MockIBLEStateManagerFacade extends _i1.Mock
       (super.noSuchMethod(
             Invocation.method(#getMyPersistentId, []),
             returnValue: _i5.Future<String>.value(
-              _i8.dummyValue<String>(
+              _i9.dummyValue<String>(
                 this,
                 Invocation.method(#getMyPersistentId, []),
               ),
             ),
             returnValueForMissingStub: _i5.Future<String>.value(
-              _i8.dummyValue<String>(
+              _i9.dummyValue<String>(
                 this,
                 Invocation.method(#getMyPersistentId, []),
               ),
@@ -370,11 +378,11 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   String getIdType() =>
       (super.noSuchMethod(
             Invocation.method(#getIdType, []),
-            returnValue: _i8.dummyValue<String>(
+            returnValue: _i9.dummyValue<String>(
               this,
               Invocation.method(#getIdType, []),
             ),
-            returnValueForMissingStub: _i8.dummyValue<String>(
+            returnValueForMissingStub: _i9.dummyValue<String>(
               this,
               Invocation.method(#getIdType, []),
             ),
@@ -399,27 +407,27 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  _i5.Future<_i9.Contact?> getContact(String? publicKey) =>
+  _i5.Future<_i10.Contact?> getContact(String? publicKey) =>
       (super.noSuchMethod(
             Invocation.method(#getContact, [publicKey]),
-            returnValue: _i5.Future<_i9.Contact?>.value(),
-            returnValueForMissingStub: _i5.Future<_i9.Contact?>.value(),
+            returnValue: _i5.Future<_i10.Contact?>.value(),
+            returnValueForMissingStub: _i5.Future<_i10.Contact?>.value(),
           )
-          as _i5.Future<_i9.Contact?>);
+          as _i5.Future<_i10.Contact?>);
 
   @override
-  _i5.Future<Map<String, _i9.Contact>> getAllContacts() =>
+  _i5.Future<Map<String, _i10.Contact>> getAllContacts() =>
       (super.noSuchMethod(
             Invocation.method(#getAllContacts, []),
-            returnValue: _i5.Future<Map<String, _i9.Contact>>.value(
-              <String, _i9.Contact>{},
+            returnValue: _i5.Future<Map<String, _i10.Contact>>.value(
+              <String, _i10.Contact>{},
             ),
             returnValueForMissingStub:
-                _i5.Future<Map<String, _i9.Contact>>.value(
-                  <String, _i9.Contact>{},
+                _i5.Future<Map<String, _i10.Contact>>.value(
+                  <String, _i10.Contact>{},
                 ),
           )
-          as _i5.Future<Map<String, _i9.Contact>>);
+          as _i5.Future<Map<String, _i10.Contact>>);
 
   @override
   _i5.Future<String?> getContactName(String? publicKey) =>
@@ -440,17 +448,17 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  _i5.Future<_i9.TrustStatus> getContactTrustStatus(String? publicKey) =>
+  _i5.Future<_i10.TrustStatus> getContactTrustStatus(String? publicKey) =>
       (super.noSuchMethod(
             Invocation.method(#getContactTrustStatus, [publicKey]),
-            returnValue: _i5.Future<_i9.TrustStatus>.value(
-              _i9.TrustStatus.newContact,
+            returnValue: _i5.Future<_i10.TrustStatus>.value(
+              _i10.TrustStatus.newContact,
             ),
-            returnValueForMissingStub: _i5.Future<_i9.TrustStatus>.value(
-              _i9.TrustStatus.newContact,
+            returnValueForMissingStub: _i5.Future<_i10.TrustStatus>.value(
+              _i10.TrustStatus.newContact,
             ),
           )
-          as _i5.Future<_i9.TrustStatus>);
+          as _i5.Future<_i10.TrustStatus>);
 
   @override
   _i5.Future<bool> hasContactKeyChanged(
@@ -477,7 +485,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  _i5.Future<void> handlePairingRequest(_i6.ProtocolMessage? message) =>
+  _i5.Future<void> handlePairingRequest(_i7.ProtocolMessage? message) =>
       (super.noSuchMethod(
             Invocation.method(#handlePairingRequest, [message]),
             returnValue: _i5.Future<void>.value(),
@@ -501,7 +509,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   );
 
   @override
-  _i5.Future<void> handlePairingAccept(_i6.ProtocolMessage? message) =>
+  _i5.Future<void> handlePairingAccept(_i7.ProtocolMessage? message) =>
       (super.noSuchMethod(
             Invocation.method(#handlePairingAccept, [message]),
             returnValue: _i5.Future<void>.value(),
@@ -510,7 +518,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  void handlePairingCancel(_i6.ProtocolMessage? message) => super.noSuchMethod(
+  void handlePairingCancel(_i7.ProtocolMessage? message) => super.noSuchMethod(
     Invocation.method(#handlePairingCancel, [message]),
     returnValueForMissingStub: null,
   );
@@ -640,7 +648,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   @override
   _i5.Future<bool> confirmSecurityUpgrade(
     String? publicKey,
-    _i10.SecurityLevel? newLevel,
+    _i11.SecurityLevel? newLevel,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#confirmSecurityUpgrade, [publicKey, newLevel]),
@@ -699,13 +707,13 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   );
 
   @override
-  _i5.Future<_i6.ProtocolMessage?> revealIdentityToFriend() =>
+  _i5.Future<_i7.ProtocolMessage?> revealIdentityToFriend() =>
       (super.noSuchMethod(
             Invocation.method(#revealIdentityToFriend, []),
-            returnValue: _i5.Future<_i6.ProtocolMessage?>.value(),
-            returnValueForMissingStub: _i5.Future<_i6.ProtocolMessage?>.value(),
+            returnValue: _i5.Future<_i7.ProtocolMessage?>.value(),
+            returnValueForMissingStub: _i5.Future<_i7.ProtocolMessage?>.value(),
           )
-          as _i5.Future<_i6.ProtocolMessage?>);
+          as _i5.Future<_i7.ProtocolMessage?>);
 
   @override
   void setPeripheralMode(bool? isPeripheral) => super.noSuchMethod(
@@ -749,7 +757,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockBLEConnectionManager extends _i1.Mock
-    implements _i11.BLEConnectionManager {
+    implements _i12.BLEConnectionManager {
   @override
   _i2.CentralManager get centralManager =>
       (super.noSuchMethod(
@@ -808,13 +816,13 @@ class MockBLEConnectionManager extends _i1.Mock
           as bool);
 
   @override
-  _i12.ChatConnectionState get connectionState =>
+  _i13.ChatConnectionState get connectionState =>
       (super.noSuchMethod(
             Invocation.getter(#connectionState),
-            returnValue: _i12.ChatConnectionState.disconnected,
-            returnValueForMissingStub: _i12.ChatConnectionState.disconnected,
+            returnValue: _i13.ChatConnectionState.disconnected,
+            returnValueForMissingStub: _i13.ChatConnectionState.disconnected,
           )
-          as _i12.ChatConnectionState);
+          as _i13.ChatConnectionState);
 
   @override
   bool get isActivelyReconnecting =>
@@ -898,22 +906,31 @@ class MockBLEConnectionManager extends _i1.Mock
           as bool);
 
   @override
-  List<_i13.BLEClientConnection> get clientConnections =>
+  List<_i14.BLEClientConnection> get clientConnections =>
       (super.noSuchMethod(
             Invocation.getter(#clientConnections),
-            returnValue: <_i13.BLEClientConnection>[],
-            returnValueForMissingStub: <_i13.BLEClientConnection>[],
+            returnValue: <_i14.BLEClientConnection>[],
+            returnValueForMissingStub: <_i14.BLEClientConnection>[],
           )
-          as List<_i13.BLEClientConnection>);
+          as List<_i14.BLEClientConnection>);
 
   @override
-  List<_i14.BLEServerConnection> get serverConnections =>
+  List<_i15.BLEServerConnection> get serverConnections =>
       (super.noSuchMethod(
             Invocation.getter(#serverConnections),
-            returnValue: <_i14.BLEServerConnection>[],
-            returnValueForMissingStub: <_i14.BLEServerConnection>[],
+            returnValue: <_i15.BLEServerConnection>[],
+            returnValueForMissingStub: <_i15.BLEServerConnection>[],
           )
-          as List<_i14.BLEServerConnection>);
+          as List<_i15.BLEServerConnection>);
+
+  @override
+  List<String> get connectedAddresses =>
+      (super.noSuchMethod(
+            Invocation.getter(#connectedAddresses),
+            returnValue: <String>[],
+            returnValueForMissingStub: <String>[],
+          )
+          as List<String>);
 
   @override
   int get activeConnectionCount =>
@@ -990,7 +1007,7 @@ class MockBLEConnectionManager extends _i1.Mock
 
   @override
   set onConnectionInfoChanged(
-    dynamic Function(_i12.ConnectionInfo)? _onConnectionInfoChanged,
+    dynamic Function(_i13.ConnectionInfo)? _onConnectionInfoChanged,
   ) => super.noSuchMethod(
     Invocation.setter(#onConnectionInfoChanged, _onConnectionInfoChanged),
     returnValueForMissingStub: null,
@@ -1087,7 +1104,7 @@ class MockBLEConnectionManager extends _i1.Mock
   );
 
   @override
-  _i5.Future<void> handlePowerModeChange(_i15.PowerMode? newMode) =>
+  _i5.Future<void> handlePowerModeChange(_i16.PowerMode? newMode) =>
       (super.noSuchMethod(
             Invocation.method(#handlePowerModeChange, [newMode]),
             returnValue: _i5.Future<void>.value(),
@@ -1184,7 +1201,7 @@ class MockBLEConnectionManager extends _i1.Mock
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockAdvertisingManager extends _i1.Mock
-    implements _i16.AdvertisingManager {
+    implements _i17.AdvertisingManager {
   @override
   bool get isAdvertising =>
       (super.noSuchMethod(
@@ -1270,7 +1287,7 @@ class MockAdvertisingManager extends _i1.Mock
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockPeripheralInitializer extends _i1.Mock
-    implements _i17.PeripheralInitializer {
+    implements _i18.PeripheralInitializer {
   @override
   _i2.PeripheralManager get peripheralManager =>
       (super.noSuchMethod(
@@ -1542,7 +1559,7 @@ class MockPeripheralManager extends _i1.Mock implements _i2.PeripheralManager {
   @override
   _i5.Future<void> respondReadRequestWithValue(
     _i2.GATTReadRequest? request, {
-    required _i18.Uint8List? value,
+    required _i19.Uint8List? value,
   }) =>
       (super.noSuchMethod(
             Invocation.method(
@@ -1600,7 +1617,7 @@ class MockPeripheralManager extends _i1.Mock implements _i2.PeripheralManager {
   _i5.Future<void> notifyCharacteristic(
     _i2.Central? central,
     _i2.GATTCharacteristic? characteristic, {
-    required _i18.Uint8List? value,
+    required _i19.Uint8List? value,
   }) =>
       (super.noSuchMethod(
             Invocation.method(

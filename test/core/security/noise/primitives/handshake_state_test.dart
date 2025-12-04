@@ -3,6 +3,7 @@ library;
 
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/security/noise/primitives/handshake_state.dart';
 import 'package:pak_connect/core/security/noise/primitives/dh_state.dart';
 
@@ -12,8 +13,13 @@ void main() {
     late Uint8List bobStaticPrivate;
     late Uint8List aliceStaticPublic;
     late Uint8List bobStaticPublic;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       final aliceDH = DHState();
       aliceDH.generateKeyPair();
       aliceStaticPrivate = Uint8List.fromList(aliceDH.getPrivateKey()!);
@@ -25,6 +31,22 @@ void main() {
       bobStaticPrivate = Uint8List.fromList(bobDH.getPrivateKey()!);
       bobStaticPublic = Uint8List.fromList(bobDH.getPublicKey()!);
       bobDH.destroy();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('initiator creates valid HandshakeState', () {

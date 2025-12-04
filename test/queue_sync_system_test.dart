@@ -1,6 +1,7 @@
 // Comprehensive tests for the queue hash synchronization system
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 
 // Import the classes we're testing
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
@@ -19,6 +20,9 @@ void main() {
   });
 
   group('Queue Hash Synchronization System Tests', () {
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
+
     late OfflineMessageQueue queue1;
     late OfflineMessageQueue queue2;
     late QueueSyncManager syncManager1;
@@ -30,6 +34,10 @@ void main() {
     const String testRecipientKey = 'recipient_public_key_12345678901234567890';
 
     setUp(() async {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(label: 'queue_sync');
       await TestSetup.fullDatabaseReset();
       TestSetup.resetSharedPreferences();
@@ -56,7 +64,34 @@ void main() {
       await syncManager2.initialize();
     });
 
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
     tearDown(() async {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
       queue1.dispose();
       queue2.dispose();
       syncManager1.dispose();

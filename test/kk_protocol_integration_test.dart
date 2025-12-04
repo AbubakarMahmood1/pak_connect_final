@@ -107,10 +107,16 @@ void main() {
   });
 
   group('KK Protocol Integration Tests', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     late ContactRepository aliceContactRepo;
     late ContactRepository bobContactRepo;
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       aliceContactRepo = ContactRepository();
       bobContactRepo = ContactRepository();
 
@@ -129,7 +135,21 @@ void main() {
       }
     });
 
-    tearDown() async {
+    tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+
       // Clear all contacts
       final aliceContacts = await aliceContactRepo.getAllContacts();
       for (var key in aliceContacts.keys) {
@@ -140,7 +160,7 @@ void main() {
       for (var key in bobContacts.keys) {
         await bobContactRepo.deleteContact(key);
       }
-    }
+    });
 
     /// Helper function to establish initial XX handshake between two devices
     Future<void> establishInitialXXSession({

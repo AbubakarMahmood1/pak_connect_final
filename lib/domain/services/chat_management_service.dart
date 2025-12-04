@@ -1,5 +1,6 @@
 // WhatsApp-inspired chat management system with comprehensive message operations and archive integration
 
+import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import '../../core/models/archive_models.dart';
@@ -14,6 +15,8 @@ import 'chat_lifecycle_service.dart';
 import 'chat_management_models.dart';
 import 'chat_notification_service.dart';
 import 'chat_sync_service.dart';
+
+import 'package:pak_connect/domain/values/id_types.dart';
 
 export 'chat_management_models.dart';
 
@@ -39,8 +42,7 @@ class ChatManagementService {
   late final ChatSyncService _syncService;
   late final ChatLifecycleService _lifecycleService;
 
-  bool _isInitialized = false;
-  Future<void>? _initializationFuture;
+  Completer<void>? _initCompleter;
 
   ChatManagementService._internal()
     : _chatsRepository = GetIt.instance<IChatsRepository>(),
@@ -78,29 +80,41 @@ class ChatManagementService {
       _notificationService.messageUpdates;
 
   /// Initialize chat management service and sub-services
+  /// Thread-safe using Completer pattern to prevent race conditions
   Future<void> initialize() async {
-    if (_isInitialized) return;
+    // Fast path: already initialized
+    if (_initCompleter?.isCompleted == true) {
+      return;
+    }
 
-    _initializationFuture ??= () async {
-      await _syncService.initialize();
-      await _archiveRepository.initialize();
-      await _archiveManagementService.initialize();
-      _isInitialized = true;
-      _logger.info('Chat management service initialized with archive support');
-    }();
+    // If initialization not started, start it
+    if (_initCompleter == null) {
+      _initCompleter = Completer<void>();
 
-    try {
-      await _initializationFuture;
-    } catch (e) {
-      // Allow callers to retry after transient failures
-      _initializationFuture = null;
-      _isInitialized = false;
-      rethrow;
-    } finally {
-      if (_isInitialized) {
-        _initializationFuture = null;
+      try {
+        await _syncService.initialize();
+        await _archiveRepository.initialize();
+        await _archiveManagementService.initialize();
+        _logger.info(
+          'Chat management service initialized with archive support',
+        );
+        _initCompleter!.complete();
+      } catch (e, stackTrace) {
+        _logger.severe(
+          'Failed to initialize chat management service: $e',
+          e,
+          stackTrace,
+        );
+        // Complete with error and reset to allow retry
+        _initCompleter!.completeError(e, stackTrace);
+        _initCompleter = null;
+        rethrow;
       }
     }
+
+    // Wait for initialization to complete
+    // (handles concurrent calls that arrive while initialization is in progress)
+    return _initCompleter!.future;
   }
 
   /// Get all chats with enhanced filtering and sorting
@@ -143,7 +157,7 @@ class ChatManagementService {
   );
 
   /// Star/unstar message
-  Future<ChatOperationResult> toggleMessageStar(String messageId) =>
+  Future<ChatOperationResult> toggleMessageStar(MessageId messageId) =>
       _lifecycleService.toggleMessageStar(messageId);
 
   /// Get all starred messages
@@ -152,7 +166,7 @@ class ChatManagementService {
 
   /// Delete messages with confirmation
   Future<ChatOperationResult> deleteMessages({
-    required List<String> messageIds,
+    required List<MessageId> messageIds,
     bool deleteForEveryone = false,
   }) => _lifecycleService.deleteMessages(
     messageIds: messageIds,
@@ -171,7 +185,7 @@ class ChatManagementService {
   );
 
   /// Pin/unpin chat
-  Future<ChatOperationResult> toggleChatPin(String chatId) =>
+  Future<ChatOperationResult> toggleChatPin(ChatId chatId) =>
       _lifecycleService.toggleChatPin(chatId);
 
   /// Delete entire chat with all messages
@@ -206,14 +220,15 @@ class ChatManagementService {
       _syncService.clearMessageSearchHistory();
 
   /// Check if chat is archived
-  bool isChatArchived(String chatId) => _syncService.isChatArchived(chatId);
+  bool isChatArchived(String chatId) =>
+      _syncService.isChatArchived(ChatId(chatId));
 
   /// Check if chat is pinned
-  bool isChatPinned(String chatId) => _syncService.isChatPinned(chatId);
+  bool isChatPinned(ChatId chatId) => _syncService.isChatPinned(chatId);
 
   /// Check if message is starred
-  bool isMessageStarred(String messageId) =>
-      _syncService.isMessageStarred(messageId);
+  bool isMessageStarred(MessageId messageId) =>
+      _syncService.isMessageStarredById(messageId);
 
   /// Get pinned chats count
   int get pinnedChatsCount => _syncService.pinnedChatsCount;
@@ -270,8 +285,7 @@ class ChatManagementService {
     await _archiveRepository.dispose();
 
     _syncService.resetInitialization();
-    _isInitialized = false;
-    _initializationFuture = null;
+    _initCompleter = null;
     _logger.info('Chat management service disposed');
   }
 }

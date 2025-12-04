@@ -1,5 +1,6 @@
 import '../../core/models/archive_models.dart';
 import '../../domain/entities/archived_chat.dart';
+import '../../domain/values/id_types.dart';
 
 class ArchiveManagementConfig {
   final bool enableCompression;
@@ -377,7 +378,7 @@ class ArchiveUpdateEvent {
   final DateTime timestamp;
   final ArchiveUpdateEventType type;
   final String chatId;
-  final String archiveId;
+  final ArchiveId archiveId;
   final String? reason;
 
   ArchiveUpdateEvent.archived(this.chatId, this.archiveId, this.reason)

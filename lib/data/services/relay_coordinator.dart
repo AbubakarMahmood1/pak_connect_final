@@ -5,9 +5,11 @@ import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/values/id_types.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
+import '../../domain/values/id_types.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/app_core.dart';
 import '../../core/utils/string_extensions.dart';
@@ -43,6 +45,7 @@ class RelayCoordinator implements IRelayCoordinator {
 
   // Callbacks
   Function(String, String, String)? _onRelayMessageReceived;
+  Function(MessageId, String, String)? _onRelayMessageReceivedIds;
   Function(RelayDecision)? _onRelayDecisionMade;
   Function(RelayStatistics)? _onRelayStatsUpdated;
   Function(ProtocolMessage)? _onSendAckMessage;
@@ -74,7 +77,9 @@ class RelayCoordinator implements IRelayCoordinator {
         );
       },
       onDeliverToSelf: (id, content, sender) {
+        final msgId = MessageId(id);
         _onRelayMessageReceived?.call(id, content, sender);
+        _onRelayMessageReceivedIds?.call(msgId, content, sender);
       },
       onRelayDecision: _onRelayDecisionMade,
       onStatsUpdated: _onRelayStatsUpdated,
@@ -146,7 +151,9 @@ class RelayCoordinator implements IRelayCoordinator {
 
       // Attempt relay to next hops
       _logger.fine('🔄 Relaying message to next hops');
+      final msgId = MessageId(originalMessageId);
       _onRelayMessageReceived?.call(originalMessageId, content, originalSender);
+      _onRelayMessageReceivedIds?.call(msgId, content, originalSender);
 
       return true;
     } catch (e) {
@@ -254,7 +261,9 @@ class RelayCoordinator implements IRelayCoordinator {
       _logger.fine('📩 Delivering relay message to self');
 
       // Call delivery callback
+      final msgId = MessageId(originalMessageId);
       _onRelayMessageReceived?.call(originalMessageId, content, originalSender);
+      _onRelayMessageReceivedIds?.call(msgId, content, originalSender);
 
       // Send ACK back to original sender
       sendRelayAck(
@@ -387,8 +396,8 @@ class RelayCoordinator implements IRelayCoordinator {
       _logger.fine('📦 Sending queue sync to: ${toNodeId.shortId(8)}...');
 
       // Create QueueSyncMessage using factory
-      final syncMessage = QueueSyncMessage.createRequest(
-        messageIds: messageIds,
+      final syncMessage = QueueSyncMessage.createRequestWithIds(
+        messageIds: messageIds.map(MessageId.new).toList(),
         nodeId: toNodeId,
       );
 
@@ -431,6 +440,14 @@ class RelayCoordinator implements IRelayCoordinator {
     callback,
   ) {
     _onRelayMessageReceived = callback;
+  }
+
+  @override
+  void onRelayMessageReceivedIds(
+    Function(MessageId originalMessageId, String content, String originalSender)
+    callback,
+  ) {
+    _onRelayMessageReceivedIds = callback;
   }
 
   @override

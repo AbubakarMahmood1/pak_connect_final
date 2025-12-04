@@ -7,6 +7,7 @@ import '../../data/services/ble_state_manager.dart';
 import '../../core/services/security_manager.dart';
 import '../widgets/pairing_dialog.dart';
 import '../../core/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Callback when pairing is requested
 typedef OnPairingRequestedCallback = void Function();
@@ -239,20 +240,26 @@ class ChatPairingDialogController {
     String publicKey,
     String displayName,
   ) async {
+    final userId = _toUserId(publicKey);
+    if (userId == null) {
+      _logger.warning('addAsVerifiedContact called with empty public key');
+      return;
+    }
+
     try {
       _logger.info('🔐 Adding verified contact: $displayName');
 
       // Save contact
-      await contactRepository.saveContact(publicKey, displayName);
-      await contactRepository.markContactVerified(publicKey);
+      await contactRepository.saveContact(userId.value, displayName);
+      await contactRepository.markContactVerified(userId.value);
 
       // Compute and cache ECDH shared secret
-      final sharedSecret = SimpleCrypto.computeSharedSecret(publicKey);
+      final sharedSecret = SimpleCrypto.computeSharedSecret(userId.value);
       if (sharedSecret != null) {
-        await contactRepository.cacheSharedSecret(publicKey, sharedSecret);
+        await contactRepository.cacheSharedSecret(userId.value, sharedSecret);
 
         // Restore it in SimpleCrypto for immediate use
-        await SimpleCrypto.restoreConversationKey(publicKey, sharedSecret);
+        await SimpleCrypto.restoreConversationKey(userId.value, sharedSecret);
 
         _logger.info('🔐 Cached ECDH shared secret for: $displayName');
       }
@@ -271,5 +278,10 @@ class ChatPairingDialogController {
   void clear() {
     _pairingDialogShown = false;
     _logger.info('🔑 Pairing dialog controller cleared');
+  }
+
+  UserId? _toUserId(String publicKey) {
+    if (publicKey.isEmpty) return null;
+    return UserId(publicKey);
   }
 }

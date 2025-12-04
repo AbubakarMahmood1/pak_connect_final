@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/core/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
+import 'package:pak_connect/core/messaging/message_router.dart';
 import 'package:pak_connect/core/services/message_retry_coordinator.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
@@ -26,18 +29,51 @@ import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/presentation/controllers/chat_pairing_dialog_controller.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.dart'
+    as chat_controller;
+import 'package:pak_connect/presentation/controllers/chat_search_controller.dart';
+import 'package:pak_connect/presentation/controllers/chat_session_lifecycle.dart';
+import 'package:pak_connect/presentation/providers/chat_messaging_view_model.dart';
+import 'package:pak_connect/presentation/viewmodels/chat_session_view_model.dart';
+import 'package:pak_connect/core/security/message_security.dart';
+import 'package:pak_connect/core/constants/binary_payload_types.dart';
+import 'package:pak_connect/domain/services/mesh_networking_service.dart'
+    show PendingBinaryTransfer, ReceivedBinaryEvent;
 import '../test_helpers/mocks/mock_connection_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
 
   group('ChatScreenController', () {
     late MockConnectionService connectionService;
     late _FakeMeshNetworkingService meshService;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       connectionService = MockConnectionService();
       meshService = _FakeMeshNetworkingService();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     final _readyStatus = MeshNetworkStatus(
@@ -64,8 +100,8 @@ void main() {
       final fakeMessageRepo = _FakeMessageRepository();
       await fakeMessageRepo.saveMessage(
         Message(
-          id: 'm1',
-          chatId: initialChatId,
+          id: MessageId('m1'),
+          chatId: ChatId(initialChatId),
           content: 'hello',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -121,7 +157,7 @@ void main() {
               builder: (context) {
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController.deprecated(
+                    controller = _buildController(
                       ref: ref,
                       context: context,
                       config: ChatScreenConfig(
@@ -131,7 +167,6 @@ void main() {
                       ),
                       messageRepository: fakeMessageRepo,
                       contactRepository: _FakeContactRepository(),
-                      chatsRepository: _FakeChatsRepository(),
                     );
                     return const SizedBox.shrink();
                   },
@@ -149,10 +184,12 @@ void main() {
       final expectedChatId = ChatUtils.generateChatId('persistent-key');
       expect(controller.chatId, expectedChatId);
       final migratedMessages = await fakeMessageRepo.getMessages(
-        expectedChatId,
+        ChatId(expectedChatId),
       );
       expect(migratedMessages, isNotEmpty);
-      final oldMessages = await fakeMessageRepo.getMessages(initialChatId);
+      final oldMessages = await fakeMessageRepo.getMessages(
+        ChatId(initialChatId),
+      );
       expect(oldMessages, isEmpty);
     });
 
@@ -162,8 +199,8 @@ void main() {
       final fakeMessageRepo = _FakeMessageRepository();
       await fakeMessageRepo.saveMessage(
         Message(
-          id: 'msg-1',
-          chatId: 'chat-1',
+          id: MessageId('msg-1'),
+          chatId: ChatId('chat-1'),
           content: 'pending',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -218,7 +255,7 @@ void main() {
               builder: (context) {
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController.deprecated(
+                    controller = _buildController(
                       ref: ref,
                       context: context,
                       config: const ChatScreenConfig(
@@ -228,7 +265,6 @@ void main() {
                       ),
                       messageRepository: fakeMessageRepo,
                       contactRepository: _FakeContactRepository(),
-                      chatsRepository: _FakeChatsRepository(),
                     );
                     return const SizedBox.shrink();
                   },
@@ -246,7 +282,7 @@ void main() {
       });
 
       final updated = controller.state.messages
-          .firstWhere((m) => m.id == 'msg-1')
+          .firstWhere((m) => m.id.value == 'msg-1')
           .status;
       expect(updated, MessageStatus.delivered);
     });
@@ -254,8 +290,8 @@ void main() {
     testWidgets('retry orchestration updates failed messages', (tester) async {
       final fakeMessageRepo = _FakeMessageRepository();
       final failedMessage = Message(
-        id: 'failed-1',
-        chatId: 'chat-1',
+        id: MessageId('failed-1'),
+        chatId: ChatId('chat-1'),
         content: 'fail me',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -337,7 +373,7 @@ void main() {
               builder: (context) {
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController.deprecated(
+                    controller = _buildController(
                       ref: ref,
                       context: context,
                       config: const ChatScreenConfig(
@@ -347,7 +383,6 @@ void main() {
                       ),
                       messageRepository: fakeMessageRepo,
                       contactRepository: fakeContactRepo,
-                      chatsRepository: _FakeChatsRepository(),
                       retryCoordinator: _FakeMessageRetryCoordinator(
                         status: retryStatus,
                         result: retryResult,
@@ -376,7 +411,7 @@ void main() {
       });
 
       final updated = controller.state.messages
-          .firstWhere((m) => m.id == 'failed-1')
+          .firstWhere((m) => m.id.value == 'failed-1')
           .status;
       expect(updated, MessageStatus.delivered);
     });
@@ -433,7 +468,7 @@ void main() {
                 );
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController.deprecated(
+                    controller = _buildController(
                       ref: ref,
                       context: context,
                       config: const ChatScreenConfig(
@@ -443,7 +478,7 @@ void main() {
                       ),
                       messageRepository: fakeMessageRepo,
                       contactRepository: fakeContactRepo,
-                      chatsRepository: _FakeChatsRepository(),
+                      pairingDialogController: recorder,
                       retryCoordinator: _FakeMessageRetryCoordinator(
                         status: MessageRetryStatus(
                           repositoryFailedMessages: const [],
@@ -460,7 +495,6 @@ void main() {
                         ),
                         repositoryProvider: repoProvider,
                       ),
-                      pairingDialogController: recorder,
                     );
                     return const SizedBox.shrink();
                   },
@@ -534,7 +568,7 @@ void main() {
                 );
                 return Consumer(
                   builder: (context, ref, _) {
-                    controller = ChatScreenController.deprecated(
+                    controller = _buildController(
                       ref: ref,
                       context: context,
                       config: const ChatScreenConfig(
@@ -544,7 +578,7 @@ void main() {
                       ),
                       messageRepository: fakeMessageRepo,
                       contactRepository: fakeContactRepo,
-                      chatsRepository: _FakeChatsRepository(),
+                      pairingDialogController: recorder,
                       retryCoordinator: _FakeMessageRetryCoordinator(
                         status: MessageRetryStatus(
                           repositoryFailedMessages: const [],
@@ -561,7 +595,6 @@ void main() {
                         ),
                         repositoryProvider: repoProvider,
                       ),
-                      pairingDialogController: recorder,
                     );
                     return const SizedBox.shrink();
                   },
@@ -587,18 +620,310 @@ void main() {
       controller.dispose();
       expect(recorder.cleared, isTrue);
     });
+
+    testWidgets('initialize starts lifecycle listeners and retry helper', (
+      tester,
+    ) async {
+      connectionService.currentSessionId = 'chat-1';
+      late ChatScreenController controller;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            connectionServiceProvider.overrideWithValue(connectionService),
+            meshNetworkingServiceProvider.overrideWithValue(meshService),
+            meshNetworkingControllerProvider.overrideWithValue(
+              MeshNetworkingController(meshService),
+            ),
+            meshNetworkStatusProvider.overrideWith(
+              (ref) => AsyncValue.data(_readyStatus),
+            ),
+            connectionInfoProvider.overrideWith(
+              (ref) => const AsyncValue.data(
+                ConnectionInfo(
+                  isConnected: true,
+                  isReady: true,
+                  statusMessage: 'ready',
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                return Consumer(
+                  builder: (context, ref, _) {
+                    controller = _buildController(
+                      ref: ref,
+                      context: context,
+                      config: const ChatScreenConfig(
+                        chatId: 'chat-1',
+                        contactName: 'Test',
+                        contactPublicKey: 'chat-1',
+                      ),
+                      messageRepository: _FakeMessageRepository(),
+                      contactRepository: _FakeContactRepository(),
+                    );
+                    return const SizedBox.shrink();
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.runAsync(() async {
+        await controller.initialize(logChatOpen: false);
+      });
+
+      expect(controller.sessionLifecycle.messageListenerActive, isTrue);
+      expect(controller.sessionLifecycle.retryHelper, isNotNull);
+    });
+
+    testWidgets('connection change activates listener after offline init', (
+      tester,
+    ) async {
+      connectionService.currentSessionId = 'chat-1';
+      late ChatScreenController controller;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            connectionServiceProvider.overrideWithValue(connectionService),
+            meshNetworkingServiceProvider.overrideWithValue(meshService),
+            meshNetworkingControllerProvider.overrideWithValue(
+              MeshNetworkingController(meshService),
+            ),
+            meshNetworkStatusProvider.overrideWith(
+              (ref) => AsyncValue.data(_readyStatus),
+            ),
+            connectionInfoProvider.overrideWith(
+              (ref) => const AsyncValue.data(
+                ConnectionInfo(
+                  isConnected: false,
+                  isReady: false,
+                  statusMessage: 'offline',
+                ),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                return Consumer(
+                  builder: (context, ref, _) {
+                    controller = _buildController(
+                      ref: ref,
+                      context: context,
+                      config: const ChatScreenConfig(
+                        chatId: 'chat-1',
+                        contactName: 'Test',
+                        contactPublicKey: 'chat-1',
+                      ),
+                      messageRepository: _FakeMessageRepository(),
+                      contactRepository: _FakeContactRepository(),
+                    );
+                    return const SizedBox.shrink();
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.runAsync(() async {
+        await controller.initialize(logChatOpen: false);
+        expect(controller.sessionLifecycle.messageListenerActive, isFalse);
+        controller.handleConnectionChange(
+          const ConnectionInfo(
+            isConnected: false,
+            isReady: false,
+            statusMessage: 'offline',
+          ),
+          const ConnectionInfo(
+            isConnected: true,
+            isReady: true,
+            statusMessage: 'ready',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      });
+
+      expect(controller.sessionLifecycle.messageListenerActive, isTrue);
+    });
   });
+}
+
+ChatScreenController _buildController({
+  required WidgetRef ref,
+  required BuildContext context,
+  required ChatScreenConfig config,
+  required MessageRepository messageRepository,
+  required ContactRepository contactRepository,
+  ChatsRepository? chatsRepository,
+  MessageRetryCoordinator? retryCoordinator,
+  Future<void> Function(Message message)? repositoryRetryHandler,
+  ChatPairingDialogController? pairingDialogController,
+}) {
+  final effectiveChatsRepo = chatsRepository ?? _FakeChatsRepository();
+  return ChatScreenController(
+    ChatScreenControllerArgs(
+      ref: ref,
+      context: context,
+      config: config,
+      messageRepository: messageRepository,
+      contactRepository: contactRepository,
+      chatsRepository: effectiveChatsRepo,
+      retryCoordinator: retryCoordinator,
+      repositoryRetryHandler: repositoryRetryHandler,
+      pairingDialogController: pairingDialogController,
+      messagingViewModelFactory: (chatId, contactPublicKey) =>
+          ChatMessagingViewModel(
+            chatId: chatId,
+            contactPublicKey: contactPublicKey,
+            messageRepository: messageRepository,
+            contactRepository: contactRepository,
+          ),
+      scrollingControllerFactory:
+          (chatId, onScrollToBottom, onUnreadCountChanged, onStateChanged) =>
+              chat_controller.ChatScrollingController(
+                chatsRepository: effectiveChatsRepo,
+                chatId: chatId,
+                onScrollToBottom: onScrollToBottom,
+                onUnreadCountChanged: onUnreadCountChanged,
+                onStateChanged: onStateChanged,
+              ),
+      searchControllerFactory:
+          (
+            onSearchModeToggled,
+            onSearchResultsChanged,
+            onNavigateToResult,
+            scrollController,
+          ) => ChatSearchController(
+            onSearchModeToggled: onSearchModeToggled,
+            onSearchResultsChanged: (query, results) =>
+                onSearchResultsChanged(query, const []),
+            onNavigateToResult: onNavigateToResult,
+            scrollController: scrollController,
+          ),
+      pairingControllerFactory:
+          (
+            ctx,
+            connectionService,
+            contactRepo,
+            navigator,
+            stateManager,
+            onCompleted,
+            onError,
+            onSuccess,
+          ) => ChatPairingDialogController(
+            stateManager: stateManager,
+            connectionService: connectionService,
+            contactRepository: contactRepo,
+            context: ctx,
+            navigator: navigator,
+            getTheirPersistentKey: () =>
+                connectionService.theirPersistentPublicKey,
+            onPairingCompleted: onCompleted,
+            onPairingError: onError,
+            onPairingSuccess: onSuccess,
+          ),
+      sessionViewModelFactory:
+          ({
+            required ChatScreenConfig config,
+            required MessageRepository messageRepository,
+            required ContactRepository contactRepository,
+            required ChatsRepository chatsRepository,
+            required ChatMessagingViewModel messagingViewModel,
+            required chat_controller.ChatScrollingController
+            scrollingController,
+            required ChatSearchController searchController,
+            required ChatPairingDialogController pairingDialogController,
+            MessageRetryCoordinator? retryCoordinator,
+            ChatSessionLifecycle? sessionLifecycle,
+            String Function()? displayContactNameFn,
+            String? Function()? getContactPublicKeyFn,
+            String Function()? getChatIdFn,
+            void Function(String)? onChatIdUpdated,
+            void Function(String?)? onContactPublicKeyUpdated,
+            void Function()? onScrollToBottom,
+            void Function(String)? onShowError,
+            void Function(String)? onShowSuccess,
+            void Function(String)? onShowInfo,
+            bool Function()? isDisposedFn,
+            void Function({
+              required ChatMessagingViewModel messagingViewModel,
+              required chat_controller.ChatScrollingController
+              scrollingController,
+              required ChatSearchController searchController,
+              ChatMessagingViewModel? previousMessagingViewModel,
+              chat_controller.ChatScrollingController?
+              previousScrollingController,
+              ChatSearchController? previousSearchController,
+            })?
+            onControllersRebound,
+            IConnectionService Function()? getConnectionServiceFn,
+          }) => ChatSessionViewModel(
+            config: config,
+            messageRepository: messageRepository,
+            contactRepository: contactRepository,
+            chatsRepository: chatsRepository,
+            messagingViewModel: messagingViewModel,
+            scrollingController: scrollingController,
+            searchController: searchController,
+            pairingDialogController: pairingDialogController,
+            retryCoordinator: retryCoordinator,
+            sessionLifecycle: sessionLifecycle,
+            displayContactNameFn: displayContactNameFn,
+            getContactPublicKeyFn: getContactPublicKeyFn,
+            getChatIdFn: getChatIdFn,
+            onChatIdUpdated: onChatIdUpdated,
+            onContactPublicKeyUpdated: onContactPublicKeyUpdated,
+            onScrollToBottom: onScrollToBottom,
+            onShowError: onShowError,
+            onShowSuccess: onShowSuccess,
+            onShowInfo: onShowInfo,
+            isDisposedFn: isDisposedFn,
+            onControllersRebound: onControllersRebound,
+            getConnectionServiceFn: getConnectionServiceFn,
+          ),
+      sessionLifecycleFactory:
+          ({
+            required ChatSessionViewModel viewModel,
+            required IConnectionService connectionService,
+            required IMeshNetworkingService meshService,
+            MessageRouter? messageRouter,
+            required MessageSecurity messageSecurity,
+            required MessageRepository messageRepository,
+            MessageRetryCoordinator? retryCoordinator,
+            OfflineMessageQueue? offlineQueue,
+            Logger? logger,
+          }) => ChatSessionLifecycle(
+            viewModel: viewModel,
+            connectionService: connectionService,
+            meshService: meshService,
+            messageRouter: messageRouter,
+            messageSecurity: messageSecurity,
+            messageRepository: messageRepository,
+            retryCoordinator: retryCoordinator,
+            offlineQueue: offlineQueue,
+            logger: logger,
+          ),
+    ),
+  );
 }
 
 class _FakeMessageRepository extends MessageRepository {
   final Map<String, List<Message>> _store = {};
 
   @override
-  Future<List<Message>> getMessages(String chatId) async =>
-      List<Message>.from(_store[chatId] ?? []);
+  Future<List<Message>> getMessages(ChatId chatId) async =>
+      List<Message>.from(_store[chatId.value] ?? []);
 
   @override
-  Future<Message?> getMessageById(String messageId) async {
+  Future<Message?> getMessageById(MessageId messageId) async {
     for (final entry in _store.values) {
       for (final message in entry) {
         if (message.id == messageId) return message;
@@ -609,7 +934,7 @@ class _FakeMessageRepository extends MessageRepository {
 
   @override
   Future<void> saveMessage(Message message) async {
-    final messages = _store.putIfAbsent(message.chatId, () => []);
+    final messages = _store.putIfAbsent(message.chatId.value, () => []);
     if (!messages.any((m) => m.id == message.id)) {
       messages.add(message);
     }
@@ -617,7 +942,7 @@ class _FakeMessageRepository extends MessageRepository {
 
   @override
   Future<void> updateMessage(Message message) async {
-    final messages = _store[message.chatId];
+    final messages = _store[message.chatId.value];
     if (messages == null) return;
     final index = messages.indexWhere((m) => m.id == message.id);
     if (index != -1) {
@@ -626,7 +951,7 @@ class _FakeMessageRepository extends MessageRepository {
   }
 
   @override
-  Future<bool> deleteMessage(String messageId) async {
+  Future<bool> deleteMessage(MessageId messageId) async {
     var removed = false;
     _store.updateAll((key, value) {
       final before = value.length;
@@ -640,8 +965,20 @@ class _FakeMessageRepository extends MessageRepository {
   }
 
   @override
-  Future<void> clearMessages(String chatId) async {
-    _store.remove(chatId);
+  Future<void> clearMessages(ChatId chatId) async {
+    _store.remove(chatId.value);
+  }
+
+  @override
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {
+    final messages = _store[oldChatId.value];
+    if (messages != null) {
+      final migratedMessages = messages
+          .map((m) => m.copyWith(chatId: newChatId))
+          .toList();
+      _store[newChatId.value] = migratedMessages;
+      _store.remove(oldChatId.value);
+    }
   }
 
   @override
@@ -675,10 +1012,10 @@ class _FakeChatsRepository extends ChatsRepository {
   }
 
   @override
-  Future<void> markChatAsRead(String chatId) async {
-    final existing = _chats[chatId];
+  Future<void> markChatAsRead(ChatId chatId) async {
+    final existing = _chats[chatId.value];
     if (existing != null) {
-      _chats[chatId] = ChatListItem(
+      _chats[chatId.value] = ChatListItem(
         chatId: existing.chatId,
         contactName: existing.contactName,
         contactPublicKey: existing.contactPublicKey,
@@ -693,9 +1030,9 @@ class _FakeChatsRepository extends ChatsRepository {
   }
 
   @override
-  Future<void> incrementUnreadCount(String chatId) async {
+  Future<void> incrementUnreadCount(ChatId chatId) async {
     final existing =
-        _chats[chatId] ??
+        _chats[chatId.value] ??
         ChatListItem(
           chatId: chatId,
           contactName: 'Test',
@@ -703,7 +1040,7 @@ class _FakeChatsRepository extends ChatsRepository {
           isOnline: false,
           hasUnsentMessages: false,
         );
-    _chats[chatId] = ChatListItem(
+    _chats[chatId.value] = ChatListItem(
       chatId: existing.chatId,
       contactName: existing.contactName,
       contactPublicKey: existing.contactPublicKey,
@@ -776,6 +1113,28 @@ class _FakeMeshNetworkingService implements IMeshNetworkingService {
       queuedMessages.where((message) => message.chatId == chatId).toList();
 
   @override
+  Stream<ReceivedBinaryEvent> get binaryPayloadStream => const Stream.empty();
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = BinaryPayloadType.media,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'transfer-$recipientId';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
+
+  @override
+  List<PendingBinaryTransfer> getPendingBinaryTransfers() => const [];
+
+  @override
   MeshNetworkStatistics getNetworkStatistics() => MeshNetworkStatistics(
     nodeId: 'node',
     isInitialized: true,
@@ -805,15 +1164,15 @@ class _FakeMessageRetryCoordinator extends MessageRetryCoordinator {
        );
 
   @override
-  Future<MessageRetryStatus> getFailedMessageStatus(String chatId) async {
+  Future<MessageRetryStatus> getFailedMessageStatus(ChatId chatId) async {
     return status;
   }
 
   @override
   Future<MessageRetryResult> retryAllFailedMessages({
-    required String chatId,
-    required Function(Message message) onRepositoryMessageRetry,
-    required Function(QueuedMessage message) onQueueMessageRetry,
+    required ChatId chatId,
+    required Future<void> Function(Message message) onRepositoryMessageRetry,
+    required Future<void> Function(QueuedMessage message) onQueueMessageRetry,
     bool allowPartialConnection = true,
   }) async {
     for (final message in status.repositoryFailedMessages) {

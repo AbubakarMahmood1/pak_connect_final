@@ -35,6 +35,9 @@ abstract class IBLEConnectionService {
   /// Stop monitoring connection health
   void stopConnectionMonitoring();
 
+  /// Dispose connection-related resources and monitoring
+  void disposeConnection();
+
   /// Set/unset flag indicating handshake is in progress
   /// Used to prevent premature message sending during handshake
   void setHandshakeInProgress(bool isInProgress);

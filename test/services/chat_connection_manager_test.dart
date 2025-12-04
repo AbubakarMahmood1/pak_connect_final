@@ -1,5 +1,6 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/discovery/device_deduplication_manager.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/models/connection_status.dart';
@@ -12,6 +13,9 @@ import 'package:pak_connect/domain/entities/enhanced_contact.dart';
 import '../test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
       dbLabel: 'chat_connection_manager',
@@ -19,6 +23,28 @@ void main() {
   });
 
   group('ChatConnectionManager.determineConnectionStatus', () {
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('returns connected when session is ready for the contact', () {
       final manager = _createManager();
 
@@ -133,6 +159,28 @@ void main() {
   });
 
   group('ChatConnectionManager hash detection', () {
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('detects contact via current ephemeral ID', () {
       final manager = _createManager();
       final contact = _buildEnhancedContact(
@@ -186,6 +234,28 @@ void main() {
   });
 
   group('ChatConnectionManager helpers', () {
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('getKnownContactsFromDiscovery filters unknown devices', () {
       final manager = _createManager();
       final known = _buildDiscoveredDevice(

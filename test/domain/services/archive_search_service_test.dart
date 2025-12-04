@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -6,6 +7,7 @@ import 'package:pak_connect/core/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/core/models/archive_models.dart';
 import 'package:pak_connect/domain/entities/archived_chat.dart';
 import 'package:pak_connect/domain/services/archive_search_service.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 class _FakeArchiveRepository implements IArchiveRepository {
   int searchCalls = 0;
@@ -36,7 +38,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
 
   // The remaining repository methods are not needed for these tests.
   @override
-  Future<void> permanentlyDeleteArchive(String archivedChatId) async =>
+  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async =>
       throw UnimplementedError();
 
   @override
@@ -48,7 +50,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }) async => throw UnimplementedError();
 
   @override
-  Future<ArchiveOperationResult> restoreChat(String archiveId) async =>
+  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
       throw UnimplementedError();
 
   @override
@@ -67,7 +69,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   ) async => throw UnimplementedError();
 
   @override
-  Future<ArchivedChat?> getArchivedChat(String archiveId) async => null;
+  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async => null;
 
   @override
   Future<ArchiveStatistics?> getArchiveStatistics() async =>
@@ -106,6 +108,31 @@ void main() {
   });
 
   group('ArchiveSearchService integration', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('uses cache on repeat searches and records analytics', () async {
       final result1 = await service.search(query: 'hello');
       expect(result1.query, 'hello');

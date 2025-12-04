@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
@@ -13,6 +14,9 @@ void main() {
   });
 
   group('Handshake Queue Flush Integration', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     late OfflineMessageQueue queue;
     late HandshakeCoordinator coordinator;
     final myPublicKey = 'my_public_key_12345';
@@ -21,6 +25,9 @@ void main() {
     final peerDisplayName = 'Test Peer';
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(label: 'handshake_queue_flush');
 
       // Initialize queue
@@ -42,6 +49,19 @@ void main() {
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       queue.dispose();
       coordinator.dispose();
       await DatabaseHelper.close();

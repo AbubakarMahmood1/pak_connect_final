@@ -58,13 +58,13 @@ class ArchiveSearchIndexing {
   void _indexArchiveContent(ArchivedChat archive) {
     final contactTerms = _tokenizeText(archive.contactName);
     for (final term in contactTerms) {
-      _termIndex.putIfAbsent(term, () => {}).add(archive.id);
+      _termIndex.putIfAbsent(term, () => {}).add(archive.id.value);
     }
 
     for (final message in archive.messages) {
       final messageTerms = _tokenizeText(message.searchableText);
       for (final term in messageTerms) {
-        _termIndex.putIfAbsent(term, () => {}).add(archive.id);
+        _termIndex.putIfAbsent(term, () => {}).add(archive.id.value);
       }
     }
   }

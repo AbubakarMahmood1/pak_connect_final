@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 
 import '../bluetooth/bluetooth_state_monitor.dart';
@@ -7,6 +8,7 @@ import '../models/spy_mode_info.dart';
 import '../models/connection_info.dart';
 import '../models/ble_server_connection.dart';
 import '../models/protocol_message.dart';
+import 'i_ble_messaging_service.dart';
 
 /// Abstraction for the BLE connection layer exposed to Core/Presentation.
 ///
@@ -42,6 +44,22 @@ abstract interface class IConnectionService implements IMeshBleService {
   /// Currently connected peripheral when acting as a central.
   Peripheral? get connectedDevice;
 
+  /// Send binary/media payload; returns transferId for retry tracking.
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  });
+
+  /// Retry a previously persisted binary/media payload using the latest MTU.
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  });
+
   // ===== Bluetooth state =====
 
   /// Stream of adapter state changes (powered on/off etc.).
@@ -61,6 +79,9 @@ abstract interface class IConnectionService implements IMeshBleService {
 
   /// Stream of connection information updates.
   Stream<ConnectionInfo> get connectionInfo;
+
+  /// Binary/media payloads received for this node.
+  Stream<BinaryPayload> get receivedBinaryStream;
 
   // ===== Advertising / role management =====
 

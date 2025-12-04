@@ -5,13 +5,18 @@ import '../../core/interfaces/i_ble_message_handler_facade.dart';
 import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
+import '../../core/constants/binary_payload_types.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import 'message_fragmentation_handler.dart';
+import '../../core/interfaces/i_message_fragmentation_handler.dart';
 import 'protocol_message_handler.dart';
 import 'relay_coordinator.dart';
+import '../../domain/values/id_types.dart';
+import '../../core/services/security_manager.dart';
+import '../../data/repositories/contact_repository.dart';
 
 /// Public API facade for BLE message handling
 ///
@@ -46,8 +51,26 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   OfflineMessageQueue? _messageQueue;
   SpamPreventionManager? _spamPreventionManager;
   List<String> Function()? _nextHopsProvider;
+  Function(
+    Uint8List data,
+    int originalType,
+    String fragmentId,
+    int ttl,
+    String? recipient,
+    String? senderNodeId,
+  )?
+  _onBinaryPayloadReceived;
+  Function(
+    Uint8List data,
+    String fragmentId,
+    int index,
+    String fromDeviceId,
+    String fromNodeId,
+  )?
+  _onForwardBinaryFragment;
 
   bool _initialized = false;
+  final ContactRepository _contactRepository = ContactRepository();
 
   BLEMessageHandlerFacade({bool enableCleanupTimer = false})
     : _enableCleanupTimer = enableCleanupTimer;
@@ -83,6 +106,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     _ensureInitialized();
     _protocolHandler.setCurrentNodeId(nodeId);
     _relayCoordinator.setCurrentNodeId(nodeId);
+    _fragmentationHandler.setLocalNodeId(nodeId);
   }
 
   /// Configure sending callbacks supplied by the production adapter.
@@ -176,6 +200,35 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     if (_initialized) {
       _relayCoordinator.setNextHopsProvider(provider);
     }
+  }
+
+  @override
+  set onBinaryPayloadReceived(
+    Function(
+      Uint8List data,
+      int originalType,
+      String fragmentId,
+      int ttl,
+      String? recipient,
+      String? senderNodeId,
+    )?
+    callback,
+  ) {
+    _onBinaryPayloadReceived = callback;
+  }
+
+  @override
+  set onForwardBinaryFragment(
+    Function(
+      Uint8List data,
+      String fragmentId,
+      int index,
+      String fromDeviceId,
+      String fromNodeId,
+    )?
+    callback,
+  ) {
+    _onForwardBinaryFragment = callback;
   }
 
   /// Gets available next hop devices for relay
@@ -284,10 +337,9 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
         final messageId = fragmentResult!.substring(
           'REASSEMBLY_COMPLETE:'.length,
         );
-        final reassembledBytes = _fragmentationHandler
-            .takeReassembledMessageBytes(messageId);
+        final payload = _fragmentationHandler.takeReassembledPayload(messageId);
 
-        if (reassembledBytes == null) {
+        if (payload == null) {
           _logger.warning(
             '⚠️ Reassembly marker present but bytes missing for $messageId',
           );
@@ -295,7 +347,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
         }
 
         try {
-          final protocolMessage = ProtocolMessage.fromBytes(reassembledBytes);
+          final protocolMessage = ProtocolMessage.fromBytes(payload.bytes);
 
           // Mesh relay still routed through legacy handler (RelayCoordinator)
           if (protocolMessage.type == ProtocolMessageType.meshRelay) {
@@ -314,6 +366,98 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
         }
       }
 
+      if (fragmentResult?.startsWith('REASSEMBLY_COMPLETE_BIN:') ?? false) {
+        final parts = fragmentResult!.split(':');
+        if (parts.length >= 3) {
+          final msgId = parts[1];
+          final payload = _fragmentationHandler.takeReassembledPayload(msgId);
+          if (payload == null) {
+            _logger.warning(
+              '⚠️ Binary reassembly marker present but payload missing for $msgId',
+            );
+            return null;
+          }
+          _logger.fine(
+            '📦 Binary reassembly complete (type=${payload.originalType ?? -1}, size=${payload.bytes.length})',
+          );
+          if (payload.originalType == BinaryPayloadType.protocolMessage) {
+            try {
+              final protocolMessage = ProtocolMessage.fromBytes(payload.bytes);
+
+              if (protocolMessage.type == ProtocolMessageType.meshRelay) {
+                _logger.fine(
+                  '🔀 Binary mesh relay payload - coordinator handles forwarding',
+                );
+                return null;
+              }
+
+              return await _protocolHandler.processProtocolMessage(
+                message: protocolMessage,
+                fromDeviceId: fromDeviceId,
+                fromNodeId: fromNodeId,
+              );
+            } catch (e) {
+              _logger.warning(
+                'Failed to parse binary protocol message (${payload.originalType}): $e',
+              );
+              return null;
+            }
+          }
+
+          if (_onBinaryPayloadReceived != null &&
+              payload.originalType != null) {
+            Uint8List decrypted = payload.bytes;
+            if (fromNodeId.isNotEmpty) {
+              try {
+                decrypted = await SecurityManager.instance.decryptBinaryPayload(
+                  payload.bytes,
+                  fromNodeId,
+                  _contactRepository,
+                );
+              } catch (e) {
+                _logger.warning(
+                  '⚠️ Binary payload decrypt failed from $fromNodeId: $e',
+                );
+                decrypted = payload.bytes;
+              }
+            }
+            _onBinaryPayloadReceived!(
+              decrypted,
+              payload.originalType!,
+              msgId,
+              payload.ttl ?? 0,
+              payload.recipient,
+              fromNodeId.isNotEmpty ? fromNodeId : null,
+            );
+          }
+          return null;
+        }
+      }
+
+      if (fragmentResult?.startsWith('FORWARD_BIN:') ?? false) {
+        final parts = fragmentResult!.split(':');
+        if (parts.length >= 5) {
+          final fragmentId = parts[1];
+          final index = int.tryParse(parts[2]) ?? 0;
+          final fromDeviceId = parts[3];
+          final fromNodeId = parts[4];
+          final forwardBytes = _fragmentationHandler.takeForwardFragment(
+            fragmentId,
+            index,
+          );
+          if (forwardBytes != null && _onForwardBinaryFragment != null) {
+            _onForwardBinaryFragment!(
+              forwardBytes,
+              fragmentId,
+              index,
+              fromDeviceId,
+              fromNodeId,
+            );
+          }
+        }
+        return null;
+      }
+
       return fragmentResult;
     } catch (e) {
       _logger.severe('Error processing received data: $e');
@@ -324,7 +468,13 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   /// Retrieves reassembled message bytes produced during fragment processing.
   Uint8List? takeReassembledMessageBytes(String messageId) {
     _ensureInitialized();
-    return _fragmentationHandler.takeReassembledMessageBytes(messageId);
+    return _fragmentationHandler.takeReassembledPayload(messageId)?.bytes;
+  }
+
+  /// Retrieve fully reassembled binary payload for forwarding (MTU adaptation).
+  ForwardReassembledPayload? takeForwardReassembledPayload(String fragmentId) {
+    _ensureInitialized();
+    return _fragmentationHandler.takeForwardReassembledPayload(fragmentId);
   }
 
   /// Handles QR code introduction claim
@@ -465,6 +615,21 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     _ensureInitialized();
     if (callback != null) {
       _relayCoordinator.onRelayMessageReceived(callback);
+    }
+  }
+
+  @override
+  set onRelayMessageReceivedIds(
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    callback,
+  ) {
+    _ensureInitialized();
+    if (callback != null) {
+      _relayCoordinator.onRelayMessageReceivedIds(callback);
     }
   }
 

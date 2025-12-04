@@ -8,6 +8,7 @@ import '../../core/interfaces/i_group_repository.dart';
 import '../../core/interfaces/i_contact_repository.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../values/id_types.dart';
 
 /// Service for managing group messaging via secure multi-unicast
 ///
@@ -104,7 +105,7 @@ class GroupMessagingService {
         if (contact == null) {
           _logger.warning('  ⚠️ Member $memberKey not in contacts - skipping');
           await _updateStatus(
-            message.id,
+            MessageId(message.id),
             memberKey,
             MessageDeliveryStatus.failed,
           );
@@ -123,7 +124,11 @@ class GroupMessagingService {
         );
 
         // Update status to sent (queue will handle delivery)
-        await _updateStatus(message.id, memberKey, MessageDeliveryStatus.sent);
+        await _updateStatus(
+          MessageId(message.id),
+          memberKey,
+          MessageDeliveryStatus.sent,
+        );
 
         // Note: In future, we could track which messages were queued vs sent immediately
         // For now, we mark as "sent" once queued
@@ -134,7 +139,7 @@ class GroupMessagingService {
       } catch (e) {
         _logger.warning('  ❌ Failed to send to $memberKey: $e');
         await _updateStatus(
-          message.id,
+          MessageId(message.id),
           memberKey,
           MessageDeliveryStatus.failed,
         );
@@ -149,12 +154,12 @@ class GroupMessagingService {
 
   /// Update delivery status for a member
   Future<void> _updateStatus(
-    String messageId,
+    MessageId messageId,
     String memberKey,
     MessageDeliveryStatus status,
   ) async {
     try {
-      await _groupRepo.updateDeliveryStatus(messageId, memberKey, status);
+      await _groupRepo.updateDeliveryStatus(messageId.value, memberKey, status);
     } catch (e) {
       _logger.warning('Failed to update delivery status: $e');
       // Non-critical - don't rethrow
@@ -170,31 +175,37 @@ class GroupMessagingService {
   }
 
   /// Get a specific message with current delivery status
-  Future<GroupMessage?> getMessage(String messageId) async {
-    return await _groupRepo.getMessage(messageId);
+  Future<GroupMessage?> getMessage(MessageId messageId) async {
+    return await _groupRepo.getMessage(messageId.value);
   }
 
   /// Mark message as delivered for a specific member
   ///
   /// Called when delivery receipt is received (future enhancement).
-  Future<void> markDelivered(String messageId, String memberKey) async {
-    _logger.info('✅ Message $messageId delivered to $memberKey');
+  Future<void> markDelivered(MessageId messageId, String memberKey) async {
+    _logger.info('✅ Message ${messageId.value} delivered to $memberKey');
     await _updateStatus(messageId, memberKey, MessageDeliveryStatus.delivered);
   }
+
+  Future<void> markDeliveredForMember(MessageId messageId, ChatId memberId) =>
+      markDelivered(messageId, memberId.value);
 
   /// Mark message as failed for a specific member
   ///
   /// Called when send permanently fails (no session, max retries exceeded, etc.)
-  Future<void> markFailed(String messageId, String memberKey) async {
-    _logger.warning('❌ Message $messageId failed for $memberKey');
+  Future<void> markFailed(MessageId messageId, String memberKey) async {
+    _logger.warning('❌ Message ${messageId.value} failed for $memberKey');
     await _updateStatus(messageId, memberKey, MessageDeliveryStatus.failed);
   }
+
+  Future<void> markFailedForMember(MessageId messageId, ChatId memberId) =>
+      markFailed(messageId, memberId.value);
 
   /// Get delivery summary for a message
   ///
   /// Returns counts of messages in each status.
   Future<Map<MessageDeliveryStatus, int>> getDeliverySummary(
-    String messageId,
+    MessageId messageId,
   ) async {
     final message = await getMessage(messageId);
     if (message == null) {

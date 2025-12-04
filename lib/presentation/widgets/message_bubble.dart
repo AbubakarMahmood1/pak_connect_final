@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/entities/enhanced_message.dart';
 import 'message_context_menu.dart';
 import 'delete_confirmation_dialog.dart';
 
@@ -11,7 +13,7 @@ class MessageBubble extends StatelessWidget {
   final String? searchQuery;
   final VoidCallback? onLongPress;
   final VoidCallback? onRetry;
-  final Function(String messageId, bool deleteForEveryone)? onDelete;
+  final Function(MessageId messageId, bool deleteForEveryone)? onDelete;
 
   const MessageBubble({
     super.key,
@@ -27,6 +29,9 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFromMe = message.isFromMe;
+    final attachments = message is EnhancedMessage
+        ? (message as EnhancedMessage).attachments
+        : const <MessageAttachment>[];
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 2, horizontal: 12),
@@ -85,6 +90,10 @@ class MessageBubble extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (attachments.isNotEmpty) ...[
+                      _buildAttachments(context, attachments, isFromMe),
+                      SizedBox(height: 6),
+                    ],
                     _buildMessageText(context, isFromMe),
                     SizedBox(height: 4),
                     Row(
@@ -124,6 +133,81 @@ class MessageBubble extends StatelessWidget {
           if (isFromMe) SizedBox(width: 8),
         ],
       ),
+    );
+  }
+
+  Widget _buildAttachments(
+    BuildContext context,
+    List<MessageAttachment> attachments,
+    bool isFromMe,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: attachments
+          .map(
+            (attachment) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.insert_drive_file,
+                    size: 18,
+                    color: isFromMe
+                        ? Theme.of(context).colorScheme.onPrimary
+                        : Theme.of(context).colorScheme.primary,
+                  ),
+                  SizedBox(width: 8),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          attachment.name,
+                          style: TextStyle(
+                            color: isFromMe
+                                ? Theme.of(context).colorScheme.onPrimary
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          '${(attachment.size / 1024).toStringAsFixed(1)} KB • ${attachment.type}',
+                          style: TextStyle(
+                            color: isFromMe
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.onPrimary.withValues(alpha: 0.8)
+                                : Theme.of(context).colorScheme.onSurfaceVariant
+                                      .withValues(alpha: 0.8),
+                            fontSize: 12,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isFromMe && onRetry != null) ...[
+                    SizedBox(width: 8),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        foregroundColor: isFromMe
+                            ? Theme.of(context).colorScheme.onPrimary
+                            : Theme.of(context).colorScheme.primary,
+                      ),
+                      onPressed: onRetry,
+                      child: Text('Retry'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 

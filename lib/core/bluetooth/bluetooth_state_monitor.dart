@@ -14,11 +14,9 @@ class BluetoothStateMonitor {
   Timer? _retryTimer;
   Timer? _permissionTimer;
 
-  // Stream controllers
-  final StreamController<BluetoothStateInfo> _stateController =
-      StreamController<BluetoothStateInfo>.broadcast();
-  final StreamController<BluetoothStatusMessage> _messageController =
-      StreamController<BluetoothStatusMessage>.broadcast();
+  // Listener sets (replaces manual controllers)
+  final Set<void Function(BluetoothStateInfo)> _stateListeners = {};
+  final Set<void Function(BluetoothStatusMessage)> _messageListeners = {};
 
   // Callbacks
   VoidCallback? _onBluetoothReady;
@@ -40,10 +38,39 @@ class BluetoothStateMonitor {
   }
 
   /// Stream of Bluetooth state information
-  Stream<BluetoothStateInfo> get stateStream => _stateController.stream;
+  Stream<BluetoothStateInfo> get stateStream =>
+      Stream<BluetoothStateInfo>.multi((controller) {
+        controller.add(
+          BluetoothStateInfo(
+            state: _currentState,
+            previousState: null,
+            isReady: isBluetoothReady,
+            timestamp: DateTime.now(),
+          ),
+        );
+
+        void listener(BluetoothStateInfo info) {
+          controller.add(info);
+        }
+
+        _stateListeners.add(listener);
+        controller.onCancel = () {
+          _stateListeners.remove(listener);
+        };
+      });
 
   /// Stream of user-friendly status messages
-  Stream<BluetoothStatusMessage> get messageStream => _messageController.stream;
+  Stream<BluetoothStatusMessage> get messageStream =>
+      Stream<BluetoothStatusMessage>.multi((controller) {
+        void listener(BluetoothStatusMessage message) {
+          controller.add(message);
+        }
+
+        _messageListeners.add(listener);
+        controller.onCancel = () {
+          _messageListeners.remove(listener);
+        };
+      });
 
   /// Current Bluetooth state
   BluetoothLowEnergyState get currentState => _currentState;
@@ -377,16 +404,32 @@ class BluetoothStateMonitor {
 
   /// Emit state information
   void _emitStateInfo(BluetoothStateInfo info) {
-    if (!_stateController.isClosed) {
-      _stateController.add(info);
+    for (final listener in List.of(_stateListeners)) {
+      try {
+        listener(info);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying Bluetooth state listener: $e',
+          e,
+          stackTrace,
+        );
+      }
     }
   }
 
   /// Emit status message
   void _emitMessage(BluetoothStatusMessage message) {
     _logger.info('📢 Status message: ${message.message}');
-    if (!_messageController.isClosed) {
-      _messageController.add(message);
+    for (final listener in List.of(_messageListeners)) {
+      try {
+        listener(message);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying Bluetooth message listener: $e',
+          e,
+          stackTrace,
+        );
+      }
     }
   }
 
@@ -417,8 +460,8 @@ class BluetoothStateMonitor {
     _logger.info('Disposing Bluetooth state monitor...');
 
     _cancelTimers();
-    _stateController.close();
-    _messageController.close();
+    _stateListeners.clear();
+    _messageListeners.clear();
     _isInitialized = false;
   }
 }

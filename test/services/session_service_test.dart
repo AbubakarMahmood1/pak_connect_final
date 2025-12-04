@@ -1,14 +1,21 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/session_service.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:mockito/mockito.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('SessionService', () {
     late SessionService sessionService;
     late MockContactRepository mockContactRepository;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       mockContactRepository = MockContactRepository();
       sessionService = SessionService(
         contactRepository: mockContactRepository,
@@ -16,6 +23,22 @@ void main() {
         getMyPersistentId: () async => 'my_id_123',
         getTheirPersistentKey: () => 'their_persistent_key_123',
         getTheirEphemeralId: () => 'their_ephemeral_id',
+      );
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
       );
     });
 

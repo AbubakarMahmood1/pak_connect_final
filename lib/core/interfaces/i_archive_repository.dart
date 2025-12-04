@@ -1,5 +1,6 @@
 import '../../core/models/archive_models.dart';
 import '../../domain/entities/archived_chat.dart';
+import '../../domain/values/id_types.dart';
 
 /// Interface for archive repository operations
 ///
@@ -20,7 +21,7 @@ abstract class IArchiveRepository {
   });
 
   /// Restore a chat from archives
-  Future<ArchiveOperationResult> restoreChat(String archiveId);
+  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId);
 
   /// Get count of archived chats
   Future<int> getArchivedChatsCount();
@@ -36,7 +37,7 @@ abstract class IArchiveRepository {
   Future<ArchivedChatSummary?> getArchivedChatByOriginalId(String chatId);
 
   /// Get a specific archived chat (full details)
-  Future<ArchivedChat?> getArchivedChat(String archiveId);
+  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId);
 
   /// Search archived messages
   Future<ArchiveSearchResult> searchArchives({
@@ -47,7 +48,7 @@ abstract class IArchiveRepository {
   });
 
   /// Permanently delete an archive
-  Future<void> permanentlyDeleteArchive(String archivedChatId);
+  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId);
 
   /// Get archive statistics
   Future<ArchiveStatistics?> getArchiveStatistics();

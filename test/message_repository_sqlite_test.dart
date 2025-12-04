@@ -1,11 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
+ChatId _cid(String value) => ChatId(value);
+MessageId _mid(String value) => MessageId(value);
+UserId _uid(String value) => UserId(value);
+
 void main() {
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
+
   // Initialize test environment
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
@@ -15,7 +24,41 @@ void main() {
 
   // Reset database before each test
   setUp(() async {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.fullDatabaseReset();
+  });
+
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+  tearDown(() {
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
   });
 
   // Helper method to create a chat (required due to foreign key constraint)
@@ -39,8 +82,8 @@ void main() {
       await createChat('chat_001');
 
       final message = Message(
-        id: 'msg_001',
-        chatId: 'chat_001',
+        id: _mid('msg_001'),
+        chatId: _cid('chat_001'),
         content: 'Hello, World!',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -49,9 +92,9 @@ void main() {
 
       await repository.saveMessage(message);
 
-      final messages = await repository.getMessages('chat_001');
+      final messages = await repository.getMessages(_cid('chat_001'));
       expect(messages.length, 1);
-      expect(messages.first.id, 'msg_001');
+      expect(messages.first.id.value, 'msg_001');
       expect(messages.first.content, 'Hello, World!');
       expect(messages.first.isFromMe, true);
       expect(messages.first.status, MessageStatus.sent);
@@ -64,13 +107,13 @@ void main() {
       await createChat('chat_001');
 
       final enhancedMessage = EnhancedMessage(
-        id: 'msg_002',
-        chatId: 'chat_001',
+        id: _mid('msg_002'),
+        chatId: _cid('chat_001'),
         content: 'Enhanced message',
         timestamp: DateTime.now(),
         isFromMe: false,
         status: MessageStatus.delivered,
-        replyToMessageId: 'msg_001',
+        replyToMessageId: _mid('msg_001'),
         threadId: 'thread_001',
         isStarred: true,
         isForwarded: false,
@@ -91,7 +134,7 @@ void main() {
         reactions: [
           MessageReaction(
             emoji: '👍',
-            userId: 'user_001',
+            userId: _uid('user_001'),
             reactedAt: DateTime.now(),
           ),
         ],
@@ -117,13 +160,13 @@ void main() {
 
       await repository.saveMessage(enhancedMessage);
 
-      final messages = await repository.getMessages('chat_001');
+      final messages = await repository.getMessages(_cid('chat_001'));
       expect(messages.length, 1);
 
       final retrieved = messages.first as EnhancedMessage;
-      expect(retrieved.id, 'msg_002');
+      expect(retrieved.id.value, 'msg_002');
       expect(retrieved.content, 'Enhanced message');
-      expect(retrieved.replyToMessageId, 'msg_001');
+      expect(retrieved.replyToMessageId?.value, 'msg_001');
       expect(retrieved.threadId, 'thread_001');
       expect(retrieved.isStarred, true);
       expect(retrieved.isForwarded, false);
@@ -149,8 +192,8 @@ void main() {
 
         final now = DateTime.now();
         final message1 = Message(
-          id: 'msg_001',
-          chatId: 'chat_001',
+          id: _mid('msg_001'),
+          chatId: _cid('chat_001'),
           content: 'First',
           timestamp: now.subtract(const Duration(hours: 2)),
           isFromMe: true,
@@ -158,8 +201,8 @@ void main() {
         );
 
         final message2 = Message(
-          id: 'msg_002',
-          chatId: 'chat_001',
+          id: _mid('msg_002'),
+          chatId: _cid('chat_001'),
           content: 'Second',
           timestamp: now.subtract(const Duration(hours: 1)),
           isFromMe: false,
@@ -167,8 +210,8 @@ void main() {
         );
 
         final message3 = Message(
-          id: 'msg_003',
-          chatId: 'chat_001',
+          id: _mid('msg_003'),
+          chatId: _cid('chat_001'),
           content: 'Third',
           timestamp: now,
           isFromMe: true,
@@ -180,7 +223,7 @@ void main() {
         await repository.saveMessage(message3);
         await repository.saveMessage(message1);
 
-        final messages = await repository.getMessages('chat_001');
+        final messages = await repository.getMessages(_cid('chat_001'));
         expect(messages.length, 3);
         expect(messages[0].content, 'First');
         expect(messages[1].content, 'Second');
@@ -195,8 +238,8 @@ void main() {
       await createChat('chat_001');
 
       final message = Message(
-        id: 'msg_001',
-        chatId: 'chat_001',
+        id: _mid('msg_001'),
+        chatId: _cid('chat_001'),
         content: 'Original content',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -208,7 +251,7 @@ void main() {
       final updatedMessage = message.copyWith(status: MessageStatus.delivered);
       await repository.updateMessage(updatedMessage);
 
-      final messages = await repository.getMessages('chat_001');
+      final messages = await repository.getMessages(_cid('chat_001'));
       expect(messages.length, 1);
       expect(messages.first.status, MessageStatus.delivered);
     });
@@ -220,8 +263,8 @@ void main() {
       await createChat('chat_001');
 
       final message = EnhancedMessage(
-        id: 'msg_001',
-        chatId: 'chat_001',
+        id: _mid('msg_001'),
+        chatId: _cid('chat_001'),
         content: 'Message with reactions',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -234,7 +277,7 @@ void main() {
         reactions: [
           MessageReaction(
             emoji: '❤️',
-            userId: 'user_001',
+            userId: _uid('user_001'),
             reactedAt: DateTime.now(),
           ),
         ],
@@ -242,7 +285,7 @@ void main() {
 
       await repository.updateMessage(updatedMessage);
 
-      final messages = await repository.getMessages('chat_001');
+      final messages = await repository.getMessages(_cid('chat_001'));
       expect(messages.length, 1);
       final retrieved = messages.first as EnhancedMessage;
       expect(retrieved.reactions.length, 1);
@@ -256,8 +299,8 @@ void main() {
       await createChat('chat_001');
 
       final message = Message(
-        id: 'msg_001',
-        chatId: 'chat_001',
+        id: _mid('msg_001'),
+        chatId: _cid('chat_001'),
         content: 'To be deleted',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -265,16 +308,16 @@ void main() {
       );
 
       await repository.saveMessage(message);
-      expect(await repository.getMessages('chat_001'), hasLength(1));
+      expect(await repository.getMessages(_cid('chat_001')), hasLength(1));
 
-      final deleted = await repository.deleteMessage('msg_001');
+      final deleted = await repository.deleteMessage(_mid('msg_001'));
       expect(deleted, true);
-      expect(await repository.getMessages('chat_001'), isEmpty);
+      expect(await repository.getMessages(_cid('chat_001')), isEmpty);
     });
 
     test('Delete non-existent message returns false', () async {
       final repository = MessageRepository();
-      final deleted = await repository.deleteMessage('non_existent');
+      final deleted = await repository.deleteMessage(MessageId('non_existent'));
       expect(deleted, false);
     });
 
@@ -288,8 +331,8 @@ void main() {
       // Add messages to two different chats
       await repository.saveMessage(
         Message(
-          id: 'msg_001',
-          chatId: 'chat_001',
+          id: _mid('msg_001'),
+          chatId: _cid('chat_001'),
           content: 'Chat 1 Message 1',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -299,8 +342,8 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_002',
-          chatId: 'chat_001',
+          id: _mid('msg_002'),
+          chatId: _cid('chat_001'),
           content: 'Chat 1 Message 2',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -310,8 +353,8 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_003',
-          chatId: 'chat_002',
+          id: _mid('msg_003'),
+          chatId: _cid('chat_002'),
           content: 'Chat 2 Message 1',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -320,10 +363,10 @@ void main() {
       );
 
       // Clear chat_001
-      await repository.clearMessages('chat_001');
+      await repository.clearMessages(_cid('chat_001'));
 
-      expect(await repository.getMessages('chat_001'), isEmpty);
-      expect(await repository.getMessages('chat_002'), hasLength(1));
+      expect(await repository.getMessages(_cid('chat_001')), isEmpty);
+      expect(await repository.getMessages(_cid('chat_002')), hasLength(1));
     });
 
     test('Get all messages', () async {
@@ -335,8 +378,8 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_001',
-          chatId: 'chat_001',
+          id: _mid('msg_001'),
+          chatId: _cid('chat_001'),
           content: 'Chat 1',
           timestamp: DateTime.now().subtract(const Duration(hours: 1)),
           isFromMe: true,
@@ -346,8 +389,8 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_002',
-          chatId: 'chat_002',
+          id: _mid('msg_002'),
+          chatId: _cid('chat_002'),
           content: 'Chat 2',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -370,8 +413,8 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_001',
-          chatId: 'public_key_001',
+          id: _mid('msg_001'),
+          chatId: _cid('public_key_001'),
           content: 'Message 1',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -381,8 +424,8 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_002',
-          chatId: 'public_key_002',
+          id: _mid('msg_002'),
+          chatId: _cid('public_key_002'),
           content: 'Message 2',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -397,7 +440,7 @@ void main() {
 
     test('Get messages for non-existent chat returns empty list', () async {
       final repository = MessageRepository();
-      final messages = await repository.getMessages('non_existent_chat');
+      final messages = await repository.getMessages(_cid('non_existent_chat'));
       expect(messages, isEmpty);
     });
 
@@ -410,8 +453,8 @@ void main() {
       // Create EnhancedMessage with just one enhanced field set (isStarred)
       // This ensures it's saved and retrieved as EnhancedMessage
       final enhancedMessage = EnhancedMessage(
-        id: 'msg_001',
-        chatId: 'chat_001',
+        id: _mid('msg_001'),
+        chatId: _cid('chat_001'),
         content: 'Starred message',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -421,7 +464,7 @@ void main() {
 
       await repository.saveMessage(enhancedMessage);
 
-      final messages = await repository.getMessages('chat_001');
+      final messages = await repository.getMessages(_cid('chat_001'));
       expect(messages.length, 1);
 
       final retrieved = messages.first as EnhancedMessage;
@@ -443,8 +486,8 @@ void main() {
       await createChat('chat_001');
 
       final message = Message(
-        id: 'msg_001',
-        chatId: 'chat_001',
+        id: _mid('msg_001'),
+        chatId: _cid('chat_001'),
         content: 'Original',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -460,7 +503,7 @@ void main() {
       await repository.updateMessage(updatedMessage);
 
       // The update should preserve the original created_at
-      final messages = await repository.getMessages('chat_001');
+      final messages = await repository.getMessages(_cid('chat_001'));
       expect(messages.length, 1);
       expect(messages.first.status, MessageStatus.delivered);
     });
@@ -476,8 +519,8 @@ void main() {
       // Add messages to different chats
       await repository.saveMessage(
         Message(
-          id: 'msg_001',
-          chatId: 'chat_001',
+          id: _mid('msg_001'),
+          chatId: _cid('chat_001'),
           content: 'Chat 1',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -487,8 +530,8 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_002',
-          chatId: 'chat_002',
+          id: _mid('msg_002'),
+          chatId: _cid('chat_002'),
           content: 'Chat 2',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -498,8 +541,8 @@ void main() {
 
       await repository.saveMessage(
         Message(
-          id: 'msg_003',
-          chatId: 'chat_003',
+          id: _mid('msg_003'),
+          chatId: _cid('chat_003'),
           content: 'Chat 3',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -508,20 +551,20 @@ void main() {
       );
 
       // Verify each chat has only its messages
-      expect(await repository.getMessages('chat_001'), hasLength(1));
-      expect(await repository.getMessages('chat_002'), hasLength(1));
-      expect(await repository.getMessages('chat_003'), hasLength(1));
+      expect(await repository.getMessages(_cid('chat_001')), hasLength(1));
+      expect(await repository.getMessages(_cid('chat_002')), hasLength(1));
+      expect(await repository.getMessages(_cid('chat_003')), hasLength(1));
 
       expect(
-        (await repository.getMessages('chat_001')).first.content,
+        (await repository.getMessages(_cid('chat_001'))).first.content,
         'Chat 1',
       );
       expect(
-        (await repository.getMessages('chat_002')).first.content,
+        (await repository.getMessages(_cid('chat_002'))).first.content,
         'Chat 2',
       );
       expect(
-        (await repository.getMessages('chat_003')).first.content,
+        (await repository.getMessages(_cid('chat_003'))).first.content,
         'Chat 3',
       );
     });

@@ -1,12 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/archive_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/core/models/archive_models.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  late List<LogRecord> logRecords;
+  late Set<String> allowedSevere;
+
   // Initialize test environment and clean database from previous runs
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
@@ -17,7 +22,27 @@ void main() {
 
   // Reset database before each test
   setUp(() async {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.fullDatabaseReset();
+  });
+
+  tearDown(() {
+    final severeErrors = logRecords
+        .where((log) => log.level >= Level.SEVERE)
+        .where(
+          (log) =>
+              !allowedSevere.any((pattern) => log.message.contains(pattern)),
+        )
+        .toList();
+    expect(
+      severeErrors,
+      isEmpty,
+      reason:
+          'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
   });
 
   // Helper method to create a chat with messages
@@ -41,8 +66,8 @@ void main() {
     final messageRepo = MessageRepository();
     for (int i = 0; i < messageCount; i++) {
       final message = Message(
-        id: 'msg_${chatId}_$i',
-        chatId: chatId,
+        id: MessageId('msg_${chatId}_$i'),
+        chatId: ChatId(chatId),
         content: 'Test message $i for $contactName',
         timestamp: DateTime.now().subtract(Duration(hours: messageCount - i)),
         isFromMe: i % 2 == 0,
@@ -53,7 +78,7 @@ void main() {
   }
 
   // Helper method to create an archive directly in database (bypasses FlutterSecureStorage issues)
-  Future<String> createArchiveDirectly(
+  Future<ArchiveId> createArchiveDirectly(
     String chatId,
     String contactName,
     int messageCount,
@@ -61,11 +86,11 @@ void main() {
     final db = await DatabaseHelper.database;
     final now = DateTime.now();
     final timestamp = now.millisecondsSinceEpoch;
-    final archiveId = 'archive_${chatId}_$timestamp';
+    final archiveId = ArchiveId('archive_${chatId}_$timestamp');
 
     // Insert archive
     await db.insert('archived_chats', {
-      'archive_id': archiveId,
+      'archive_id': archiveId.value,
       'original_chat_id': chatId,
       'contact_name': contactName,
       'contact_public_key': 'test_public_key',
@@ -86,7 +111,7 @@ void main() {
       final msgTime = now.subtract(Duration(hours: messageCount - i));
       await db.insert('archived_messages', {
         'id': 'archived_msg_${timestamp}_${chatId}_$i',
-        'archive_id': archiveId,
+        'archive_id': archiveId.value,
         'original_message_id': 'msg_${chatId}_$i',
         'chat_id': chatId,
         'content': 'Test message $i for $contactName',
@@ -141,7 +166,7 @@ void main() {
         'Charlie',
         0,
       ); // Create empty chat
-      final clearedMessages = await messageRepo.getMessages('chat_003');
+      final clearedMessages = await messageRepo.getMessages(ChatId('chat_003'));
       expect(clearedMessages.isEmpty, true);
 
       // Restore the archive
@@ -151,7 +176,9 @@ void main() {
       expect(restoreResult.metadata?['restoredMessages'], 3);
 
       // Verify messages were restored
-      final restoredMessages = await messageRepo.getMessages('chat_003');
+      final restoredMessages = await messageRepo.getMessages(
+        ChatId('chat_003'),
+      );
       expect(restoredMessages.length, 3);
     });
 
@@ -159,7 +186,9 @@ void main() {
       final repository = ArchiveRepository();
       await repository.initialize();
 
-      final result = await repository.restoreChat('non_existent_archive');
+      final result = await repository.restoreChat(
+        ArchiveId('non_existent_archive'),
+      );
 
       expect(result.success, false);
       expect(result.message, contains('not found'));
@@ -371,7 +400,7 @@ void main() {
       final messagesBefore = await db.query(
         'archived_messages',
         where: 'archive_id = ?',
-        whereArgs: [archiveId],
+        whereArgs: [archiveId.value],
       );
       expect(messagesBefore.length, 5);
 
@@ -382,7 +411,7 @@ void main() {
       final messagesAfter = await db.query(
         'archived_messages',
         where: 'archive_id = ?',
-        whereArgs: [archiveId],
+        whereArgs: [archiveId.value],
       );
       expect(messagesAfter.isEmpty, true);
     });
@@ -392,7 +421,7 @@ void main() {
       await repository.initialize();
 
       final result = await repository.permanentlyDeleteArchive(
-        'non_existent_archive',
+        ArchiveId('non_existent_archive'),
       );
 
       expect(result.success, false);
@@ -493,9 +522,11 @@ void main() {
       final db = await DatabaseHelper.database;
       final now = DateTime.now();
 
-      final archiveId1 = 'archive_chat_026_${now.millisecondsSinceEpoch}';
+      final archiveId1 = ArchiveId(
+        'archive_chat_026_${now.millisecondsSinceEpoch}',
+      );
       await db.insert('archived_chats', {
-        'archive_id': archiveId1,
+        'archive_id': archiveId1.value,
         'original_chat_id': 'chat_026',
         'contact_name': 'Alice',
         'contact_public_key': 'test_key',
@@ -513,7 +544,7 @@ void main() {
 
       await db.insert('archived_messages', {
         'id': 'archived_msg_026',
-        'archive_id': archiveId1,
+        'archive_id': archiveId1.value,
         'original_message_id': 'msg_026',
         'chat_id': 'chat_026',
         'content': 'I love apple pie',
@@ -531,9 +562,11 @@ void main() {
       });
 
       // Create second archive with "banana" keyword
-      final archiveId2 = 'archive_chat_027_${now.millisecondsSinceEpoch + 1}';
+      final archiveId2 = ArchiveId(
+        'archive_chat_027_${now.millisecondsSinceEpoch + 1}',
+      );
       await db.insert('archived_chats', {
-        'archive_id': archiveId2,
+        'archive_id': archiveId2.value,
         'original_chat_id': 'chat_027',
         'contact_name': 'Bob',
         'contact_public_key': 'test_key',
@@ -551,7 +584,7 @@ void main() {
 
       await db.insert('archived_messages', {
         'id': 'archived_msg_027',
-        'archive_id': archiveId2,
+        'archive_id': archiveId2.value,
         'original_message_id': 'msg_027',
         'chat_id': 'chat_027',
         'content': 'I prefer banana bread',

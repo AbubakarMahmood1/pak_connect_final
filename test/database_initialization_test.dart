@@ -1,11 +1,15 @@
 // Test database initialization and schema creation
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   // Initialize test environment
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
@@ -14,8 +18,27 @@ void main() {
   });
 
   setUp(() async {
+    logRecords.clear();
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     // Clean database before each test to avoid constraint violations
     await TestSetup.fullDatabaseReset();
+  });
+
+  tearDown(() {
+    final severeErrors = logRecords
+        .where((log) => log.level >= Level.SEVERE)
+        .where(
+          (log) =>
+              !allowedSevere.any((pattern) => log.message.contains(pattern)),
+        )
+        .toList();
+    expect(
+      severeErrors,
+      isEmpty,
+      reason:
+          'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
   });
 
   tearDownAll(() async {

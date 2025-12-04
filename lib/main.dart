@@ -9,6 +9,7 @@ import 'package:logging/logging.dart';
 import 'core/app_core.dart';
 import 'core/utils/app_logger.dart';
 import 'core/services/navigation_service.dart';
+import 'domain/values/id_types.dart';
 import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
 import 'presentation/screens/home_screen.dart';
@@ -115,11 +116,11 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
         // 🧭 Register navigation callbacks (fix Core → Presentation layer violation)
         NavigationService.setChatScreenBuilder(
           ({
-            required String chatId,
+            required ChatId chatId,
             required String contactName,
             required String contactPublicKey,
           }) => ChatScreen.fromChatData(
-            chatId: chatId,
+            chatId: chatId.value,
             contactName: contactName,
             contactPublicKey: contactPublicKey,
           ),

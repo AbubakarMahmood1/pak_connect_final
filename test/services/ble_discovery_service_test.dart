@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -19,10 +20,16 @@ void main() {
   late MockCentralManager mockCentralManager;
   late MockIBLEStateManagerFacade mockStateManager;
   late MockHintScannerService mockHintScanner;
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
 
   Map<String, dynamic> connectionInfoUpdates = {};
 
   setUp(() {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     mockCentralManager = MockCentralManager();
     mockStateManager = MockIBLEStateManagerFacade();
     mockHintScanner = MockHintScannerService();
@@ -51,6 +58,36 @@ void main() {
       isAdvertising: () => false,
       isConnected: () => false,
     );
+  });
+
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+  tearDown(() {
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
   });
 
   group('BLEDiscoveryService', () {

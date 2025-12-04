@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:bluetooth_low_energy_platform_interface/bluetooth_low_energy_platform_interface.dart';
 import 'package:mockito/mockito.dart';
@@ -28,6 +29,8 @@ void main() {
     late _StubMessagingService messagingStub;
     late _StubAdvertisingService advertisingStub;
     late _StubHandshakeService handshakeStub;
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
 
     setUpAll(() async {
       await TestSetup.initializeTestEnvironment(dbLabel: 'ble_service_facade');
@@ -39,6 +42,11 @@ void main() {
     });
 
     setUp(() {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+
       messagingStub = _StubMessagingService();
       advertisingStub = _StubAdvertisingService();
       handshakeStub = _StubHandshakeService();
@@ -50,10 +58,38 @@ void main() {
       );
     });
 
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
     tearDown(() {
       facade.dispose();
       messagingStub.dispose();
       handshakeStub.dispose();
+
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
     });
 
     // ========================================================================
@@ -990,6 +1026,7 @@ void main() {
 
 final class _StubMessagingService implements IBLEMessagingService {
   final _messagesController = StreamController<String>.broadcast();
+  final _binaryController = StreamController<BinaryPayload>.broadcast();
   String? _lastMessageId;
 
   @override
@@ -1033,6 +1070,25 @@ final class _StubMessagingService implements IBLEMessagingService {
   Stream<String> get receivedMessagesStream => _messagesController.stream;
 
   @override
+  Stream<BinaryPayload> get receivedBinaryStream => _binaryController.stream;
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'transfer-$recipientId';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
+
+  @override
   String? get lastExtractedMessageId => _lastMessageId;
 
   @override
@@ -1042,6 +1098,7 @@ final class _StubMessagingService implements IBLEMessagingService {
 
   void dispose() {
     _messagesController.close();
+    _binaryController.close();
   }
 }
 
@@ -1135,6 +1192,13 @@ final class _StubHandshakeService implements IBLEHandshakeService {
 
   @override
   Stream<String> get identityRevealedStream => _identityController.stream;
+
+  @override
+  void emitSpyModeDetected(SpyModeInfo info) => _spyModeController.add(info);
+
+  @override
+  void emitIdentityRevealed(String contactId) =>
+      _identityController.add(contactId);
 
   @override
   Stream<ConnectionPhase> get handshakePhaseStream => _phaseController.stream;

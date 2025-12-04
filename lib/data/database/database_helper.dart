@@ -533,12 +533,12 @@ class DatabaseHelper {
 
     // Migration from version 1 to 2: Add chat_id to archived_messages
     if (oldVersion < 2) {
-      // Create temp table with new schema
+      // Create temp table with new schema (matching ArchiveDbUtilities)
       await db.execute('''
         CREATE TABLE archived_messages_new (
           id TEXT PRIMARY KEY,
           archive_id TEXT NOT NULL,
-          original_message_id TEXT NOT NULL,
+          original_message_id TEXT,
           chat_id TEXT NOT NULL DEFAULT '',
           content TEXT NOT NULL,
           timestamp INTEGER NOT NULL,
@@ -548,7 +548,7 @@ class DatabaseHelper {
           thread_id TEXT,
           is_starred INTEGER DEFAULT 0,
           is_forwarded INTEGER DEFAULT 0,
-          priority INTEGER DEFAULT 1,
+          priority INTEGER DEFAULT 0,
           edited_at INTEGER,
           original_content TEXT,
           has_media INTEGER DEFAULT 0,

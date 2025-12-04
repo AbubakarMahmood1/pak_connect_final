@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/security/noise/noise_session.dart';
 
 void main() {
@@ -9,8 +10,13 @@ void main() {
     late Uint8List aliceStaticPublic;
     late Uint8List bobStaticPrivate;
     late Uint8List bobStaticPublic;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       // Alice static key pair (hex from previous tests)
       aliceStaticPrivate = Uint8List.fromList([
         0x77,
@@ -150,6 +156,29 @@ void main() {
         0x2b,
         0x4f,
       ]);
+    });
+
+    tearDown(() {
+      // Allow SEVERE logs from intentional error-handling tests
+      allowedSevere.addAll([
+        'Invalid message size',
+        'State mismatch',
+        'Initiator must call startHandshake',
+        'Invalid argument',
+      ]);
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('creates initiator session', () {
@@ -336,8 +365,11 @@ void main() {
       // First decryption should work
       expect(await bob.decrypt(encrypted), equals(msg));
 
-      // Replay should fail
-      expect(() async => await bob.decrypt(encrypted), throwsA(anything));
+      // Replay should fail (nonce replay protection)
+      expect(
+        () async => await bob.decrypt(encrypted),
+        throwsA(isA<Exception>()),
+      );
 
       alice.destroy();
       bob.destroy();
@@ -395,17 +427,17 @@ void main() {
       final validResponse = await bob.processHandshakeMessage(messageA);
       expect(validResponse, isNotNull);
 
-      // Test: Bob receives truncated message A
+      // Test: Bob receives truncated message A (invalid argument)
       expect(
         () async =>
             await bob.processHandshakeMessage(Uint8List.fromList([1, 2, 3])),
-        throwsA(anything),
+        throwsA(isA<ArgumentError>()),
       );
 
-      // Test: Bob receives oversized message A
+      // Test: Bob receives oversized message A (invalid argument)
       expect(
         () async => await bob.processHandshakeMessage(Uint8List(100)),
-        throwsA(anything),
+        throwsA(isA<ArgumentError>()),
       );
 
       alice.destroy();
@@ -551,7 +583,10 @@ void main() {
       corrupted[encrypted.length ~/ 2] ^= 0xFF;
 
       // Decryption should fail (MAC verification)
-      expect(() async => await bob.decrypt(corrupted), throwsA(anything));
+      expect(
+        () async => await bob.decrypt(corrupted),
+        throwsA(isA<Exception>()),
+      );
 
       alice.destroy();
       bob.destroy();
@@ -586,7 +621,10 @@ void main() {
       corrupted[0] ^= 0xFF;
 
       // Decryption should fail (MAC verification with wrong nonce)
-      expect(() async => await bob.decrypt(corrupted), throwsA(anything));
+      expect(
+        () async => await bob.decrypt(corrupted),
+        throwsA(isA<Exception>()),
+      );
 
       alice.destroy();
       bob.destroy();
@@ -812,10 +850,10 @@ void main() {
       // Destroy session
       alice.destroy();
 
-      // After destroy, cannot encrypt
+      // After destroy, cannot encrypt (invalid state)
       expect(
         () async => await alice.encrypt(Uint8List.fromList([1, 2, 3])),
-        throwsA(anything),
+        throwsA(isA<StateError>()),
       );
 
       bob.destroy();
@@ -846,10 +884,10 @@ void main() {
       expect(alice.state, equals(NoiseSessionState.established));
       expect(bob.state, equals(NoiseSessionState.established));
 
-      // Try to process another handshake message - should fail
+      // Try to process another handshake message - should fail (invalid state)
       expect(
         () async => await alice.processHandshakeMessage(Uint8List(32)),
-        throwsA(anything),
+        throwsA(isA<StateError>()),
       );
 
       alice.destroy();

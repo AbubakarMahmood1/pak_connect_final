@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 final _logger = Logger('MessageFragmenter');
 
 class MessageChunk {
   final String messageId;
+  MessageId get messageIdValue => MessageId(messageId);
   final int chunkIndex;
   final int totalChunks;
   final String content;
@@ -20,6 +22,22 @@ class MessageChunk {
     required this.timestamp,
     this.isBinary = false,
   });
+
+  factory MessageChunk.withId({
+    required MessageId messageId,
+    required int chunkIndex,
+    required int totalChunks,
+    required String content,
+    required DateTime timestamp,
+    bool isBinary = false,
+  }) => MessageChunk(
+    messageId: messageId.value,
+    chunkIndex: chunkIndex,
+    totalChunks: totalChunks,
+    content: content,
+    timestamp: timestamp,
+    isBinary: isBinary,
+  );
 
   // Ultra-compact format: "shortId|idx|total|content"
   Uint8List toBytes() {
@@ -255,6 +273,12 @@ class MessageFragmenter {
 
     return chunks;
   }
+
+  static List<MessageChunk> fragmentBytesWithId(
+    Uint8List data,
+    int maxSize,
+    MessageId messageId,
+  ) => fragmentBytes(data, maxSize, messageId.value);
 }
 
 class MessageReassembler {

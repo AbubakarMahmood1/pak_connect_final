@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
+import '../../domain/values/id_types.dart';
 import '../providers/archive_provider.dart';
 import '../widgets/restore_confirmation_dialog.dart';
 import '../widgets/archive_context_menu.dart';
 
 /// Screen for viewing and managing individual archived chats
 class ArchiveDetailScreen extends ConsumerStatefulWidget {
-  final String archivedChatId;
+  final ArchiveId archivedChatId;
 
   const ArchiveDetailScreen({super.key, required this.archivedChatId});
 
@@ -69,7 +70,7 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
       // For now, create a basic ArchivedChat from the summary
       // In a real implementation, we'd have a proper method to get full archived chat
       final archivedChat = ArchivedChat.fromJson({
-        'id': summary.id,
+        'id': summary.id.value,
         'originalChatId': summary.originalChatId,
         'contactName': summary.contactName,
         'archivedAt': summary.archivedAt.millisecondsSinceEpoch,
@@ -188,7 +189,10 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
       try {
         final result = await ref
             .read(archiveOperationsProvider.notifier)
-            .restoreChat(archiveId: _archivedChat!.id);
+            .restoreChat(
+              archiveId: _archivedChat!.id,
+              targetChatId: _archivedChat!.originalChatId.value,
+            );
 
         if (mounted) {
           if (result.success) {

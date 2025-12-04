@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pinenacl/api.dart';
 import 'package:pak_connect/core/security/noise/primitives/dh_state.dart';
 
@@ -8,8 +9,13 @@ void main() {
   group('DHState', () {
     late DHState alice;
     late DHState bob;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       alice = DHState();
       bob = DHState();
     });
@@ -17,6 +23,19 @@ void main() {
     tearDown(() {
       alice.destroy();
       bob.destroy();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('generateKeyPair produces valid 32-byte keys', () {

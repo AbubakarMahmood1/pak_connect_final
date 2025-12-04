@@ -2,6 +2,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 
 import 'package:pak_connect/core/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
@@ -16,7 +17,10 @@ import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/presentation/controllers/home_screen_controller.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import '../../test_helpers/test_setup.dart';
+
+ChatId _cid(String value) => ChatId(value);
 
 class _FakeChatsRepository implements IChatsRepository {
   int totalUnreadCountCalls = 0;
@@ -52,10 +56,10 @@ class _FakeChatsRepository implements IChatsRepository {
   }
 
   @override
-  Future<void> incrementUnreadCount(String chatId) async {}
+  Future<void> incrementUnreadCount(ChatId chatId) async {}
 
   @override
-  Future<void> markChatAsRead(String chatId) async {}
+  Future<void> markChatAsRead(ChatId chatId) async {}
 
   @override
   Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {}
@@ -66,19 +70,19 @@ class _FakeChatsRepository implements IChatsRepository {
 
 class _FakeMessageRepository implements IMessageRepository {
   @override
-  Future<void> clearMessages(String chatId) async {}
+  Future<void> clearMessages(ChatId chatId) async {}
 
   @override
-  Future<bool> deleteMessage(String messageId) async => true;
+  Future<bool> deleteMessage(MessageId messageId) async => true;
 
   @override
   Future<List<Message>> getAllMessages() async => <Message>[];
 
   @override
-  Future<Message?> getMessageById(String messageId) async => null;
+  Future<Message?> getMessageById(MessageId messageId) async => null;
 
   @override
-  Future<List<Message>> getMessages(String chatId) async => <Message>[];
+  Future<List<Message>> getMessages(ChatId chatId) async => <Message>[];
 
   @override
   Future<List<Message>> getMessagesForContact(String publicKey) async =>
@@ -89,6 +93,9 @@ class _FakeMessageRepository implements IMessageRepository {
 
   @override
   Future<void> updateMessage(Message message) async {}
+
+  @override
+  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {}
 }
 
 class _FakeArchiveRepository implements IArchiveRepository {
@@ -101,7 +108,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }) async => ArchiveOperationResult.success(
     message: 'ok',
     operationType: ArchiveOperationType.archive,
-    archiveId: chatId,
+    archiveId: ArchiveId(chatId),
     operationTime: Duration.zero,
   );
 
@@ -112,7 +119,7 @@ class _FakeArchiveRepository implements IArchiveRepository {
   Future<ArchiveStatistics?> getArchiveStatistics() async => null;
 
   @override
-  Future<ArchivedChat?> getArchivedChat(String archiveId) async => null;
+  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async => null;
 
   @override
   Future<ArchivedChatSummary?> getArchivedChatByOriginalId(
@@ -133,10 +140,10 @@ class _FakeArchiveRepository implements IArchiveRepository {
   Future<void> initialize() async {}
 
   @override
-  Future<void> permanentlyDeleteArchive(String archivedChatId) async {}
+  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async {}
 
   @override
-  Future<ArchiveOperationResult> restoreChat(String archiveId) async =>
+  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
       ArchiveOperationResult.success(
         message: 'ok',
         operationType: ArchiveOperationType.restore,
@@ -215,73 +222,100 @@ class _TestHomeScreenController extends HomeScreenController {
 }
 
 void main() {
-  testWidgets('search sentinel shows bar and clears with reload', (
-    tester,
-  ) async {
-    late _TestHomeScreenController controller;
-    final fakeRepo = _FakeChatsRepository();
-    final fakeMessageRepo = _FakeMessageRepository();
-    final fakeArchiveRepo = _FakeArchiveRepository();
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
 
-    await TestSetup.configureTestDI(
-      messageRepository: fakeMessageRepo,
-      chatsRepository: fakeRepo,
-      archiveRepository: fakeArchiveRepo,
-      seenMessageStore: _InMemorySeenMessageStore(),
-    );
-    addTearDown(() async {
-      await TestSetup.resetDIServiceLocator();
+  group('HomeScreenController', () {
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
     });
 
-    await tester.pumpWidget(
-      ProviderScope(
-        child: MaterialApp(
-          home: Builder(
-            builder: (context) {
-              return Consumer(
-                builder: (context, ref, _) {
-                  controller = _TestHomeScreenController(
-                    HomeScreenControllerArgs(
-                      context: context,
-                      ref: ref,
-                      chatsRepository: fakeRepo,
-                      chatManagementService: ChatManagementService(),
-                      homeScreenFacade: HomeScreenFacade(
-                        chatsRepository: fakeRepo,
-                        bleService: null,
-                        chatManagementService: null,
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
+    testWidgets('search sentinel shows bar and clears with reload', (
+      tester,
+    ) async {
+      late _TestHomeScreenController controller;
+      final fakeRepo = _FakeChatsRepository();
+      final fakeMessageRepo = _FakeMessageRepository();
+      final fakeArchiveRepo = _FakeArchiveRepository();
+
+      await TestSetup.configureTestDI(
+        messageRepository: fakeMessageRepo,
+        chatsRepository: fakeRepo,
+        archiveRepository: fakeArchiveRepo,
+        seenMessageStore: _InMemorySeenMessageStore(),
+      );
+      addTearDown(() async {
+        await TestSetup.resetDIServiceLocator();
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) {
+                return Consumer(
+                  builder: (context, ref, _) {
+                    controller = _TestHomeScreenController(
+                      HomeScreenControllerArgs(
                         context: context,
                         ref: ref,
-                        enableListCoordinatorInitialization: false,
+                        chatsRepository: fakeRepo,
+                        chatManagementService: ChatManagementService(),
+                        homeScreenFacade: HomeScreenFacade(
+                          chatsRepository: fakeRepo,
+                          bleService: null,
+                          chatManagementService: null,
+                          context: context,
+                          ref: ref,
+                          enableListCoordinatorInitialization: false,
+                        ),
                       ),
-                    ),
-                  );
-                  return const SizedBox.shrink();
-                },
-              );
-            },
+                    );
+                    return const SizedBox.shrink();
+                  },
+                );
+              },
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    // Sentinel should only show the search bar without triggering a reload.
-    controller.onSearchChanged(' ');
-    expect(controller.searchQuery, ' ');
-    expect(controller.loadCount, 0);
+      // Sentinel should only show the search bar without triggering a reload.
+      controller.onSearchChanged(' ');
+      expect(controller.searchQuery, ' ');
+      expect(controller.loadCount, 0);
 
-    // Typing a real query schedules a debounced reload.
-    controller.onSearchChanged('hello');
-    await tester.pump(const Duration(milliseconds: 350));
-    expect(controller.searchQuery, 'hello');
-    expect(controller.loadCount, 1);
+      // Typing a real query schedules a debounced reload.
+      controller.onSearchChanged('hello');
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(controller.searchQuery, 'hello');
+      expect(controller.loadCount, 1);
 
-    // Clearing the query should trigger an immediate reload.
-    controller.onSearchChanged('');
-    await tester.pump();
-    expect(controller.searchQuery, '');
-    expect(controller.loadCount, 2);
+      // Clearing the query should trigger an immediate reload.
+      controller.onSearchChanged('');
+      await tester.pump();
+      expect(controller.searchQuery, '');
+      expect(controller.loadCount, 2);
 
-    controller.dispose();
+      controller.dispose();
+    });
   });
 }

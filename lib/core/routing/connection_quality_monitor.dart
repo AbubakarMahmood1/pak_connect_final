@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import 'routing_models.dart';
 import '../interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Monitors connection quality and provides scoring for routing decisions
 class ConnectionQualityMonitor {
@@ -46,6 +47,9 @@ class ConnectionQualityMonitor {
     return _connectionMetrics[nodeId];
   }
 
+  ConnectionMetrics? getConnectionMetricsId(ChatId nodeId) =>
+      getConnectionMetrics(nodeId.value);
+
   /// Get connection quality score between current node and target
   Future<double> getConnectionScore(String nodeId) async {
     final metrics = _connectionMetrics[nodeId];
@@ -57,12 +61,18 @@ class ConnectionQualityMonitor {
     return metrics.qualityScore;
   }
 
+  Future<double> getConnectionScoreId(ChatId nodeId) =>
+      getConnectionScore(nodeId.value);
+
   /// Record a message sent to track delivery statistics
   void recordMessageSent(String nodeId, String messageId) {
     _messagesSent[nodeId] = (_messagesSent[nodeId] ?? 0) + 1;
     final truncatedNodeId = nodeId.length > 8 ? nodeId.shortId(8) : nodeId;
     _logger.fine('Message sent to $truncatedNodeId...: $messageId');
   }
+
+  void recordMessageSentId(String nodeId, MessageId messageId) =>
+      recordMessageSent(nodeId, messageId.value);
 
   /// Record a message acknowledgment to track delivery success
   void recordMessageAcknowledged(
@@ -81,6 +91,12 @@ class ConnectionQualityMonitor {
       'Message acknowledged from $truncatedNodeId...: $messageId (latency: ${latency?.toStringAsFixed(0)}ms)',
     );
   }
+
+  void recordMessageAcknowledgedId(
+    String nodeId,
+    MessageId messageId, {
+    double? latency,
+  }) => recordMessageAcknowledged(nodeId, messageId.value, latency: latency);
 
   /// Measure connection quality with BLE service
   Future<void> measureConnectionQuality(

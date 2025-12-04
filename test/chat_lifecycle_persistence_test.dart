@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/core/services/persistent_chat_state_manager.dart';
 import 'test_helpers/test_setup.dart';
@@ -17,8 +18,13 @@ void main() {
     late ProviderContainer container;
     late PersistentChatStateManager persistentManager;
     late StreamController<String> mockMessageStreamController;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       container = ProviderContainer();
       persistentManager = PersistentChatStateManager();
       mockMessageStreamController = StreamController<String>.broadcast();
@@ -28,6 +34,19 @@ void main() {
       container.dispose();
       persistentManager.cleanupAll();
       mockMessageStreamController.close();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     testWidgets('Messages survive ChatScreen dispose/recreate cycles', (

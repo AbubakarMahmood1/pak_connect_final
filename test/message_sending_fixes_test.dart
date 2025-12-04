@@ -1,11 +1,18 @@
 // Test file to verify message sending fixes
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {
+    'DECRYPT: All methods failed',
+    'Decryption failed',
+  };
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'message_sending_fixes');
     await SecurityManager.instance.initialize();
@@ -16,11 +23,27 @@ void main() {
   });
 
   setUp(() async {
+    logRecords.clear();
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.configureTestDatabase(label: 'message_sending_fixes');
     TestSetup.resetSharedPreferences();
   });
 
   tearDown(() async {
+    final severeErrors = logRecords
+        .where((log) => log.level >= Level.SEVERE)
+        .where(
+          (log) =>
+              !allowedSevere.any((pattern) => log.message.contains(pattern)),
+        )
+        .toList();
+    expect(
+      severeErrors,
+      isEmpty,
+      reason:
+          'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
     await TestSetup.nukeDatabase();
   });
 

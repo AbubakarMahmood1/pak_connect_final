@@ -4,14 +4,21 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
 
+ChatId _cid(String value) => ChatId(value);
+
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   group('getAllChats Performance Benchmark', () {
     late ChatsRepository chatsRepo;
     late ContactRepository contactRepo;
@@ -24,6 +31,9 @@ void main() {
     });
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(label: 'performance_get_all_chats');
       TestSetup.resetSharedPreferences();
 
@@ -39,6 +49,19 @@ void main() {
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       await TestSetup.nukeDatabase();
     });
 
@@ -66,8 +89,8 @@ void main() {
 
         for (int j = 0; j < messagesPerContact; j++) {
           final message = Message(
-            id: 'msg_${i}_$j',
-            chatId: chatId,
+            id: MessageId('msg_${i}_$j'),
+            chatId: _cid(chatId),
             content: 'Test message $j from $contactName',
             timestamp: DateTime.now().subtract(Duration(minutes: j)),
             isFromMe: j % 2 == 0, // Alternate sender

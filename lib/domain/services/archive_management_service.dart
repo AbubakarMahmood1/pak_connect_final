@@ -8,6 +8,7 @@ import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../core/models/archive_models.dart';
+import '../../domain/values/id_types.dart';
 import 'archive_policy_engine.dart';
 import 'archive_maintenance.dart';
 import 'archive_management_models.dart';
@@ -60,25 +61,50 @@ class ArchiveManagementService {
   static const String _policyKey = 'archive_policies_v2';
   // Note: _scheduledTasksKey removed - scheduled archive tasks feature not yet implemented
 
-  // Event streams for real-time updates
-  final _archiveUpdatesController =
-      StreamController<ArchiveUpdateEvent>.broadcast();
-  final _policyUpdatesController =
-      StreamController<ArchivePolicyEvent>.broadcast();
-  final _maintenanceUpdatesController =
-      StreamController<ArchiveMaintenanceEvent>.broadcast();
+  // Event listeners for real-time updates
+  final Set<void Function(ArchiveUpdateEvent)> _archiveUpdateListeners = {};
+  final Set<void Function(ArchivePolicyEvent)> _policyUpdateListeners = {};
+  final Set<void Function(ArchiveMaintenanceEvent)>
+  _maintenanceUpdateListeners = {};
 
   /// Stream of archive operation events
   Stream<ArchiveUpdateEvent> get archiveUpdates =>
-      _archiveUpdatesController.stream;
+      Stream<ArchiveUpdateEvent>.multi((controller) {
+        void listener(ArchiveUpdateEvent event) {
+          controller.add(event);
+        }
+
+        _archiveUpdateListeners.add(listener);
+        controller.onCancel = () {
+          _archiveUpdateListeners.remove(listener);
+        };
+      });
 
   /// Stream of policy change events
   Stream<ArchivePolicyEvent> get policyUpdates =>
-      _policyUpdatesController.stream;
+      Stream<ArchivePolicyEvent>.multi((controller) {
+        void listener(ArchivePolicyEvent event) {
+          controller.add(event);
+        }
+
+        _policyUpdateListeners.add(listener);
+        controller.onCancel = () {
+          _policyUpdateListeners.remove(listener);
+        };
+      });
 
   /// Stream of maintenance operation events
   Stream<ArchiveMaintenanceEvent> get maintenanceUpdates =>
-      _maintenanceUpdatesController.stream;
+      Stream<ArchiveMaintenanceEvent>.multi((controller) {
+        void listener(ArchiveMaintenanceEvent event) {
+          controller.add(event);
+        }
+
+        _maintenanceUpdateListeners.add(listener);
+        controller.onCancel = () {
+          _maintenanceUpdateListeners.remove(listener);
+        };
+      });
 
   // Configuration and policies
   ArchiveManagementConfig _config = ArchiveManagementConfig.defaultConfig();
@@ -150,7 +176,7 @@ class ArchiveManagementService {
 
       // Business logic validation
       final validationResult = await _policyEngine.validateArchiveRequest(
-        chatId,
+        ChatId(chatId),
         force,
       );
       if (!validationResult.isValid) {
@@ -184,7 +210,9 @@ class ArchiveManagementService {
         ...?metadata,
         'archiveReason': reason ?? 'User initiated',
         'businessContext': await _gatherBusinessContext(chatId),
-        'archivePolicy': _policyEngine.findApplicablePolicy(chatId)?.name,
+        'archivePolicy': _policyEngine
+            .findApplicablePolicy(ChatId(chatId))
+            ?.name,
         'storageOptimization': _config.enableCompression,
         'timestamp': DateTime.now().toIso8601String(),
       };
@@ -202,7 +230,7 @@ class ArchiveManagementService {
         await _handlePostArchiveActions(chatId, result.archiveId!, result);
 
         // Emit update event
-        _archiveUpdatesController.add(
+        _emitArchiveUpdate(
           ArchiveUpdateEvent.archived(chatId, result.archiveId!, reason),
         );
 
@@ -233,7 +261,7 @@ class ArchiveManagementService {
 
   /// Restore a chat with validation and conflict resolution
   Future<ArchiveOperationResult> restoreChat({
-    required String archiveId,
+    required ArchiveId archiveId,
     bool overwriteExisting = false,
     String? targetChatId,
   }) async {
@@ -274,7 +302,7 @@ class ArchiveManagementService {
       if (!overwriteExisting) {
         final conflictCheck = await _policyEngine.checkRestoreConflicts(
           archive,
-          targetChatId,
+          targetChatId != null ? ChatId(targetChatId) : null,
         );
         if (conflictCheck.hasConflicts) {
           return ArchiveOperationResult.failure(
@@ -295,8 +323,8 @@ class ArchiveManagementService {
         await _handlePostRestoreActions(archiveId, archive, result);
 
         // Emit update event
-        _archiveUpdatesController.add(
-          ArchiveUpdateEvent.restored(archiveId, archive.originalChatId),
+        _emitArchiveUpdate(
+          ArchiveUpdateEvent.restored(archiveId, archive.originalChatId.value),
         );
 
         // Update metrics
@@ -390,9 +418,7 @@ class ArchiveManagementService {
           : tasks;
 
       for (final task in tasksToRun) {
-        _maintenanceUpdatesController.add(
-          ArchiveMaintenanceEvent.taskStarted(task),
-        );
+        _emitMaintenanceUpdate(ArchiveMaintenanceEvent.taskStarted(task));
       }
 
       final maintenanceResult = await _maintenance.performMaintenance(
@@ -408,11 +434,11 @@ class ArchiveManagementService {
         );
 
         if (hasError) {
-          _maintenanceUpdatesController.add(
+          _emitMaintenanceUpdate(
             ArchiveMaintenanceEvent.taskFailed(task, 'Task failed'),
           );
         } else {
-          _maintenanceUpdatesController.add(
+          _emitMaintenanceUpdate(
             ArchiveMaintenanceEvent.taskCompleted(
               task,
               taskResult is Map<String, dynamic> ? taskResult : {},
@@ -504,7 +530,7 @@ class ArchiveManagementService {
       _policyEngine.policies = _policies;
       await _saveArchivePolicies();
 
-      _policyUpdatesController.add(
+      _emitPolicyUpdate(
         ArchivePolicyEvent.updated(policy.name, policy.enabled),
       );
 
@@ -521,7 +547,7 @@ class ArchiveManagementService {
       _policyEngine.policies = _policies;
       await _saveArchivePolicies();
 
-      _policyUpdatesController.add(ArchivePolicyEvent.removed(policyName));
+      _emitPolicyUpdate(ArchivePolicyEvent.removed(policyName));
 
       _logger.info('Archive policy "$policyName" removed');
     } catch (e) {
@@ -584,9 +610,9 @@ class ArchiveManagementService {
   Future<void> dispose() async {
     _stopBackgroundTasks();
 
-    await _archiveUpdatesController.close();
-    await _policyUpdatesController.close();
-    await _maintenanceUpdatesController.close();
+    _archiveUpdateListeners.clear();
+    _policyUpdateListeners.clear();
+    _maintenanceUpdateListeners.clear();
 
     _archiveRepository.dispose();
 
@@ -595,6 +621,47 @@ class ArchiveManagementService {
   }
 
   // Private methods
+  void _emitArchiveUpdate(ArchiveUpdateEvent event) {
+    for (final listener in List.of(_archiveUpdateListeners)) {
+      try {
+        listener(event);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying archive update listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
+  }
+
+  void _emitPolicyUpdate(ArchivePolicyEvent event) {
+    for (final listener in List.of(_policyUpdateListeners)) {
+      try {
+        listener(event);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying policy update listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
+  }
+
+  void _emitMaintenanceUpdate(ArchiveMaintenanceEvent event) {
+    for (final listener in List.of(_maintenanceUpdateListeners)) {
+      try {
+        listener(event);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying maintenance listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
+  }
 
   Future<void> _loadConfiguration() async {
     try {
@@ -747,21 +814,21 @@ class ArchiveManagementService {
     return {'source': 'user_initiated'};
   }
 
-  ArchivePolicy? _findApplicablePolicy(String chatId) {
+  ArchivePolicy? _findApplicablePolicy(ChatId chatId) {
     // Implementation would find applicable policy
     return null;
   }
 
   Future<void> _handlePostArchiveActions(
     String chatId,
-    String archiveId,
+    ArchiveId archiveId,
     ArchiveOperationResult result,
   ) async {
     // Implementation would handle post-archive actions
   }
 
   Future<void> _handlePostRestoreActions(
-    String archiveId,
+    ArchiveId archiveId,
     ArchivedChat archive,
     ArchiveOperationResult result,
   ) async {
@@ -776,7 +843,7 @@ class ArchiveManagementService {
   }
 
   Future<ArchiveBusinessMetadata> _getArchiveBusinessMetadata(
-    String archiveId,
+    ArchiveId archiveId,
   ) async {
     // Implementation would get business metadata
     return ArchiveBusinessMetadata.empty();

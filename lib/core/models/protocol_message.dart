@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:pak_connect/core/compression/compression_util.dart';
 import 'package:pak_connect/core/compression/compression_config.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import '../constants/special_recipients.dart';
 import '../models/mesh_relay_models.dart';
 
@@ -281,6 +282,20 @@ class ProtocolMessage {
     timestamp: DateTime.now(),
   );
 
+  static ProtocolMessage textMessageWithIds({
+    required MessageId messageId,
+    required String content,
+    bool encrypted = false,
+    ChatId? recipientId,
+    bool useEphemeralAddressing = false,
+  }) => textMessage(
+    messageId: messageId.value,
+    content: content,
+    encrypted: encrypted,
+    recipientId: recipientId?.value,
+    useEphemeralAddressing: useEphemeralAddressing,
+  );
+
   /// Priority 2: Broadcast message to all nodes in mesh network
   ///
   /// Creates a text message with broadcast recipient sentinel.
@@ -303,12 +318,25 @@ class ProtocolMessage {
     timestamp: DateTime.now(),
   );
 
+  static ProtocolMessage broadcastMessageWithId({
+    required MessageId messageId,
+    required String content,
+    bool encrypted = false,
+  }) => broadcastMessage(
+    messageId: messageId.value,
+    content: content,
+    encrypted: encrypted,
+  );
+
   static ProtocolMessage ack({required String originalMessageId}) =>
       ProtocolMessage(
         type: ProtocolMessageType.ack,
         payload: {'originalMessageId': originalMessageId},
         timestamp: DateTime.now(),
       );
+
+  static ProtocolMessage ackWithId({required MessageId originalMessageId}) =>
+      ack(originalMessageId: originalMessageId.value);
 
   static ProtocolMessage ping() => ProtocolMessage(
     type: ProtocolMessageType.ping,
@@ -494,6 +522,7 @@ class ProtocolMessage {
   String? get ackOriginalId => type == ProtocolMessageType.ack
       ? payload['originalMessageId'] as String?
       : null;
+  MessageId? get ackOriginalMessageIdValue => _wrapMessageId(ackOriginalId);
 
   String? get pairingCodeValue => type == ProtocolMessageType.pairingCode
       ? payload['code'] as String?
@@ -586,12 +615,18 @@ class ProtocolMessage {
       type == ProtocolMessageType.meshRelay
       ? payload['originalMessageId'] as String?
       : null;
+  MessageId? get meshRelayOriginalMessageIdValue =>
+      _wrapMessageId(meshRelayOriginalMessageId);
   String? get meshRelayOriginalSender => type == ProtocolMessageType.meshRelay
       ? payload['originalSender'] as String?
       : null;
+  ChatId? get meshRelayOriginalSenderChatId =>
+      _wrapChatId(meshRelayOriginalSender);
   String? get meshRelayFinalRecipient => type == ProtocolMessageType.meshRelay
       ? payload['finalRecipient'] as String?
       : null;
+  ChatId? get meshRelayFinalRecipientChatId =>
+      _wrapChatId(meshRelayFinalRecipient);
   Map<String, dynamic>? get meshRelayMetadata =>
       type == ProtocolMessageType.meshRelay
       ? payload['relayMetadata'] as Map<String, dynamic>?
@@ -617,11 +652,23 @@ class ProtocolMessage {
       type == ProtocolMessageType.queueSync
       ? QueueSyncMessage.fromJson(payload)
       : null;
+  List<MessageId>? get queueSyncMessageIdValues {
+    final syncMessage = queueSyncMessage;
+    return syncMessage?.messageIds.map(MessageId.new).toList();
+  }
+
+  Map<MessageId, String>? get queueSyncMessageHashValues {
+    final hashes = queueSyncMessage?.messageHashes;
+    if (hashes == null) return null;
+    return hashes.map((key, value) => MapEntry(MessageId(key), value));
+  }
 
   // Relay ack helpers
   String? get relayAckOriginalMessageId => type == ProtocolMessageType.relayAck
       ? payload['originalMessageId'] as String?
       : null;
+  MessageId? get relayAckOriginalMessageIdValue =>
+      _wrapMessageId(relayAckOriginalMessageId);
   String? get relayAckRelayNode => type == ProtocolMessageType.relayAck
       ? payload['relayNode'] as String?
       : null;
@@ -653,6 +700,24 @@ class ProtocolMessage {
     timestamp: DateTime.now(),
   );
 
+  static ProtocolMessage meshRelayWithIds({
+    required MessageId originalMessageId,
+    required ChatId originalSender,
+    required ChatId finalRecipient,
+    required Map<String, dynamic> relayMetadata,
+    required Map<String, dynamic> originalPayload,
+    bool useEphemeralAddressing = false,
+    ProtocolMessageType? originalMessageType,
+  }) => meshRelay(
+    originalMessageId: originalMessageId.value,
+    originalSender: originalSender.value,
+    finalRecipient: finalRecipient.value,
+    relayMetadata: relayMetadata,
+    originalPayload: originalPayload,
+    useEphemeralAddressing: useEphemeralAddressing,
+    originalMessageType: originalMessageType,
+  );
+
   static ProtocolMessage queueSync({required QueueSyncMessage queueMessage}) =>
       ProtocolMessage(
         type: ProtocolMessageType.queueSync,
@@ -672,6 +737,16 @@ class ProtocolMessage {
       'delivered': delivered,
     },
     timestamp: DateTime.now(),
+  );
+
+  static ProtocolMessage relayAckWithId({
+    required MessageId originalMessageId,
+    required String relayNode,
+    required bool delivered,
+  }) => relayAck(
+    originalMessageId: originalMessageId.value,
+    relayNode: relayNode,
+    delivered: delivered,
   );
 
   // ===== SPY MODE CONSTRUCTORS =====
@@ -721,4 +796,8 @@ class ProtocolMessage {
       type == ProtocolMessageType.connectionReady
       ? payload['deviceName'] as String?
       : null;
+
+  static MessageId? _wrapMessageId(String? id) =>
+      id != null ? MessageId(id) : null;
+  static ChatId? _wrapChatId(String? id) => id != null ? ChatId(id) : null;
 }

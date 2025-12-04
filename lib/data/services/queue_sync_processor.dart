@@ -6,6 +6,9 @@ import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/utils/message_fragmenter.dart';
+import '../../domain/values/id_types.dart';
+import '../../core/utils/binary_fragmenter.dart';
+import '../../core/constants/binary_payload_types.dart';
 
 /// Handles queue synchronization messages and callbacks so BLEMessageHandler
 /// can delegate the protocol-specific work.
@@ -17,6 +20,8 @@ class QueueSyncProcessor {
 
   Function(QueueSyncMessage syncMessage, String fromNodeId)?
   onQueueSyncReceived;
+  Function(QueueSyncMessage syncMessage, ChatId fromNodeId)?
+  onQueueSyncReceivedIds;
   Function(List<QueuedMessage> messages, String toNodeId)? onSendQueueMessages;
   Function(String nodeId, QueueSyncResult result)? onQueueSyncCompleted;
 
@@ -33,13 +38,18 @@ class QueueSyncProcessor {
         return null;
       }
 
+      final messageIds = queueSyncMessage.messageIdValues;
+      final messageHashes = queueSyncMessage.messageHashValues?.map(
+        (key, value) => MapEntry(key.value, value),
+      );
+
       final syncMessage = QueueSyncMessage(
         queueHash: queueSyncMessage.queueHash,
-        messageIds: queueSyncMessage.messageIds,
+        messageIds: messageIds.map((id) => id.value).toList(),
         syncTimestamp: queueSyncMessage.syncTimestamp,
         nodeId: senderPublicKey,
         syncType: queueSyncMessage.syncType,
-        messageHashes: queueSyncMessage.messageHashes,
+        messageHashes: messageHashes,
         queueStats: queueSyncMessage.queueStats,
         gcsFilter: queueSyncMessage.gcsFilter,
       );
@@ -49,6 +59,9 @@ class QueueSyncProcessor {
       );
 
       onQueueSyncReceived?.call(syncMessage, senderPublicKey);
+      if (onQueueSyncReceivedIds != null) {
+        onQueueSyncReceivedIds!(syncMessage, ChatId(senderPublicKey));
+      }
     } catch (e) {
       _logger.severe('🔄 QUEUE SYNC: Failed to handle sync message: $e');
     }
@@ -61,6 +74,9 @@ class QueueSyncProcessor {
     required String fromNodeId,
   }) {
     onQueueSyncReceived?.call(syncMessage, fromNodeId);
+    if (onQueueSyncReceivedIds != null) {
+      onQueueSyncReceivedIds!(syncMessage, ChatId(fromNodeId));
+    }
     _logger.info(
       '🔄 QUEUE SYNC: Dispatch handler triggered from ${_preview(fromNodeId)}',
     );
@@ -82,34 +98,84 @@ class QueueSyncProcessor {
       );
 
       final jsonBytes = protocolMessage.toBytes();
-      final chunks = MessageFragmenter.fragmentBytes(
-        jsonBytes,
-        mtuSize,
-        'queue_sync_${DateTime.now().millisecondsSinceEpoch}',
-      );
+      List<MessageChunk>? chunks;
+      MessageChunk? singleChunk;
+      var useBinaryEnvelope = false;
+      try {
+        chunks = MessageFragmenter.fragmentBytes(
+          jsonBytes,
+          mtuSize,
+          'queue_sync_${DateTime.now().millisecondsSinceEpoch}',
+        );
+        if (chunks.isEmpty) {
+          useBinaryEnvelope = true;
+        } else if (chunks.length == 1) {
+          singleChunk = chunks.first;
+        } else {
+          useBinaryEnvelope = true;
+        }
+      } catch (e) {
+        _logger.fine(
+          '⚠️ Queue sync chunk fragmentation failed (fallback to binary envelope): $e',
+        );
+        useBinaryEnvelope = true;
+      }
 
       _logger.info(
         '🔄 QUEUE SYNC: Sending sync message with ${syncMessage.messageIds.length} message IDs',
       );
 
       if (centralManager != null && connectedDevice != null) {
-        for (final chunk in chunks) {
+        if (useBinaryEnvelope) {
+          final fragments = BinaryFragmenter.fragment(
+            data: jsonBytes,
+            mtu: mtuSize,
+            originalType: BinaryPayloadType.protocolMessage,
+            recipient: syncMessage.nodeId,
+          );
+          for (var i = 0; i < fragments.length; i++) {
+            await centralManager.writeCharacteristic(
+              connectedDevice,
+              messageCharacteristic,
+              value: fragments[i],
+              type: GATTCharacteristicWriteType.withResponse,
+            );
+            if (i < fragments.length - 1) {
+              await Future.delayed(Duration(milliseconds: 20));
+            }
+          }
+        } else if (singleChunk != null) {
           await centralManager.writeCharacteristic(
             connectedDevice,
             messageCharacteristic,
-            value: chunk.toBytes(),
+            value: singleChunk.toBytes(),
             type: GATTCharacteristicWriteType.withResponse,
           );
-          await Future.delayed(Duration(milliseconds: 50));
         }
       } else if (peripheralManager != null && connectedCentral != null) {
-        for (final chunk in chunks) {
+        if (useBinaryEnvelope) {
+          final fragments = BinaryFragmenter.fragment(
+            data: jsonBytes,
+            mtu: mtuSize,
+            originalType: BinaryPayloadType.protocolMessage,
+            recipient: syncMessage.nodeId,
+          );
+          for (var i = 0; i < fragments.length; i++) {
+            await peripheralManager.notifyCharacteristic(
+              connectedCentral,
+              messageCharacteristic,
+              value: fragments[i],
+            );
+            if (i < fragments.length - 1) {
+              await Future.delayed(Duration(milliseconds: 20));
+            }
+          }
+        } else if (singleChunk != null) {
           await peripheralManager.notifyCharacteristic(
             connectedCentral,
             messageCharacteristic,
-            value: chunk.toBytes(),
+            value: singleChunk.toBytes(),
           );
-          await Future.delayed(Duration(milliseconds: 50));
         }
       }
 

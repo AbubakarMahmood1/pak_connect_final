@@ -7,6 +7,7 @@ import '../models/mesh_relay_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'offline_message_queue.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Manages queue synchronization between mesh network nodes
 class QueueSyncManager {
@@ -135,12 +136,11 @@ class QueueSyncManager {
       }
 
       // Determine what needs to be synchronized
-      final missingIds = _messageQueue.getMissingMessageIds(
-        syncMessage.messageIds,
-      );
-      final excessMessages = _messageQueue.getExcessMessages(
-        syncMessage.messageIds,
-      );
+      final inboundIds = syncMessage.messageIdValues
+          .map((id) => id.value)
+          .toList();
+      final missingIds = _messageQueue.getMissingMessageIds(inboundIds);
+      final excessMessages = _messageQueue.getExcessMessages(inboundIds);
 
       if (excessMessages.isNotEmpty) {
         if (onSendMessages != null) {
@@ -171,10 +171,10 @@ class QueueSyncManager {
       }
 
       // Create response with our queue state
-      final responseMessage = QueueSyncMessage.createResponse(
+      final responseMessage = QueueSyncMessage.createResponseWithIds(
         messageIds: _messageQueue
             .getMessagesByStatus(QueuedMessageStatus.pending)
-            .map((m) => m.id)
+            .map((m) => MessageId(m.id))
             .toList(),
         nodeId: _nodeId,
         stats: _createSyncStats(),

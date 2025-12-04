@@ -12,6 +12,7 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/pairing_flow_controller.dart';
 import 'package:pak_connect/data/services/pairing_lifecycle_service.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,6 +60,13 @@ class _MockContactRepository extends Mock implements ContactRepository {
   );
 
   @override
+  Future<Contact?> getContactByUserId(UserId userId) => super.noSuchMethod(
+    Invocation.method(#getContactByUserId, [userId]),
+    returnValue: Future<Contact?>.value(null),
+    returnValueForMissingStub: Future<Contact?>.value(null),
+  );
+
+  @override
   Future<void> clearCachedSecrets(String publicKey) => super.noSuchMethod(
     Invocation.method(#clearCachedSecrets, [publicKey]),
     returnValue: Future<void>.value(),
@@ -68,6 +76,9 @@ class _MockContactRepository extends Mock implements ContactRepository {
 
 void main() {
   group('PairingFlowController verification', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     late PairingFlowController controller;
     late _MockContactRepository contactRepository;
     late IdentitySessionState identityState;
@@ -76,7 +87,9 @@ void main() {
     late Contact contact;
 
     setUp(() async {
-      Logger.root.level = Level.OFF;
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       TestWidgetsFlutterBinding.ensureInitialized();
       SharedPreferences.setMockInitialValues({});
       await EphemeralKeyManager.initialize('my-private-key');
@@ -101,6 +114,12 @@ void main() {
       ).thenAnswer((_) async => contact);
       when(
         contactRepository.getContactByAnyId('peer'),
+      ).thenAnswer((_) async => contact);
+      when(
+        contactRepository.getContactByUserId(const UserId('peer')),
+      ).thenAnswer((_) async => contact);
+      when(
+        contactRepository.getContactByUserId(const UserId('persist')),
       ).thenAnswer((_) async => contact);
 
       identityState = IdentitySessionState();
@@ -132,6 +151,24 @@ void main() {
       identityState.currentSessionId = 'peer';
       identityState.theirPersistentKey = 'persist';
       controller.onPairingCancelled = () => cancelledCalled = true;
+    });
+
+    tearDown(() {
+      // Allow SEVERE logs from intentional error-handling tests
+      allowedSevere.addAll(['Hash mismatch', 'verification failed']);
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('mismatch revokes secrets and marks pairing failed', () async {

@@ -19,6 +19,7 @@ import '../models/mesh_relay_models.dart';
 import '../utils/gcs_filter.dart';
 import 'offline_message_queue.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Gossip-based synchronization manager
 ///
@@ -53,10 +54,14 @@ class GossipSyncManager {
   Function(String peerID, QueueSyncMessage syncRequest)? onSendSyncToPeer;
   Function(String peerID, MeshRelayMessage message)? onSendMessageToPeer;
   Function(String nodeId)? onGetPeerStatus; // Returns true if peer is online
+  Function(String peerID, MessageId messageId, MeshRelayMessage message)?
+  onSendMessageToPeerIds;
+  Function(String peerId)? onDirectAnnouncement;
 
   // Announcements: only keep latest per sender node
   // Note: Regular messages are tracked by OfflineMessageQueue
   final Map<String, _TrackedMessage> _latestAnnouncementByNode = {};
+  final Set<String> _directAnnouncementPeers = {};
 
   // Timers
   Timer? _periodicSyncTimer;
@@ -150,6 +155,7 @@ class GossipSyncManager {
 
     final tracked = _TrackedMessage(
       messageId: messageId,
+      messageIdValue: MessageId(messageId),
       message: message,
       messageType: messageType,
       timestamp: message.relayedAt,
@@ -158,6 +164,13 @@ class GossipSyncManager {
     // Store only latest announcement per sender
     final senderNodeId = message.relayMetadata.originalSender;
     _latestAnnouncementByNode[senderNodeId] = tracked;
+
+    // Direct first-hop announcement → trigger immediate initial sync once.
+    if (message.relayMetadata.hopCount <= 1 &&
+        !_directAnnouncementPeers.contains(senderNodeId)) {
+      _directAnnouncementPeers.add(senderNodeId);
+      onDirectAnnouncement?.call(senderNodeId);
+    }
 
     // Enforce capacity
     if (_latestAnnouncementByNode.length > maxSeenCapacity) {
@@ -440,8 +453,8 @@ class GossipSyncManager {
     final announcementHashes = <String, String>{};
 
     for (final entry in _latestAnnouncementByNode.entries) {
-      announcementIds.add(entry.value.messageId);
-      announcementHashes[entry.value.messageId] =
+      announcementIds.add(entry.value.messageIdValue.value);
+      announcementHashes[entry.value.messageIdValue.value] =
           entry.value.message.relayMetadata.messageHash;
     }
 
@@ -542,12 +555,14 @@ enum MessageType { announce, broadcast }
 /// Internal class for tracking messages
 class _TrackedMessage {
   final String messageId;
+  final MessageId messageIdValue;
   final MeshRelayMessage message;
   final MessageType messageType;
   final DateTime timestamp;
 
   const _TrackedMessage({
     required this.messageId,
+    required this.messageIdValue,
     required this.message,
     required this.messageType,
     required this.timestamp,

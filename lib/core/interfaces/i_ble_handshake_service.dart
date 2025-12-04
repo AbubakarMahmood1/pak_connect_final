@@ -94,6 +94,12 @@ abstract class IBLEHandshakeService {
   /// Contains contact name
   Stream<String> get identityRevealedStream;
 
+  /// Emit a spy-mode detection event to listeners.
+  void emitSpyModeDetected(SpyModeInfo info);
+
+  /// Emit an identity revealed event to listeners.
+  void emitIdentityRevealed(String contactId);
+
   /// Stream of handshake phase changes (for UI/diagnostics).
   /// READ-ONLY: Do not push messages into the underlying coordinator.
   Stream<ConnectionPhase> get handshakePhaseStream;
