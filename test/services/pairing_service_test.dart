@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/pairing_service.dart';
@@ -6,14 +7,17 @@ import 'package:mockito/mockito.dart';
 void main() {
   final List<LogRecord> logRecords = [];
   final Set<String> allowedSevere = {};
+  StreamSubscription<LogRecord>? logSub;
+  Level? previousLevel;
 
   group('PairingService', () {
     late PairingService pairingService;
 
     setUp(() {
       logRecords.clear();
+      previousLevel = Logger.root.level;
       Logger.root.level = Level.ALL;
-      Logger.root.onRecord.listen(logRecords.add);
+      logSub = Logger.root.onRecord.listen(logRecords.add);
       pairingService = PairingService(
         getMyPersistentId: () async => 'my_id_123',
         getTheirSessionId: () => 'their_session_123',
@@ -22,6 +26,11 @@ void main() {
     });
 
     tearDown(() {
+      logSub?.cancel();
+      logSub = null;
+      if (previousLevel != null) {
+        Logger.root.level = previousLevel!;
+      }
       final severeErrors = logRecords
           .where((log) => log.level >= Level.SEVERE)
           .where(
