@@ -414,7 +414,8 @@ class BinaryFragmentEnvelope {
           .join();
 
       // Header is 4 bytes: 2 bytes index + 2 bytes total, big endian.
-      final bd = ByteData.sublistView(bytes, offset, 4);
+      if (offset + 4 > bytes.length) return null;
+      final bd = ByteData.sublistView(bytes, offset, offset + 4);
       final index = bd.getUint16(0, Endian.big);
       final total = bd.getUint16(2, Endian.big);
       offset += 4;
