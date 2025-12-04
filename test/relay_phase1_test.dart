@@ -64,7 +64,7 @@ void main() {
       await config.initialize();
 
       expect(config.isRelayEnabled(), isTrue);
-      expect(config.getMaxRelayHops(), equals(10));
+      expect(config.getMaxRelayHops(), equals(3));
       expect(config.getBatteryThreshold(), equals(20));
     });
 
@@ -113,10 +113,10 @@ void main() {
       final originalHops = config.getMaxRelayHops();
 
       await config.setMaxRelayHops(15);
-      expect(config.getMaxRelayHops(), equals(15));
-
-      await config.setMaxRelayHops(5);
       expect(config.getMaxRelayHops(), equals(5));
+
+      await config.setMaxRelayHops(4);
+      expect(config.getMaxRelayHops(), equals(4));
 
       // Restore original
       await config.setMaxRelayHops(originalHops);
@@ -291,8 +291,8 @@ void main() {
       final result = RelayPolicy.validateMessageForRelay(
         messageType: ProtocolMessageType.textMessage,
         recipientId: 'node123',
-        currentHopCount: 10,
-        maxHops: 10,
+        currentHopCount: 3,
+        maxHops: 3,
       );
 
       expect(result.isAllowed, isFalse);
@@ -304,8 +304,8 @@ void main() {
       final result = RelayPolicy.validateMessageForRelay(
         messageType: ProtocolMessageType.textMessage,
         recipientId: 'node123',
-        currentHopCount: 5,
-        maxHops: 10,
+        currentHopCount: 1,
+        maxHops: 3,
       );
 
       expect(result.isAllowed, isTrue);
@@ -344,7 +344,7 @@ void main() {
       await config.setBatteryThreshold(35);
       await config.disableRelay();
 
-      expect(config.getMaxRelayHops(), equals(25));
+      expect(config.getMaxRelayHops(), equals(5));
       expect(config.getBatteryThreshold(), equals(35));
       expect(config.isRelayEnabled(), isFalse);
 

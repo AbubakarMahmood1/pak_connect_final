@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
@@ -36,6 +37,7 @@ import '../../core/models/connection_info.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/services/chat_management_service.dart';
+import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../models/mesh_network_models.dart';
 import 'mesh/mesh_network_health_monitor.dart';
 import 'mesh/mesh_queue_sync_coordinator.dart';
@@ -55,6 +57,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   late final MeshQueueSyncCoordinator _queueCoordinator;
   GossipSyncManager? _gossipSyncManager;
   final MeshNetworkHealthMonitor _healthMonitor;
+  bool _integrationCancelled = false;
   StreamSubscription<BinaryPayload>? _binarySub;
   StreamSubscription<String>? _identitySub;
   final StreamController<ReceivedBinaryEvent> _binaryController =
@@ -462,12 +465,21 @@ class MeshNetworkingService implements IMeshNetworkingService {
 
   /// Set up integration with BLE layer
   Future<void> _setupBLEIntegration() async {
+    if (_integrationCancelled) {
+      throw StateError('BLE integration cancelled');
+    }
+
     // Initialize relay system in message handler
     await _messageHandler.initializeRelaySystem(
       currentNodeId: _currentNodeId!,
       onRelayDecisionMade: _handleRelayDecision,
       onRelayStatsUpdated: _handleRelayStatsUpdated,
     );
+
+    if (_integrationCancelled) {
+      _logger.info('BLE integration cancelled mid-initialize; aborting setup');
+      return;
+    }
 
     // Set relay callbacks after initialization
     _messageHandler.onRelayDecisionMade = _handleRelayDecision;
@@ -753,20 +765,47 @@ class MeshNetworkingService implements IMeshNetworkingService {
     return 'fallback_${timestamp}_$random';
   }
 
+  Future<void> _waitForBluetoothReady({
+    Duration timeout = const Duration(seconds: 25),
+  }) async {
+    if (_bleService.isBluetoothReady) return;
+
+    final completer = Completer<void>();
+    late StreamSubscription<BluetoothStateInfo> sub;
+    sub = _bleService.bluetoothStateStream.listen((info) {
+      if (info.isReady || info.state == BluetoothLowEnergyState.poweredOn) {
+        if (!completer.isCompleted) completer.complete();
+      }
+    }, onError: (_) {});
+
+    try {
+      await completer.future.timeout(timeout);
+    } on TimeoutException {
+      _logger.warning(
+        '⚠️ Bluetooth not ready within ${timeout.inSeconds}s; proceeding with fallback',
+      );
+      rethrow;
+    } finally {
+      await sub.cancel();
+    }
+  }
+
   /// Set up BLE integration with fallback handling
   Future<void> _setupBLEIntegrationWithFallback() async {
     try {
-      // Try to set up BLE integration with timeout
-      final integrationFuture = _setupBLEIntegration();
-      final timeoutFuture = Future.delayed(
-        Duration(seconds: 3),
-        () => throw TimeoutException(
-          'BLE integration timeout',
-          Duration(seconds: 3),
-        ),
-      );
+      await _waitForBluetoothReady();
 
-      await Future.any([integrationFuture, timeoutFuture]);
+      _integrationCancelled = false;
+      await _setupBLEIntegration().timeout(
+        const Duration(seconds: 25),
+        onTimeout: () {
+          _integrationCancelled = true;
+          throw TimeoutException(
+            'BLE integration timeout',
+            const Duration(seconds: 25),
+          );
+        },
+      );
       _logger.info('✅ BLE integration set up successfully');
     } catch (e) {
       _logger.warning(

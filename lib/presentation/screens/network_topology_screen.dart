@@ -20,25 +20,26 @@ class NetworkTopologyScreen extends ConsumerStatefulWidget {
 class _NetworkTopologyScreenState extends ConsumerState<NetworkTopologyScreen> {
   NetworkTopology? _topology;
   NetworkStatistics? _statistics;
+  late final ProviderSubscription<AsyncValue<NetworkTopology>> _topologySub;
 
   @override
   void initState() {
     super.initState();
     _loadTopology();
 
-    // Listen once for topology updates; Riverpod disposes this when the widget unmounts
-    ref.listen<AsyncValue<NetworkTopology>>(topologyStreamProvider, (
-      prev,
-      next,
-    ) {
-      next.whenData((topology) {
-        if (!mounted) return;
-        setState(() {
-          _topology = topology;
-          _statistics = ref.read(topologyManagerProvider).getStatistics();
+    // Listen for topology updates with manual subscription (allowed in initState).
+    _topologySub = ref.listenManual<AsyncValue<NetworkTopology>>(
+      topologyStreamProvider,
+      (prev, next) {
+        next.whenData((topology) {
+          if (!mounted) return;
+          setState(() {
+            _topology = topology;
+            _statistics = ref.read(topologyManagerProvider).getStatistics();
+          });
         });
-      });
-    });
+      },
+    );
   }
 
   void _loadTopology() {
@@ -440,6 +441,12 @@ class _NetworkTopologyScreenState extends ConsumerState<NetworkTopologyScreen> {
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
+  }
+
+  @override
+  void dispose() {
+    _topologySub.close();
+    super.dispose();
   }
 }
 
