@@ -491,27 +491,66 @@ class SecurityManager implements ISecurityManager {
     IContactRepository repo,
   ) async {
     final method = await getEncryptionMethod(publicKey, repo);
+    final plaintextBase64 = base64.encode(data);
 
-    if (method.type == EncryptionType.noise &&
-        _noiseService != null &&
-        method.publicKey != null &&
-        _noiseService!.hasEstablishedSession(method.publicKey!)) {
-      final encrypted = await _noiseService!.encrypt(data, method.publicKey!);
-      if (encrypted != null) {
-        _logger.fine(
-          '🔒 BIN ENCRYPT: NOISE → ${data.length} bytes to ${publicKey.shortId(8)}...',
+    switch (method.type) {
+      case EncryptionType.noise:
+        if (_noiseService != null &&
+            method.publicKey != null &&
+            _noiseService!.hasEstablishedSession(method.publicKey!)) {
+          final encrypted = await _noiseService!.encrypt(
+            data,
+            method.publicKey!,
+          );
+          if (encrypted != null) {
+            _logger.fine(
+              '🔒 BIN ENCRYPT: NOISE → ${data.length} bytes to ${publicKey.shortId(8)}...',
+            );
+            return encrypted;
+          }
+          _logger.warning(
+            '🔒 BIN ENCRYPT: Noise encryption returned null for ${publicKey.shortId(8)}...',
+          );
+          throw Exception('Noise encryption failed for binary payload');
+        }
+        _logger.warning(
+          '🔒 BIN ENCRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... falling back',
         );
-        return encrypted;
-      }
-      _logger.warning(
-        '🔒 BIN ENCRYPT: Noise encryption returned null for ${publicKey.shortId(8)}...',
-      );
-    }
+        return Uint8List.fromList(
+          utf8.encode(SimpleCrypto.encrypt(plaintextBase64)),
+        );
 
-    _logger.warning(
-      '🔒 BIN ENCRYPT: No Noise session for ${publicKey.shortId(8)}..., sending plaintext bytes',
-    );
-    return data;
+      case EncryptionType.ecdh:
+        final encrypted = await SimpleCrypto.encryptForContact(
+          plaintextBase64,
+          publicKey,
+          repo,
+        );
+        if (encrypted != null) {
+          _logger.fine(
+            '🔒 BIN ENCRYPT: ECDH → ${data.length} bytes to ${publicKey.shortId(8)}...',
+          );
+          return Uint8List.fromList(utf8.encode(encrypted));
+        }
+        throw Exception('ECDH encryption failed for binary payload');
+
+      case EncryptionType.pairing:
+        final encrypted = SimpleCrypto.encryptForConversation(
+          plaintextBase64,
+          publicKey,
+        );
+        _logger.fine(
+          '🔒 BIN ENCRYPT: PAIRING → ${data.length} bytes to ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(utf8.encode(encrypted));
+
+      case EncryptionType.global:
+        final encrypted = SimpleCrypto.encrypt(plaintextBase64);
+        _logger.fine(
+          '🔒 BIN ENCRYPT: GLOBAL → ${data.length} bytes to ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(utf8.encode(encrypted));
+    }
   }
 
   @override
@@ -521,27 +560,68 @@ class SecurityManager implements ISecurityManager {
     IContactRepository repo,
   ) async {
     final method = await getEncryptionMethod(publicKey, repo);
+    final encryptedString = utf8.decode(data, allowMalformed: true);
 
-    if (method.type == EncryptionType.noise &&
-        _noiseService != null &&
-        method.publicKey != null &&
-        _noiseService!.hasEstablishedSession(method.publicKey!)) {
-      final decrypted = await _noiseService!.decrypt(data, method.publicKey!);
-      if (decrypted != null) {
-        _logger.fine(
-          '🔒 BIN DECRYPT: NOISE ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+    switch (method.type) {
+      case EncryptionType.noise:
+        if (_noiseService != null &&
+            method.publicKey != null &&
+            _noiseService!.hasEstablishedSession(method.publicKey!)) {
+          final decrypted = await _noiseService!.decrypt(
+            data,
+            method.publicKey!,
+          );
+          if (decrypted != null) {
+            _logger.fine(
+              '🔒 BIN DECRYPT: NOISE ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+            );
+            return decrypted;
+          }
+          _logger.warning(
+            '🔒 BIN DECRYPT: Noise decryption returned null for ${publicKey.shortId(8)}...',
+          );
+          throw Exception('Noise decryption failed for binary payload');
+        }
+        _logger.warning(
+          '🔒 BIN DECRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... falling back',
         );
-        return decrypted;
-      }
-      _logger.warning(
-        '🔒 BIN DECRYPT: Noise decryption returned null for ${publicKey.shortId(8)}...',
-      );
-    }
+        final decryptedFallback = SimpleCrypto.decrypt(encryptedString);
+        _logger.fine(
+          '🔒 BIN DECRYPT: GLOBAL (fallback) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(base64.decode(decryptedFallback));
 
-    _logger.warning(
-      '🔒 BIN DECRYPT: No Noise session for ${publicKey.shortId(8)}..., returning ciphertext bytes',
-    );
-    return data;
+      case EncryptionType.ecdh:
+        final decrypted = await SimpleCrypto.decryptFromContact(
+          encryptedString,
+          publicKey,
+          repo,
+        );
+        if (decrypted != null) {
+          _logger.fine(
+            '🔒 BIN DECRYPT: ECDH ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+          );
+          return Uint8List.fromList(base64.decode(decrypted));
+        }
+        throw Exception('ECDH decryption failed for binary payload');
+
+      case EncryptionType.pairing:
+        final decrypted = SimpleCrypto.decryptFromConversation(
+          encryptedString,
+          publicKey,
+        );
+        _logger.fine(
+          '🔒 BIN DECRYPT: PAIRING ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(base64.decode(decrypted));
+
+      case EncryptionType.global:
+        final decrypted = SimpleCrypto.decrypt(encryptedString);
+        _logger.fine(
+          '🔒 BIN DECRYPT: GLOBAL ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(base64.decode(decrypted));
+    }
   }
 
   // Helper methods
