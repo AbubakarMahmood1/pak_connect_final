@@ -79,16 +79,16 @@ abstract class ISecurityManager {
     IContactRepository repo,
   );
 
-  /// Encrypt binary payload using Noise when available.
-  /// Falls back to plaintext if no session is established.
+  /// Encrypt binary payload using the negotiated encryption method.
+  /// Never returns plaintext; falls back to the next available method (pairing/global) if Noise is unavailable.
   Future<Uint8List> encryptBinaryPayload(
     Uint8List data,
     String publicKey,
     IContactRepository repo,
   );
 
-  /// Decrypt binary payload using Noise when available.
-  /// Falls back to returning the original bytes if no session exists.
+  /// Decrypt binary payload using the negotiated encryption method.
+  /// Throws if decryption cannot be performed with any available method.
   Future<Uint8List> decryptBinaryPayload(
     Uint8List data,
     String publicKey,
