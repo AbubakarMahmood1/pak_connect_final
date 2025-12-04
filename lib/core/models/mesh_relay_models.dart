@@ -160,13 +160,13 @@ class RelayMetadata {
   static int _getTTLForPriority(MessagePriority priority) {
     switch (priority) {
       case MessagePriority.urgent:
-        return 20;
-      case MessagePriority.high:
-        return 15;
-      case MessagePriority.normal:
-        return 10;
-      case MessagePriority.low:
         return 5;
+      case MessagePriority.high:
+        return 5;
+      case MessagePriority.normal:
+        return 4;
+      case MessagePriority.low:
+        return 3;
     }
   }
 

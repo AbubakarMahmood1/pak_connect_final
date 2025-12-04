@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
@@ -7,6 +9,7 @@ import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
+import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
@@ -184,12 +187,12 @@ void main() {
         );
 
         expect(result.isRelay, isTrue);
-        expect(result.nextHop, 'peer-abc');
+        expect(result.nextHop, startsWith('ALL_NEIGHBORS'));
         expect(messageQueue.recordedMessages.length, 1);
         final payload = messageQueue.recordedMessages.first;
-        expect(payload['recipient'], 'recipient-key');
+        expect(payload['recipient'], 'peer-abc');
         expect(payload['sender'], 'node-relay');
-        expect(payload['chatId'], contains('mesh_relay_peer-abc'));
+        expect(payload['chatId'], contains('broadcast_relay_peer-abc'));
         expect(payload['priority'], MessagePriority.high);
       },
     );
@@ -261,6 +264,12 @@ class _RecordingOfflineQueue extends OfflineMessageQueue {
     MessagePriority priority = MessagePriority.normal,
     String? replyToMessageId,
     List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
   }) async {
     final id = 'queued_${recordedMessages.length}';
     recordedMessages.add({
@@ -270,6 +279,47 @@ class _RecordingOfflineQueue extends OfflineMessageQueue {
       'recipient': recipientPublicKey,
       'sender': senderPublicKey,
       'priority': priority,
+      'persist': persistToStorage,
+      'isRelay': isRelayMessage,
+      'originalMessageId': originalMessageId,
+      'relayNodeId': relayNodeId,
+      'messageHash': messageHash,
+      'relayMetadata': relayMetadata,
+    });
+    return id;
+  }
+
+  @override
+  Future<MessageId> queueMessageWithIds({
+    required ChatId chatId,
+    required String content,
+    required ChatId recipientId,
+    required ChatId senderId,
+    MessagePriority priority = MessagePriority.normal,
+    MessageId? replyToMessageId,
+    List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
+  }) async {
+    final id = MessageId('queued_${recordedMessages.length}');
+    recordedMessages.add({
+      'id': id.value,
+      'chatId': chatId.value,
+      'content': content,
+      'recipient': recipientId.value,
+      'sender': senderId.value,
+      'priority': priority,
+      'replyTo': replyToMessageId?.value,
+      'persist': persistToStorage,
+      'isRelay': isRelayMessage,
+      'originalMessageId': originalMessageId,
+      'relayNodeId': relayNodeId,
+      'messageHash': messageHash,
+      'relayMetadata': relayMetadata,
     });
     return id;
   }
@@ -288,6 +338,43 @@ class _StubSpamPreventionManager extends SpamPreventionManager {
     activeTrustScores: 0,
     processedHashes: 0,
   );
+
+  @override
+  Future<SpamCheckResult> checkIncomingRelay({
+    required MeshRelayMessage relayMessage,
+    required String fromNodeId,
+    required String currentNodeId,
+  }) async => const SpamCheckResult(
+    allowed: true,
+    spamScore: 0,
+    reason: 'stub-allowed',
+    checks: [],
+  );
+
+  @override
+  Future<SpamCheckResult> checkOutgoingRelay({
+    required String senderNodeId,
+    required int messageSize,
+  }) async => const SpamCheckResult(
+    allowed: true,
+    spamScore: 0,
+    reason: 'stub-allowed',
+    checks: [],
+  );
+
+  @override
+  Future<void> recordRelayOperation({
+    required String fromNodeId,
+    required String toNodeId,
+    required String messageHash,
+    required int messageSize,
+  }) async {}
+
+  @override
+  void clearStatistics() {}
+
+  @override
+  void dispose() {}
 }
 
 class _FakeRelayEngine extends MeshRelayEngine {
@@ -315,6 +402,7 @@ class _FakeRelayEngine extends MeshRelayEngine {
          seenMessageStore: _StubSeenMessageStore(),
          messageQueue: queue,
          spamPrevention: spamPrevention,
+         forceFloodMode: true,
        );
 
   @override
@@ -335,6 +423,16 @@ class _FakeRelayEngine extends MeshRelayEngine {
     Function(RelayStatistics stats)? onStatsUpdated,
   }) async {
     initializeCount++;
+    await super.initialize(
+      currentNodeId: currentNodeId,
+      routingService: routingService,
+      topologyAnalyzer: topologyAnalyzer,
+      onRelayMessage: onRelayMessage,
+      onDeliverToSelf: onDeliverToSelf,
+      onDeliverToSelfIds: onDeliverToSelfIds,
+      onRelayDecision: onRelayDecision,
+      onStatsUpdated: onStatsUpdated,
+    );
   }
 
   @override
@@ -537,6 +635,9 @@ class _FakeMeshBleService implements IConnectionService {
   Stream<String> get receivedMessages => const Stream.empty();
 
   @override
+  Stream<BinaryPayload> get receivedBinaryStream => const Stream.empty();
+
+  @override
   Stream<CentralConnectionStateChangedEventArgs>
   get peripheralConnectionChanges => const Stream.empty();
 
@@ -565,6 +666,22 @@ class _FakeMeshBleService implements IConnectionService {
   Future<bool> sendPeripheralMessage(
     String message, {
     String? messageId,
+  }) async => true;
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'fake-transfer';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
   }) async => true;
 
   @override

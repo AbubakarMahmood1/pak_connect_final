@@ -272,6 +272,11 @@ class BLEMessageHandler {
     return _meshRelayHandler.getAvailableNextHops();
   }
 
+  /// Provide next-hop source from BLE connection manager (addresses/peer IDs)
+  void setNextHopsProvider(List<String> Function() provider) {
+    _meshRelayHandler.setNextHopsProvider(provider);
+  }
+
   Future<bool> sendMessage({
     required CentralManager centralManager,
     required Peripheral connectedDevice,

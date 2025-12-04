@@ -6,6 +6,7 @@ import '../../core/constants/ble_constants.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/models/connection_state.dart';
 import '../../core/power/adaptive_power_manager.dart';
+import '../../core/bluetooth/connection_tracker.dart';
 import '../models/ble_client_connection.dart';
 import '../../core/models/ble_server_connection.dart';
 import '../models/connection_limit_config.dart';
@@ -26,6 +27,9 @@ class BLEConnectionManager {
 
   // Server connections: We act as peripheral, others connect TO us
   final Map<String, BLEServerConnection> _serverConnections = {};
+
+  // Unified tracker (client + server) to prevent reverse-connection races
+  final BleConnectionTracker _connectionTracker = BleConnectionTracker();
 
   // Track devices we are actively trying to connect to so we can detect races
   final Set<String> _pendingClientConnections = {};
@@ -149,6 +153,12 @@ class BLEConnectionManager {
       _clientConnections.values.toList();
   List<BLEServerConnection> get serverConnections =>
       _serverConnections.values.toList();
+  List<String> get connectedAddresses {
+    final set = <String>{};
+    set.addAll(_clientConnections.keys);
+    set.addAll(_serverConnections.keys);
+    return set.toList();
+  }
 
   // Legacy getter for burst scan optimization (now uses new connection tracking)
   int get activeConnectionCount => clientConnectionCount;
@@ -343,6 +353,7 @@ class BLEConnectionManager {
         centralManager.disconnect(existingClient.peripheral);
       } catch (_) {}
       _clientConnections.remove(address);
+      _connectionTracker.removeConnection(address);
     }
 
     _logger.info(
@@ -356,6 +367,11 @@ class BLEConnectionManager {
     );
 
     _serverConnections[address] = connection;
+    _connectionTracker.addConnection(
+      address: address,
+      isClient: false,
+      rssi: null,
+    );
     _logger.info(
       '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
     );
@@ -376,6 +392,7 @@ class BLEConnectionManager {
       _logger.info(
         '📤 Central disconnected: ${_formatAddress(address)} (connected for: ${duration.inSeconds}s, server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})',
       );
+      _connectionTracker.removeConnection(address);
 
       // 🧹 REAL-TIME CLEANUP: Trigger immediate cleanup via BLEService
       // This will remove from deduplication manager and notify UI
@@ -540,6 +557,23 @@ class BLEConnectionManager {
   Future<void> connectToDevice(Peripheral device, {int? rssi}) async {
     final address = device.uuid.toString();
 
+    // Unified guard: if we already have ANY connection to this address, skip
+    if (_connectionTracker.isConnected(address)) {
+      _logger.fine(
+        '↔️ Unified tracker: already connected to ${_formatAddress(address)} — skipping outbound connect',
+      );
+      return;
+    }
+
+    // Backoff guard: avoid rapid retries
+    if (!_connectionTracker.canAttempt(address)) {
+      _logger.fine(
+        '⏳ Backing off reconnect to ${_formatAddress(address)} (pending attempt window)',
+      );
+      return;
+    }
+    _connectionTracker.markAttempt(address);
+
     if (_pendingClientConnections.contains(address)) {
       _logger.fine(
         '↻ Already connecting to ${_formatAddress(address)} - ignoring duplicate request',
@@ -633,6 +667,7 @@ class BLEConnectionManager {
               'Ignoring disconnect error for ${_formatAddress(address)}: $e',
             );
           }
+          _connectionTracker.clearAttempt(address);
           return;
         } else {
           _logger.info(
@@ -657,6 +692,11 @@ class BLEConnectionManager {
 
       _clientConnections[address] = connection;
       _lastConnectedDevice = device;
+      _connectionTracker.addConnection(
+        address: address,
+        isClient: true,
+        rssi: rssi,
+      );
 
       _logger.info(
         '✅ Connected to ${_formatAddress(address)} (client connections: $clientConnectionCount/${_limitConfig.maxClientConnections})',
@@ -745,11 +785,16 @@ class BLEConnectionManager {
 
       // Remove failed connection from map
       _clientConnections.remove(address);
+      _connectionTracker.removeConnection(address);
 
       clearConnectionState();
       rethrow;
     } finally {
       _pendingClientConnections.remove(address);
+      // Keep pending attempt entry for backoff unless we succeeded
+      if (_connectionTracker.isConnected(address)) {
+        _connectionTracker.clearAttempt(address);
+      }
     }
   }
 
@@ -889,11 +934,13 @@ class BLEConnectionManager {
       _logger.info('🔌 Disconnecting client: ${_formatAddress(address)}');
       await centralManager.disconnect(connection.peripheral);
       _clientConnections.remove(address);
+      _connectionTracker.removeConnection(address);
       _logger.info('✅ Client disconnected: ${_formatAddress(address)}');
     } catch (e) {
       _logger.warning('⚠️ Failed to disconnect ${_formatAddress(address)}: $e');
       // Remove from map anyway
       _clientConnections.remove(address);
+      _connectionTracker.removeConnection(address);
     }
   }
 
@@ -934,6 +981,7 @@ class BLEConnectionManager {
 
     _clientConnections.clear();
     _serverConnections.clear();
+    _connectionTracker.clear();
     _lastConnectedDevice = null;
 
     _isReconnection = false;

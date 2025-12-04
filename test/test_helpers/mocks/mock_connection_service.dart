@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/models/spy_mode_info.dart';
@@ -41,6 +43,8 @@ class MockConnectionService implements IConnectionService {
       StreamController<BluetoothStatusMessage>.broadcast();
   final StreamController<String> _hintMatchesController =
       StreamController<String>.broadcast();
+  final StreamController<BinaryPayload> _binaryPayloadController =
+      StreamController<BinaryPayload>.broadcast();
   final List<BLEServerConnection> _serverConnections = [];
   bool _pairingInProgress = false;
   bool _isActivelyReconnecting = false;
@@ -96,6 +100,7 @@ class MockConnectionService implements IConnectionService {
     await _bluetoothStateController.close();
     await _bluetoothMessageController.close();
     await _hintMatchesController.close();
+    await _binaryPayloadController.close();
   }
 
   // ===== Messaging =====
@@ -132,10 +137,34 @@ class MockConnectionService implements IConnectionService {
   }
 
   @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'mock-transfer-${DateTime.now().millisecondsSinceEpoch}';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
+
+  @override
   Stream<String> get receivedMessages => _receivedMessagesController.stream;
+
+  @override
+  Stream<BinaryPayload> get receivedBinaryStream =>
+      _binaryPayloadController.stream;
 
   void emitIncomingMessage(String payload) {
     _receivedMessagesController.add(payload);
+  }
+
+  void emitIncomingBinary(BinaryPayload payload) {
+    _binaryPayloadController.add(payload);
   }
 
   // ===== Discovery =====

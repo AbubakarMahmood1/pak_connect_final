@@ -8,6 +8,7 @@ import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'test_helpers/test_setup.dart';
+import 'test_helpers/test_seen_message_store.dart';
 
 void main() {
   late List<LogRecord> logRecords;
@@ -75,6 +76,7 @@ void main() {
       final relayEngine = MeshRelayEngine(
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
+        seenMessageStore: TestSeenMessageStore(),
       );
 
       await relayEngine.initialize(currentNodeId: nodeId);

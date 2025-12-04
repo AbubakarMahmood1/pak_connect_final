@@ -23,6 +23,8 @@ import 'ble_message_handler.dart';
 import 'ble_message_handler_facade.dart';
 import 'ble_connection_manager.dart';
 import 'ble_write_adapter.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/interfaces/i_message_fragmentation_handler.dart';
 
 /// Concrete implementation of IBLEMessageHandlerFacade
 ///
@@ -52,6 +54,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   final bool Function()? _getPeripheralMtuReady;
   final int? Function()? _getPeripheralNegotiatedMtu;
   final void Function(bool)? _onMessageOperationChanged;
+  List<String> Function()? _nextHopsProviderOverride;
   String? _currentNodeId;
   bool _initialized = false;
 
@@ -89,7 +92,9 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       sendCentral: _sendCentralViaAdapter,
       sendPeripheral: _sendPeripheralViaAdapter,
     );
-    _splitFacade.setNextHopsProvider(_handler.getAvailableNextHops);
+    // Default next-hop provider from BLE connections; falls back to handler.
+    _splitFacade.setNextHopsProvider(_resolveNextHops);
+    _handler.setNextHopsProvider(_resolveNextHops);
     try {
       if (AppCore.instance.isInitialized) {
         _splitFacade.setMessageQueue(AppCore.instance.messageQueue);
@@ -172,7 +177,46 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
 
   @override
   void setNextHopsProvider(List<String> Function() provider) {
+    _nextHopsProviderOverride = provider;
+    _handler.setNextHopsProvider(provider);
     _splitFacade.setNextHopsProvider(provider);
+  }
+
+  List<String> _resolveNextHops() {
+    if (_nextHopsProviderOverride != null) {
+      try {
+        return _nextHopsProviderOverride!.call();
+      } catch (_) {}
+    }
+    final cm = _connectionManager;
+    if (cm != null) {
+      try {
+        final addresses = cm.connectedAddresses;
+        final peers = <String>[];
+        for (final addr in addresses) {
+          final dedup = DeviceDeduplicationManager.getDevice(addr);
+          // Prefer known contact public key (likely persistent), else ephemeral hint, else MAC
+          final hasHint =
+              dedup?.ephemeralHint != null &&
+              dedup!.ephemeralHint != DeviceDeduplicationManager.noHintValue;
+          final peerId =
+              dedup?.contactInfo?.publicKey ??
+              (hasHint ? dedup!.ephemeralHint : null);
+          if (peerId != null) {
+            peers.add(peerId);
+          } else {
+            // Fallback to MAC only if we truly have no identity; log for visibility.
+            peers.add(addr);
+            _logger.fine(
+              '⚠️ Using MAC as next-hop identifier (no contact/hint mapping yet): ${addr.substring(0, addr.length > 8 ? 8 : addr.length)}...',
+            );
+          }
+        }
+        return peers;
+      } catch (_) {}
+    }
+    // Fallback to handler’s view (may be empty)
+    return _handler.getAvailableNextHops();
   }
 
   @override
@@ -325,6 +369,11 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     return fallbackStats;
   }
 
+  @override
+  ForwardReassembledPayload? takeForwardReassembledPayload(String fragmentId) {
+    return _splitFacade.takeForwardReassembledPayload(fragmentId);
+  }
+
   // Callback setters
   @override
   set onContactRequestReceived(
@@ -392,6 +441,35 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   ) {
     _handler.onQueueSyncCompleted = callback;
     _splitFacade.onQueueSyncCompleted = callback;
+  }
+
+  @override
+  set onBinaryPayloadReceived(
+    Function(
+      Uint8List data,
+      int originalType,
+      String fragmentId,
+      int ttl,
+      String? recipient,
+      String? senderNodeId,
+    )?
+    callback,
+  ) {
+    _splitFacade.onBinaryPayloadReceived = callback;
+  }
+
+  @override
+  set onForwardBinaryFragment(
+    Function(
+      Uint8List data,
+      String fragmentId,
+      int index,
+      String fromDeviceId,
+      String fromNodeId,
+    )?
+    callback,
+  ) {
+    _splitFacade.onForwardBinaryFragment = callback;
   }
 
   @override

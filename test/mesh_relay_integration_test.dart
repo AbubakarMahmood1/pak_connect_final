@@ -142,7 +142,7 @@ void main() {
         finalRecipient: 'recipient1',
         currentNodeId: 'node1',
       );
-      expect(urgentMetadata.ttl, 20); // Urgent = 20 hops
+      expect(urgentMetadata.ttl, 5); // Urgent = max hops
 
       final lowMetadata = RelayMetadata.create(
         originalMessageContent: 'Low priority message',
@@ -151,7 +151,7 @@ void main() {
         finalRecipient: 'recipient2',
         currentNodeId: 'node2',
       );
-      expect(lowMetadata.ttl, 5); // Low = 5 hops
+      expect(lowMetadata.ttl, 3); // Low = min hops
 
       // Test hop progression
       final nextHop = urgentMetadata.nextHop('node2');

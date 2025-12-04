@@ -484,6 +484,66 @@ class SecurityManager implements ISecurityManager {
     }
   }
 
+  @override
+  Future<Uint8List> encryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    final method = await getEncryptionMethod(publicKey, repo);
+
+    if (method.type == EncryptionType.noise &&
+        _noiseService != null &&
+        method.publicKey != null &&
+        _noiseService!.hasEstablishedSession(method.publicKey!)) {
+      final encrypted = await _noiseService!.encrypt(data, method.publicKey!);
+      if (encrypted != null) {
+        _logger.fine(
+          '🔒 BIN ENCRYPT: NOISE → ${data.length} bytes to ${publicKey.shortId(8)}...',
+        );
+        return encrypted;
+      }
+      _logger.warning(
+        '🔒 BIN ENCRYPT: Noise encryption returned null for ${publicKey.shortId(8)}...',
+      );
+    }
+
+    _logger.warning(
+      '🔒 BIN ENCRYPT: No Noise session for ${publicKey.shortId(8)}..., sending plaintext bytes',
+    );
+    return data;
+  }
+
+  @override
+  Future<Uint8List> decryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    final method = await getEncryptionMethod(publicKey, repo);
+
+    if (method.type == EncryptionType.noise &&
+        _noiseService != null &&
+        method.publicKey != null &&
+        _noiseService!.hasEstablishedSession(method.publicKey!)) {
+      final decrypted = await _noiseService!.decrypt(data, method.publicKey!);
+      if (decrypted != null) {
+        _logger.fine(
+          '🔒 BIN DECRYPT: NOISE ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+        );
+        return decrypted;
+      }
+      _logger.warning(
+        '🔒 BIN DECRYPT: Noise decryption returned null for ${publicKey.shortId(8)}...',
+      );
+    }
+
+    _logger.warning(
+      '🔒 BIN DECRYPT: No Noise session for ${publicKey.shortId(8)}..., returning ciphertext bytes',
+    );
+    return data;
+  }
+
   // Helper methods
   static Future<bool> _verifyECDHKey(
     String publicKey,

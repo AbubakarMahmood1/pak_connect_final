@@ -1,5 +1,25 @@
+import 'dart:typed_data';
+
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
+
+class BinaryPayload {
+  BinaryPayload({
+    required this.data,
+    required this.originalType,
+    required this.fragmentId,
+    this.ttl = 0,
+    this.recipient,
+    this.senderNodeId,
+  });
+
+  final Uint8List data;
+  final int originalType;
+  final String fragmentId;
+  final int ttl;
+  final String? recipient;
+  final String? senderNodeId;
+}
 
 /// Manages BLE message transmission and reception including:
 /// - Chat message encryption and sending (central & peripheral modes)
@@ -52,6 +72,23 @@ abstract class IBLEMessagingService {
   /// Throws:
   ///   StateError if not connected or handshake not complete
   Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage);
+
+  /// Send binary/media payload; returns transferId for retry tracking.
+  /// Implementation attempts Noise encryption when a session is available.
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  });
+
+  /// Retry a previously persisted binary/media payload using the latest MTU.
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  });
 
   // ============================================================================
   // IDENTITY EXCHANGE (PROTOCOL LEVEL)
@@ -107,6 +144,9 @@ abstract class IBLEMessagingService {
   /// Stream of decrypted chat messages received from peer
   /// Emits message content for UI display
   Stream<String> get receivedMessagesStream;
+
+  /// Stream of binary/media payloads received (already reassembled).
+  Stream<BinaryPayload> get receivedBinaryStream;
 
   /// Latest extracted message ID (for ACK tracking in relay)
   String? get lastExtractedMessageId;

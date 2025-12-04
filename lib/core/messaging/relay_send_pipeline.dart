@@ -19,14 +19,23 @@ class RelaySendPipeline {
        _messageQueue = messageQueue,
        _spamPrevention = spamPrevention;
 
-  Future<void> relayToNextHop({
+  Future<bool> relayToNextHop({
     required MeshRelayMessage relayMessage,
     required String nextHopNodeId,
     Function(MeshRelayMessage, String)? onRelayMessage,
     Function(MessageId, MeshRelayMessage, String)? onRelayMessageIds,
   }) async {
     try {
-      final nextHopMessage = relayMessage.nextHop(nextHopNodeId);
+      MeshRelayMessage nextHopMessage;
+      try {
+        nextHopMessage = relayMessage.nextHop(nextHopNodeId);
+      } catch (e) {
+        _logger.info(
+          '🚫 Relay drop to $nextHopNodeId (TTL/path exhausted): $e',
+        );
+        return false;
+      }
+      final persistToStorage = relayMessage.relayMetadata.isOriginator;
 
       await _spamPrevention.recordRelayOperation(
         fromNodeId: relayMessage.relayNodeId,
@@ -41,6 +50,12 @@ class RelaySendPipeline {
         recipientId: ChatId(nextHopNodeId),
         senderId: ChatId(nextHopMessage.relayMetadata.originalSender),
         priority: nextHopMessage.relayMetadata.priority,
+        isRelayMessage: true,
+        relayMetadata: nextHopMessage.relayMetadata,
+        originalMessageId: nextHopMessage.originalMessageId,
+        relayNodeId: relayMessage.relayNodeId,
+        messageHash: nextHopMessage.relayMetadata.messageHash,
+        persistToStorage: persistToStorage,
       );
 
       onRelayMessage?.call(nextHopMessage, nextHopNodeId);
@@ -61,19 +76,21 @@ class RelaySendPipeline {
       _logger.info(
         'Relayed message $truncatedMessageId... to $truncatedNextHop...',
       );
+      return true;
     } catch (e) {
       _logger.severe('Failed to relay to next hop: $e');
       throw RelayException('Failed to relay message: $e');
     }
   }
 
-  Future<void> broadcastToNeighbors({
+  Future<int> broadcastToNeighbors({
     required MeshRelayMessage relayMessage,
     required List<String> availableNeighbors,
     Function(MeshRelayMessage, String)? onRelayMessage,
     Function(MessageId, MeshRelayMessage, String)? onRelayMessageIds,
   }) async {
     try {
+      final persistToStorage = relayMessage.relayMetadata.isOriginator;
       final validNeighbors = availableNeighbors
           .where(
             (neighborId) =>
@@ -85,7 +102,7 @@ class RelaySendPipeline {
         _logger.info(
           '📣 No valid neighbors for broadcast (all in routing path or none available)',
         );
-        return;
+        return 0;
       }
 
       final truncatedMessageId = relayMessage.originalMessageId.length > 16
@@ -100,7 +117,19 @@ class RelaySendPipeline {
 
       for (final neighborId in validNeighbors) {
         try {
-          final nextHopMessage = relayMessage.nextHop(neighborId);
+          MeshRelayMessage nextHopMessage;
+          try {
+            nextHopMessage = relayMessage.nextHop(neighborId);
+          } catch (e) {
+            failCount++;
+            final truncatedNeighbor = neighborId.length > 8
+                ? neighborId.shortId(8)
+                : neighborId;
+            _logger.info(
+              '  🚫 Skip neighbor $truncatedNeighbor... (TTL/path exhausted): $e',
+            );
+            continue;
+          }
 
           await _spamPrevention.recordRelayOperation(
             fromNodeId: relayMessage.relayNodeId,
@@ -115,6 +144,12 @@ class RelaySendPipeline {
             recipientId: ChatId(neighborId),
             senderId: ChatId(nextHopMessage.relayMetadata.originalSender),
             priority: nextHopMessage.relayMetadata.priority,
+            isRelayMessage: true,
+            relayMetadata: nextHopMessage.relayMetadata,
+            originalMessageId: nextHopMessage.originalMessageId,
+            relayNodeId: relayMessage.relayNodeId,
+            messageHash: nextHopMessage.relayMetadata.messageHash,
+            persistToStorage: persistToStorage,
           );
 
           onRelayMessage?.call(nextHopMessage, neighborId);
@@ -147,6 +182,7 @@ class RelaySendPipeline {
       _logger.info(
         '📣 Broadcast complete: $successCount success, $failCount failed (total: ${validNeighbors.length})',
       );
+      return successCount;
     } catch (e) {
       _logger.severe('Failed to broadcast to neighbors: $e');
       throw RelayException('Failed to broadcast message: $e');

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +40,10 @@ import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
+import 'package:pak_connect/core/constants/binary_payload_types.dart';
+import 'package:pak_connect/domain/services/mesh_networking_service.dart'
+    show PendingBinaryTransfer, ReceivedBinaryEvent;
 
 ChatId _cid(String value) => ChatId(value);
 MessageId _mid(String value) => MessageId(value);
@@ -508,6 +513,9 @@ class _FakeConnectionService implements IConnectionService {
   Stream<String> get receivedMessages => messageController.stream;
 
   @override
+  Stream<BinaryPayload> get receivedBinaryStream => const Stream.empty();
+
+  @override
   Stream<String> get identityRevealed => const Stream.empty();
 
   // Unused members
@@ -631,6 +639,22 @@ class _FakeConnectionService implements IConnectionService {
     String? messageId,
     String? originalIntendedRecipient,
   }) async => true;
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'fake-transfer';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
   @override
   Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {}
   @override
@@ -673,6 +697,29 @@ class _FakeMeshService implements IMeshNetworkingService {
   Future<int> retryAllMessages() async => 0;
   @override
   List<QueuedMessage> getQueuedMessagesForChat(String chatId) => [];
+
+  @override
+  Stream<ReceivedBinaryEvent> get binaryPayloadStream => const Stream.empty();
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = BinaryPayloadType.media,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'transfer-$recipientId';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
+
+  @override
+  List<PendingBinaryTransfer> getPendingBinaryTransfers() => const [];
+
   @override
   MeshNetworkStatistics getNetworkStatistics() => MeshNetworkStatistics(
     nodeId: 'node',

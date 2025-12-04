@@ -7,7 +7,7 @@ import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../domain/values/id_types.dart';
-import '../../domain/values/id_types.dart';
+import 'i_message_fragmentation_handler.dart';
 
 /// Public API interface for BLE message handling
 ///
@@ -134,6 +134,34 @@ abstract interface class IBLEMessageHandlerFacade {
   /// - totalRelayed, totalDropped, totalDeliveredToSelf, totalBlocked, totalProbabilisticSkip
   /// - spamScore, relayEfficiency, activeRelayMessages, networkSize, currentRelayProbability
   Future<RelayStatistics> getRelayStatistics();
+
+  /// Called when a binary payload (reassembled fragments) is available for the local node.
+  set onBinaryPayloadReceived(
+    Function(
+      Uint8List data,
+      int originalType,
+      String fragmentId,
+      int ttl,
+      String? recipient,
+      String? senderNodeId,
+    )?
+    callback,
+  );
+
+  /// Called when a binary fragment should be forwarded hop-by-hop.
+  set onForwardBinaryFragment(
+    Function(
+      Uint8List data,
+      String fragmentId,
+      int index,
+      String fromDeviceId,
+      String fromNodeId,
+    )?
+    callback,
+  );
+
+  /// Retrieve fully reassembled binary payload for forwarding when downstream MTU is smaller.
+  ForwardReassembledPayload? takeForwardReassembledPayload(String fragmentId);
 
   // ==================== CALLBACKS ====================
   // All callbacks are optionally settable by consumers
