@@ -616,15 +616,17 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     }
 
     final core = AppCore.instance;
-    if (!core.isInitialized && !core.isInitializing) {
-      _logger.warning('AppCore not initialized, initializing now...');
-      await core.initialize();
-    } else if (core.isInitializing) {
-      _logger.fine(
-        'AppCore initialization in progress, awaiting completion...',
-      );
-      await core.initialize();
+    if (core.isInitialized) {
+      return core.messageQueue;
     }
+
+    if (core.isInitializing) {
+      _logger.fine('AppCore initialization in progress, using shared queue');
+      return core.messageQueue;
+    }
+
+    _logger.warning('AppCore not initialized, initializing now...');
+    await core.initialize();
 
     _logger.fine('📦 Using AppCore message queue');
     return core.messageQueue;

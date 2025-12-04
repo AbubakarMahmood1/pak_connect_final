@@ -68,6 +68,8 @@ class AppCore {
   bool _isInitialized = false;
   Completer<void>? _initializationCompleter;
   DateTime? _initializationTime;
+  AppStatus _currentStatus = AppStatus.initializing;
+  Stream<AppStatus>? _statusStream;
   final Set<void Function(AppStatus)> _statusListeners = {};
   @visibleForTesting
   static Future<void> Function()? initializationOverride;
@@ -88,18 +90,22 @@ class AppCore {
       !_initializationCompleter!.isCompleted;
 
   /// Stream of app status changes
-  Stream<AppStatus> get statusStream => Stream<AppStatus>.multi((controller) {
-    controller.add(AppStatus.initializing);
+  Stream<AppStatus> get statusStream {
+    _statusStream ??= Stream<AppStatus>.multi((controller) {
+      controller.add(_currentStatus);
 
-    void listener(AppStatus status) {
-      controller.add(status);
-    }
+      void listener(AppStatus status) {
+        controller.add(status);
+      }
 
-    _statusListeners.add(listener);
-    controller.onCancel = () {
-      _statusListeners.remove(listener);
-    };
-  }, isBroadcast: true);
+      _statusListeners.add(listener);
+      controller.onCancel = () {
+        _statusListeners.remove(listener);
+      };
+    }, isBroadcast: true);
+
+    return _statusStream!;
+  }
 
   /// Initialize the entire application core
   Future<void> initialize() async {
@@ -377,9 +383,16 @@ class AppCore {
     _logger.info('📡 Initializing BLE + mesh stack via AppCore...');
 
     try {
-      final legacyBleService = BLEService();
-      await legacyBleService.initialize();
-      await MessageRouter.initialize(legacyBleService);
+      final legacyBleService = getIt.isRegistered<BLEService>()
+          ? getIt<BLEService>()
+          : BLEService();
+      if (!legacyBleService.isInitialized) {
+        await legacyBleService.initialize();
+        await MessageRouter.initialize(legacyBleService);
+      } else {
+        _logger.fine('ℹ️ BLEService already initialized; reusing instance');
+      }
+
       bleService = legacyBleService;
       _logger.info('✅ BLEService initialized via AppCore');
 
@@ -650,6 +663,7 @@ class AppCore {
 
   /// Emit app status change
   void _emitStatus(AppStatus status) {
+    _currentStatus = status;
     for (final listener in List.of(_statusListeners)) {
       try {
         listener(status);

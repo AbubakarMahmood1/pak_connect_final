@@ -29,7 +29,8 @@ class RelayConfigManager {
 
   // Default values
   static const bool _defaultRelayEnabled = true;
-  static const int _defaultMaxRelayHops = 10;
+  static const int _defaultMaxRelayHops = 3;
+  static const int _maxAllowedRelayHops = 5;
   static const int _defaultBatteryThreshold = 20; // percent
 
   // Cached values
@@ -45,8 +46,10 @@ class RelayConfigManager {
       // Load cached values
       _cachedRelayEnabled =
           prefs.getBool(_keyRelayEnabled) ?? _defaultRelayEnabled;
-      _cachedMaxRelayHops =
-          prefs.getInt(_keyMaxRelayHops) ?? _defaultMaxRelayHops;
+      final storedHops = prefs.getInt(_keyMaxRelayHops);
+      _cachedMaxRelayHops = _sanitizeMaxRelayHops(
+        storedHops ?? _defaultMaxRelayHops,
+      );
       _cachedBatteryThreshold =
           prefs.getInt(_keyRelayBatteryThreshold) ?? _defaultBatteryThreshold;
 
@@ -103,16 +106,18 @@ class RelayConfigManager {
 
   /// Set maximum relay hops
   Future<void> setMaxRelayHops(int hops) async {
-    if (hops < 1 || hops > 50) {
-      _logger.warning('Invalid max relay hops: $hops (must be 1-50)');
+    if (hops < 1) {
+      _logger.warning('Invalid max relay hops: $hops (must be >=1)');
       return;
     }
 
+    final sanitized = _sanitizeMaxRelayHops(hops);
+
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_keyMaxRelayHops, hops);
-      _cachedMaxRelayHops = hops;
-      _logger.info('📡 Max relay hops set to: $hops');
+      await prefs.setInt(_keyMaxRelayHops, sanitized);
+      _cachedMaxRelayHops = sanitized;
+      _logger.info('📡 Max relay hops set to: $sanitized');
     } catch (e) {
       _logger.severe('Failed to set max relay hops: $e');
     }
@@ -181,5 +186,16 @@ class RelayConfigManager {
     } catch (e) {
       _logger.severe('Failed to reset relay config: $e');
     }
+  }
+
+  int _sanitizeMaxRelayHops(int hops) {
+    if (hops > _maxAllowedRelayHops) {
+      _logger.warning(
+        'Max relay hops $hops exceeds allowed limit ($_maxAllowedRelayHops); capping',
+      );
+      return _maxAllowedRelayHops;
+    }
+    if (hops < 1) return 1;
+    return hops;
   }
 }
