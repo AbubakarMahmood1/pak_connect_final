@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
@@ -13,8 +14,10 @@ import 'package:logging/logging.dart';
 ///     late List<LogRecord> logRecords;
 ///     late Set<Pattern> allowedSevere;
 ///
+///     late LogAssertionHelper helper;
+///
 ///     setUp(() {
-///       final helper = LogAssertionHelper();
+///       helper = LogAssertionHelper();
 ///       logRecords = helper.logRecords;
 ///       allowedSevere = helper.allowedSevere;
 ///       helper.setupLogCapture();
@@ -22,8 +25,9 @@ import 'package:logging/logging.dart';
 ///
 ///     void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 ///
-///     tearDown(() {
+///     tearDown(() async {
 ///       LogAssertionHelper.assertNoUnexpectedSevere(logRecords, allowedSevere);
+///       helper.tearDownLogCapture();
 ///     });
 ///
 ///     test('error path test', () {
@@ -39,14 +43,27 @@ class LogAssertionHelper {
 
   /// Patterns for SEVERE logs that are expected (intentional error paths)
   final Set<Pattern> allowedSevere = {};
+  Level? _previousLevel;
+  StreamSubscription<LogRecord>? _subscription;
 
   /// Sets up log capture for the test.
   /// Call this in setUp().
   void setupLogCapture() {
     logRecords.clear();
     allowedSevere.clear();
+    _previousLevel = Logger.root.level;
     Logger.root.level = Level.ALL;
-    Logger.root.onRecord.listen(logRecords.add);
+    _subscription = Logger.root.onRecord.listen(logRecords.add);
+  }
+
+  /// Cleans up log capture and restores prior logger state.
+  /// Call this in tearDown().
+  void tearDownLogCapture() {
+    _subscription?.cancel();
+    _subscription = null;
+    if (_previousLevel != null) {
+      Logger.root.level = _previousLevel!;
+    }
   }
 
   /// Asserts that no unexpected SEVERE logs occurred during the test.
