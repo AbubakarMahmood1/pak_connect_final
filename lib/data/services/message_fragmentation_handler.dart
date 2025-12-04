@@ -413,7 +413,8 @@ class BinaryFragmentEnvelope {
           .map((b) => b.toRadixString(16).padLeft(2, '0'))
           .join();
 
-      final bd = ByteData.sublistView(bytes, offset, offset + 4);
+      // Header is 4 bytes: 2 bytes index + 2 bytes total, big endian.
+      final bd = ByteData.sublistView(bytes, offset, 4);
       final index = bd.getUint16(0, Endian.big);
       final total = bd.getUint16(2, Endian.big);
       offset += 4;
