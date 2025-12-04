@@ -12,6 +12,8 @@ import '../../core/messaging/message_chunk_sender.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/utils/binary_fragmenter.dart';
+import '../../core/constants/binary_payload_types.dart';
 import '../../domain/values/id_types.dart';
 
 /// Handles outbound message preparation and sending for BLEMessageHandler.
@@ -204,8 +206,27 @@ class OutboundMessageSender {
       );
 
       final jsonBytes = finalMessage.toBytes();
-      final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
-      _logger.info('Created ${chunks.length} chunks for message: $msgId');
+      List<MessageChunk>? chunks;
+      MessageChunk? singleChunk;
+      var useBinaryEnvelope = false;
+      try {
+        chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
+        if (chunks.isEmpty) {
+          useBinaryEnvelope = true;
+        } else if (chunks.length == 1) {
+          singleChunk = chunks.first;
+        } else {
+          useBinaryEnvelope = true;
+        }
+      } catch (e) {
+        _logger.fine(
+          '⚠️ Chunk fragmentation failed (fallback to binary envelope): $e',
+        );
+        useBinaryEnvelope = true;
+      }
+      _logger.info(
+        '${useBinaryEnvelope ? "Using binary envelope" : "Single-chunk fast path"} for message: $msgId',
+      );
 
       final ackCompleter = _ackTracker.track(
         msgId,
@@ -214,47 +235,69 @@ class OutboundMessageSender {
         },
       );
 
-      await _chunkSender.sendChunks(
-        messageId: msgId,
-        fragments: chunks,
-        sendChunk: (chunkData) async {
-          if (_centralWrite != null) {
-            await _centralWrite!(
-              centralManager: centralManager,
-              peripheral: connectedDevice,
-              characteristic: messageCharacteristic,
-              value: chunkData,
+      if (useBinaryEnvelope) {
+        await sendBinaryPayload(
+          data: jsonBytes,
+          mtuSize: mtuSize,
+          originalType: BinaryPayloadType.protocolMessage,
+          recipientId: finalRecipientId,
+          sendChunk: (chunkData) async {
+            if (_centralWrite != null) {
+              await _centralWrite!(
+                centralManager: centralManager,
+                peripheral: connectedDevice,
+                characteristic: messageCharacteristic,
+                value: chunkData,
+              );
+            } else {
+              await centralManager.writeCharacteristic(
+                connectedDevice,
+                messageCharacteristic,
+                value: chunkData,
+                type: GATTCharacteristicWriteType.withResponse,
+              );
+            }
+          },
+        );
+      } else if (singleChunk != null) {
+        await _chunkSender.sendChunks(
+          messageId: msgId,
+          fragments: [singleChunk],
+          sendChunk: (chunkData) async {
+            if (_centralWrite != null) {
+              await _centralWrite!(
+                centralManager: centralManager,
+                peripheral: connectedDevice,
+                characteristic: messageCharacteristic,
+                value: chunkData,
+              );
+            } else {
+              await centralManager.writeCharacteristic(
+                connectedDevice,
+                messageCharacteristic,
+                value: chunkData,
+                type: GATTCharacteristicWriteType.withResponse,
+              );
+            }
+          },
+          onBeforeSend: (index, chunk) {
+            print('📨 SEND STEP 5.1: Converting chunk 1/1 to bytes');
+            print(
+              '📨 SEND STEP 5.1a: Chunk format: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}|[${chunk.content.length} chars]',
             );
-          } else {
-            await centralManager.writeCharacteristic(
-              connectedDevice,
-              messageCharacteristic,
-              value: chunkData,
-              type: GATTCharacteristicWriteType.withResponse,
+            print(
+              '📨 SEND STEP 5.1b: Chunk 1 → ${chunk.toBytes().length} bytes',
             );
-          }
-        },
-        onBeforeSend: (index, chunk) {
-          final step = index + 1;
-          print(
-            '📨 SEND STEP 5.$step: Converting chunk $step/${chunks.length} to bytes',
-          );
-          print(
-            '📨 SEND STEP 5.${step}a: Chunk format: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}|[${chunk.content.length} chars]',
-          );
-          print(
-            '📨 SEND STEP 5.${step}b: Chunk $step → ${chunk.toBytes().length} bytes',
-          );
-        },
-        onAfterSend: (index, _) {
-          final step = index + 1;
-          print(
-            '📨 SEND STEP 6.$step✅: Chunk $step written to BLE successfully',
-          );
-        },
-      );
+          },
+          onAfterSend: (index, _) {
+            print('📨 SEND STEP 6.1✅: Chunk written to BLE successfully');
+          },
+        );
+      }
 
-      _logger.info('All chunks sent for message: $msgId, waiting for ACK...');
+      _logger.info(
+        'Message send dispatched for $msgId (${useBinaryEnvelope ? "binary envelope" : "chunk path"}), waiting for ACK...',
+      );
       final success = await ackCompleter.future;
       onMessageSent?.call(msgId, success);
       onMessageSentIds?.call(MessageId(msgId), success);
@@ -396,43 +439,85 @@ class OutboundMessageSender {
       );
 
       final jsonBytes = finalMessage.toBytes();
-      final chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
+      List<MessageChunk>? chunks;
+      MessageChunk? singleChunk;
+      var useBinaryEnvelope = false;
+      try {
+        chunks = MessageFragmenter.fragmentBytes(jsonBytes, mtuSize, msgId);
+        if (chunks.isEmpty) {
+          useBinaryEnvelope = true;
+        } else if (chunks.length == 1) {
+          singleChunk = chunks.first;
+        } else {
+          useBinaryEnvelope = true;
+        }
+      } catch (e) {
+        _logger.fine(
+          '⚠️ Peripheral chunk fragmentation failed (fallback to binary envelope): $e',
+        );
+        useBinaryEnvelope = true;
+      }
       _logger.info(
-        'Created ${chunks.length} chunks for peripheral message: $msgId',
+        '${useBinaryEnvelope ? "Using binary envelope" : "Single-chunk fast path"} for peripheral message: $msgId',
       );
 
-      await _chunkSender.sendChunks(
-        messageId: msgId,
-        fragments: chunks,
-        sendChunk: (chunkData) async {
-          if (_peripheralWrite != null) {
-            await _peripheralWrite!(
-              peripheralManager: peripheralManager,
-              central: connectedCentral,
-              characteristic: messageCharacteristic,
-              value: chunkData,
-              withoutResponse: true,
+      if (useBinaryEnvelope) {
+        await sendBinaryPayload(
+          data: jsonBytes,
+          mtuSize: mtuSize,
+          originalType: BinaryPayloadType.protocolMessage,
+          recipientId: finalRecipientId,
+          sendChunk: (chunkData) async {
+            if (_peripheralWrite != null) {
+              await _peripheralWrite!(
+                peripheralManager: peripheralManager,
+                central: connectedCentral,
+                characteristic: messageCharacteristic,
+                value: chunkData,
+                withoutResponse: true,
+              );
+            } else {
+              await peripheralManager.notifyCharacteristic(
+                connectedCentral,
+                messageCharacteristic,
+                value: chunkData,
+              );
+            }
+          },
+        );
+      } else if (singleChunk != null) {
+        await _chunkSender.sendChunks(
+          messageId: msgId,
+          fragments: [singleChunk],
+          sendChunk: (chunkData) async {
+            if (_peripheralWrite != null) {
+              await _peripheralWrite!(
+                peripheralManager: peripheralManager,
+                central: connectedCentral,
+                characteristic: messageCharacteristic,
+                value: chunkData,
+                withoutResponse: true,
+              );
+            } else {
+              await peripheralManager.notifyCharacteristic(
+                connectedCentral,
+                messageCharacteristic,
+                value: chunkData,
+              );
+            }
+          },
+          onBeforeSend: (index, chunk) {
+            _logger.info('Sending peripheral chunk 1/1 for message: $msgId');
+            _logger.fine(
+              'Peripheral chunk size: ${chunk.toBytes().length} bytes',
             );
-          } else {
-            await peripheralManager.notifyCharacteristic(
-              connectedCentral,
-              messageCharacteristic,
-              value: chunkData,
-            );
-          }
-        },
-        onBeforeSend: (index, chunk) {
-          final step = index + 1;
-          _logger.info(
-            'Sending peripheral chunk $step/${chunks.length} for message: $msgId',
-          );
-          _logger.fine(
-            'Peripheral chunk $step size: ${chunk.toBytes().length} bytes',
-          );
-        },
-      );
+          },
+        );
+      }
 
-      _logger.info('All peripheral chunks sent for message: $msgId');
+      _logger.info(
+        'Peripheral message dispatched for $msgId (${useBinaryEnvelope ? "binary envelope" : "chunk path"})',
+      );
       onMessageSent?.call(msgId, true);
       onMessageSentIds?.call(MessageId(msgId), true);
       return true;
@@ -561,6 +646,35 @@ class OutboundMessageSender {
     if (input == null || input.isEmpty) return fallback;
     if (input.length <= maxLength) return input;
     return input.substring(0, maxLength);
+  }
+
+  /// Send raw binary payload using binary fragment envelopes.
+  ///
+  /// - [originalType] should map to your FILE/media message type.
+  /// - [recipientId] optional; if null/empty treated as broadcast/unknown.
+  /// - Respects negotiated [mtuSize]; throws if MTU cannot fit header + data.
+  Future<void> sendBinaryPayload({
+    required Uint8List data,
+    required int mtuSize,
+    required int originalType,
+    String? recipientId,
+    required Future<void> Function(Uint8List data) sendChunk,
+  }) async {
+    final frags = BinaryFragmenter.fragment(
+      data: data,
+      mtu: mtuSize,
+      originalType: originalType,
+      recipient: recipientId,
+    );
+    for (var i = 0; i < frags.length; i++) {
+      _logger.fine(
+        '📤 Sending binary fragment ${i + 1}/${frags.length} (${frags[i].length} bytes)',
+      );
+      await sendChunk(frags[i]);
+      if (i < frags.length - 1) {
+        await Future.delayed(Duration(milliseconds: 20));
+      }
+    }
   }
 }
 

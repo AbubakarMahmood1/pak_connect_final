@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,7 @@ import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart'
     show ScanningSource;
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
+import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart'
     show QueueSyncManagerStats, QueueSyncResult, QueueSyncResponse;
@@ -152,6 +154,12 @@ class _InMemoryQueue extends OfflineMessageQueue {
     MessagePriority priority = MessagePriority.normal,
     String? replyToMessageId,
     List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
   }) async {
     final id = 'msg_${_counter++}';
     final queued = QueuedMessage(
@@ -163,6 +171,13 @@ class _InMemoryQueue extends OfflineMessageQueue {
       priority: priority,
       queuedAt: DateTime.now(),
       maxRetries: 3,
+      replyToMessageId: replyToMessageId,
+      attachments: attachments,
+      isRelayMessage: isRelayMessage,
+      relayMetadata: relayMetadata,
+      originalMessageId: originalMessageId,
+      relayNodeId: relayNodeId,
+      messageHash: messageHash,
     );
     _messages[id] = queued;
     onMessageQueued?.call(queued);
@@ -329,6 +344,8 @@ class _FakeQueueSyncManager implements QueueSyncManagerContract {
 
 class _TestMeshBleService implements IConnectionService {
   final _connectionController = StreamController<ConnectionInfo>.broadcast();
+  final StreamController<BinaryPayload> _binaryController =
+      StreamController<BinaryPayload>.broadcast();
   ConnectionInfo _connectionInfo = const ConnectionInfo(
     isConnected: false,
     isReady: false,
@@ -528,6 +545,9 @@ class _TestMeshBleService implements IConnectionService {
   String? get theirPersistentPublicKey => null;
 
   @override
+  Stream<BinaryPayload> get receivedBinaryStream => _binaryController.stream;
+
+  @override
   void registerQueueSyncHandler(
     Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
   ) {
@@ -548,6 +568,22 @@ class _TestMeshBleService implements IConnectionService {
   }) async => _canSend;
 
   @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'fake-transfer';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
+
+  @override
   Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {
     if (_queueSyncHandler != null && _currentSessionId != null) {
       await _queueSyncHandler!(message, _currentSessionId!);
@@ -561,6 +597,11 @@ class _TestMeshBleService implements IConnectionService {
 
   @override
   Future<void> stopScanning() async {}
+
+  void dispose() {
+    _connectionController.close();
+    _binaryController.close();
+  }
 }
 
 class _FakeMessageRepository implements IMessageRepository {

@@ -19,6 +19,8 @@ class MeshRelayHandler {
   SpamPreventionManager? _spamPrevention;
   OfflineMessageQueue? _messageQueue;
   String? _currentNodeId;
+  bool _forceFloodRouting = true;
+  List<String> Function()? _nextHopsProvider;
 
   Function(String originalMessageId, String content, String originalSender)?
   onRelayMessageReceived;
@@ -32,6 +34,7 @@ class MeshRelayHandler {
   Future<void> initializeRelaySystem({
     required String currentNodeId,
     required OfflineMessageQueue messageQueue,
+    bool forceFloodRouting = true,
     Function(String originalMessageId, String content, String originalSender)?
     onRelayMessageReceived,
     Function(
@@ -45,6 +48,7 @@ class MeshRelayHandler {
   }) async {
     _currentNodeId = currentNodeId;
     _messageQueue = messageQueue;
+    _forceFloodRouting = forceFloodRouting;
 
     if (onRelayMessageReceived != null) {
       this.onRelayMessageReceived = onRelayMessageReceived;
@@ -65,6 +69,7 @@ class MeshRelayHandler {
     _relayEngine = MeshRelayEngine(
       messageQueue: messageQueue,
       spamPrevention: _spamPrevention!,
+      forceFloodMode: _forceFloodRouting,
     );
 
     await _relayEngine!.initialize(
@@ -90,9 +95,18 @@ class MeshRelayHandler {
     _currentNodeId = nodeId;
   }
 
+  void setNextHopsProvider(List<String> Function() provider) {
+    _nextHopsProvider = provider;
+  }
+
   List<String> getAvailableNextHops() {
-    // This would be provided by the BLE connection manager
-    // For now, return empty list as placeholder
+    if (_nextHopsProvider != null) {
+      try {
+        return _nextHopsProvider!.call();
+      } catch (e) {
+        _logger.fine('Failed to get next hops from provider: $e');
+      }
+    }
     return [];
   }
 

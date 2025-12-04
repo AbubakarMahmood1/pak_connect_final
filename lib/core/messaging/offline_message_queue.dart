@@ -234,6 +234,12 @@ class OfflineMessageQueue {
     MessagePriority priority = MessagePriority.normal,
     String? replyToMessageId,
     List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
   }) async {
     try {
       // Apply favorites-based priority boost
@@ -279,13 +285,24 @@ class OfflineMessageQueue {
         attempts: 0,
         maxRetries: _getMaxRetriesForPriority(effectivePriority),
         expiresAt: _calculateExpiryTime(now, effectivePriority),
+        isRelayMessage: isRelayMessage,
+        relayMetadata: relayMetadata,
+        originalMessageId: originalMessageId,
+        relayNodeId: relayNodeId,
+        messageHash: messageHash,
       );
 
       // Add to queue with priority ordering
       // PRIORITY 1 FIX: Route to appropriate queue (direct vs relay)
       _insertMessageByPriority(queuedMessage);
 
-      await _saveMessageToStorage(queuedMessage);
+      if (persistToStorage) {
+        await _saveMessageToStorage(queuedMessage);
+      } else {
+        _logger.fine(
+          '🧭 Relay message queued without persistence: ${messageId.shortId(8)}...',
+        );
+      }
 
       _totalQueued++;
       onMessageQueued?.call(queuedMessage);
@@ -321,6 +338,12 @@ class OfflineMessageQueue {
     MessagePriority priority = MessagePriority.normal,
     MessageId? replyToMessageId,
     List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
   }) async {
     final id = await queueMessage(
       chatId: chatId.value,
@@ -330,6 +353,12 @@ class OfflineMessageQueue {
       priority: priority,
       replyToMessageId: replyToMessageId?.value,
       attachments: attachments,
+      isRelayMessage: isRelayMessage,
+      relayMetadata: relayMetadata,
+      originalMessageId: originalMessageId,
+      relayNodeId: relayNodeId,
+      messageHash: messageHash,
+      persistToStorage: persistToStorage,
     );
     return MessageId(id);
   }

@@ -346,9 +346,9 @@ class BLEConnectionService implements IBLEConnectionService {
           return;
         }
 
-        // Check if already connected
-        final alreadyConnected = connectionManager.clientConnections.any(
-          (conn) => conn.peripheral.uuid.toString() == deviceId,
+        // Check if already connected (either direction)
+        final alreadyConnected = connectionManager.connectedAddresses.contains(
+          deviceId,
         );
 
         if (alreadyConnected) {

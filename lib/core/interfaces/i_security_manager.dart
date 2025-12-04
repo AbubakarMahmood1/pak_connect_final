@@ -78,4 +78,20 @@ abstract class ISecurityManager {
     String publicKey,
     IContactRepository repo,
   );
+
+  /// Encrypt binary payload using Noise when available.
+  /// Falls back to plaintext if no session is established.
+  Future<Uint8List> encryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  );
+
+  /// Decrypt binary payload using Noise when available.
+  /// Falls back to returning the original bytes if no session exists.
+  Future<Uint8List> decryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  );
 }

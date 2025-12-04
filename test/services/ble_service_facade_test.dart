@@ -1026,6 +1026,7 @@ void main() {
 
 final class _StubMessagingService implements IBLEMessagingService {
   final _messagesController = StreamController<String>.broadcast();
+  final _binaryController = StreamController<BinaryPayload>.broadcast();
   String? _lastMessageId;
 
   @override
@@ -1069,6 +1070,25 @@ final class _StubMessagingService implements IBLEMessagingService {
   Stream<String> get receivedMessagesStream => _messagesController.stream;
 
   @override
+  Stream<BinaryPayload> get receivedBinaryStream => _binaryController.stream;
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'transfer-$recipientId';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
+
+  @override
   String? get lastExtractedMessageId => _lastMessageId;
 
   @override
@@ -1078,6 +1098,7 @@ final class _StubMessagingService implements IBLEMessagingService {
 
   void dispose() {
     _messagesController.close();
+    _binaryController.close();
   }
 }
 

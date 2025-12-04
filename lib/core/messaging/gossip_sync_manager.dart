@@ -56,10 +56,12 @@ class GossipSyncManager {
   Function(String nodeId)? onGetPeerStatus; // Returns true if peer is online
   Function(String peerID, MessageId messageId, MeshRelayMessage message)?
   onSendMessageToPeerIds;
+  Function(String peerId)? onDirectAnnouncement;
 
   // Announcements: only keep latest per sender node
   // Note: Regular messages are tracked by OfflineMessageQueue
   final Map<String, _TrackedMessage> _latestAnnouncementByNode = {};
+  final Set<String> _directAnnouncementPeers = {};
 
   // Timers
   Timer? _periodicSyncTimer;
@@ -162,6 +164,13 @@ class GossipSyncManager {
     // Store only latest announcement per sender
     final senderNodeId = message.relayMetadata.originalSender;
     _latestAnnouncementByNode[senderNodeId] = tracked;
+
+    // Direct first-hop announcement → trigger immediate initial sync once.
+    if (message.relayMetadata.hopCount <= 1 &&
+        !_directAnnouncementPeers.contains(senderNodeId)) {
+      _directAnnouncementPeers.add(senderNodeId);
+      onDirectAnnouncement?.call(senderNodeId);
+    }
 
     // Enforce capacity
     if (_latestAnnouncementByNode.length > maxSeenCapacity) {

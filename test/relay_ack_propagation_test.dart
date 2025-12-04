@@ -7,6 +7,7 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'test_helpers/test_setup.dart';
+import 'test_helpers/test_seen_message_store.dart';
 
 /// Test ACK propagation through relay chain
 /// Validates: Ali → Arshad → Abubakar → ACK back → Arshad → ACK back → Ali
@@ -79,6 +80,7 @@ void main() {
       final relayEngine = MeshRelayEngine(
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
+        seenMessageStore: TestSeenMessageStore(),
       );
 
       await relayEngine.initialize(currentNodeId: nodeId);

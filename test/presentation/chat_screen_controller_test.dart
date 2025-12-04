@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -36,6 +37,9 @@ import 'package:pak_connect/presentation/controllers/chat_session_lifecycle.dart
 import 'package:pak_connect/presentation/providers/chat_messaging_view_model.dart';
 import 'package:pak_connect/presentation/viewmodels/chat_session_view_model.dart';
 import 'package:pak_connect/core/security/message_security.dart';
+import 'package:pak_connect/core/constants/binary_payload_types.dart';
+import 'package:pak_connect/domain/services/mesh_networking_service.dart'
+    show PendingBinaryTransfer, ReceivedBinaryEvent;
 import '../test_helpers/mocks/mock_connection_service.dart';
 
 void main() {
@@ -1107,6 +1111,28 @@ class _FakeMeshNetworkingService implements IMeshNetworkingService {
   @override
   List<QueuedMessage> getQueuedMessagesForChat(String chatId) =>
       queuedMessages.where((message) => message.chatId == chatId).toList();
+
+  @override
+  Stream<ReceivedBinaryEvent> get binaryPayloadStream => const Stream.empty();
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = BinaryPayloadType.media,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'transfer-$recipientId';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async => true;
+
+  @override
+  List<PendingBinaryTransfer> getPendingBinaryTransfers() => const [];
 
   @override
   MeshNetworkStatistics getNetworkStatistics() => MeshNetworkStatistics(

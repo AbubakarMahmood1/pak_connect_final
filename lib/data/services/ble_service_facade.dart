@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
@@ -679,6 +680,36 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   @override
   Stream<String> get receivedMessagesStream =>
       _getMessagingService().receivedMessagesStream;
+
+  @override
+  Stream<BinaryPayload> get receivedBinaryStream =>
+      _getMessagingService().receivedBinaryStream;
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) => _getMessagingService().sendBinaryMedia(
+    data: data,
+    recipientId: recipientId,
+    originalType: originalType,
+    metadata: metadata,
+    persistOnly: persistOnly,
+  );
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) => _getMessagingService().retryBinaryMedia(
+    transferId: transferId,
+    recipientId: recipientId,
+    originalType: originalType,
+  );
 
   @override
   Stream<String> get receivedMessages => receivedMessagesStream;

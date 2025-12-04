@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:convert';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_message_fragmentation_handler.dart';
 import '../../core/utils/message_fragmenter.dart';
 import '../../core/models/protocol_message.dart';
 import '../../domain/values/id_types.dart';
+import '../../core/utils/binary_fragmenter.dart';
 
 /// Handles message fragmentation, reassembly, and ACK management
 ///
@@ -17,9 +19,22 @@ import '../../domain/values/id_types.dart';
 class MessageFragmentationHandler implements IMessageFragmentationHandler {
   final _logger = Logger('MessageFragmentationHandler');
 
+  // Match BitChat-style fragment timeout (30s) for partial reassembly.
+  static const Duration _fragmentTimeout = Duration(seconds: 30);
+  static const int _binaryFragmentMagic = BinaryFragmenter.magic;
+  static const int _ttlOffset = 1 + 8 + 2 + 2; // magic + fragId + idx + total
+
+  String? _localNodeId;
+
   // Message fragmentation and reassembly
   final MessageReassembler _messageReassembler = MessageReassembler();
-  final Map<String, _ReassembledMessage> _completedMessages = {};
+  final Map<String, ReassembledPayload> _completedMessages = {};
+  final Map<String, _BinaryAccumulator> _binaryFragments = {};
+  final Map<String, Uint8List> _forwardFragments = {};
+  final Map<String, DateTime> _forwardTimestamps = {};
+  final Map<String, Map<int, DateTime>> _seenFragmentParts = {};
+  final Map<String, _BinaryAccumulator> _forwardBinaryBuffers = {};
+  final Map<String, _ForwardReassembled> _forwardReassembled = {};
 
   // ACK management
   final Map<String, Timer> _messageTimeouts = {};
@@ -43,6 +58,11 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
   /// Fragmented messages have format: id|idx|total|isBinary|content
   /// This method checks for 4+ pipe characters and valid ASCII-like content
   @override
+  void setLocalNodeId(String nodeId) {
+    _localNodeId = nodeId;
+  }
+
+  /// Legacy chunk-string detection
   bool looksLikeChunkString(Uint8List bytes) {
     final max = bytes.length < 128 ? bytes.length : 128;
     int pipes = 0;
@@ -72,6 +92,31 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
   }) async {
     try {
       _logger.fine('📥 Processing ${data.length} bytes from BLE');
+
+      // Binary fragment envelope (media/file path)
+      if (data.isNotEmpty && data[0] == _binaryFragmentMagic) {
+        final envelope = BinaryFragmentEnvelope.decode(data);
+        if (envelope == null) {
+          _logger.fine('📥 Binary fragment decode failed');
+          return null;
+        }
+
+        // If recipient is specified and not us, do not reassemble here.
+        final recipient = envelope.recipient;
+        if (recipient != null &&
+            recipient.isNotEmpty &&
+            _localNodeId != null &&
+            recipient != _localNodeId) {
+          return _handleForwardFragment(
+            envelope,
+            fromDeviceId: fromDeviceId,
+            fromNodeId: fromNodeId,
+          );
+        }
+
+        final marker = _addBinaryFragment(envelope);
+        return marker;
+      }
 
       // Skip single-byte pings
       if (data.length == 1 && data[0] == 0x00) {
@@ -104,6 +149,14 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
             '📥 Parsed chunk: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}',
           );
 
+          // If we already completed this messageId recently, drop duplicates
+          if (_completedMessages.containsKey(chunk.messageId)) {
+            _logger.fine(
+              '📥 Dropping chunk for already-completed message ${chunk.messageId}',
+            );
+            return null;
+          }
+
           // Add chunk to reassembler
           final completeMessageBytes = _messageReassembler.addChunkBytes(chunk);
           _logger.fine(
@@ -114,9 +167,12 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
             _logger.fine(
               '📥 Processing complete message (${completeMessageBytes.length} bytes)',
             );
-            _completedMessages[chunk.messageId] = _ReassembledMessage(
+            _completedMessages[chunk.messageId] = ReassembledPayload(
               bytes: completeMessageBytes,
               receivedAt: DateTime.now(),
+              isBinary: false,
+              originalType: null,
+              ttl: 0,
             );
             // Return complete message marker with length
             // Caller will reconstruct from reassembler
@@ -206,17 +262,58 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
     return completed.bytes;
   }
 
+  /// Retrieves and removes completed payload with metadata.
+  ReassembledPayload? takeReassembledPayload(String messageId) {
+    return _completedMessages.remove(messageId);
+  }
+
+  @override
+  Uint8List? takeForwardFragment(String fragmentId, int index) {
+    final key = '$fragmentId:$index';
+    _forwardTimestamps.remove(key);
+    return _forwardFragments.remove(key);
+  }
+
+  @override
+  ForwardReassembledPayload? takeForwardReassembledPayload(String fragmentId) {
+    final result = _forwardReassembled.remove(fragmentId);
+    if (result == null) return null;
+    return ForwardReassembledPayload(
+      bytes: result.bytes,
+      originalType: result.originalType,
+      recipient: result.recipient,
+      ttl: result.ttl,
+    );
+  }
+
   /// Cleans up old partial messages that have timed out
   @override
   void cleanupOldMessages() {
     if (_cleanupInProgress) return;
     _cleanupInProgress = true;
     try {
-      _messageReassembler.cleanupOldMessages();
-      final cutoff = DateTime.now().subtract(Duration(minutes: 2));
+      _messageReassembler.cleanupOldMessages(timeout: _fragmentTimeout);
+      final cutoff = DateTime.now().subtract(_fragmentTimeout);
       _completedMessages.removeWhere(
         (_, completed) => completed.receivedAt.isBefore(cutoff),
       );
+      _binaryFragments.removeWhere(
+        (_, frag) => frag.startedAt.isBefore(cutoff),
+      );
+      _forwardBinaryBuffers.removeWhere(
+        (_, frag) => frag.startedAt.isBefore(cutoff),
+      );
+      _forwardReassembled.removeWhere(
+        (_, payload) => payload.receivedAt.isBefore(cutoff),
+      );
+      _forwardFragments.removeWhere(
+        (key, _) => (_forwardTimestamps[key]?.isBefore(cutoff) ?? true),
+      );
+      _forwardTimestamps.removeWhere((_, ts) => ts.isBefore(cutoff));
+      _seenFragmentParts.removeWhere((_, map) {
+        map.removeWhere((_, ts) => ts.isBefore(cutoff));
+        return map.isEmpty;
+      });
       _logger.fine('🧹 Cleaned up old partial messages');
     } finally {
       _cleanupInProgress = false;
@@ -243,14 +340,252 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
     _messageAcks.clear();
 
     _completedMessages.clear();
+    _binaryFragments.clear();
 
     _logger.info('🔌 MessageFragmentationHandler disposed');
   }
 }
 
-class _ReassembledMessage {
-  final Uint8List bytes;
-  final DateTime receivedAt;
+class _BinaryAccumulator {
+  _BinaryAccumulator({
+    required this.fragmentId,
+    required this.total,
+    required this.originalType,
+    required this.recipient,
+    required this.ttl,
+    required this.startedAt,
+  });
 
-  _ReassembledMessage({required this.bytes, required this.receivedAt});
+  final String fragmentId;
+  final int total;
+  final int originalType;
+  final String? recipient;
+  int ttl;
+  final DateTime startedAt;
+  final Map<int, Uint8List> parts = {};
+}
+
+class _ForwardReassembled {
+  _ForwardReassembled({
+    required this.bytes,
+    required this.originalType,
+    required this.recipient,
+    required this.ttl,
+    required this.receivedAt,
+  });
+
+  final Uint8List bytes;
+  final int originalType;
+  final String? recipient;
+  final int ttl;
+  final DateTime receivedAt;
+}
+
+class BinaryFragmentEnvelope {
+  BinaryFragmentEnvelope({
+    required this.fragmentId,
+    required this.index,
+    required this.total,
+    required this.ttl,
+    required this.originalType,
+    this.recipient,
+    required this.data,
+    required this.raw,
+  });
+
+  final String fragmentId;
+  final int index;
+  final int total;
+  final int ttl;
+  final int originalType;
+  final String? recipient; // null/empty => broadcast/unknown
+  final Uint8List data;
+  final Uint8List raw;
+
+  static BinaryFragmentEnvelope? decode(Uint8List bytes) {
+    try {
+      if (bytes.isEmpty || bytes[0] != BinaryFragmenter.magic) return null;
+      if (bytes.length < 1 + 8 + 2 + 2 + 1 + 1 + 1) return null;
+      int offset = 1;
+      final fragIdBytes = bytes.sublist(offset, offset + 8);
+      offset += 8;
+      final fragmentId = fragIdBytes
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
+
+      final bd = ByteData.sublistView(bytes, offset, offset + 4);
+      final index = bd.getUint16(0, Endian.big);
+      final total = bd.getUint16(2, Endian.big);
+      offset += 4;
+
+      final ttl = bytes[offset];
+      offset += 1;
+
+      final originalType = bytes[offset];
+      offset += 1;
+
+      final recipientLen = bytes[offset];
+      offset += 1;
+      String? recipient;
+      if (recipientLen > 0) {
+        if (offset + recipientLen > bytes.length) return null;
+        recipient = utf8.decode(bytes.sublist(offset, offset + recipientLen));
+        offset += recipientLen;
+      }
+
+      if (offset > bytes.length) return null;
+      final data = bytes.sublist(offset);
+
+      return BinaryFragmentEnvelope(
+        fragmentId: fragmentId,
+        index: index,
+        total: total,
+        ttl: ttl,
+        originalType: originalType,
+        recipient: recipient,
+        data: data,
+        raw: bytes,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+// Binary fragment reassembly for media/file transfer
+extension on MessageFragmentationHandler {
+  String? _handleForwardFragment(
+    BinaryFragmentEnvelope env, {
+    required String fromDeviceId,
+    required String fromNodeId,
+  }) {
+    final now = DateTime.now();
+    final key = '${env.fragmentId}:${env.index}';
+    final seenForId = _seenFragmentParts.putIfAbsent(env.fragmentId, () => {});
+    final seenTs = seenForId[env.index];
+    if (seenTs != null &&
+        now.difference(seenTs) <=
+            MessageFragmentationHandler._fragmentTimeout) {
+      _logger.fine('📥 Duplicate binary fragment (forward) $key');
+      return null;
+    }
+
+    if (env.ttl <= 1) {
+      _logger.fine('📥 Dropping binary fragment $key due to TTL exhaustion');
+      seenForId[env.index] = now;
+      return null;
+    }
+
+    final forwarded = Uint8List.fromList(env.raw);
+    forwarded[MessageFragmentationHandler._ttlOffset] = (env.ttl - 1) & 0xFF;
+    _forwardFragments[key] = forwarded;
+    _forwardTimestamps[key] = now;
+    seenForId[env.index] = now;
+
+    // Opportunistically buffer for full reassembly if downstream MTU adaptation is needed.
+    final acc = _forwardBinaryBuffers.putIfAbsent(
+      env.fragmentId,
+      () => _BinaryAccumulator(
+        fragmentId: env.fragmentId,
+        total: env.total,
+        originalType: env.originalType,
+        recipient: env.recipient,
+        ttl: env.ttl,
+        startedAt: now,
+      ),
+    );
+    acc.ttl = acc.ttl < env.ttl ? acc.ttl : env.ttl;
+    acc.parts[env.index] = env.data;
+    if (acc.parts.length == acc.total) {
+      final ordered = <int>[];
+      var missingPart = false;
+      for (var i = 0; i < acc.total; i++) {
+        final part = acc.parts[i];
+        if (part == null) {
+          missingPart = true;
+          break;
+        }
+        ordered.addAll(part);
+      }
+      if (!missingPart) {
+        _forwardBinaryBuffers.remove(env.fragmentId);
+        _forwardReassembled[env.fragmentId] = _ForwardReassembled(
+          bytes: Uint8List.fromList(ordered),
+          originalType: acc.originalType,
+          recipient: acc.recipient,
+          ttl: acc.ttl,
+          receivedAt: DateTime.now(),
+        );
+        _logger.fine(
+          '📦 Forward reassembly complete for ${env.fragmentId} (type=${acc.originalType})',
+        );
+      }
+    }
+
+    _logger.fine('📤 Forwarding binary fragment $key (ttl -> ${env.ttl - 1})');
+    return 'FORWARD_BIN:$key:$fromDeviceId:$fromNodeId';
+  }
+
+  String? _addBinaryFragment(BinaryFragmentEnvelope env) {
+    final now = DateTime.now();
+    final seenForId = _seenFragmentParts.putIfAbsent(env.fragmentId, () => {});
+    final seenTs = seenForId[env.index];
+    if (seenTs != null &&
+        now.difference(seenTs) <=
+            MessageFragmentationHandler._fragmentTimeout) {
+      _logger.fine(
+        '📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}',
+      );
+      return null;
+    }
+    seenForId[env.index] = now;
+
+    final acc = _binaryFragments.putIfAbsent(
+      env.fragmentId,
+      () => _BinaryAccumulator(
+        fragmentId: env.fragmentId,
+        total: env.total,
+        originalType: env.originalType,
+        recipient: env.recipient,
+        ttl: env.ttl,
+        startedAt: DateTime.now(),
+      ),
+    );
+
+    if (acc.parts.containsKey(env.index)) {
+      _logger.fine(
+        '📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}',
+      );
+      return null;
+    }
+
+    acc.parts[env.index] = env.data;
+    acc.ttl = acc.ttl < env.ttl ? acc.ttl : env.ttl;
+    _logger.fine(
+      '📥 Stored binary fragment ${env.index}/${acc.total - 1} for ${env.fragmentId} (have ${acc.parts.length}/${acc.total})',
+    );
+
+    if (acc.parts.length == acc.total) {
+      final ordered = <int>[];
+      for (var i = 0; i < acc.total; i++) {
+        final part = acc.parts[i];
+        if (part == null) return null;
+        ordered.addAll(part);
+      }
+      _binaryFragments.remove(env.fragmentId);
+      _completedMessages[env.fragmentId] = ReassembledPayload(
+        bytes: Uint8List.fromList(ordered),
+        receivedAt: DateTime.now(),
+        isBinary: true,
+        originalType: env.originalType,
+        recipient: env.recipient,
+        ttl: 0, // Explicitly suppress relay after local delivery.
+        suppressForwarding: true,
+      );
+      _logger.fine('📦 Binary reassembly complete for ${env.fragmentId}');
+      return 'REASSEMBLY_COMPLETE_BIN:${env.fragmentId}:${env.originalType}';
+    }
+
+    return null;
+  }
 }

@@ -4,6 +4,7 @@ import 'package:pak_connect/data/services/relay_coordinator.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/core/models/mesh_relay_models.dart';
 
 /// Mock SeenMessageStore for testing deduplication
 class MockSeenMessageStore implements ISeenMessageStore {
@@ -53,6 +54,12 @@ class _FakeOfflineQueue extends OfflineMessageQueue {
     MessagePriority priority = MessagePriority.normal,
     String? replyToMessageId,
     List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
   }) async => 'queued-$chatId';
 }
 

@@ -63,12 +63,14 @@ class MeshRelayEngine {
   onDeliverToSelfIds;
   Function(RelayDecision decision)? onRelayDecision;
   Function(RelayStatistics stats)? onStatsUpdated;
+  final bool forceFloodMode;
 
   MeshRelayEngine({
     IRepositoryProvider? repositoryProvider,
     ISeenMessageStore? seenMessageStore,
     required OfflineMessageQueue messageQueue,
     required SpamPreventionManager spamPrevention,
+    this.forceFloodMode = false,
   }) : _repositoryProvider =
            repositoryProvider ??
            (GetIt.instance.isRegistered<IRepositoryProvider>()
@@ -158,6 +160,18 @@ class MeshRelayEngine {
     this.onRelayDecision = onRelayDecision;
     this.onStatsUpdated = onStatsUpdated;
 
+    if (forceFloodMode &&
+        (routingService != null || topologyAnalyzer != null)) {
+      _logger.info(
+        '🛑 Smart routing/topology inputs ignored (dumb flood mode enabled)',
+      );
+      _routingService = null;
+      _topologyAnalyzer = null;
+    } else {
+      _routingService = routingService;
+      _topologyAnalyzer = topologyAnalyzer;
+    }
+
     // Initialize relay configuration
     await _relayConfig.initialize();
 
@@ -170,6 +184,9 @@ class MeshRelayEngine {
     );
     _logger.info(
       '📡 Relay enabled: ${_relayConfig.isRelayEnabled()} | Network: $networkSize nodes',
+    );
+    _logger.info(
+      '🌊 Flood mode: ${forceFloodMode ? "ENABLED (broadcast for p2p)" : "disabled"}',
     );
     // ignore: avoid_print
     print(
@@ -199,6 +216,17 @@ class MeshRelayEngine {
         '📨 Processing relay message $truncatedMessageId... from $truncatedFromNode...',
       );
 
+      // Step 0: Deduplication check
+      if (_decisionEngine.isDuplicateId(originalMessageIdValue)) {
+        _totalDropped++;
+        _logger.info(
+          '⏭️  Duplicate message detected (already delivered): $truncatedMessageId...',
+        );
+        return RelayProcessingResult.dropped(
+          'Message already delivered (duplicate)',
+        );
+      }
+
       // Step 0A: Check if relay is enabled (Phase 1: Role Awareness)
       if (!_relayConfig.isRelayEnabled()) {
         _totalDropped++;
@@ -217,17 +245,6 @@ class MeshRelayEngine {
         );
         return RelayProcessingResult.dropped(
           'Message type ${messageType.name} cannot be relayed',
-        );
-      }
-
-      // Step 0C: Deduplication check (FIRST - before spam prevention)
-      if (_decisionEngine.isDuplicateId(originalMessageIdValue)) {
-        _totalDropped++;
-        _logger.info(
-          '⏭️  Duplicate message detected (already delivered): $truncatedMessageId...',
-        );
-        return RelayProcessingResult.dropped(
-          'Message already delivered (duplicate)',
         );
       }
 
@@ -260,16 +277,29 @@ class MeshRelayEngine {
       final isBroadcast = SpecialRecipients.isBroadcast(
         relayMessage.relayMetadata.finalRecipient,
       );
+      final hopCount = relayMessage.relayMetadata.hopCount;
+      final ttl = relayMessage.relayMetadata.ttl;
+
+      if (!isForUs && hopCount >= ttl) {
+        _totalDropped++;
+        _logger.info(
+          '🚫 Dropping message $truncatedMessageId... TTL exhausted ($hopCount/$ttl)',
+        );
+        return RelayProcessingResult.dropped('Message TTL exceeded');
+      }
 
       // Step 1A: Probabilistic relay decision (Phase 3: Network-size adaptive)
       // Apply BEFORE checking if message is for us to reduce processing overhead
-      final relayProbability = _decisionEngine.calculateRelayProbability();
+      final relayProbability = forceFloodMode
+          ? 1.0
+          : _decisionEngine.calculateRelayProbability();
       final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 1;
 
-      if (_decisionEngine.shouldProbabilisticallySkip(
-        isForUs: isForUs,
-        relayProbability: relayProbability,
-      )) {
+      if (!forceFloodMode &&
+          _decisionEngine.shouldProbabilisticallySkip(
+            isForUs: isForUs,
+            relayProbability: relayProbability,
+          )) {
         _totalProbabilisticSkip++;
 
         final decision = RelayDecision.dropped(
@@ -327,29 +357,13 @@ class MeshRelayEngine {
         return RelayProcessingResult.dropped('Message TTL exceeded');
       }
 
-      // Step 4 & 5: Relay logic (broadcast vs point-to-point)
+      // Step 4 & 5: Dumb flood broadcast (BitChat style)
+      final canRouteDirectly =
+          !forceFloodMode &&
+          !isBroadcast &&
+          (availableNextHops.isNotEmpty || _routingService != null);
 
-      if (isBroadcast) {
-        // Priority 2: Broadcast to ALL neighbors (no single next-hop selection)
-        await _sendPipeline.broadcastToNeighbors(
-          relayMessage: relayMessage,
-          availableNeighbors: availableNextHops,
-          onRelayMessage: onRelayMessage,
-        );
-        _totalRelayed++;
-
-        final decision = RelayDecision.relayed(
-          messageId: relayMessage.originalMessageId,
-          nextHopNodeId: 'ALL_NEIGHBORS',
-          hopCount: relayMessage.relayMetadata.hopCount + 1,
-        );
-
-        onRelayDecision?.call(decision);
-        _updateStatistics();
-
-        return RelayProcessingResult.relayed('broadcast_to_all');
-      } else {
-        // Point-to-point: Choose single next hop and relay
+      if (canRouteDirectly) {
         final nextHop = await _decisionEngine.chooseNextHop(
           relayMessage: relayMessage,
           availableHops: availableNextHops,
@@ -368,12 +382,26 @@ class MeshRelayEngine {
           return RelayProcessingResult.dropped('No next hop available');
         }
 
-        // Step 5: Create next hop message and relay
-        await _sendPipeline.relayToNextHop(
+        final relayed = await _sendPipeline.relayToNextHop(
           relayMessage: relayMessage,
           nextHopNodeId: nextHop,
           onRelayMessage: onRelayMessage,
         );
+        if (!relayed) {
+          _totalDropped++;
+          final decision = RelayDecision.dropped(
+            messageId: relayMessage.originalMessageId,
+            reason: 'Relay hop not sent (TTL/path constraint)',
+          );
+
+          onRelayDecision?.call(decision);
+          _updateStatistics();
+
+          return RelayProcessingResult.dropped(
+            'Relay hop could not be sent (TTL/path)',
+          );
+        }
+        await _seenMessageStore.markDelivered(relayMessage.originalMessageId);
         _totalRelayed++;
 
         final decision = RelayDecision.relayed(
@@ -387,6 +415,52 @@ class MeshRelayEngine {
 
         return RelayProcessingResult.relayed(nextHop);
       }
+
+      if (availableNextHops.isEmpty) {
+        _totalDropped++;
+        final decision = RelayDecision.dropped(
+          messageId: relayMessage.originalMessageId,
+          reason: 'No neighbors available for flood broadcast',
+        );
+        onRelayDecision?.call(decision);
+        _updateStatistics();
+        return RelayProcessingResult.dropped('No neighbors available');
+      }
+
+      final relayedCount = await _sendPipeline.broadcastToNeighbors(
+        relayMessage: relayMessage,
+        availableNeighbors: availableNextHops,
+        onRelayMessage: onRelayMessage,
+      );
+      if (relayedCount <= 0) {
+        _totalDropped++;
+        final decision = RelayDecision.dropped(
+          messageId: relayMessage.originalMessageId,
+          reason: 'No valid neighbors available for broadcast',
+        );
+
+        onRelayDecision?.call(decision);
+        _updateStatistics();
+
+        return RelayProcessingResult.dropped(
+          'Broadcast failed (no valid neighbors)',
+        );
+      }
+      await _seenMessageStore.markDelivered(relayMessage.originalMessageId);
+      _totalRelayed++;
+
+      final decision = RelayDecision.relayed(
+        messageId: relayMessage.originalMessageId,
+        nextHopNodeId: isBroadcast ? 'ALL_NEIGHBORS' : 'ALL_NEIGHBORS_FLOOD',
+        hopCount: relayMessage.relayMetadata.hopCount + 1,
+      );
+
+      onRelayDecision?.call(decision);
+      _updateStatistics();
+
+      return RelayProcessingResult.relayed(
+        isBroadcast ? 'broadcast_to_all' : 'broadcast_flood_mode',
+      );
     } catch (e) {
       _logger.severe('Failed to process relay message: $e');
       _totalDropped++;

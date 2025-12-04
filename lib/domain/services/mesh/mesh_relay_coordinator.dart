@@ -1,15 +1,12 @@
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/core/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
+import 'package:pak_connect/core/models/protocol_message.dart';
 
 typedef RelayStatsCallback = void Function(RelayStatistics stats);
 typedef RelayDecisionCallback = void Function(RelayDecision decision);
@@ -38,10 +35,7 @@ class MeshRelayCoordinator {
   final MeshRelayEngineFactory _relayEngineFactory;
 
   MeshRelayEngine? _relayEngine;
-  IMeshRoutingService? _routingService;
-  NetworkTopologyAnalyzer? _topologyAnalyzer;
   OfflineMessageQueue? _messageQueue;
-  SpamPreventionManager? _spamPrevention;
   String? _currentNodeId;
 
   MeshRelayCoordinator({
@@ -58,8 +52,11 @@ class MeshRelayCoordinator {
        _logger = logger ?? Logger('MeshRelayCoordinator'),
        _relayEngineFactory =
            relayEngineFactory ??
-           ((queue, spam) =>
-               MeshRelayEngine(messageQueue: queue, spamPrevention: spam));
+           ((queue, spam) => MeshRelayEngine(
+             messageQueue: queue,
+             spamPrevention: spam,
+             forceFloodMode: true,
+           ));
 
   /// Initialize relay dependencies and smart routing.
   Future<void> initialize({
@@ -69,15 +66,10 @@ class MeshRelayCoordinator {
   }) async {
     _currentNodeId = nodeId;
     _messageQueue = messageQueue;
-    _spamPrevention = spamPrevention;
-
-    await _initializeSmartRouting();
 
     _relayEngine ??= _relayEngineFactory(messageQueue, spamPrevention);
     await _relayEngine!.initialize(
       currentNodeId: nodeId,
-      routingService: _routingService,
-      topologyAnalyzer: _topologyAnalyzer,
       onRelayMessage: _handleRelayMessage,
       onDeliverToSelf: _onDeliverToSelf,
       onRelayDecision: _onRelayDecision,
@@ -104,72 +96,41 @@ class MeshRelayCoordinator {
         return MeshSendResult.error('No next hops available for relay');
       }
 
-      String selectedNextHop = nextHops.first;
-      double routeScore = 0.5;
-
-      if (_routingService != null) {
-        try {
-          _logger.info('🧠 Using routing service for message routing');
-          final decision = await _routingService!.determineOptimalRoute(
-            finalRecipient: recipientPublicKey,
-            availableHops: nextHops,
-            priority: priority,
-          );
-
-          if (decision.isSuccessful && decision.nextHop != null) {
-            selectedNextHop = decision.nextHop!;
-            routeScore = decision.routeScore ?? 0.75;
-            _logger.info(
-              'Smart route selected: ${selectedNextHop.shortId(8)}... (score: ${routeScore.toStringAsFixed(2)})',
-            );
-          }
-        } catch (e) {
-          _logger.warning('Routing service failed - using fallback: $e');
-        }
-      }
-
-      // Build relay metadata
-      final metadata = RelayMetadata.create(
-        originalMessageContent: content,
-        priority: priority,
-        originalSender: _currentNodeId!,
-        finalRecipient: recipientPublicKey,
-        currentNodeId: _currentNodeId!,
-      );
-
-      final relayMessage = MeshRelayMessage.createRelay(
+      final relayMessage = await _relayEngine!.createOutgoingRelay(
         originalMessageId: originalMessageId,
         originalContent: content,
-        metadata: metadata,
-        relayNodeId: _currentNodeId!,
-      );
-
-      final queuedMessage = QueuedMessage.fromRelayMessage(
-        relayMessage: relayMessage,
-        chatId: 'mesh_relay_$selectedNextHop',
-        maxRetries: 3,
-      );
-
-      await _messageQueue!.queueMessage(
-        chatId: queuedMessage.chatId,
-        content: queuedMessage.content,
-        recipientPublicKey: queuedMessage.recipientPublicKey,
-        senderPublicKey: queuedMessage.senderPublicKey,
+        finalRecipientPublicKey: recipientPublicKey,
         priority: priority,
+        originalMessageType: ProtocolMessageType.textMessage,
       );
+
+      if (relayMessage == null) {
+        return MeshSendResult.error('Failed to create relay payload');
+      }
+
+      final processingResult = await _relayEngine!.processIncomingRelay(
+        relayMessage: relayMessage,
+        fromNodeId: _currentNodeId!,
+        availableNextHops: nextHops,
+        messageType: ProtocolMessageType.textMessage,
+      );
+
+      if (!processingResult.isSuccess) {
+        return MeshSendResult.error(
+          processingResult.reason ?? 'Relay processing failed',
+        );
+      }
 
       final truncatedMessageId = originalMessageId.length > 16
           ? originalMessageId.shortId()
           : originalMessageId;
-      final truncatedNextHop = selectedNextHop.length > 8
-          ? selectedNextHop.shortId(8)
-          : selectedNextHop;
+      final hopSummary = 'ALL_NEIGHBORS(${nextHops.length})';
       _logger.info(
-        'Message queued for smart mesh relay: $truncatedMessageId... -> $truncatedNextHop... (score: ${routeScore.toStringAsFixed(2)})',
+        'Message queued for flood relay: $truncatedMessageId... -> $hopSummary',
       );
-      return MeshSendResult.relay(originalMessageId, selectedNextHop);
+      return MeshSendResult.relay(originalMessageId, hopSummary);
     } catch (e) {
-      return MeshSendResult.error('Smart relay send failed: $e');
+      return MeshSendResult.error('Flood relay send failed: $e');
     }
   }
 
@@ -202,26 +163,12 @@ class MeshRelayCoordinator {
         }
       }
 
-      if (_routingService != null) {
-        try {
-          final decision = await _routingService!.determineOptimalRoute(
-            finalRecipient: finalRecipient,
-            availableHops: [deviceId],
-            priority: message.priority,
-          );
+      final connectedHops = await getAvailableNextHops();
+      final isDeviceConnected = connectedHops.contains(deviceId);
+      if (!isDeviceConnected) return false;
 
-          if (decision.isSuccessful && decision.nextHop == deviceId) {
-            return true;
-          }
-        } catch (e) {
-          _logger.fine('Routing service check failed, using fallback: $e');
-        }
-      }
-
-      final isDeviceConnected = _bleService.currentSessionId == deviceId;
-      final cannotReachRecipientDirectly =
-          _bleService.currentSessionId != finalRecipient;
-      return isDeviceConnected && cannotReachRecipientDirectly;
+      final isDirectRecipient = deviceId == finalRecipient;
+      return !isDirectRecipient;
     } catch (e) {
       _logger.warning('Error checking relay route: $e');
       return false;
@@ -230,19 +177,28 @@ class MeshRelayCoordinator {
 
   /// Connected peers that are viable relay hops.
   Future<List<String>> getAvailableNextHops() async {
-    final List<String> nextHops = [];
-    final connectionInfo = _bleService.currentConnectionInfo;
+    final hops = <String>{};
+    final connectedNodeId = _bleService.currentSessionId;
+    if (connectedNodeId != null && connectedNodeId.isNotEmpty) {
+      hops.add(connectedNodeId);
+    }
 
-    if (connectionInfo != null &&
-        connectionInfo.isConnected &&
-        connectionInfo.isReady) {
-      final connectedNodeId = _bleService.currentSessionId;
-      if (connectedNodeId != null && connectedNodeId.isNotEmpty) {
-        nextHops.add(connectedNodeId);
+    final persistentPeer = _bleService.theirPersistentPublicKey;
+    if (persistentPeer != null && persistentPeer.isNotEmpty) {
+      hops.add(persistentPeer);
+    }
+
+    hops.addAll(
+      _bleService.activeConnectionDeviceIds.where((id) => id.isNotEmpty),
+    );
+
+    for (final server in _bleService.serverConnections) {
+      if (server.address.isNotEmpty) {
+        hops.add(server.address);
       }
     }
 
-    return nextHops;
+    return hops.toList();
   }
 
   /// Returns latest relay statistics for network status reporting.
@@ -251,32 +207,7 @@ class MeshRelayCoordinator {
   /// Clean up relay resources.
   void dispose() {
     _relayEngine = null;
-    _routingService?.dispose();
-    _routingService = null;
-    _topologyAnalyzer?.dispose();
-    _topologyAnalyzer = null;
     _messageQueue = null;
-    _spamPrevention = null;
-  }
-
-  Future<void> _initializeSmartRouting() async {
-    try {
-      _topologyAnalyzer?.dispose();
-      _topologyAnalyzer = NetworkTopologyAnalyzer();
-
-      _routingService ??= GetIt.instance<IMeshRoutingService>();
-      await _routingService!.initialize(
-        currentNodeId: _currentNodeId!,
-        topologyAnalyzer: _topologyAnalyzer!,
-      );
-
-      _logger.info('✅ Smart routing components initialized');
-    } catch (e) {
-      _logger.severe('❌ Failed to initialize smart routing: $e');
-      _routingService = null;
-      _topologyAnalyzer?.dispose();
-      _topologyAnalyzer = null;
-    }
   }
 
   void _handleRelayMessage(MeshRelayMessage message, String nextHopNodeId) {
