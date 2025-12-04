@@ -142,19 +142,23 @@ class TestSetup {
 
     // Use provided repositories or default to mocks; always override concrete registrations
     final contactRepo = contactRepository ?? MockContactRepository();
+    if (contactRepo is! ContactRepository) {
+      throw ArgumentError(
+        'contactRepository override must implement ContactRepository for concrete lookups',
+      );
+    }
     final messageRepo = messageRepository ?? MockMessageRepository();
+    if (messageRepo is! MessageRepository) {
+      throw ArgumentError(
+        'messageRepository override must implement MessageRepository for concrete lookups',
+      );
+    }
 
     override<IContactRepository>(contactRepo);
-    final contactConcrete = contactRepo is ContactRepository
-        ? contactRepo
-        : MockContactRepository();
-    override<ContactRepository>(contactConcrete);
+    override<ContactRepository>(contactRepo);
 
     override<IMessageRepository>(messageRepo);
-    final messageConcrete = messageRepo is MessageRepository
-        ? messageRepo
-        : MockMessageRepository();
-    override<MessageRepository>(messageConcrete);
+    override<MessageRepository>(messageRepo);
     if (databaseProvider != null) {
       override<IDatabaseProvider>(databaseProvider);
     }
