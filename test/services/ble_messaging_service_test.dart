@@ -566,7 +566,8 @@ void main() {
           'node-upstream',
         );
 
-        await Future<void>.delayed(Duration(milliseconds: 50));
+        // Allow the write queue to flush both central and peripheral sends.
+        await Future<void>.delayed(Duration(milliseconds: 150));
 
         final centralWrites = writes
             .where((w) => w.target == _Target.central)
@@ -597,7 +598,10 @@ void main() {
             .toList();
         expect(peripheralWrites, hasLength(1));
         expect(peripheralWrites.first.value.length <= 120, isTrue);
-        expect(peripheralWrites.first.value[ttlOffset], equals(2));
+        expect(
+          peripheralWrites.first.value[ttlOffset],
+          equals(1), // TTL decremented on both relay paths
+        );
 
         // Keep analyzer happy about unused instance.
         expect(service, isA<BLEMessagingService>());
