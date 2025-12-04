@@ -663,8 +663,8 @@ class SecurityManager implements ISecurityManager {
       case SecurityLevel.high:
         return [
           EncryptionType.ecdh,
-          EncryptionType.noise,
           EncryptionType.pairing,
+          EncryptionType.noise,
           EncryptionType.global,
         ];
       case SecurityLevel.medium:
