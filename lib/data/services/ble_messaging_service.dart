@@ -565,10 +565,17 @@ class BLEMessagingService implements IBLEMessagingService {
           continue;
         }
         try {
+          // Decrement TTL byte before forwarding to enforce hop cap.
+          final forwarded = Uint8List.fromList(data);
+          if (forwarded.length > 10) {
+            // TTL is after: magic(1) + fragmentId(8) + index/total(4) => offset 13
+            const ttlOffset = 1 + 8 + 4;
+            forwarded[ttlOffset] = (forwarded[ttlOffset] - 1) & 0xFF;
+          }
           await _getCentralManager().writeCharacteristic(
             conn.peripheral,
             characteristic,
-            value: data,
+            value: forwarded,
             type: GATTCharacteristicWriteType.withResponse,
           );
           await Future.delayed(Duration(milliseconds: 10));
@@ -636,10 +643,16 @@ class BLEMessagingService implements IBLEMessagingService {
           )) {
             return;
           }
+          // Decrement TTL byte before forwarding to enforce hop cap.
+          final forwarded = Uint8List.fromList(data);
+          if (forwarded.length > 10) {
+            const ttlOffset = 1 + 8 + 4;
+            forwarded[ttlOffset] = (forwarded[ttlOffset] - 1) & 0xFF;
+          }
           await _getPeripheralManager().notifyCharacteristic(
             connectedCentral,
             characteristic,
-            value: data,
+            value: forwarded,
           );
           await Future.delayed(Duration(milliseconds: 10));
         } catch (e) {
