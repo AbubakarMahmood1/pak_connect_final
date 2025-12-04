@@ -23,7 +23,7 @@ void main() {
       );
     });
 
-    test('origin relays persist while intermediates are transient', () async {
+    test('all relay hops persist to storage for reliability', () async {
       final originMeta = RelayMetadata.create(
         originalMessageContent: 'hello',
         priority: MessagePriority.normal,
@@ -67,7 +67,7 @@ void main() {
 
       expect(queue.records, hasLength(1));
       final intermediateRecord = queue.records.first;
-      expect(intermediateRecord.persistToStorage, isFalse);
+      expect(intermediateRecord.persistToStorage, isTrue);
       expect(intermediateRecord.isRelay, isTrue);
       expect(intermediateRecord.recipient, 'peer-b');
       expect(intermediateRecord.originalMessageId, 'msg-1');
