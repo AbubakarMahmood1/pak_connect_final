@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
@@ -9,18 +10,26 @@ import 'package:pak_connect/domain/values/id_types.dart';
 void main() {
   final List<LogRecord> logRecords = [];
   final Set<String> allowedSevere = {};
+  StreamSubscription<LogRecord>? logSub;
+  Level? previousLevel;
 
   group('MessageQueueRepository', () {
     late MessageQueueRepository repository;
 
     setUp(() {
       logRecords.clear();
+      previousLevel = Logger.root.level;
       Logger.root.level = Level.ALL;
-      Logger.root.onRecord.listen(logRecords.add);
+      logSub = Logger.root.onRecord.listen(logRecords.add);
       repository = MessageQueueRepository();
     });
 
     tearDown(() {
+      logSub?.cancel();
+      logSub = null;
+      if (previousLevel != null) {
+        Logger.root.level = previousLevel!;
+      }
       final severeErrors = logRecords
           .where((log) => log.level >= Level.SEVERE)
           .where(
