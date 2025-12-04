@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart'
     show RelayStatistics;
@@ -11,9 +12,45 @@ import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dar
 void main() {
   group('MeshNetworkHealthMonitor', () {
     late MeshNetworkHealthMonitor monitor;
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
 
     setUp(() {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       monitor = MeshNetworkHealthMonitor();
+    });
+
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+    tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
     });
 
     test('broadcastInitialStatus emits default snapshot', () async {

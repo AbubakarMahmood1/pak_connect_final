@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
@@ -6,19 +7,54 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'test_helpers/test_setup.dart';
+import 'test_helpers/test_seen_message_store.dart';
 
 /// Test ACK propagation through relay chain
 /// Validates: Ali → Arshad → Abubakar → ACK back → Arshad → ACK back → Ali
 void main() {
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'relay_ack');
   });
 
   setUp(() async {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.configureTestDatabase(label: 'relay_ack');
   });
 
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
   tearDown(() async {
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
     await TestSetup.nukeDatabase();
   });
 
@@ -44,6 +80,7 @@ void main() {
       final relayEngine = MeshRelayEngine(
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
+        seenMessageStore: TestSeenMessageStore(),
       );
 
       await relayEngine.initialize(currentNodeId: nodeId);

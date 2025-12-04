@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/di/service_locator.dart';
 
 /// Tests for dependency injection setup
@@ -11,12 +12,31 @@ import 'package:pak_connect/core/di/service_locator.dart';
 /// Future phases will test actual service registration
 void main() {
   group('ServiceLocator', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       // Reset before each test
       await resetServiceLocator();
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       // Clean up after each test
       await resetServiceLocator();
     });

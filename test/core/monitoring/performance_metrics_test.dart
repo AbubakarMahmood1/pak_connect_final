@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pak_connect/core/monitoring/performance_metrics.dart';
 
@@ -9,13 +10,32 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('PerformanceMonitor', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       SharedPreferences.setMockInitialValues({});
       await PerformanceMonitor.reset();
     });
 
     tearDown(() async {
       await PerformanceMonitor.reset();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('empty metrics returns default values', () async {

@@ -2,6 +2,7 @@
 // Verifies relay configuration, message type filtering, and enhanced role detection
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/relay_config_manager.dart';
 import 'package:pak_connect/core/messaging/relay_policy.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
@@ -13,12 +14,49 @@ void main() {
   });
 
   group('Phase 1: Relay Config Manager', () {
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
+
     // Reset config before each test
     setUp(() async {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(label: 'relay_phase1');
       TestSetup.resetSharedPreferences();
       final config = RelayConfigManager.instance;
       await config.resetToDefaults();
+    });
+
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+    tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
     });
 
     test('Default relay config should be enabled', () async {

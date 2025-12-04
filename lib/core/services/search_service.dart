@@ -12,6 +12,7 @@ import '../../domain/services/chat_management_service.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../core/models/archive_models.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Service for searching messages across chats and archives
 class SearchService {
@@ -84,7 +85,7 @@ class SearchService {
 
       if (chatId != null) {
         // Search within specific chat
-        final messages = await _messageRepository.getMessages(chatId);
+        final messages = await _messageRepository.getMessages(ChatId(chatId));
         allMessages = messages
             .map((m) => EnhancedMessage.fromMessage(m))
             .toList();
@@ -154,7 +155,7 @@ class SearchService {
 
       if (chatId != null) {
         // Search within specific chat
-        final messages = await _messageRepository.getMessages(chatId);
+        final messages = await _messageRepository.getMessages(ChatId(chatId));
         liveResults = messages
             .map((m) => EnhancedMessage.fromMessage(m))
             .toList();
@@ -345,7 +346,7 @@ class SearchService {
     final grouped = <String, List<EnhancedMessage>>{};
 
     for (final message in results) {
-      grouped.putIfAbsent(message.chatId, () => []).add(message);
+      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
     }
 
     return grouped;
@@ -358,7 +359,7 @@ class SearchService {
     final grouped = <String, List<ArchivedMessage>>{};
 
     for (final message in results) {
-      grouped.putIfAbsent(message.chatId, () => []).add(message);
+      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
     }
 
     return grouped;

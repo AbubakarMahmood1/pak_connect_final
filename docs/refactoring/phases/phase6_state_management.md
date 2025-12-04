@@ -61,3 +61,28 @@
 
 ## Next milestone (20% → Screen controller conversions)
 - Target: move Home/Chat/Archive/Contacts timers/subscriptions into Riverpod `StateNotifier`/`AsyncNotifier` with `ref.onDispose`, and convert widgets to `ConsumerWidget` listeners to drop manual `StreamController`/`Timer` ownership in the UI layer.
+
+## ADR-006: Replace Manual StreamControllers with Riverpod Notifiers
+- **Status**: Accepted  
+- **Date**: 2026-02-09  
+- **Context**: 20+ services/widgets own `StreamController`/`StreamSubscription`/`Timer` lifecycles manually, leading to leaks when screens are recreated and complicating testing. Riverpod providers already wrap runtime state (`bleRuntimeProvider`, `meshRuntimeProvider`, etc.) with `ref.onDispose`.
+- **Decision**: New and refactored state flows should be exposed via Riverpod notifiers (StateNotifier/AsyncNotifier/StreamProvider) instead of ad-hoc `StreamController`. Controllers that must consume external streams should wrap them in providers and manage subscriptions with `ref.onDispose`.
+- **Rationale**: 
+  1) Lifecycle safety: provider scope handles dispose, reducing leaks.  
+  2) Testability: providers are override-friendly; no manual controller wiring in tests.  
+  3) Consistency: unified access pattern for UI and services; fewer bespoke listeners.  
+  4) Observability: provider-based state is easier to mock/trace in harness.
+- **Consequences**: 
+  - Migration effort to wrap existing controllers (BLE facade, chat/home controllers, archive services) in providers.  
+  - Temporary shims needed while legacy `StreamController` APIs remain; mark them `@visibleForTesting` or `@deprecated` once wrapped.  
+  - Provider scopes must be available in headless services (fallback: create scoped containers in service factories).
+- **Alternatives**: 
+  - Keep manual controllers and standardize disposal checklists (rejected: still leak-prone).  
+  - Introduce an event-bus wrapper (rejected: adds indirection without lifecycle guarantees).  
+  - Use `ValueNotifier`/`ChangeNotifier` only (rejected: less suitable for async/stream-heavy flows).
+- **Implementation Plan**:
+  1) Add provider wrappers for controller-like services (BLE facade, mesh health monitor, archive search) with `ref.onDispose`.  
+  2) Redirect UI/controllers to consume provider state instead of raw streams; delete direct `StreamController` fields.  
+  3) Deprecate legacy stream getters; keep thin adapters for backward compatibility during rollout.  
+  4) Update tests to override providers instead of injecting fake controllers; remove manual controller cleanup in fixtures.  
+  5) Lock production logging to provider state changes (riverpod observers) instead of per-message stream logs.

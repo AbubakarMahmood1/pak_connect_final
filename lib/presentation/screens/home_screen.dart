@@ -529,7 +529,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }) {
     return Dismissible(
       key:
-          key ?? Key('chat_${chat.chatId}'), // Use provided key or generate one
+          key ??
+          Key('chat_${chat.chatId.value}'), // Use provided key or generate one
       direction: DismissDirection.horizontal,
       dismissThresholds: const {
         DismissDirection.startToEnd: 0.4, // 40% for archive

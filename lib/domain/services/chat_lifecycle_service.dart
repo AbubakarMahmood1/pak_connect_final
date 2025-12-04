@@ -14,6 +14,8 @@ import 'chat_management_models.dart';
 import 'chat_notification_service.dart';
 import 'chat_sync_service.dart';
 
+import 'package:pak_connect/domain/values/id_types.dart';
+
 /// Chat lifecycle operations: archive/pin/star, delete, export, analytics
 class ChatLifecycleService {
   final _logger = Logger('ChatLifecycleService');
@@ -42,7 +44,7 @@ class ChatLifecycleService {
        _notificationService = notificationService,
        _syncService = syncService;
 
-  Future<ChatOperationResult> toggleMessageStar(String messageId) async {
+  Future<ChatOperationResult> toggleMessageStar(MessageId messageId) async {
     try {
       if (_cacheState.starredMessageIds.contains(messageId)) {
         _cacheState.starredMessageIds.remove(messageId);
@@ -90,7 +92,7 @@ class ChatLifecycleService {
   }
 
   Future<ChatOperationResult> deleteMessages({
-    required List<String> messageIds,
+    required List<MessageId> messageIds,
     bool deleteForEveryone = false,
   }) async {
     try {
@@ -108,7 +110,7 @@ class ChatLifecycleService {
 
             if (messageIndex != -1) {
               found = true;
-              await _deleteMessageFromRepository(messageId, chat.chatId);
+              await _deleteMessageFromRepository(messageId, chat.chatId.value);
 
               _cacheState.starredMessageIds.remove(messageId);
               _notificationService.emitMessageUpdate(
@@ -152,10 +154,12 @@ class ChatLifecycleService {
     bool useEnhancedArchive = true,
   }) async {
     try {
-      if (_cacheState.archivedChats.contains(chatId)) {
+      final chat = ChatId(chatId);
+
+      if (_cacheState.archivedChats.contains(chat)) {
         if (useEnhancedArchive) {
           final archiveSummary = await _archiveRepository
-              .getArchivedChatByOriginalId(chatId);
+              .getArchivedChatByOriginalId(chat.value);
 
           if (archiveSummary != null) {
             final restoreResult = await _archiveManagementService.restoreChat(
@@ -163,10 +167,10 @@ class ChatLifecycleService {
             );
 
             if (restoreResult.success) {
-              _cacheState.archivedChats.remove(chatId);
+              _cacheState.archivedChats.remove(chat);
               await _syncService.saveArchivedChats();
               _notificationService.emitChatUpdate(
-                ChatUpdateEvent.unarchived(chatId),
+                ChatUpdateEvent.unarchived(chat),
               );
               return ChatOperationResult.success(
                 'Chat restored from enhanced archive',
@@ -179,23 +183,21 @@ class ChatLifecycleService {
           }
         }
 
-        _cacheState.archivedChats.remove(chatId);
+        _cacheState.archivedChats.remove(chat);
         await _syncService.saveArchivedChats();
-        _notificationService.emitChatUpdate(ChatUpdateEvent.unarchived(chatId));
+        _notificationService.emitChatUpdate(ChatUpdateEvent.unarchived(chat));
         return ChatOperationResult.success('Chat unarchived');
       } else {
         if (useEnhancedArchive) {
           final archiveResult = await _archiveManagementService.archiveChat(
-            chatId: chatId,
+            chatId: chat.value,
             reason: reason ?? 'User archived via chat management',
           );
 
           if (archiveResult.success) {
-            _cacheState.archivedChats.add(chatId);
+            _cacheState.archivedChats.add(chat);
             await _syncService.saveArchivedChats();
-            _notificationService.emitChatUpdate(
-              ChatUpdateEvent.archived(chatId),
-            );
+            _notificationService.emitChatUpdate(ChatUpdateEvent.archived(chat));
             return ChatOperationResult.success(
               'Chat archived with enhanced system',
             );
@@ -205,9 +207,9 @@ class ChatLifecycleService {
             );
           }
         } else {
-          _cacheState.archivedChats.add(chatId);
+          _cacheState.archivedChats.add(chat);
           await _syncService.saveArchivedChats();
-          _notificationService.emitChatUpdate(ChatUpdateEvent.archived(chatId));
+          _notificationService.emitChatUpdate(ChatUpdateEvent.archived(chat));
           return ChatOperationResult.success('Chat archived');
         }
       }
@@ -216,7 +218,7 @@ class ChatLifecycleService {
     }
   }
 
-  Future<ChatOperationResult> toggleChatPin(String chatId) async {
+  Future<ChatOperationResult> toggleChatPin(ChatId chatId) async {
     try {
       if (_cacheState.pinnedChats.contains(chatId)) {
         _cacheState.pinnedChats.remove(chatId);
@@ -239,21 +241,22 @@ class ChatLifecycleService {
 
   Future<ChatOperationResult> deleteChat(String chatId) async {
     try {
-      final chatMessages = await _messageRepository.getMessages(chatId);
+      final chat = ChatId(chatId);
+      final chatMessages = await _messageRepository.getMessages(chat);
       for (final message in chatMessages) {
         _cacheState.starredMessageIds.remove(message.id);
       }
 
-      await _messageRepository.clearMessages(chatId);
+      await _messageRepository.clearMessages(chat);
 
-      _cacheState.archivedChats.remove(chatId);
-      _cacheState.pinnedChats.remove(chatId);
+      _cacheState.archivedChats.remove(chat);
+      _cacheState.pinnedChats.remove(chat);
 
       await _syncService.saveArchivedChats();
       await _syncService.savePinnedChats();
       await _syncService.saveStarredMessages();
 
-      _notificationService.emitChatUpdate(ChatUpdateEvent.deleted(chatId));
+      _notificationService.emitChatUpdate(ChatUpdateEvent.deleted(chat));
 
       return ChatOperationResult.success('Chat deleted');
     } catch (e) {
@@ -263,16 +266,17 @@ class ChatLifecycleService {
 
   Future<ChatOperationResult> clearChatMessages(String chatId) async {
     try {
-      final chatMessages = await _messageRepository.getMessages(chatId);
+      final chat = ChatId(chatId);
+      final chatMessages = await _messageRepository.getMessages(chat);
       for (final message in chatMessages) {
         _cacheState.starredMessageIds.remove(message.id);
       }
 
-      await _messageRepository.clearMessages(chatId);
+      await _messageRepository.clearMessages(chat);
       await _syncService.saveStarredMessages();
 
       _notificationService.emitChatUpdate(
-        ChatUpdateEvent.messagesCleared(chatId),
+        ChatUpdateEvent.messagesCleared(chat),
       );
 
       return ChatOperationResult.success('Chat messages cleared');
@@ -283,7 +287,8 @@ class ChatLifecycleService {
 
   Future<ChatAnalytics> getChatAnalytics(String chatId) async {
     try {
-      final messages = await _messageRepository.getMessages(chatId);
+      final chat = ChatId(chatId);
+      final messages = await _messageRepository.getMessages(chat);
       final enhancedMessages = messages
           .map((m) => EnhancedMessage.fromMessage(m))
           .toList();
@@ -320,7 +325,7 @@ class ChatLifecycleService {
           : null;
 
       return ChatAnalytics(
-        chatId: chatId,
+        chatId: chat,
         totalMessages: totalMessages,
         myMessages: myMessages,
         theirMessages: theirMessages,
@@ -344,9 +349,9 @@ class ChatLifecycleService {
     bool includeMetadata = false,
   }) async {
     try {
-      final messages = await _messageRepository.getMessages(chatId);
+      final messages = await _messageRepository.getMessages(ChatId(chatId));
       final chat = (await _chatsRepository.getAllChats())
-          .where((c) => c.chatId == chatId)
+          .where((c) => c.chatId.value == chatId)
           .firstOrNull;
 
       if (chat == null) {
@@ -510,7 +515,7 @@ class ChatLifecycleService {
     final exportData = {
       'chat_info': {
         'contact_name': chat.contactName,
-        'chat_id': chat.chatId,
+        'chat_id': chat.chatId.value,
         'export_timestamp': DateTime.now().toIso8601String(),
         'message_count': messages.length,
       },
@@ -561,15 +566,19 @@ class ChatLifecycleService {
   }
 
   Future<void> _deleteMessageFromRepository(
-    String messageId,
+    MessageId messageId,
     String chatId,
   ) async {
     try {
       final success = await _messageRepository.deleteMessage(messageId);
       if (success) {
-        _logger.info('Successfully deleted message: $messageId from $chatId');
+        _logger.info(
+          'Successfully deleted message: ${messageId.value} from $chatId',
+        );
       } else {
-        _logger.warning('Failed to delete message - not found: $messageId');
+        _logger.warning(
+          'Failed to delete message - not found: ${messageId.value}',
+        );
         throw Exception('Message not found');
       }
     } catch (e) {
@@ -614,7 +623,7 @@ class ChatLifecycleService {
     final starredCount = archive.messages.where((m) => m.isStarred).length;
 
     return ArchivedChatAnalytics(
-      archiveId: archive.id,
+      archiveId: archive.id.value,
       totalMessages: totalMessages,
       myMessages: myMessages,
       theirMessages: theirMessages,

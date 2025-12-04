@@ -34,21 +34,26 @@ class BurstScanningController {
   _burstDurationTimer; // Timer to handle burst duration in continuous scan mode
 
   // Status stream
-  late final StreamController<BurstScanningStatus> _statusController =
-      StreamController<BurstScanningStatus>.broadcast(
-        onListen: () {
-          _startStatusTimer();
-          // Emit an immediate snapshot for the first listener.
-          _updateStatus();
-        },
-        onCancel: () {
-          if (!_statusController.hasListener) {
+  final Set<void Function(BurstScanningStatus)> _statusListeners = {};
+
+  Stream<BurstScanningStatus> get statusStream =>
+      Stream<BurstScanningStatus>.multi((controller) {
+        // Start timer on first listener
+        _startStatusTimer();
+        controller.add(getCurrentStatus());
+
+        void listener(BurstScanningStatus status) {
+          controller.add(status);
+        }
+
+        _statusListeners.add(listener);
+        controller.onCancel = () {
+          _statusListeners.remove(listener);
+          if (_statusListeners.isEmpty) {
             _stopStatusTimer();
           }
-        },
-      );
-
-  Stream<BurstScanningStatus> get statusStream => _statusController.stream;
+        };
+      });
 
   /// Initialize the burst scanning controller
   Future<void> initialize(IConnectionService bleService) async {
@@ -367,7 +372,17 @@ class BurstScanningController {
   /// Update and broadcast status
   void _updateStatus() {
     final status = getCurrentStatus();
-    _statusController.add(status);
+    for (final listener in List.of(_statusListeners)) {
+      try {
+        listener(status);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying burst scan listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
   }
 
   void _startStatusTimer() {
@@ -392,7 +407,7 @@ class BurstScanningController {
     // This prevents LateInitializationError when Bluetooth was never available
     _powerManager?.dispose();
 
-    _statusController.close();
+    _statusListeners.clear();
     _logger.info('🔥 Burst scanning controller disposed');
   }
 }

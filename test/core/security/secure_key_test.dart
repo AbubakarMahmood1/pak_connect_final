@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/security/secure_key.dart';
 
 /// Tests for SecureKey wrapper
@@ -8,6 +9,31 @@ import 'package:pak_connect/core/security/secure_key.dart';
 /// by immediately zeroing the original key upon construction.
 void main() {
   group('SecureKey', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     group('Construction and Zeroing', () {
       test('zeros original key immediately upon construction', () {
         // Arrange

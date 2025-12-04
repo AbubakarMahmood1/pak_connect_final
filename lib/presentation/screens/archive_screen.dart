@@ -10,6 +10,7 @@ import '../widgets/archive_search_delegate.dart';
 import '../../core/models/archive_models.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
+import '../../domain/values/id_types.dart';
 
 /// Main archive screen showing list of archived chats with management features
 class ArchiveScreen extends ConsumerStatefulWidget {
@@ -333,8 +334,8 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                   // This is a simplified version - in real implementation, we'd have better data structure
                   return SearchResultArchivedChatTile(
                     archive: ArchivedChatSummary(
-                      id: message.chatId,
-                      originalChatId: message.chatId,
+                      id: message.archiveId,
+                      originalChatId: ChatId(message.chatId.value),
                       contactName: 'Contact', // Would get from message metadata
                       archivedAt: message.archivedAt,
                       messageCount: 1,
@@ -573,7 +574,10 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   Future<void> _restoreChat(ArchivedChatSummary archive) async {
     final result = await ref
         .read(archiveOperationsProvider.notifier)
-        .restoreChat(archiveId: archive.id);
+        .restoreChat(
+          archiveId: archive.id,
+          targetChatId: archive.originalChatId.value,
+        );
 
     if (mounted) {
       if (result.success) {

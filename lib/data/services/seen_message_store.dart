@@ -10,6 +10,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../database/database_helper.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../core/interfaces/i_seen_message_store.dart';
+import '../../domain/values/id_types.dart';
 
 /// Persistent store for tracking seen messages (delivered and read)
 ///
@@ -37,8 +38,8 @@ class SeenMessageStore implements ISeenMessageStore {
 
   // In-memory cache for fast lookups (populated from DB)
   // Use LinkedHashSet to preserve insertion order for LRU semantics (matches BitChat)
-  final LinkedHashSet<String> _deliveredIds = LinkedHashSet<String>();
-  final LinkedHashSet<String> _readIds = LinkedHashSet<String>();
+  final LinkedHashSet<MessageId> _deliveredIds = LinkedHashSet<MessageId>();
+  final LinkedHashSet<MessageId> _readIds = LinkedHashSet<MessageId>();
 
   bool _initialized = false;
 
@@ -66,7 +67,8 @@ class SeenMessageStore implements ISeenMessageStore {
       _logger.warning('hasDelivered called before initialization');
       return false;
     }
-    return _deliveredIds.contains(messageId);
+    if (messageId.isEmpty) return false;
+    return _deliveredIds.contains(MessageId(messageId));
   }
 
   /// Check if message was already read
@@ -75,7 +77,8 @@ class SeenMessageStore implements ISeenMessageStore {
       _logger.warning('hasRead called before initialization');
       return false;
     }
-    return _readIds.contains(messageId);
+    if (messageId.isEmpty) return false;
+    return _readIds.contains(MessageId(messageId));
   }
 
   /// Mark message as delivered
@@ -84,19 +87,26 @@ class SeenMessageStore implements ISeenMessageStore {
       await initialize();
     }
 
+    if (messageId.isEmpty) {
+      _logger.fine('Skipping markDelivered for empty messageId');
+      return;
+    }
+
     try {
+      final id = MessageId(messageId);
+
       // If already exists, just move to end (LRU)
-      if (_deliveredIds.contains(messageId)) {
-        _deliveredIds.remove(messageId);
+      if (_deliveredIds.contains(id)) {
+        _deliveredIds.remove(id);
       }
 
-      _deliveredIds.add(messageId);
+      _deliveredIds.add(id);
 
       // Enforce limit (LRU eviction)
       await _trimSet(_deliveredIds, SeenType.delivered);
 
       // Persist to database
-      await _persistMessage(messageId, SeenType.delivered);
+      await _persistMessage(id, SeenType.delivered);
 
       _logger.fine('Marked message as delivered: ${messageId.shortId()}...');
     } catch (e) {
@@ -110,19 +120,26 @@ class SeenMessageStore implements ISeenMessageStore {
       await initialize();
     }
 
+    if (messageId.isEmpty) {
+      _logger.fine('Skipping markRead for empty messageId');
+      return;
+    }
+
     try {
+      final id = MessageId(messageId);
+
       // If already exists, just move to end (LRU)
-      if (_readIds.contains(messageId)) {
-        _readIds.remove(messageId);
+      if (_readIds.contains(id)) {
+        _readIds.remove(id);
       }
 
-      _readIds.add(messageId);
+      _readIds.add(id);
 
       // Enforce limit (LRU eviction)
       await _trimSet(_readIds, SeenType.read);
 
       // Persist to database
-      await _persistMessage(messageId, SeenType.read);
+      await _persistMessage(id, SeenType.read);
 
       _logger.fine('Marked message as read: ${messageId.shortId()}...');
     } catch (e) {
@@ -244,7 +261,7 @@ class SeenMessageStore implements ISeenMessageStore {
 
       _deliveredIds.clear();
       for (final row in deliveredResults) {
-        _deliveredIds.add(row['message_id'] as String);
+        _deliveredIds.add(MessageId(row['message_id'] as String));
       }
 
       // Load read messages (OLDEST first for proper LRU order in LinkedHashSet)
@@ -258,7 +275,7 @@ class SeenMessageStore implements ISeenMessageStore {
 
       _readIds.clear();
       for (final row in readResults) {
-        _readIds.add(row['message_id'] as String);
+        _readIds.add(MessageId(row['message_id'] as String));
       }
 
       _logger.info(
@@ -273,7 +290,7 @@ class SeenMessageStore implements ISeenMessageStore {
   /// Trim set to maxIdsPerType (LRU eviction)
   /// LinkedHashSet.toList() preserves insertion order (oldest first)
   /// So we take from the start to remove oldest entries (LRU semantics)
-  Future<void> _trimSet(LinkedHashSet<String> set, SeenType type) async {
+  Future<void> _trimSet(LinkedHashSet<MessageId> set, SeenType type) async {
     final limit = _currentMaxIdsPerType;
     if (set.length <= limit) return;
 
@@ -290,7 +307,7 @@ class SeenMessageStore implements ISeenMessageStore {
         await db.delete(
           'seen_messages',
           where: 'message_id = ? AND seen_type = ?',
-          whereArgs: [messageId, type.name],
+          whereArgs: [messageId.value, type.name],
         );
       }
 
@@ -306,12 +323,12 @@ class SeenMessageStore implements ISeenMessageStore {
   }
 
   /// Persist message to database
-  Future<void> _persistMessage(String messageId, SeenType type) async {
+  Future<void> _persistMessage(MessageId messageId, SeenType type) async {
     try {
       final db = await DatabaseHelper.database;
 
       await db.insert('seen_messages', {
-        'message_id': messageId,
+        'message_id': messageId.value,
         'seen_type': type.name,
         'seen_at': DateTime.now().millisecondsSinceEpoch,
       }, conflictAlgorithm: ConflictAlgorithm.replace);

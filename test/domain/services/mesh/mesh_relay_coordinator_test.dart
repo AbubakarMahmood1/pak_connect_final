@@ -1,11 +1,15 @@
+import 'dart:typed_data';
+
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
+import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
@@ -20,6 +24,7 @@ import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {
   group('MeshRelayCoordinator', () {
@@ -29,6 +34,8 @@ void main() {
     late List<RelayDecision> relayDecisions;
     late List<RelayStatistics> relayStats;
     late List<String> deliveredMessages;
+    late List<LogRecord> logRecords;
+    late Set<Pattern> allowedSevere;
 
     MeshRelayCoordinator buildCoordinator({MeshRelayEngineFactory? factory}) {
       return MeshRelayCoordinator(
@@ -42,12 +49,47 @@ void main() {
     }
 
     setUp(() {
+      logRecords = [];
+      allowedSevere = {};
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+
       bleService = _FakeMeshBleService();
       messageQueue = _RecordingOfflineQueue();
       spamManager = _StubSpamPreventionManager();
       relayDecisions = [];
       relayStats = [];
       deliveredMessages = [];
+    });
+
+    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+    tearDown(() {
+      final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+      final unexpected = severe.where(
+        (l) => !allowedSevere.any(
+          (p) => p is String
+              ? l.message.contains(p)
+              : (p as RegExp).hasMatch(l.message),
+        ),
+      );
+      expect(
+        unexpected,
+        isEmpty,
+        reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+      );
+      for (final pattern in allowedSevere) {
+        final found = severe.any(
+          (l) => pattern is String
+              ? l.message.contains(pattern)
+              : (pattern as RegExp).hasMatch(l.message),
+        );
+        expect(
+          found,
+          isTrue,
+          reason: 'Missing expected SEVERE matching "$pattern"',
+        );
+      }
     });
 
     test('initialize wires relay engine via injected factory', () async {
@@ -145,12 +187,12 @@ void main() {
         );
 
         expect(result.isRelay, isTrue);
-        expect(result.nextHop, 'peer-abc');
+        expect(result.nextHop, startsWith('ALL_NEIGHBORS'));
         expect(messageQueue.recordedMessages.length, 1);
         final payload = messageQueue.recordedMessages.first;
-        expect(payload['recipient'], 'recipient-key');
+        expect(payload['recipient'], 'peer-abc');
         expect(payload['sender'], 'node-relay');
-        expect(payload['chatId'], contains('mesh_relay_peer-abc'));
+        expect(payload['chatId'], contains('broadcast_relay_peer-abc'));
         expect(payload['priority'], MessagePriority.high);
       },
     );
@@ -222,6 +264,12 @@ class _RecordingOfflineQueue extends OfflineMessageQueue {
     MessagePriority priority = MessagePriority.normal,
     String? replyToMessageId,
     List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
   }) async {
     final id = 'queued_${recordedMessages.length}';
     recordedMessages.add({
@@ -231,6 +279,47 @@ class _RecordingOfflineQueue extends OfflineMessageQueue {
       'recipient': recipientPublicKey,
       'sender': senderPublicKey,
       'priority': priority,
+      'persist': persistToStorage,
+      'isRelay': isRelayMessage,
+      'originalMessageId': originalMessageId,
+      'relayNodeId': relayNodeId,
+      'messageHash': messageHash,
+      'relayMetadata': relayMetadata,
+    });
+    return id;
+  }
+
+  @override
+  Future<MessageId> queueMessageWithIds({
+    required ChatId chatId,
+    required String content,
+    required ChatId recipientId,
+    required ChatId senderId,
+    MessagePriority priority = MessagePriority.normal,
+    MessageId? replyToMessageId,
+    List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
+  }) async {
+    final id = MessageId('queued_${recordedMessages.length}');
+    recordedMessages.add({
+      'id': id.value,
+      'chatId': chatId.value,
+      'content': content,
+      'recipient': recipientId.value,
+      'sender': senderId.value,
+      'priority': priority,
+      'replyTo': replyToMessageId?.value,
+      'persist': persistToStorage,
+      'isRelay': isRelayMessage,
+      'originalMessageId': originalMessageId,
+      'relayNodeId': relayNodeId,
+      'messageHash': messageHash,
+      'relayMetadata': relayMetadata,
     });
     return id;
   }
@@ -249,6 +338,43 @@ class _StubSpamPreventionManager extends SpamPreventionManager {
     activeTrustScores: 0,
     processedHashes: 0,
   );
+
+  @override
+  Future<SpamCheckResult> checkIncomingRelay({
+    required MeshRelayMessage relayMessage,
+    required String fromNodeId,
+    required String currentNodeId,
+  }) async => const SpamCheckResult(
+    allowed: true,
+    spamScore: 0,
+    reason: 'stub-allowed',
+    checks: [],
+  );
+
+  @override
+  Future<SpamCheckResult> checkOutgoingRelay({
+    required String senderNodeId,
+    required int messageSize,
+  }) async => const SpamCheckResult(
+    allowed: true,
+    spamScore: 0,
+    reason: 'stub-allowed',
+    checks: [],
+  );
+
+  @override
+  Future<void> recordRelayOperation({
+    required String fromNodeId,
+    required String toNodeId,
+    required String messageHash,
+    required int messageSize,
+  }) async {}
+
+  @override
+  void clearStatistics() {}
+
+  @override
+  void dispose() {}
 }
 
 class _FakeRelayEngine extends MeshRelayEngine {
@@ -276,6 +402,7 @@ class _FakeRelayEngine extends MeshRelayEngine {
          seenMessageStore: _StubSeenMessageStore(),
          messageQueue: queue,
          spamPrevention: spamPrevention,
+         forceFloodMode: true,
        );
 
   @override
@@ -286,10 +413,26 @@ class _FakeRelayEngine extends MeshRelayEngine {
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
     Function(String originalMessageId, String content, String originalSender)?
     onDeliverToSelf,
+    Function(
+      MessageId originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    onDeliverToSelfIds,
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,
   }) async {
     initializeCount++;
+    await super.initialize(
+      currentNodeId: currentNodeId,
+      routingService: routingService,
+      topologyAnalyzer: topologyAnalyzer,
+      onRelayMessage: onRelayMessage,
+      onDeliverToSelf: onDeliverToSelf,
+      onDeliverToSelfIds: onDeliverToSelfIds,
+      onRelayDecision: onRelayDecision,
+      onStatsUpdated: onStatsUpdated,
+    );
   }
 
   @override
@@ -492,6 +635,9 @@ class _FakeMeshBleService implements IConnectionService {
   Stream<String> get receivedMessages => const Stream.empty();
 
   @override
+  Stream<BinaryPayload> get receivedBinaryStream => const Stream.empty();
+
+  @override
   Stream<CentralConnectionStateChangedEventArgs>
   get peripheralConnectionChanges => const Stream.empty();
 
@@ -520,6 +666,22 @@ class _FakeMeshBleService implements IConnectionService {
   Future<bool> sendPeripheralMessage(
     String message, {
     String? messageId,
+  }) async => true;
+
+  @override
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = 0x90,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async => 'fake-transfer';
+
+  @override
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
   }) async => true;
 
   @override

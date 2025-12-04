@@ -3,6 +3,7 @@
 
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -10,6 +11,31 @@ import 'package:pak_connect/core/utils/gcs_filter.dart';
 
 void main() {
   group('GCSFilter - Basic Functionality', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
+    setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+    });
+
     test('deriveP calculates correct parameter from FPR', () {
       // FPR = 0.01 (1%) should give P = 7 (2^7 = 128, 1/128 ≈ 0.0078)
       final p1 = GCSFilter.deriveP(0.01);

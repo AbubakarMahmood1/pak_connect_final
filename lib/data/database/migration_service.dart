@@ -336,8 +336,8 @@ class MigrationService {
 
         // Basic message fields
         final record = {
-          'id': messageData['id'],
-          'chat_id': messageData['chatId'],
+          'id': messageData['id']?.toString(),
+          'chat_id': messageData['chatId']?.toString(),
           'content': messageData['content'],
           'timestamp': messageData['timestamp'],
           'is_from_me': (messageData['isFromMe'] ?? false) ? 1 : 0,
@@ -349,10 +349,11 @@ class MigrationService {
 
         // Enhanced message fields (if present)
         if (messageData.containsKey('replyToMessageId')) {
-          record['reply_to_message_id'] = messageData['replyToMessageId'];
+          record['reply_to_message_id'] = messageData['replyToMessageId']
+              ?.toString();
         }
         if (messageData.containsKey('threadId')) {
-          record['thread_id'] = messageData['threadId'];
+          record['thread_id'] = messageData['threadId']?.toString();
         }
         if (messageData.containsKey('isStarred')) {
           record['is_starred'] = messageData['isStarred'] ? 1 : 0;
@@ -436,6 +437,8 @@ class MigrationService {
         final queueData = jsonDecode(json);
         final now = DateTime.now().millisecondsSinceEpoch;
 
+        final replyToMessageId = queueData['replyToMessageId'];
+
         await db.insert('offline_message_queue', {
           'queue_id': queueData['id'] ?? 'queue_${now}_$count',
           'message_id': queueData['id'],
@@ -461,7 +464,7 @@ class MigrationService {
           'relay_metadata_json': queueData['relayMetadata'] != null
               ? jsonEncode(queueData['relayMetadata'])
               : null,
-          'reply_to_message_id': queueData['replyToMessageId'],
+          'reply_to_message_id': replyToMessageId?.toString(),
           'attachments_json': queueData['attachments'] != null
               ? jsonEncode(queueData['attachments'])
               : null,

@@ -5,6 +5,9 @@ import 'package:logging/logging.dart';
 
 import '../../domain/services/chat_management_models.dart';
 import '../../domain/services/chat_management_service.dart';
+import '../../core/routing/network_topology_analyzer.dart';
+import '../../core/routing/routing_models.dart';
+import '../../core/services/pinning_service.dart';
 
 /// Shared logger for chat notification bridging.
 final _logger = Logger('ChatNotificationProviders');
@@ -38,5 +41,22 @@ final chatUpdatesStreamProvider = StreamProvider<ChatUpdateEvent>((ref) {
 /// StreamProvider bridge for message-level updates (star/unstar/etc).
 final messageUpdatesStreamProvider = StreamProvider<MessageUpdateEvent>((ref) {
   final service = ref.watch(chatManagementServiceProvider);
+  return service.messageUpdates;
+});
+
+// Phase 6D: NetworkTopologyAnalyzer provider wrapper (M3)
+/// Provides access to network topology analyzer stream for Riverpod lifecycle management
+final networkTopologyAnalyzerUpdatesProvider =
+    StreamProvider.autoDispose<NetworkTopology>((ref) {
+      final analyzer = NetworkTopologyAnalyzer();
+      ref.onDispose(analyzer.dispose);
+      return analyzer.topologyUpdates;
+    });
+
+// Phase 6D: PinningService provider wrapper (M4)
+/// Provides access to pinning service message updates for Riverpod lifecycle management
+final pinningServiceUpdatesProvider = StreamProvider.autoDispose<void>((ref) {
+  final service = PinningService();
+  ref.onDispose(() => unawaited(service.dispose()));
   return service.messageUpdates;
 });

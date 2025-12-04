@@ -9,6 +9,7 @@ import '../../core/utils/string_extensions.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import '../../data/repositories/user_preferences.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Handles post-verification pairing lifecycle steps so the pairing flow
 /// controller can stay lean and delegate identity/persistence updates.
@@ -52,7 +53,15 @@ class PairingLifecycleService {
     String displayName, {
     String? ephemeralId,
   }) async {
-    final existingContact = await _contactRepository.getContact(publicKey);
+    final userId = _toUserId(publicKey);
+    if (userId == null) {
+      _logger.warning(
+        'Handshake contact key is empty; skipping contact create',
+      );
+      return;
+    }
+
+    final existingContact = await _contactRepository.getContactByUserId(userId);
 
     if (existingContact == null) {
       await _contactRepository.saveContactWithSecurity(
@@ -69,7 +78,7 @@ class PairingLifecycleService {
     } else {
       if (existingContact.securityLevel.index < SecurityLevel.low.index) {
         await _contactRepository.updateContactSecurityLevel(
-          publicKey,
+          userId.value,
           SecurityLevel.low,
         );
         _logger.info(
@@ -78,7 +87,7 @@ class PairingLifecycleService {
       }
       if (ephemeralId != null) {
         await _contactRepository.updateContactEphemeralId(
-          publicKey,
+          userId.value,
           ephemeralId,
         );
         _logger.info(
@@ -93,22 +102,37 @@ class PairingLifecycleService {
     String? alternateSessionId,
     required String sharedSecret,
   }) async {
-    _conversationKeys[contactId] = sharedSecret;
-    if (alternateSessionId != null && alternateSessionId != contactId) {
-      _conversationKeys[alternateSessionId] = sharedSecret;
+    final contactUserId = _toUserId(contactId);
+    final alternateUserId = alternateSessionId != null
+        ? _toUserId(alternateSessionId)
+        : null;
+    if (contactUserId == null) {
+      _logger.warning('cacheSharedSecret called with empty contactId');
+      return;
     }
 
-    await _contactRepository.cacheSharedSecret(contactId, sharedSecret);
-    if (alternateSessionId != null && alternateSessionId != contactId) {
+    _conversationKeys[contactUserId.value] = sharedSecret;
+    if (alternateUserId != null &&
+        alternateUserId.value != contactUserId.value) {
+      _conversationKeys[alternateUserId.value] = sharedSecret;
+    }
+
+    await _contactRepository.cacheSharedSecret(
+      contactUserId.value,
+      sharedSecret,
+    );
+    if (alternateUserId != null &&
+        alternateUserId.value != contactUserId.value) {
       await _contactRepository.cacheSharedSecret(
-        alternateSessionId,
+        alternateUserId.value,
         sharedSecret,
       );
     }
 
-    SimpleCrypto.initializeConversation(contactId, sharedSecret);
-    if (alternateSessionId != null && alternateSessionId != contactId) {
-      SimpleCrypto.initializeConversation(alternateSessionId, sharedSecret);
+    SimpleCrypto.initializeConversation(contactUserId.value, sharedSecret);
+    if (alternateUserId != null &&
+        alternateUserId.value != contactUserId.value) {
+      SimpleCrypto.initializeConversation(alternateUserId.value, sharedSecret);
     }
   }
 
@@ -122,7 +146,13 @@ class PairingLifecycleService {
       return;
     }
 
-    final contact = await _contactRepository.getContact(theirEphemeralId);
+    final theirEphUserId = _toUserId(theirEphemeralId);
+    if (theirEphUserId == null) {
+      _logger.warning('⚠️ Cannot upgrade - empty ephemeral ID');
+      return;
+    }
+
+    final contact = await _contactRepository.getContactByUserId(theirEphUserId);
 
     if (contact == null) {
       _logger.warning('⚠️ Cannot upgrade - contact not found');
@@ -259,5 +289,10 @@ class PairingLifecycleService {
     if (id == null) return 'null';
     if (id.length <= maxLength) return id;
     return '${id.substring(0, maxLength)}...';
+  }
+
+  UserId? _toUserId(String publicKey) {
+    if (publicKey.isEmpty) return null;
+    return UserId(publicKey);
   }
 }

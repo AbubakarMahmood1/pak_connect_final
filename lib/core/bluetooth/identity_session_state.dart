@@ -2,6 +2,7 @@ import 'package:logging/logging.dart';
 import '../models/spy_mode_info.dart';
 import '../models/protocol_message.dart';
 import '../services/simple_crypto.dart';
+import '../../domain/values/id_types.dart';
 
 /// Holds session-scoped identity information for a connected peer.
 class IdentitySessionState {
@@ -16,6 +17,12 @@ class IdentitySessionState {
   String? lastKnownDisplayName;
   final Map<String, String> ephemeralToPersistent = {};
 
+  UserId? get theirPersistentUserId =>
+      theirPersistentKey != null ? UserId(theirPersistentKey!) : null;
+
+  UserId? get currentSessionUserId =>
+      currentSessionId != null ? UserId(currentSessionId!) : null;
+
   /// Store the peer ephemeral ID and initialize session ID if missing.
   void setTheirEphemeralId(String ephemeralId) {
     _logger.fine('Storing their ephemeral ID: $ephemeralId');
@@ -23,11 +30,17 @@ class IdentitySessionState {
     currentSessionId ??= ephemeralId;
   }
 
+  void setTheirEphemeralUserId(UserId ephemeralId) =>
+      setTheirEphemeralId(ephemeralId.value);
+
   void setTheirPersistentKey(String persistentKey) {
     _logger.fine('Storing their persistent key: ${_truncateId(persistentKey)}');
     theirPersistentKey = persistentKey;
     currentSessionId ??= persistentKey;
   }
+
+  void setTheirPersistentUserId(UserId persistentId) =>
+      setTheirPersistentKey(persistentId.value);
 
   void setPersistentAssociation({
     required String persistentKey,
@@ -39,9 +52,20 @@ class IdentitySessionState {
     }
   }
 
+  void setPersistentAssociationUser({
+    required UserId persistentId,
+    UserId? ephemeralId,
+  }) => setPersistentAssociation(
+    persistentKey: persistentId.value,
+    ephemeralId: ephemeralId?.value,
+  );
+
   void setCurrentSessionId(String? sessionId) {
     currentSessionId = sessionId;
   }
+
+  void setCurrentSessionUserId(UserId? sessionId) =>
+      setCurrentSessionId(sessionId?.value);
 
   void rememberDisplayName(String? displayName) {
     lastKnownDisplayName = displayName;

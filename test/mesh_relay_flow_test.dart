@@ -16,8 +16,12 @@ import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/di/repository_provider_impl.dart';
 import 'test_helpers/test_setup.dart';
+import 'test_helpers/test_seen_message_store.dart';
 
 void main() {
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
       dbLabel: 'mesh_relay_flow',
@@ -27,11 +31,42 @@ void main() {
   });
 
   setUp(() async {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.configureTestDatabase(label: 'mesh_relay_flow');
     TestSetup.resetSharedPreferences();
   });
 
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
   tearDown(() async {
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
     await TestSetup.nukeDatabase();
   });
 
@@ -55,7 +90,7 @@ void main() {
       messageQueue = OfflineMessageQueue();
       spamPrevention = SpamPreventionManager();
       messageHandler = BLEMessageHandler();
-      seenStore = TestSetup.getService<ISeenMessageStore>();
+      seenStore = TestSeenMessageStore();
 
       final repositoryProvider = RepositoryProviderImpl(
         contactRepository: contactRepository,
@@ -68,6 +103,7 @@ void main() {
       relayEngine = MeshRelayEngine(
         messageQueue: messageQueue,
         spamPrevention: spamPrevention,
+        seenMessageStore: seenStore,
       );
     });
 
@@ -91,6 +127,7 @@ void main() {
       final tempEngine = MeshRelayEngine(
         messageQueue: tempQueue,
         spamPrevention: tempSpam,
+        seenMessageStore: TestSeenMessageStore(),
       );
       await tempEngine.initialize(currentNodeId: senderNodeId);
       final relay = await tempEngine.createOutgoingRelay(
@@ -139,8 +176,8 @@ void main() {
       expect(outgoingRelay.relayMetadata.hopCount, equals(1));
       expect(
         outgoingRelay.relayMetadata.ttl,
-        equals(10),
-      ); // Normal priority TTL
+        equals(4),
+      ); // Normal priority TTL (max hops = 4)
 
       // Step 2: Node B receives and processes the relay message
       await initRelayAs(nodeB); // Reinitialize as nodeB
@@ -215,18 +252,18 @@ void main() {
       );
       await initRelayAs(nodeB);
 
-      expect(relay!.relayMetadata.ttl, equals(5));
+      expect(relay!.relayMetadata.ttl, equals(3));
 
       var currentRelay = relay;
       bool exceptionThrown = false;
-      for (int hop = 1; hop <= 6; hop++) {
+      for (int hop = 1; hop <= 4; hop++) {
         final hopNodeId = 'intermediate_node_$hop';
         try {
           currentRelay = currentRelay.nextHop(hopNodeId);
         } catch (e) {
           exceptionThrown = true;
           expect(e, isA<RelayException>());
-          expect(hop, equals(5));
+          expect(hop, equals(3));
           break;
         }
       }
@@ -366,7 +403,7 @@ void main() {
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.urgent,
       );
-      expect(urgentRelay!.relayMetadata.ttl, equals(20));
+      expect(urgentRelay!.relayMetadata.ttl, equals(5));
 
       final highRelay = await relayEngine.createOutgoingRelay(
         originalMessageId: 'high',
@@ -374,7 +411,7 @@ void main() {
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.high,
       );
-      expect(highRelay!.relayMetadata.ttl, equals(15));
+      expect(highRelay!.relayMetadata.ttl, equals(5));
 
       final normalRelay = await relayEngine.createOutgoingRelay(
         originalMessageId: 'normal',
@@ -382,7 +419,7 @@ void main() {
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.normal,
       );
-      expect(normalRelay!.relayMetadata.ttl, equals(10));
+      expect(normalRelay!.relayMetadata.ttl, equals(4));
 
       final lowRelay = await relayEngine.createOutgoingRelay(
         originalMessageId: 'low',
@@ -390,7 +427,7 @@ void main() {
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.low,
       );
-      expect(lowRelay!.relayMetadata.ttl, equals(5));
+      expect(lowRelay!.relayMetadata.ttl, equals(3));
     });
 
     test('Trust Scoring System', () async {
@@ -503,7 +540,7 @@ void main() {
       );
 
       expect(noHopResult.type, equals(RelayProcessingType.dropped));
-      expect(noHopResult.reason, contains('No next hop'));
+      expect(noHopResult.reason, contains('No neighbors available'));
     });
 
     test('Integration with BLE Message Handler', () async {

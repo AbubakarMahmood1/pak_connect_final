@@ -1,11 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/services/ble_connection_service.dart';
+import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
+import 'package:pak_connect/core/discovery/device_deduplication_manager.dart';
 
 @GenerateNiceMocks([
   MockSpec<IBLEStateManagerFacade>(),
@@ -18,9 +21,48 @@ import 'ble_connection_service_test.mocks.dart';
 void main() {
   late BLEConnectionService service;
   late MockIBLEStateManagerFacade mockStateManager;
-  late MockBLEConnectionManager mockConnectionManager;
+  late _MockConnectionManagerWithAddresses mockConnectionManager;
   late MockCentralManager mockCentralManager;
   late MockBluetoothStateMonitor mockBluetoothMonitor;
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
+
+  setUp(() {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
+  });
+
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
+  tearDown(() {
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
+  });
 
   void createService() {
     // Create service with callback
@@ -47,7 +89,7 @@ void main() {
   group('BLEConnectionService', () {
     test('can be instantiated', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -58,7 +100,7 @@ void main() {
 
     test('has public API methods', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -75,7 +117,7 @@ void main() {
 
     test('has state getters', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -99,7 +141,7 @@ void main() {
 
     test('current connection info is initialized', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -114,7 +156,7 @@ void main() {
 
     test('peripheral handshake flag can be set', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -127,7 +169,7 @@ void main() {
 
     test('mesh networking flag can be set', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -140,7 +182,7 @@ void main() {
 
     test('connected central property can be set', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -153,19 +195,19 @@ void main() {
 
     test('can dispose connection', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
       createService();
 
       service.disposeConnection();
-      expect(service.connectionInfoController, isNull);
+      verify(mockConnectionManager.stopConnectionMonitoring()).called(1);
     });
 
     test('getConnectionInfo() returns current state', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -178,19 +220,18 @@ void main() {
 
     test('connection info stream is available', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
       createService();
 
-      final stream = service.connectionInfoStream;
-      expect(stream, isNotNull);
+      expect(service.connectionInfoStream, emits(isA<ConnectionInfo>()));
     });
 
     test('has peripheral connection property', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -201,7 +242,7 @@ void main() {
 
     test('has central connection property', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -212,7 +253,7 @@ void main() {
 
     test('can send messages property', () {
       mockStateManager = MockIBLEStateManagerFacade();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
       mockCentralManager = MockCentralManager();
       mockBluetoothMonitor = MockBluetoothStateMonitor();
 
@@ -220,5 +261,51 @@ void main() {
 
       expect(service.canSendMessages, false);
     });
+
+    test(
+      'auto-connect skips dial when tracker reports existing link',
+      () async {
+        mockStateManager = MockIBLEStateManagerFacade();
+        mockConnectionManager = _MockConnectionManagerWithAddresses();
+        mockCentralManager = MockCentralManager();
+        mockBluetoothMonitor = MockBluetoothStateMonitor();
+
+        when(
+          mockCentralManager.stateChanged,
+        ).thenAnswer((_) => const Stream.empty());
+        when(mockConnectionManager.clientConnectionCount).thenReturn(0);
+        when(mockConnectionManager.maxClientConnections).thenReturn(3);
+        when(mockConnectionManager.canAcceptClientConnection).thenReturn(true);
+        when(mockStateManager.isPeripheralMode).thenReturn(false);
+
+        final peripheral = Peripheral(
+          uuid: UUID.fromString('00000000-0000-0000-0000-00000000abcd'),
+        );
+        mockConnectionManager.connectedAddressesStub = [
+          peripheral.uuid.toString(),
+        ];
+
+        createService();
+        service.setupConnectionInitialization();
+        addTearDown(() {
+          DeviceDeduplicationManager.onKnownContactDiscovered = null;
+        });
+
+        final callback = DeviceDeduplicationManager.onKnownContactDiscovered;
+        expect(callback, isNotNull);
+
+        await callback!(peripheral, 'Alice');
+        await Future<void>.delayed(Duration.zero);
+
+        verifyNever(mockConnectionManager.connectToDevice(peripheral));
+      },
+    );
   });
+}
+
+class _MockConnectionManagerWithAddresses extends MockBLEConnectionManager {
+  List<String> connectedAddressesStub = const [];
+
+  @override
+  List<String> get connectedAddresses => connectedAddressesStub;
 }

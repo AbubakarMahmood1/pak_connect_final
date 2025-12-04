@@ -1,18 +1,37 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/core/security/noise/primitives/cipher_state.dart';
 
 /// Unit tests for CipherState (ChaCha20-Poly1305 AEAD wrapper)
 void main() {
   group('CipherState', () {
     late CipherState cipher;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       cipher = CipherState();
     });
 
     tearDown(() {
       cipher.destroy();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     test('initialization with key', () {

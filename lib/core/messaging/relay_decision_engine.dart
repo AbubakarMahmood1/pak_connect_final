@@ -9,6 +9,7 @@ import '../routing/network_topology_analyzer.dart';
 import '../security/ephemeral_key_manager.dart';
 import '../constants/special_recipients.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Encapsulates relay decision logic (dedup, recipient resolution, next-hop selection).
 class RelayDecisionEngine {
@@ -47,9 +48,9 @@ class RelayDecisionEngine {
     }
   }
 
-  bool isDuplicate(String messageId) {
-    return _seenMessageStore.hasDelivered(messageId);
-  }
+  bool isDuplicate(String messageId) =>
+      _seenMessageStore.hasDelivered(messageId);
+  bool isDuplicateId(MessageId messageId) => isDuplicate(messageId.value);
 
   double calculateRelayProbability() {
     final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 1;
@@ -194,5 +195,17 @@ class RelayDecisionEngine {
     }
 
     return validHops.first;
+  }
+
+  Future<ChatId?> chooseNextHopId({
+    required MeshRelayMessage relayMessage,
+    required List<ChatId> availableHops,
+  }) async {
+    final hopStrings = availableHops.map((h) => h.value).toList();
+    final chosen = await chooseNextHop(
+      relayMessage: relayMessage,
+      availableHops: hopStrings,
+    );
+    return chosen != null ? ChatId(chosen) : null;
   }
 }

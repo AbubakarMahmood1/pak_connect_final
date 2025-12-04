@@ -2,6 +2,7 @@
 // Tests all backend implementations and UI functionality
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/data/repositories/user_preferences.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
@@ -11,6 +12,9 @@ import 'dart:convert';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
       dbLabel: 'profile_screen_validation',
@@ -28,13 +32,28 @@ void main() {
     late ChatsRepository chatsRepository;
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       userPreferences = UserPreferences();
       contactRepository = ContactRepository();
       chatsRepository = ChatsRepository();
     });
 
     tearDown(() async {
-      UserPreferences.dispose();
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       await TestSetup.nukeDatabase();
     });
 
@@ -53,24 +72,17 @@ void main() {
       expect(retrievedName, equals(testUsername));
     });
 
-    test('Username updates are reactive via stream', () async {
+    test('Username updates are reactive via provider', () async {
       // Arrange
       const testUsername = 'ReactiveUser';
-      final streamValues = <String>[];
+      final container = ProviderContainer();
 
       // Act
-      final subscription = UserPreferences.usernameStream.listen(
-        (username) => streamValues.add(username),
-      );
-
       await userPreferences.setUserName(testUsername);
-      await Future.delayed(Duration(milliseconds: 100)); // Allow stream to emit
+      final username = await container.read(usernameProvider.future);
 
       // Assert
-      expect(streamValues, contains(testUsername));
-
-      // Cleanup
-      await subscription.cancel();
+      expect(username, equals(testUsername));
     });
 
     test('UsernameNotifier updates correctly', () async {

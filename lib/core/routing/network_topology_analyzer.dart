@@ -15,8 +15,7 @@ class NetworkTopologyAnalyzer {
 
   final Map<String, ConnectionMetrics> _connectionMetrics = {};
   final Map<String, DateTime> _lastSeen = {};
-  final StreamController<NetworkTopology> _topologyController =
-      StreamController<NetworkTopology>.broadcast();
+  final Set<void Function(NetworkTopology)> _listeners = {};
 
   Timer? _topologyUpdateTimer;
   Timer? _cleanupTimer;
@@ -26,7 +25,19 @@ class NetworkTopologyAnalyzer {
   static const Duration _cleanupInterval = Duration(minutes: 5);
 
   /// Stream of topology updates
-  Stream<NetworkTopology> get topologyUpdates => _topologyController.stream;
+  Stream<NetworkTopology> get topologyUpdates =>
+      Stream<NetworkTopology>.multi((controller) {
+        controller.add(_currentTopology);
+
+        void listener(NetworkTopology topology) {
+          controller.add(topology);
+        }
+
+        _listeners.add(listener);
+        controller.onCancel = () {
+          _listeners.remove(listener);
+        };
+      });
 
   /// Get current network topology
   NetworkTopology getNetworkTopology() => _currentTopology;
@@ -78,7 +89,7 @@ class NetworkTopologyAnalyzer {
       _lastSeen[to] = DateTime.now();
 
       // Notify listeners
-      _topologyController.add(_currentTopology);
+      _notifyListeners();
     } catch (e) {
       _logger.severe('Failed to add connection: $e');
     }
@@ -99,7 +110,7 @@ class NetworkTopologyAnalyzer {
       _connectionMetrics.remove(connectionKey);
 
       // Notify listeners
-      _topologyController.add(_currentTopology);
+      _notifyListeners();
     } catch (e) {
       _logger.severe('Failed to remove connection: $e');
     }
@@ -122,7 +133,7 @@ class NetworkTopologyAnalyzer {
       final currentQuality = _currentTopology.getConnectionQuality(from, to);
       if (currentQuality != quality) {
         _currentTopology = _currentTopology.withConnection(from, to, quality);
-        _topologyController.add(_currentTopology);
+        _notifyListeners();
 
         final truncatedFrom = from.length > 8 ? from.shortId(8) : from;
         final truncatedTo = to.length > 8 ? to.shortId(8) : to;
@@ -427,10 +438,24 @@ class NetworkTopologyAnalyzer {
   void dispose() {
     _topologyUpdateTimer?.cancel();
     _cleanupTimer?.cancel();
-    _topologyController.close();
+    _listeners.clear();
     _connectionMetrics.clear();
     _lastSeen.clear();
     _logger.info('Network Topology Analyzer disposed');
+  }
+
+  void _notifyListeners() {
+    for (final listener in List.of(_listeners)) {
+      try {
+        listener(_currentTopology);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying topology analyzer listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
   }
 }
 

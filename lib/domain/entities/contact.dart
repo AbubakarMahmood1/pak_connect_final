@@ -1,4 +1,5 @@
 import '../../core/services/security_manager.dart';
+import '../values/id_types.dart';
 
 /// Trust status for a contact record.
 ///
@@ -65,6 +66,18 @@ class Contact {
   /// 🔧 MODEL: Get the session ID for Noise Protocol lookup
   /// Noise sessions are ALWAYS indexed by currentEphemeralId
   String? get sessionIdForNoise => currentEphemeralId ?? publicKey;
+
+  /// Strongly typed accessors for identity-based value objects
+  UserId get userId => UserId(publicKey);
+
+  UserId? get persistentUserId =>
+      persistentPublicKey != null ? UserId(persistentPublicKey!) : null;
+
+  /// Chat identity prefers persistent key when available, otherwise falls back to first key.
+  UserId get chatUserId => persistentUserId ?? userId;
+
+  /// ChatId value object that respects the same resolution as [chatId].
+  ChatId get chatIdValue => ChatId(chatId);
 
   Map<String, dynamic> toJson() => {
     'publicKey': publicKey,

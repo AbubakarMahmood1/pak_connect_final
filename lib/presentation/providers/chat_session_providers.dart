@@ -12,7 +12,6 @@ import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../domain/models/mesh_network_models.dart';
-import '../../domain/services/notification_service.dart';
 import '../controllers/chat_pairing_dialog_controller.dart';
 import '../controllers/chat_scrolling_controller.dart' as chat_controller;
 import '../controllers/chat_search_controller.dart';
@@ -24,6 +23,7 @@ import '../notifiers/chat_session_state_notifier.dart';
 import '../notifiers/chat_session_state_provider.dart';
 import '../providers/chat_messaging_view_model.dart';
 import '../viewmodels/chat_session_view_model.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'ble_providers.dart';
 
 /// Aggregated handle for provider-backed session consumption.
@@ -73,7 +73,7 @@ class ChatSessionActions {
   });
 
   final Future<void> Function(String content) sendMessage;
-  final Future<void> Function(String messageId, bool deleteForEveryone)
+  final Future<void> Function(MessageId messageId, bool deleteForEveryone)
   deleteMessage;
   final Future<void> Function() retryFailedMessages;
   final Future<void> Function() manualReconnection;
@@ -127,7 +127,6 @@ class ChatSessionLifecycleArgs {
     required this.messageRepository,
     this.retryCoordinator,
     this.offlineQueue,
-    this.notificationService,
   });
 
   final ChatSessionViewModel viewModel;
@@ -138,7 +137,6 @@ class ChatSessionLifecycleArgs {
   final MessageRepository messageRepository;
   final MessageRetryCoordinator? retryCoordinator;
   final OfflineMessageQueue? offlineQueue;
-  final NotificationService? notificationService;
 }
 
 /// Provider family for ChatSessionViewModel scaffolding.
@@ -169,7 +167,6 @@ final chatSessionLifecycleProvider =
         messageRepository: args.messageRepository,
         retryCoordinator: args.retryCoordinator,
         offlineQueue: args.offlineQueue,
-        notificationService: args.notificationService,
       ),
     );
 
@@ -210,19 +207,20 @@ final chatSessionStateNotifierProvider = NotifierProvider.autoDispose
 final chatSessionActionsFromControllerProvider =
     Provider.family<ChatSessionActions, ChatScreenControllerArgs>((ref, args) {
       final controller = ref.watch(chatScreenControllerProvider(args));
+      final viewModel = controller.sessionViewModel;
       return ChatSessionActions(
-        sendMessage: controller.sendMessage,
-        deleteMessage: controller.deleteMessage,
-        retryFailedMessages: controller.retryFailedMessages,
+        sendMessage: viewModel.sendMessage,
+        deleteMessage: viewModel.deleteMessage,
+        retryFailedMessages: viewModel.retryFailedMessages,
         manualReconnection: controller.manualReconnection,
-        retryFailedMessagesInline: controller.retryFailedMessages,
+        retryFailedMessagesInline: viewModel.retryFailedMessages,
         requestPairing: controller.userRequestedPairing,
         handleAsymmetricContact: controller.handleAsymmetricContact,
         handleConnectionChange: controller.handleConnectionChange,
         handleMeshInitializationStatusChange:
             controller.handleMeshInitializationStatusChange,
-        scrollToBottom: controller.scrollToBottom,
-        toggleSearchMode: controller.toggleSearchMode,
+        scrollToBottom: viewModel.scrollToBottom,
+        toggleSearchMode: viewModel.toggleSearchMode,
       );
     });
 

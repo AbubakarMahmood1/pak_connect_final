@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 
 import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
@@ -41,6 +42,12 @@ void main() {
   });
 
   group('Message Routing Validation Tests', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {
+      'DECRYPT: All methods failed',
+      'Decryption failed',
+    };
+
     late BLEMessageHandler messageHandler;
     late MinimalContactRepository contactRepository;
 
@@ -51,6 +58,9 @@ void main() {
         'abubakar_public_key_12345678901234567890123456789012';
 
     setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       await TestSetup.configureTestDatabase(
         label: 'message_routing_validation',
       );
@@ -61,6 +71,19 @@ void main() {
     });
 
     tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
       messageHandler.dispose();
       await TestSetup.nukeDatabase();
     });

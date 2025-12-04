@@ -1,10 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/chat_migration_service.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import 'test_helpers/test_setup.dart';
+
+ChatId _cid(String value) => ChatId(value);
 
 void main() {
   // Initialize test environment
@@ -26,11 +30,32 @@ void main() {
     late ChatMigrationService migrationService;
     late MessageRepository messageRepository;
     late ChatsRepository chatsRepository;
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
 
     setUp(() {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
       migrationService = ChatMigrationService();
       messageRepository = MessageRepository();
       chatsRepository = ChatsRepository();
+    });
+
+    tearDown(() {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
     });
 
     // Helper to create test messages in an ephemeral chat
@@ -38,12 +63,14 @@ void main() {
       String ephemeralId,
       int messageCount,
     ) async {
-      await chatsRepository.markChatAsRead(ephemeralId); // Create chat entry
+      await chatsRepository.markChatAsRead(
+        _cid(ephemeralId),
+      ); // Create chat entry
 
       for (int i = 0; i < messageCount; i++) {
         final message = Message(
-          id: 'msg_${ephemeralId}_$i',
-          chatId: ephemeralId,
+          id: MessageId('msg_${ephemeralId}_$i'),
+          chatId: _cid(ephemeralId),
           content: 'Test message $i',
           timestamp: DateTime.now().add(Duration(seconds: i)),
           isFromMe: i % 2 == 0,
@@ -61,7 +88,9 @@ void main() {
       await createEphemeralChat(ephemeralId, 5);
 
       // Verify messages exist in ephemeral chat
-      final beforeMessages = await messageRepository.getMessages(ephemeralId);
+      final beforeMessages = await messageRepository.getMessages(
+        _cid(ephemeralId),
+      );
       expect(beforeMessages.length, 5);
 
       // Perform migration
@@ -74,14 +103,16 @@ void main() {
       expect(success, true);
 
       // Verify messages moved to persistent chat
-      final afterMessages = await messageRepository.getMessages(persistentKey);
+      final afterMessages = await messageRepository.getMessages(
+        _cid(persistentKey),
+      );
       expect(afterMessages.length, 5);
       expect(afterMessages[0].content, 'Test message 0');
       expect(afterMessages[4].content, 'Test message 4');
 
       // Verify old ephemeral chat is deleted
       final ephemeralMessages = await messageRepository.getMessages(
-        ephemeralId,
+        _cid(ephemeralId),
       );
       expect(ephemeralMessages.isEmpty, true);
 
@@ -106,7 +137,7 @@ void main() {
       const persistentKey = 'persistent_key_empty789';
 
       // Create empty chat (no messages)
-      await chatsRepository.markChatAsRead(ephemeralId);
+      await chatsRepository.markChatAsRead(_cid(ephemeralId));
 
       // Perform migration
       final success = await migrationService.migrateChatToPersistentId(
@@ -117,7 +148,7 @@ void main() {
       expect(success, false); // No migration needed
 
       // Verify no messages in persistent chat
-      final messages = await messageRepository.getMessages(persistentKey);
+      final messages = await messageRepository.getMessages(_cid(persistentKey));
       expect(messages.isEmpty, true);
     });
 
@@ -137,7 +168,7 @@ void main() {
       expect(success, true);
 
       // Verify message order preserved
-      final messages = await messageRepository.getMessages(persistentKey);
+      final messages = await messageRepository.getMessages(_cid(persistentKey));
       expect(messages.length, 10);
 
       for (int i = 0; i < 10; i++) {
@@ -149,12 +180,12 @@ void main() {
       const ephemeralId = 'temp_props123';
       const persistentKey = 'persistent_key_props789';
 
-      await chatsRepository.markChatAsRead(ephemeralId);
+      await chatsRepository.markChatAsRead(_cid(ephemeralId));
 
       // Create messages with different properties
       final sentMessage = Message(
-        id: 'sent_msg',
-        chatId: ephemeralId,
+        id: MessageId('sent_msg'),
+        chatId: _cid(ephemeralId),
         content: 'Sent message',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -162,8 +193,8 @@ void main() {
       );
 
       final receivedMessage = Message(
-        id: 'received_msg',
-        chatId: ephemeralId,
+        id: MessageId('received_msg'),
+        chatId: _cid(ephemeralId),
         content: 'Received message',
         timestamp: DateTime.now().add(const Duration(seconds: 1)),
         isFromMe: false,
@@ -180,16 +211,16 @@ void main() {
       );
 
       // Verify properties preserved
-      final messages = await messageRepository.getMessages(persistentKey);
+      final messages = await messageRepository.getMessages(_cid(persistentKey));
       expect(messages.length, 2);
 
-      final migratedSent = messages.firstWhere((m) => m.id == 'sent_msg');
+      final migratedSent = messages.firstWhere((m) => m.id.value == 'sent_msg');
       expect(migratedSent.isFromMe, true);
       expect(migratedSent.status, MessageStatus.sent);
       expect(migratedSent.content, 'Sent message');
 
       final migratedReceived = messages.firstWhere(
-        (m) => m.id == 'received_msg',
+        (m) => m.id.value == 'received_msg',
       );
       expect(migratedReceived.isFromMe, false);
       expect(migratedReceived.status, MessageStatus.delivered);
@@ -204,10 +235,10 @@ void main() {
       await createEphemeralChat(ephemeralId, 3);
 
       // Create persistent chat with existing messages
-      await chatsRepository.markChatAsRead(persistentKey);
+      await chatsRepository.markChatAsRead(_cid(persistentKey));
       final existingMessage = Message(
-        id: 'existing_msg',
-        chatId: persistentKey,
+        id: MessageId('existing_msg'),
+        chatId: _cid(persistentKey),
         content: 'Existing message',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -229,11 +260,11 @@ void main() {
       expect(success, true);
 
       // Verify merged correctly
-      final messages = await messageRepository.getMessages(persistentKey);
+      final messages = await messageRepository.getMessages(_cid(persistentKey));
       expect(messages.length, 4); // 1 existing + 3 ephemeral = 4
 
       // Verify all messages are present
-      final messageIds = messages.map((m) => m.id).toList();
+      final messageIds = messages.map((m) => m.id.value).toList();
       expect(messageIds.contains('existing_msg'), true);
     });
 
@@ -245,10 +276,10 @@ void main() {
       await createEphemeralChat(tempChat, 2);
 
       // Create persistent chat with messages
-      await chatsRepository.markChatAsRead(persistentChat);
+      await chatsRepository.markChatAsRead(_cid(persistentChat));
       final msg = Message(
-        id: 'persistent_msg',
-        chatId: persistentChat,
+        id: MessageId('persistent_msg'),
+        chatId: _cid(persistentChat),
         content: 'Test',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -271,13 +302,13 @@ void main() {
         // Create multiple temp chats
         await createEphemeralChat('temp_1', 2);
         await createEphemeralChat('temp_2', 3);
-        await chatsRepository.markChatAsRead('temp_3'); // Empty temp chat
+        await chatsRepository.markChatAsRead(_cid('temp_3')); // Empty temp chat
 
         // Create persistent chat (should be ignored)
-        await chatsRepository.markChatAsRead('persistent_chat');
+        await chatsRepository.markChatAsRead(_cid('persistent_chat'));
         final msg = Message(
-          id: 'persistent_msg',
-          chatId: 'persistent_chat',
+          id: MessageId('persistent_msg'),
+          chatId: _cid('persistent_chat'),
           content: 'Test',
           timestamp: DateTime.now(),
           isFromMe: true,
@@ -321,29 +352,35 @@ void main() {
 
       // Verify messages migrated
       expect(
-        (await messageRepository.getMessages('persistent_batch_1')).length,
+        (await messageRepository.getMessages(
+          _cid('persistent_batch_1'),
+        )).length,
         2,
       );
       expect(
-        (await messageRepository.getMessages('persistent_batch_2')).length,
+        (await messageRepository.getMessages(
+          _cid('persistent_batch_2'),
+        )).length,
         3,
       );
       expect(
-        (await messageRepository.getMessages('persistent_batch_3')).length,
+        (await messageRepository.getMessages(
+          _cid('persistent_batch_3'),
+        )).length,
         1,
       );
 
       // Verify old chats deleted
       expect(
-        (await messageRepository.getMessages('temp_batch_1')).isEmpty,
+        (await messageRepository.getMessages(_cid('temp_batch_1'))).isEmpty,
         true,
       );
       expect(
-        (await messageRepository.getMessages('temp_batch_2')).isEmpty,
+        (await messageRepository.getMessages(_cid('temp_batch_2'))).isEmpty,
         true,
       );
       expect(
-        (await messageRepository.getMessages('temp_batch_3')).isEmpty,
+        (await messageRepository.getMessages(_cid('temp_batch_3'))).isEmpty,
         true,
       );
     });
@@ -353,12 +390,12 @@ void main() {
       const persistentKey = 'persistent_key_time789';
 
       // Create chat with messages at different times
-      await chatsRepository.markChatAsRead(ephemeralId);
+      await chatsRepository.markChatAsRead(_cid(ephemeralId));
 
       final now = DateTime.now();
       final msg1 = Message(
-        id: 'msg_1',
-        chatId: ephemeralId,
+        id: MessageId('msg_1'),
+        chatId: _cid(ephemeralId),
         content: 'First',
         timestamp: now.subtract(const Duration(hours: 2)),
         isFromMe: true,
@@ -366,8 +403,8 @@ void main() {
       );
 
       final msg2 = Message(
-        id: 'msg_2',
-        chatId: ephemeralId,
+        id: MessageId('msg_2'),
+        chatId: _cid(ephemeralId),
         content: 'Second',
         timestamp: now.subtract(const Duration(hours: 1)),
         isFromMe: false,
@@ -375,8 +412,8 @@ void main() {
       );
 
       final msg3 = Message(
-        id: 'msg_3',
-        chatId: ephemeralId,
+        id: MessageId('msg_3'),
+        chatId: _cid(ephemeralId),
         content: 'Latest',
         timestamp: now,
         isFromMe: true,
@@ -409,11 +446,11 @@ void main() {
       const ephemeralId = 'temp_special123';
       const persistentKey = 'persistent_key_special789';
 
-      await chatsRepository.markChatAsRead(ephemeralId);
+      await chatsRepository.markChatAsRead(_cid(ephemeralId));
 
       final specialMessage = Message(
-        id: 'special_msg',
-        chatId: ephemeralId,
+        id: MessageId('special_msg'),
+        chatId: _cid(ephemeralId),
         content: '🔒 Test émojis & spëcial çhars: "quotes" \'apostrophes\' 你好',
         timestamp: DateTime.now(),
         isFromMe: true,
@@ -429,7 +466,7 @@ void main() {
       );
 
       // Verify content preserved
-      final messages = await messageRepository.getMessages(persistentKey);
+      final messages = await messageRepository.getMessages(_cid(persistentKey));
       expect(messages.length, 1);
       expect(
         messages.first.content,

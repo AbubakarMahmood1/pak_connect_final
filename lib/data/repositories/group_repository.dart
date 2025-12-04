@@ -7,6 +7,7 @@ import '../../core/interfaces/i_group_repository.dart';
 import '../database/database_helper.dart';
 import '../../core/models/contact_group.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 /// Repository for managing contact groups in SQLite
 ///

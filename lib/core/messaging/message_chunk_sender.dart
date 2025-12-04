@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:logging/logging.dart';
 
 import '../utils/message_fragmenter.dart';
+import '../../domain/values/id_types.dart';
 
 /// Sends message fragments over BLE via a provided write callback.
 class MessageChunkSender {
@@ -35,4 +36,18 @@ class MessageChunkSender {
 
     logger?.fine('Sent ${fragments.length} chunks for message: $messageId');
   }
+
+  Future<void> sendChunksWithId({
+    required MessageId messageId,
+    required List<MessageChunk> fragments,
+    required Future<void> Function(Uint8List data) sendChunk,
+    void Function(int index, MessageChunk fragment)? onBeforeSend,
+    void Function(int index, MessageChunk fragment)? onAfterSend,
+  }) => sendChunks(
+    messageId: messageId.value,
+    fragments: fragments,
+    sendChunk: sendChunk,
+    onBeforeSend: onBeforeSend,
+    onAfterSend: onAfterSend,
+  );
 }

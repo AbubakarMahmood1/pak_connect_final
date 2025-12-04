@@ -1,6 +1,41 @@
 import 'dart:typed_data';
 import '../../core/utils/message_fragmenter.dart';
 import '../../core/models/protocol_message.dart';
+import '../../domain/values/id_types.dart';
+
+class ForwardReassembledPayload {
+  ForwardReassembledPayload({
+    required this.bytes,
+    required this.originalType,
+    required this.recipient,
+    required this.ttl,
+  });
+
+  final Uint8List bytes;
+  final int originalType;
+  final String? recipient;
+  final int ttl;
+}
+
+class ReassembledPayload {
+  ReassembledPayload({
+    required this.bytes,
+    required this.receivedAt,
+    this.isBinary = false,
+    this.originalType,
+    this.recipient,
+    this.ttl,
+    this.suppressForwarding = false,
+  });
+
+  final Uint8List bytes;
+  final DateTime receivedAt;
+  final bool isBinary;
+  final int? originalType;
+  final String? recipient;
+  final int? ttl;
+  final bool suppressForwarding;
+}
 
 /// Interface for message fragmentation and reassembly handling
 ///
@@ -11,6 +46,9 @@ import '../../core/models/protocol_message.dart';
 /// - Handling ACK messages for reliable delivery
 /// - Periodic cleanup of stale reassembly state
 abstract interface class IMessageFragmentationHandler {
+  /// Set the local node ID for recipient-aware fragment reassembly.
+  void setLocalNodeId(String nodeId);
+
   /// Detects if raw bytes look like a fragmented message chunk
   ///
   /// Returns true if the bytes contain fragmentation markers (e.g., chunk index/total)
@@ -41,10 +79,17 @@ abstract interface class IMessageFragmentationHandler {
     required Duration timeout,
   });
 
+  Future<bool> registerMessageAckWithId({
+    required MessageId messageId,
+    required Duration timeout,
+  });
+
   /// Acknowledges successful message receipt
   ///
   /// Called when ACK is received for a previously sent message
   void acknowledgeMessage(String messageId);
+
+  void acknowledgeMessageWithId(MessageId messageId);
 
   /// Gets current reassembly state for debugging
   ///
@@ -55,6 +100,13 @@ abstract interface class IMessageFragmentationHandler {
   ///
   /// Called periodically (every 2 minutes) to prevent memory leaks
   void cleanupOldMessages();
+
+  /// Retrieves and removes a forwarded binary fragment envelope by id + index.
+  Uint8List? takeForwardFragment(String fragmentId, int index);
+
+  /// Retrieves and removes a fully reassembled binary payload for forwarding
+  /// (used when downstream MTU is smaller than incoming fragments).
+  ForwardReassembledPayload? takeForwardReassembledPayload(String fragmentId);
 
   /// Disposes resources (timers, etc.)
   void dispose();

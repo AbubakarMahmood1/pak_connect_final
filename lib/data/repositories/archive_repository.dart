@@ -17,6 +17,9 @@ import '../../core/compression/compression_config.dart';
 import '../../core/compression/compression_util.dart';
 import 'archive_data_helper.dart';
 import 'archive_storage_utils.dart';
+import '../../core/security/archive_crypto.dart';
+
+import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Repository for managing archived chats with SQLite and FTS5 search
 /// Singleton pattern to prevent multiple instances and redundant initialization
@@ -96,7 +99,7 @@ class ArchiveRepository implements IArchiveRepository {
 
       // Get chat and messages
       final chats = await _chatsRepository.getAllChats();
-      final chatItem = chats.where((c) => c.chatId == chatId).firstOrNull;
+      final chatItem = chats.where((c) => c.chatId.value == chatId).firstOrNull;
 
       if (chatItem == null) {
         return ArchiveOperationResult.failure(
@@ -106,7 +109,7 @@ class ArchiveRepository implements IArchiveRepository {
         );
       }
 
-      final messages = await _messageRepository.getMessages(chatId);
+      final messages = await _messageRepository.getMessages(ChatId(chatId));
       if (messages.isEmpty) {
         return ArchiveOperationResult.failure(
           message: 'No messages found for chat: $chatId',
@@ -143,7 +146,7 @@ class ArchiveRepository implements IArchiveRepository {
           'archived_chats',
           _dataHelper.archivedChatToMap(
             finalArchive,
-            chatId,
+            ChatId(chatId),
             archiveReason,
             customData,
           ),
@@ -163,7 +166,7 @@ class ArchiveRepository implements IArchiveRepository {
       });
 
       // Clear original chat messages
-      await _messageRepository.clearMessages(chatId);
+      await _messageRepository.clearMessages(ChatId(chatId));
 
       final operationTime = DateTime.now().difference(startTime);
       _storageUtils.recordOperationTime('archive', operationTime);
@@ -211,7 +214,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   /// Restore an archived chat
-  Future<ArchiveOperationResult> restoreChat(String archiveId) async {
+  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async {
     final startTime = DateTime.now();
 
     try {
@@ -272,7 +275,7 @@ class ArchiveRepository implements IArchiveRepository {
       await db.delete(
         'archived_chats',
         where: 'archive_id = ?',
-        whereArgs: [archiveId],
+        whereArgs: [archiveId.value],
       );
       _logger.info('Archive $archiveId deleted after restoration');
 
@@ -423,7 +426,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   /// Get specific archived chat with full data
-  Future<ArchivedChat?> getArchivedChat(String archiveId) async {
+  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async {
     try {
       final db = await DatabaseHelper.database;
 
@@ -431,7 +434,7 @@ class ArchiveRepository implements IArchiveRepository {
       final archiveResults = await db.query(
         'archived_chats',
         where: 'archive_id = ?',
-        whereArgs: [archiveId],
+        whereArgs: [archiveId.value],
       );
 
       if (archiveResults.isEmpty) {
@@ -444,7 +447,7 @@ class ArchiveRepository implements IArchiveRepository {
       final messageResults = await db.query(
         'archived_messages',
         where: 'archive_id = ?',
-        whereArgs: [archiveId],
+        whereArgs: [archiveId.value],
         orderBy: 'timestamp ASC',
       );
 
@@ -518,7 +521,7 @@ class ArchiveRepository implements IArchiveRepository {
         final chatResult = await db.query(
           'archived_chats',
           where: 'archive_id = ?',
-          whereArgs: [archiveId],
+          whereArgs: [archiveId.value],
         );
         if (chatResult.isNotEmpty) {
           chatSummaries.add(_mapToArchivedChatSummary(chatResult.first));
@@ -558,7 +561,7 @@ class ArchiveRepository implements IArchiveRepository {
 
   /// Permanently delete an archived chat
   Future<ArchiveOperationResult> permanentlyDeleteArchive(
-    String archiveId,
+    ArchiveId archiveId,
   ) async {
     final startTime = DateTime.now();
 
@@ -580,7 +583,7 @@ class ArchiveRepository implements IArchiveRepository {
       await db.delete(
         'archived_chats',
         where: 'archive_id = ?',
-        whereArgs: [archiveId],
+        whereArgs: [archiveId.value],
       );
 
       final operationTime = DateTime.now().difference(startTime);
@@ -739,10 +742,10 @@ class ArchiveRepository implements IArchiveRepository {
 
   // Private helper methods
 
-  String _generateArchiveId(String chatId) {
+  ArchiveId _generateArchiveId(String chatId) {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final hash = '${chatId}_$timestamp'.hashCode.abs();
-    return 'archive_$hash';
+    return ArchiveId('archive_$hash');
   }
 
   Future<ArchivedChat> _compressArchive(ArchivedChat archive) async {
@@ -902,41 +905,74 @@ class ArchiveRepository implements IArchiveRepository {
 
   Map<String, dynamic> _archivedMessageToMap(
     ArchivedMessage message,
-    String archiveId,
+    ArchiveId archiveId,
   ) {
     return _dataHelper.archivedMessageToMap(message, archiveId);
   }
 
   ArchivedMessage _mapToArchivedMessage(Map<String, dynamic> row) {
+    final decryptedContent = ArchiveCrypto.decryptField(
+      row['content'] as String,
+    );
+    final decryptedOriginalContent = row['original_content'] != null
+        ? ArchiveCrypto.decryptField(row['original_content'] as String)
+        : null;
+    final metadataJson = row['metadata_json'] as String?;
+    final decryptedMetadataJson = metadataJson != null
+        ? ArchiveCrypto.decryptField(metadataJson)
+        : null;
+    final deliveryReceiptJson = row['delivery_receipt_json'] as String?;
+    final decryptedDeliveryReceiptJson = deliveryReceiptJson != null
+        ? ArchiveCrypto.decryptField(deliveryReceiptJson)
+        : null;
+    final readReceiptJson = row['read_receipt_json'] as String?;
+    final decryptedReadReceiptJson = readReceiptJson != null
+        ? ArchiveCrypto.decryptField(readReceiptJson)
+        : null;
+    final reactionsJson = row['reactions_json'] as String?;
+    final decryptedReactionsJson = reactionsJson != null
+        ? ArchiveCrypto.decryptField(reactionsJson)
+        : null;
+    final attachmentsJson = row['attachments_json'] as String?;
+    final decryptedAttachmentsJson = attachmentsJson != null
+        ? ArchiveCrypto.decryptField(attachmentsJson)
+        : null;
+    final archiveMetadataJson = row['archive_metadata_json'] as String?;
+    final decryptedArchiveMetadataJson = archiveMetadataJson != null
+        ? ArchiveCrypto.decryptField(archiveMetadataJson)
+        : null;
+    final preservedStateJson = row['preserved_state_json'] as String?;
+    final decryptedPreservedStateJson = preservedStateJson != null
+        ? ArchiveCrypto.decryptField(preservedStateJson)
+        : null;
+
     return ArchivedMessage(
       // Message base fields
-      id: row['id'] as String,
-      chatId: row['chat_id'] as String,
-      content: row['content'] as String,
+      id: MessageId(row['id'] as String),
+      chatId: ChatId(row['chat_id'] as String),
+      content: decryptedContent,
       timestamp: DateTime.fromMillisecondsSinceEpoch(row['timestamp'] as int),
       isFromMe: (row['is_from_me'] as int) == 1,
       status: MessageStatus.values[row['status'] as int],
 
       // EnhancedMessage fields
-      replyToMessageId: row['reply_to_message_id'] as String?,
+      replyToMessageId: row['reply_to_message_id'] != null
+          ? MessageId(row['reply_to_message_id'] as String)
+          : null,
       threadId: row['thread_id'] as String?,
-      metadata: row['metadata_json'] != null
-          ? Map<String, dynamic>.from(
-              jsonDecode(row['metadata_json'] as String),
-            )
+      metadata: decryptedMetadataJson != null
+          ? Map<String, dynamic>.from(jsonDecode(decryptedMetadataJson))
           : null,
-      deliveryReceipt: row['delivery_receipt_json'] != null
+      deliveryReceipt: decryptedDeliveryReceiptJson != null
           ? MessageDeliveryReceipt.fromJson(
-              jsonDecode(row['delivery_receipt_json'] as String),
+              jsonDecode(decryptedDeliveryReceiptJson),
             )
           : null,
-      readReceipt: row['read_receipt_json'] != null
-          ? MessageReadReceipt.fromJson(
-              jsonDecode(row['read_receipt_json'] as String),
-            )
+      readReceipt: decryptedReadReceiptJson != null
+          ? MessageReadReceipt.fromJson(jsonDecode(decryptedReadReceiptJson))
           : null,
-      reactions: row['reactions_json'] != null
-          ? (jsonDecode(row['reactions_json'] as String) as List)
+      reactions: decryptedReactionsJson != null
+          ? (jsonDecode(decryptedReactionsJson) as List)
                 .map((r) => MessageReaction.fromJson(r))
                 .toList()
           : const [],
@@ -946,9 +982,9 @@ class ArchiveRepository implements IArchiveRepository {
       editedAt: row['edited_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(row['edited_at'] as int)
           : null,
-      originalContent: row['original_content'] as String?,
-      attachments: row['attachments_json'] != null
-          ? (jsonDecode(row['attachments_json'] as String) as List)
+      originalContent: decryptedOriginalContent,
+      attachments: decryptedAttachmentsJson != null
+          ? (jsonDecode(decryptedAttachmentsJson) as List)
                 .map((a) => MessageAttachment.fromJson(a))
                 .toList()
           : const [],
@@ -965,10 +1001,10 @@ class ArchiveRepository implements IArchiveRepository {
       originalTimestamp: DateTime.fromMillisecondsSinceEpoch(
         row['original_timestamp'] as int,
       ),
-      archiveId: row['archive_id'] as String,
-      archiveMetadata: row['archive_metadata_json'] != null
+      archiveId: ArchiveId(row['archive_id'] as String),
+      archiveMetadata: decryptedArchiveMetadataJson != null
           ? ArchiveMessageMetadata.fromJson(
-              jsonDecode(row['archive_metadata_json'] as String),
+              jsonDecode(decryptedArchiveMetadataJson),
             )
           : ArchiveMessageMetadata(
               archiveVersion: '1.0',
@@ -979,18 +1015,16 @@ class ArchiveRepository implements IArchiveRepository {
               additionalData: {},
             ),
       originalSearchableText: row['searchable_text'] as String?,
-      preservedState: row['preserved_state_json'] != null
-          ? Map<String, dynamic>.from(
-              jsonDecode(row['preserved_state_json'] as String),
-            )
+      preservedState: decryptedPreservedStateJson != null
+          ? Map<String, dynamic>.from(jsonDecode(decryptedPreservedStateJson))
           : null,
     );
   }
 
   ArchivedChatSummary _mapToArchivedChatSummary(Map<String, dynamic> row) {
     return ArchivedChatSummary(
-      id: row['archive_id'] as String,
-      originalChatId: row['original_chat_id'] as String,
+      id: ArchiveId(row['archive_id'] as String),
+      originalChatId: ChatId(row['original_chat_id'] as String),
       contactName: row['contact_name'] as String,
       archivedAt: DateTime.fromMillisecondsSinceEpoch(
         row['archived_at'] as int,
@@ -999,7 +1033,7 @@ class ArchiveRepository implements IArchiveRepository {
           ? DateTime.fromMillisecondsSinceEpoch(row['last_message_time'] as int)
           : null,
       messageCount: row['message_count'] as int,
-      estimatedSize: row['estimated_size'] as int,
+      estimatedSize: row['estimated_size'] as int? ?? 0,
       isCompressed: (row['is_compressed'] as int? ?? 0) == 1,
       tags: [], // Tags can be extracted from metadata_json if needed
       isSearchable: true, // All archives searchable with FTS5
@@ -1012,10 +1046,21 @@ class ArchiveRepository implements IArchiveRepository {
   ) {
     final compressionInfoJson = archiveRow['compression_info_json'] as String?;
     final metadataJson = archiveRow['metadata_json'] as String?;
+    final decryptedMetadataJson = metadataJson != null
+        ? ArchiveCrypto.decryptField(metadataJson)
+        : null;
+    final archiveReasonRaw = archiveRow['archive_reason'] as String?;
+    final decryptedReason = archiveReasonRaw != null
+        ? ArchiveCrypto.decryptField(archiveReasonRaw)
+        : null;
+    final customDataJson = archiveRow['custom_data_json'] as String?;
+    final decryptedCustomDataJson = customDataJson != null
+        ? ArchiveCrypto.decryptField(customDataJson)
+        : null;
 
     return ArchivedChat(
-      id: archiveRow['archive_id'] as String,
-      originalChatId: archiveRow['original_chat_id'] as String,
+      id: ArchiveId(archiveRow['archive_id'] as String),
+      originalChatId: ChatId(archiveRow['original_chat_id'] as String),
       contactName: archiveRow['contact_name'] as String,
       contactPublicKey: archiveRow['contact_public_key'] as String?,
       messages: messages,
@@ -1028,11 +1073,11 @@ class ArchiveRepository implements IArchiveRepository {
             )
           : null,
       messageCount: archiveRow['message_count'] as int,
-      metadata: metadataJson != null
-          ? ArchiveMetadata.fromJson(jsonDecode(metadataJson))
+      metadata: decryptedMetadataJson != null
+          ? ArchiveMetadata.fromJson(jsonDecode(decryptedMetadataJson))
           : ArchiveMetadata(
               version: '1.0',
-              reason: archiveRow['archive_reason'] as String? ?? 'Unknown',
+              reason: decryptedReason ?? archiveReasonRaw ?? 'Unknown',
               originalUnreadCount: 0,
               wasOnline: false,
               hadUnsentMessages: false,
@@ -1044,10 +1089,8 @@ class ArchiveRepository implements IArchiveRepository {
       compressionInfo: compressionInfoJson != null
           ? ArchiveCompressionInfo.fromJson(jsonDecode(compressionInfoJson))
           : null,
-      customData: archiveRow['custom_data_json'] != null
-          ? Map<String, dynamic>.from(
-              jsonDecode(archiveRow['custom_data_json'] as String),
-            )
+      customData: decryptedCustomDataJson != null
+          ? Map<String, dynamic>.from(jsonDecode(decryptedCustomDataJson))
           : null,
     );
   }

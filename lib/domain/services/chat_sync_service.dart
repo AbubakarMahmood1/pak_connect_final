@@ -12,6 +12,7 @@ import '../entities/archived_message.dart';
 import '../../core/models/archive_models.dart';
 import 'archive_search_service.dart';
 import 'chat_management_models.dart';
+import '../values/id_types.dart';
 
 /// Handles cache persistence, search, and sync-related chat workflows
 class ChatSyncService {
@@ -56,19 +57,21 @@ class ChatSyncService {
     _isInitialized = false;
   }
 
-  Set<String> get pinnedChats => _cacheState.pinnedChats;
-  Set<String> get archivedChats => _cacheState.archivedChats;
-  Set<String> get starredMessages => _cacheState.starredMessageIds;
+  Set<ChatId> get pinnedChats => _cacheState.pinnedChats;
+  Set<ChatId> get archivedChats => _cacheState.archivedChats;
+  Set<MessageId> get starredMessages => _cacheState.starredMessageIds;
 
   int get pinnedChatsCount => _cacheState.pinnedChats.length;
   int get archivedChatsCount => _cacheState.archivedChats.length;
   int get starredMessagesCount => _cacheState.starredMessageIds.length;
 
-  bool isChatPinned(String chatId) => _cacheState.pinnedChats.contains(chatId);
-  bool isChatArchived(String chatId) =>
+  bool isChatPinned(ChatId chatId) => _cacheState.pinnedChats.contains(chatId);
+  bool isChatArchived(ChatId chatId) =>
       _cacheState.archivedChats.contains(chatId);
-  bool isMessageStarred(String messageId) =>
+  bool isMessageStarredById(MessageId messageId) =>
       _cacheState.starredMessageIds.contains(messageId);
+  bool isMessageStarred(String messageId) =>
+      _cacheState.starredMessageIds.contains(MessageId(messageId));
 
   Future<List<ChatListItem>> getAllChats({
     ChatFilter? filter,
@@ -108,7 +111,7 @@ class ChatSyncService {
       List<EnhancedMessage> allMessages = [];
 
       if (chatId != null) {
-        final messages = await _messageRepository.getMessages(chatId);
+        final messages = await _messageRepository.getMessages(ChatId(chatId));
         allMessages = messages
             .map((m) => EnhancedMessage.fromMessage(m))
             .toList();
@@ -170,7 +173,7 @@ class ChatSyncService {
       List<ArchivedMessage> archiveResults = [];
 
       if (chatId != null) {
-        final messages = await _messageRepository.getMessages(chatId);
+        final messages = await _messageRepository.getMessages(ChatId(chatId));
         liveResults = messages
             .map((m) => EnhancedMessage.fromMessage(m))
             .toList();
@@ -460,7 +463,7 @@ class ChatSyncService {
     final grouped = <String, List<EnhancedMessage>>{};
 
     for (final message in results) {
-      grouped.putIfAbsent(message.chatId, () => []).add(message);
+      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
     }
 
     return grouped;
@@ -472,7 +475,7 @@ class ChatSyncService {
     final grouped = <String, List<ArchivedMessage>>{};
 
     for (final message in results) {
-      grouped.putIfAbsent(message.chatId, () => []).add(message);
+      grouped.putIfAbsent(message.chatId.value, () => []).add(message);
     }
 
     return grouped;
@@ -488,7 +491,7 @@ class ChatSyncService {
         (m) => ArchivedMessage.fromEnhancedMessage(
           m,
           m.timestamp,
-          customArchiveId: 'live_${m.id}',
+          customArchiveId: ArchiveId('live_${m.id.value}'),
           additionalMetadata: {'source': 'live'},
         ),
       ),
@@ -556,17 +559,17 @@ class ChatSyncService {
       final starredList = prefs.getStringList(_starredMessagesKey) ?? [];
       _cacheState.starredMessageIds
         ..clear()
-        ..addAll(starredList);
+        ..addAll(starredList.map(MessageId.new));
 
       final archivedList = prefs.getStringList(_archivedChatsKey) ?? [];
       _cacheState.archivedChats
         ..clear()
-        ..addAll(archivedList);
+        ..addAll(archivedList.map(ChatId.new));
 
       final pinnedList = prefs.getStringList(_pinnedChatsKey) ?? [];
       _cacheState.pinnedChats
         ..clear()
-        ..addAll(pinnedList);
+        ..addAll(pinnedList.map(ChatId.new));
 
       final searchHistory = prefs.getStringList(_messageSearchHistoryKey) ?? [];
       _cacheState.messageSearchHistory
@@ -582,7 +585,7 @@ class ChatSyncService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
         _starredMessagesKey,
-        _cacheState.starredMessageIds.toList(),
+        _cacheState.starredMessageIds.map((id) => id.value).toList(),
       );
     } catch (e) {
       _logger.warning('Failed to save starred messages: $e');
@@ -594,7 +597,7 @@ class ChatSyncService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
         _archivedChatsKey,
-        _cacheState.archivedChats.toList(),
+        _cacheState.archivedChats.map((id) => id.value).toList(),
       );
     } catch (e) {
       _logger.warning('Failed to save archived chats: $e');
@@ -606,7 +609,7 @@ class ChatSyncService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
         _pinnedChatsKey,
-        _cacheState.pinnedChats.toList(),
+        _cacheState.pinnedChats.map((id) => id.value).toList(),
       );
     } catch (e) {
       _logger.warning('Failed to save pinned chats: $e');

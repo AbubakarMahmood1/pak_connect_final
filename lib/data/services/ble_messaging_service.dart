@@ -1,16 +1,24 @@
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:async';
+import 'dart:typed_data';
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
 import '../../core/interfaces/i_ble_messaging_service.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/utils/message_fragmenter.dart';
+import '../../core/utils/binary_fragmenter.dart';
+import '../../core/constants/binary_payload_types.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
+import '../../core/interfaces/i_message_fragmentation_handler.dart';
+import '../../core/messaging/media_transfer_store.dart';
 import 'ble_connection_manager.dart';
 import '../../core/constants/ble_constants.dart';
 import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/services/security_manager.dart';
 import 'ble_state_manager_facade.dart';
 import 'ble_state_manager.dart';
 
@@ -39,7 +47,9 @@ class BLEMessagingService implements IBLEMessagingService {
   final PeripheralManager Function() _getPeripheralManager;
 
   // State (provided by facade)
-  late final StreamController<String> _messagesController;
+  final Set<void Function(String)> _messageListeners = {};
+  final Set<void Function(BinaryPayload)> _binaryListeners = {};
+  final MediaTransferStore _mediaStore = MediaTransferStore();
   String? extractedMessageId;
 
   // Central/peripheral connection state (from facade)
@@ -51,6 +61,7 @@ class BLEMessagingService implements IBLEMessagingService {
   // Write queue for serialization
   final List<Future<void> Function()> _writeQueue = [];
   bool _isProcessingWriteQueue = false;
+  final Map<String, String> _nodeIdToAddress = {};
 
   // Queue sync message handler (set by MeshNetworkingService)
   Future<bool> Function(QueueSyncMessage message, String fromNodeId)?
@@ -66,7 +77,6 @@ class BLEMessagingService implements IBLEMessagingService {
     required ContactRepository contactRepository,
     required CentralManager Function() getCentralManager,
     required PeripheralManager Function() getPeripheralManager,
-    required StreamController<String> messagesController,
     required Function() getConnectedCentral,
     required Function() getPeripheralMessageCharacteristic,
     required Function() getPeripheralMtuReady,
@@ -78,11 +88,55 @@ class BLEMessagingService implements IBLEMessagingService {
        _contactRepository = contactRepository,
        _getCentralManager = getCentralManager,
        _getPeripheralManager = getPeripheralManager,
-       _messagesController = messagesController,
        _getConnectedCentral = getConnectedCentral,
        _getPeripheralMessageCharacteristic = getPeripheralMessageCharacteristic,
        _getPeripheralMtuReady = getPeripheralMtuReady,
-       _getPeripheralNegotiatedMtu = getPeripheralNegotiatedMtu;
+       _getPeripheralNegotiatedMtu = getPeripheralNegotiatedMtu {
+    // Relay messages from handler into internal listeners.
+    _messageHandler.onRelayMessageReceived =
+        (String _, String content, String __) {
+          _emitReceivedMessage(content);
+        };
+
+    // Forward binary fragments hop-by-hop; reassembly happens only at recipient.
+    _messageHandler.onForwardBinaryFragment =
+        (
+          Uint8List data,
+          String fragmentId,
+          int index,
+          String fromDeviceId,
+          String fromNodeId,
+        ) {
+          _forwardBinaryFragment(
+            data: data,
+            fragmentId: fragmentId,
+            fragmentIndex: index,
+            fromDeviceId: fromDeviceId,
+            fromNodeId: fromNodeId,
+          );
+        };
+
+    _messageHandler.onBinaryPayloadReceived =
+        (
+          Uint8List data,
+          int originalType,
+          String fragmentId,
+          int ttl,
+          String? recipient,
+          String? senderNodeId,
+        ) {
+          _emitReceivedBinaryPayload(
+            BinaryPayload(
+              data: data,
+              originalType: originalType,
+              fragmentId: fragmentId,
+              ttl: ttl,
+              recipient: recipient,
+              senderNodeId: senderNodeId,
+            ),
+          );
+        };
+  }
 
   // ============================================================================
   // MESSAGE SENDING (CENTRAL ROLE)
@@ -359,6 +413,339 @@ class BLEMessagingService implements IBLEMessagingService {
   // PROTOCOL MESSAGE SENDING (INTERNAL)
   // ============================================================================
 
+  /// Fragments and enqueues a binary payload for BLE transport.
+  /// Attempts Noise encryption when a session is available; otherwise sends plaintext.
+  Future<void> _sendBinaryPayload({
+    required Uint8List data,
+    required int originalType,
+    String? recipientId,
+  }) async {
+    var payload = data;
+    if (recipientId != null && recipientId.isNotEmpty) {
+      try {
+        payload = await SecurityManager.instance.encryptBinaryPayload(
+          data,
+          recipientId,
+          _contactRepository,
+        );
+      } catch (e) {
+        _logger.warning('⚠️ Binary payload encryption failed: $e');
+      }
+    }
+
+    final mtuSize = _connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
+    final fragments = BinaryFragmenter.fragment(
+      data: payload,
+      mtu: mtuSize,
+      originalType: originalType,
+      recipient: recipientId,
+    );
+
+    final completer = Completer<void>();
+
+    _writeQueue.add(() async {
+      try {
+        if (_connectionManager.hasBleConnection &&
+            _connectionManager.messageCharacteristic != null) {
+          final device = _connectionManager.connectedDevice!;
+          final characteristic = _connectionManager.messageCharacteristic!;
+          for (var i = 0; i < fragments.length; i++) {
+            await _getCentralManager().writeCharacteristic(
+              device,
+              characteristic,
+              value: fragments[i],
+              type: GATTCharacteristicWriteType.withResponse,
+            );
+            if (i < fragments.length - 1) {
+              await Future.delayed(Duration(milliseconds: 20));
+            }
+          }
+        } else if (_stateManager.isPeripheralMode &&
+            _getConnectedCentral() != null &&
+            _getPeripheralMessageCharacteristic() != null) {
+          final connectedCentral = _getConnectedCentral() as Central;
+          final characteristic =
+              _getPeripheralMessageCharacteristic() as GATTCharacteristic;
+          for (var i = 0; i < fragments.length; i++) {
+            await _getPeripheralManager().notifyCharacteristic(
+              connectedCentral,
+              characteristic,
+              value: fragments[i],
+            );
+            if (i < fragments.length - 1) {
+              await Future.delayed(Duration(milliseconds: 20));
+            }
+          }
+        } else {
+          throw Exception('No BLE link available to send binary payload');
+        }
+
+        completer.complete();
+      } catch (e) {
+        _logger.warning('⚠️ Binary payload send failed: $e');
+        if (!completer.isCompleted) {
+          completer.completeError(e);
+        }
+      }
+    });
+
+    _processWriteQueue();
+
+    return completer.future;
+  }
+
+  void _forwardBinaryFragment({
+    required Uint8List data,
+    required String fragmentId,
+    required int fragmentIndex,
+    required String fromDeviceId,
+    required String fromNodeId,
+  }) {
+    ForwardReassembledPayload? reassembled;
+
+    if (fromNodeId.isNotEmpty) {
+      _nodeIdToAddress[fromNodeId] = fromDeviceId;
+    }
+    _writeQueue.add(() async {
+      // Forward over any active client connection
+      final clientConns = _connectionManager.clientConnections;
+      for (final conn in clientConns) {
+        if (_shouldSkipForward(
+          toAddress: conn.address,
+          fromPeerAddress: fromDeviceId,
+          fromPeerId: fromNodeId,
+        )) {
+          continue;
+        }
+        final characteristic = conn.messageCharacteristic;
+        if (characteristic == null) continue;
+        final mtuBudget = (conn.mtu ?? BLEConstants.maxMessageLength).clamp(
+          20,
+          517,
+        );
+        if (data.length > mtuBudget) {
+          reassembled ??= _messageHandler.takeForwardReassembledPayload(
+            fragmentId,
+          );
+          if (reassembled == null) {
+            _logger.fine(
+              '⚠️ Forward (client) dropped: fragment ${data.length}B exceeds MTU $mtuBudget and no reassembled payload (${conn.address})',
+            );
+            continue;
+          }
+          final ttlOut = (reassembled!.ttl - 1).clamp(0, 255);
+          if (ttlOut <= 0) {
+            _logger.fine(
+              '⚠️ Forward (client) dropped: TTL exhausted for $fragmentId on ${conn.address}',
+            );
+            continue;
+          }
+          final frags = BinaryFragmenter.fragment(
+            data: reassembled!.bytes,
+            mtu: mtuBudget,
+            originalType: reassembled!.originalType,
+            recipient: reassembled!.recipient,
+            ttl: ttlOut,
+          );
+          try {
+            for (var i = 0; i < frags.length; i++) {
+              await _getCentralManager().writeCharacteristic(
+                conn.peripheral,
+                characteristic,
+                value: frags[i],
+                type: GATTCharacteristicWriteType.withResponse,
+              );
+              if (i < frags.length - 1) {
+                await Future.delayed(Duration(milliseconds: 10));
+              }
+            }
+          } catch (e) {
+            _logger.fine('⚠️ Forward (client) re-fragmented send failed: $e');
+          }
+          continue;
+        }
+        try {
+          // Decrement TTL byte before forwarding to enforce hop cap.
+          final forwarded = Uint8List.fromList(data);
+          if (forwarded.length > 10) {
+            // TTL is after: magic(1) + fragmentId(8) + index/total(4) => offset 13
+            const ttlOffset = 1 + 8 + 4;
+            forwarded[ttlOffset] = (forwarded[ttlOffset] - 1) & 0xFF;
+          }
+          await _getCentralManager().writeCharacteristic(
+            conn.peripheral,
+            characteristic,
+            value: forwarded,
+            type: GATTCharacteristicWriteType.withResponse,
+          );
+          await Future.delayed(Duration(milliseconds: 10));
+        } catch (e) {
+          _logger.fine('⚠️ Forward (client) failed: $e');
+        }
+      }
+
+      // Forward over peripheral side if connected
+      if (_stateManager.isPeripheralMode &&
+          _getConnectedCentral() != null &&
+          _getPeripheralMessageCharacteristic() != null) {
+        try {
+          final connectedCentral = _getConnectedCentral() as Central;
+          final characteristic =
+              _getPeripheralMessageCharacteristic() as GATTCharacteristic;
+          final negotiatedMtu = (_getPeripheralNegotiatedMtu() as int?) ?? 20;
+          final mtuBudget = negotiatedMtu.clamp(20, 517);
+          if (data.length > mtuBudget) {
+            reassembled ??= _messageHandler.takeForwardReassembledPayload(
+              fragmentId,
+            );
+            if (reassembled == null) {
+              _logger.fine(
+                '⚠️ Forward (peripheral) dropped: fragment ${data.length}B exceeds MTU $mtuBudget and no reassembled payload (${connectedCentral.uuid})',
+              );
+              return;
+            }
+            final ttlOut = (reassembled!.ttl - 1).clamp(0, 255);
+            if (ttlOut <= 0) {
+              _logger.fine(
+                '⚠️ Forward (peripheral) dropped: TTL exhausted for $fragmentId on ${connectedCentral.uuid}',
+              );
+              return;
+            }
+            final frags = BinaryFragmenter.fragment(
+              data: reassembled!.bytes,
+              mtu: mtuBudget,
+              originalType: reassembled!.originalType,
+              recipient: reassembled!.recipient,
+              ttl: ttlOut,
+            );
+            try {
+              for (var i = 0; i < frags.length; i++) {
+                await _getPeripheralManager().notifyCharacteristic(
+                  connectedCentral,
+                  characteristic,
+                  value: frags[i],
+                );
+                if (i < frags.length - 1) {
+                  await Future.delayed(Duration(milliseconds: 10));
+                }
+              }
+            } catch (e) {
+              _logger.fine(
+                '⚠️ Forward (peripheral) re-fragmented send failed: $e',
+              );
+            }
+            return;
+          }
+          if (_shouldSkipForward(
+            toAddress: connectedCentral.uuid.toString(),
+            fromPeerAddress: fromDeviceId,
+            fromPeerId: fromNodeId,
+          )) {
+            return;
+          }
+          // Decrement TTL byte before forwarding to enforce hop cap.
+          final forwarded = Uint8List.fromList(data);
+          if (forwarded.length > 10) {
+            const ttlOffset = 1 + 8 + 4;
+            forwarded[ttlOffset] = (forwarded[ttlOffset] - 1) & 0xFF;
+          }
+          await _getPeripheralManager().notifyCharacteristic(
+            connectedCentral,
+            characteristic,
+            value: forwarded,
+          );
+          await Future.delayed(Duration(milliseconds: 10));
+        } catch (e) {
+          _logger.fine('⚠️ Forward (peripheral) failed: $e');
+        }
+      }
+    });
+    _processWriteQueue();
+  }
+
+  bool _shouldSkipForward({
+    required String toAddress,
+    required String fromPeerAddress,
+    required String fromPeerId,
+  }) {
+    if (toAddress == fromPeerAddress) return true;
+    final dedup = DeviceDeduplicationManager.getDevice(toAddress);
+    final peerId = dedup?.contactInfo?.publicKey ?? dedup?.ephemeralHint;
+    if (peerId != null && peerId == fromPeerAddress) return true;
+    if (peerId != null && peerId == fromPeerId) return true;
+    if (fromPeerId.isNotEmpty && dedup?.ephemeralHint == fromPeerId) {
+      return true;
+    }
+    final mappedAddress = _nodeIdToAddress[fromPeerId];
+    if (mappedAddress != null && mappedAddress == toAddress) return true;
+    return false;
+  }
+
+  /// Public helper for sending binary/media payloads over BLE.
+  ///
+  /// Returns [transferId] so the origin can retry with fresh fragmentation.
+  /// Attempts to encrypt via Noise session before fragmenting; falls back to
+  /// plaintext if no session is available.
+  Future<String> sendBinaryMedia({
+    required Uint8List data,
+    required String recipientId,
+    int originalType = BinaryPayloadType.media,
+    Map<String, dynamic>? metadata,
+    bool persistOnly = false,
+  }) async {
+    final record = await _mediaStore.persist(
+      data: data,
+      metadata: {
+        'recipientId': recipientId,
+        'originalType': originalType,
+        if (metadata != null) ...metadata,
+      },
+    );
+    unawaited(_mediaStore.cleanupStaleTransfers());
+    if (persistOnly) {
+      return record.transferId;
+    }
+    await _sendBinaryPayload(
+      data: record.bytes ?? data,
+      originalType: originalType,
+      recipientId: recipientId,
+    );
+    return record.transferId;
+  }
+
+  /// Retry a previously persisted binary payload using the latest MTU.
+  Future<bool> retryBinaryMedia({
+    required String transferId,
+    String? recipientId,
+    int? originalType,
+  }) async {
+    final record = await _mediaStore.load(transferId);
+    if (record == null || record.bytes == null) {
+      _logger.warning(
+        '⚠️ Retry skipped - no stored payload for transferId=$transferId',
+      );
+      return false;
+    }
+    final targetRecipient =
+        recipientId ?? record.metadata['recipientId'] as String?;
+    if (targetRecipient == null || targetRecipient.isEmpty) {
+      _logger.warning(
+        '⚠️ Retry skipped - missing recipient for transferId=$transferId',
+      );
+      return false;
+    }
+    final type =
+        originalType ??
+        record.metadata['originalType'] as int? ??
+        BinaryPayloadType.media;
+    await _sendBinaryPayload(
+      data: record.bytes!,
+      originalType: type,
+      recipientId: targetRecipient,
+    );
+    return true;
+  }
+
   Future<void> _sendProtocolMessage(ProtocolMessage message) async {
     // 🔧 CRITICAL FIX: Protocol messages must be fragmented like user messages
     // ProtocolMessage.toBytes() returns binary data (compressed or uncompressed)
@@ -383,51 +770,97 @@ class BLEMessagingService implements IBLEMessagingService {
         final mtuSize =
             _connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
 
-        // Fragment the binary data (handles base64 encoding + MTU sizing)
-        final chunks = MessageFragmenter.fragmentBytes(
-          messageBytes,
-          mtuSize,
-          msgId,
-        );
+        List<MessageChunk>? chunks;
+        MessageChunk? singleChunk;
+        var useBinaryEnvelope = false;
+        try {
+          chunks = MessageFragmenter.fragmentBytes(
+            messageBytes,
+            mtuSize,
+            msgId,
+          );
+          if (chunks.isEmpty) {
+            useBinaryEnvelope = true;
+          } else if (chunks.length == 1) {
+            singleChunk = chunks.first;
+          } else {
+            useBinaryEnvelope = true;
+          }
+        } catch (e) {
+          _logger.fine(
+            '⚠️ Protocol chunk fragmentation failed (fallback to binary envelope): $e',
+          );
+          useBinaryEnvelope = true;
+        }
 
         _logger.fine(
-          '📦 Protocol message fragmented into ${chunks.length} chunk(s)',
+          '📦 Protocol message ${useBinaryEnvelope ? "using binary envelope" : "single-chunk fast path"}',
         );
 
-        // Send each chunk with delay to prevent BLE congestion
-        if (_connectionManager.hasBleConnection &&
-            _connectionManager.messageCharacteristic != null) {
-          for (int i = 0; i < chunks.length; i++) {
+        if (useBinaryEnvelope) {
+          final recipientId = _stateManager.getRecipientId();
+          final fragments = BinaryFragmenter.fragment(
+            data: messageBytes,
+            mtu: mtuSize,
+            originalType: BinaryPayloadType.protocolMessage,
+            recipient: recipientId,
+          );
+
+          if (_connectionManager.hasBleConnection &&
+              _connectionManager.messageCharacteristic != null) {
+            for (int i = 0; i < fragments.length; i++) {
+              await _getCentralManager().writeCharacteristic(
+                _connectionManager.connectedDevice!,
+                _connectionManager.messageCharacteristic!,
+                value: fragments[i],
+                type: GATTCharacteristicWriteType.withResponse,
+              );
+
+              if (i < fragments.length - 1) {
+                await Future.delayed(Duration(milliseconds: 20));
+              }
+            }
+          } else if (_stateManager.isPeripheralMode &&
+              _getConnectedCentral() != null &&
+              _getPeripheralMessageCharacteristic() != null) {
+            final connectedCentral = _getConnectedCentral() as Central;
+            final characteristic =
+                _getPeripheralMessageCharacteristic() as GATTCharacteristic;
+
+            for (int i = 0; i < fragments.length; i++) {
+              await _getPeripheralManager().notifyCharacteristic(
+                connectedCentral,
+                characteristic,
+                value: fragments[i],
+              );
+
+              if (i < fragments.length - 1) {
+                await Future.delayed(Duration(milliseconds: 20));
+              }
+            }
+          }
+        } else if (singleChunk != null) {
+          // Single-chunk fast path to avoid binary envelope overhead.
+          if (_connectionManager.hasBleConnection &&
+              _connectionManager.messageCharacteristic != null) {
             await _getCentralManager().writeCharacteristic(
               _connectionManager.connectedDevice!,
               _connectionManager.messageCharacteristic!,
-              value: chunks[i].toBytes(),
+              value: singleChunk.toBytes(),
               type: GATTCharacteristicWriteType.withResponse,
             );
+          } else if (_stateManager.isPeripheralMode &&
+              _getConnectedCentral() != null &&
+              _getPeripheralMessageCharacteristic() != null) {
+            final connectedCentral = _getConnectedCentral() as Central;
+            final characteristic =
+                _getPeripheralMessageCharacteristic() as GATTCharacteristic;
 
-            // Small delay between chunks to prevent GATT congestion
-            if (i < chunks.length - 1) {
-              await Future.delayed(Duration(milliseconds: 20));
-            }
-          }
-        } else if (_stateManager.isPeripheralMode &&
-            _getConnectedCentral() != null &&
-            _getPeripheralMessageCharacteristic() != null) {
-          final connectedCentral = _getConnectedCentral() as Central;
-          final characteristic =
-              _getPeripheralMessageCharacteristic() as GATTCharacteristic;
-
-          for (int i = 0; i < chunks.length; i++) {
             await _getPeripheralManager().notifyCharacteristic(
               connectedCentral,
               characteristic,
-              value: chunks[i].toBytes(),
+              value: singleChunk.toBytes(),
             );
-
-            // Small delay between chunks to prevent GATT congestion
-            if (i < chunks.length - 1) {
-              await Future.delayed(Duration(milliseconds: 20));
-            }
           }
         }
 
@@ -464,10 +897,65 @@ class BLEMessagingService implements IBLEMessagingService {
   // ============================================================================
 
   @override
-  Stream<String> get receivedMessagesStream => _messagesController.stream;
+  Stream<String> get receivedMessagesStream =>
+      Stream<String>.multi((controller) {
+        void listener(String message) {
+          controller.add(message);
+        }
+
+        _messageListeners.add(listener);
+        controller
+          ..onListen = () {
+            // No-op: listeners are fed via _messageListeners bridge
+          }
+          ..onCancel = () {
+            _messageListeners.remove(listener);
+          };
+      }).asBroadcastStream();
+
+  @override
+  Stream<BinaryPayload> get receivedBinaryStream =>
+      Stream<BinaryPayload>.multi((controller) {
+        void listener(BinaryPayload payload) {
+          controller.add(payload);
+        }
+
+        _binaryListeners.add(listener);
+        controller.onCancel = () {
+          _binaryListeners.remove(listener);
+        };
+      }).asBroadcastStream();
 
   @override
   String? get lastExtractedMessageId => extractedMessageId;
+
+  @visibleForTesting
+  void debugEmitReceivedMessage(String message) =>
+      _emitReceivedMessage(message);
+
+  void _emitReceivedMessage(String message) {
+    for (final listener in List.of(_messageListeners)) {
+      try {
+        listener(message);
+      } catch (e, stackTrace) {
+        _logger.warning('Error notifying message listener: $e', e, stackTrace);
+      }
+    }
+  }
+
+  void _emitReceivedBinaryPayload(BinaryPayload payload) {
+    for (final listener in List.of(_binaryListeners)) {
+      try {
+        listener(payload);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying binary payload listener: $e',
+          e,
+          stackTrace,
+        );
+      }
+    }
+  }
 
   // ============================================================================
   // MESH RELAY INTEGRATION

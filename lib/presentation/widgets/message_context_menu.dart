@@ -112,7 +112,7 @@ class MessageContextMenu extends StatelessWidget {
             _buildInfoRow('Sent', message.isFromMe ? 'Yes' : 'No'),
             _buildInfoRow('Status', _getStatusText(message.status)),
             _buildInfoRow('Time', _formatDateTime(message.timestamp)),
-            _buildInfoRow('ID', message.id.shortId(8)),
+            _buildInfoRow('ID', message.id.value.shortId(8)),
             if (message.content.length > 50)
               _buildInfoRow('Length', '${message.content.length} characters'),
           ],

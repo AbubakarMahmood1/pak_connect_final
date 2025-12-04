@@ -22,16 +22,50 @@ Future<void> _resetSeenStore() async {
 }
 
 void main() {
+  late List<LogRecord> logRecords;
+  late Set<Pattern> allowedSevere;
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'relay_phase3');
     SpamPreventionManager.bypassAllInstancesForTests();
   });
 
   setUp(() async {
+    logRecords = [];
+    allowedSevere = {};
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.configureTestDatabase(label: 'relay_phase3');
   });
 
+  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
+
   tearDown(() async {
+    final severe = logRecords.where((l) => l.level >= Level.SEVERE);
+    final unexpected = severe.where(
+      (l) => !allowedSevere.any(
+        (p) => p is String
+            ? l.message.contains(p)
+            : (p as RegExp).hasMatch(l.message),
+      ),
+    );
+    expect(
+      unexpected,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors:\n${unexpected.join("\n")}',
+    );
+    for (final pattern in allowedSevere) {
+      final found = severe.any(
+        (l) => pattern is String
+            ? l.message.contains(pattern)
+            : (pattern as RegExp).hasMatch(l.message),
+      );
+      expect(
+        found,
+        isTrue,
+        reason: 'Missing expected SEVERE matching "$pattern"',
+      );
+    }
     await TestSetup.nukeDatabase();
   });
 

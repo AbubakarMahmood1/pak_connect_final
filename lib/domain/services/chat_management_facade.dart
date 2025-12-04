@@ -5,6 +5,8 @@ import 'chat_management_service.dart';
 import 'archive_search_service.dart';
 import 'chat_management_models.dart';
 
+import 'package:pak_connect/domain/values/id_types.dart';
+
 /// Facade providing backward-compatible ChatManagementService interface
 /// Internally delegates to ChatManagementService and keeps APIs stable
 class ChatManagementFacade implements IChatManagement {
@@ -81,13 +83,18 @@ class ChatManagementFacade implements IChatManagement {
   // ========================= PINNING METHODS =========================
 
   @override
-  Future<ChatOperationResult> toggleChatPin(String chatId) async {
+  Future<ChatOperationResult> toggleChatPin(ChatId chatId) async {
     await _ensureInitialized();
     return _chatManagementService.toggleChatPin(chatId);
   }
 
+  Future<ChatOperationResult> toggleMessageStarById(MessageId messageId) async {
+    await _ensureInitialized();
+    return _chatManagementService.toggleMessageStar(messageId);
+  }
+
   @override
-  bool isChatPinned(String chatId) =>
+  bool isChatPinned(ChatId chatId) =>
       _chatManagementService.isChatPinned(chatId);
 
   @override
@@ -96,12 +103,16 @@ class ChatManagementFacade implements IChatManagement {
   @override
   Future<ChatOperationResult> toggleMessageStar(String messageId) async {
     await _ensureInitialized();
-    return _chatManagementService.toggleMessageStar(messageId);
+    return _chatManagementService.toggleMessageStar(MessageId(messageId));
   }
 
   @override
-  bool isMessageStarred(String messageId) =>
+  bool isMessageStarredById(MessageId messageId) =>
       _chatManagementService.isMessageStarred(messageId);
+
+  @override
+  bool isMessageStarred(String messageId) =>
+      _chatManagementService.isMessageStarred(MessageId(messageId));
 
   @override
   int get starredMessagesCount => _chatManagementService.starredMessagesCount;
@@ -213,10 +224,12 @@ abstract interface class IChatManagement {
   });
 
   // Pinning operations
-  Future<ChatOperationResult> toggleChatPin(String chatId);
-  bool isChatPinned(String chatId);
+  Future<ChatOperationResult> toggleChatPin(ChatId chatId);
+  bool isChatPinned(ChatId chatId);
   int get pinnedChatsCount;
+  Future<ChatOperationResult> toggleMessageStarById(MessageId messageId);
   Future<ChatOperationResult> toggleMessageStar(String messageId);
+  bool isMessageStarredById(MessageId messageId);
   bool isMessageStarred(String messageId);
   int get starredMessagesCount;
   Future<List<EnhancedMessage>> getStarredMessages();

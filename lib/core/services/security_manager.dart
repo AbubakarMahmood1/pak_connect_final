@@ -12,6 +12,7 @@ import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
 import 'simple_crypto.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/values/id_types.dart';
 
 export '../security/security_types.dart';
 
@@ -95,6 +96,18 @@ class SecurityManager implements ISecurityManager {
     _noiseService!.unregisterIdentityMapping(persistentPublicKey);
   }
 
+  // Typed overloads (UserId adapters)
+  void registerIdentityMappingForUser({
+    required UserId persistentUserId,
+    required String ephemeralID,
+  }) => registerIdentityMapping(
+    persistentPublicKey: persistentUserId.value,
+    ephemeralID: ephemeralID,
+  );
+
+  void unregisterIdentityMappingForUser(UserId persistentUserId) =>
+      unregisterIdentityMapping(persistentUserId.value);
+
   /// Get current security level for a contact
   @override
   Future<SecurityLevel> getCurrentLevel(
@@ -125,7 +138,7 @@ class SecurityManager implements ISecurityManager {
     );
 
     if (contact == null) {
-      _logger.info('🔒 LEVEL: $publicKey → LOW (no contact)');
+      _logger.info('🔒 LEVEL: $truncatedKey → LOW (no contact)');
       return SecurityLevel.low;
     }
 
@@ -170,10 +183,15 @@ class SecurityManager implements ISecurityManager {
     }
 
     _logger.info(
-      '🔒 LEVEL: $publicKey → ${actualLevel.name.toUpperCase()} (${_getLevelDescription(actualLevel)})',
+      '🔒 LEVEL: $truncatedKey → ${actualLevel.name.toUpperCase()} (${_getLevelDescription(actualLevel)})',
     );
     return actualLevel;
   }
+
+  Future<SecurityLevel> getCurrentLevelForUser(
+    UserId userId, [
+    IContactRepository? repo,
+  ]) => getCurrentLevel(userId.value, repo);
 
   /// Select appropriate Noise pattern for handshake with contact
   ///
@@ -194,8 +212,10 @@ class SecurityManager implements ISecurityManager {
     final contact = await contactRepo.getContactByAnyId(publicKey);
 
     // No contact or LOW security → Always use XX
+    final truncatedKey = publicKey.shortId(8);
+
     if (contact == null || contact.securityLevel == SecurityLevel.low) {
-      _logger.info('🔒 PATTERN: $publicKey → XX (first-time contact)');
+      _logger.info('🔒 PATTERN: $truncatedKey... → XX (first-time contact)');
       return (NoisePattern.xx, null);
     }
 
@@ -207,21 +227,26 @@ class SecurityManager implements ISecurityManager {
         final keyBytes = base64.decode(theirStaticKey);
         if (keyBytes.length == 32) {
           _logger.info(
-            '🔒 PATTERN: $publicKey → KK (known contact, ${contact.securityLevel.name})',
+            '🔒 PATTERN: $truncatedKey... → KK (known contact, ${contact.securityLevel.name})',
           );
           return (NoisePattern.kk, Uint8List.fromList(keyBytes));
         }
       } catch (e) {
         _logger.warning(
-          '🔒 PATTERN: Invalid static key for $publicKey, falling back to XX: $e',
+          '🔒 PATTERN: Invalid static key for $truncatedKey..., falling back to XX: $e',
         );
       }
     }
 
     // Fallback to XX if no valid static key
-    _logger.info('🔒 PATTERN: $publicKey → XX (no static key available)');
+    _logger.info('🔒 PATTERN: $truncatedKey... → XX (no static key available)');
     return (NoisePattern.xx, null);
   }
+
+  Future<(NoisePattern, Uint8List?)> selectNoisePatternForUser(
+    UserId userId, [
+    IContactRepository? repo,
+  ]) => selectNoisePattern(userId.value, repo);
 
   /// Get encryption key for current security level
   @override
@@ -275,6 +300,11 @@ class SecurityManager implements ISecurityManager {
         return EncryptionMethod.global();
     }
   }
+
+  Future<EncryptionMethod> getEncryptionMethodForUser(
+    UserId userId,
+    IContactRepository repo,
+  ) => getEncryptionMethod(userId.value, repo);
 
   /// Encrypt message using best available method
   @override
@@ -338,6 +368,12 @@ class SecurityManager implements ISecurityManager {
       rethrow;
     }
   }
+
+  Future<String> encryptMessageForUser(
+    String message,
+    UserId userId,
+    IContactRepository repo,
+  ) => encryptMessage(message, userId.value, repo);
 
   /// Decrypt message trying methods in order
   @override
@@ -448,6 +484,146 @@ class SecurityManager implements ISecurityManager {
     }
   }
 
+  @override
+  Future<Uint8List> encryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    final method = await getEncryptionMethod(publicKey, repo);
+    final plaintextBase64 = base64.encode(data);
+
+    switch (method.type) {
+      case EncryptionType.noise:
+        if (_noiseService != null &&
+            method.publicKey != null &&
+            _noiseService!.hasEstablishedSession(method.publicKey!)) {
+          final encrypted = await _noiseService!.encrypt(
+            data,
+            method.publicKey!,
+          );
+          if (encrypted != null) {
+            _logger.fine(
+              '🔒 BIN ENCRYPT: NOISE → ${data.length} bytes to ${publicKey.shortId(8)}...',
+            );
+            return encrypted;
+          }
+          _logger.warning(
+            '🔒 BIN ENCRYPT: Noise encryption returned null for ${publicKey.shortId(8)}...',
+          );
+          throw Exception('Noise encryption failed for binary payload');
+        }
+        _logger.warning(
+          '🔒 BIN ENCRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... falling back',
+        );
+        return Uint8List.fromList(
+          utf8.encode(SimpleCrypto.encrypt(plaintextBase64)),
+        );
+
+      case EncryptionType.ecdh:
+        final encrypted = await SimpleCrypto.encryptForContact(
+          plaintextBase64,
+          publicKey,
+          repo,
+        );
+        if (encrypted != null) {
+          _logger.fine(
+            '🔒 BIN ENCRYPT: ECDH → ${data.length} bytes to ${publicKey.shortId(8)}...',
+          );
+          return Uint8List.fromList(utf8.encode(encrypted));
+        }
+        throw Exception('ECDH encryption failed for binary payload');
+
+      case EncryptionType.pairing:
+        final encrypted = SimpleCrypto.encryptForConversation(
+          plaintextBase64,
+          publicKey,
+        );
+        _logger.fine(
+          '🔒 BIN ENCRYPT: PAIRING → ${data.length} bytes to ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(utf8.encode(encrypted));
+
+      case EncryptionType.global:
+        final encrypted = SimpleCrypto.encrypt(plaintextBase64);
+        _logger.fine(
+          '🔒 BIN ENCRYPT: GLOBAL → ${data.length} bytes to ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(utf8.encode(encrypted));
+    }
+  }
+
+  @override
+  Future<Uint8List> decryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    final method = await getEncryptionMethod(publicKey, repo);
+    final encryptedString = utf8.decode(data, allowMalformed: true);
+
+    switch (method.type) {
+      case EncryptionType.noise:
+        if (_noiseService != null &&
+            method.publicKey != null &&
+            _noiseService!.hasEstablishedSession(method.publicKey!)) {
+          final decrypted = await _noiseService!.decrypt(
+            data,
+            method.publicKey!,
+          );
+          if (decrypted != null) {
+            _logger.fine(
+              '🔒 BIN DECRYPT: NOISE ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+            );
+            return decrypted;
+          }
+          _logger.warning(
+            '🔒 BIN DECRYPT: Noise decryption returned null for ${publicKey.shortId(8)}...',
+          );
+          throw Exception('Noise decryption failed for binary payload');
+        }
+        _logger.warning(
+          '🔒 BIN DECRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... falling back',
+        );
+        final decryptedFallback = SimpleCrypto.decrypt(encryptedString);
+        _logger.fine(
+          '🔒 BIN DECRYPT: GLOBAL (fallback) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(base64.decode(decryptedFallback));
+
+      case EncryptionType.ecdh:
+        final decrypted = await SimpleCrypto.decryptFromContact(
+          encryptedString,
+          publicKey,
+          repo,
+        );
+        if (decrypted != null) {
+          _logger.fine(
+            '🔒 BIN DECRYPT: ECDH ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+          );
+          return Uint8List.fromList(base64.decode(decrypted));
+        }
+        throw Exception('ECDH decryption failed for binary payload');
+
+      case EncryptionType.pairing:
+        final decrypted = SimpleCrypto.decryptFromConversation(
+          encryptedString,
+          publicKey,
+        );
+        _logger.fine(
+          '🔒 BIN DECRYPT: PAIRING ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(base64.decode(decrypted));
+
+      case EncryptionType.global:
+        final decrypted = SimpleCrypto.decrypt(encryptedString);
+        _logger.fine(
+          '🔒 BIN DECRYPT: GLOBAL ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+        );
+        return Uint8List.fromList(base64.decode(decrypted));
+    }
+  }
+
   // Helper methods
   static Future<bool> _verifyECDHKey(
     String publicKey,
@@ -466,7 +642,9 @@ class SecurityManager implements ISecurityManager {
     IContactRepository repo,
   ) async {
     await repo.updateContactSecurityLevel(publicKey, newLevel);
-    _logger.warning('🔒 DOWNGRADE: $publicKey → ${newLevel.name}');
+    _logger.warning(
+      '🔒 DOWNGRADE: ${publicKey.shortId(8)}... → ${newLevel.name}',
+    );
   }
 
   static String _getLevelDescription(SecurityLevel level) {
@@ -485,8 +663,8 @@ class SecurityManager implements ISecurityManager {
       case SecurityLevel.high:
         return [
           EncryptionType.ecdh,
-          EncryptionType.noise,
           EncryptionType.pairing,
+          EncryptionType.noise,
           EncryptionType.global,
         ];
       case SecurityLevel.medium:
@@ -499,4 +677,10 @@ class SecurityManager implements ISecurityManager {
         return [EncryptionType.noise, EncryptionType.global];
     }
   }
+
+  Future<String> decryptMessageForUser(
+    String encryptedMessage,
+    UserId userId,
+    IContactRepository repo,
+  ) => decryptMessage(encryptedMessage, userId.value, repo);
 }

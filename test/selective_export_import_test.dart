@@ -3,6 +3,7 @@
 
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/export_import/export_bundle.dart';
 import 'package:pak_connect/data/services/export_import/selective_backup_service.dart';
 import 'package:pak_connect/data/services/export_import/selective_restore_service.dart';
@@ -12,11 +13,19 @@ import 'dart:io';
 import 'test_helpers/test_setup.dart';
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {
+    'Selective backup failed', // Expected when testing graceful failures
+  };
+
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'selective_export');
   });
 
   setUp(() async {
+    logRecords.clear();
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.configureTestDatabase(label: 'selective_export');
     await TestSetup.fullDatabaseReset();
     TestSetup.resetSharedPreferences();
@@ -89,6 +98,19 @@ void main() {
   tearDown(() async {
     await DatabaseHelper.close();
     await TestSetup.nukeDatabase();
+    final severeErrors = logRecords
+        .where((log) => log.level >= Level.SEVERE)
+        .where(
+          (log) =>
+              !allowedSevere.any((pattern) => log.message.contains(pattern)),
+        )
+        .toList();
+    expect(
+      severeErrors,
+      isEmpty,
+      reason:
+          'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
   });
 
   group('ExportType', () {

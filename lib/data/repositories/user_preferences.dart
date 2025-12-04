@@ -3,7 +3,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:logging/logging.dart';
 import 'dart:typed_data';
-import 'dart:async';
 
 class UserPreferences {
   static final _logger = Logger('UserPreferences');
@@ -14,14 +13,8 @@ class UserPreferences {
   static const String _hintBroadcastKey =
       'hint_broadcast_enabled'; // Spy mode control
 
-  // USERNAME PROPAGATION FIX: Stream controller for reactive updates
-  static StreamController<String>? _usernameStreamController;
-
-  /// Get username change stream for reactive updates
-  static Stream<String> get usernameStream {
-    _usernameStreamController ??= StreamController<String>.broadcast();
-    return _usernameStreamController!.stream;
-  }
+  // Username updates are now managed through Riverpod providers
+  // See: usernameProvider in lib/presentation/providers/ble_providers.dart
 
   Future<String> getUserName() async {
     final prefs = await SharedPreferences.getInstance();
@@ -38,15 +31,6 @@ class UserPreferences {
     _logger.fine(
       '🔧 NAME DEBUG: Saved to SharedPreferences: "$normalizedName"',
     );
-
-    // USERNAME PROPAGATION FIX: Notify reactive listeners
-    _usernameStreamController?.add(normalizedName);
-  }
-
-  /// Clean up stream controller
-  static void dispose() {
-    _usernameStreamController?.close();
-    _usernameStreamController = null;
   }
 
   // Get or create persistent device ID

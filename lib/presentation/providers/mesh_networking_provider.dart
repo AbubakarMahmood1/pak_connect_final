@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/services/chat_management_service.dart';
@@ -18,6 +19,9 @@ import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/interfaces/i_mesh_routing_service.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../domain/models/mesh_network_models.dart';
+import '../../domain/services/mesh_networking_service.dart'
+    show ReceivedBinaryEvent, PendingBinaryTransfer;
+import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/services/mesh/mesh_relay_coordinator.dart';
 import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
@@ -255,6 +259,32 @@ final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
   } catch (_) {}
 
   return service;
+});
+
+/// Binary/media payload stream for UI consumption.
+final binaryPayloadStreamProvider = StreamProvider<ReceivedBinaryEvent>((ref) {
+  final service = ref.watch(meshNetworkingServiceProvider);
+  return service.binaryPayloadStream;
+});
+
+/// Simple inbox of binary payloads keyed by transferId for UI rendering.
+final binaryPayloadInboxProvider =
+    StateNotifierProvider<BinaryPayloadInbox, Map<String, ReceivedBinaryEvent>>(
+      (ref) {
+        final service = ref.watch(meshNetworkingServiceProvider);
+        final notifier = BinaryPayloadInbox();
+        final sub = service.binaryPayloadStream.listen(notifier.addPayload);
+        ref.onDispose(sub.cancel);
+        return notifier;
+      },
+    );
+
+/// Pending binary send list for progress/UX.
+final pendingBinaryTransfersProvider = Provider<List<PendingBinaryTransfer>>((
+  ref,
+) {
+  final service = ref.watch(meshNetworkingServiceProvider);
+  return service.getPendingBinaryTransfers();
 });
 
 /// ✅ Phase 6: Mesh network status stream (bridged through Riverpod)
@@ -634,3 +664,18 @@ Future<void> _initializeServiceAsync(
 
 /// Simple in-memory implementation of ISeenMessageStore for Phase 3A
 /// Phase 3B should replace with persistent SQLite-backed implementation
+class BinaryPayloadInbox
+    extends StateNotifier<Map<String, ReceivedBinaryEvent>> {
+  BinaryPayloadInbox() : super({});
+
+  void addPayload(ReceivedBinaryEvent event) {
+    state = {...state, event.transferId: event};
+  }
+
+  void clearPayload(String transferId) {
+    if (!state.containsKey(transferId)) return;
+    final next = Map.of(state);
+    next.remove(transferId);
+    state = next;
+  }
+}

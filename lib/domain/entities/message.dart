@@ -1,6 +1,8 @@
+import '../values/id_types.dart';
+
 class Message {
-  final String id;
-  final String chatId; // device UUID for now, group ID later
+  final MessageId id;
+  final ChatId chatId; // device UUID for now, group ID later
   final String content;
   final DateTime timestamp;
   final bool isFromMe;
@@ -17,8 +19,8 @@ class Message {
 
   // Convert to/from JSON for storage
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'chatId': chatId,
+    'id': id.value,
+    'chatId': chatId.value,
     'content': content,
     'timestamp': timestamp.millisecondsSinceEpoch,
     'isFromMe': isFromMe,
@@ -26,20 +28,27 @@ class Message {
   };
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
-    id: json['id'],
-    chatId: json['chatId'],
+    id: MessageId(json['id']),
+    chatId: ChatId(json['chatId']),
     content: json['content'],
     timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
     isFromMe: json['isFromMe'],
     status: MessageStatus.values[json['status']],
   );
 
-  Message copyWith({MessageStatus? status}) => Message(
-    id: id,
-    chatId: chatId,
-    content: content,
-    timestamp: timestamp,
-    isFromMe: isFromMe,
+  Message copyWith({
+    MessageId? id,
+    ChatId? chatId,
+    String? content,
+    DateTime? timestamp,
+    bool? isFromMe,
+    MessageStatus? status,
+  }) => Message(
+    id: id ?? this.id,
+    chatId: chatId ?? this.chatId,
+    content: content ?? this.content,
+    timestamp: timestamp ?? this.timestamp,
+    isFromMe: isFromMe ?? this.isFromMe,
     status: status ?? this.status,
   );
 }

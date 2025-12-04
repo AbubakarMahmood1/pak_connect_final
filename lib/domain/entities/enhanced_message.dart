@@ -2,13 +2,14 @@
 
 import '../../domain/entities/message.dart';
 import '../../core/models/message_priority.dart';
+import '../../domain/values/id_types.dart';
 
 // Re-export MessagePriority for backward compatibility
 export '../../core/models/message_priority.dart' show MessagePriority;
 
 /// Enhanced message with comprehensive state tracking and metadata
 class EnhancedMessage extends Message {
-  final String? replyToMessageId;
+  final MessageId? replyToMessageId;
   final String? threadId;
   final Map<String, dynamic>? metadata;
   final MessageDeliveryReceipt? deliveryReceipt;
@@ -108,13 +109,18 @@ class EnhancedMessage extends Message {
   }
 
   /// Check if user reacted with specific emoji
-  bool hasUserReaction(String userId, String emoji) {
+  bool hasUserReaction(UserId userId, String emoji) {
     return reactions.any((r) => r.userId == userId && r.emoji == emoji);
   }
 
   /// Create copy with updated status
   @override
   EnhancedMessage copyWith({
+    MessageId? id,
+    ChatId? chatId,
+    String? content,
+    DateTime? timestamp,
+    bool? isFromMe,
     MessageStatus? status,
     MessageDeliveryReceipt? deliveryReceipt,
     MessageReadReceipt? readReceipt,
@@ -124,12 +130,21 @@ class EnhancedMessage extends Message {
     DateTime? editedAt,
     MessageEncryptionInfo? encryptionInfo,
   }) {
+    // Handle content updates: 'editedContent' triggers edit history logic,
+    // 'content' just updates the field (e.g. migration/copy).
+    final finalContent = editedContent ?? content ?? this.content;
+
+    // If we are editing (editedContent provided), preserve original content if not already saved
+    final finalOriginalContent = editedContent != null
+        ? (originalContent ?? this.content)
+        : originalContent;
+
     return EnhancedMessage(
-      id: id,
-      chatId: chatId,
-      content: editedContent ?? content,
-      timestamp: timestamp,
-      isFromMe: isFromMe,
+      id: id ?? this.id,
+      chatId: chatId ?? this.chatId,
+      content: finalContent,
+      timestamp: timestamp ?? this.timestamp,
+      isFromMe: isFromMe ?? this.isFromMe,
       status: status ?? this.status,
       replyToMessageId: replyToMessageId,
       threadId: threadId,
@@ -141,9 +156,7 @@ class EnhancedMessage extends Message {
       isForwarded: isForwarded,
       priority: priority,
       editedAt: editedAt ?? this.editedAt,
-      originalContent: editedContent != null
-          ? (originalContent ?? content)
-          : originalContent,
+      originalContent: finalOriginalContent,
       attachments: attachments,
       encryptionInfo: encryptionInfo ?? this.encryptionInfo,
     );
@@ -153,7 +166,7 @@ class EnhancedMessage extends Message {
   @override
   Map<String, dynamic> toJson() => {
     ...super.toJson(),
-    'replyToMessageId': replyToMessageId,
+    'replyToMessageId': replyToMessageId?.value,
     'threadId': threadId,
     'metadata': metadata,
     'deliveryReceipt': deliveryReceipt?.toJson(),
@@ -171,13 +184,15 @@ class EnhancedMessage extends Message {
   /// Create from JSON
   factory EnhancedMessage.fromJson(Map<String, dynamic> json) =>
       EnhancedMessage(
-        id: json['id'],
-        chatId: json['chatId'],
+        id: MessageId(json['id']),
+        chatId: ChatId(json['chatId']),
         content: json['content'],
         timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
         isFromMe: json['isFromMe'],
         status: MessageStatus.values[json['status']],
-        replyToMessageId: json['replyToMessageId'],
+        replyToMessageId: json['replyToMessageId'] != null
+            ? MessageId(json['replyToMessageId'])
+            : null,
         threadId: json['threadId'],
         metadata: json['metadata'],
         deliveryReceipt: json['deliveryReceipt'] != null
@@ -260,7 +275,7 @@ class MessageReadReceipt {
 /// Message reaction
 class MessageReaction {
   final String emoji;
-  final String userId;
+  final UserId userId;
   final DateTime reactedAt;
 
   const MessageReaction({
@@ -271,14 +286,14 @@ class MessageReaction {
 
   Map<String, dynamic> toJson() => {
     'emoji': emoji,
-    'userId': userId,
+    'userId': userId.value,
     'reactedAt': reactedAt.millisecondsSinceEpoch,
   };
 
   factory MessageReaction.fromJson(Map<String, dynamic> json) =>
       MessageReaction(
         emoji: json['emoji'],
-        userId: json['userId'],
+        userId: UserId(json['userId']),
         reactedAt: DateTime.fromMillisecondsSinceEpoch(json['reactedAt']),
       );
 }

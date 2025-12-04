@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/core/interfaces/i_chat_interaction_handler.dart';
 import 'package:pak_connect/core/interfaces/i_chats_repository.dart';
@@ -11,8 +12,11 @@ import 'package:pak_connect/core/services/home_screen_facade.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 
 import '../../test_helpers/mocks/mock_connection_service.dart';
+
+ChatId _cid(String value) => ChatId(value);
 
 class _FakeChatsRepository implements IChatsRepository {
   int loadCount = 0;
@@ -50,10 +54,10 @@ class _FakeChatsRepository implements IChatsRepository {
   Future<int> getTotalUnreadCount() async => unreadCount;
 
   @override
-  Future<void> incrementUnreadCount(String chatId) async {}
+  Future<void> incrementUnreadCount(ChatId chatId) async {}
 
   @override
-  Future<void> markChatAsRead(String chatId) async {}
+  Future<void> markChatAsRead(ChatId chatId) async {}
 
   @override
   Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {}
@@ -143,7 +147,7 @@ class _FakeInteractionHandler implements IChatInteractionHandler {
   Future<void> toggleChatPin(ChatListItem chat) async {}
 
   @override
-  Future<void> markChatAsRead(String chatId) async {}
+  Future<void> markChatAsRead(ChatId chatId) async {}
 }
 
 class _StubSeenStore implements ISeenMessageStore {
@@ -170,7 +174,7 @@ class _StubSeenStore implements ISeenMessageStore {
 }
 
 ChatListItem _sampleChat() => ChatListItem(
-  chatId: 'chat-1',
+  chatId: _cid('chat-1'),
   contactName: 'Alice',
   contactPublicKey: 'pk',
   lastMessage: 'hi',
@@ -182,10 +186,35 @@ ChatListItem _sampleChat() => ChatListItem(
 );
 
 void main() {
+  final List<LogRecord> logRecords = [];
+  final Set<String> allowedSevere = {};
+
   late _FakeChatsRepository chatsRepository;
   late MockConnectionService connectionService;
   late _FakeInteractionHandler interactionHandler;
   late HomeScreenFacade facade;
+
+  setUp(() {
+    logRecords.clear();
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen(logRecords.add);
+  });
+
+  tearDown(() {
+    final severeErrors = logRecords
+        .where((log) => log.level >= Level.SEVERE)
+        .where(
+          (log) =>
+              !allowedSevere.any((pattern) => log.message.contains(pattern)),
+        )
+        .toList();
+    expect(
+      severeErrors,
+      isEmpty,
+      reason:
+          'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
+  });
 
   HomeScreenFacade buildFacade({bool enableListInit = false}) {
     chatsRepository = _FakeChatsRepository()
@@ -259,7 +288,7 @@ void main() {
       final loaded = await facade.loadChats(searchQuery: 'alice');
       facade.refreshUnreadCount();
 
-      expect(interactionHandler.openedChat?.chatId, 'chat-1');
+      expect(interactionHandler.openedChat?.chatId.value, 'chat-1');
       expect(interactionHandler.searchToggled, isTrue);
       expect(loaded, isNotEmpty);
       expect(facade.chats, isNotEmpty);
