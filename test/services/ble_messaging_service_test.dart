@@ -607,6 +607,131 @@ void main() {
         expect(service, isA<BLEMessagingService>());
       },
     );
+
+    test(
+      're-fragments to the smallest downstream MTU and avoids writing back to relayer',
+      () async {
+        final handler = _ForwardingHarnessHandler();
+        final connectionManager = MockBLEConnectionManager();
+        final stateManager = MockIBLEStateManagerFacade();
+        final contactRepository = MockContactRepository();
+        final centralManager = MockCentralManager();
+
+        when(stateManager.isPeripheralMode).thenReturn(false);
+        when(contactRepository.getAllContacts()).thenAnswer((_) async => {});
+
+        final characteristic = GATTCharacteristic.mutable(
+          uuid: UUID.fromString('00000000-0000-0000-0000-00000000f0f1'),
+          properties: [GATTCharacteristicProperty.write],
+          permissions: [GATTCharacteristicPermission.write],
+          descriptors: const [],
+        );
+
+        final relayer = Peripheral(
+          uuid: UUID.fromString('00000000-0000-0000-0000-00000000aaaa'),
+        );
+        final nextHop = Peripheral(
+          uuid: UUID.fromString('00000000-0000-0000-0000-00000000bbbb'),
+        );
+
+        final relayerConn = BLEClientConnection(
+          address: relayer.uuid.toString(),
+          peripheral: relayer,
+          connectedAt: DateTime.now(),
+          messageCharacteristic: characteristic,
+          mtu: 200,
+        );
+        final constrainedConn = BLEClientConnection(
+          address: nextHop.uuid.toString(),
+          peripheral: nextHop,
+          connectedAt: DateTime.now(),
+          messageCharacteristic: characteristic,
+          mtu: 60,
+        );
+
+        when(
+          connectionManager.clientConnections,
+        ).thenReturn([relayerConn, constrainedConn]);
+
+        final writes = <_WriteCall>[];
+        when(
+          centralManager.writeCharacteristic(
+            any,
+            any,
+            value: anyNamed('value'),
+            type: anyNamed('type'),
+          ),
+        ).thenAnswer((invocation) async {
+          writes.add(
+            _WriteCall(
+              target: _Target.central,
+              deviceId: (invocation.positionalArguments[0] as Peripheral).uuid
+                  .toString(),
+              value: invocation.namedArguments[#value] as Uint8List,
+            ),
+          );
+        });
+
+        final service = BLEMessagingService(
+          messageHandler: handler,
+          connectionManager: connectionManager,
+          stateManager: stateManager,
+          contactRepository: contactRepository,
+          getCentralManager: () => centralManager,
+          getPeripheralManager: () => MockPeripheralManager(),
+          getConnectedCentral: () => null,
+          getPeripheralMessageCharacteristic: () => null,
+          getPeripheralMtuReady: () => false,
+          getPeripheralNegotiatedMtu: () => null,
+        );
+
+        final payload = Uint8List.fromList(List.generate(160, (i) => i % 256));
+        handler.forwardPayload = ForwardReassembledPayload(
+          bytes: payload,
+          originalType: BinaryPayloadType.media,
+          recipient: 'node-z',
+          ttl: 3,
+        );
+        final upstreamFragments = BinaryFragmenter.fragment(
+          data: payload,
+          mtu: 100,
+          originalType: BinaryPayloadType.media,
+          recipient: 'node-z',
+          ttl: 3,
+        );
+
+        handler.forwardBinaryFragment?.call(
+          upstreamFragments.first,
+          'deadbeef',
+          0,
+          relayer.uuid.toString(),
+          'node-upstream',
+        );
+
+        await Future<void>.delayed(Duration(milliseconds: 120));
+
+        // Only forward to the constrained next hop (not back to the relayer).
+        expect(
+          writes.every(
+            (w) => w.deviceId == constrainedConn.peripheral.uuid.toString(),
+          ),
+          isTrue,
+        );
+        expect(
+          writes.every((w) => w.value.length <= constrainedConn.mtu!),
+          isTrue,
+        );
+
+        const ttlOffset = 1 + 8 + 2 + 2;
+        expect(
+          writes.every((w) => w.value[ttlOffset] == 2),
+          isTrue, // TTL decremented from 3 -> 2 on forward.
+        );
+
+        // Keep analyzer happy about unused instance.
+        expect(service, isA<BLEMessagingService>());
+      },
+    );
   });
 }
 
