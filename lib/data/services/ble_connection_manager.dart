@@ -707,6 +707,9 @@ class BLEConnectionManager {
 
       onConnectionChanged?.call(device);
 
+      // Negotiate MTU before service discovery so fragmentation sizing is accurate.
+      await _detectOptimalMTU(device, address);
+
       // Discover GATT services with retry logic
       List<GATTService> services = [];
       GATTService? messagingService;
@@ -773,8 +776,6 @@ class BLEConnectionManager {
       _logger.info('🔐 BLE Connected - starting protocol setup');
       _updateConnectionState(ChatConnectionState.connecting);
 
-      await _detectOptimalMTU(device, address);
-
       _logger.info('🔑 Triggering identity exchange');
       onConnectionComplete?.call();
 
@@ -806,7 +807,7 @@ class BLEConnectionManager {
 
       if (Platform.isAndroid) {
         try {
-          negotiatedMTU = await centralManager.requestMTU(device, mtu: 250);
+          negotiatedMTU = await centralManager.requestMTU(device, mtu: 517);
           _logger.info(
             '✅ Successfully negotiated larger MTU: $negotiatedMTU bytes',
           );

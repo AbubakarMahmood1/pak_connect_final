@@ -262,6 +262,39 @@ void main() {
       expect(service.canSendMessages, false);
     });
 
+    test('auto-connect backs off when slots are unavailable', () async {
+      mockStateManager = MockIBLEStateManagerFacade();
+      mockConnectionManager = _MockConnectionManagerWithAddresses();
+      mockCentralManager = MockCentralManager();
+      mockBluetoothMonitor = MockBluetoothStateMonitor();
+
+      when(
+        mockCentralManager.stateChanged,
+      ).thenAnswer((_) => const Stream.empty());
+      when(mockConnectionManager.clientConnectionCount).thenReturn(3);
+      when(mockConnectionManager.maxClientConnections).thenReturn(3);
+      when(mockConnectionManager.canAcceptClientConnection).thenReturn(false);
+      when(mockStateManager.isPeripheralMode).thenReturn(false);
+
+      final peripheral = Peripheral(
+        uuid: UUID.fromString('00000000-0000-0000-0000-00000000dcba'),
+      );
+
+      createService();
+      service.setupConnectionInitialization();
+      addTearDown(() {
+        DeviceDeduplicationManager.onKnownContactDiscovered = null;
+      });
+
+      final callback = DeviceDeduplicationManager.onKnownContactDiscovered;
+      expect(callback, isNotNull);
+
+      await callback!(peripheral, 'Bob');
+      await Future<void>.delayed(Duration.zero);
+
+      verifyNever(mockConnectionManager.connectToDevice(peripheral));
+    });
+
     test(
       'auto-connect skips dial when tracker reports existing link',
       () async {
