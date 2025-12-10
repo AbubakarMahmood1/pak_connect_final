@@ -522,4 +522,16 @@ class MockConnectionService implements IConnectionService {
   void setPairingInProgress(bool isInProgress) {
     _pairingInProgress = isInProgress;
   }
+
+  @override
+  String? get otherUserName => _myUserName;
+
+  @override
+  String? get theirEphemeralId => _currentSessionId;
+
+  @override
+  String? get theirPersistentKey => _theirPersistentKey;
+
+  @override
+  String? get myPersistentId => _myPublicKey;
 }

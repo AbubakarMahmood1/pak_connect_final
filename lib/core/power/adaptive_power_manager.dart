@@ -401,6 +401,59 @@ class AdaptivePowerManager {
     _scheduleNextScan();
   }
 
+  /// Manual override that schedules the next burst much sooner than the
+  /// adaptive cadence (used by the discovery overlay "tap to scan" control).
+  /// This bypasses the normal minimum interval so the UI can force a scan
+  /// within ~1 second.
+  Future<void> scheduleManualBurstAfter(Duration delay) async {
+    if (!_bluetoothAvailable) {
+      _logger.info(
+        'Manual burst override ignored because Bluetooth is unavailable',
+      );
+      return;
+    }
+
+    // Ensure the manager is in a running state.
+    _shouldRun = true;
+
+    // Cancel any pending timers so the manual schedule takes precedence.
+    _scanTimer?.cancel();
+
+    // If we were stuck in a burst-only state (e.g., a previous start was
+    // skipped by the controller), clear the flag so the next timer can fire.
+    _burstTimer?.cancel();
+    _isBurstMode = false;
+
+    _nextScheduledScanTime = DateTime.now().add(delay);
+
+    _scanTimer = Timer(delay, () {
+      _startBurstScan();
+      _scheduleNextScan();
+    });
+
+    onStatsUpdate?.call(getCurrentStats());
+
+    _logger.info(
+      'Manual override: next burst scheduled in ${delay.inSeconds}s '
+      '(requested by UI)',
+    );
+  }
+
+  /// Shorten an active burst so it ends within the given duration.
+  void shortenActiveBurst(Duration remaining) {
+    if (!_isBurstMode) return;
+
+    _burstTimer?.cancel();
+    _burstTimer = Timer(remaining, () {
+      _stopBurstScan();
+    });
+
+    onStatsUpdate?.call(getCurrentStats());
+    _logger.info(
+      'Manual override: active burst will end in ${remaining.inSeconds}s',
+    );
+  }
+
   /// Report connection success for adaptive adjustment
   void reportConnectionSuccess({
     int? rssi,

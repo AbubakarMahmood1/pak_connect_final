@@ -198,6 +198,18 @@ class _FakeConnectionService implements IConnectionService {
   String? get currentSessionId => 'peer-1';
 
   @override
+  String? get otherUserName => 'Peer One';
+
+  @override
+  String? get theirEphemeralId => 'peer-1';
+
+  @override
+  String? get theirPersistentKey => 'peer-1';
+
+  @override
+  String? get myPersistentId => 'my-id';
+
+  @override
   bool get canSendMessages => _canSend;
 
   @override

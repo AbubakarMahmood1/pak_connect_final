@@ -7,6 +7,11 @@ import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/services/ble_connection_manager.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../domain/entities/enhanced_contact.dart';
+import '../../domain/entities/contact.dart';
+import '../../core/security/security_types.dart';
+import '../../core/utils/string_extensions.dart';
 
 /// Manages BLE connection lifecycle including connection state and monitoring.
 ///
@@ -75,7 +80,68 @@ class BLEConnectionService implements IBLEConnectionService {
     _logger.info('🔗 Setting up connection initialization...');
     _setupAutoConnectCallback();
     _setupEventListeners();
+    _setupConnectionChangeHandler();
     _logger.info('✅ Connection initialization setup complete');
+  }
+
+  void _setupConnectionChangeHandler() {
+    connectionManager.onConnectionChanged = (peripheral) {
+      if (peripheral != null) {
+        unawaited(_resolveConnectionContact(peripheral));
+      }
+    };
+  }
+
+  Future<void> _resolveConnectionContact(Peripheral peripheral) async {
+    try {
+      final persistentKey =
+          stateManager.theirPersistentKey ?? stateManager.currentSessionId;
+      if (persistentKey == null || persistentKey.isEmpty) return;
+
+      final contactRepo = ContactRepository();
+      final contact = await contactRepo.getContactByAnyId(persistentKey);
+      final displayName =
+          contact?.displayName ??
+          stateManager.otherUserName ??
+          'User ${persistentKey.shortId(8)}';
+
+      final enhanced = EnhancedContact(
+        contact:
+            contact ??
+            Contact(
+              publicKey: persistentKey,
+              persistentPublicKey: persistentKey,
+              currentEphemeralId: null,
+              displayName: displayName,
+              trustStatus: TrustStatus.newContact,
+              securityLevel: SecurityLevel.low,
+              firstSeen: DateTime.now(),
+              lastSeen: DateTime.now(),
+              lastSecuritySync: null,
+              noisePublicKey: null,
+              noiseSessionState: null,
+              lastHandshakeTime: null,
+              isFavorite: false,
+            ),
+        lastSeenAgo: contact != null
+            ? DateTime.now().difference(contact.lastSeen)
+            : Duration.zero,
+        isRecentlyActive: contact != null
+            ? DateTime.now().difference(contact.lastSeen).inHours < 24
+            : true,
+        interactionCount: 0,
+        averageResponseTime: const Duration(minutes: 5),
+        groupMemberships: const [],
+      );
+
+      DeviceDeduplicationManager.updateResolvedContact(
+        peripheral.uuid.toString(),
+        enhanced,
+      );
+    } catch (e, stackTrace) {
+      _logger.fine('Failed to resolve connection contact: $e');
+      _logger.finer(stackTrace.toString());
+    }
   }
 
   void disposeConnection() {

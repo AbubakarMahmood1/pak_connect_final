@@ -3,8 +3,8 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_ble_discovery_service.dart';
 import '../../core/constants/ble_constants.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../core/services/hint_scanner_service.dart';
 
 /// Manages BLE device discovery and deduplication.
@@ -39,6 +39,8 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   // Listener sets for discovery/hint events
   final Set<void Function(List<Peripheral>)> _deviceListeners = {};
   final Set<void Function(String)> _hintListeners = {};
+  final Set<void Function(Map<String, DiscoveredEventArgs>)>
+  _discoveryDataListeners = {};
 
   // Discovery state
   List<Peripheral> _discoveredDevices = [];
@@ -46,6 +48,8 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   ScanningSource? _currentScanningSource;
   Timer? _staleDeviceTimer;
   StreamSubscription<Map<String, dynamic>>? _deduplicationSubscription;
+  StreamSubscription<DiscoveredEventArgs>? _centralDiscoverySubscription;
+  Map<String, DiscoveredEventArgs> _discoveryData = {};
 
   // Authoritativestate getters (from facade)
   final bool Function() isAdvertising;
@@ -98,6 +102,22 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   Future<void> initialize() async {
     _logger.info('🔧 Initializing BLEDiscoveryService');
     setupDeduplicationListener();
+
+    _centralDiscoverySubscription?.cancel();
+    _centralDiscoverySubscription = centralManager.discovered.listen((event) {
+      try {
+        final deviceId = event.peripheral.uuid.toString();
+        _discoveryData[deviceId] = event;
+        _notifyDiscoveryData(Map.from(_discoveryData));
+        DeviceDeduplicationManager.processDiscoveredDevice(event);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          '⚠️ Error processing discovered device: $e',
+          e,
+          stackTrace,
+        );
+      }
+    });
   }
 
   @override
@@ -105,8 +125,11 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
     _logger.info('🧹 Disposing BLEDiscoveryService');
     await stopScanning();
     disposeDeduplicationListener();
+    await _centralDiscoverySubscription?.cancel();
+    _centralDiscoverySubscription = null;
     _deviceListeners.clear();
     _hintListeners.clear();
+    _discoveryDataListeners.clear();
   }
 
   // ============================================================================
@@ -153,6 +176,8 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
 
     _discoveredDevices.clear();
     _notifyDevices([]);
+    _discoveryData.clear();
+    _notifyDiscoveryData({});
     _currentScanningSource = source;
 
     _logger.info('🔍 Starting ${source.name} BLE scan...');
@@ -277,7 +302,18 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   @override
   Stream<Map<String, DiscoveredEventArgs>> get discoveryData {
     // TODO(phase2a): Extract raw discovery event stream from CentralManager
-    return Stream.empty();
+    return Stream<Map<String, DiscoveredEventArgs>>.multi((controller) {
+      controller.add(Map.from(_discoveryData));
+
+      void listener(Map<String, DiscoveredEventArgs> data) {
+        controller.add(data);
+      }
+
+      _discoveryDataListeners.add(listener);
+      controller.onCancel = () {
+        _discoveryDataListeners.remove(listener);
+      };
+    });
   }
 
   @override
@@ -291,8 +327,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
 
   @override
   Stream<Map<String, DiscoveredEventArgs>> get discoveryDataStream {
-    // TODO(phase2a): Extract raw discovery event stream from CentralManager
-    return Stream.empty();
+    return discoveryData;
   }
 
   @override
@@ -321,6 +356,20 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
         listener(devices);
       } catch (e, stackTrace) {
         _logger.warning('Error notifying devices listener: $e', e, stackTrace);
+      }
+    }
+  }
+
+  void _notifyDiscoveryData(Map<String, DiscoveredEventArgs> data) {
+    for (final listener in List.of(_discoveryDataListeners)) {
+      try {
+        listener(data);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Error notifying discovery data listener: $e',
+          e,
+          stackTrace,
+        );
       }
     }
   }

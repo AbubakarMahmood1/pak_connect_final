@@ -120,6 +120,13 @@ abstract interface class IConnectionService implements IMeshBleService {
   /// Whether the connection manager is actively attempting to reconnect.
   bool get isActivelyReconnecting;
 
+  // ===== Identity snapshot =====
+  String? get otherUserName;
+  String? get currentSessionId;
+  String? get theirEphemeralId;
+  String? get theirPersistentKey;
+  String? get myPersistentId;
+
   // ===== Identity / handshake helpers =====
 
   /// Request identity exchange with the connected peer.

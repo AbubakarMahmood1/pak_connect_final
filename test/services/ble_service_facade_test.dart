@@ -1096,6 +1096,13 @@ final class _StubMessagingService implements IBLEMessagingService {
     Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
   ) {}
 
+  @override
+  Future<void> processIncomingPeripheralData(
+    Uint8List data, {
+    required String senderDeviceId,
+    String? senderNodeId,
+  }) async {}
+
   void dispose() {
     _messagesController.close();
     _binaryController.close();
@@ -1180,6 +1187,12 @@ final class _StubHandshakeService implements IBLEHandshakeService {
 
   @override
   Future<String?> buildLocalCollisionHint() async => 'stub-hint';
+
+  @override
+  Future<bool> handleIncomingHandshakeMessage(
+    Uint8List data, {
+    bool isFromPeripheral = false,
+  }) async => false;
 
   @override
   Future<void> handleMutualConsentRequired() async {}

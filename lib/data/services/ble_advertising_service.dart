@@ -44,6 +44,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
   Central? connectedCentral;
   GATTCharacteristic? connectedCharacteristic;
   bool peripheralHandshakeStarted = false;
+  GATTCharacteristic? _messageCharacteristic;
   int? _peripheralNegotiatedMTU;
   bool _peripheralMtuReady = false;
 
@@ -63,6 +64,9 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
   @override
   Future<void> startAsPeripheral() async {
     _logger.info('📡 Starting peripheral advertising (dual-role mode)...');
+
+    // Ensure advertising manager is active before any start calls.
+    advertisingManager.start();
 
     // 🔧 DUAL-ROLE FIX: NO mode switching - peripheral and central run simultaneously
     // We NEVER stop central mode or disconnect - both roles coexist
@@ -96,6 +100,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
         ],
         descriptors: [],
       );
+      _messageCharacteristic = messageCharacteristic;
 
       final service = GATTService(
         uuid: BLEConstants.serviceUUID,
@@ -250,4 +255,19 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
 
   @override
   bool get isPeripheralMTUReady => _peripheralMtuReady;
+
+  GATTCharacteristic? get messageCharacteristic => _messageCharacteristic;
+
+  void updatePeripheralMtu(int mtu) {
+    _peripheralNegotiatedMTU = mtu;
+    _peripheralMtuReady = true;
+  }
+
+  void resetPeripheralSession() {
+    connectedCentral = null;
+    connectedCharacteristic = null;
+    peripheralHandshakeStarted = false;
+    _peripheralNegotiatedMTU = null;
+    _peripheralMtuReady = false;
+  }
 }

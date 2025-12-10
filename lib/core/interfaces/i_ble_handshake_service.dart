@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../core/models/spy_mode_info.dart';
 import '../bluetooth/handshake_coordinator.dart';
 
@@ -143,4 +145,14 @@ abstract class IBLEHandshakeService {
   /// Current handshake phase (if in progress)
   /// Returns null if no active handshake
   String? get currentHandshakePhase;
+
+  /// Handle an incoming handshake protocol message (regardless of link
+  /// direction). Buffers if the coordinator is not yet initialized.
+  ///
+  /// Returns true if the payload was recognized as a handshake protocol
+  /// message (even if it was buffered).
+  Future<bool> handleIncomingHandshakeMessage(
+    Uint8List data, {
+    bool isFromPeripheral,
+  });
 }

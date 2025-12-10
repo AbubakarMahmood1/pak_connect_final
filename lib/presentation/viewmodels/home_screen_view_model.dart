@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
@@ -43,7 +44,11 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
       }
     });
 
-    unawaited(_initialize());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_initialize());
+      }
+    });
   }
 
   final Ref _ref;

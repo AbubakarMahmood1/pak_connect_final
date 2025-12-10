@@ -73,6 +73,8 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   late final TextEditingController _messageController;
   late final ChatScreenControllerArgs _controllerArgs;
+  ProviderSubscription<AsyncValue<ReceivedBinaryEvent>>?
+  _binaryPayloadSubscription;
   bool get _isRepositoryMode => widget.chatId != null;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
@@ -215,20 +217,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             logger: logger,
           ),
     );
-    ref.listen<AsyncValue<ReceivedBinaryEvent>>(binaryPayloadStreamProvider, (
-      previous,
-      next,
-    ) {
-      next.whenData((event) async {
-        if (!_isRelevantBinary(event)) return;
-        await _refreshMessagesFromRepo();
-      });
-    });
+    _binaryPayloadSubscription = ref
+        .listenManual<AsyncValue<ReceivedBinaryEvent>>(
+          binaryPayloadStreamProvider,
+          (previous, next) {
+            next.whenData((event) async {
+              if (!_isRelevantBinary(event)) return;
+              await _refreshMessagesFromRepo();
+            });
+          },
+        );
   }
 
   @override
   void dispose() {
     _messageController.dispose();
+    _binaryPayloadSubscription?.close();
     super.dispose();
   }
 

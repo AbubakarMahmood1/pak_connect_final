@@ -11,6 +11,7 @@ import '../../core/models/spy_mode_info.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/services/hint_advertisement_service.dart';
 import '../../data/repositories/intro_hint_repository.dart';
+import 'ble_messaging_service.dart' show HandshakeSendException;
 
 class _BufferedMessage {
   final Uint8List data;
@@ -140,7 +141,9 @@ class BLEHandshakeService implements IBLEHandshakeService {
 
   @override
   Future<void> performHandshake({bool? startAsInitiatorOverride}) async {
-    _logger.info('🤝 Starting handshake protocol...');
+    _logger.info(
+      '🤝 Starting handshake protocol @${DateTime.now().toIso8601String()}...',
+    );
 
     try {
       // Clean up old handshake coordinator if it exists
@@ -483,6 +486,48 @@ class BLEHandshakeService implements IBLEHandshakeService {
     return _handshakeCoordinator?.currentPhase.toString();
   }
 
+  @override
+  Future<bool> handleIncomingHandshakeMessage(
+    Uint8List data, {
+    bool isFromPeripheral = false,
+  }) async {
+    ProtocolMessage? protocolMessage;
+    try {
+      protocolMessage = ProtocolMessage.fromBytes(data);
+    } catch (_) {
+      // Not a protocol message
+      return false;
+    }
+
+    if (!_isHandshakeMessage(protocolMessage.type)) {
+      return false;
+    }
+
+    if (_handshakeCoordinator != null) {
+      _logger.fine(
+        '🤝 Routing inbound ${protocolMessage.type} to handshake coordinator '
+        '(fromPeripheral=$isFromPeripheral)',
+      );
+      await _handshakeCoordinator!.handleReceivedMessage(protocolMessage);
+      return true;
+    }
+
+    // No coordinator yet: buffer for when handshake starts.
+    _messageBuffer.add(
+      _BufferedMessage(
+        data: data,
+        isFromPeripheral: isFromPeripheral,
+        timestamp: DateTime.now(),
+      ),
+    );
+    _logger.fine(
+      '📦 Buffered handshake message (${protocolMessage.type}) '
+      '(fromPeripheral=$isFromPeripheral)',
+    );
+
+    return true;
+  }
+
   // ===== PRIVATE HELPERS =====
 
   Future<void> _sendHandshakeMessage(ProtocolMessage message) async {
@@ -490,6 +535,9 @@ class BLEHandshakeService implements IBLEHandshakeService {
       // Use the existing queued write system to prevent concurrent writes
       await _sendProtocolMessage(message);
       _logger.fine('✅ Sent handshake message: ${message.type}');
+    } on HandshakeSendException catch (e) {
+      _logger.severe('❌ Failed to send handshake message ${message.type}: $e');
+      rethrow;
     } catch (e) {
       _logger.severe('❌ Failed to send handshake message ${message.type}: $e');
       // Rethrow so handshake coordinator knows it failed
@@ -599,6 +647,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
         type == ProtocolMessageType.noiseHandshake1 ||
         type == ProtocolMessageType.noiseHandshake2 ||
         type == ProtocolMessageType.noiseHandshake3 ||
+        type == ProtocolMessageType.noiseHandshakeRejected ||
         type == ProtocolMessageType.contactStatus;
   }
 }

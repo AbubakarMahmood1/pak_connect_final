@@ -10,10 +10,14 @@ import '../../core/power/adaptive_power_manager.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/entities/enhanced_contact.dart';
 import '../../data/repositories/user_preferences.dart';
+import '../../data/repositories/contact_repository.dart';
 import '../../core/messaging/message_router.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initialization check
+import '../../core/services/security_manager.dart';
+import '../../domain/entities/contact.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
 import '../../core/interfaces/i_mesh_ble_service.dart';
@@ -24,6 +28,8 @@ import '../../core/interfaces/i_ble_handshake_service.dart';
 import '../../core/bluetooth/handshake_coordinator.dart';
 import 'mesh_networking_provider.dart';
 import 'runtime_providers.dart';
+import '../../core/utils/string_extensions.dart';
+import 'ble_service_facade_provider.dart';
 
 // =============================================================================
 // CORE RUNTIME NOTIFIER (BLE)
@@ -184,6 +190,16 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
         });
       },
     );
+
+    // Identity revealed (post-handshake) → propagate to dedup so UI shows name
+    ref.listen<AsyncValue<String>>(bleIdentityRevealedStreamProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((_) {
+        unawaited(_propagateIdentityResolution());
+      });
+    });
   }
 
   Future<void> _awaitInitialization(IConnectionService service) async {
@@ -191,6 +207,67 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
       await (service as IBLEServiceFacade).initializationComplete;
     } else if (service is IBLEService) {
       await (service as IBLEService).initializationComplete;
+    }
+  }
+
+  Future<void> _propagateIdentityResolution() async {
+    try {
+      final connectionService = ref.read(connectionServiceProvider);
+      final device = connectionService.connectedDevice;
+      if (device == null) return;
+
+      final persistentKey =
+          connectionService.theirPersistentPublicKey ??
+          connectionService.theirPersistentKey ??
+          connectionService.currentSessionId;
+      if (persistentKey == null || persistentKey.isEmpty) return;
+
+      final contactRepo = ContactRepository();
+      final contact = await contactRepo.getContactByAnyId(persistentKey);
+
+      final displayName =
+          contact?.displayName ??
+          connectionService.otherUserName ??
+          'User ${persistentKey.shortId(8)}';
+
+      final enhanced = EnhancedContact(
+        contact:
+            contact ??
+            Contact(
+              publicKey: persistentKey,
+              persistentPublicKey: persistentKey,
+              currentEphemeralId: null,
+              displayName: displayName,
+              trustStatus: TrustStatus.newContact,
+              securityLevel: SecurityLevel.low,
+              firstSeen: DateTime.now(),
+              lastSeen: DateTime.now(),
+              lastSecuritySync: null,
+              noisePublicKey: null,
+              noiseSessionState: null,
+              lastHandshakeTime: null,
+              isFavorite: false,
+            ),
+        lastSeenAgo: contact != null
+            ? DateTime.now().difference(contact.lastSeen)
+            : Duration.zero,
+        isRecentlyActive: contact != null
+            ? DateTime.now().difference(contact.lastSeen).inHours < 24
+            : true,
+        interactionCount: 0,
+        averageResponseTime: const Duration(minutes: 5),
+        groupMemberships: const [],
+      );
+
+      DeviceDeduplicationManager.updateResolvedContact(
+        device.uuid.toString(),
+        enhanced,
+      );
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        print('⚠️ Identity propagation failed: $e');
+        print(stackTrace);
+      }
     }
   }
 }
@@ -1119,6 +1196,11 @@ class BurstScanningOperations {
   /// Trigger manual scan (overrides burst timing)
   Future<void> triggerManualScan() async {
     await controller.triggerManualScan();
+  }
+
+  /// Force a manual scan even if cooldown is active.
+  Future<void> forceManualScan() async {
+    await controller.forceBurstScanNow();
   }
 
   /// Report connection success for adaptive power management

@@ -494,6 +494,18 @@ class _FakeMeshBleService implements IConnectionService {
   String? get currentSessionId => currentSessionIdentifier;
 
   @override
+  String? get otherUserName => 'Peer Default';
+
+  @override
+  String? get theirEphemeralId => currentSessionIdentifier;
+
+  @override
+  String? get theirPersistentKey => currentSessionIdentifier;
+
+  @override
+  String? get myPersistentId => 'my-id';
+
+  @override
   bool get canSendMessages => true;
 
   @override

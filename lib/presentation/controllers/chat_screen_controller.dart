@@ -15,10 +15,12 @@ import '../../core/services/persistent_chat_state_manager.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../core/utils/string_extensions.dart';
+import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/services/ble_state_manager.dart';
+import '../../data/services/ble_state_manager_facade.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../core/interfaces/i_mesh_networking_service.dart';
@@ -181,6 +183,8 @@ class ChatScreenController extends ChangeNotifier {
   ChatId _chatId = ChatId('pending_chat_id');
   String? _cachedContactPublicKey;
   bool _disposed = false;
+  bool _waitingForConnection = false;
+  StreamSubscription<ConnectionInfo>? _connectionInfoSub;
   void Function(ChatUIState)? _stateListener;
   void Function()? _disposeStateListener;
 
@@ -292,6 +296,12 @@ class ChatScreenController extends ChangeNotifier {
     if (currentKey != null && currentKey.isNotEmpty) {
       _cachedContactPublicKey = currentKey;
       return currentKey;
+    }
+
+    final ephemeralId = connectionService.theirEphemeralId;
+    if (ephemeralId != null && ephemeralId.isNotEmpty) {
+      _cachedContactPublicKey = ephemeralId;
+      return ephemeralId;
     }
 
     return _cachedContactPublicKey;
@@ -432,6 +442,19 @@ class ChatScreenController extends ChangeNotifier {
       if (manager is BLEStateManager) {
         return manager;
       }
+      if (manager is BLEStateManagerFacade) {
+        return manager.legacyStateManager;
+      }
+      if (manager is IBLEStateManagerFacade) {
+        // Best effort: some facades expose legacyStateManager dynamically.
+        try {
+          final dynamic dynamicManager = manager;
+          final legacy = dynamicManager.legacyStateManager;
+          if (legacy is BLEStateManager) {
+            return legacy;
+          }
+        } catch (_) {}
+      }
     } catch (_) {
       // Fall back below when the connection service doesn't expose stateManager.
     }
@@ -444,6 +467,43 @@ class ChatScreenController extends ChangeNotifier {
 
   Future<void> initialize({bool logChatOpen = true}) async {
     if (_disposed || _initialized) return;
+    final connectionService = ref.read(connectionServiceProvider);
+    final connectionInfo = connectionService.currentConnectionInfo;
+    final hasContactKey =
+        _contactPublicKey != null && _contactPublicKey!.isNotEmpty;
+
+    if (!config.isRepositoryMode &&
+        (!connectionInfo.isReady || !hasContactKey)) {
+      _logger.warning(
+        'Chat initialization deferred: connection not ready or missing key',
+      );
+      if (!_waitingForConnection) {
+        _waitingForConnection = true;
+        _connectionInfoSub ??= connectionService.connectionInfo.listen((
+          info,
+        ) async {
+          if (_disposed || _initialized) return;
+          final keyReady =
+              _contactPublicKey != null && _contactPublicKey!.isNotEmpty;
+          if (info.isReady && keyReady) {
+            await _connectionInfoSub?.cancel();
+            _connectionInfoSub = null;
+            _waitingForConnection = false;
+            unawaited(initialize(logChatOpen: false));
+          }
+        });
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_disposed) return;
+        _stateStore.setInitializationStatus('Waiting for connection...');
+      });
+      return;
+    } else {
+      _waitingForConnection = false;
+      await _connectionInfoSub?.cancel();
+      _connectionInfoSub = null;
+    }
+
     if (logChatOpen) {
       await _logChatOpenState();
     }
@@ -777,6 +837,7 @@ class ChatScreenController extends ChangeNotifier {
     _disposeStateListener?.call();
     _sessionLifecycle.unregisterPersistentListener(_chatId);
     _sessionLifecycle.messageListenerActive = false;
+    _connectionInfoSub?.cancel();
     _scrollingController.dispose();
     _messagingViewModel.dispose();
     _searchController.clear();

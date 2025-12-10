@@ -132,6 +132,8 @@ class BLEConnectionManager {
   bool get isHealthChecking => _healthMonitor.isHealthChecking;
   bool get hasConnection => hasBleConnection;
   bool get _isReady => _connectionState == ChatConnectionState.ready;
+  bool get isHandshakeInProgress => _healthMonitor.isHandshakeInProgress;
+  bool get awaitingHandshake => _healthMonitor.awaitingHandshake;
 
   // 🎯 Phase 2b: Multi-connection getters
   int get clientConnectionCount => _clientConnections.length;
@@ -197,6 +199,11 @@ class BLEConnectionManager {
 
   void setHandshakeInProgress(bool inProgress) =>
       _healthMonitor.setHandshakeInProgress(inProgress);
+
+  void markHandshakeComplete() {
+    _healthMonitor.markHandshakeComplete();
+    _updateConnectionState(ChatConnectionState.ready);
+  }
 
   void startHealthChecks() => _healthMonitor.startHealthChecks();
 
@@ -349,9 +356,6 @@ class BLEConnectionManager {
       _logger.info(
         '🔀 Collision detected with ${_formatAddress(address)} → preferring inbound (server) link, dropping outbound (client)',
       );
-      try {
-        centralManager.disconnect(existingClient.peripheral);
-      } catch (_) {}
       _clientConnections.remove(address);
       _connectionTracker.removeConnection(address);
     }
@@ -359,6 +363,7 @@ class BLEConnectionManager {
     _logger.info(
       '📥 Central connected: ${_formatAddress(address)} (server connections: ${serverConnectionCount + 1}/${_limitConfig.maxServerConnections})',
     );
+    _healthMonitor.setAwaitingHandshake(true);
 
     final connection = BLEServerConnection(
       address: address,
@@ -397,6 +402,11 @@ class BLEConnectionManager {
       // 🧹 REAL-TIME CLEANUP: Trigger immediate cleanup via BLEService
       // This will remove from deduplication manager and notify UI
       onCentralDisconnected?.call(address);
+      if (_serverConnections.isEmpty) {
+        _healthMonitor.setAwaitingHandshake(false);
+        onCharacteristicFound?.call(null);
+        onMtuDetected?.call(null);
+      }
     } else {
       _logger.warning(
         '⚠️ Unknown central disconnected: ${_formatAddress(address)}',
@@ -435,8 +445,50 @@ class BLEConnectionManager {
     }
   }
 
+  void updateServerMtu(String address, int mtu) {
+    final connection = _serverConnections[address];
+    if (connection != null) {
+      _serverConnections[address] = connection.copyWith(mtu: mtu);
+      _logger.fine(
+        '📏 Updated server MTU for ${_formatAddress(address)}: $mtu bytes',
+      );
+    }
+  }
+
   Future<bool> _shouldYieldToInboundLink(String address) async {
     try {
+      final now = DateTime.now();
+      _logger.fine(
+        '⏱️ Collision check @${now.toIso8601String()} for ${_formatAddress(address)} '
+        '(pendingClient=${_pendingClientConnections.contains(address)}, '
+        'handshakeInProgress=${_healthMonitor.isHandshakeInProgress}, '
+        'awaitingHandshake=${_healthMonitor.awaitingHandshake})',
+      );
+      final serverConn = _serverConnections[address];
+      final inboundReady =
+          serverConn?.subscribedCharacteristic != null ||
+          (serverConn?.mtu != null && serverConn!.mtu! > 0);
+      final handshakeActive =
+          _healthMonitor.isHandshakeInProgress ||
+          _healthMonitor.awaitingHandshake;
+
+      final clientConn = _clientConnections[address];
+      if (clientConn != null &&
+          now.difference(clientConn.connectedAt) < const Duration(seconds: 2)) {
+        _logger.fine(
+          '⚖️ Collision tie-breaker: within post-connect grace for ${_formatAddress(address)} — keeping client link',
+        );
+        return false;
+      }
+
+      final inboundViable = inboundReady;
+      if (serverConn != null && !inboundViable) {
+        _logger.fine(
+          '⚖️ Collision tie-breaker: inbound not viable yet for ${_formatAddress(address)} — keeping client link',
+        );
+        return false;
+      }
+
       final remoteDevice = DeviceDeduplicationManager.getDevice(address);
       final remoteHint = remoteDevice?.ephemeralHint;
       final localHint = _localHintProvider != null
@@ -452,28 +504,43 @@ class BLEConnectionManager {
 
       if (hasComparableHints) {
         final comparison = localHint.compareTo(remoteHint);
+        // Use deterministic hint ordering: higher hint yields to inbound.
         if (comparison > 0) {
           _logger.info(
             '⚖️ Collision tie-breaker: our hint ($localHint) > remote ($remoteHint) — yielding to inbound link',
           );
           return true;
-        } else if (comparison < 0) {
+        }
+        if (comparison < 0) {
           _logger.info(
             '⚖️ Collision tie-breaker: our hint ($localHint) < remote ($remoteHint) — keeping client link',
           );
           return false;
-        } else {
-          _logger.info(
-            '⚖️ Collision tie-breaker: hints identical ($localHint) — keeping client link to avoid double-drop',
-          );
-          return false;
         }
+        _logger.info(
+          '⚖️ Collision tie-breaker: hints identical ($localHint) — keeping client link to avoid double-drop',
+        );
+        return false;
+      }
+
+      if (handshakeActive) {
+        _logger.fine(
+          '⚖️ Collision tie-breaker: handshake active, insufficient hint data — keeping client link to ensure an initiator',
+        );
+        return false;
+      }
+
+      if (_pendingClientConnections.contains(address)) {
+        _logger.fine(
+          '⚖️ Collision tie-breaker: outbound connect pending for ${_formatAddress(address)} — keeping client link (no deterministic hint)',
+        );
+        return false;
       }
 
       _logger.info(
-        '⚖️ Collision tie-breaker: insufficient hint data (local=$localHint, remote=$remoteHint) — keeping client link',
+        '⚖️ Collision tie-breaker: insufficient hint data (local=$localHint, remote=$remoteHint) — yielding to inbound link (first link wins)',
       );
-      return false;
+      return true;
     } catch (e) {
       _logger.warning(
         '⚖️ Collision tie-breaker failed ($address): $e — keeping client link',
@@ -481,6 +548,10 @@ class BLEConnectionManager {
       return false;
     }
   }
+
+  /// Allow responder to continue if client disconnects after yielding.
+  bool hasServerConnection(String address) =>
+      _serverConnections[address] != null;
 
   /// 🔍 Format address for logging (first 8 chars)
   String _formatAddress(String address) {
@@ -620,14 +691,16 @@ class BLEConnectionManager {
         );
       }
 
-      _logger.info('🔌 Connecting to ${_formatAddress(address)}...');
+      _logger.info(
+        '🔌 Connecting to ${_formatAddress(address)} @${DateTime.now().toIso8601String()}...',
+      );
       await Future.delayed(Duration(milliseconds: 500));
 
       // Robust connect: 20s timeout + one retry for transient errors (e.g., GATT 133/147)
       for (var attempt = 1; attempt <= 2; attempt++) {
         try {
           _logger.info(
-            '🔌 Connecting (attempt $attempt/2) to ${_formatAddress(address)}...',
+            '🔌 Connecting (attempt $attempt/2) to ${_formatAddress(address)} @${DateTime.now().toIso8601String()}...',
           );
           await centralManager
               .connect(device)
@@ -660,13 +733,6 @@ class BLEConnectionManager {
           _logger.info(
             '↔️ Collision policy yielded to inbound link for ${_formatAddress(address)} — abandoning client link',
           );
-          try {
-            await centralManager.disconnect(device);
-          } catch (e) {
-            _logger.fine(
-              'Ignoring disconnect error for ${_formatAddress(address)}: $e',
-            );
-          }
           _connectionTracker.clearAttempt(address);
           return;
         } else {
@@ -699,7 +765,7 @@ class BLEConnectionManager {
       );
 
       _logger.info(
-        '✅ Connected to ${_formatAddress(address)} (client connections: $clientConnectionCount/${_limitConfig.maxClientConnections})',
+        '✅ Connected to ${_formatAddress(address)} @${DateTime.now().toIso8601String()} (client connections: $clientConnectionCount/${_limitConfig.maxClientConnections})',
       );
       _logger.info(
         '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
@@ -716,14 +782,18 @@ class BLEConnectionManager {
 
       for (int retry = 0; retry < 3; retry++) {
         try {
-          _logger.info('Discovering services, attempt ${retry + 1}/3');
+          _logger.info(
+            'Discovering services, attempt ${retry + 1}/3 @${DateTime.now().toIso8601String()}',
+          );
           services = await centralManager.discoverGATT(device);
 
           messagingService = services.firstWhere(
             (service) => service.uuid == BLEConstants.serviceUUID,
           );
 
-          _logger.info('✅ Messaging service found on attempt ${retry + 1}');
+          _logger.info(
+            '✅ Messaging service found on attempt ${retry + 1} @${DateTime.now().toIso8601String()}',
+          );
           break;
         } catch (e) {
           _logger.warning(
@@ -764,7 +834,9 @@ class BLEConnectionManager {
             messageChar,
             state: true,
           );
-          _logger.info('✅ Notifications enabled successfully');
+          _logger.info(
+            '✅ Notifications enabled successfully @${DateTime.now().toIso8601String()}',
+          );
 
           await Future.delayed(Duration(milliseconds: 500));
         } catch (e) {
@@ -969,6 +1041,12 @@ class BLEConnectionManager {
   void clearConnectionState({bool keepMonitoring = false, String? contactId}) {
     _logger.info('🧹 Clearing connection state');
 
+    // Invalidate characteristic/MTU state eagerly to avoid stale handles on
+    // subsequent reconnects or role flips.
+    onCharacteristicFound?.call(null);
+    onMtuDetected?.call(null);
+    _healthMonitor.resetHandshakeFlags();
+
     // 🧹 CLEANUP: Remove orphaned ephemeral contacts immediately on disconnect
     // No need to wait for app restart - clean as we go!
     if (contactId != null) {
@@ -981,21 +1059,28 @@ class BLEConnectionManager {
     }
 
     _clientConnections.clear();
-    _serverConnections.clear();
-    _connectionTracker.clear();
+    // Preserve server connections if we are still acting as responder.
+    if (!keepMonitoring) {
+      _serverConnections.clear();
+      _connectionTracker.clear();
+    } else {
+      _connectionTracker.clear();
+      for (final entry in _serverConnections.entries) {
+        _connectionTracker.addConnection(address: entry.key, isClient: false);
+      }
+    }
     _lastConnectedDevice = null;
 
     _isReconnection = false;
 
     _logger.info('📊 Connections cleared (client: 0, server: 0)');
+    _updateConnectionState(ChatConnectionState.disconnected);
 
     if (!keepMonitoring) {
       stopConnectionMonitoring();
     }
 
     onConnectionChanged?.call(null);
-    onCharacteristicFound?.call(null);
-    onMtuDetected?.call(null);
   }
 
   /// 🧹 Clean up ephemeral contact immediately if they have no chat history

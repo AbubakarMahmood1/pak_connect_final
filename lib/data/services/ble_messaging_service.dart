@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/interfaces/i_ble_messaging_service.dart';
 import '../../core/models/protocol_message.dart';
@@ -19,8 +20,10 @@ import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/services/security_manager.dart';
+import '../../core/models/ble_server_connection.dart';
 import 'ble_state_manager_facade.dart';
 import 'ble_state_manager.dart';
+import '../../core/models/connection_state.dart';
 
 // Type aliases for better clarity
 typedef CentralManagerType = CentralManager;
@@ -35,6 +38,15 @@ typedef PeripheralManagerType = PeripheralManager;
 /// - Protocol message fragmentation and write queue serialization
 /// - Message decryption and event emission
 /// - Identity exchange protocol messages
+// Raised when a handshake control frame cannot be written to BLE.
+// Allows the handshake coordinator to fail fast instead of timing out.
+class HandshakeSendException implements Exception {
+  final String message;
+  HandshakeSendException(this.message);
+  @override
+  String toString() => 'HandshakeSendException: $message';
+}
+
 class BLEMessagingService implements IBLEMessagingService {
   final _logger = Logger('BLEMessagingService');
 
@@ -243,6 +255,26 @@ class BLEMessagingService implements IBLEMessagingService {
 
   @override
   Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {
+    final hasCentralLink =
+        _connectionManager.hasBleConnection &&
+        _connectionManager.messageCharacteristic != null;
+    final hasPeripheralLink =
+        _stateManager.isPeripheralMode &&
+        _getConnectedCentral() != null &&
+        _getPeripheralMessageCharacteristic() != null;
+
+    if (_connectionManager.isHandshakeInProgress ||
+        _connectionManager.awaitingHandshake) {
+      _logger.fine(
+        '🔄 QUEUE SYNC: Skipping send while handshake is in progress',
+      );
+      return;
+    }
+    if (!hasCentralLink && !hasPeripheralLink) {
+      _logger.fine('🔄 QUEUE SYNC: No active BLE link, skipping send');
+      return;
+    }
+
     final protocolMessage = ProtocolMessage.queueSync(
       queueMessage: queueMessage,
     );
@@ -758,16 +790,155 @@ class BLEMessagingService implements IBLEMessagingService {
     final completer = Completer<void>();
 
     _writeQueue.add(() async {
+      final isHandshakeMessage =
+          message.type == ProtocolMessageType.connectionReady ||
+          message.type == ProtocolMessageType.identity ||
+          message.type == ProtocolMessageType.noiseHandshake1 ||
+          message.type == ProtocolMessageType.noiseHandshake2 ||
+          message.type == ProtocolMessageType.noiseHandshake3 ||
+          message.type == ProtocolMessageType.noiseHandshakeRejected ||
+          message.type == ProtocolMessageType.contactStatus;
+
       try {
+        bool _peripheralNotifyReady() {
+          try {
+            final central = _getConnectedCentral() as Central?;
+            final characteristic =
+                _getPeripheralMessageCharacteristic() as GATTCharacteristic?;
+            if (central == null || characteristic == null) return false;
+            BLEServerConnection? serverConn;
+            try {
+              serverConn = _connectionManager.serverConnections.firstWhere(
+                (c) => c.address == central.uuid.toString(),
+              );
+            } catch (_) {}
+            final subscribed = serverConn?.subscribedCharacteristic;
+            if (subscribed == null) return false;
+            return subscribed.uuid == characteristic.uuid;
+          } catch (_) {
+            return false;
+          }
+        }
+
+        Future<bool> _waitForPeripheralNotifyReady({
+          Duration timeout = const Duration(milliseconds: 1200),
+        }) async {
+          final deadline = DateTime.now().add(timeout);
+          while (DateTime.now().isBefore(deadline)) {
+            if (_peripheralNotifyReady()) return true;
+            await Future.delayed(Duration(milliseconds: 50));
+          }
+          return _peripheralNotifyReady();
+        }
+
+        // Bail out early if neither central nor peripheral link is usable.
+        final hasCentralLink =
+            _connectionManager.hasBleConnection &&
+            _connectionManager.messageCharacteristic != null;
+        final hasPeripheralLink =
+            _stateManager.isPeripheralMode &&
+            _getConnectedCentral() != null &&
+            _getPeripheralMessageCharacteristic() != null;
+
+        // For handshake control frames we must avoid stale handles. If we are in
+        // peripheral mode and have a fresh inbound link, prefer that path even
+        // if an old client connection still exists.
+        Future<void> sendUnfragmented(Uint8List value) async {
+          if (isHandshakeMessage && hasPeripheralLink) {
+            final connectedCentral = _getConnectedCentral() as Central;
+            final characteristic =
+                _getPeripheralMessageCharacteristic() as GATTCharacteristic;
+            await _getPeripheralManager().notifyCharacteristic(
+              connectedCentral,
+              characteristic,
+              value: value,
+            );
+            return;
+          }
+
+          if (hasCentralLink) {
+            await _getCentralManager().writeCharacteristic(
+              _connectionManager.connectedDevice!,
+              _connectionManager.messageCharacteristic!,
+              value: value,
+              type: GATTCharacteristicWriteType.withResponse,
+            );
+            return;
+          }
+
+          if (hasPeripheralLink) {
+            final connectedCentral = _getConnectedCentral() as Central;
+            final characteristic =
+                _getPeripheralMessageCharacteristic() as GATTCharacteristic;
+            await _getPeripheralManager().notifyCharacteristic(
+              connectedCentral,
+              characteristic,
+              value: value,
+            );
+            return;
+          }
+
+          throw Exception('No BLE link available to send payload');
+        }
+
+        if (!hasCentralLink && !hasPeripheralLink) {
+          final msg =
+              'No usable BLE link (central=$hasCentralLink, peripheral=$hasPeripheralLink, state=${_connectionManager.connectionState.name})';
+          _logger.warning('⚠️ Protocol message send skipped: $msg');
+          if (isHandshakeMessage) {
+            _isProcessingWriteQueue = false;
+            completer.completeError(HandshakeSendException(msg));
+            return;
+          }
+          completer.complete();
+          return;
+        }
+
+        if (isHandshakeMessage &&
+            hasPeripheralLink &&
+            !_peripheralNotifyReady()) {
+          _logger.fine(
+            '⏳ Waiting for peripheral notify subscription before sending handshake...',
+          );
+          final ready = await _waitForPeripheralNotifyReady();
+          if (!ready) {
+            final msg = 'Responder notify not enabled for handshake path';
+            _logger.warning('⚠️ Handshake send blocked: $msg');
+            _logger.warning(
+              '⚠️ No inbound notify subscription detected within wait window; initiator may not be enabling notifications',
+            );
+            _isProcessingWriteQueue = false;
+            completer.completeError(HandshakeSendException(msg));
+            return;
+          }
+        }
+
         // Convert protocol message to bytes (may be compressed binary)
         final messageBytes = message.toBytes();
+
+        // Get MTU size with fallback to safe default
+        final mtuSize =
+            _connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
+
+        // Handshake fast-path: send control frames unfragmented when they fit MTU.
+        if (isHandshakeMessage && messageBytes.length <= mtuSize) {
+          _logger.fine(
+            '🤝 Handshake fast path (${message.type}) - sending unfragmented '
+            '(${messageBytes.length} bytes <= MTU $mtuSize)',
+          );
+
+          await sendUnfragmented(messageBytes);
+
+          completer.complete();
+          return;
+        }
 
         // Generate unique message ID for fragmentation
         final msgId =
             'proto_${message.type.name}_${DateTime.now().millisecondsSinceEpoch}';
 
-        // Get MTU size with fallback to safe default
-        final mtuSize =
+        // Get MTU size with fallback to safe default (re-read after potential MTU change)
+        final fragmentationMtu =
             _connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
 
         List<MessageChunk>? chunks;
@@ -776,7 +947,7 @@ class BLEMessagingService implements IBLEMessagingService {
         try {
           chunks = MessageFragmenter.fragmentBytes(
             messageBytes,
-            mtuSize,
+            fragmentationMtu,
             msgId,
           );
           if (chunks.isEmpty) {
@@ -801,72 +972,43 @@ class BLEMessagingService implements IBLEMessagingService {
           final recipientId = _stateManager.getRecipientId();
           final fragments = BinaryFragmenter.fragment(
             data: messageBytes,
-            mtu: mtuSize,
+            mtu: fragmentationMtu,
             originalType: BinaryPayloadType.protocolMessage,
             recipient: recipientId,
           );
 
-          if (_connectionManager.hasBleConnection &&
-              _connectionManager.messageCharacteristic != null) {
-            for (int i = 0; i < fragments.length; i++) {
-              await _getCentralManager().writeCharacteristic(
-                _connectionManager.connectedDevice!,
-                _connectionManager.messageCharacteristic!,
-                value: fragments[i],
-                type: GATTCharacteristicWriteType.withResponse,
-              );
-
-              if (i < fragments.length - 1) {
-                await Future.delayed(Duration(milliseconds: 20));
-              }
-            }
-          } else if (_stateManager.isPeripheralMode &&
-              _getConnectedCentral() != null &&
-              _getPeripheralMessageCharacteristic() != null) {
-            final connectedCentral = _getConnectedCentral() as Central;
-            final characteristic =
-                _getPeripheralMessageCharacteristic() as GATTCharacteristic;
-
-            for (int i = 0; i < fragments.length; i++) {
-              await _getPeripheralManager().notifyCharacteristic(
-                connectedCentral,
-                characteristic,
-                value: fragments[i],
-              );
-
-              if (i < fragments.length - 1) {
-                await Future.delayed(Duration(milliseconds: 20));
-              }
+          for (int i = 0; i < fragments.length; i++) {
+            await sendUnfragmented(fragments[i]);
+            if (i < fragments.length - 1) {
+              await Future.delayed(Duration(milliseconds: 20));
             }
           }
         } else if (singleChunk != null) {
           // Single-chunk fast path to avoid binary envelope overhead.
-          if (_connectionManager.hasBleConnection &&
-              _connectionManager.messageCharacteristic != null) {
-            await _getCentralManager().writeCharacteristic(
-              _connectionManager.connectedDevice!,
-              _connectionManager.messageCharacteristic!,
-              value: singleChunk.toBytes(),
-              type: GATTCharacteristicWriteType.withResponse,
-            );
-          } else if (_stateManager.isPeripheralMode &&
-              _getConnectedCentral() != null &&
-              _getPeripheralMessageCharacteristic() != null) {
-            final connectedCentral = _getConnectedCentral() as Central;
-            final characteristic =
-                _getPeripheralMessageCharacteristic() as GATTCharacteristic;
-
-            await _getPeripheralManager().notifyCharacteristic(
-              connectedCentral,
-              characteristic,
-              value: singleChunk.toBytes(),
-            );
-          }
+          await sendUnfragmented(singleChunk.toBytes());
         }
 
         completer.complete();
-      } catch (e) {
+      } catch (e, stack) {
         _logger.warning('⚠️ Protocol message send failed: $e');
+        _logger.fine('Protocol send stacktrace: $stack');
+        final isPlatformException =
+            e is PlatformException &&
+            (e.message?.contains('status: 133') == true ||
+                e.message?.contains('IllegalArgumentException') == true);
+        if (isPlatformException && isHandshakeMessage) {
+          final msg =
+              'Handshake write failed (platform status 133/IllegalArgument)';
+          _logger.warning(
+            '⚠️ Detected platform write failure (status 133 / IllegalArgument) — aborting queue and awaiting reconnection',
+          );
+          _isProcessingWriteQueue = false;
+          completer.completeError(HandshakeSendException(msg));
+          return;
+        }
+        // Guard against crashing the app when a platform write races with a
+        // disconnect; treat it as a transient failure and let the connection
+        // manager recover.
         completer.completeError(e);
       }
     });
@@ -884,7 +1026,29 @@ class BLEMessagingService implements IBLEMessagingService {
 
     while (_writeQueue.isNotEmpty) {
       final write = _writeQueue.removeAt(0);
-      await write();
+      final hasCentralLink =
+          _connectionManager.hasBleConnection &&
+          _connectionManager.messageCharacteristic != null;
+      final hasPeripheralLink =
+          _stateManager.isPeripheralMode &&
+          _getConnectedCentral() != null &&
+          _getPeripheralMessageCharacteristic() != null;
+      if (!hasCentralLink && !hasPeripheralLink) {
+        _logger.warning(
+          '⚠️ Aborting write queue; BLE connection not ready '
+          '(central=${hasCentralLink}, peripheral=${hasPeripheralLink}, '
+          'state=${_connectionManager.connectionState.name})',
+        );
+        _isProcessingWriteQueue = false;
+        return;
+      }
+      try {
+        await write();
+      } catch (e) {
+        // Write failed; stop processing so caller can handle.
+        _isProcessingWriteQueue = false;
+        rethrow;
+      }
       // Small delay between writes to prevent GATT overload
       await Future.delayed(Duration(milliseconds: 50));
     }
@@ -895,6 +1059,27 @@ class BLEMessagingService implements IBLEMessagingService {
   // ============================================================================
   // MESSAGE RECEPTION & STREAM
   // ============================================================================
+
+  @override
+  Future<void> processIncomingPeripheralData(
+    Uint8List data, {
+    required String senderDeviceId,
+    String? senderNodeId,
+  }) async {
+    try {
+      final inferredNodeId =
+          senderNodeId ??
+          DeviceDeduplicationManager.getDevice(senderDeviceId)?.ephemeralHint ??
+          senderDeviceId;
+      await _messageHandler.processReceivedData(
+        data: data,
+        fromDeviceId: senderDeviceId,
+        fromNodeId: inferredNodeId,
+      );
+    } catch (e) {
+      _logger.warning('⚠️ Failed to process inbound peripheral data: $e');
+    }
+  }
 
   @override
   Stream<String> get receivedMessagesStream =>

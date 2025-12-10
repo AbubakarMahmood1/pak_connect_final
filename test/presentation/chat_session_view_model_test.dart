@@ -535,6 +535,16 @@ class _FakeConnectionService implements IConnectionService {
   @override
   Peripheral? get connectedDevice => null;
   @override
+  String? get otherUserName => null;
+  @override
+  String? get currentSessionId => theirPersistentKey;
+  @override
+  String? get theirEphemeralId => theirPersistentKey;
+  @override
+  String? get myPersistentId => 'my-id';
+  @override
+  Future<String> getMyEphemeralId() async => 'eph';
+  @override
   Stream<BluetoothStateInfo> get bluetoothStateStream => const Stream.empty();
   @override
   Stream<BluetoothStatusMessage> get bluetoothMessageStream =>
@@ -620,10 +630,6 @@ class _FakeConnectionService implements IConnectionService {
   List<String> get activeConnectionDeviceIds => [];
   @override
   Future<String> getMyPublicKey() async => 'me';
-  @override
-  String? get currentSessionId => 'chat-1';
-  @override
-  Future<String> getMyEphemeralId() async => 'eph';
   @override
   void registerQueueSyncHandler(
     Future<bool> Function(QueueSyncMessage p1, String p2) handler,

@@ -37,6 +37,9 @@ class MeshQueueSyncCoordinator {
   VoidCallback? _onStatusChanged;
   StreamSubscription<ConnectionInfo>? _connectionSubscription;
   bool _queueSyncHandlerRegistered = false;
+  final Set<String> _queueSyncInFlight = {};
+  final Map<String, DateTime> _lastQueueSyncAt = {};
+  static const Duration _queueSyncDebounce = Duration(seconds: 10);
 
   MeshQueueSyncCoordinator({
     required IConnectionService bleService,
@@ -438,7 +441,9 @@ class MeshQueueSyncCoordinator {
   void _handleConnectionChange(ConnectionInfo connectionInfo) async {
     final connectedDeviceId = _bleService.currentSessionId;
 
+    // Only treat the link as usable when the handshake has completed (isReady).
     if (connectionInfo.isConnected &&
+        connectionInfo.isReady &&
         connectedDeviceId != null &&
         connectedDeviceId.isNotEmpty) {
       MeshDebugLogger.deviceConnected(connectedDeviceId);
@@ -449,7 +454,17 @@ class MeshQueueSyncCoordinator {
       if (connectedDeviceId != null && connectedDeviceId.isNotEmpty) {
         MeshDebugLogger.deviceDisconnected(connectedDeviceId);
       }
+      _queueSyncManager?.cancelAllSyncs(reason: 'Connection lost');
       _messageQueue?.setOffline();
+      _queueSyncInFlight.clear();
+      if (connectedDeviceId != null) {
+        _lastQueueSyncAt.remove(connectedDeviceId);
+      }
+    } else {
+      // Connected but not ready (handshake/identity in progress) — keep queues offline.
+      _queueSyncManager?.cancelAllSyncs(reason: 'Handshake incomplete');
+      _messageQueue?.setOffline();
+      _queueSyncInFlight.clear();
     }
 
     _onStatusChanged?.call();
@@ -517,14 +532,34 @@ class MeshQueueSyncCoordinator {
       return;
     }
 
+    if (_queueSyncInFlight.contains(deviceId)) {
+      _logger.fine(
+        '⏳ Queue sync already in flight for ${deviceId.shortId(8)}..., skipping',
+      );
+      return;
+    }
+
+    final lastAttempt = _lastQueueSyncAt[deviceId];
+    if (lastAttempt != null &&
+        DateTime.now().difference(lastAttempt) < _queueSyncDebounce) {
+      _logger.fine(
+        '⏸️ Queue sync recently attempted for ${deviceId.shortId(8)}... (debounced)',
+      );
+      return;
+    }
+
     try {
       final truncatedDeviceId = deviceId.length > 8
           ? deviceId.shortId(8)
           : deviceId;
       _logger.info('🔄 Starting queue sync with $truncatedDeviceId...');
+      _queueSyncInFlight.add(deviceId);
       await manager.initiateSync(deviceId);
     } catch (e) {
       _logger.severe('Failed to sync queue with device: $e');
+    } finally {
+      _queueSyncInFlight.remove(deviceId);
+      _lastQueueSyncAt[deviceId] = DateTime.now();
     }
   }
 
@@ -600,6 +635,8 @@ abstract class QueueSyncManagerContract {
     String fromNodeId,
   );
 
+  void cancelAllSyncs({String? reason});
+
   void dispose();
 }
 
@@ -653,6 +690,10 @@ class QueueSyncManagerAdapter implements QueueSyncManagerContract {
     receivedMessages,
     fromNodeId,
   );
+
+  @override
+  void cancelAllSyncs({String? reason}) =>
+      _manager.cancelAllSyncs(reason: reason);
 
   @override
   void dispose() => _manager.dispose();

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:math';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 
@@ -25,10 +26,12 @@ class ConnectionHealthMonitor {
   Timer? _monitoringTimer;
   bool _isMonitoring = false;
   int _monitoringInterval;
+  DateTime? _healthCheckGraceUntil;
   int _reconnectAttempts = 0;
   bool _messageOperationInProgress = false;
   bool _pairingInProgress = false;
   bool _handshakeInProgress = false;
+  bool _awaitingHandshake = false;
   bool _isReconnection = false;
   ConnectionMonitorState _monitorState = ConnectionMonitorState.idle;
 
@@ -58,6 +61,8 @@ class ConnectionHealthMonitor {
   bool get isHealthChecking =>
       _isMonitoring && _monitorState == ConnectionMonitorState.healthChecking;
   bool get isReconnection => _isReconnection;
+  bool get isHandshakeInProgress => _handshakeInProgress;
+  bool get awaitingHandshake => _awaitingHandshake;
 
   void start() {
     if (_isMonitoring) return;
@@ -79,6 +84,8 @@ class ConnectionHealthMonitor {
     _monitoringTimer = null;
     _monitorState = ConnectionMonitorState.idle;
     _monitoringInterval = minInterval;
+    _healthCheckGraceUntil = null;
+    _awaitingHandshake = false;
     _reconnectAttempts = 0;
     onMonitoringChanged?.call(false);
     _logger.info('Monitoring stopped');
@@ -89,6 +96,10 @@ class ConnectionHealthMonitor {
       _logger.fine('⏸️ Skipping health checks - no client link to monitor');
       return;
     }
+
+    // Add a grace window after a fresh connection to avoid racing the handshake.
+    _healthCheckGraceUntil = DateTime.now().add(const Duration(seconds: 8));
+    _awaitingHandshake = true;
     if (!_isMonitoring) {
       start();
     }
@@ -109,7 +120,31 @@ class ConnectionHealthMonitor {
       _logger.info('🤝 Handshake started - pausing health checks');
     } else {
       _logger.info('⏹️ Handshake ended - resuming health checks');
+      _awaitingHandshake = false;
+      _healthCheckGraceUntil = null;
     }
+  }
+
+  void setAwaitingHandshake(bool awaiting) {
+    _awaitingHandshake = awaiting;
+    _logger.fine(
+      '🤝 Awaiting handshake flag set to $awaiting '
+      '(handshakeInProgress=$_handshakeInProgress)',
+    );
+  }
+
+  void markHandshakeComplete() {
+    _awaitingHandshake = false;
+    _healthCheckGraceUntil = DateTime.now().add(const Duration(seconds: 8));
+    _logger.fine(
+      '🤝 Handshake complete - health checks may proceed after grace',
+    );
+  }
+
+  void resetHandshakeFlags() {
+    _handshakeInProgress = false;
+    _awaitingHandshake = false;
+    _healthCheckGraceUntil = null;
   }
 
   void setMessageOperationInProgress(bool inProgress) {
@@ -178,6 +213,17 @@ class ConnectionHealthMonitor {
       return;
     }
 
+    if (_healthCheckGraceUntil != null &&
+        DateTime.now().isBefore(_healthCheckGraceUntil!)) {
+      _logger.fine('⏸️ Skipping health check - grace window after connect');
+      return;
+    }
+
+    if (_awaitingHandshake) {
+      _logger.fine('⏸️ Skipping health check - awaiting handshake completion');
+      return;
+    }
+
     try {
       final pingData = Uint8List.fromList([0x00]);
       final device = getConnectedDevice()!;
@@ -192,7 +238,7 @@ class ConnectionHealthMonitor {
             value: pingData,
             type: GATTCharacteristicWriteType.withResponse,
           )
-          .timeout(Duration(seconds: 3));
+          .timeout(const Duration(seconds: 8));
 
       _logger.info(
         '✅ Health check passed (interval: ${_monitoringInterval}ms)',

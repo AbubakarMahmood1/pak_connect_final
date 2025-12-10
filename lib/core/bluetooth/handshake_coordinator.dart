@@ -147,7 +147,7 @@ class HandshakeCoordinator {
   /// This is the entry point - call this after BLE connection is established
   Future<void> startHandshake() async {
     _logger.info(
-      '🤝 Starting handshake (phase: $_phase, role: ${_isInitiator ? 'INITIATOR' : 'RESPONDER'})',
+      '🤝 Starting handshake @${DateTime.now().toIso8601String()} (phase: $_phase, role: ${_isInitiator ? 'INITIATOR' : 'RESPONDER'})',
     );
 
     if (_phase != ConnectionPhase.bleConnected) {
@@ -232,7 +232,7 @@ class HandshakeCoordinator {
       deviceName: _myDisplayName,
     );
 
-    await _sendMessage(message);
+    await _sendWithGuard(message, 'connectionReady');
     _startPhaseTimeout('connectionReadyAck');
   }
 
@@ -261,7 +261,7 @@ class HandshakeCoordinator {
         deviceId: _myPublicKey,
         deviceName: _myDisplayName,
       );
-      await _sendMessage(response);
+      await _sendWithGuard(response, 'connectionReady (ack)');
       return;
     }
 
@@ -305,7 +305,7 @@ class HandshakeCoordinator {
       displayName: _myDisplayName,
     );
 
-    await _sendMessage(message);
+    await _sendWithGuard(message, 'identity');
     _startPhaseTimeout('identity');
   }
 
@@ -343,7 +343,7 @@ class HandshakeCoordinator {
         publicKey: _myEphemeralId, // ← Send ephemeral ID
         displayName: _myDisplayName,
       );
-      await _sendMessage(response);
+      await _sendWithGuard(response, 'identity (ack)');
       return;
     }
 
@@ -394,7 +394,7 @@ class HandshakeCoordinator {
         peerId: _myEphemeralId,
       );
 
-      await _sendMessage(message);
+      await _sendWithGuard(message, 'noiseHandshake1');
       _startPhaseTimeout('noiseHandshake2');
     } catch (e) {
       _logger.severe('❌ Failed to send Noise handshake 1: $e');
@@ -455,7 +455,7 @@ class HandshakeCoordinator {
         peerId: _myEphemeralId,
       );
 
-      await _sendMessage(response);
+      await _sendWithGuard(response, 'noiseHandshake2');
 
       // KK handshake completes after message 2! (no message 3)
       if (result.isKkPattern) {
@@ -523,7 +523,7 @@ class HandshakeCoordinator {
         peerId: _myEphemeralId,
       );
 
-      await _sendMessage(response);
+      await _sendWithGuard(response, 'noiseHandshake3');
 
       // After sending message 3, handshake is complete on our side
       await _advanceToNoiseHandshakeComplete();
@@ -690,7 +690,7 @@ class HandshakeCoordinator {
       publicKey: _myEphemeralId, // Send our ephemeral ID
     );
 
-    await _sendMessage(message);
+    await _sendWithGuard(message, 'contactStatus');
     _startPhaseTimeout('contactStatus');
   }
 
@@ -766,7 +766,7 @@ class HandshakeCoordinator {
         hasAsContact: weHaveThem,
         publicKey: _myEphemeralId, // Send our ephemeral ID
       );
-      await _sendMessage(response);
+      await _sendWithGuard(response, 'contactStatus (ack)');
 
       // Advance to contact status complete, then complete handshake
       await _advanceToContactStatusComplete();
@@ -868,6 +868,16 @@ class HandshakeCoordinator {
     onHandshakeStateChanged?.call(false);
   }
 
+  Future<void> _sendWithGuard(ProtocolMessage message, String context) async {
+    try {
+      await _sendMessage(message);
+    } catch (e) {
+      _logger.severe('❌ Failed to send $context: $e');
+      await _failHandshake('Failed to send $context: $e');
+      rethrow;
+    }
+  }
+
   // ========== KK PATTERN REJECTION HANDLING ==========
 
   /// Send rejection message when we can't do KK
@@ -890,7 +900,7 @@ class HandshakeCoordinator {
       contactStatus: contactStatus,
     );
 
-    await _sendMessage(message);
+    await _sendWithGuard(message, 'noiseHandshakeRejected');
   }
 
   /// Handle rejection message from peer
