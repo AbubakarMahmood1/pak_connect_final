@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     show BluetoothLowEnergyState;
@@ -17,6 +18,7 @@ import '../bluetooth/bluetooth_state_monitor.dart'; // ✅ FIX #2: Import for Bl
 /// - Battery savings: Eliminates unnecessary scanning when connections are saturated
 class BurstScanningController {
   static final _logger = Logger('BurstScanningController');
+  final _rand = Random();
 
   AdaptivePowerManager?
   _powerManager; // ✅ FIX: Made nullable to prevent LateInitializationError on disposal
@@ -29,6 +31,8 @@ class BurstScanningController {
       false; // ✅ FIX: Track if scan actually started (vs skipped due to Bluetooth unavailable)
   DateTime? _nextScanTime;
   DateTime? _burstEndTime;
+  DateTime? _lastBurstEndedAt;
+  Duration _cooldownDuration = const Duration(seconds: 30);
   Timer? _statusUpdateTimer;
   Timer?
   _burstDurationTimer; // Timer to handle burst duration in continuous scan mode
@@ -114,7 +118,18 @@ class BurstScanningController {
   }
 
   /// Handle burst scan start from power manager
-  void _handleBurstScanStart() async {
+  Future<void> _handleBurstScanStart() async {
+    // Throttle rapid restart loops: enforce a randomized cooldown after a burst ends.
+    if (_lastBurstEndedAt != null &&
+        DateTime.now().difference(_lastBurstEndedAt!) < _cooldownDuration) {
+      final remaining =
+          _cooldownDuration - DateTime.now().difference(_lastBurstEndedAt!);
+      _logger.fine(
+        '🔥 BURST: Skipping start - cooldown active (${remaining.inSeconds}s left)',
+      );
+      return;
+    }
+
     // ✅ FIX #2: Check BLE service availability first
     if (_bleService == null) {
       _logger.fine('🔥 BURST: BLE service not available - skipping scan');
@@ -203,6 +218,9 @@ class BurstScanningController {
 
     _isBurstActive = false;
     _burstEndTime = null;
+    _lastBurstEndedAt = DateTime.now();
+    // Randomize next cooldown between 30–60 seconds to avoid tight loops.
+    _cooldownDuration = Duration(seconds: 30 + _rand.nextInt(31));
 
     // ✅ FIX: Only try to stop scan if it actually started
     // This prevents "Stopping unknown BLE scan" logs when Bluetooth unavailable
@@ -280,9 +298,11 @@ class BurstScanningController {
   }
 
   /// Manual override - trigger immediate burst scan
-  Future<void> triggerManualScan() async {
+  Future<void> triggerManualScan({
+    Duration delay = const Duration(seconds: 1),
+  }) async {
     _logger.info(
-      '🔥 MANUAL: User requested immediate scan - triggering next burst scan now',
+      '🔥 MANUAL: User requested immediate scan - overriding timers',
     );
 
     if (_bleService == null || _powerManager == null) {
@@ -290,11 +310,59 @@ class BurstScanningController {
       return;
     }
 
-    // Simply trigger the power manager to start the next burst scan immediately
-    // This reuses all the existing burst scan logic (20s duration, proper source tagging, etc.)
-    await _powerManager!.triggerImmediateScan();
+    // If already scanning, shorten the active burst to end quickly.
+    if (_isBurstActive) {
+      _logger.info(
+        '🔥 MANUAL: Active burst detected - shortening to ${delay.inSeconds}s',
+      );
+
+      _burstEndTime = DateTime.now().add(delay);
+      _burstDurationTimer?.cancel();
+      _burstDurationTimer = Timer(delay, () {
+        if (_isBurstActive) {
+          _handleBurstScanStop();
+        }
+      });
+
+      _powerManager?.shortenActiveBurst(delay);
+      _updateStatus();
+      return;
+    }
+
+    // Override cooldown: pretend the last burst ended long enough ago and
+    // schedule the next scan to fire soon.
+    _lastBurstEndedAt = DateTime.now().subtract(_cooldownDuration);
+    _cooldownDuration = delay;
+    _nextScanTime = DateTime.now().add(delay);
+
+    await _powerManager!.scheduleManualBurstAfter(delay);
 
     _logger.info('✅ MANUAL: Immediate burst scan triggered via power manager');
+    _updateStatus();
+  }
+
+  /// Force a burst scan immediately, bypassing the cooldown timer.
+  Future<void> forceBurstScanNow() async {
+    _logger.info('🔥 MANUAL: Forcing burst scan (cooldown bypass)');
+    _lastBurstEndedAt = DateTime.now().subtract(_cooldownDuration);
+    _cooldownDuration = Duration.zero;
+    _nextScanTime = DateTime.now();
+
+    if (_isBurstActive) {
+      _logger.fine(
+        '🔥 BURST: Already active - shortening and restarting soon instead',
+      );
+      await triggerManualScan(delay: Duration(seconds: 1));
+      return;
+    }
+
+    if (_powerManager == null || _bleService == null) {
+      _logger.warning('BLE service or power manager not available');
+      return;
+    }
+
+    await _powerManager!.scheduleManualBurstAfter(Duration.zero);
+    _updateStatus();
   }
 
   /// Get current burst scanning status

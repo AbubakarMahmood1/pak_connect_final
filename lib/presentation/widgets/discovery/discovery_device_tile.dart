@@ -3,6 +3,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 
+import '../../../core/discovery/device_deduplication_manager.dart';
 import '../../../core/security/hint_cache_manager.dart';
 import '../../../core/services/hint_advertisement_service.dart';
 import '../../../core/security/security_types.dart';
@@ -16,6 +17,7 @@ class DiscoveryDeviceTile extends StatelessWidget {
     required this.device,
     required this.advertisement,
     required this.isKnownContact,
+    required this.dedupDevice,
     required this.contacts,
     required this.attemptState,
     required this.isConnectedAsCentral,
@@ -30,6 +32,7 @@ class DiscoveryDeviceTile extends StatelessWidget {
   final Peripheral device;
   final DiscoveredEventArgs? advertisement;
   final bool isKnownContact;
+  final DiscoveredDevice? dedupDevice;
   final Map<String, Contact> contacts;
   final ConnectionAttemptState attemptState;
   final bool isConnectedAsCentral;
@@ -434,14 +437,26 @@ class DiscoveryDeviceTile extends StatelessWidget {
     bool isContactResolved = false;
     Contact? matchedContact;
 
+    // Prefer resolved contact info from deduplication manager (hint or identity).
+    final resolvedFromDedup = dedupDevice?.contactInfo?.contact;
+    if (resolvedFromDedup != null) {
+      deviceName = resolvedFromDedup.displayName;
+      matchedContact = resolvedFromDedup;
+      isContactResolved = true;
+    }
+
     if (advertisement != null &&
         advertisement.advertisement.manufacturerSpecificData.isNotEmpty) {
-      deviceName = _resolveDeviceNameFromHints(advertisement, logger);
-      isContactResolved = deviceName != 'Unknown Device';
+      final nameFromHint = _resolveDeviceNameFromHints(advertisement, logger);
+      final resolvedFromHint = nameFromHint != 'Unknown Device';
+      if (!isContactResolved && resolvedFromHint) {
+        deviceName = nameFromHint;
+        isContactResolved = true;
+      }
 
-      if (isContactResolved) {
+      if (resolvedFromHint) {
         matchedContact = contacts.values
-            .where((contact) => contact.displayName == deviceName)
+            .where((contact) => contact.displayName == nameFromHint)
             .firstOrNull;
       }
     }

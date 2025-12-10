@@ -530,6 +530,30 @@ class QueueSyncManager {
 
     _logger.info('Queue sync manager disposed');
   }
+
+  /// Cancel all in-flight sync timers/completions (e.g., on disconnect).
+  void cancelAllSyncs({String? reason}) {
+    for (final timer in _activeSyncs.values) {
+      timer.cancel();
+    }
+    _activeSyncs.clear();
+
+    for (final stopwatch in _syncStopwatches.values) {
+      stopwatch.stop();
+    }
+    _syncStopwatches.clear();
+
+    for (final pending in _pendingSyncs.values) {
+      if (!pending.isCompleted) {
+        pending.complete(QueueSyncResult.error(reason ?? 'Sync cancelled'));
+      }
+    }
+    _pendingSyncs.clear();
+    _syncInProgress.clear();
+    _logger.fine(
+      '🔄 Queue sync timers cleared${reason != null ? " ($reason)" : ""}',
+    );
+  }
 }
 
 /// Result of a queue synchronization operation

@@ -74,10 +74,6 @@ class DiscoveryScannerView extends ConsumerWidget {
     final discoveryData = discoveryDataAsync.value ?? {};
     final deduplicatedDevices = deduplicatedDevicesAsync.value ?? {};
 
-    for (final device in devices) {
-      controller.updateDeviceLastSeen(device.uuid.toString());
-    }
-
     final now = DateTime.now();
     const staleThreshold = Duration(minutes: 3);
     final freshDevices = devices.where((device) {
@@ -90,6 +86,11 @@ class DiscoveryScannerView extends ConsumerWidget {
 
     for (final device in freshDevices) {
       final deviceId = device.uuid.toString();
+      final dedupDevice = deduplicatedDevices[deviceId];
+
+      // Hide retired/ghost entries until a fresh advertisement revives them.
+      if (dedupDevice?.isRetired == true) continue;
+
       final deduplicatedDevice = deduplicatedDevices[deviceId];
 
       if (deduplicatedDevice != null && deduplicatedDevice.isKnownContact) {
@@ -134,6 +135,7 @@ class DiscoveryScannerView extends ConsumerWidget {
               device: device,
               advertisement: discoveryData[device.uuid.toString()],
               isKnownContact: true,
+              dedupDevice: deduplicatedDevices[device.uuid.toString()],
               contacts: state.contacts,
               attemptState: controller.attemptStateFor(device.uuid.toString()),
               isConnectedAsCentral:
@@ -169,6 +171,7 @@ class DiscoveryScannerView extends ConsumerWidget {
               device: device,
               advertisement: discoveryData[device.uuid.toString()],
               isKnownContact: false,
+              dedupDevice: deduplicatedDevices[device.uuid.toString()],
               contacts: state.contacts,
               attemptState: controller.attemptStateFor(device.uuid.toString()),
               isConnectedAsCentral:
@@ -446,9 +449,7 @@ class DiscoveryScannerView extends ConsumerWidget {
 
     return GestureDetector(
       onTap: () async {
-        if (!isScanning && controller.canTriggerManualScan()) {
-          await onStartScanning();
-        }
+        await onStartScanning();
       },
       child: SizedBox(
         width: 70,

@@ -176,7 +176,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
         )
         .listen((event) {
           if (event.state == ble.ConnectionState.connected) {
-            _logger.info('Incoming connection detected');
+            _logger.fine('Incoming connection detected');
             recordIncomingConnection();
           }
         });

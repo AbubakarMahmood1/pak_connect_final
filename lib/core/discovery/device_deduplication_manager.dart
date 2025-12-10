@@ -81,6 +81,52 @@ class DeviceDeduplicationManager {
       '🔍 [DEDUP] Device $deviceIdShort... has hint: $ephemeralHint',
     );
 
+    // Merge duplicates by stable hint to avoid multiple ghost entries when
+    // OS rotates addresses but the advertisement payload is the same.
+    final mergedInto = _findMergeTarget(
+      incomingDeviceId: deviceId,
+      ephemeralHint: ephemeralHint,
+    );
+    if (mergedInto != null) {
+      final target = _uniqueDevices[mergedInto];
+      if (target != null) {
+        _logger.info(
+          '🔁 [DEDUP] Merging $deviceIdShort... into ${mergedInto.shortId(8)} '
+          'based on matching hint',
+        );
+        _uniqueDevices.remove(mergedInto);
+        final mergedDevice =
+            DiscoveredDevice(
+                deviceId: deviceId,
+                ephemeralHint: ephemeralHint,
+                peripheral: event.peripheral,
+                rssi: event.rssi,
+                advertisement: event.advertisement,
+                firstSeen: target.firstSeen,
+                lastSeen: DateTime.now(),
+                hintNonce: parsedHint != null
+                    ? Uint8List.fromList(parsedHint.nonce)
+                    : target.hintNonce,
+                hintBytes: parsedHint != null
+                    ? Uint8List.fromList(parsedHint.hintBytes)
+                    : target.hintBytes,
+                isIntroHint: parsedHint?.isIntro ?? target.isIntroHint,
+              )
+              ..isKnownContact = target.isKnownContact
+              ..contactInfo = target.contactInfo
+              ..autoConnectAttempted = target.autoConnectAttempted
+              ..lastAttempt = target.lastAttempt
+              ..attemptCount = target.attemptCount
+              ..nextRetryAt = target.nextRetryAt
+              ..isRetired = false;
+
+        _uniqueDevices[deviceId] = mergedDevice;
+        _notifyListeners();
+        autoConnectStrongestRssi();
+        return;
+      }
+    }
+
     final existingDevice = _uniqueDevices[deviceId];
 
     if (existingDevice == null) {
@@ -112,15 +158,15 @@ class DeviceDeduplicationManager {
       );
       _verifyContactAsync(newDevice); // This will trigger auto-connect
       _notifyListeners();
+      autoConnectStrongestRssi();
     } else {
       // ✅ EXISTING DEVICE - Update metadata
       _logger.fine(
         '🔄 [DEDUP] EXISTING DEVICE: $deviceIdShort... - updating metadata (RSSI: ${event.rssi})',
       );
 
-      existingDevice.rssi = event.rssi;
-      existingDevice.lastSeen = DateTime.now();
-      existingDevice.advertisement = event.advertisement;
+      _updateDeviceFromEvent(existingDevice, event, parsedHint, ephemeralHint);
+      existingDevice.isRetired = false;
 
       // Check if ephemeral hint changed (key rotation) OR auto-connect not yet attempted
       if (existingDevice.ephemeralHint != ephemeralHint) {
@@ -161,6 +207,7 @@ class DeviceDeduplicationManager {
       }
 
       _notifyListeners();
+      autoConnectStrongestRssi();
     }
 
     _logger.fine(
@@ -209,6 +256,7 @@ class DeviceDeduplicationManager {
 
       await _triggerAutoConnect(device, contactName);
       _notifyListeners();
+      _propagateContactResolution(device);
       _logger.info('✅ [VERIFY-P1] Verification complete - device map updated');
       return;
     }
@@ -241,6 +289,7 @@ class DeviceDeduplicationManager {
 
           await _triggerAutoConnect(device, contactName);
           _notifyListeners();
+          _propagateContactResolution(device);
           _logger.info(
             '✅ [VERIFY-P2] Verification complete - device map updated',
           );
@@ -263,10 +312,24 @@ class DeviceDeduplicationManager {
     device.contactInfo = null;
 
     _logger.info('👤 [VERIFY-P4] Unknown device: $deviceId... (no hint match)');
-    _logger.info('⏭️ [VERIFY-P4] Auto-connect skipped for unknown device');
+    _logger.info(
+      '⏭️ [VERIFY-P4] Verification complete (auto-connect handled by RSSI flow)',
+    );
 
     _notifyListeners();
     _logger.info('✅ [VERIFY-P4] Verification complete - device map updated');
+  }
+
+  /// Allow external identity resolution (e.g., post Noise identity exchange) to
+  /// update a device and propagate the contact across matching hints.
+  static void updateResolvedContact(String deviceId, EnhancedContact contact) {
+    final device = _uniqueDevices[deviceId];
+    if (device == null) return;
+    device.contactInfo = contact;
+    device.isKnownContact = true;
+    device.isRetired = false;
+    _propagateContactResolution(device);
+    _notifyListeners();
   }
 
   /// 🔗 Trigger auto-connect callback if registered
@@ -281,26 +344,7 @@ class DeviceDeduplicationManager {
     _logger.info('🔗 [AUTO-CONNECT] Device: $deviceIdShort...');
     _logger.info('🔗 [AUTO-CONNECT] Known contact: ${device.isKnownContact}');
 
-    // Mark auto-connect as attempted + schedule retry backoff
-    device.autoConnectAttempted = true;
-    device.lastAttempt = DateTime.now();
-    device.attemptCount = (device.attemptCount) + 1;
-    int backoffSecs;
-    if (device.attemptCount <= 1) {
-      backoffSecs = 5;
-    } else if (device.attemptCount == 2) {
-      backoffSecs = 10;
-    } else if (device.attemptCount == 3) {
-      backoffSecs = 20;
-    } else {
-      backoffSecs = 60; // cap
-    }
-    device.nextRetryAt = device.lastAttempt!.add(
-      Duration(seconds: backoffSecs),
-    );
-    _logger.info(
-      '✅ [AUTO-CONNECT] Marked attempted at ${device.lastAttempt} (retry @ ${device.nextRetryAt})',
-    );
+    _setAutoConnectAttemptMetadata(device);
 
     if (onKnownContactDiscovered == null) {
       _logger.warning(
@@ -327,6 +371,85 @@ class DeviceDeduplicationManager {
     _logger.info('🔗 [AUTO-CONNECT] ========================================');
   }
 
+  /// Simple strategy: pick the strongest RSSI device that is eligible and attempt auto-connect.
+  static Future<void> autoConnectStrongestRssi() async {
+    if (onKnownContactDiscovered == null) {
+      _logger.fine(
+        'ℹ️ [AUTO-CONNECT] Callback not registered; skipping RSSI-based auto-connect',
+      );
+      return;
+    }
+
+    final now = DateTime.now();
+    final candidates = _uniqueDevices.values.where((device) {
+      // Respect retry backoff if previously attempted.
+      if (device.autoConnectAttempted &&
+          device.nextRetryAt != null &&
+          now.isBefore(device.nextRetryAt!)) {
+        return false;
+      }
+      if (device.isRetired) return false;
+      return true;
+    }).toList();
+
+    if (candidates.isEmpty) return;
+
+    candidates.sort((a, b) => (b.rssi ?? -999).compareTo(a.rssi ?? -999));
+    final top = candidates.first;
+
+    final displayName =
+        top.contactInfo?.contact.displayName ?? 'Unknown device';
+    _logger.info(
+      '🔗 [AUTO-CONNECT] Selecting strongest RSSI device: ${top.deviceId.shortId(8)} '
+      '(rssi: ${top.rssi}) name: $displayName',
+    );
+
+    _setAutoConnectAttemptMetadata(top);
+
+    try {
+      await onKnownContactDiscovered!(top.peripheral, displayName);
+      _logger.info(
+        '✅ [AUTO-CONNECT] RSSI-based connect attempt issued for ${top.deviceId.shortId(8)}',
+      );
+    } catch (e, stackTrace) {
+      _logger.warning(
+        '⚠️ [AUTO-CONNECT] RSSI-based connect failed for ${top.deviceId.shortId(8)}: $e',
+      );
+      _logger.fine('Stack trace: $stackTrace');
+    }
+  }
+
+  static void _setAutoConnectAttemptMetadata(DiscoveredDevice device) {
+    device.autoConnectAttempted = true;
+    device.lastAttempt = DateTime.now();
+    device.attemptCount = (device.attemptCount) + 1;
+    int backoffSecs;
+    if (device.attemptCount <= 1) {
+      backoffSecs = 5;
+    } else if (device.attemptCount == 2) {
+      backoffSecs = 10;
+    } else if (device.attemptCount == 3) {
+      backoffSecs = 20;
+    } else {
+      backoffSecs = 60; // cap
+    }
+    device.nextRetryAt = device.lastAttempt!.add(
+      Duration(seconds: backoffSecs),
+    );
+    _logger.info(
+      '✅ [AUTO-CONNECT] Marked attempted at ${device.lastAttempt} (retry @ ${device.nextRetryAt})',
+    );
+
+    // Retire noisy/ghost entries after repeated failures; a fresh advertisement
+    // (with same hint) will un-retire via merge.
+    if (device.attemptCount >= 4) {
+      device.isRetired = true;
+      _logger.info(
+        '🛑 [AUTO-CONNECT] Retiring device ${device.deviceId.shortId(8)} after ${device.attemptCount} attempts',
+      );
+    }
+  }
+
   /// 🗑️ Remove a specific device immediately (real-time cleanup)
   ///
   /// Called when a device disconnects to ensure no stale data.
@@ -338,6 +461,17 @@ class DeviceDeduplicationManager {
       Logger(
         'DeviceDeduplicationManager',
       ).fine('🗑️ Removed device: $deviceId');
+    }
+  }
+
+  /// Mark a device entry as retired to temporarily hide unusable/ghost entries
+  /// until a fresh advertisement revives it.
+  static void markRetired(String deviceId) {
+    final device = _uniqueDevices[deviceId];
+    if (device != null) {
+      device.isRetired = true;
+      _notifyListeners();
+      _logger.fine('🗑️ Marked device retired: $deviceId');
     }
   }
 
@@ -406,6 +540,55 @@ class DeviceDeduplicationManager {
     return true;
   }
 
+  static String? _findMergeTarget({
+    required String incomingDeviceId,
+    required String ephemeralHint,
+  }) {
+    if (ephemeralHint == _noHintValue) return null;
+    for (final entry in _uniqueDevices.entries) {
+      if (entry.key == incomingDeviceId) continue;
+      if (entry.value.ephemeralHint == ephemeralHint) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  static void _updateDeviceFromEvent(
+    DiscoveredDevice target,
+    DiscoveredEventArgs event,
+    ParsedHint? parsedHint,
+    String ephemeralHint,
+  ) {
+    target.rssi = event.rssi;
+    target.lastSeen = DateTime.now();
+    target.advertisement = event.advertisement;
+    target.ephemeralHint = ephemeralHint;
+    if (parsedHint != null) {
+      target.hintNonce = Uint8List.fromList(parsedHint.nonce);
+      target.hintBytes = Uint8List.fromList(parsedHint.hintBytes);
+      target.isIntroHint = parsedHint.isIntro;
+    }
+  }
+
+  static void _propagateContactResolution(DiscoveredDevice source) {
+    final resolvedContact = source.contactInfo;
+    if (resolvedContact == null) return;
+    final sourceChatId = resolvedContact.contact.chatId;
+    for (final device in _uniqueDevices.values) {
+      if (device.deviceId == source.deviceId) continue;
+      final sameHint =
+          source.ephemeralHint != _noHintValue &&
+          device.ephemeralHint == source.ephemeralHint;
+      final sameContact = device.contactInfo?.contact.chatId == sourceChatId;
+      if (sameHint || sameContact) {
+        device.contactInfo = resolvedContact;
+        device.isKnownContact = true;
+        device.isRetired = false;
+      }
+    }
+  }
+
   static void removeStaleDevices() {
     final cutoff = DateTime.now().subtract(Duration(minutes: 2));
     _uniqueDevices.removeWhere(
@@ -471,6 +654,9 @@ class DiscoveredDevice {
   DateTime? lastAttempt;
   int attemptCount = 0;
   DateTime? nextRetryAt;
+
+  // 🛑 UI-level suppression until a fresh advertisement revives the entry.
+  bool isRetired = false;
 
   DiscoveredDevice({
     required this.deviceId,

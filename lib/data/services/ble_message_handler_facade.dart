@@ -17,6 +17,7 @@ import 'relay_coordinator.dart';
 import '../../domain/values/id_types.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../../core/interfaces/i_ble_handshake_service.dart';
 
 /// Public API facade for BLE message handling
 ///
@@ -60,6 +61,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     String? senderNodeId,
   )?
   _onBinaryPayloadReceived;
+  IBLEHandshakeService? _handshakeService;
   Function(
     Uint8List data,
     String fragmentId,
@@ -96,6 +98,50 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
 
     _initialized = true;
     _logger.info('✅ BLEMessageHandlerFacade initialized with 3 sub-handlers');
+  }
+
+  /// Lazy resolve handshake service from DI when first needed.
+  IBLEHandshakeService? _resolveHandshakeService() {
+    if (_handshakeService != null) return _handshakeService;
+    try {
+      if (GetIt.instance.isRegistered<IBLEHandshakeService>()) {
+        _handshakeService = GetIt.instance<IBLEHandshakeService>();
+      }
+    } catch (_) {
+      // Ignore DI lookup issues; will remain null.
+    }
+    return _handshakeService;
+  }
+
+  Future<bool> _routeHandshakeIfNeeded(
+    ProtocolMessage protocolMessage,
+    Uint8List rawBytes,
+  ) async {
+    if (!_isHandshakeMessage(protocolMessage.type)) return false;
+
+    final hs = _resolveHandshakeService();
+    if (hs == null) {
+      _logger.fine(
+        '🤝 Handshake message received but no handshake service registered',
+      );
+      return false;
+    }
+
+    try {
+      final handled = await hs.handleIncomingHandshakeMessage(
+        rawBytes,
+        isFromPeripheral: false,
+      );
+      if (handled) {
+        _logger.fine(
+          '🤝 Handshake message routed to handshake service: ${protocolMessage.type}',
+        );
+      }
+      return handled;
+    } catch (e) {
+      _logger.warning('⚠️ Failed to route handshake message: $e');
+      return false;
+    }
   }
 
   // ==================== PUBLIC API ====================
@@ -321,6 +367,12 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
         // Parse and process as direct protocol message
         try {
           final protocolMessage = ProtocolMessage.fromBytes(data);
+
+          // Handshake messages should be routed to the handshake service.
+          if (await _routeHandshakeIfNeeded(protocolMessage, data)) {
+            return null;
+          }
+
           return await _protocolHandler.handleDirectProtocolMessage(
             message: protocolMessage,
             fromDeviceId: fromDeviceId,
@@ -348,6 +400,10 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
 
         try {
           final protocolMessage = ProtocolMessage.fromBytes(payload.bytes);
+
+          if (await _routeHandshakeIfNeeded(protocolMessage, payload.bytes)) {
+            return null;
+          }
 
           // Mesh relay still routed through legacy handler (RelayCoordinator)
           if (protocolMessage.type == ProtocolMessageType.meshRelay) {
@@ -383,6 +439,13 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
           if (payload.originalType == BinaryPayloadType.protocolMessage) {
             try {
               final protocolMessage = ProtocolMessage.fromBytes(payload.bytes);
+
+              if (await _routeHandshakeIfNeeded(
+                protocolMessage,
+                payload.bytes,
+              )) {
+                return null;
+              }
 
               if (protocolMessage.type == ProtocolMessageType.meshRelay) {
                 _logger.fine(
@@ -475,6 +538,16 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   ForwardReassembledPayload? takeForwardReassembledPayload(String fragmentId) {
     _ensureInitialized();
     return _fragmentationHandler.takeForwardReassembledPayload(fragmentId);
+  }
+
+  bool _isHandshakeMessage(ProtocolMessageType type) {
+    return type == ProtocolMessageType.connectionReady ||
+        type == ProtocolMessageType.identity ||
+        type == ProtocolMessageType.noiseHandshake1 ||
+        type == ProtocolMessageType.noiseHandshake2 ||
+        type == ProtocolMessageType.noiseHandshake3 ||
+        type == ProtocolMessageType.noiseHandshakeRejected ||
+        type == ProtocolMessageType.contactStatus;
   }
 
   /// Handles QR code introduction claim

@@ -4,9 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import '../../core/services/security_manager.dart';
+import '../../domain/entities/contact.dart';
+import '../../domain/entities/enhanced_contact.dart';
+import '../../data/repositories/contact_repository.dart';
+import '../../core/utils/string_extensions.dart';
 import '../providers/ble_providers.dart';
 import '../screens/chat_screen.dart';
 import '../controllers/discovery_overlay_controller.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
 import 'discovery/discovery_header.dart';
 import 'discovery/discovery_peripheral_view.dart';
 import 'discovery/discovery_scanner_view.dart';
@@ -33,6 +39,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   late final ProviderSubscription<AsyncValue<DiscoveryOverlayState>> _stateSub;
+  late final ProviderSubscription<AsyncValue<List<Peripheral>>> _devicesSub;
 
   // Device list management
   static const int _maxDevices = 50;
@@ -61,18 +68,22 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
         if (mounted) setState(() {});
       },
     );
+    _devicesSub = ref.listenManual<AsyncValue<List<Peripheral>>>(
+      discoveredDevicesProvider,
+      (previous, next) => next.whenData(_updateLastSeenForDevices),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final devices = ref.read(discoveredDevicesProvider).value;
+      if (devices != null) {
+        _updateLastSeenForDevices(devices);
+      }
+    });
     // Prime provider to start initialization.
     ref.read(discoveryOverlayControllerProvider);
   }
 
   /// Trigger immediate burst scan (manual override)
   Future<void> _startScanning() async {
-    final controller = ref.read(discoveryOverlayControllerProvider.notifier);
-
-    if (!controller.canTriggerManualScan()) {
-      return;
-    }
-
     try {
       final burstOperations = ref.read(burstScanningOperationsProvider);
       if (burstOperations != null) {
@@ -121,6 +132,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       // Mark as connected and verify connection state
       if (connectionService.connectedDevice?.uuid == device.uuid) {
         controller.setAttemptState(deviceId, ConnectionAttemptState.connected);
+        await _resolveCurrentConnectionName(device);
         if (mounted) {
           Navigator.pop(context);
           widget.onDeviceSelected(device);
@@ -128,6 +140,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       } else {
         // Connection didn't actually succeed, mark as failed
         controller.setAttemptState(deviceId, ConnectionAttemptState.failed);
+        DeviceDeduplicationManager.markRetired(deviceId);
         if (mounted) {
           Navigator.pop(context);
         }
@@ -135,6 +148,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     } catch (e) {
       // Mark as failed
       controller.setAttemptState(deviceId, ConnectionAttemptState.failed);
+      DeviceDeduplicationManager.markRetired(deviceId);
 
       if (mounted) {
         Navigator.pop(context);
@@ -181,11 +195,74 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     );
   }
 
+  Future<void> _resolveCurrentConnectionName(Peripheral device) async {
+    try {
+      final connectionService = ref.read(connectionServiceProvider);
+      final persistentKey =
+          connectionService.theirPersistentPublicKey ??
+          connectionService.theirPersistentKey ??
+          connectionService.currentSessionId;
+      if (persistentKey == null || persistentKey.isEmpty) return;
+
+      final contactRepo = ContactRepository();
+      final contact = await contactRepo.getContactByAnyId(persistentKey);
+      final displayName =
+          contact?.displayName ??
+          connectionService.otherUserName ??
+          'User ${persistentKey.shortId(8)}';
+
+      final enhanced = EnhancedContact(
+        contact:
+            contact ??
+            Contact(
+              publicKey: persistentKey,
+              persistentPublicKey: persistentKey,
+              currentEphemeralId: null,
+              displayName: displayName,
+              trustStatus: TrustStatus.newContact,
+              securityLevel: SecurityLevel.low,
+              firstSeen: DateTime.now(),
+              lastSeen: DateTime.now(),
+              lastSecuritySync: null,
+              noisePublicKey: null,
+              noiseSessionState: null,
+              lastHandshakeTime: null,
+              isFavorite: false,
+            ),
+        lastSeenAgo: contact != null
+            ? DateTime.now().difference(contact.lastSeen)
+            : Duration.zero,
+        isRecentlyActive: contact != null
+            ? DateTime.now().difference(contact.lastSeen).inHours < 24
+            : true,
+        interactionCount: 0,
+        averageResponseTime: const Duration(minutes: 5),
+        groupMemberships: const [],
+      );
+
+      DeviceDeduplicationManager.updateResolvedContact(
+        device.uuid.toString(),
+        enhanced,
+      );
+    } catch (e, stackTrace) {
+      _logger.fine('Failed to resolve connection name: $e');
+      _logger.finer(stackTrace.toString());
+    }
+  }
+
   // 🔧 MODE SWITCHING REMOVED: Dual mode now runs automatically
   // Previously, manual mode switching was handled via UI tabs.
   // Now BLEService runs both Central and Peripheral modes simultaneously.
   // This overlay is purely a display surface for discovered devices and connection status.
   // Mode transitions are triggered automatically by the underlying BLE architecture.
+
+  void _updateLastSeenForDevices(List<Peripheral> devices) {
+    if (!mounted) return;
+    final controller = ref.read(discoveryOverlayControllerProvider.notifier);
+    for (final device in devices) {
+      controller.updateDeviceLastSeen(device.uuid.toString());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -332,6 +409,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   void dispose() {
     _animationController.dispose();
     _stateSub.close();
+    _devicesSub.close();
     super.dispose();
   }
 }

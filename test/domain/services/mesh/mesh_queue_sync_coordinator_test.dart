@@ -339,6 +339,9 @@ class _FakeQueueSyncManager implements QueueSyncManagerContract {
   );
 
   @override
+  void cancelAllSyncs({String? reason}) {}
+
+  @override
   void dispose() {}
 }
 
@@ -387,6 +390,18 @@ class _TestMeshBleService implements IConnectionService {
 
   @override
   String? get currentSessionId => _currentSessionId;
+
+  @override
+  String? get otherUserName => _currentSessionId ?? 'peer';
+
+  @override
+  String? get theirEphemeralId => _currentSessionId;
+
+  @override
+  String? get theirPersistentKey => _currentSessionId;
+
+  @override
+  String? get myPersistentId => 'my-id';
 
   @override
   bool get canSendMessages => _canSend;

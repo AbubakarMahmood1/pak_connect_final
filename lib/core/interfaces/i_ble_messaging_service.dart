@@ -151,6 +151,14 @@ abstract class IBLEMessagingService {
   /// Latest extracted message ID (for ACK tracking in relay)
   String? get lastExtractedMessageId;
 
+  /// Route inbound GATT writes (central → our peripheral) into the messaging
+  /// pipeline so protocol/handshake messages are parsed.
+  Future<void> processIncomingPeripheralData(
+    Uint8List data, {
+    required String senderDeviceId,
+    String? senderNodeId,
+  });
+
   // ============================================================================
   // MESH RELAY INTEGRATION
   // ============================================================================

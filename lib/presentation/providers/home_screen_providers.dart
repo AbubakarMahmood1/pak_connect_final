@@ -106,7 +106,7 @@ final homeScreenFacadeProvider = Provider.autoDispose
                 intent is ChatArchivedIntent ||
                 intent is ChatDeletedIntent ||
                 intent is ChatPinToggleIntent) {
-              unawaited(facade.loadChats());
+              scheduleMicrotask(() => unawaited(facade.loadChats()));
             }
           });
         },

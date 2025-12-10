@@ -36,6 +36,8 @@ import '../../core/bluetooth/peripheral_initializer.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/services/hint_scanner_service.dart';
 import '../../core/bluetooth/ble_platform_host.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/di/service_locator.dart';
 
 /// Main orchestrator for the entire BLE stack.
 ///
@@ -84,6 +86,15 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   final Set<void Function(SpyModeInfo)> _spyModeListeners = {};
   final Set<void Function(String)> _identityListeners = {};
   StreamSubscription<ConnectionInfo>? _connectionInfoSubscription;
+  StreamSubscription<CentralConnectionStateChangedEventArgs>?
+  _peripheralConnectionSub;
+  StreamSubscription<CentralMTUChangedEventArgs>? _peripheralMtuSub;
+  StreamSubscription<GATTCharacteristicNotifyStateChangedEventArgs>?
+  _peripheralNotifyStateSub;
+  StreamSubscription<GATTCharacteristicWriteRequestedEventArgs>?
+  _peripheralWriteSub;
+  StreamSubscription<GATTCharacteristicNotifiedEventArgs>? _centralNotifySub;
+  bool _peripheralEventsBound = false;
 
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
@@ -220,6 +231,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   /// Get or create advertising service (lazy singleton)
   IBLEAdvertisingService _getAdvertisingService() {
+    _advertisingManager
+        .start(); // Idempotent; required before startAdvertising()
     return _advertisingService ??= BLEAdvertisingService(
       stateManager: _stateManager,
       connectionManager: _connectionManager,
@@ -253,7 +266,9 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   /// Get or create handshake service (lazy singleton)
   IBLEHandshakeService _getHandshakeService() {
-    return _handshakeService ??= BLEHandshakeService(
+    if (_handshakeService != null) return _handshakeService!;
+
+    _handshakeService = BLEHandshakeService(
       stateManager: _stateManager,
       onIdentityExchangeSent: _handleIdentityExchangeSent,
       updateConnectionInfo: _updateConnectionInfo,
@@ -270,6 +285,18 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           _connectionManager.hasBleConnection ||
           _connectionManager.serverConnectionCount > 0,
     );
+
+    // Make the handshake service discoverable to the message handler (fragment
+    // pipeline) via DI so reassembled handshake frames route correctly.
+    try {
+      if (!getIt.isRegistered<IBLEHandshakeService>()) {
+        getIt.registerSingleton<IBLEHandshakeService>(_handshakeService!);
+      }
+    } catch (_) {
+      // DI is best-effort; the service still works via direct references.
+    }
+
+    return _handshakeService!;
   }
 
   // ============================================================================
@@ -333,6 +360,17 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       _hintMatchListeners.clear();
       await _connectionInfoSubscription?.cancel();
       _connectionInfoSubscription = null;
+      await _peripheralConnectionSub?.cancel();
+      await _peripheralMtuSub?.cancel();
+      await _peripheralNotifyStateSub?.cancel();
+      await _peripheralWriteSub?.cancel();
+      await _centralNotifySub?.cancel();
+      _peripheralConnectionSub = null;
+      _peripheralMtuSub = null;
+      _peripheralNotifyStateSub = null;
+      _peripheralWriteSub = null;
+      _centralNotifySub = null;
+      _peripheralEventsBound = false;
     }
   }
 
@@ -718,6 +756,17 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   String? get lastExtractedMessageId =>
       _getMessagingService().lastExtractedMessageId;
 
+  @override
+  Future<void> processIncomingPeripheralData(
+    Uint8List data, {
+    required String senderDeviceId,
+    String? senderNodeId,
+  }) => _getMessagingService().processIncomingPeripheralData(
+    data,
+    senderDeviceId: senderDeviceId,
+    senderNodeId: senderNodeId,
+  );
+
   // ============================================================================
   // DELEGATION TO SUB-SERVICES (IBLEDiscoveryService)
   // ============================================================================
@@ -948,11 +997,33 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   String? get currentHandshakePhase =>
       _getHandshakeService().currentHandshakePhase;
 
+  @override
+  Future<bool> handleIncomingHandshakeMessage(
+    Uint8List data, {
+    bool isFromPeripheral = false,
+  }) => _getHandshakeService().handleIncomingHandshakeMessage(
+    data,
+    isFromPeripheral: isFromPeripheral,
+  );
+
   void _ensureConnectionServicePrepared() {
     if (_connectionSetupComplete) {
       return;
     }
     _getConnectionService().setupConnectionInitialization();
+    _bindPeripheralEventHandlers();
+    _bindCentralNotificationHandler();
+    // Provide a local collision hint to allow deterministic tie-breaks.
+    _connectionManager.setLocalHintProvider(() async {
+      try {
+        final hint = await _getHandshakeService().buildLocalCollisionHint();
+        return hint;
+      } catch (_) {
+        return null;
+      }
+    });
+    _connectionManager.onConnectionComplete = () =>
+        _getHandshakeService().performHandshake(startAsInitiatorOverride: true);
     _connectionSetupComplete = true;
   }
 
@@ -962,6 +1033,231 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     }
     await _getDiscoveryService().initialize();
     _discoveryInitialized = true;
+  }
+
+  void _bindPeripheralEventHandlers() {
+    if (_peripheralEventsBound) return;
+
+    try {
+      final peripheralManager = _platformHost.peripheralManager;
+
+      _peripheralConnectionSub = peripheralManager.connectionStateChanged.listen((
+        event,
+      ) {
+        if (event.state == ConnectionState.connected) {
+          _connectionManager.handleCentralConnected(event.central);
+          final connectionService = _getConnectionService();
+          connectionService.connectedCentral = event.central;
+          _scheduleResponderHandshakeFallback();
+        } else {
+          _connectionManager.handleCentralDisconnected(event.central);
+          final connectionService = _getConnectionService();
+          final advertisingService =
+              _getAdvertisingService() as BLEAdvertisingService;
+
+          final disconnectedId = event.central.uuid.toString();
+          final activeId = connectionService.connectedCentral?.uuid.toString();
+          final disconnectedWasActive = disconnectedId == activeId;
+          final hasOtherServerConnections =
+              _connectionManager.serverConnectionCount > 0;
+
+          if (disconnectedWasActive) {
+            // Active link dropped: clear the coordinator/target state so we can
+            // safely start a new handshake with any remaining connection.
+            _getHandshakeService().disposeHandshakeCoordinator();
+            connectionService.connectedCentral = null;
+            connectionService.connectedCharacteristic = null;
+          }
+
+          if (!hasOtherServerConnections) {
+            advertisingService.resetPeripheralSession();
+          } else if (disconnectedWasActive) {
+            // Pivot to another connected central now that the active one is gone.
+            final remainingConnections = _connectionManager.serverConnections;
+            if (remainingConnections.isNotEmpty) {
+              final replacement = remainingConnections.last;
+              connectionService.connectedCentral = replacement.central;
+              connectionService.connectedCharacteristic =
+                  replacement.subscribedCharacteristic;
+            }
+            advertisingService.peripheralHandshakeStarted = false;
+            _maybeStartResponderHandshake(
+              characteristicOverride: connectionService.connectedCharacteristic,
+            );
+          }
+        }
+      });
+
+      _peripheralMtuSub = peripheralManager.mtuChanged.listen((event) {
+        final connectionService = _getConnectionService();
+        connectionService.connectedCentral = event.central;
+        (_getAdvertisingService() as BLEAdvertisingService).updatePeripheralMtu(
+          event.mtu,
+        );
+        _connectionManager.updateServerMtu(
+          event.central.uuid.toString(),
+          event.mtu,
+        );
+        _maybeStartResponderHandshake();
+      });
+
+      _peripheralNotifyStateSub = peripheralManager
+          .characteristicNotifyStateChanged
+          .listen((event) {
+            if (!event.state) return;
+            _connectionManager.handleCharacteristicSubscribed(
+              event.central,
+              event.characteristic,
+            );
+            final connectionService = _getConnectionService();
+            connectionService.connectedCentral = event.central;
+            connectionService.connectedCharacteristic = event.characteristic;
+            _maybeStartResponderHandshake(
+              characteristicOverride: event.characteristic,
+            );
+            // Notify ready arrived; cancel any delayed fallback.
+          });
+
+      // Handle inbound writes (central → our peripheral). This is required so
+      // handshake/messages received on server links are processed.
+      _peripheralWriteSub = peripheralManager.characteristicWriteRequested.listen((
+        event,
+      ) async {
+        try {
+          final data = event.request.value;
+          final connectionService = _getConnectionService();
+          connectionService.connectedCentral = event.central;
+          connectionService.connectedCharacteristic = event.characteristic;
+
+          final handled = await _getHandshakeService()
+              .handleIncomingHandshakeMessage(data, isFromPeripheral: true);
+
+          // Start responder handshake immediately if not already started.
+          _maybeStartResponderHandshake(
+            characteristicOverride: event.characteristic,
+          );
+          // If notify enablement is slow, ensure we still try responder start.
+          _scheduleResponderHandshakeFallback();
+
+          // If handshake payload, we already handled it.
+          if (handled) {
+            await peripheralManager.respondWriteRequest(event.request);
+            return;
+          }
+
+          await _getMessagingService().processIncomingPeripheralData(
+            data,
+            senderDeviceId: event.central.uuid.toString(),
+            senderNodeId: DeviceDeduplicationManager.getDevice(
+              event.central.uuid.toString(),
+            )?.ephemeralHint,
+          );
+
+          await peripheralManager.respondWriteRequest(event.request);
+        } catch (e, stack) {
+          _logger.warning(
+            '⚠️ Failed to handle inbound write from ${event.central.uuid}: $e',
+            e,
+            stack,
+          );
+          try {
+            await peripheralManager.respondWriteRequestWithError(
+              event.request,
+              error: GATTError.unlikelyError,
+            );
+          } catch (_) {}
+        }
+      });
+
+      _peripheralEventsBound = true;
+    } on UnsupportedError catch (e, stack) {
+      _logger.fine('Peripheral event binding not supported: $e', e, stack);
+    }
+  }
+
+  void _maybeStartResponderHandshake({
+    GATTCharacteristic? characteristicOverride,
+  }) {
+    final advertisingService =
+        _getAdvertisingService() as BLEAdvertisingService;
+    if (advertisingService.peripheralHandshakeStarted) return;
+
+    final connectionService = _getConnectionService();
+    final central = connectionService.connectedCentral;
+    final characteristic =
+        characteristicOverride ??
+        connectionService.connectedCharacteristic ??
+        advertisingService.messageCharacteristic;
+
+    if (central == null || characteristic == null) {
+      return;
+    }
+
+    advertisingService.peripheralHandshakeStarted = true;
+    connectionManager.onCharacteristicFound?.call(characteristic);
+
+    unawaited(
+      _getHandshakeService().performHandshake(startAsInitiatorOverride: false),
+    );
+  }
+
+  void _scheduleResponderHandshakeFallback({
+    Duration delay = const Duration(milliseconds: 400),
+  }) {
+    // Only schedule if a server connection exists and no handshake has started.
+    if (_connectionManager.serverConnectionCount == 0) return;
+    Timer(delay, () {
+      try {
+        if (_connectionManager.serverConnectionCount == 0) return;
+        if ((_getAdvertisingService() as BLEAdvertisingService)
+            .peripheralHandshakeStarted) {
+          return;
+        }
+        _logger.fine(
+          '⏳ Fallback: starting responder handshake after delay (notify may be slow)',
+        );
+        _maybeStartResponderHandshake();
+      } catch (_) {}
+    });
+  }
+
+  void _bindCentralNotificationHandler() {
+    if (_centralNotifySub != null) return;
+
+    try {
+      _centralNotifySub = _platformHost.centralManager.characteristicNotified
+          .listen((event) async {
+            try {
+              // Forward handshake messages immediately.
+              final handled = await _getHandshakeService()
+                  .handleIncomingHandshakeMessage(
+                    event.value,
+                    isFromPeripheral: false,
+                  );
+
+              if (handled) return;
+
+              final deviceId = event.peripheral.uuid.toString();
+              final nodeId = DeviceDeduplicationManager.getDevice(
+                deviceId,
+              )?.ephemeralHint;
+
+              await _getMessagingService().processIncomingPeripheralData(
+                event.value,
+                senderDeviceId: deviceId,
+                senderNodeId: nodeId,
+              );
+            } catch (e, stack) {
+              _logger.warning(
+                '⚠️ Failed to process central notification: $e',
+                e,
+                stack,
+              );
+            }
+          });
+    } on UnsupportedError catch (e, stack) {
+      _logger.fine('Central notify binding not supported: $e', e, stack);
+    }
   }
 
   // ============================================================================
@@ -1001,10 +1297,26 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   Future<void> _onBluetoothBecameReady() async {
     _logger.info('🔵 Bluetooth ready - facade notified');
-    _updateConnectionInfo(
-      statusMessage: 'Bluetooth ready for dual-role operation',
-      isAdvertising: _getAdvertisingService().isAdvertising,
-    );
+    final advertisingService = _getAdvertisingService();
+    try {
+      await _connectionManager.startMeshNetworking(
+        onStartAdvertising: () => advertisingService.startAsPeripheral(),
+      );
+      _updateConnectionInfo(
+        statusMessage: 'Bluetooth ready for dual-role operation',
+        isAdvertising: advertisingService.isAdvertising,
+      );
+    } catch (e, stack) {
+      _logger.warning(
+        '⚠️ Failed to start mesh networking after Bluetooth ready: $e',
+        e,
+        stack,
+      );
+      _updateConnectionInfo(
+        statusMessage: 'Bluetooth ready (advertising unavailable)',
+        isAdvertising: advertisingService.isAdvertising,
+      );
+    }
   }
 
   Future<void> _onBluetoothBecameUnavailable() async {
@@ -1059,6 +1371,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     _logger.info('🤝 Handshake complete with $displayName ($truncatedId)');
     _stateManager.setOtherUserName(displayName);
     _stateManager.setTheirEphemeralId(ephemeralId, displayName);
+    // Allow health checks now that handshake is done.
+    _connectionManager.markHandshakeComplete();
     _updateConnectionInfo(
       isConnected: true,
       isReady: true,

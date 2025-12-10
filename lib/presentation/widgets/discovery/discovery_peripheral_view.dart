@@ -1,6 +1,7 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/discovery/device_deduplication_manager.dart';
 import '../../../core/models/ble_server_connection.dart';
 import '../../../core/utils/string_extensions.dart';
 
@@ -97,6 +98,11 @@ class DiscoveryPeripheralView extends StatelessWidget {
     BLEServerConnection connection,
     BuildContext context,
   ) {
+    final dedupDevice = DeviceDeduplicationManager.getDevice(
+      connection.central.uuid.toString(),
+    );
+    final contactName = dedupDevice?.contactInfo?.contact.displayName;
+
     final duration = connection.connectedDuration;
     final durationText = duration.inMinutes > 0
         ? '${duration.inMinutes}m ${duration.inSeconds % 60}s'
@@ -112,7 +118,7 @@ class DiscoveryPeripheralView extends StatelessWidget {
         child: const Icon(Icons.phone_android, color: Colors.green),
       ),
       title: Text(
-        connection.address.shortId(17),
+        contactName ?? 'Device ${connection.address.shortId(17)}',
         style: const TextStyle(fontWeight: FontWeight.bold),
       ),
       subtitle: Column(
