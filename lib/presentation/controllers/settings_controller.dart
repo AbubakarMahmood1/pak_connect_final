@@ -9,6 +9,7 @@ import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/security/hint_cache_manager.dart';
 import '../../core/security/message_security.dart';
 import '../../core/services/simple_crypto.dart';
+import '../../core/config/kill_switches.dart';
 import '../../data/database/database_helper.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/contact_repository.dart';
@@ -48,6 +49,12 @@ class SettingsController extends ChangeNotifier {
   bool allowNewContacts = PreferenceDefaults.allowNewContacts;
   bool hintBroadcastEnabled = true;
   bool autoConnectKnownContacts = PreferenceDefaults.autoConnectKnownContacts;
+  bool disableHealthChecks = PreferenceDefaults.killSwitchHealthChecks;
+  bool disableQueueSync = PreferenceDefaults.killSwitchQueueSync;
+  bool disableAutoConnect = PreferenceDefaults.killSwitchAutoConnect;
+  bool disableDualRole = PreferenceDefaults.killSwitchDualRole;
+  bool disableDiscoveryScheduler =
+      PreferenceDefaults.killSwitchDiscoveryScheduler;
 
   bool autoArchiveOldChats = PreferenceDefaults.autoArchiveOldChats;
   int archiveAfterDays = PreferenceDefaults.archiveAfterDays;
@@ -115,6 +122,36 @@ class SettingsController extends ChangeNotifier {
     if (_isDisposed) return;
     archiveAfterDays = await _preferencesRepository.getInt(
       PreferenceKeys.archiveAfterDays,
+    );
+
+    // Developer kill switches
+    disableHealthChecks = await _preferencesRepository.getBool(
+      PreferenceKeys.killSwitchHealthChecks,
+      defaultValue: PreferenceDefaults.killSwitchHealthChecks,
+    );
+    disableQueueSync = await _preferencesRepository.getBool(
+      PreferenceKeys.killSwitchQueueSync,
+      defaultValue: PreferenceDefaults.killSwitchQueueSync,
+    );
+    disableAutoConnect = await _preferencesRepository.getBool(
+      PreferenceKeys.killSwitchAutoConnect,
+      defaultValue: PreferenceDefaults.killSwitchAutoConnect,
+    );
+    disableDualRole = await _preferencesRepository.getBool(
+      PreferenceKeys.killSwitchDualRole,
+      defaultValue: PreferenceDefaults.killSwitchDualRole,
+    );
+    disableDiscoveryScheduler = await _preferencesRepository.getBool(
+      PreferenceKeys.killSwitchDiscoveryScheduler,
+      defaultValue: PreferenceDefaults.killSwitchDiscoveryScheduler,
+    );
+    await KillSwitches.set(
+      setBool: _preferencesRepository.setBool,
+      healthChecks: disableHealthChecks,
+      queueSync: disableQueueSync,
+      autoConnect: disableAutoConnect,
+      dualRole: disableDualRole,
+      discoveryScheduler: disableDiscoveryScheduler,
     );
 
     if (_isDisposed) return;
@@ -207,6 +244,56 @@ class SettingsController extends ChangeNotifier {
     await _preferencesRepository.setBool(
       PreferenceKeys.autoConnectKnownContacts,
       value,
+    );
+  }
+
+  Future<void> setDisableHealthChecks(bool value) async {
+    if (_isDisposed) return;
+    disableHealthChecks = value;
+    _safeNotifyListeners();
+    await KillSwitches.set(
+      setBool: _preferencesRepository.setBool,
+      healthChecks: value,
+    );
+  }
+
+  Future<void> setDisableQueueSync(bool value) async {
+    if (_isDisposed) return;
+    disableQueueSync = value;
+    _safeNotifyListeners();
+    await KillSwitches.set(
+      setBool: _preferencesRepository.setBool,
+      queueSync: value,
+    );
+  }
+
+  Future<void> setDisableAutoConnect(bool value) async {
+    if (_isDisposed) return;
+    disableAutoConnect = value;
+    _safeNotifyListeners();
+    await KillSwitches.set(
+      setBool: _preferencesRepository.setBool,
+      autoConnect: value,
+    );
+  }
+
+  Future<void> setDisableDualRole(bool value) async {
+    if (_isDisposed) return;
+    disableDualRole = value;
+    _safeNotifyListeners();
+    await KillSwitches.set(
+      setBool: _preferencesRepository.setBool,
+      dualRole: value,
+    );
+  }
+
+  Future<void> setDisableDiscoveryScheduler(bool value) async {
+    if (_isDisposed) return;
+    disableDiscoveryScheduler = value;
+    _safeNotifyListeners();
+    await KillSwitches.set(
+      setBool: _preferencesRepository.setBool,
+      discoveryScheduler: value,
     );
   }
 

@@ -192,6 +192,16 @@ class PreferencesRepository implements IPreferencesRepository {
       case PreferenceKeys
           .autoConnectKnownContacts: // 🆕 Ensure default exists for auto-connect
         return PreferenceDefaults.autoConnectKnownContacts;
+      case PreferenceKeys.killSwitchHealthChecks:
+        return PreferenceDefaults.killSwitchHealthChecks;
+      case PreferenceKeys.killSwitchQueueSync:
+        return PreferenceDefaults.killSwitchQueueSync;
+      case PreferenceKeys.killSwitchAutoConnect:
+        return PreferenceDefaults.killSwitchAutoConnect;
+      case PreferenceKeys.killSwitchDualRole:
+        return PreferenceDefaults.killSwitchDualRole;
+      case PreferenceKeys.killSwitchDiscoveryScheduler:
+        return PreferenceDefaults.killSwitchDiscoveryScheduler;
       default:
         return '';
     }
