@@ -49,6 +49,18 @@ class ChatConnectionManager implements IChatConnectionManager {
     required Map<String, DiscoveredDevice> discoveryData,
     required DateTime? lastSeenTime,
   }) {
+    final matchesActiveSession = _matchesActiveConnection(contactPublicKey);
+
+    if (currentConnectionInfo != null && currentConnectionInfo.isConnected) {
+      if (matchesActiveSession && currentConnectionInfo.isReady) {
+        return ConnectionStatus.connected;
+      }
+
+      if (matchesActiveSession && !currentConnectionInfo.isReady) {
+        return ConnectionStatus.connecting;
+      }
+    }
+
     // Check if this is the currently connected device
     if (currentConnectionInfo != null &&
         currentConnectionInfo.isConnected &&
@@ -97,6 +109,23 @@ class ChatConnectionManager implements IChatConnectionManager {
     }
 
     return ConnectionStatus.offline;
+  }
+
+  bool _matchesActiveConnection(String? contactPublicKey) {
+    if (contactPublicKey == null || contactPublicKey.isEmpty) return false;
+    final bleService = _bleService;
+    if (bleService == null) return false;
+
+    final activeKeys = <String?>[
+      bleService.theirPersistentPublicKey,
+      bleService.theirPersistentKey,
+      bleService.currentSessionId,
+      bleService.theirEphemeralId,
+    ];
+
+    return activeKeys.any(
+      (key) => key != null && key.isNotEmpty && key == contactPublicKey,
+    );
   }
 
   @override

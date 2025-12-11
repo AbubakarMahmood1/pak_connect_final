@@ -66,6 +66,8 @@ class OutboundMessageSender {
   void setCurrentNodeId(String? nodeId) {
     _currentNodeId = nodeId;
   }
+  String? get _safeNodeId =>
+      _currentNodeId ?? EphemeralKeyManager.currentSessionKey;
 
   Future<bool> sendCentralMessage({
     required CentralManager centralManager,
@@ -88,26 +90,7 @@ class OutboundMessageSender {
 
     try {
       onMessageOperationChanged?.call(true);
-
-      try {
-        final pingData = Uint8List.fromList([0x00]);
-        await centralManager.writeCharacteristic(
-          connectedDevice,
-          messageCharacteristic,
-          value: pingData,
-          type: GATTCharacteristicWriteType.withResponse,
-        );
-        _logger.info('Connection validation (ping) successful');
-      } catch (e) {
-        _logger.severe('Connection validation failed: $e');
-        _logger.warning('🔥 Forcing disconnect to trigger reconnection...');
-        try {
-          await centralManager.disconnect(connectedDevice);
-        } catch (disconnectError) {
-          _logger.warning('Force disconnect failed: $disconnectError');
-        }
-        throw Exception('Connection unhealthy - forced disconnect');
-      }
+      // Skip extra ping writes; they have been causing GATT 133 on some stacks.
 
       final identities = await _resolveMessageIdentities(
         contactPublicKey: contactPublicKey,
@@ -117,6 +100,12 @@ class OutboundMessageSender {
 
       final finalRecipientId = identities.intendedRecipient;
       final finalSenderIf = identities.originalSender;
+      if (finalRecipientId.isEmpty) {
+        _logger.severe(
+          '❌ SEND ABORTED: Intended recipient is empty; cannot send message $msgId',
+        );
+        throw Exception('Intended recipient not set');
+      }
 
       if (identities.isSpyMode) {
         _logger.info('🕵️ SPY MODE: Sending anonymously');
@@ -594,41 +583,77 @@ class OutboundMessageSender {
     required ContactRepository contactRepository,
     required BLEStateManager stateManager,
   }) async {
-    final _ = stateManager;
     final userPrefs = UserPreferences();
     final hintsEnabled = await userPrefs.getHintBroadcastEnabled();
 
     final myPersistentKey = await userPrefs.getPublicKey();
-    final myEphemeralID = EphemeralKeyManager.generateMyEphemeralKey();
+    final mySessionEphemeral =
+        EphemeralKeyManager.currentSessionKey ??
+        EphemeralKeyManager.generateMyEphemeralKey();
 
     final contact = contactPublicKey != null
         ? await contactRepository.getContact(contactPublicKey)
         : null;
 
-    final noiseSessionExists =
-        contact?.currentEphemeralId != null &&
+    final noiseSessionExists = contact?.currentEphemeralId != null &&
         SecurityManager.instance.noiseService?.hasEstablishedSession(
               contact!.currentEphemeralId!,
             ) ==
             true;
 
-    String originalSender;
-    if (!hintsEnabled && noiseSessionExists) {
-      originalSender = myEphemeralID;
-    } else {
-      originalSender = myPersistentKey;
+    // Security-aware identity selection:
+    // - Medium/High: use persistent keys when available
+    // - Low (or no persistent): use session ephemeral keys
+    SecurityLevel securityLevel = SecurityLevel.low;
+    try {
+      securityLevel = await SecurityManager.instance.getCurrentLevel(
+        contactPublicKey ?? '',
+        contactRepository,
+      );
+    } catch (_) {
+      // Default to low if lookup fails
+      securityLevel = SecurityLevel.low;
     }
 
-    String intendedRecipient;
-    if (!hintsEnabled &&
-        noiseSessionExists &&
-        contact?.currentEphemeralId != null) {
-      intendedRecipient = contact!.currentEphemeralId!;
-    } else if (contact?.persistentPublicKey != null) {
-      intendedRecipient = contact!.persistentPublicKey!;
-    } else {
+    final prefersPersistent =
+        (securityLevel == SecurityLevel.high ||
+            securityLevel == SecurityLevel.medium) &&
+        (contact?.persistentPublicKey?.isNotEmpty ?? false);
+
+    final originalSender = prefersPersistent
+        ? myPersistentKey
+        : (mySessionEphemeral.isNotEmpty ? mySessionEphemeral : myPersistentKey);
+
+    // Recipient resolution order with security level awareness:
+    // Medium/High: persistent (if present), else session ephemeral.
+    // Low: session ephemeral first, then fallbacks.
+    String intendedRecipient = '';
+
+    if (prefersPersistent) {
       intendedRecipient =
-          contact?.publicKey ?? contactPublicKey ?? myEphemeralID;
+          contact?.persistentPublicKey?.isNotEmpty == true
+              ? contact!.persistentPublicKey!
+              : '';
+    }
+
+    if (intendedRecipient.isEmpty &&
+        (contact?.currentEphemeralId?.isNotEmpty ?? false)) {
+      intendedRecipient = contact!.currentEphemeralId!;
+    }
+
+    if (intendedRecipient.isEmpty &&
+        (contact?.publicKey.isNotEmpty ?? false)) {
+      intendedRecipient = contact!.publicKey;
+    }
+
+    if (intendedRecipient.isEmpty &&
+        contactPublicKey != null &&
+        contactPublicKey.isNotEmpty) {
+      intendedRecipient = contactPublicKey;
+    }
+
+    if (intendedRecipient.isEmpty) {
+      intendedRecipient = _safeNodeId ?? mySessionEphemeral;
     }
 
     return _MessageIdentities(

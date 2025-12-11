@@ -210,6 +210,7 @@ class ChatScreenController extends ChangeNotifier {
     _stateStore =
         args.stateStore ??
         ref.read(chatSessionStateStoreProvider(_args).notifier);
+    _stateStore.markMounted(true);
     _stateListener = (newState) {
       if (_disposed) return;
       _publishStateToOwnedNotifier(newState);
@@ -242,6 +243,12 @@ class ChatScreenController extends ChangeNotifier {
         _args.persistentChatManager ??
         ref.read(persistentChatStateManagerProvider);
     _publishInitialState();
+
+    // Ensure messaging VM has the latest recipient key once available.
+    final key = _contactPublicKey;
+    if (key != null && key.isNotEmpty) {
+      _messagingViewModel.updateRecipientKey(key);
+    }
   }
 
   ChatUIState get state => _stateStore.current;
@@ -382,8 +389,12 @@ class ChatScreenController extends ChangeNotifier {
           getContactPublicKeyFn: () => _contactPublicKey,
           getChatIdFn: () => _chatId.value,
           onChatIdUpdated: (newChatId) => _chatId = ChatId(newChatId),
-          onContactPublicKeyUpdated: (newKey) =>
-              _cachedContactPublicKey = newKey,
+          onContactPublicKeyUpdated: (newKey) {
+            _cachedContactPublicKey = newKey;
+            if (newKey != null && newKey.isNotEmpty) {
+              _messagingViewModel.updateRecipientKey(newKey);
+            }
+          },
           onScrollToBottom: () => _scrollingController.scrollToBottom(),
           onShowError: _showError,
           onShowSuccess: _showSuccess,
@@ -482,7 +493,7 @@ class ChatScreenController extends ChangeNotifier {
         _connectionInfoSub ??= connectionService.connectionInfo.listen((
           info,
         ) async {
-          if (_disposed || _initialized) return;
+          if (_disposed || _initialized || !context.mounted) return;
           final keyReady =
               _contactPublicKey != null && _contactPublicKey!.isNotEmpty;
           if (info.isReady && keyReady) {
@@ -506,8 +517,11 @@ class ChatScreenController extends ChangeNotifier {
 
     if (logChatOpen) {
       await _logChatOpenState();
+      if (_disposed || !context.mounted) return;
     }
     await _loadMessages();
+    if (_disposed || !context.mounted) return;
+
     final connectionInfoAsync = ref.read(connectionInfoProvider);
     final meshStatusAsync = ref.read(meshNetworkStatusProvider);
 
@@ -534,6 +548,7 @@ class ChatScreenController extends ChangeNotifier {
       onDelivered: (messageId, status) =>
           _updateMessageStatus(messageId, status),
     );
+    if (_disposed || !context.mounted) return;
     _initialized = true;
   }
 
@@ -544,7 +559,7 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   void _publishStateToOwnedNotifier(ChatUIState newState) {
-    if (_disposed) return;
+    if (_disposed || !context.mounted) return;
     // Publish state for provider consumers.
     final ownedState = ref.read(
       chatSessionOwnedStateNotifierProvider(_args).notifier,
@@ -554,7 +569,7 @@ class ChatScreenController extends ChangeNotifier {
 
   void _publishInitialState() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_disposed) return;
+      if (_disposed || !context.mounted) return;
       _stateListener?.call(_stateStore.current);
     });
   }
@@ -784,6 +799,10 @@ class ChatScreenController extends ChangeNotifier {
       contactPublicKey: _contactPublicKey ?? _chatId.value,
       onInfoMessage: _showInfo,
     );
+    final key = _contactPublicKey;
+    if (key != null && key.isNotEmpty) {
+      _messagingViewModel.updateRecipientKey(key);
+    }
     if (current?.isConnected == true &&
         !_sessionLifecycle.messageListenerActive) {
       unawaited(
@@ -834,6 +853,7 @@ class ChatScreenController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _stateStore.markMounted(false);
     _disposeStateListener?.call();
     _sessionLifecycle.unregisterPersistentListener(_chatId);
     _sessionLifecycle.messageListenerActive = false;

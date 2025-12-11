@@ -93,6 +93,10 @@ class ChatSessionViewModel {
     stateStore = store;
   }
 
+  bool get _isDisposed => isDisposedFn?.call() ?? false;
+  bool get _canUpdateState =>
+      !_isDisposed && (stateStore?.isMounted ?? false) && !(stateStore?.isDisposed ?? true);
+
   /// Public hook for scroll state changes (wired to scrolling controller).
   void onScrollStateChanged() => _syncScrollStateFromController();
 
@@ -103,7 +107,9 @@ class ChatSessionViewModel {
 
   /// Handle search mode toggle.
   void onSearchModeToggled(bool isSearchMode) {
-    stateStore?.setSearchMode(isSearchMode);
+    if (_canUpdateState) {
+      stateStore?.setSearchMode(isSearchMode);
+    }
   }
 
   /// Handle search query updates from search controller.
@@ -113,10 +119,9 @@ class ChatSessionViewModel {
 
   /// Navigate to a search result index (uses current state length).
   void onNavigateToSearchResultIndex(int messageIndex) {
-    navigateToSearchResult(
-      messageIndex,
-      stateStore?.current.messages.length ?? 0,
-    );
+    final totalMessages =
+        _canUpdateState ? stateStore?.current.messages.length ?? 0 : 0;
+    navigateToSearchResult(messageIndex, totalMessages);
   }
 
   /// Update controller references and notify the owning controller when they
@@ -145,6 +150,7 @@ class ChatSessionViewModel {
   }
 
   void _syncScrollStateFromController() {
+    if (!_canUpdateState) return;
     final currentState = stateStore?.current;
     if (currentState == null) return;
     final newState = syncScrollState(currentState);
@@ -242,6 +248,7 @@ class ChatSessionViewModel {
 
   /// Update the search query text within the state store.
   void updateSearchQuery(String query) {
+    if (!_canUpdateState) return;
     stateStore?.setSearchQuery(query);
   }
 
@@ -259,7 +266,9 @@ class ChatSessionViewModel {
       await messagingViewModel.sendMessage(
         content: content,
         onMessageAdded: (message) {
-          stateStore?.appendMessage(message);
+          if (_canUpdateState) {
+            stateStore?.appendMessage(message);
+          }
         },
         onShowSuccess: onShowSuccess,
         onShowError: onShowError,
@@ -280,7 +289,9 @@ class ChatSessionViewModel {
         messageId: messageId,
         deleteForEveryone: deleteForEveryone,
         onMessageRemoved: (id) {
-          stateStore?.removeMessage(id);
+          if (_canUpdateState) {
+            stateStore?.removeMessage(id);
+          }
         },
         onShowSuccess: onShowSuccess,
         onShowError: onShowError,
@@ -303,22 +314,28 @@ class ChatSessionViewModel {
       final chatId = getChatIdFn?.call() ?? '';
       final allMessages = await messagingViewModel.loadMessages(
         onLoadingStateChanged: (isLoading) {
-          stateStore?.setLoading(isLoading);
+          if (_canUpdateState) {
+            stateStore?.setLoading(isLoading);
+          }
         },
         onGetQueuedMessages: sessionLifecycle?.getQueuedMessagesForChat,
         onScrollToBottom: onScrollToBottom,
         onError: onShowError,
       );
 
-      stateStore?.setMessages(allMessages);
+      if (_canUpdateState) {
+        stateStore?.setMessages(allMessages);
+      }
 
-      if (config.isRepositoryMode) {
+      if (config.isRepositoryMode && _canUpdateState) {
         await scrollingController.syncUnreadCount(messages: allMessages);
         final newState = stateStore?.current;
         if (newState != null) {
           // Update state in store - apply scroll state sync
           final updated = syncScrollState(newState);
-          stateStore?.setMessages(updated.messages);
+          if (_canUpdateState) {
+            stateStore?.setMessages(updated.messages);
+          }
         }
       }
 
@@ -340,7 +357,13 @@ class ChatSessionViewModel {
     } catch (e) {
       _logger.severe('Error in loadMessages: $e');
       onShowError?.call('Failed to load messages: $e');
-      stateStore?.setLoading(false);
+      if (_canUpdateState) {
+        stateStore?.setLoading(false);
+      }
+    } finally {
+      if (_canUpdateState) {
+        stateStore?.setLoading(false);
+      }
     }
   }
 
@@ -349,7 +372,9 @@ class ChatSessionViewModel {
     try {
       final retryMessage = message.copyWith(status: MessageStatus.sending);
       await messageRepository.updateMessage(retryMessage);
-      stateStore?.updateMessage(retryMessage);
+      if (_canUpdateState) {
+        stateStore?.updateMessage(retryMessage);
+      }
 
       final contactPublicKey = getContactPublicKeyFn?.call();
       final fallbackRecipientId = contactPublicKey ?? getChatIdFn?.call() ?? '';
@@ -369,11 +394,15 @@ class ChatSessionViewModel {
         status: success ? MessageStatus.delivered : MessageStatus.failed,
       );
       await messageRepository.updateMessage(updatedMessage);
-      stateStore?.updateMessage(updatedMessage);
+      if (_canUpdateState) {
+        stateStore?.updateMessage(updatedMessage);
+      }
     } catch (e) {
       final failedAgain = message.copyWith(status: MessageStatus.failed);
       await messageRepository.updateMessage(failedAgain);
-      stateStore?.updateMessage(failedAgain);
+      if (_canUpdateState) {
+        stateStore?.updateMessage(failedAgain);
+      }
       rethrow;
     }
   }
@@ -389,10 +418,13 @@ class ChatSessionViewModel {
       content: content,
     );
 
+    if (_isDisposed) return;
+
     final existingMessage = await messageRepository.getMessageById(
       MessageId(secureMessageId),
     );
     if (existingMessage != null) {
+      if (!_canUpdateState) return;
       final currentState = stateStore?.current;
       if (currentState != null) {
         final inUiList = currentState.messages.any(
@@ -433,7 +465,9 @@ class ChatSessionViewModel {
       await scrollingController.handleIncomingWhileScrolledAway();
     }
 
-    stateStore?.appendMessage(message);
+    if (_canUpdateState) {
+      stateStore?.appendMessage(message);
+    }
 
     if (shouldAutoScroll) {
       onScrollToBottom?.call();
@@ -450,6 +484,8 @@ class ChatSessionViewModel {
       );
       return;
     }
+
+    if (_isDisposed) return;
 
     final otherPersistentId = connectionService.theirPersistentPublicKey;
     if (otherPersistentId == null || otherPersistentId.isEmpty) {
@@ -513,8 +549,12 @@ class ChatSessionViewModel {
       );
     }
 
-    stateStore?.setMessages([]);
-    await loadMessages();
+    if (_canUpdateState) {
+      stateStore?.setMessages([]);
+    }
+    if (!_isDisposed) {
+      await loadMessages();
+    }
   }
 
   Future<void> _migrateMessages(String oldChatId, String newChatId) async {

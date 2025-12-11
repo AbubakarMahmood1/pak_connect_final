@@ -21,11 +21,11 @@ class ChatUtils {
   /// - Post-pairing: theirId = persistent key (same across sessions)
   /// - Chat ID = theirId (simple and elegant)
   ///
-  /// Result: Different sessions → different chats (session isolation achieved)
+    /// Result: Different sessions → different chats (session isolation achieved)
   static String generateChatId(String theirId) {
     final preview = theirId.length > 16 ? '${theirId.shortId()}...' : theirId;
-    _logger.info('🆔 CHAT ID GENERATED: $preview (session-specific)');
-    _logger.info(
+    _logger.fine('🆔 CHAT ID GENERATED: $preview (session-specific)');
+    _logger.fine(
       '✅ Session isolation: ephemeral ID (pre-pairing) or persistent key (post-pairing)',
     );
 

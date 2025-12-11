@@ -5,6 +5,8 @@ import 'package:mockito/mockito.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/services/ble_connection_service.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
+import 'package:pak_connect/core/models/connection_state.dart'
+    show ChatConnectionState;
 import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
@@ -333,12 +335,89 @@ void main() {
         verifyNever(mockConnectionManager.connectToDevice(peripheral));
       },
     );
+
+    test(
+      'auto-connect vetoes when hint collision or existing link is detected',
+      () {
+        mockStateManager = MockIBLEStateManagerFacade();
+        mockConnectionManager = _MockConnectionManagerWithAddresses();
+        mockCentralManager = MockCentralManager();
+        mockBluetoothMonitor = MockBluetoothStateMonitor();
+
+        const deviceId = '00000000-0000-0000-0000-00000000abcd';
+        const hint = 'hint-$deviceId';
+
+        when(
+          mockCentralManager.stateChanged,
+        ).thenAnswer((_) => const Stream.empty());
+        when(mockConnectionManager.clientConnectionCount).thenReturn(0);
+        when(mockConnectionManager.maxClientConnections).thenReturn(3);
+        when(mockConnectionManager.canAcceptClientConnection).thenReturn(true);
+        when(mockStateManager.isPeripheralMode).thenReturn(false);
+        when(mockConnectionManager.connectionState)
+            .thenReturn(ChatConnectionState.ready);
+        mockConnectionManager.hasClientLink = false;
+        mockConnectionManager.hasServerLink = false;
+        mockConnectionManager.hasPendingClient = false;
+        mockConnectionManager.hasHintCollision = true;
+
+        createService();
+        service.setupConnectionInitialization();
+        addTearDown(() {
+          DeviceDeduplicationManager.shouldAutoConnect = null;
+          DeviceDeduplicationManager.onKnownContactDiscovered = null;
+        });
+
+        final predicate = DeviceDeduplicationManager.shouldAutoConnect;
+        expect(predicate, isNotNull);
+
+        final device = _buildDiscoveredDevice(
+          deviceId: deviceId,
+          hint: hint,
+        );
+
+        final shouldConnect = predicate!(device);
+
+        expect(shouldConnect, isFalse);
+      },
+    );
   });
+}
+
+DiscoveredDevice _buildDiscoveredDevice({
+  required String deviceId,
+  required String hint,
+}) {
+  return DiscoveredDevice(
+    deviceId: deviceId,
+    ephemeralHint: hint,
+    peripheral: Peripheral(uuid: UUID.fromString(deviceId)),
+    rssi: -50,
+    advertisement: Advertisement(name: 'Known'),
+    firstSeen: DateTime.now().subtract(const Duration(seconds: 5)),
+    lastSeen: DateTime.now(),
+  );
 }
 
 class _MockConnectionManagerWithAddresses extends MockBLEConnectionManager {
   List<String> connectedAddressesStub = const [];
+  bool hasClientLink = false;
+  bool hasServerLink = false;
+  bool hasPendingClient = false;
+  bool hasHintCollision = false;
 
   @override
   List<String> get connectedAddresses => connectedAddressesStub;
+
+  @override
+  bool hasClientLinkForPeer(String peerAddress) => hasClientLink;
+
+  @override
+  bool hasServerLinkForPeer(String peerAddress) => hasServerLink;
+
+  @override
+  bool hasPendingClientForPeer(String peerAddress) => hasPendingClient;
+
+  @override
+  bool hasAnyLinkForPeerHint(String? peerHint) => hasHintCollision;
 }

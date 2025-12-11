@@ -26,6 +26,7 @@ class SeenMessageStore implements ISeenMessageStore {
   // Constants
   static const int maxIdsPerType = 10000; // Match BitChat's MAX_IDS
   static int? _maxIdsOverride;
+  static bool _verboseLogging = false;
 
   // Singleton
   static SeenMessageStore? _instance;
@@ -34,7 +35,10 @@ class SeenMessageStore implements ISeenMessageStore {
     return _instance!;
   }
 
-  SeenMessageStore._();
+  SeenMessageStore._() {
+    // Keep noisy logs muted unless explicitly enabled.
+    _logger.level ??= Level.INFO;
+  }
 
   // In-memory cache for fast lookups (populated from DB)
   // Use LinkedHashSet to preserve insertion order for LRU semantics (matches BitChat)
@@ -88,7 +92,7 @@ class SeenMessageStore implements ISeenMessageStore {
     }
 
     if (messageId.isEmpty) {
-      _logger.fine('Skipping markDelivered for empty messageId');
+      _trace('Skipping markDelivered for empty messageId');
       return;
     }
 
@@ -108,7 +112,7 @@ class SeenMessageStore implements ISeenMessageStore {
       // Persist to database
       await _persistMessage(id, SeenType.delivered);
 
-      _logger.fine('Marked message as delivered: ${messageId.shortId()}...');
+      _trace('Marked message as delivered: ${messageId.shortId()}...');
     } catch (e) {
       _logger.warning('Failed to mark delivered: $e');
     }
@@ -121,7 +125,7 @@ class SeenMessageStore implements ISeenMessageStore {
     }
 
     if (messageId.isEmpty) {
-      _logger.fine('Skipping markRead for empty messageId');
+      _trace('Skipping markRead for empty messageId');
       return;
     }
 
@@ -141,7 +145,7 @@ class SeenMessageStore implements ISeenMessageStore {
       // Persist to database
       await _persistMessage(id, SeenType.read);
 
-      _logger.fine('Marked message as read: ${messageId.shortId()}...');
+      _trace('Marked message as read: ${messageId.shortId()}...');
     } catch (e) {
       _logger.warning('Failed to mark read: $e');
     }
@@ -189,6 +193,11 @@ class SeenMessageStore implements ISeenMessageStore {
   @visibleForTesting
   void resetMaxIdsPerTypeForTests() {
     _maxIdsOverride = null;
+  }
+
+  @visibleForTesting
+  static void setVerboseLogging(bool enabled) {
+    _verboseLogging = enabled;
   }
 
   int get _currentMaxIdsPerType => _maxIdsOverride ?? maxIdsPerType;
@@ -316,7 +325,7 @@ class SeenMessageStore implements ISeenMessageStore {
         set.remove(messageId);
       }
 
-      _logger.fine('Trimmed ${toRemove.length} old ${type.name} entries');
+      _trace('Trimmed ${toRemove.length} old ${type.name} entries');
     } catch (e) {
       _logger.warning('Failed to trim set: $e');
     }
@@ -355,18 +364,23 @@ class SeenMessageStore implements ISeenMessageStore {
 
       final deliveredTotal = Sqflite.firstIntValue(deliveredCount) ?? 0;
       final readTotal = Sqflite.firstIntValue(readCount) ?? 0;
+      final limit = _currentMaxIdsPerType;
 
       // Clean up if over limit
-      if (deliveredTotal > maxIdsPerType) {
+      if (deliveredTotal > limit) {
         await _cleanupOldEntries(
           SeenType.delivered,
-          deliveredTotal - maxIdsPerType,
+          deliveredTotal - limit,
         );
       }
 
-      if (readTotal > maxIdsPerType) {
-        await _cleanupOldEntries(SeenType.read, readTotal - maxIdsPerType);
+      if (readTotal > limit) {
+        await _cleanupOldEntries(SeenType.read, readTotal - limit);
       }
+
+      // Keep in-memory caches consistent with the persisted cap.
+      _pruneInMemoryCache(_deliveredIds, limit);
+      _pruneInMemoryCache(_readIds, limit);
 
       _logger.info(
         'Maintenance complete: delivered=$deliveredTotal, read=$readTotal',
@@ -398,6 +412,22 @@ class SeenMessageStore implements ISeenMessageStore {
       _logger.info('Cleaned up $countToRemove old ${type.name} entries');
     } catch (e) {
       _logger.warning('Failed to cleanup old entries: $e');
+    }
+  }
+
+  void _pruneInMemoryCache(LinkedHashSet<MessageId> set, int limit) {
+    if (set.length <= limit) return;
+
+    final toPrune = set.take(set.length - limit).toList(growable: false);
+    for (final id in toPrune) {
+      set.remove(id);
+    }
+    _trace('Pruned ${toPrune.length} cached entries to cap in-memory at $limit');
+  }
+
+  void _trace(String message) {
+    if (_verboseLogging && _logger.isLoggable(Level.FINE)) {
+      _logger.fine(message);
     }
   }
 }

@@ -64,6 +64,30 @@ void main() {
       expect(status, ConnectionStatus.connected);
     });
 
+    test(
+      'returns connected when active session id matches even if names differ',
+      () {
+        final manager = _createManager(
+          bleService: _StubBleService(sessionId: 'session-key'),
+        );
+
+        final status = manager.determineConnectionStatus(
+          contactPublicKey: 'session-key',
+          contactName: 'Custom Alias',
+          currentConnectionInfo: const ConnectionInfo(
+            isConnected: true,
+            isReady: true,
+            otherUserName: 'Handshake Name',
+          ),
+          discoveredDevices: const [],
+          discoveryData: const {},
+          lastSeenTime: null,
+        );
+
+        expect(status, ConnectionStatus.connected);
+      },
+    );
+
     test('returns connecting when BLE service is still negotiating', () async {
       final bleService = _StubBleService(persistentKey: 'contact-123');
       final manager = _createManager(bleService: bleService);
@@ -351,13 +375,21 @@ DiscoveredDevice _buildDiscoveredDevice({
 }
 
 class _StubBleService extends BLEService {
-  _StubBleService({this.persistentKey});
+  _StubBleService({this.persistentKey, this.sessionId, this.ephemeralId});
 
   final String? persistentKey;
+  final String? sessionId;
+  final String? ephemeralId;
 
   @override
   String? get theirPersistentKey => persistentKey;
 
   @override
   String? get theirPersistentPublicKey => persistentKey;
+
+  @override
+  String? get currentSessionId => sessionId;
+
+  @override
+  String? get theirEphemeralId => ephemeralId ?? sessionId;
 }

@@ -31,25 +31,27 @@ class ChatsRepository implements IChatsRepository {
     // ✅ FIX-006: Single JOIN query replaces N+1 pattern
     // Before: 1 + 4N queries (get contacts, check messages N times, get messages N times, get unread N times, get last seen N times)
     // After: 1 query with JOINs
+    // NOTE: We query from chats (not contacts) so session-based chats (ephemeral IDs)
+    // still appear in the list. When a contact exists we enrich with contact metadata.
     final buffer = StringBuffer('''
       SELECT
-        c.public_key,
-        c.display_name,
+        ch.chat_id,
+        COALESCE(c.public_key, ch.contact_public_key) AS contact_public_key,
+        COALESCE(c.display_name, ch.contact_name, 'Unknown') AS display_name,
         c.security_level,
         c.trust_status,
-        ch.chat_id,
         ch.unread_count,
         cls.last_seen_at,
-        COUNT(m.id) as message_count,
-        MAX(m.timestamp) as latest_message_timestamp,
-        (SELECT m2.content FROM messages m2 WHERE m2.chat_id = c.public_key ORDER BY m2.timestamp DESC LIMIT 1) as last_message_content,
-        (SELECT m3.status FROM messages m3 WHERE m3.chat_id = c.public_key ORDER BY m3.timestamp DESC LIMIT 1) as last_message_status,
-        (SELECT COUNT(*) FROM messages m4 WHERE m4.chat_id = c.public_key AND m4.is_from_me = 1 AND m4.status = 3) as failed_message_count
-      FROM contacts c
-      LEFT JOIN chats ch ON ch.contact_public_key = c.public_key
-      LEFT JOIN messages m ON m.chat_id = c.public_key
+        COUNT(m.id) AS message_count,
+        MAX(m.timestamp) AS latest_message_timestamp,
+        (SELECT m2.content FROM messages m2 WHERE m2.chat_id = ch.chat_id ORDER BY m2.timestamp DESC LIMIT 1) AS last_message_content,
+        (SELECT m3.status FROM messages m3 WHERE m3.chat_id = ch.chat_id ORDER BY m3.timestamp DESC LIMIT 1) AS last_message_status,
+        (SELECT COUNT(*) FROM messages m4 WHERE m4.chat_id = ch.chat_id AND m4.is_from_me = 1 AND m4.status = 3) AS failed_message_count
+      FROM chats ch
+      LEFT JOIN contacts c ON ch.contact_public_key = c.public_key
+      LEFT JOIN messages m ON m.chat_id = ch.chat_id
       LEFT JOIN contact_last_seen cls ON cls.public_key = c.public_key
-      GROUP BY c.public_key
+      GROUP BY ch.chat_id
       HAVING message_count > 0
       ORDER BY latest_message_timestamp DESC NULLS LAST
     ''');
@@ -69,9 +71,9 @@ class ChatsRepository implements IChatsRepository {
     final chatItems = <ChatListItem>[];
 
     for (final row in results) {
-      final contactPublicKey = row['public_key'] as String;
-      final contactName = row['display_name'] as String;
-      final chatId = _generateChatId(contactPublicKey);
+      final chatId = ChatId(row['chat_id'] as String);
+      final contactPublicKey = row['contact_public_key'] as String?;
+      final contactName = (row['display_name'] as String?) ?? 'Unknown';
 
       final unreadCount = (row['unread_count'] as int?) ?? 0;
       final lastSeenAt = row['last_seen_at'] as int?;
@@ -86,7 +88,9 @@ class ChatsRepository implements IChatsRepository {
       }
 
       // Check if online
-      final isOnline = _isContactOnline(contactPublicKey, discoveryData);
+      final isOnline = contactPublicKey != null
+          ? _isContactOnline(contactPublicKey, discoveryData)
+          : false;
 
       // Parse last message timestamp
       DateTime? lastMessageTime;

@@ -1114,6 +1114,8 @@ final class _StubAdvertisingService implements IBLEAdvertisingService {
   bool _isPeripheral = false;
   bool _mtuReady = false;
   int? _mtu = 128;
+  bool _peripheralHandshakeStarted = false;
+  GATTCharacteristic? _messageCharacteristic;
 
   @override
   Future<void> startAsPeripheral() async {
@@ -1147,6 +1149,39 @@ final class _StubAdvertisingService implements IBLEAdvertisingService {
 
   @override
   bool get isPeripheralMTUReady => _mtuReady;
+
+  @override
+  GATTCharacteristic? get messageCharacteristic => _messageCharacteristic;
+
+  @override
+  bool get peripheralHandshakeStarted => _peripheralHandshakeStarted;
+
+  @override
+  set peripheralHandshakeStarted(bool value) =>
+      _peripheralHandshakeStarted = value;
+
+  @override
+  Future<void> stopAdvertising() async {
+    _isAdvertising = false;
+  }
+
+  @override
+  Future<void> startAdvertising() async {
+    _isAdvertising = true;
+  }
+
+  @override
+  void updatePeripheralMtu(int mtu) {
+    _mtu = mtu;
+    _mtuReady = true;
+  }
+
+  @override
+  void resetPeripheralSession() {
+    _messageCharacteristic = null;
+    _peripheralHandshakeStarted = false;
+    _mtuReady = false;
+  }
 }
 
 final class _StubHandshakeService implements IBLEHandshakeService {
@@ -1516,6 +1551,9 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
     GATTCharacteristic characteristic, {
     required Uint8List value,
   }) async {}
+
+  @override
+  Future<void> disconnectCentral(Central central) async {}
 }
 
 // No additional mock helpers needed - all tests use facade directly

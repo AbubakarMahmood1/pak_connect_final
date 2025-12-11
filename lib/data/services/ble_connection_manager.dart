@@ -7,11 +7,13 @@ import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/models/connection_state.dart';
 import '../../core/power/adaptive_power_manager.dart';
 import '../../core/bluetooth/connection_tracker.dart';
+import '../../core/security/ephemeral_key_manager.dart';
 import '../models/ble_client_connection.dart';
 import '../../core/models/ble_server_connection.dart';
 import '../models/connection_limit_config.dart';
 import '../exceptions/connection_exceptions.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../core/config/kill_switches.dart';
 import 'connection_health_monitor.dart';
 import 'connection_limit_enforcer.dart';
 import 'ephemeral_contact_cleaner.dart';
@@ -28,11 +30,21 @@ class BLEConnectionManager {
   // Server connections: We act as peripheral, others connect TO us
   final Map<String, BLEServerConnection> _serverConnections = {};
 
+  // Track stable discovery hints per address so hint-based matching works even
+  // after OS MAC rotations or dedup merges.
+  final Map<String, String?> _peerHintsByAddress = {};
+
   // Unified tracker (client + server) to prevent reverse-connection races
   final BleConnectionTracker _connectionTracker = BleConnectionTracker();
 
   // Track devices we are actively trying to connect to so we can detect races
   final Set<String> _pendingClientConnections = {};
+
+  // Callback to abort responder handshake when an inbound is rejected as duplicate.
+  Function(String address)? onInboundDuplicateRejected;
+
+  // Debounce window for inbound-first behavior when no hint is available.
+  DateTime? _noHintInboundDebounceUntil;
 
   // Connection limits (platform + power mode aware)
   late ConnectionLimitConfig _limitConfig;
@@ -49,6 +61,11 @@ class BLEConnectionManager {
   Peripheral? get _connectedDevice =>
       _clientConnections.values.firstOrNull?.peripheral;
   Peripheral? _lastConnectedDevice;
+  final Set<String> _collisionResolutionsInFlight = {};
+  final Set<String> _deferredServerTeardown = {};
+  final Map<String, Timer> _deferredServerTeardownTimers = {};
+  // Block responder handshakes for addresses we plan to drop (duplicate inbound).
+  final Set<String> _blockedResponderHandshakes = {};
   GATTCharacteristic? get _messageCharacteristic =>
       _clientConnections.values.firstOrNull?.messageCharacteristic;
   int? get _mtuSize => _clientConnections.values.firstOrNull?.mtu;
@@ -79,6 +96,12 @@ class BLEConnectionManager {
 
   // 🧹 REAL-TIME CLEANUP: Callback for central disconnect events
   Function(String deviceAddress)? onCentralDisconnected;
+
+  // 📡 Real-time stream for server connections (Discovery Overlay)
+  final _serverConnectionsController =
+      StreamController<List<BLEServerConnection>>.broadcast();
+  Stream<List<BLEServerConnection>> get serverConnectionsStream =>
+      _serverConnectionsController.stream;
 
   BLEConnectionManager({
     required this.centralManager,
@@ -112,6 +135,12 @@ class BLEConnectionManager {
       hasViableRelayConnection: _hasViableRelayConnection,
       onMonitoringChanged: onMonitoringChanged,
       onReconnectionFlagChanged: (value) => _isReconnection = value,
+      // Treat any active link (client or server) as connected so reconnection
+      // suppression works during inbound-only sessions.
+      hasActiveClientLink: () =>
+          _clientConnections.isNotEmpty || _serverConnections.isNotEmpty,
+      isCollisionResolving: () => hasCollisionResolutionInFlight,
+      hasPendingClientConnection: () => _pendingClientConnections.isNotEmpty,
     );
   }
 
@@ -124,13 +153,22 @@ class BLEConnectionManager {
   Peripheral? get lastConnectedDevice => _lastConnectedDevice;
   GATTCharacteristic? get messageCharacteristic => _messageCharacteristic;
   int? get mtuSize => _mtuSize;
-  bool get hasBleConnection => _connectedDevice != null;
+  // Count either role as "connected" so health/reconnect logic does not redial
+  // when an inbound/server link is already up.
+  bool get hasBleConnection =>
+      _clientConnections.isNotEmpty || _serverConnections.isNotEmpty;
   bool get isReconnection => _isReconnection;
   bool get isMonitoring => _healthMonitor.isMonitoring;
   ChatConnectionState get connectionState => _connectionState;
   bool get isActivelyReconnecting => _healthMonitor.isActivelyReconnecting;
   bool get isHealthChecking => _healthMonitor.isHealthChecking;
   bool get hasConnection => hasBleConnection;
+  bool isCollisionResolving(String address) =>
+      _collisionResolutionsInFlight.contains(address);
+  bool isServerTeardownDeferred(String address) =>
+      _deferredServerTeardown.contains(address);
+  bool get hasCollisionResolutionInFlight =>
+      _collisionResolutionsInFlight.isNotEmpty;
   bool get _isReady => _connectionState == ChatConnectionState.ready;
   bool get isHandshakeInProgress => _healthMonitor.isHandshakeInProgress;
   bool get awaitingHandshake => _healthMonitor.awaitingHandshake;
@@ -162,6 +200,187 @@ class BLEConnectionManager {
     return set.toList();
   }
 
+  bool _isMeaningfulHint(String? hint) =>
+      hint != null &&
+      hint.isNotEmpty &&
+      hint != DeviceDeduplicationManager.noHintValue;
+
+  String? _peerHintForAddress(String address) {
+    final stored = _peerHintsByAddress[address];
+    if (_isMeaningfulHint(stored)) return stored;
+
+    final dedupHint =
+        DeviceDeduplicationManager.getDevice(address)?.ephemeralHint;
+    if (_isMeaningfulHint(dedupHint)) {
+      _peerHintsByAddress[address] = dedupHint;
+      return dedupHint;
+    }
+
+    return stored ?? dedupHint;
+  }
+
+  void _trackPeerHintForAddress(String address) {
+    final hint = DeviceDeduplicationManager.getDevice(address)?.ephemeralHint;
+    if (hint != null) {
+      _peerHintsByAddress[address] = hint;
+    }
+    // If no hint, start a short inbound-first debounce to let the server side settle
+    // before any outbound dial with missing hint could collide.
+    if (!_isMeaningfulHint(hint)) {
+      _noHintInboundDebounceUntil =
+          DateTime.now().add(const Duration(seconds: 3));
+    }
+  }
+
+  /// Keep in-memory hint cache aligned with dedup map so rotated MACs still map
+  /// to the same peer.
+  void refreshPeerHintsFromDedup() {
+    for (final address in _clientConnections.keys) {
+      _peerHintForAddress(address);
+    }
+    for (final address in _serverConnections.keys) {
+      _peerHintForAddress(address);
+    }
+    for (final address in _pendingClientConnections) {
+      _peerHintForAddress(address);
+    }
+  }
+
+  /// Seed a hint for a soon-to-be-connected address so veto logic can match
+  /// against existing peers even before the OS link stabilizes.
+  void cachePeerHintForAddress(String address, String? hint) {
+    if (_isMeaningfulHint(hint)) {
+      _peerHintsByAddress[address] = hint;
+    }
+  }
+
+  bool isResponderHandshakeBlocked(String address) =>
+      _blockedResponderHandshakes.contains(address);
+
+  void _clearPeerHintIfUnused(String address) {
+    if (_clientConnections.containsKey(address) ||
+        _serverConnections.containsKey(address) ||
+        _pendingClientConnections.contains(address)) {
+      return;
+    }
+    _peerHintsByAddress.remove(address);
+  }
+
+  bool hasAnyLinkForPeerHint(String? peerHint) {
+    if (!_isMeaningfulHint(peerHint)) return false;
+    bool matchesAddress(String address) {
+      final hint = _peerHintForAddress(address);
+      return _isMeaningfulHint(hint) && hint == peerHint;
+    }
+
+    return _clientConnections.keys.any(matchesAddress) ||
+        _serverConnections.keys.any(matchesAddress) ||
+        _pendingClientConnections.any(matchesAddress);
+  }
+
+  /// Identify if an inbound/server address maps to an existing client link
+  /// (by direct address match or shared discovery hint).
+  String? _matchClientAddressByPeer(String peerAddress) {
+    if (_clientConnections.containsKey(peerAddress)) return peerAddress;
+
+    final peerHint = _peerHintForAddress(peerAddress);
+    if (!_isMeaningfulHint(peerHint)) return null;
+
+    for (final entry in _clientConnections.entries) {
+      final clientHint = _peerHintForAddress(entry.key);
+      if (_isMeaningfulHint(clientHint) && clientHint == peerHint) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  /// Identify if an inbound/server address maps to an existing server link
+  /// (by direct address match or shared discovery hint).
+  String? _matchServerAddressByPeer(String peerAddress) {
+    if (_serverConnections.containsKey(peerAddress)) return peerAddress;
+
+    final peerHint = _peerHintForAddress(peerAddress);
+    if (!_isMeaningfulHint(peerHint)) return null;
+
+    for (final entry in _serverConnections.entries) {
+      final serverHint = _peerHintForAddress(entry.key);
+      if (_isMeaningfulHint(serverHint) && serverHint == peerHint) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  /// Identify if an inbound/server address maps to a pending outbound dial
+  /// (by direct address match or shared discovery hint).
+  String? _matchPendingClientAddressByPeer(String peerAddress) {
+    if (_pendingClientConnections.contains(peerAddress)) return peerAddress;
+
+    final peerHint = _peerHintForAddress(peerAddress);
+    if (!_isMeaningfulHint(peerHint)) return null;
+
+    for (final pending in _pendingClientConnections) {
+      final pendingHint = _peerHintForAddress(pending);
+      if (_isMeaningfulHint(pendingHint) && pendingHint == peerHint) {
+        return pending;
+      }
+    }
+    return null;
+  }
+
+  bool hasClientLinkForPeer(String peerAddress) =>
+      _matchClientAddressByPeer(peerAddress) != null;
+
+  bool hasServerLinkForPeer(String peerAddress) =>
+      _matchServerAddressByPeer(peerAddress) != null;
+
+  bool hasPendingClientForPeer(String peerAddress) =>
+      _matchPendingClientAddressByPeer(peerAddress) != null;
+
+  void _notifyInboundRejected(String address) {
+    _healthMonitor.setAwaitingHandshake(false);
+    _healthMonitor.setHandshakeInProgress(false);
+    onInboundDuplicateRejected?.call(address);
+  }
+
+  bool _isNoHintInboundDebounceActive() {
+    if (_noHintInboundDebounceUntil == null) return false;
+    final now = DateTime.now();
+    if (now.isAfter(_noHintInboundDebounceUntil!)) {
+      _noHintInboundDebounceUntil = null;
+      return false;
+    }
+    return true;
+  }
+
+  bool get isNoHintDebounceActive => _isNoHintInboundDebounceActive();
+
+  void _cancelPendingClientForPeer(String peerAddress, {String reason = ''}) {
+    final pendingAddress = _matchPendingClientAddressByPeer(peerAddress);
+    if (pendingAddress == null) return;
+
+    _logger.fine(
+      '⏹️ Cancelling pending outbound dial for ${_formatAddress(pendingAddress)}'
+      '${reason.isNotEmpty ? ' ($reason)' : ''}',
+    );
+    _pendingClientConnections.remove(pendingAddress);
+    _connectionTracker.clearAttempt(pendingAddress);
+    _connectionTracker.removeConnection(pendingAddress);
+    _clearPeerHintIfUnused(pendingAddress);
+  }
+
+  void _ensureTrackerForClientPeer(String peerAddress) {
+    final clientAddress = _matchClientAddressByPeer(peerAddress);
+    if (clientAddress == null) return;
+    final client = _clientConnections[clientAddress];
+    _connectionTracker.addConnection(
+      address: clientAddress,
+      isClient: true,
+      rssi: client?.rssi,
+    );
+  }
+
   // Legacy getter for burst scan optimization (now uses new connection tracking)
   int get activeConnectionCount => clientConnectionCount;
   bool get canAcceptMoreConnections => canAcceptClientConnection;
@@ -188,6 +407,12 @@ class BLEConnectionManager {
   }
 
   void startConnectionMonitoring() {
+    if (KillSwitches.disableAutoConnect || KillSwitches.disableHealthChecks) {
+      _logger.warning(
+        '⚠️ Connection monitoring disabled via kill switch (autoConnect=${KillSwitches.disableAutoConnect}, healthChecks=${KillSwitches.disableHealthChecks})',
+      );
+      return;
+    }
     _lastConnectedDevice = _connectedDevice;
     _healthMonitor.start();
   }
@@ -197,8 +422,20 @@ class BLEConnectionManager {
   void setPairingInProgress(bool inProgress) =>
       _healthMonitor.setPairingInProgress(inProgress);
 
-  void setHandshakeInProgress(bool inProgress) =>
-      _healthMonitor.setHandshakeInProgress(inProgress);
+  void setHandshakeInProgress(bool inProgress) {
+    _healthMonitor.setHandshakeInProgress(inProgress);
+    if (inProgress) {
+      final address = _connectedDevice?.uuid.toString();
+      if (address != null && _deferredServerTeardown.contains(address)) {
+        unawaited(
+          _completeDeferredServerTeardown(
+            address,
+            reason: 'client handshake started',
+          ),
+        );
+      }
+    }
+  }
 
   void markHandshakeComplete() {
     _healthMonitor.markHandshakeComplete();
@@ -206,6 +443,100 @@ class BLEConnectionManager {
   }
 
   void startHealthChecks() => _healthMonitor.startHealthChecks();
+
+  Future<void> _removeServerConnection(
+    String address, {
+    String reasonLog = 'client wins',
+  }) async {
+    final server = _serverConnections.remove(address);
+    _peerHintsByAddress.remove(address);
+    _blockedResponderHandshakes.remove(address);
+    if (server != null) {
+      try {
+        await peripheralManager.disconnectCentral(server.central);
+        _logger.info('🔌 Force disconnected inbound central: $address');
+      } catch (e) {
+        _logger.warning(
+          '⚠️ Failed to force disconnect central (might be unsupported): $e — retrying once',
+        );
+        try {
+          await Future.delayed(const Duration(milliseconds: 200));
+          await peripheralManager.disconnectCentral(server.central);
+          _logger.info('🔌 Retry disconnect succeeded for inbound $address');
+        } catch (secondError) {
+          _logger.warning(
+            '⚠️ Second disconnect attempt failed for inbound $address: $secondError',
+          );
+        }
+      }
+
+      _logger.info(
+        '🧹 Removed inbound server connection ($reasonLog)',
+      );
+    }
+
+    // Ensure tracker does not retain stale server-side entries
+    _connectionTracker.removeConnection(address);
+
+    _serverConnectionsController.add(serverConnections);
+    _healthMonitor.setAwaitingHandshake(false);
+    _updateAdvertisingState();
+  }
+
+  Future<void> _completeDeferredServerTeardown(
+    String address, {
+    required String reason,
+  }) async {
+    _blockedResponderHandshakes.remove(address);
+    _deferredServerTeardown.remove(address);
+    _deferredServerTeardownTimers.remove(address)?.cancel();
+    await _removeServerConnection(address, reasonLog: reason);
+
+    // Tracker should reflect the surviving client link so reconnect suppression stays active.
+    _connectionTracker.removeConnection(address); // remove stale server-side entry
+    final clientKey = _matchClientAddressByPeer(address);
+    if (clientKey != null) {
+      final client = _clientConnections[clientKey];
+      _connectionTracker.addConnection(
+        address: clientKey,
+        isClient: true,
+        rssi: client?.rssi,
+      );
+    }
+  }
+
+  void _scheduleDeferredServerTeardownCheck(String address) {
+    _deferredServerTeardownTimers[address]?.cancel();
+    // Short window: allow notify subscription or handshake kick-off to arrive.
+    _deferredServerTeardownTimers[address] = Timer(
+      const Duration(milliseconds: 1500),
+      () async {
+        if (!_deferredServerTeardown.contains(address)) return;
+
+        final serverConn = _serverConnections[address];
+        final hasSubscription =
+            serverConn?.subscribedCharacteristic != null;
+        if (hasSubscription || _healthMonitor.isHandshakeInProgress) {
+          await _completeDeferredServerTeardown(
+            address,
+            reason: hasSubscription
+                ? 'notify subscription observed'
+                : 'handshake started during deferral',
+          );
+          return;
+        }
+
+        _logger.warning(
+          '⚠️ Inbound link never became viable for ${_formatAddress(address)} — closing deferred server side',
+        );
+
+        await _completeDeferredServerTeardown(
+          address,
+          reason: 'non-viable inbound after deferral',
+        );
+      },
+    );
+  }
 
   // 🚀 ========== PHASE 2B: SIMULTANEOUS OPERATION ========== 🚀
 
@@ -318,6 +649,84 @@ class BLEConnectionManager {
   // 2. Single responsibility (one class manages all advertising)
   // 3. Consistent advertisement structure (no hint inconsistency bug)
 
+  /// ⚖️ Resolve collision when a central connects to us while we have a client link
+  Future<void> _resolveInboundCollision(String address) async {
+    _collisionResolutionsInFlight.add(address);
+    final clientAddress = _matchClientAddressByPeer(address);
+    try {
+      // Use the tie-breaker logic
+      final yieldToInbound = await _shouldYieldToInboundLink(address);
+
+      if (yieldToInbound) {
+        _logger.info(
+          '⚖️ Collision: Yielding to inbound server link. Disconnecting client.',
+        );
+        final clientKey = clientAddress ?? address;
+        final client = _clientConnections[clientKey];
+        if (client != null) {
+          try {
+            await centralManager.disconnect(client.peripheral);
+          } catch (e) {
+            _logger.warning('⚠️ Failed to disconnect stale client link: $e');
+          }
+          // Remove client after physical disconnect initiated
+          _clientConnections.remove(clientKey);
+        }
+        // Ensure tracker reflects the surviving inbound link if present
+        if (_serverConnections.containsKey(address)) {
+          _connectionTracker.addConnection(
+            address: address,
+            isClient: false,
+            rssi: null,
+          );
+          if (clientKey != null) {
+            _connectionTracker.removeConnection(clientKey);
+          }
+        } else {
+          if (clientKey != null) {
+            _connectionTracker.removeConnection(clientKey);
+          }
+          _connectionTracker.removeConnection(address);
+        }
+      } else {
+        _logger.info(
+          '⚖️ Collision: Keeping client link. Closing inbound server side.',
+        );
+        _logger.fine(
+          '⏸️ Deferring inbound teardown for ${_formatAddress(address)} until notify/handshake start',
+        );
+        _deferredServerTeardown.add(address);
+        _scheduleDeferredServerTeardownCheck(address);
+        _pendingClientConnections.remove(address);
+        if (clientAddress != null) {
+          _pendingClientConnections.remove(clientAddress);
+        }
+        _connectionTracker.clearAttempt(address);
+
+        // Tracker should reflect the surviving client link so reconnect suppression stays active.
+        final trackedClientKey = clientAddress ?? address;
+        final client = _clientConnections[trackedClientKey];
+        if (client != null) {
+          _connectionTracker.addConnection(
+            address: trackedClientKey,
+            isClient: true,
+            rssi: client.rssi,
+          );
+        } else {
+          _connectionTracker.removeConnection(trackedClientKey);
+        }
+        // Removing the inbound link may free an advertising slot.
+        _healthMonitor.setAwaitingHandshake(false);
+        _serverConnectionsController.add(serverConnections);
+        _updateAdvertisingState();
+      }
+    } catch (e) {
+      _logger.warning('⚠️ Collision resolution failed: $e');
+    } finally {
+      _collisionResolutionsInFlight.remove(address);
+    }
+  }
+
   /// 🛑 Stop BLE advertising
   Future<void> _stopAdvertising() async {
     if (!_isAdvertising) {
@@ -340,25 +749,66 @@ class BLEConnectionManager {
   /// 📥 Handle incoming connection (we're peripheral, they're central)
   ///
   /// Called when a remote central connects to our advertising peripheral
-  void handleCentralConnected(Central central) {
+  void handleCentralConnected(Central central) async {
     final address = central.uuid.toString();
+    _trackPeerHintForAddress(address);
+    final peerHint = _peerHintForAddress(address);
+    final hasClientForPeer = hasClientLinkForPeer(address);
+    final pendingClientForPeer = hasPendingClientForPeer(address);
+    final hasServerForPeer = hasServerLinkForPeer(address);
+    final hasHintCollision = hasAnyLinkForPeerHint(peerHint);
 
-    if (_serverConnections.containsKey(address)) {
-      _logger.warning(
-        '⚠️ Central already connected: ${_formatAddress(address)}',
+    // If we already have a client link to this peer, reject inbound duplicates
+    // immediately to avoid dual handshakes/glare.
+    // 🚀 NEW: Hard reject if we are already READY or have a client link/pending
+    // dial to this peer (detected via address or shared discovery hint).
+    // This prevents "glare" where we accept an inbound connection while we are already
+    // fully connected/ready as a client, preventing dual-role confusion.
+    if (_connectionState == ChatConnectionState.ready ||
+        hasServerForPeer ||
+        hasClientForPeer ||
+        pendingClientForPeer ||
+        hasHintCollision) {
+      if (hasHintCollision || pendingClientForPeer) {
+        _cancelPendingClientForPeer(
+          address,
+          reason: 'inbound duplicate detected',
+        );
+      }
+      _logger.info(
+        '🚫 Hard rejecting inbound from ${_formatAddress(address)}: '
+        'Already ${_connectionState == ChatConnectionState.ready ? "READY" : "CLIENT_LINK_ACTIVE/PENDING"} '
+        '(hintMatch=$hasHintCollision)',
       );
+      try {
+        _blockedResponderHandshakes.add(address);
+        await peripheralManager.disconnectCentral(central);
+        // Keep tracker aligned with the surviving client link if present.
+        _ensureTrackerForClientPeer(address);
+        _notifyInboundRejected(address);
+      } catch (e) {
+        _logger.warning(
+          '⚠️ Failed to reject duplicate inbound for ${_formatAddress(address)}: $e',
+        );
+      }
       return;
     }
 
-    // Collision handling: if we already have an outbound (client) link to this peer, drop it and prefer inbound
-    final existingClient = _clientConnections[address];
-    if (existingClient != null) {
-      _logger.info(
-        '🔀 Collision detected with ${_formatAddress(address)} → preferring inbound (server) link, dropping outbound (client)',
+    if (_serverConnections.containsKey(address)) {
+      _logger.warning(
+        '⚠️ Central already connected: ${_formatAddress(address)} — rejecting duplicate inbound',
       );
-      _clientConnections.remove(address);
-      _connectionTracker.removeConnection(address);
+      try {
+        await peripheralManager.disconnectCentral(central);
+      } catch (e) {
+        _logger.warning(
+          '⚠️ Failed to disconnect duplicate inbound central: $e',
+        );
+      }
+      return;
     }
+
+    final collisionWithClient = _clientConnections.containsKey(address);
 
     _logger.info(
       '📥 Central connected: ${_formatAddress(address)} (server connections: ${serverConnectionCount + 1}/${_limitConfig.maxServerConnections})',
@@ -381,8 +831,20 @@ class BLEConnectionManager {
       '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
     );
 
+    // Notify UI of server connection change
+    _serverConnectionsController.add(serverConnections);
+
     // Update advertising state (may need to stop if at limit)
     _updateAdvertisingState();
+
+    if (collisionWithClient) {
+      _logger.info(
+        '🔀 Collision detected with ${_formatAddress(address)} - resolving after server registration',
+      );
+      await _resolveInboundCollision(address);
+      // Refresh stream in case the resolution removed/kept the server entry
+      _serverConnectionsController.add(serverConnections);
+    }
   }
 
   /// 📤 Handle incoming disconnection (central disconnected from us)
@@ -390,9 +852,13 @@ class BLEConnectionManager {
   /// Called when a remote central disconnects from our peripheral
   void handleCentralDisconnected(Central central) {
     final address = central.uuid.toString();
+    _peerHintsByAddress.remove(address);
+    _blockedResponderHandshakes.remove(address);
 
     final connection = _serverConnections.remove(address);
     if (connection != null) {
+      _deferredServerTeardown.remove(address);
+      _deferredServerTeardownTimers.remove(address)?.cancel();
       final duration = connection.connectedDuration;
       _logger.info(
         '📤 Central disconnected: ${_formatAddress(address)} (connected for: ${duration.inSeconds}s, server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})',
@@ -417,6 +883,9 @@ class BLEConnectionManager {
       '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
     );
 
+    // Notify UI of server connection change
+    _serverConnectionsController.add(serverConnections);
+
     // Update advertising state (may need to resume if below limit)
     _updateAdvertisingState();
   }
@@ -429,15 +898,69 @@ class BLEConnectionManager {
     GATTCharacteristic characteristic,
   ) {
     final address = central.uuid.toString();
+    final peerHint = _peerHintForAddress(address);
+    final hasHintCollision = hasAnyLinkForPeerHint(peerHint);
 
     final connection = _serverConnections[address];
     if (connection != null) {
+      if (hasHintCollision &&
+          (_connectionState == ChatConnectionState.ready ||
+              hasClientLinkForPeer(address) ||
+              hasPendingClientForPeer(address))) {
+        _logger.warning(
+          '🚫 Duplicate inbound notify from ${_formatAddress(address)} (hint match) '
+          'while client/ready link exists — dropping before subscription handling',
+        );
+        _cancelPendingClientForPeer(
+          address,
+          reason: 'duplicate inbound notify',
+        );
+        _blockedResponderHandshakes.add(address);
+        unawaited(
+          _completeDeferredServerTeardown(
+            address,
+            reason: 'duplicate inbound notify (hint match)',
+          ),
+        );
+        _notifyInboundRejected(address);
+        return;
+      }
+
+      // If we already have a ready client link for this address, treat this as a late/duplicate inbound and drop it.
+      if (_connectionTracker.isConnected(address) &&
+          _clientConnections.containsKey(address) &&
+          _connectionState == ChatConnectionState.ready) {
+        _logger.warning(
+          '⚠️ Late inbound notify from ${_formatAddress(address)} after client link is ready — disconnecting duplicate inbound',
+        );
+        _blockedResponderHandshakes.add(address);
+        unawaited(
+          _completeDeferredServerTeardown(
+            address,
+            reason: 'late inbound after client ready',
+          ),
+        );
+        _notifyInboundRejected(address);
+        return;
+      }
+
       _serverConnections[address] = connection.copyWith(
         subscribedCharacteristic: characteristic,
       );
       _logger.info(
         '📝 Central subscribed to notifications: ${_formatAddress(address)}',
       );
+      if (_deferredServerTeardown.contains(address)) {
+        _logger.fine(
+          '⏸️ Deferred inbound teardown resolved by notify for ${_formatAddress(address)}',
+        );
+        unawaited(
+          _completeDeferredServerTeardown(
+            address,
+            reason: 'notify subscription arrived',
+          ),
+        );
+      }
     } else {
       _logger.warning(
         '⚠️ Subscription from unknown central: ${_formatAddress(address)}',
@@ -452,12 +975,55 @@ class BLEConnectionManager {
       _logger.fine(
         '📏 Updated server MTU for ${_formatAddress(address)}: $mtu bytes',
       );
+      if (_deferredServerTeardown.contains(address)) {
+        _logger.fine(
+          '⏸️ Deferred inbound teardown resolved by MTU negotiation for ${_formatAddress(address)}',
+        );
+        unawaited(
+          _completeDeferredServerTeardown(
+            address,
+            reason: 'mtu observed during deferral',
+          ),
+        );
+      }
     }
   }
 
   Future<bool> _shouldYieldToInboundLink(String address) async {
+    if (_pendingClientConnections.contains(address)) {
+      _logger.fine(
+        '⏭️ Skipping inbound viability wait for ${_formatAddress(address)} because outbound dial is pending (favoring client link)',
+      );
+      return false;
+    }
+
+    if (_deferredServerTeardown.contains(address)) {
+      _logger.fine(
+        '⏭️ Skipping inbound viability wait for ${_formatAddress(address)} because deferral is active (keeping client link)',
+      );
+      return false;
+    }
+
+    bool _inboundViable(BLEServerConnection? conn) {
+      if (conn == null) return false;
+      final hasSubscription = conn.subscribedCharacteristic != null;
+      final hasMtu = conn.mtu != null && conn.mtu! > 0;
+      return hasSubscription || hasMtu;
+    }
+
+    Future<bool> _waitForInboundViable(Duration timeout) async {
+      final deadline = DateTime.now().add(timeout);
+      while (DateTime.now().isBefore(deadline)) {
+        final conn = _serverConnections[address];
+        if (_inboundViable(conn)) return true;
+        await Future.delayed(Duration(milliseconds: 50));
+      }
+      return _inboundViable(_serverConnections[address]);
+    }
+
     try {
       final now = DateTime.now();
+      final initialServerConn = _serverConnections[address];
       _logger.fine(
         '⏱️ Collision check @${now.toIso8601String()} for ${_formatAddress(address)} '
         '(pendingClient=${_pendingClientConnections.contains(address)}, '
@@ -465,28 +1031,18 @@ class BLEConnectionManager {
         'awaitingHandshake=${_healthMonitor.awaitingHandshake})',
       );
       final serverConn = _serverConnections[address];
-      final inboundReady =
-          serverConn?.subscribedCharacteristic != null ||
-          (serverConn?.mtu != null && serverConn!.mtu! > 0);
-      final handshakeActive =
-          _healthMonitor.isHandshakeInProgress ||
-          _healthMonitor.awaitingHandshake;
+      final inboundWaitDuration = const Duration(milliseconds: 2500);
+      final inboundViable = await _waitForInboundViable(inboundWaitDuration);
+      _logger.fine(
+        '📡 Inbound viability after $inboundWaitDuration '
+        '(hadEntry=${initialServerConn != null}) -> $inboundViable',
+      );
 
-      final clientConn = _clientConnections[address];
-      if (clientConn != null &&
-          now.difference(clientConn.connectedAt) < const Duration(seconds: 2)) {
-        _logger.fine(
-          '⚖️ Collision tie-breaker: within post-connect grace for ${_formatAddress(address)} — keeping client link',
+      if (inboundViable && serverConn != null) {
+        _logger.info(
+          '⚖️ Collision tie-breaker: inbound link is viable (subscribed/MTU) — yielding to inbound',
         );
-        return false;
-      }
-
-      final inboundViable = inboundReady;
-      if (serverConn != null && !inboundViable) {
-        _logger.fine(
-          '⚖️ Collision tie-breaker: inbound not viable yet for ${_formatAddress(address)} — keeping client link',
-        );
-        return false;
+        return true;
       }
 
       final remoteDevice = DeviceDeduplicationManager.getDevice(address);
@@ -495,52 +1051,38 @@ class BLEConnectionManager {
           ? await _localHintProvider!.call()
           : null;
 
-      final hasComparableHints =
-          localHint != null &&
-          localHint.isNotEmpty &&
-          remoteHint != null &&
-          remoteHint.isNotEmpty &&
-          remoteHint != DeviceDeduplicationManager.noHintValue;
+      final localToken = (localHint != null && localHint.isNotEmpty)
+          ? localHint
+          : EphemeralKeyManager.generateMyEphemeralKey();
+      final remoteToken =
+          (remoteHint != null &&
+              remoteHint.isNotEmpty &&
+              remoteHint != DeviceDeduplicationManager.noHintValue)
+          ? remoteHint
+          : address;
+      final comparison = localToken.compareTo(remoteToken);
+      final preferInbound = comparison > 0;
 
-      if (hasComparableHints) {
-        final comparison = localHint.compareTo(remoteHint);
-        // Use deterministic hint ordering: higher hint yields to inbound.
-        if (comparison > 0) {
+      if (preferInbound && serverConn != null) {
+        _logger.info(
+          '⚖️ Collision tie-breaker: tokens local=$localToken remote=$remoteToken — inbound preferred by token',
+        );
+        if (!inboundViable) {
           _logger.info(
-            '⚖️ Collision tie-breaker: our hint ($localHint) > remote ($remoteHint) — yielding to inbound link',
-          );
-          return true;
-        }
-        if (comparison < 0) {
-          _logger.info(
-            '⚖️ Collision tie-breaker: our hint ($localHint) < remote ($remoteHint) — keeping client link',
+            '⚠️ Inbound not viable after wait for ${_formatAddress(address)} — keeping outbound link to preserve symmetry',
           );
           return false;
         }
         _logger.info(
-          '⚖️ Collision tie-breaker: hints identical ($localHint) — keeping client link to avoid double-drop',
+          '⚖️ Collision tie-breaker: inbound viable and token-preferred — yielding to inbound',
         );
-        return false;
-      }
-
-      if (handshakeActive) {
-        _logger.fine(
-          '⚖️ Collision tie-breaker: handshake active, insufficient hint data — keeping client link to ensure an initiator',
-        );
-        return false;
-      }
-
-      if (_pendingClientConnections.contains(address)) {
-        _logger.fine(
-          '⚖️ Collision tie-breaker: outbound connect pending for ${_formatAddress(address)} — keeping client link (no deterministic hint)',
-        );
-        return false;
+        return true;
       }
 
       _logger.info(
-        '⚖️ Collision tie-breaker: insufficient hint data (local=$localHint, remote=$remoteHint) — yielding to inbound link (first link wins)',
+        '⚖️ Collision tie-breaker: tokens local=$localToken remote=$remoteToken — keeping client link',
       );
-      return true;
+      return false;
     } catch (e) {
       _logger.warning(
         '⚖️ Collision tie-breaker failed ($address): $e — keeping client link',
@@ -627,11 +1169,19 @@ class BLEConnectionManager {
   /// - Threshold varies by power mode: -95 (performance) to -65 (ultra low)
   Future<void> connectToDevice(Peripheral device, {int? rssi}) async {
     final address = device.uuid.toString();
+    _trackPeerHintForAddress(address);
 
     // Unified guard: if we already have ANY connection to this address, skip
     if (_connectionTracker.isConnected(address)) {
       _logger.fine(
         '↔️ Unified tracker: already connected to ${_formatAddress(address)} — skipping outbound connect',
+      );
+      return;
+    }
+    if (_clientConnections.containsKey(address) ||
+        _serverConnections.containsKey(address)) {
+      _logger.fine(
+        '↔️ Existing link (client/server) to ${_formatAddress(address)} — skipping outbound connect',
       );
       return;
     }
@@ -733,19 +1283,24 @@ class BLEConnectionManager {
           _logger.info(
             '↔️ Collision policy yielded to inbound link for ${_formatAddress(address)} — abandoning client link',
           );
+          // 🔌 CRITICAL FIX: Ensure we disconnect if we managed to connect before yielding
+          try {
+            await centralManager.disconnect(device);
+          } catch (e) {
+            _logger.warning('⚠️ Failed to disconnect yielded client link: $e');
+          }
           _connectionTracker.clearAttempt(address);
           return;
         } else {
           _logger.info(
             '↔️ Collision policy prefers our client link for ${_formatAddress(address)} — keeping outbound connection',
           );
-          // 🔧 FIX: Remove the redundant server connection to prevent phantom entries in UI
-          final removedConnection = _serverConnections.remove(address);
-          if (removedConnection != null) {
-            _logger.fine(
-              '🧹 Cleaned up redundant server connection for ${_formatAddress(address)}',
-            );
-          }
+          // 🔧 FIX: Remove the redundant server connection and actively tear
+          // down the inbound central so we avoid dual links.
+          await _completeDeferredServerTeardown(
+            address,
+            reason: 'collision cleanup after outbound connect',
+          );
         }
       }
 
@@ -837,10 +1392,27 @@ class BLEConnectionManager {
           _logger.info(
             '✅ Notifications enabled successfully @${DateTime.now().toIso8601String()}',
           );
-
-          await Future.delayed(Duration(milliseconds: 500));
+          await Future.delayed(const Duration(milliseconds: 200));
         } catch (e) {
+          final hasInbound =
+              _serverConnections.containsKey(address) ||
+              _deferredServerTeardown.contains(address);
           _logger.severe('CRITICAL: Failed to enable notifications: $e');
+          if (hasInbound) {
+            _logger.warning(
+              '⏸️ Notify setup failed but inbound/deferral exists for ${_formatAddress(address)} — deferring to responder link instead of redialing',
+            );
+            _clientConnections.remove(address);
+            _connectionTracker.removeConnection(address);
+            try {
+              await centralManager.disconnect(device);
+            } catch (disconnectError) {
+              _logger.warning(
+                '⚠️ Failed to disconnect client after notify failure: $disconnectError',
+              );
+            }
+            return;
+          }
           throw Exception('Cannot enable notifications - connection unusable');
         }
       }
@@ -860,13 +1432,15 @@ class BLEConnectionManager {
       _clientConnections.remove(address);
       _connectionTracker.removeConnection(address);
 
-      clearConnectionState();
+      clearConnectionState(keepMonitoring: _serverConnections.isNotEmpty);
       rethrow;
     } finally {
       _pendingClientConnections.remove(address);
       // Keep pending attempt entry for backoff unless we succeeded
       if (_connectionTracker.isConnected(address)) {
         _connectionTracker.clearAttempt(address);
+      } else {
+        _clearPeerHintIfUnused(address);
       }
     }
   }
@@ -1008,12 +1582,14 @@ class BLEConnectionManager {
       await centralManager.disconnect(connection.peripheral);
       _clientConnections.remove(address);
       _connectionTracker.removeConnection(address);
+      _peerHintsByAddress.remove(address);
       _logger.info('✅ Client disconnected: ${_formatAddress(address)}');
     } catch (e) {
       _logger.warning('⚠️ Failed to disconnect ${_formatAddress(address)}: $e');
       // Remove from map anyway
       _clientConnections.remove(address);
       _connectionTracker.removeConnection(address);
+      _peerHintsByAddress.remove(address);
     }
   }
 
@@ -1040,6 +1616,12 @@ class BLEConnectionManager {
 
   void clearConnectionState({bool keepMonitoring = false, String? contactId}) {
     _logger.info('🧹 Clearing connection state');
+
+    for (final timer in _deferredServerTeardownTimers.values) {
+      timer.cancel();
+    }
+    _deferredServerTeardownTimers.clear();
+    _deferredServerTeardown.clear();
 
     // Invalidate characteristic/MTU state eagerly to avoid stale handles on
     // subsequent reconnects or role flips.
@@ -1069,6 +1651,9 @@ class BLEConnectionManager {
         _connectionTracker.addConnection(address: entry.key, isClient: false);
       }
     }
+    _peerHintsByAddress.clear();
+    _blockedResponderHandshakes.clear();
+    _noHintInboundDebounceUntil = null;
     _lastConnectedDevice = null;
 
     _isReconnection = false;
@@ -1100,6 +1685,15 @@ class BLEConnectionManager {
         return false;
       }
 
+      if (_clientConnections.isNotEmpty &&
+          (_healthMonitor.isHandshakeInProgress ||
+              _healthMonitor.awaitingHandshake)) {
+        _logger.fine(
+          '⏸️ Treating client link as viable while handshake is in flight to avoid reconnection churn',
+        );
+        return true;
+      }
+
       // Must have message characteristic to relay messages
       if (_messageCharacteristic == null) {
         return false;
@@ -1122,5 +1716,6 @@ class BLEConnectionManager {
 
   void dispose() {
     stopConnectionMonitoring();
+    _serverConnectionsController.close();
   }
 }

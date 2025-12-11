@@ -6,8 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
 import '../../core/security/hint_cache_manager.dart';
+import '../../core/models/connection_info.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/entities/contact.dart';
+import '../../domain/entities/enhanced_contact.dart';
+import '../../core/discovery/device_deduplication_manager.dart';
+import '../../core/security/security_types.dart';
 import '../providers/ble_providers.dart';
 import '../widgets/discovery/discovery_types.dart';
 
@@ -66,6 +70,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
     await _updateHintCache();
     _startCleanupTimer();
     _startPeripheralListener();
+    _listenForIdentityUpdates();
 
     return DiscoveryOverlayState(
       contacts: contacts,
@@ -163,6 +168,82 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
     );
   }
 
+  void _listenForIdentityUpdates() {
+    // Refresh contacts map and propagate resolved identities into discovery tiles.
+    ref.listen<AsyncValue<ConnectionInfo>>(connectionInfoProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((info) {
+        _refreshContacts();
+        unawaited(_updateResolvedContactFromConnection(info));
+      });
+    });
+  }
+
+  Future<void> _refreshContacts() async {
+    try {
+      final contacts = await ContactRepository().getAllContacts();
+      state = state.whenData(
+        (current) => current.copyWith(contacts: contacts),
+      );
+    } catch (e) {
+      _logger.fine('Failed to refresh contacts for discovery overlay: $e');
+    }
+  }
+
+  Future<void> _updateResolvedContactFromConnection(ConnectionInfo info) async {
+    try {
+      if (!(info.isConnected && info.otherUserName != null)) return;
+
+      final connectionService = ref.read(connectionServiceProvider);
+      final deviceId =
+          connectionService.connectedDevice?.uuid.toString() ??
+          connectionService.connectedCentral?.uuid.toString();
+      if (deviceId == null || deviceId.isEmpty) return;
+
+      final identifier =
+          connectionService.theirPersistentPublicKey ??
+          connectionService.theirPersistentKey ??
+          connectionService.currentSessionId ??
+          connectionService.theirEphemeralId;
+      if (identifier == null || identifier.isEmpty) return;
+
+      final contactRepo = ContactRepository();
+      final contact = await contactRepo.getContactByAnyId(identifier);
+      final displayName = contact?.displayName ?? info.otherUserName!;
+
+      final enhanced = EnhancedContact(
+        contact:
+            contact ??
+            Contact(
+              publicKey: identifier,
+              persistentPublicKey: identifier,
+              currentEphemeralId: connectionService.theirEphemeralId,
+              displayName: displayName,
+              trustStatus: TrustStatus.newContact,
+              securityLevel: SecurityLevel.low,
+              firstSeen: DateTime.now(),
+              lastSeen: DateTime.now(),
+              lastSecuritySync: null,
+              noisePublicKey: null,
+              noiseSessionState: null,
+              lastHandshakeTime: null,
+              isFavorite: false,
+            ),
+        lastSeenAgo: Duration.zero,
+        isRecentlyActive: true,
+        interactionCount: 0,
+        averageResponseTime: const Duration(minutes: 5),
+        groupMemberships: const [],
+      );
+
+      DeviceDeduplicationManager.updateResolvedContact(deviceId, enhanced);
+    } catch (e) {
+      _logger.fine('Failed to propagate resolved identity to discovery: $e');
+    }
+  }
+
   void _startPeripheralListener() {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     final connectionService = ref.read(connectionServiceProvider);
@@ -200,7 +281,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
 }
 
 final discoveryOverlayControllerProvider =
-    AsyncNotifierProvider.autoDispose<
+    AsyncNotifierProvider<
       DiscoveryOverlayController,
       DiscoveryOverlayState
     >(DiscoveryOverlayController.new);

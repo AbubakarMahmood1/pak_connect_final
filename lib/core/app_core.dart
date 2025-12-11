@@ -12,6 +12,7 @@ import 'messaging/offline_queue_facade.dart';
 import 'performance/performance_monitor.dart';
 import 'services/security_manager.dart';
 import 'networking/topology_manager.dart';
+import 'config/kill_switches.dart';
 import 'security/ephemeral_key_manager.dart';
 import 'security/noise/adaptive_encryption_strategy.dart';
 import '../domain/entities/enhanced_message.dart';
@@ -514,7 +515,14 @@ class AppCore {
 
   /// Handle message send callback
   void _handleMessageSend(String messageId) {
-    // In a real implementation, this would integrate with the BLE service
+    // Guard: ensure mesh layer is initialized; otherwise surface an error.
+    if (!AppCore.instance.isInitialized) {
+      _logger.severe(
+        '❌ Cannot send message ${messageId.shortId()}...: mesh not initialized',
+      );
+      return;
+    }
+    // In production this is replaced by MeshQueueSyncCoordinator binding.
     _logger.info('Sending message: ${messageId.shortId()}...');
   }
 

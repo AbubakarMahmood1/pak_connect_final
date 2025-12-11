@@ -261,4 +261,7 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
     GATTWriteRequest request, {
     required GATTError error,
   }) async {}
+
+  @override
+  Future<void> disconnectCentral(Central central) async {}
 }

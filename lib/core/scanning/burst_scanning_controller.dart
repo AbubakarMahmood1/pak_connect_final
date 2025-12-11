@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     show BluetoothLowEnergyState;
@@ -18,7 +17,6 @@ import '../bluetooth/bluetooth_state_monitor.dart'; // ✅ FIX #2: Import for Bl
 /// - Battery savings: Eliminates unnecessary scanning when connections are saturated
 class BurstScanningController {
   static final _logger = Logger('BurstScanningController');
-  final _rand = Random();
 
   AdaptivePowerManager?
   _powerManager; // ✅ FIX: Made nullable to prevent LateInitializationError on disposal
@@ -29,10 +27,11 @@ class BurstScanningController {
   bool _isBurstActive = false;
   bool _scanActuallyStarted =
       false; // ✅ FIX: Track if scan actually started (vs skipped due to Bluetooth unavailable)
-  DateTime? _nextScanTime;
+  DateTime? _nextActionTime;
   DateTime? _burstEndTime;
   DateTime? _lastBurstEndedAt;
-  Duration _cooldownDuration = const Duration(seconds: 30);
+  Duration _cooldownDuration = const Duration(minutes: 10);
+  final Duration _scanDuration = const Duration(seconds: 20);
   Timer? _statusUpdateTimer;
   Timer?
   _burstDurationTimer; // Timer to handle burst duration in continuous scan mode
@@ -119,7 +118,7 @@ class BurstScanningController {
 
   /// Handle burst scan start from power manager
   Future<void> _handleBurstScanStart() async {
-    // Throttle rapid restart loops: enforce a randomized cooldown after a burst ends.
+    // Throttle restart loops: enforce cooldown after a burst ends.
     if (_lastBurstEndedAt != null &&
         DateTime.now().difference(_lastBurstEndedAt!) < _cooldownDuration) {
       final remaining =
@@ -127,6 +126,7 @@ class BurstScanningController {
       _logger.fine(
         '🔥 BURST: Skipping start - cooldown active (${remaining.inSeconds}s left)',
       );
+      _nextActionTime ??= DateTime.now().add(remaining);
       return;
     }
 
@@ -167,9 +167,8 @@ class BurstScanningController {
       '🔥 BURST: Starting burst scan cycle ($activeConnections/$maxConnections connections)',
     );
     _isBurstActive = true;
-    _burstEndTime = DateTime.now().add(
-      Duration(milliseconds: 20000),
-    ); // 20s burst duration
+    _burstEndTime = DateTime.now().add(_scanDuration);
+    _nextActionTime = _burstEndTime;
 
     try {
       await _bleService!.startScanning(source: ScanningSource.burst);
@@ -180,7 +179,7 @@ class BurstScanningController {
       // This is needed because in performance mode (continuous scan),
       // the power manager won't call onStopScan
       _burstDurationTimer?.cancel();
-      _burstDurationTimer = Timer(Duration(milliseconds: 20000), () {
+      _burstDurationTimer = Timer(_scanDuration, () {
         if (_isBurstActive) {
           _logger.info(
             '🔥 BURST: Duration timer expired - treating as burst end',
@@ -219,8 +218,9 @@ class BurstScanningController {
     _isBurstActive = false;
     _burstEndTime = null;
     _lastBurstEndedAt = DateTime.now();
-    // Randomize next cooldown between 30–60 seconds to avoid tight loops.
-    _cooldownDuration = Duration(seconds: 30 + _rand.nextInt(31));
+    // Fixed cooldown to reduce churn during manual testing.
+    _cooldownDuration = const Duration(minutes: 10);
+    _nextActionTime = DateTime.now().add(_cooldownDuration);
 
     // ✅ FIX: Only try to stop scan if it actually started
     // This prevents "Stopping unknown BLE scan" logs when Bluetooth unavailable
@@ -235,14 +235,6 @@ class BurstScanningController {
     } else {
       _logger.fine(
         '🔥 BURST: Scan cycle ended (scan never started due to Bluetooth unavailable)',
-      );
-    }
-
-    // Calculate next scan time
-    if (_powerManager != null) {
-      final stats = _powerManager!.getCurrentStats();
-      _nextScanTime = DateTime.now().add(
-        Duration(milliseconds: stats.currentScanInterval),
       );
     }
 
@@ -261,12 +253,7 @@ class BurstScanningController {
       '🔥 BURST: Power stats updated - scan interval: ${stats.currentScanInterval}ms',
     );
 
-    // Update next scan time if not currently scanning
-    if (!_isBurstActive && _nextScanTime == null) {
-      _nextScanTime = DateTime.now().add(
-        Duration(milliseconds: stats.currentScanInterval),
-      );
-    }
+    // We maintain deterministic scheduling; stats only refresh status.
 
     _updateStatus();
   }
@@ -332,8 +319,7 @@ class BurstScanningController {
     // Override cooldown: pretend the last burst ended long enough ago and
     // schedule the next scan to fire soon.
     _lastBurstEndedAt = DateTime.now().subtract(_cooldownDuration);
-    _cooldownDuration = delay;
-    _nextScanTime = DateTime.now().add(delay);
+    _nextActionTime = DateTime.now().add(delay);
 
     await _powerManager!.scheduleManualBurstAfter(delay);
 
@@ -346,7 +332,7 @@ class BurstScanningController {
     _logger.info('🔥 MANUAL: Forcing burst scan (cooldown bypass)');
     _lastBurstEndedAt = DateTime.now().subtract(_cooldownDuration);
     _cooldownDuration = Duration.zero;
-    _nextScanTime = DateTime.now();
+    _nextActionTime = DateTime.now();
 
     if (_isBurstActive) {
       _logger.fine(
@@ -401,15 +387,8 @@ class BurstScanningController {
 
     // Only calculate next scan time if no active scanning
     if (!_isBurstActive) {
-      if (stats.nextScheduledScanTime != null) {
-        // Use actual scheduled time from power manager (includes randomization)
-        final remaining = stats.nextScheduledScanTime!
-            .difference(DateTime.now())
-            .inSeconds;
-        secondsUntilNextScan = remaining > 0 ? remaining : 0;
-      } else if (_nextScanTime != null) {
-        // Fallback to our estimated time
-        final remaining = _nextScanTime!.difference(DateTime.now()).inSeconds;
+      if (_nextActionTime != null) {
+        final remaining = _nextActionTime!.difference(DateTime.now()).inSeconds;
         secondsUntilNextScan = remaining > 0 ? remaining : 0;
       }
     }
@@ -456,13 +435,32 @@ class BurstScanningController {
   void _startStatusTimer() {
     _statusUpdateTimer ??= Timer.periodic(
       Duration(seconds: 1),
-      (_) => _updateStatus(),
+      (_) => _tickScheduler(),
     );
   }
 
   void _stopStatusTimer() {
     _statusUpdateTimer?.cancel();
     _statusUpdateTimer = null;
+  }
+
+  /// Scheduler tick: enforce deterministic state transitions.
+  void _tickScheduler() {
+    final now = DateTime.now();
+
+    // If scanning and burst end reached, stop and schedule cooldown.
+    if (_isBurstActive && _burstEndTime != null && now.isAfter(_burstEndTime!)) {
+      _logger.fine('🔥 BURST: Scan duration elapsed - stopping and entering cooldown');
+      _handleBurstScanStop();
+    }
+
+    // If not scanning and next action time reached, start scanning.
+    if (!_isBurstActive && _nextActionTime != null && now.isAfter(_nextActionTime!)) {
+      _logger.fine('🔥 BURST: Cooldown elapsed - starting scan');
+      unawaited(_handleBurstScanStart());
+    }
+
+    _updateStatus();
   }
 
   /// Dispose of resources

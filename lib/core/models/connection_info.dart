@@ -9,6 +9,7 @@ class ConnectionInfo {
   final bool isScanning; // For discovery screen
   final bool isAdvertising; // For peripheral mode
   final bool isReconnecting; // For loading states
+  final bool awaitingHandshake; // Whether handshake/notify setup is in progress
 
   const ConnectionInfo({
     required this.isConnected,
@@ -18,6 +19,7 @@ class ConnectionInfo {
     this.isScanning = false,
     this.isAdvertising = false,
     this.isReconnecting = false,
+    this.awaitingHandshake = false,
   });
 
   // Convenience getters for common UI needs
@@ -32,6 +34,7 @@ class ConnectionInfo {
     bool? isScanning,
     bool? isAdvertising,
     bool? isReconnecting,
+    bool? awaitingHandshake,
   }) => ConnectionInfo(
     isConnected: isConnected ?? this.isConnected,
     isReady: isReady ?? this.isReady,
@@ -40,5 +43,6 @@ class ConnectionInfo {
     isScanning: isScanning ?? this.isScanning,
     isAdvertising: isAdvertising ?? this.isAdvertising,
     isReconnecting: isReconnecting ?? this.isReconnecting,
+    awaitingHandshake: awaitingHandshake ?? this.awaitingHandshake,
   );
 }

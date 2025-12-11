@@ -43,7 +43,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
   // Peripheral state (shared with connection service)
   Central? connectedCentral;
   GATTCharacteristic? connectedCharacteristic;
-  bool peripheralHandshakeStarted = false;
+  bool _peripheralHandshakeStarted = false;
   GATTCharacteristic? _messageCharacteristic;
   int? _peripheralNegotiatedMTU;
   bool _peripheralMtuReady = false;
@@ -209,7 +209,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
     // Clear peripheral-specific state (but NOT encryption keys!)
     connectedCentral = null;
     connectedCharacteristic = null;
-    peripheralHandshakeStarted = false;
+    _peripheralHandshakeStarted = false;
     _peripheralNegotiatedMTU = null;
     _peripheralMtuReady = false;
 
@@ -256,17 +256,41 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
   @override
   bool get isPeripheralMTUReady => _peripheralMtuReady;
 
+  @override
   GATTCharacteristic? get messageCharacteristic => _messageCharacteristic;
 
+  @override
+  bool get peripheralHandshakeStarted => _peripheralHandshakeStarted;
+
+  @override
+  set peripheralHandshakeStarted(bool value) {
+    _peripheralHandshakeStarted = value;
+  }
+
+  @override
+  Future<void> stopAdvertising() async {
+    _logger.info('🛑 Stopping advertising via IBLEAdvertisingService');
+    await advertisingManager.stopAdvertising();
+  }
+
+  @override
+  Future<void> startAdvertising() async {
+    _logger.info('📡 Starting advertising via IBLEAdvertisingService');
+    final myPublicKey = await stateManager.getMyPersistentId();
+    await advertisingManager.startAdvertising(myPublicKey: myPublicKey);
+  }
+
+  @override
   void updatePeripheralMtu(int mtu) {
     _peripheralNegotiatedMTU = mtu;
     _peripheralMtuReady = true;
   }
 
+  @override
   void resetPeripheralSession() {
     connectedCentral = null;
     connectedCharacteristic = null;
-    peripheralHandshakeStarted = false;
+    _peripheralHandshakeStarted = false;
     _peripheralNegotiatedMTU = null;
     _peripheralMtuReady = false;
   }

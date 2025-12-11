@@ -22,6 +22,7 @@ class DiscoveryDeviceTile extends StatelessWidget {
     required this.attemptState,
     required this.isConnectedAsCentral,
     required this.isConnectedAsPeripheral,
+    required this.connectionReady,
     required this.onConnect,
     required this.onRetry,
     required this.onOpenChat,
@@ -37,6 +38,7 @@ class DiscoveryDeviceTile extends StatelessWidget {
   final ConnectionAttemptState attemptState;
   final bool isConnectedAsCentral;
   final bool isConnectedAsPeripheral;
+  final bool connectionReady;
   final Future<void> Function() onConnect;
   final VoidCallback onRetry;
   final VoidCallback onOpenChat;
@@ -80,6 +82,7 @@ class DiscoveryDeviceTile extends StatelessWidget {
             isPaired,
             isVerified,
             securityLevel,
+            connectionReady,
             isActuallyConnected,
           ),
           trailing: _buildTrailingIcon(attemptState, rssi, isActuallyConnected),
@@ -159,6 +162,7 @@ class DiscoveryDeviceTile extends StatelessWidget {
     bool isPaired,
     bool isVerified,
     SecurityLevel securityLevel,
+    bool connectionReady,
     bool isActuallyConnected,
   ) {
     final signalRow = Row(
@@ -173,7 +177,11 @@ class DiscoveryDeviceTile extends StatelessWidget {
       ],
     );
 
-    final connectionBadge = _buildConnectionStatusBadge(attemptState);
+    final connectionBadge = _buildConnectionStatusBadge(
+      attemptState,
+      connectionReady,
+      isActuallyConnected,
+    );
 
     final roleBadges = _buildRoleBadges(
       isConnectedAsCentral,
@@ -323,32 +331,48 @@ class DiscoveryDeviceTile extends StatelessWidget {
     );
   }
 
-  Widget _buildConnectionStatusBadge(ConnectionAttemptState attemptState) {
+  Widget _buildConnectionStatusBadge(
+    ConnectionAttemptState attemptState,
+    bool connectionReady,
+    bool isActuallyConnected,
+  ) {
     String label;
     Color color;
     IconData icon;
 
-    switch (attemptState) {
-      case ConnectionAttemptState.connected:
+    if (isActuallyConnected) {
+      if (connectionReady) {
         label = 'CONNECTED';
         color = Colors.green;
         icon = Icons.link;
-        break;
-      case ConnectionAttemptState.connecting:
+      } else {
         label = 'CONNECTING';
         color = Colors.orange;
         icon = Icons.sync;
-        break;
-      case ConnectionAttemptState.failed:
-        label = 'RETRY';
-        color = Colors.red;
-        icon = Icons.refresh;
-        break;
-      case ConnectionAttemptState.none:
-        label = 'TAP TO CONNECT';
-        color = Colors.blue;
-        icon = Icons.bluetooth;
-        break;
+      }
+    } else {
+      switch (attemptState) {
+        case ConnectionAttemptState.connected:
+          label = 'CONNECTED';
+          color = Colors.green;
+          icon = Icons.link;
+          break;
+        case ConnectionAttemptState.connecting:
+          label = 'CONNECTING';
+          color = Colors.orange;
+          icon = Icons.sync;
+          break;
+        case ConnectionAttemptState.failed:
+          label = 'RETRY';
+          color = Colors.red;
+          icon = Icons.refresh;
+          break;
+        case ConnectionAttemptState.none:
+          label = 'TAP TO CONNECT';
+          color = Colors.blue;
+          icon = Icons.bluetooth;
+          break;
+      }
     }
 
     return Container(

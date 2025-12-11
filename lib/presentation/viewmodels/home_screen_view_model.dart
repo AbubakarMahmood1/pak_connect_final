@@ -299,7 +299,11 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
       (previous, next) {
         next.whenData((_) {
           if (!state.isLoading) {
-            loadChats();
+            scheduleMicrotask(() {
+              if (mounted) {
+                unawaited(loadChats());
+              }
+            });
           }
         });
       },

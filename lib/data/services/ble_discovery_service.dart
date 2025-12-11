@@ -174,10 +174,6 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
       }
     }
 
-    _discoveredDevices.clear();
-    _notifyDevices([]);
-    _discoveryData.clear();
-    _notifyDiscoveryData({});
     _currentScanningSource = source;
 
     _logger.info('🔍 Starting ${source.name} BLE scan...');

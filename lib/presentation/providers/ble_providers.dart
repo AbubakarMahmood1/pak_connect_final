@@ -26,6 +26,7 @@ import '../../core/interfaces/i_ble_service_facade.dart';
 import '../../core/interfaces/i_ble_service.dart';
 import '../../core/interfaces/i_ble_handshake_service.dart';
 import '../../core/bluetooth/handshake_coordinator.dart';
+import '../../core/models/ble_server_connection.dart';
 import 'mesh_networking_provider.dart';
 import 'runtime_providers.dart';
 import '../../core/utils/string_extensions.dart';
@@ -571,7 +572,7 @@ final bleStateProvider =
 
 // Discovered devices provider (driven by BleRuntimeNotifier)
 final discoveredDevicesProvider =
-    Provider.autoDispose<AsyncValue<List<Peripheral>>>((ref) {
+    Provider<AsyncValue<List<Peripheral>>>((ref) {
       return ref.watch(bleRuntimeProvider).whenData((state) {
         return state.discoveredDevices;
       });
@@ -589,6 +590,19 @@ final peripheralConnectionChangesProvider =
     StreamProvider.autoDispose<CentralConnectionStateChangedEventArgs>((ref) {
       final service = ref.watch(connectionServiceProvider);
       return service.peripheralConnectionChanges;
+    });
+
+/// Real-time server connections stream (for Discovery Overlay)
+final serverConnectionsStreamProvider =
+    StreamProvider.autoDispose<List<BLEServerConnection>>((ref) {
+      final service = ref.watch(connectionServiceProvider);
+      // Check if the service exposes the manager directly or via facade
+      if (service is BLEService) {
+        return service.connectionManager.serverConnectionsStream;
+      }
+      // Fallback for facades/mocks if they don't expose the manager directly
+      // This might return empty if the facade doesn't support it, but prevents crashes
+      return const Stream.empty();
     });
 
 // Connection info provider (driven by BleRuntimeNotifier)
@@ -639,7 +653,7 @@ final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
 
 // Discovery data with advertisements provider (driven by BleRuntimeNotifier)
 final discoveryDataProvider =
-    Provider.autoDispose<AsyncValue<Map<String, DiscoveredEventArgs>>>((ref) {
+    Provider<AsyncValue<Map<String, DiscoveredEventArgs>>>((ref) {
       return ref.watch(bleRuntimeProvider).whenData((state) {
         return state.discoveryData;
       });
@@ -648,7 +662,7 @@ final discoveryDataProvider =
 // 🆕 Deduplicated discovered devices provider (with contact recognition)
 // FIX-007: Added autoDispose to prevent memory leaks
 final deduplicatedDevicesProvider =
-    StreamProvider.autoDispose<Map<String, DiscoveredDevice>>((ref) {
+    StreamProvider<Map<String, DiscoveredDevice>>((ref) {
       return DeviceDeduplicationManager.uniqueDevicesStream;
     });
 

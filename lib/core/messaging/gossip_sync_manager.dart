@@ -375,6 +375,20 @@ class GossipSyncManager {
         _skippedSyncsCount = 0;
       }
 
+      final queueStats = _messageQueue.getStatistics();
+      final hasQueueContent =
+          queueStats.pendingMessages > 0 ||
+          queueStats.retryingMessages > 0 ||
+          queueStats.sendingMessages > 0;
+      final hasAnnouncements = _latestAnnouncementByNode.isNotEmpty;
+
+      if (!hasQueueContent && !hasAnnouncements) {
+        _logger.fine(
+          '⏸️ Skipping periodic gossip sync — no queued messages or announcements to advertise',
+        );
+        return;
+      }
+
       final syncMessage = _buildSyncRequest();
 
       _logger.info(
