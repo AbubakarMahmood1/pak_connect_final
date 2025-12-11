@@ -16,6 +16,12 @@ class PreferenceKeys {
   static const String lastBackupTime = 'last_backup_time';
   static const String autoConnectKnownContacts =
       'auto_connect_known_contacts'; // 🆕 Auto-connect to known contacts
+  static const String killSwitchHealthChecks = 'kill_switch_health_checks';
+  static const String killSwitchQueueSync = 'kill_switch_queue_sync';
+  static const String killSwitchAutoConnect = 'kill_switch_auto_connect';
+  static const String killSwitchDualRole = 'kill_switch_dual_role';
+  static const String killSwitchDiscoveryScheduler =
+      'kill_switch_discovery_scheduler';
 }
 
 /// Default values for [PreferenceKeys].
@@ -36,4 +42,9 @@ class PreferenceDefaults {
   static const int lastBackupTime = 0;
   static const bool autoConnectKnownContacts =
       false; // 🆕 Default: OFF for battery conservation
+  static const bool killSwitchHealthChecks = false;
+  static const bool killSwitchQueueSync = false;
+  static const bool killSwitchAutoConnect = false;
+  static const bool killSwitchDualRole = false;
+  static const bool killSwitchDiscoveryScheduler = false;
 }

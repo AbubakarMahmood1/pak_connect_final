@@ -6,6 +6,7 @@ import '../power/adaptive_power_manager.dart';
 import '../interfaces/i_connection_service.dart';
 import '../interfaces/i_ble_discovery_service.dart';
 import '../bluetooth/bluetooth_state_monitor.dart'; // ✅ FIX #2: Import for Bluetooth state checking
+import '../config/kill_switches.dart';
 
 /// Bridge controller that connects AdaptivePowerManager to actual BLE scanning operations
 /// This ensures burst scanning reaches the radio hardware with proper source tagging
@@ -89,6 +90,10 @@ class BurstScanningController {
 
   /// Start adaptive burst scanning
   Future<void> startBurstScanning() async {
+    if (KillSwitches.disableDiscoveryScheduler) {
+      _logger.warning('🔥 BURST: Discovery scheduler disabled via kill switch');
+      return;
+    }
     if (_bleService == null || _powerManager == null) {
       _logger.warning(
         'BLE service or power manager not available for burst scanning',
@@ -102,6 +107,10 @@ class BurstScanningController {
 
   /// Stop burst scanning
   Future<void> stopBurstScanning() async {
+    if (KillSwitches.disableDiscoveryScheduler) {
+      _logger.warning('🔥 BURST: Discovery scheduler disabled via kill switch');
+      return;
+    }
     _logger.info('🔥 Stopping adaptive burst scanning');
 
     // Cancel burst duration timer

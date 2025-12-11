@@ -76,6 +76,67 @@ class DeveloperToolsSection extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
+          SwitchListTile.adaptive(
+            value: controller.disableHealthChecks,
+            onChanged: (value) async {
+              await controller.setDisableHealthChecks(value);
+              onShowMessage(
+                'Health checks ${value ? "disabled" : "enabled"} (kill switch)',
+              );
+            },
+            title: const Text('Disable health checks'),
+            subtitle: const Text('Kill-switch for connection health pings'),
+            secondary: const Icon(Icons.favorite_border, color: Colors.red),
+          ),
+          SwitchListTile.adaptive(
+            value: controller.disableQueueSync,
+            onChanged: (value) async {
+              await controller.setDisableQueueSync(value);
+              onShowMessage(
+                'Queue sync ${value ? "disabled" : "enabled"} (kill switch)',
+              );
+            },
+            title: const Text('Disable queue sync'),
+            subtitle: const Text('Skip queue sync scheduling/handlers'),
+            secondary: const Icon(Icons.sync_disabled, color: Colors.purple),
+          ),
+          SwitchListTile.adaptive(
+            value: controller.disableAutoConnect,
+            onChanged: (value) async {
+              await controller.setDisableAutoConnect(value);
+              onShowMessage(
+                'Auto-connect ${value ? "disabled" : "enabled"} (kill switch)',
+              );
+            },
+            title: const Text('Disable auto-connect'),
+            subtitle: const Text('Stop auto-connect/monitoring loops'),
+            secondary: const Icon(Icons.link_off, color: Colors.indigo),
+          ),
+          SwitchListTile.adaptive(
+            value: controller.disableDualRole,
+            onChanged: (value) async {
+              await controller.setDisableDualRole(value);
+              onShowMessage(
+                'Dual-role auto ${value ? "disabled" : "enabled"} (kill switch)',
+              );
+            },
+            title: const Text('Disable dual-role auto'),
+            subtitle: const Text('Manual scan/advertise when toggling panels'),
+            secondary: const Icon(Icons.sync_alt, color: Colors.cyan),
+          ),
+          SwitchListTile.adaptive(
+            value: controller.disableDiscoveryScheduler,
+            onChanged: (value) async {
+              await controller.setDisableDiscoveryScheduler(value);
+              onShowMessage(
+                'Discovery scheduler ${value ? "disabled" : "enabled"} (kill switch)',
+              );
+            },
+            title: const Text('Disable discovery scheduler'),
+            subtitle: const Text('Stops burst/timer-driven scans; manual only'),
+            secondary: const Icon(Icons.timer_off, color: Colors.blueGrey),
+          ),
+          const Divider(height: 1),
           ListTile(
             leading: const Icon(Icons.archive, color: Colors.brown),
             title: const Text('Check Inactive Chats'),

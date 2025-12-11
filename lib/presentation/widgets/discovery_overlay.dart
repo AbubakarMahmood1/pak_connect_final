@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import '../../core/config/kill_switches.dart';
 import '../../core/services/security_manager.dart';
 import '../../domain/entities/contact.dart';
 import '../../domain/entities/enhanced_contact.dart';
@@ -17,6 +18,7 @@ import 'discovery/discovery_header.dart';
 import 'discovery/discovery_peripheral_view.dart';
 import 'discovery/discovery_scanner_view.dart';
 import 'discovery/discovery_types.dart';
+import '../../core/interfaces/i_ble_discovery_service.dart';
 
 class DiscoveryOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -373,10 +375,32 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
                           DiscoveryHeader(
                             showScannerMode: overlayState.showScannerMode,
                             isPeripheralMode: bleService.isPeripheralMode,
-                            onToggleMode: () =>
-                                overlayController.setShowScannerMode(
-                                  !overlayState.showScannerMode,
-                                ),
+                            onToggleMode: () async {
+                              final nextMode = !overlayState.showScannerMode;
+                              overlayController.setShowScannerMode(nextMode);
+
+                              if (KillSwitches.disableDualRoleAuto) {
+                                try {
+                                  if (nextMode) {
+                                    // Scanner view: ensure scanning, stop peripheral advertise if needed.
+                                    await bleService.stopScanning();
+                                    await bleService.startScanning(
+                                      source: ScanningSource.manual,
+                                    );
+                                  } else {
+                                    // Peripheral view: advertise and stop scanning.
+                                    await bleService.stopScanning();
+                                    await bleService.startAsPeripheral();
+                                  }
+                                } catch (e, stack) {
+                                  _logger.warning(
+                                    'Mode toggle actions failed: $e',
+                                    e,
+                                    stack,
+                                  );
+                                }
+                              }
+                            },
                             onClose: widget.onClose,
                           ),
 

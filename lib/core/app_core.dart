@@ -26,6 +26,7 @@ import '../data/services/ble_service.dart';
 import '../data/services/ble_message_handler.dart';
 import '../data/services/ble_message_handler_facade_impl.dart';
 import '../data/services/seen_message_store.dart';
+import '../data/repositories/preferences_repository.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
 import '../data/repositories/archive_repository.dart';
@@ -134,6 +135,13 @@ class AppCore {
       final startTime = DateTime.now();
 
       _emitStatus(AppStatus.initializing);
+
+      // Load kill switches before bringing up subsystems.
+      final prefsRepo = PreferencesRepository();
+      await KillSwitches.load(
+        getBool: (key, {defaultValue = false}) =>
+            prefsRepo.getBool(key, defaultValue: defaultValue),
+      );
 
       // Allow tests to inject an override routine that simulates initialization
       // outcomes without exercising the full stack.

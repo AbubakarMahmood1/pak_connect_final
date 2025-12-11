@@ -107,6 +107,8 @@ void main() {
       final success = await coordinator.retryMessage(messageId);
       expect(success, isTrue);
 
+      // Simulate the ACK we now require before marking delivered.
+      coordinator.completeAck(messageId);
       await Future<void>.delayed(Duration.zero);
 
       expect(messageRepository.savedMessages.length, 1);

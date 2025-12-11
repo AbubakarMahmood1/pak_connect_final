@@ -114,6 +114,12 @@ class MeshQueueSyncCoordinator {
     });
   }
 
+  /// Completes a pending ACK for the given message. Useful for inbound ACKs
+  /// from the BLE layer or for tests that need to simulate delivery.
+  void completeAck(String messageId, {bool success = true}) {
+    _ackTracker.complete(messageId, success: success);
+  }
+
   void enableQueueSyncHandling() {
     if (_queueSyncHandlerRegistered) {
       return;
