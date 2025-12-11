@@ -230,6 +230,23 @@ class NoiseSessionManager {
     try {
       var session = getSession(peerID);
 
+      // 🚀 NEW: Protect established sessions from being overwritten by a new responder attempt.
+      // This happens if a late inbound packet triggers a "fallback" responder handshake.
+      if (session != null) {
+        if (session.isEstablished()) {
+          _logger.warning(
+            '🛡️ Ignoring responder handshake for $peerID - session already ESTABLISHED',
+          );
+          return null;
+        }
+        if (session.isInitiator && _isLikelyHandshake1(message)) {
+          _logger.warning(
+            '🛡️ Ignoring inbound handshake 1 for $peerID - initiator session already active',
+          );
+          return null;
+        }
+      }
+
       // Create responder session if needed
       if (session == null) {
         _logger.info('Creating new RESPONDER session for $peerID');
@@ -273,6 +290,9 @@ class NoiseSessionManager {
   }
 
   // ========== TRANSPORT ENCRYPTION ==========
+
+  bool _isLikelyHandshake1(Uint8List message) =>
+      message.length == 32 || message.length == 96;
 
   /// Encrypt data for peer
   ///

@@ -38,12 +38,13 @@ void main() {
     late Set<Pattern> allowedSevere;
 
     setUp(() {
+      resetMockitoState();
       logRecords = [];
       allowedSevere = {};
       Logger.root.level = Level.ALL;
       Logger.root.onRecord.listen(logRecords.add);
       mockMessageHandler = _ForwardingHarnessHandler();
-      mockConnectionManager = MockBLEConnectionManager();
+      mockConnectionManager = _MockBLEConnectionManagerWithHandshake();
       mockStateManager = MockIBLEStateManagerFacade();
       mockContactRepository = MockContactRepository();
       mockCentralManager = MockCentralManager();
@@ -360,7 +361,7 @@ void main() {
 
     test('oversized protocol payload uses binary envelope', () async {
       final mockMessageHandler = _ForwardingHarnessHandler();
-      final mockConnectionManager = MockBLEConnectionManager();
+      final mockConnectionManager = _MockBLEConnectionManagerWithHandshake();
       final mockStateManager = MockIBLEStateManagerFacade();
       final mockContactRepository = MockContactRepository();
       final mockCentralManager = MockCentralManager();
@@ -442,7 +443,7 @@ void main() {
       're-fragments binary forward per hop and skips relayer echo',
       () async {
         final handler = _ForwardingHarnessHandler();
-        final connectionManager = MockBLEConnectionManager();
+        final connectionManager = _MockBLEConnectionManagerWithHandshake();
         final stateManager = MockIBLEStateManagerFacade();
         final contactRepository = MockContactRepository();
         final centralManager = MockCentralManager();
@@ -612,7 +613,7 @@ void main() {
       're-fragments to the smallest downstream MTU and avoids writing back to relayer',
       () async {
         final handler = _ForwardingHarnessHandler();
-        final connectionManager = MockBLEConnectionManager();
+        final connectionManager = _MockBLEConnectionManagerWithHandshake();
         final stateManager = MockIBLEStateManagerFacade();
         final contactRepository = MockContactRepository();
         final centralManager = MockCentralManager();
@@ -747,6 +748,16 @@ class _WriteCall {
   final _Target target;
   final String deviceId;
   final Uint8List value;
+}
+
+class _MockBLEConnectionManagerWithHandshake extends MockBLEConnectionManager {
+  bool handshakeInProgress = false;
+
+  @override
+  bool get isHandshakeInProgress => handshakeInProgress;
+
+  @override
+  bool get awaitingHandshake => false;
 }
 
 class _ForwardingHarnessHandler extends Mock

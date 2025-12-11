@@ -12,6 +12,7 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - serena/**
+    - reference/**
 
   # Optional: relax in tests
   errors:

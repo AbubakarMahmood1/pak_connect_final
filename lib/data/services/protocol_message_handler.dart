@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_protocol_message_handler.dart';
+import '../../core/interfaces/i_identity_manager.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/models/protocol_message.dart';
+import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/security/signing_manager.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/messaging/queue_sync_manager.dart';
@@ -335,16 +338,53 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   /// Checks if message is intended for this device
   @override
   Future<bool> isMessageForMe(String? intendedRecipient) async {
-    if (intendedRecipient == null) {
+    if (intendedRecipient == null || intendedRecipient.isEmpty) {
       // Broadcast message
       return true;
     }
 
     if (_currentNodeId != null && intendedRecipient == _currentNodeId) {
+      _logger.fine('💬 Message addressed to current nodeId');
       return true;
     }
 
-    // Could check other identities here (ephemeral, persistent, etc.)
+    String? myPersistentId;
+    String? sessionEphemeralId;
+    String? signingEphemeralId;
+
+    if (GetIt.instance.isRegistered<IIdentityManager>()) {
+      final identity = GetIt.instance<IIdentityManager>();
+      myPersistentId = identity.myPersistentId ?? identity.getMyPersistentId();
+      try {
+        sessionEphemeralId = identity.myEphemeralId;
+      } catch (_) {
+        // Ephemeral manager may not be initialized yet; fall back below.
+      }
+    }
+
+    sessionEphemeralId ??= EphemeralKeyManager.currentSessionKey;
+    signingEphemeralId = EphemeralKeyManager.ephemeralSigningPublicKey;
+
+    if (myPersistentId != null && intendedRecipient == myPersistentId) {
+      _logger.fine('💬 Message addressed to our persistent key');
+      return true;
+    }
+
+    if (sessionEphemeralId != null && intendedRecipient == sessionEphemeralId) {
+      _logger.fine('💬 Message addressed to our session ephemeral key');
+      return true;
+    }
+
+    if (signingEphemeralId != null && intendedRecipient == signingEphemeralId) {
+      _logger.fine('💬 Message addressed to our ephemeral signing key');
+      return true;
+    }
+
+    final truncatedRecipient = intendedRecipient.shortId(8);
+    final truncatedNodeId = _currentNodeId?.shortId(8) ?? 'null';
+    _logger.fine(
+      '💬 Message not for us (recipient: $truncatedRecipient, node: $truncatedNodeId, session: ${sessionEphemeralId?.shortId(8) ?? "null"})',
+    );
     return false;
   }
 

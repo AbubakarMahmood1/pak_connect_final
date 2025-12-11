@@ -47,7 +47,9 @@ class DeviceDeduplicationManager {
   // 🆕 ENHANCEMENT 3: Auto-connect callback
   // Set by BLEService to enable auto-connect functionality
   static Future<void> Function(Peripheral device, String contactName)?
-  onKnownContactDiscovered;
+      onKnownContactDiscovered;
+  // Optional guard to let host services veto auto-connect attempts
+  static bool Function(DiscoveredDevice device)? shouldAutoConnect;
 
   static void processDiscoveredDevice(DiscoveredEventArgs event) {
     final deviceId = event.peripheral.uuid.toString();
@@ -337,6 +339,14 @@ class DeviceDeduplicationManager {
     DiscoveredDevice device,
     String contactName,
   ) async {
+    if (shouldAutoConnect != null && !shouldAutoConnect!(device)) {
+      _logger.info(
+        '⏭️ [AUTO-CONNECT] Skipping for ${device.deviceId.shortId(8)} '
+        '(predicate declined)',
+      );
+      return;
+    }
+
     final deviceIdShort = device.deviceId.shortId(8);
 
     _logger.info('🔗 [AUTO-CONNECT] ========================================');
@@ -396,6 +406,14 @@ class DeviceDeduplicationManager {
 
     candidates.sort((a, b) => (b.rssi ?? -999).compareTo(a.rssi ?? -999));
     final top = candidates.first;
+
+    if (shouldAutoConnect != null && !shouldAutoConnect!(top)) {
+      _logger.info(
+        '⏭️ [AUTO-CONNECT] Skipping strongest-RSSI candidate '
+        '${top.deviceId.shortId(8)} (predicate declined)',
+      );
+      return;
+    }
 
     final displayName =
         top.contactInfo?.contact.displayName ?? 'Unknown device';

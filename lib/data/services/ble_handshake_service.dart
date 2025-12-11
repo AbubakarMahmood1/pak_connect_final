@@ -146,6 +146,15 @@ class BLEHandshakeService implements IBLEHandshakeService {
     );
 
     try {
+      if (_handshakeCoordinator != null &&
+          !_handshakeCoordinator!.isComplete) {
+        _logger.warning(
+          '⚠️ Handshake already in progress '
+          '(phase: ${_handshakeCoordinator!.currentPhase}) - ignoring duplicate performHandshake call',
+        );
+        return;
+      }
+
       // Clean up old handshake coordinator if it exists
       disposeHandshakeCoordinator();
 
@@ -241,7 +250,8 @@ class BLEHandshakeService implements IBLEHandshakeService {
 
       // ✅ FIX: Process any buffered protocol messages that arrived before coordinator was created
       final bufferedProtocolMessages = <_BufferedMessage>[];
-      for (final buffered in _messageBuffer) {
+      final bufferedSnapshot = List<dynamic>.from(_messageBuffer);
+      for (final buffered in bufferedSnapshot) {
         try {
           final protocolMessage = ProtocolMessage.fromBytes(buffered.data);
           if (_isHandshakeMessage(protocolMessage.type)) {

@@ -34,6 +34,7 @@ import '../viewmodels/chat_session_view_model.dart';
 import '../widgets/chat_screen_helpers.dart';
 import '../widgets/chat_search_bar.dart';
 import '../widgets/message_bubble.dart';
+import '../../domain/models/mesh_network_models.dart';
 import '../../core/utils/chat_utils.dart';
 import '../../domain/services/mesh_networking_service.dart'
     show ReceivedBinaryEvent, PendingBinaryTransfer;
@@ -75,6 +76,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   late final ChatScreenControllerArgs _controllerArgs;
   ProviderSubscription<AsyncValue<ReceivedBinaryEvent>>?
   _binaryPayloadSubscription;
+  ProviderSubscription<AsyncValue<ConnectionInfo>>? _connectionSubscription;
+  ProviderSubscription<AsyncValue<MeshNetworkStatus>>? _meshSubscription;
   bool get _isRepositoryMode => widget.chatId != null;
   bool get _isPeripheralMode => widget.central != null;
   bool get _isCentralMode => widget.device != null;
@@ -227,31 +230,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             });
           },
         );
+    _connectionSubscription = ref.listenManual<AsyncValue<ConnectionInfo>>(
+      connectionInfoProvider,
+      (previous, next) {
+        final actions = ref.read(
+          chatSessionHandleProvider(_controllerArgs),
+        ).actions;
+        actions.handleConnectionChange(previous?.value, next.value);
+      },
+    );
+    _meshSubscription = ref.listenManual<AsyncValue<MeshNetworkStatus>>(
+      meshNetworkStatusProvider,
+      (previous, next) {
+        final actions = ref.read(
+          chatSessionHandleProvider(_controllerArgs),
+        ).actions;
+        actions.handleMeshInitializationStatusChange(previous, next);
+      },
+    );
   }
 
   @override
   void dispose() {
     _messageController.dispose();
     _binaryPayloadSubscription?.close();
+    _connectionSubscription?.close();
+    _meshSubscription?.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Keep state store alive while the screen is mounted.
+    ref.watch(chatSessionStateStoreProvider(_controllerArgs));
     final controller = ref.watch(chatScreenControllerProvider(_controllerArgs));
     final sessionHandle = ref.watch(chatSessionHandleProvider(_controllerArgs));
     final sessionActions = sessionHandle.actions;
     final ChatUIState uiState = sessionHandle.state;
     final searchController = sessionHandle.viewModel.searchController;
     final scrollingController = sessionHandle.viewModel.scrollingController;
-
-    ref.listen(connectionInfoProvider, (previous, next) {
-      sessionActions.handleConnectionChange(previous?.value, next.value);
-    });
-    ref.listen(meshNetworkStatusProvider, (previous, next) {
-      sessionActions.handleMeshInitializationStatusChange(previous, next);
-      ref.watch(chatSessionLifecycleFromControllerProvider(_controllerArgs));
-    });
 
     final connectionInfo = ref.watch(connectionInfoProvider).value;
 

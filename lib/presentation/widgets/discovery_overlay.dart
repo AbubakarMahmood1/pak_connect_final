@@ -39,7 +39,8 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   late final ProviderSubscription<AsyncValue<DiscoveryOverlayState>> _stateSub;
-  late final ProviderSubscription<AsyncValue<List<Peripheral>>> _devicesSub;
+  late final ProviderSubscription<AsyncValue<Map<String, DiscoveredDevice>>>
+  _dedupDevicesSub;
 
   // Device list management
   static const int _maxDevices = 50;
@@ -68,14 +69,15 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
         if (mounted) setState(() {});
       },
     );
-    _devicesSub = ref.listenManual<AsyncValue<List<Peripheral>>>(
-      discoveredDevicesProvider,
-      (previous, next) => next.whenData(_updateLastSeenForDevices),
-    );
+    _dedupDevicesSub =
+        ref.listenManual<AsyncValue<Map<String, DiscoveredDevice>>>(
+          deduplicatedDevicesProvider,
+          (previous, next) => next.whenData(_updateLastSeenFromDedup),
+        );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final devices = ref.read(discoveredDevicesProvider).value;
-      if (devices != null) {
-        _updateLastSeenForDevices(devices);
+      final dedupDevices = ref.read(deduplicatedDevicesProvider).value;
+      if (dedupDevices != null) {
+        _updateLastSeenFromDedup(dedupDevices);
       }
     });
     // Prime provider to start initialization.
@@ -256,12 +258,18 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   // This overlay is purely a display surface for discovered devices and connection status.
   // Mode transitions are triggered automatically by the underlying BLE architecture.
 
-  void _updateLastSeenForDevices(List<Peripheral> devices) {
+  void _updateLastSeenForDevices(Iterable<Peripheral> devices) {
     if (!mounted) return;
     final controller = ref.read(discoveryOverlayControllerProvider.notifier);
     for (final device in devices) {
       controller.updateDeviceLastSeen(device.uuid.toString());
     }
+  }
+
+  void _updateLastSeenFromDedup(Map<String, DiscoveredDevice> devices) {
+    _updateLastSeenForDevices(
+      devices.values.map((d) => d.peripheral),
+    );
   }
 
   @override
@@ -273,6 +281,30 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       discoveryOverlayControllerProvider.notifier,
     );
     final bleService = ref.watch(connectionServiceProvider);
+    final connectionInfo = ref.watch(connectionInfoProvider).value;
+    final isReady = connectionInfo?.isReady ?? false;
+    final inboundConnectedIds = <String>{};
+    final outboundConnectedIds = <String>{};
+    final connectedPeripheral = bleService.connectedDevice;
+    final connectedCentral = bleService.connectedCentral;
+    if (connectedPeripheral != null) {
+      outboundConnectedIds.add(connectedPeripheral.uuid.toString());
+    }
+    if (connectedCentral != null) {
+      inboundConnectedIds.add(connectedCentral.uuid.toString());
+    }
+    for (final server in bleService.serverConnections) {
+      inboundConnectedIds.add(server.central.uuid.toString());
+    }
+    final allConnectedIds = <String>{
+      ...inboundConnectedIds,
+      ...outboundConnectedIds,
+    };
+    // Do not hide connected peers; we just track counts for the slot indicator.
+    final activeConnectedIds = <String>{};
+    final readyConnectedCount = isReady ? allConnectedIds.length : 0;
+    // 📡 Watch server connections stream for real-time updates
+    final serverConnectionsAsync = ref.watch(serverConnectionsStreamProvider);
     final discoveredDevicesAsync = ref.watch(discoveredDevicesProvider);
     final discoveryDataAsync = ref.watch(discoveryDataProvider);
     final deduplicatedDevicesAsync = ref.watch(deduplicatedDevicesProvider);
@@ -357,6 +389,8 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
                                       discoveryDataAsync: discoveryDataAsync,
                                       deduplicatedDevicesAsync:
                                           deduplicatedDevicesAsync,
+                                      activeConnectedIds: activeConnectedIds,
+                                      readyConnectedCount: readyConnectedCount,
                                       state: overlayState,
                                       controller: overlayController,
                                       maxDevices: _maxDevices,
@@ -378,6 +412,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
                                     )
                                   : DiscoveryPeripheralView(
                                       serverConnections:
+                                          serverConnectionsAsync.value ??
                                           bleService.serverConnections,
                                       onOpenChat: (central) {
                                         widget.onClose();
@@ -409,7 +444,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   void dispose() {
     _animationController.dispose();
     _stateSub.close();
-    _devicesSub.close();
+    _dedupDevicesSub.close();
     super.dispose();
   }
 }

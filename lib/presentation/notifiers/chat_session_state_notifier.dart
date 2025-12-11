@@ -53,102 +53,143 @@ class ChatSessionOwnedStateNotifier extends Notifier<ChatUIState> {
 
 /// Primary state store for ChatScreen when migrating off the controller.
 class ChatSessionStateStore extends StateNotifier<ChatUIState> {
-  ChatSessionStateStore() : super(const ChatUIState());
+  ChatSessionStateStore() : super(const ChatUIState()) {
+    _snapshot = state;
+  }
 
   bool _disposed = false;
+  bool _mounted = true;
+  late ChatUIState _snapshot;
   bool get isDisposed => _disposed;
+  bool get isMounted => _mounted;
+
+  bool get _canUpdate => !_disposed && _mounted;
+
+  /// Safe accessor that avoids throwing after disposal.
+  ChatUIState get current => _snapshot;
+
+  void markMounted(bool mounted) {
+    _mounted = mounted;
+  }
 
   @override
   void dispose() {
+    _snapshot = state;
+    _mounted = false;
     _disposed = true;
     super.dispose();
   }
 
-  ChatUIState get current => state;
-
   void replace(ChatUIState newState) {
-    if (_disposed) return;
+    if (!_canUpdate) return;
     state = newState;
+    _snapshot = newState;
   }
 
   void update(ChatUIState Function(ChatUIState) updater) {
-    if (_disposed) return;
-    state = updater(state);
+    if (!_canUpdate) return;
+    final updated = updater(state);
+    state = updated;
+    _snapshot = updated;
   }
 
   void setMessages(List<Message> messages) {
-    if (_disposed) return;
-    state = state.copyWith(messages: messages);
+    if (!_canUpdate) return;
+    final updated = state.copyWith(messages: messages);
+    state = updated;
+    _snapshot = updated;
   }
 
   void appendMessage(Message message) {
-    if (_disposed) return;
-    state = state.copyWith(messages: [...state.messages, message]);
+    if (!_canUpdate) return;
+    final updated = state.copyWith(messages: [...state.messages, message]);
+    state = updated;
+    _snapshot = updated;
   }
 
   void updateMessage(Message updatedMessage) {
-    if (_disposed) return;
-    state = state.copyWith(
+    if (!_canUpdate) return;
+    final updatedState = state.copyWith(
       messages: state.messages
           .map((m) => m.id == updatedMessage.id ? updatedMessage : m)
           .toList(),
     );
+    state = updatedState;
+    _snapshot = updatedState;
   }
 
   void updateMessageStatus(MessageId messageId, MessageStatus newStatus) {
-    if (_disposed) return;
-    state = state.copyWith(
+    if (!_canUpdate) return;
+    final updatedState = state.copyWith(
       messages: state.messages
           .map((m) => m.id == messageId ? m.copyWith(status: newStatus) : m)
           .toList(),
     );
+    state = updatedState;
+    _snapshot = updatedState;
   }
 
   void removeMessage(MessageId messageId) {
-    if (_disposed) return;
-    state = state.copyWith(
+    if (!_canUpdate) return;
+    final updatedState = state.copyWith(
       messages: state.messages.where((m) => m.id != messageId).toList(),
     );
+    state = updatedState;
+    _snapshot = updatedState;
   }
 
   void setLoading(bool isLoading) {
-    if (_disposed) return;
-    state = state.copyWith(isLoading: isLoading);
+    if (!_canUpdate) return;
+    final updated = state.copyWith(isLoading: isLoading);
+    state = updated;
+    _snapshot = updated;
   }
 
   void setUnreadCount(int count) {
-    if (_disposed) return;
-    state = state.copyWith(unreadMessageCount: count);
+    if (!_canUpdate) return;
+    final updated = state.copyWith(unreadMessageCount: count);
+    state = updated;
+    _snapshot = updated;
   }
 
   void clearNewWhileScrolledUp() {
-    if (_disposed) return;
-    state = state.copyWith(newMessagesWhileScrolledUp: 0);
+    if (!_canUpdate) return;
+    final updated = state.copyWith(newMessagesWhileScrolledUp: 0);
+    state = updated;
+    _snapshot = updated;
   }
 
   void setSearchMode(bool isSearchMode) {
-    if (_disposed) return;
-    state = state.copyWith(isSearchMode: isSearchMode);
+    if (!_canUpdate) return;
+    final updated = state.copyWith(isSearchMode: isSearchMode);
+    state = updated;
+    _snapshot = updated;
   }
 
   void setSearchQuery(String query) {
-    if (_disposed) return;
-    state = state.copyWith(searchQuery: query);
+    if (!_canUpdate) return;
+    final updated = state.copyWith(searchQuery: query);
+    state = updated;
+    _snapshot = updated;
   }
 
   void setMeshState({
     required bool meshInitializing,
     required String initializationStatus,
   }) {
-    if (_disposed) return;
-    state = state.copyWith(
+    if (!_canUpdate) return;
+    final updatedState = state.copyWith(
       meshInitializing: meshInitializing,
       initializationStatus: initializationStatus,
     );
+    state = updatedState;
+    _snapshot = updatedState;
   }
 
   void setInitializationStatus(String initializationStatus) {
-    if (_disposed) return;
-    state = state.copyWith(initializationStatus: initializationStatus);
+    if (!_canUpdate) return;
+    final updated = state.copyWith(initializationStatus: initializationStatus);
+    state = updated;
+    _snapshot = updated;
   }
 }

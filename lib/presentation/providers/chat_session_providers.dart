@@ -49,9 +49,14 @@ final chatSessionOwnedStateNotifierProvider = NotifierProvider.autoDispose
     >(ChatSessionOwnedStateNotifier.new);
 
 final chatSessionStateStoreProvider = StateNotifierProvider.autoDispose
-    .family<ChatSessionStateStore, ChatUIState, ChatScreenControllerArgs>(
-      (ref, args) => ChatSessionStateStore(),
-    );
+    .family<ChatSessionStateStore, ChatUIState, ChatScreenControllerArgs>((
+      ref,
+      args,
+    ) {
+      final link = ref.keepAlive();
+      ref.onDispose(link.close);
+      return ChatSessionStateStore();
+    });
 
 /// Preferred state provider for migrated consumers.
 // Preferred state provider exported via chat_session_state_provider.dart.

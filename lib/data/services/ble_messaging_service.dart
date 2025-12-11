@@ -164,17 +164,28 @@ class BLEMessagingService implements IBLEMessagingService {
       throw Exception('Not connected to any device');
     }
 
-    final recipientId = _stateManager.getRecipientId();
+    String? recipientId = _stateManager.getRecipientId();
+    // If state is missing a recipient (race/tie), fall back to the queued/intended recipient.
+    if ((recipientId == null || recipientId.isEmpty) &&
+        originalIntendedRecipient != null &&
+        originalIntendedRecipient.isNotEmpty) {
+      recipientId = originalIntendedRecipient;
+    }
     final isPaired = _stateManager.isPaired;
     final idType = _stateManager.getIdType();
 
-    if (recipientId != null) {
+    if (recipientId != null && recipientId.isNotEmpty) {
       final truncatedId = recipientId.length > 16
           ? recipientId.substring(0, 16)
           : recipientId;
       _logger.info(
         '📤 STEP 7: Sending message using $idType ID: $truncatedId...',
       );
+    } else {
+      _logger.warning(
+        '⚠️ No recipient ID available for central send; aborting',
+      );
+      return false;
     }
 
     return await _messageHandler.sendMessage(
@@ -233,7 +244,12 @@ class BLEMessagingService implements IBLEMessagingService {
     _logger.info('📡 Peripheral sending with MTU: $mtuSize bytes');
 
     // STEP 7: Get appropriate recipient ID (ephemeral or persistent)
-    final recipientId = _stateManager.getRecipientId();
+    String? recipientId = _stateManager.getRecipientId();
+    if ((recipientId == null || recipientId.isEmpty) &&
+        _stateManager.theirPersistentKey != null &&
+        _stateManager.theirPersistentKey!.isNotEmpty) {
+      recipientId = _stateManager.theirPersistentKey;
+    }
     final isPaired = _stateManager.isPaired;
     final idType = _stateManager.getIdType();
 
@@ -907,6 +923,18 @@ class BLEMessagingService implements IBLEMessagingService {
             _logger.warning(
               '⚠️ No inbound notify subscription detected within wait window; initiator may not be enabling notifications',
             );
+            final reconnectAddress =
+                _connectionManager.connectedDevice?.uuid.toString();
+            if (reconnectAddress != null) {
+              _logger.info(
+                '🔁 Notify wait timed out — reconnecting client link $reconnectAddress',
+              );
+              unawaited(
+                _connectionManager.disconnectClient(reconnectAddress).then((_) {
+                  _connectionManager.triggerReconnection();
+                }),
+              );
+            }
             _isProcessingWriteQueue = false;
             completer.completeError(HandshakeSendException(msg));
             return;

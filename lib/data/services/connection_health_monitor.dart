@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'dart:math';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import '../../core/config/kill_switches.dart';
 
 enum ConnectionMonitorState { idle, healthChecking, reconnecting }
 
@@ -22,6 +23,9 @@ class ConnectionHealthMonitor {
   final bool Function() hasViableRelayConnection;
   final void Function(bool active)? onMonitoringChanged;
   final void Function(bool isReconnection)? onReconnectionFlagChanged;
+  final bool Function()? _hasActiveClientLink;
+  final bool Function()? _isCollisionResolving;
+  final bool Function()? _hasPendingClientConnection;
 
   Timer? _monitoringTimer;
   bool _isMonitoring = false;
@@ -51,9 +55,15 @@ class ConnectionHealthMonitor {
     required this.hasViableRelayConnection,
     this.onMonitoringChanged,
     this.onReconnectionFlagChanged,
+    bool Function()? hasActiveClientLink,
+    bool Function()? isCollisionResolving,
+    bool Function()? hasPendingClientConnection,
   }) : _logger = logger,
        _centralManager = centralManager,
-       _monitoringInterval = minInterval;
+       _monitoringInterval = minInterval,
+       _hasActiveClientLink = hasActiveClientLink,
+       _isCollisionResolving = isCollisionResolving,
+       _hasPendingClientConnection = hasPendingClientConnection;
 
   bool get isMonitoring => _isMonitoring;
   bool get isActivelyReconnecting =>
@@ -65,6 +75,10 @@ class ConnectionHealthMonitor {
   bool get awaitingHandshake => _awaitingHandshake;
 
   void start() {
+    if (KillSwitches.disableHealthChecks) {
+      _logger.warning('⚠️ Health checks disabled via kill switch');
+      return;
+    }
     if (_isMonitoring) return;
 
     _isMonitoring = true;
@@ -92,13 +106,17 @@ class ConnectionHealthMonitor {
   }
 
   void startHealthChecks() {
+    if (KillSwitches.disableHealthChecks) {
+      _logger.warning('⚠️ Health checks disabled via kill switch');
+      return;
+    }
     if (!hasBleConnection()) {
       _logger.fine('⏸️ Skipping health checks - no client link to monitor');
       return;
     }
 
     // Add a grace window after a fresh connection to avoid racing the handshake.
-    _healthCheckGraceUntil = DateTime.now().add(const Duration(seconds: 8));
+    _healthCheckGraceUntil = DateTime.now().add(const Duration(seconds: 10));
     _awaitingHandshake = true;
     if (!_isMonitoring) {
       start();
@@ -135,7 +153,7 @@ class ConnectionHealthMonitor {
 
   void markHandshakeComplete() {
     _awaitingHandshake = false;
-    _healthCheckGraceUntil = DateTime.now().add(const Duration(seconds: 8));
+    _healthCheckGraceUntil = DateTime.now().add(const Duration(seconds: 10));
     _logger.fine(
       '🤝 Handshake complete - health checks may proceed after grace',
     );
@@ -157,6 +175,24 @@ class ConnectionHealthMonitor {
   }
 
   void triggerImmediateReconnection() {
+    if (_isCollisionResolving?.call() ?? false) {
+      _logger.fine(
+        '⏸️ Suppressing immediate reconnection while collision resolution is in flight',
+      );
+      return;
+    }
+    if (_hasActiveClientLink?.call() ?? false) {
+      _logger.fine(
+        '⏸️ Suppressing immediate reconnection because a client link is active',
+      );
+      return;
+    }
+    if (_hasPendingClientConnection?.call() ?? false) {
+      _logger.fine(
+        '⏸️ Suppressing immediate reconnection because a client dial is pending',
+      );
+      return;
+    }
     _monitorState = ConnectionMonitorState.reconnecting;
     _monitoringInterval = minInterval;
     _scheduleNextCheck();
@@ -262,6 +298,30 @@ class ConnectionHealthMonitor {
   }
 
   Future<void> _attemptReconnection() async {
+    if (_isCollisionResolving?.call() ?? false) {
+      _logger.fine(
+        '⏸️ Skipping reconnection attempt during collision resolution',
+      );
+      return;
+    }
+
+    if (_hasActiveClientLink?.call() ?? false) {
+      _logger.fine(
+        '⏸️ Skipping reconnection attempt because a client link is already active',
+      );
+      _reconnectAttempts = 0;
+      _monitorState = ConnectionMonitorState.healthChecking;
+      _monitoringInterval = healthCheckInterval;
+      return;
+    }
+
+    if (_hasPendingClientConnection?.call() ?? false) {
+      _logger.fine(
+        '⏸️ Skipping reconnection attempt because a client dial is pending',
+      );
+      return;
+    }
+
     if (_reconnectAttempts >= maxReconnectAttempts) {
       _logger.warning(
         '❌ Max reconnection attempts reached ($_reconnectAttempts/$maxReconnectAttempts)',

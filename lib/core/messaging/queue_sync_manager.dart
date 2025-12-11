@@ -83,6 +83,17 @@ class QueueSyncManager {
       return QueueSyncResult.rateLimited(reason);
     }
 
+    final queueStats = _messageQueue.getStatistics();
+    final hasLocalPayload =
+        queueStats.pendingMessages > 0 ||
+        queueStats.retryingMessages > 0 ||
+        queueStats.sendingMessages > 0;
+    if (!hasLocalPayload) {
+      _logger.fine(
+        '📡 Queue sync initiation to $targetNodeId with empty queue (hash-only sync)',
+      );
+    }
+
     _totalSyncRequests++;
     _syncInProgress.add(targetNodeId);
 

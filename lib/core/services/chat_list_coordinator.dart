@@ -276,9 +276,14 @@ class ChatListCoordinator implements IChatListCoordinator {
       final bleService = _bleService;
       if (bleService == null) return null;
 
-      // ⚠️ NOTE: Returns empty list if BLE not initialized or no devices discovered yet
-      // This prevents blocking chat load while waiting for first discovery event
-      // Real-time discovery happens via setupDiscoveryDataListener() stream
+      // Prefer cached discovery data for presence/nearby calculations.
+      if (_lastDiscoveryData != null && _lastDiscoveryData!.isNotEmpty) {
+        return _lastDiscoveryData!.values
+            .map((event) => event.peripheral)
+            .toList(growable: false);
+      }
+
+      // Fallback: return empty list without blocking.
       return const [];
     } catch (e) {
       _logger.warning('⚠️ Error getting nearby devices: $e');

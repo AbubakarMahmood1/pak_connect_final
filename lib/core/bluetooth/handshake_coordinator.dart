@@ -6,12 +6,14 @@ import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/security/noise/models/noise_models.dart';
+import 'package:pak_connect/core/security/noise/noise_session.dart';
 import 'package:pak_connect/core/networking/topology_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'handshake_timeout_manager.dart';
 import 'kk_pattern_tracker.dart';
 import 'noise_handshake_driver.dart';
 import 'handshake_peer_state.dart';
+import 'package:pak_connect/core/security/noise/noise_session.dart';
 
 /// Connection phases for the sequential handshake protocol
 /// Response IS the acknowledgment (no separate ACK messages)
@@ -238,6 +240,7 @@ class HandshakeCoordinator {
 
   Future<void> _handleConnectionReady(ProtocolMessage message) async {
     _logger.info('📥 Received connectionReady');
+    final peerId = message.connectionReadyDeviceId;
 
     // Valid in: bleConnected (peripheral), readySent (central)
     if (_phase != ConnectionPhase.bleConnected &&
@@ -251,24 +254,44 @@ class HandshakeCoordinator {
       _logger.info(
         '🔄 Peripheral: Received ready, sending our ready (response IS ack)',
       );
-      _isInitiator = false; // ← Mark as responder
+      _isInitiator = _resolveInitiatorFromReady(peerId);
+      _logger.info(
+        _isInitiator
+            ? '📤 Peripheral: Assuming initiator role after tie-break'
+            : '⏸️ Peripheral: Proceeding as responder after tie-break',
+      );
 
-      // Advance to ready complete FIRST (before sending)
-      await _advanceToReadyComplete();
+      _logger.info('✅ Phase 0 Complete: Both devices ready');
+      _phase = ConnectionPhase.readyComplete;
+      _emitPhase(_phase);
 
-      // Then send response
+      // Send response, then continue based on role
       final response = ProtocolMessage.connectionReady(
         deviceId: _myPublicKey,
         deviceName: _myDisplayName,
       );
       await _sendWithGuard(response, 'connectionReady (ack)');
+
+      if (_isInitiator) {
+        _logger.info('📤 Role: INITIATOR - proceeding to send identity');
+        await _advanceToIdentitySent();
+      } else {
+        _logger.info('⏸️ Role: RESPONDER - waiting for identity');
+        _startPhaseTimeout('identity');
+      }
       return;
     }
 
     // CENTRAL FLOW: We sent first, they responded, advance
     if (_phase == ConnectionPhase.readySent) {
-      _logger.info('✅ Central: Received their ready response - advancing');
-      _isInitiator = true; // ← Mark as initiator
+      // Glare handling: if both sides sent ready, tie-break deterministically
+      // using public keys so only one side proceeds as initiator.
+      _isInitiator = _resolveInitiatorFromReady(peerId);
+      _logger.info(
+        _isInitiator
+            ? '✅ Central: Keeping initiator role after ready glare tie-break'
+            : '✅ Central: Yielding initiator role after ready glare tie-break',
+      );
       await _advanceToReadyComplete();
       return;
     }
@@ -428,6 +451,40 @@ class HandshakeCoordinator {
             ? 'XX'
             : 'UNKNOWN'})',
       );
+
+      // Ensure stale sessions don't block re-key handshakes on responder side,
+      // but avoid tearing down healthy established sessions.
+      final peerId = message.noiseHandshakePeerId;
+      final noiseService = SecurityManager.instance.noiseService;
+      if (peerId != null && noiseService != null) {
+        final sessionState = noiseService.getSessionState(peerId);
+        final needsRekey =
+            noiseService.checkForRekeyNeeded().contains(peerId);
+
+        final isEstablished = sessionState == NoiseSessionState.established;
+        final shouldPreserveEstablished = isEstablished &&
+            !needsRekey &&
+            _phase == ConnectionPhase.complete;
+
+        if (shouldPreserveEstablished) {
+          _logger.warning(
+            '🛡️ Ignoring duplicate handshake1 for $peerId - session already established and handshake complete',
+          );
+          return;
+        }
+
+        if (isEstablished) {
+          _logger.info(
+            needsRekey
+                ? '🔄 Rekey needed for $peerId - clearing session before responder handshake'
+                : '♻️ Clearing existing session for $peerId to allow fresh handshake',
+          );
+        }
+
+        try {
+          noiseService.removeSession(peerId);
+        } catch (_) {}
+      }
 
       // SCENARIO A: Peer initiated KK but we don't have their key
       if (isKK) {
@@ -991,5 +1048,12 @@ class HandshakeCoordinator {
         _logger.warning('Error notifying phase listener: $e', e, stackTrace);
       }
     }
+  }
+
+  bool _resolveInitiatorFromReady(String? peerId) {
+    if (peerId == null || peerId.isEmpty) {
+      return _isInitiator;
+    }
+    return _myPublicKey.compareTo(peerId) >= 0;
   }
 }

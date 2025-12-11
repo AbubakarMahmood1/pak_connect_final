@@ -6,6 +6,7 @@ import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/interfaces/i_connection_service.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/core/messaging/message_ack_tracker.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/utils/mesh_debug_logger.dart';
@@ -13,6 +14,7 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/core/config/kill_switches.dart';
 
 import 'mesh_network_health_monitor.dart';
 
@@ -57,6 +59,7 @@ class MeshQueueSyncCoordinator {
            ((queue, nodeId) =>
                QueueSyncManagerAdapter(queue: queue, nodeId: nodeId)),
        _logger = logger ?? Logger('MeshQueueSyncCoordinator');
+  late final MessageAckTracker _ackTracker = MessageAckTracker();
 
   OfflineMessageQueue? get messageQueue => _messageQueue;
 
@@ -83,6 +86,10 @@ class MeshQueueSyncCoordinator {
     required OfflineMessageQueue messageQueue,
     required VoidCallback onStatusChanged,
   }) async {
+    if (KillSwitches.disableQueueSync) {
+      _logger.warning('⚠️ Queue sync disabled via kill switch');
+      return;
+    }
     _currentNodeId = nodeId;
     _messageQueue = messageQueue;
     _onStatusChanged = onStatusChanged;
@@ -98,10 +105,21 @@ class MeshQueueSyncCoordinator {
     );
 
     _logger.info('Queue + sync coordinator initialized for $nodeId');
+
+    // Hook ACK completions from the BLE layer if exposed; the BLE layer completes
+    // MessageAckTracker internally. This hook allows future explicit ACK messages
+    // to be mapped to queue delivery if needed.
+    _bleService.receivedMessages.listen((_) {
+      // Placeholder: no-op; delivery is driven by MessageAckTracker completion.
+    });
   }
 
   void enableQueueSyncHandling() {
     if (_queueSyncHandlerRegistered) {
+      return;
+    }
+    if (KillSwitches.disableQueueSync) {
+      _logger.warning('⚠️ Queue sync handler registration skipped (kill switch)');
       return;
     }
     _bleService.registerQueueSyncHandler(_handleIncomingQueueSync);
@@ -109,6 +127,10 @@ class MeshQueueSyncCoordinator {
   }
 
   void startConnectionMonitoring() {
+    if (KillSwitches.disableQueueSync) {
+      _logger.warning('⚠️ Queue sync monitoring skipped (kill switch)');
+      return;
+    }
     _connectionSubscription ??= _bleService.connectionInfo.listen(
       _handleConnectionChange,
       onError: (error) {
@@ -305,7 +327,7 @@ class MeshQueueSyncCoordinator {
     final truncatedId = message.id.length > 16
         ? message.id.shortId()
         : message.id;
-    _logger.info('Message delivered: $truncatedId...');
+    _logger.info('Message delivered (ACK): $truncatedId...');
 
     try {
       final deliveredMessage = EnhancedMessage(
@@ -377,11 +399,24 @@ class MeshQueueSyncCoordinator {
         );
       }
 
-      if (success) {
-        await queue.markMessageDelivered(messageId);
-      } else {
+      if (!success) {
         await queue.markMessageFailed(messageId, 'BLE transmission failed');
+        return;
       }
+
+      // Defer marking delivered until ACK arrives; queue already sets awaitingAck.
+      // MessageAckTracker is completed by BLEMessageHandler on ACK.
+      _ackTracker.track(
+        messageId,
+        onTimeout: (id) {
+          _logger.warning('ACK timeout for message ${id.shortId()}...');
+          queue.markMessageFailed(id, 'ACK timeout');
+        },
+      ).future.then((ackSuccess) async {
+        if (ackSuccess) {
+          await queue.markMessageDelivered(messageId);
+        }
+      });
     } catch (e) {
       _logger.severe('Error sending message $truncatedId...: $e');
       await _messageQueue?.markMessageFailed(messageId, 'Send error: $e');
@@ -412,6 +447,17 @@ class MeshQueueSyncCoordinator {
     }
 
     try {
+      // Debounce sync per peer to avoid tight retries on notification failure.
+      final lastSync = _lastQueueSyncAt[fromNodeId];
+      if (lastSync != null &&
+          DateTime.now().difference(lastSync) < _queueSyncDebounce) {
+        _logger.fine(
+          '⏳ Skipping queue sync from ${fromNodeId.shortId(8)}... (debounced)',
+        );
+        return false;
+      }
+      _lastQueueSyncAt[fromNodeId] = DateTime.now();
+
       if (message.syncType == QueueSyncType.request) {
         final response = await manager.handleSyncRequest(message, fromNodeId);
         if (response.type == QueueSyncResponseType.success &&
@@ -441,9 +487,11 @@ class MeshQueueSyncCoordinator {
   void _handleConnectionChange(ConnectionInfo connectionInfo) async {
     final connectedDeviceId = _bleService.currentSessionId;
 
-    // Only treat the link as usable when the handshake has completed (isReady).
+    // Only treat the link as usable when the handshake has completed (isReady)
+    // and we are not awaiting an in-progress handshake/notification setup.
     if (connectionInfo.isConnected &&
         connectionInfo.isReady &&
+        !connectionInfo.awaitingHandshake &&
         connectedDeviceId != null &&
         connectedDeviceId.isNotEmpty) {
       MeshDebugLogger.deviceConnected(connectedDeviceId);

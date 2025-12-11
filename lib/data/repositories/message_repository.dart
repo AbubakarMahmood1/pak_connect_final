@@ -67,13 +67,21 @@ class MessageRepository implements IMessageRepository {
 
       // 🔧 FIX: Use INSERT OR IGNORE to prevent duplicate messages
       // If a message with the same ID already exists, this will silently skip the insert
-      await db.insert(
+      final insertedId = await db.insert(
         'messages',
         _toDatabase(message, now, now),
         conflictAlgorithm: ConflictAlgorithm.ignore, // Prevent duplicates
       );
 
-      _logger.fine('✅ Saved message ${message.id.value}');
+      // If the insert was ignored (duplicate), perform an update so status changes persist.
+      if (insertedId == 0) {
+        await updateMessage(message);
+      }
+
+      _logger.info(
+        '💾 Saved message ${message.id.value} to chat ${message.chatId.value} '
+        '(fromMe=${message.isFromMe}, status=${message.status})',
+      );
     } catch (e) {
       _logger.severe('❌ Failed to save message: $e');
       rethrow;

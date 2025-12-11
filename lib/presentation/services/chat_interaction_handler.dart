@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_chat_interaction_handler.dart';
 import '../../core/interfaces/i_chats_repository.dart';
+import '../../core/app_core.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/values/id_types.dart';
@@ -483,6 +484,20 @@ class ChatInteractionHandler implements IChatInteractionHandler {
       );
 
       if (result?.success ?? false) {
+        try {
+          final purged = await AppCore.instance.messageQueue
+              .removeMessagesForChat(chat.chatId.value);
+          _logger.fine(
+            '🧹 Purged $purged queued messages for deleted chat ${chat.chatId.value}',
+          );
+        } catch (e, stack) {
+          _logger.warning(
+            '⚠️ Failed to purge queued messages for ${chat.chatId.value}: $e',
+            e,
+            stack,
+          );
+        }
+
         _logger.info('✅ Chat deleted: ${chat.contactName}');
         _emitIntent(ChatDeletedIntent(chat.chatId.value));
       } else {

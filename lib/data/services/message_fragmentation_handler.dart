@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:logging/logging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/interfaces/i_message_fragmentation_handler.dart';
 import '../../core/utils/message_fragmenter.dart';
 import '../../core/models/protocol_message.dart';
@@ -18,6 +19,8 @@ import '../../core/utils/binary_fragmenter.dart';
 /// - Periodic cleanup of stale reassembly state
 class MessageFragmentationHandler implements IMessageFragmentationHandler {
   final _logger = Logger('MessageFragmentationHandler');
+  static const String _verbosePrefKey = 'debug_verbose_fragments';
+  static bool _verboseLogging = false;
 
   // Match BitChat-style fragment timeout (30s) for partial reassembly.
   static const Duration _fragmentTimeout = Duration(seconds: 30);
@@ -50,6 +53,29 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
         Duration(minutes: 2),
         (_) => cleanupOldMessages(),
       );
+    }
+    // Load persisted verbose flag so noisy fragment logs stay gated by default.
+    unawaited(_configureVerboseLogging());
+  }
+
+  static Future<void> _configureVerboseLogging() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setVerboseLogging(prefs.getBool(_verbosePrefKey) ?? false);
+    } catch (_) {
+      // If prefs are unavailable, keep default (muted).
+    }
+  }
+
+  static void setVerboseLogging(bool enabled) {
+    _verboseLogging = enabled;
+  }
+
+  bool get _isVerbose => _verboseLogging && _logger.isLoggable(Level.FINE);
+
+  void _v(String message) {
+    if (_isVerbose) {
+      _logger.fine(message);
     }
   }
 
@@ -91,13 +117,13 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
     required String fromNodeId,
   }) async {
     try {
-      _logger.fine('📥 Processing ${data.length} bytes from BLE');
+      _v('📥 Processing ${data.length} bytes from BLE');
 
       // Binary fragment envelope (media/file path)
       if (data.isNotEmpty && data[0] == _binaryFragmentMagic) {
         final envelope = BinaryFragmentEnvelope.decode(data);
         if (envelope == null) {
-          _logger.fine('📥 Binary fragment decode failed');
+          _v('📥 Binary fragment decode failed');
           return null;
         }
 
@@ -120,7 +146,7 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
 
       // Skip single-byte pings
       if (data.length == 1 && data[0] == 0x00) {
-        _logger.fine('📥 Skipping single-byte ping');
+        _v('📥 Skipping single-byte ping');
         return null;
       }
 
@@ -128,14 +154,14 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
       try {
         final directMessage = String.fromCharCodes(data);
         if (ProtocolMessage.isProtocolMessage(directMessage)) {
-          _logger.fine('📥 Detected direct protocol message (non-chunked)');
+          _v('📥 Detected direct protocol message (non-chunked)');
           // Signal that we found a direct message (not fragmented)
           // The caller will handle the actual processing
           return 'DIRECT_PROTOCOL_MESSAGE'; // Marker to indicate fragment handler completes
         }
       } catch (e) {
         // Not a direct message, try chunk processing
-        _logger.fine(
+        _v(
           '📥 Not a direct protocol message, checking for fragments: $e',
         );
       }
@@ -143,15 +169,15 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
       // Process as message chunk ONLY if it looks like chunk format
       if (looksLikeChunkString(data)) {
         try {
-          _logger.fine('📥 Parsing as MessageChunk');
+          _v('📥 Parsing as MessageChunk');
           final chunk = MessageChunk.fromBytes(data);
-          _logger.fine(
+          _v(
             '📥 Parsed chunk: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}',
           );
 
           // If we already completed this messageId recently, drop duplicates
           if (_completedMessages.containsKey(chunk.messageId)) {
-            _logger.fine(
+            _v(
               '📥 Dropping chunk for already-completed message ${chunk.messageId}',
             );
             return null;
@@ -159,12 +185,12 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
 
           // Add chunk to reassembler
           final completeMessageBytes = _messageReassembler.addChunkBytes(chunk);
-          _logger.fine(
+          _v(
             '📥 Reassembler: ${completeMessageBytes != null ? "MESSAGE COMPLETE ✅" : "waiting for more chunks ⏳"}',
           );
 
           if (completeMessageBytes != null) {
-            _logger.fine(
+            _v(
               '📥 Processing complete message (${completeMessageBytes.length} bytes)',
             );
             _completedMessages[chunk.messageId] = ReassembledPayload(
@@ -182,7 +208,7 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
           _logger.warning('Chunk processing failed: $e');
         }
       } else {
-        _logger.fine('📥 Not a chunk-string payload');
+        _v('📥 Not a chunk-string payload');
         return null;
       }
     } catch (e) {
@@ -235,7 +261,7 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
       _messageAcks.remove(messageId);
       _messageTimeouts[messageId]?.cancel();
       _messageTimeouts.remove(messageId);
-      _logger.fine('✅ ACK received for message: $messageId');
+      _v('✅ ACK received for message: $messageId');
     }
   }
 
@@ -255,7 +281,7 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
   Uint8List? takeReassembledMessageBytes(String messageId) {
     final completed = _completedMessages.remove(messageId);
     if (completed == null) {
-      _logger.fine('📥 No completed message found for id: $messageId');
+      _v('📥 No completed message found for id: $messageId');
       return null;
     }
 
@@ -314,7 +340,7 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
         map.removeWhere((_, ts) => ts.isBefore(cutoff));
         return map.isEmpty;
       });
-      _logger.fine('🧹 Cleaned up old partial messages');
+      _v('🧹 Cleaned up old partial messages');
     } finally {
       _cleanupInProgress = false;
     }
@@ -468,12 +494,12 @@ extension on MessageFragmentationHandler {
     if (seenTs != null &&
         now.difference(seenTs) <=
             MessageFragmentationHandler._fragmentTimeout) {
-      _logger.fine('📥 Duplicate binary fragment (forward) $key');
+      _v('📥 Duplicate binary fragment (forward) $key');
       return null;
     }
 
     if (env.ttl <= 1) {
-      _logger.fine('📥 Dropping binary fragment $key due to TTL exhaustion');
+      _v('📥 Dropping binary fragment $key due to TTL exhaustion');
       seenForId[env.index] = now;
       return null;
     }
@@ -518,13 +544,13 @@ extension on MessageFragmentationHandler {
           ttl: acc.ttl,
           receivedAt: DateTime.now(),
         );
-        _logger.fine(
+        _v(
           '📦 Forward reassembly complete for ${env.fragmentId} (type=${acc.originalType})',
         );
       }
     }
 
-    _logger.fine('📤 Forwarding binary fragment $key (ttl -> ${env.ttl - 1})');
+    _v('📤 Forwarding binary fragment $key (ttl -> ${env.ttl - 1})');
     return 'FORWARD_BIN:$key:$fromDeviceId:$fromNodeId';
   }
 
@@ -535,7 +561,7 @@ extension on MessageFragmentationHandler {
     if (seenTs != null &&
         now.difference(seenTs) <=
             MessageFragmentationHandler._fragmentTimeout) {
-      _logger.fine(
+      _v(
         '📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}',
       );
       return null;
@@ -555,7 +581,7 @@ extension on MessageFragmentationHandler {
     );
 
     if (acc.parts.containsKey(env.index)) {
-      _logger.fine(
+      _v(
         '📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}',
       );
       return null;
@@ -563,7 +589,7 @@ extension on MessageFragmentationHandler {
 
     acc.parts[env.index] = env.data;
     acc.ttl = acc.ttl < env.ttl ? acc.ttl : env.ttl;
-    _logger.fine(
+    _v(
       '📥 Stored binary fragment ${env.index}/${acc.total - 1} for ${env.fragmentId} (have ${acc.parts.length}/${acc.total})',
     );
 
@@ -584,7 +610,7 @@ extension on MessageFragmentationHandler {
         ttl: 0, // Explicitly suppress relay after local delivery.
         suppressForwarding: true,
       );
-      _logger.fine('📦 Binary reassembly complete for ${env.fragmentId}');
+      _v('📦 Binary reassembly complete for ${env.fragmentId}');
       return 'REASSEMBLY_COMPLETE_BIN:${env.fragmentId}:${env.originalType}';
     }
 

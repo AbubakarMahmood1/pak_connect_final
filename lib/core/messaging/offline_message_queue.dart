@@ -363,6 +363,34 @@ class OfflineMessageQueue {
     return MessageId(id);
   }
 
+  /// Remove all queued messages for a specific chat (used when a chat is deleted)
+  Future<int> removeMessagesForChat(String chatId) async {
+    final toRemove = <String>{};
+    for (final message in List<QueuedMessage>.from(_directMessageQueue)) {
+      if (message.chatId == chatId) {
+        toRemove.add(message.id);
+      }
+    }
+    for (final message in List<QueuedMessage>.from(_relayMessageQueue)) {
+      if (message.chatId == chatId) {
+        toRemove.add(message.id);
+      }
+    }
+
+    for (final id in toRemove) {
+      _scheduler.cancelRetryTimer(id);
+      await _repo.markMessageDeleted(id);
+    }
+
+    if (toRemove.isNotEmpty) {
+      _logger.info(
+        '🧹 Removed ${toRemove.length} queued messages for chat: ${chatId.shortId(8)}...',
+      );
+    }
+
+    return toRemove.length;
+  }
+
   /// Mark connection as online and attempt delivery of queued messages
   Future<void> setOnline() async {
     if (!_isOnline) {

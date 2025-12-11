@@ -38,6 +38,10 @@ import '../../core/services/hint_scanner_service.dart';
 import '../../core/bluetooth/ble_platform_host.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/di/service_locator.dart';
+import '../../core/utils/string_extensions.dart';
+import '../../core/models/connection_state.dart' show ChatConnectionState;
+import '../repositories/user_preferences.dart';
+import '../../core/security/ephemeral_key_manager.dart';
 
 /// Main orchestrator for the entire BLE stack.
 ///
@@ -78,6 +82,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     isReady: false,
     statusMessage: 'Ready',
   );
+  
+  // Timer for delayed responder handshake (collision handling)
+  Timer? _serverHandshakeTimer;
+
   final Set<void Function(ConnectionInfo)> _connectionInfoListeners = {};
   final Set<void Function(String)> _hintMatchListeners = {};
   Future<bool> Function(QueueSyncMessage message, String fromNodeId)?
@@ -141,6 +149,9 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           centralManager: _platformHost.centralManager,
           peripheralManager: _platformHost.peripheralManager,
         );
+    _connectionManager.onInboundDuplicateRejected = (address) {
+      _handshakeService?.disposeHandshakeCoordinator();
+    };
     _peripheralInitializer =
         peripheralInitializer ??
         PeripheralInitializer(_platformHost.peripheralManager);
@@ -309,6 +320,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     try {
       await _platformHost.ensureEphemeralKeysInitialized();
       await _stateManager.initialize();
+      await _initializeNodeIdentity();
       await _bluetoothStateMonitor.initialize(
         onBluetoothReady: () => unawaited(_onBluetoothBecameReady()),
         onBluetoothUnavailable: () =>
@@ -334,6 +346,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   @override
   Future<void> dispose() async {
     _logger.info('🧹 Disposing BLEServiceFacade...');
+    _serverHandshakeTimer?.cancel();
+    _serverHandshakeTimer = null;
 
     try {
       // Stop all active operations (only if services were created)
@@ -872,6 +886,33 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   bool get isPeripheralMTUReady =>
       _getAdvertisingService().isPeripheralMTUReady;
 
+  @override
+  GATTCharacteristic? get messageCharacteristic =>
+      _getAdvertisingService().messageCharacteristic;
+
+  @override
+  bool get peripheralHandshakeStarted =>
+      _getAdvertisingService().peripheralHandshakeStarted;
+
+  @override
+  set peripheralHandshakeStarted(bool value) =>
+      _getAdvertisingService().peripheralHandshakeStarted = value;
+
+  @override
+  Future<void> stopAdvertising() => _getAdvertisingService().stopAdvertising();
+
+  @override
+  Future<void> startAdvertising() =>
+      _getAdvertisingService().startAdvertising();
+
+  @override
+  void updatePeripheralMtu(int mtu) =>
+      _getAdvertisingService().updatePeripheralMtu(mtu);
+
+  @override
+  void resetPeripheralSession() =>
+      _getAdvertisingService().resetPeripheralSession();
+
   // ============================================================================
   // DELEGATION TO SUB-SERVICES (IBLEHandshakeService)
   // ============================================================================
@@ -1052,8 +1093,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
         } else {
           _connectionManager.handleCentralDisconnected(event.central);
           final connectionService = _getConnectionService();
-          final advertisingService =
-              _getAdvertisingService() as BLEAdvertisingService;
+          final advertisingService = _getAdvertisingService();
 
           final disconnectedId = event.central.uuid.toString();
           final activeId = connectionService.connectedCentral?.uuid.toString();
@@ -1091,9 +1131,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       _peripheralMtuSub = peripheralManager.mtuChanged.listen((event) {
         final connectionService = _getConnectionService();
         connectionService.connectedCentral = event.central;
-        (_getAdvertisingService() as BLEAdvertisingService).updatePeripheralMtu(
-          event.mtu,
-        );
+        _getAdvertisingService().updatePeripheralMtu(event.mtu);
         _connectionManager.updateServerMtu(
           event.central.uuid.toString(),
           event.mtu,
@@ -1175,13 +1213,23 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     }
   }
 
+  /// This runs when a server connection is established but no data has arrived yet.
   void _maybeStartResponderHandshake({
     GATTCharacteristic? characteristicOverride,
   }) {
-    final advertisingService =
-        _getAdvertisingService() as BLEAdvertisingService;
-    if (advertisingService.peripheralHandshakeStarted) return;
+    // 🚀 NEW: Don't start a fallback responder handshake if we're already busy or ready.
+    final handshakeService = _getHandshakeService();
+    if (handshakeService.isHandshakeInProgress ||
+        _connectionManager.connectionState == ChatConnectionState.ready) {
+      _logger.info(
+        '🛑 Skipping fallback responder handshake: already ${handshakeService.isHandshakeInProgress ? "IN_PROGRESS" : "READY"}',
+      );
+      return;
+    }
 
+    if (_serverHandshakeTimer != null) return;
+
+    final advertisingService = _getAdvertisingService();
     final connectionService = _getConnectionService();
     final central = connectionService.connectedCentral;
     final characteristic =
@@ -1193,8 +1241,46 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       return;
     }
 
+    final address = central.uuid.toString();
+    if (_connectionManager.hasClientLinkForPeer(address) ||
+        _connectionManager.hasPendingClientForPeer(address)) {
+      _logger.fine(
+        '🛑 Skipping responder handshake for ${address.shortId(8)} — client link already active/pending',
+      );
+      return;
+    }
+
+    if (_connectionManager.isResponderHandshakeBlocked(address)) {
+      _logger.fine(
+        '🛑 Skipping responder handshake for ${address.shortId(8)} — inbound link blocked as duplicate',
+      );
+      return;
+    }
+
+    if (_connectionManager.isServerTeardownDeferred(address)) {
+      _logger.fine(
+        '⏸️ Server teardown deferred for $address — skipping responder handshake.',
+      );
+      return;
+    }
+    if (_connectionManager.isCollisionResolving(address)) {
+      _logger.fine(
+        '⏸️ Collision resolution in progress for $address — deferring responder handshake',
+      );
+      return;
+    }
+
+    // Gate responder handshake to only run if the inbound link is still alive
+    // (i.e., collision resolution kept the server connection).
+    if (!_connectionManager.hasServerConnection(address)) {
+      _logger.fine(
+        '⏸️ Skipping responder handshake start; no server connection for $address (likely yielded to client).',
+      );
+      return;
+    }
+
     advertisingService.peripheralHandshakeStarted = true;
-    connectionManager.onCharacteristicFound?.call(characteristic);
+    _connectionManager.onCharacteristicFound?.call(characteristic);
 
     unawaited(
       _getHandshakeService().performHandshake(startAsInitiatorOverride: false),
@@ -1206,11 +1292,77 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   }) {
     // Only schedule if a server connection exists and no handshake has started.
     if (_connectionManager.serverConnectionCount == 0) return;
-    Timer(delay, () {
+    
+    // 🚀 NEW: Early exit if we're already busy or ready
+    if (_connectionManager.connectionState == ChatConnectionState.ready ||
+        _getHandshakeService().isHandshakeInProgress) {
+      return;
+    }
+
+    final address =
+        _getConnectionService().connectedCentral?.uuid.toString() ?? '';
+    if (address.isNotEmpty &&
+        (_connectionManager.hasClientLinkForPeer(address) ||
+            _connectionManager.hasPendingClientForPeer(address))) {
+      _logger.fine(
+        '⏸️ Fallback responder handshake suppressed for ${address.shortId(8)} — client link already active/pending',
+      );
+      return;
+    }
+    if (address.isNotEmpty &&
+        _connectionManager.isCollisionResolving(address)) {
+      _logger.fine(
+        '⏸️ Skipping responder handshake fallback; collision resolution in progress for $address',
+      );
+      return;
+    }
+    if (address.isNotEmpty &&
+        _connectionManager.isServerTeardownDeferred(address)) {
+      _logger.fine(
+        '⏸️ Fallback suppressed; server teardown deferred for $address',
+      );
+      return;
+    }
+    
+    // Timer logic updated to use the new field
+    _serverHandshakeTimer?.cancel();
+    _serverHandshakeTimer = Timer(delay, () {
+      _serverHandshakeTimer = null;
       try {
         if (_connectionManager.serverConnectionCount == 0) return;
-        if ((_getAdvertisingService() as BLEAdvertisingService)
-            .peripheralHandshakeStarted) {
+        
+        // 🚀 NEW: Double check status inside timer
+        if (_connectionManager.connectionState == ChatConnectionState.ready ||
+            _getHandshakeService().isHandshakeInProgress) {
+          return;
+        }
+
+        if (address.isNotEmpty &&
+            (_connectionManager.hasClientLinkForPeer(address) ||
+                _connectionManager.hasPendingClientForPeer(address))) {
+          _logger.fine(
+            '⏸️ Fallback suppressed; client link already active/pending for ${address.shortId(8)}',
+          );
+          return;
+        }
+
+        if (address.isNotEmpty &&
+            _connectionManager.isCollisionResolving(address)) {
+          _logger.fine(
+            '⏸️ Fallback suppressed; collision resolution still in progress for $address',
+          );
+          return;
+        }
+        if (address.isNotEmpty &&
+            _connectionManager.isServerTeardownDeferred(address)) {
+          _logger.fine(
+            '⏸️ Fallback suppressed; server teardown deferred for $address',
+          );
+          return;
+        }
+        
+        final advertisingService = _getAdvertisingService();
+        if (advertisingService.peripheralHandshakeStarted) {
           return;
         }
         _logger.fine(
@@ -1228,6 +1380,21 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       _centralNotifySub = _platformHost.centralManager.characteristicNotified
           .listen((event) async {
             try {
+              // 🧟 ZOMBIE CONNECTION FIX: Detect Service Changed (0x2A05)
+              // This indicates the peripheral app has restarted/crashed.
+              final uuid = event.characteristic.uuid;
+              // 0x2A05 = Service Changed
+              final isServiceChanged = uuid == UUID.fromAddress(0x2A05);
+
+              if (isServiceChanged) {
+                final deviceId = event.peripheral.uuid.toString();
+                _logger.warning(
+                  '🧟 Service Changed (0x2A05) received from $deviceId - Remote app likely restarted. Disconnecting to clear zombie state.',
+                );
+                await _connectionManager.disconnectClient(deviceId);
+                return;
+              }
+
               // Forward handshake messages immediately.
               final handled = await _getHandshakeService()
                   .handleIncomingHandshakeMessage(
@@ -1292,6 +1459,31 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           stackTrace,
         );
       }
+    }
+  }
+
+  Future<void> _initializeNodeIdentity() async {
+    try {
+      final prefs = UserPreferences();
+      final persistent = await prefs.getPublicKey();
+      final sessionId = EphemeralKeyManager.currentSessionKey;
+      final nodeId = (sessionId != null && sessionId.isNotEmpty)
+          ? sessionId
+          : (persistent.isNotEmpty ? persistent : null);
+
+      if (nodeId != null) {
+        _messageHandler.setCurrentNodeId(nodeId);
+        _messageHandlerFacade.setCurrentNodeId(nodeId);
+        _logger.fine(
+          '🔧 Node identity set for messaging: ${nodeId.shortId(8)}',
+        );
+      } else {
+        _logger.warning(
+          '⚠️ Unable to set node identity (no session or persistent key)',
+        );
+      }
+    } catch (e) {
+      _logger.warning('⚠️ Failed to initialize node identity: $e');
     }
   }
 
@@ -1371,8 +1563,21 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     _logger.info('🤝 Handshake complete with $displayName ($truncatedId)');
     _stateManager.setOtherUserName(displayName);
     _stateManager.setTheirEphemeralId(ephemeralId, displayName);
+    // Persist the latest session ID on the contact record (ephemeral used as key for low-security contacts).
+    try {
+      await _contactRepository.updateContactEphemeralId(
+        ephemeralId,
+        ephemeralId,
+      );
+    } catch (e) {
+      _logger.warning(
+        '⚠️ Failed to persist contact ephemeral ID after handshake: $e',
+      );
+    }
     // Allow health checks now that handshake is done.
     _connectionManager.markHandshakeComplete();
+    // Refresh our node identity in case session keys rotated during handshake.
+    await _initializeNodeIdentity();
     _updateConnectionInfo(
       isConnected: true,
       isReady: true,

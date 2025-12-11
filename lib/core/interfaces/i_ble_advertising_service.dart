@@ -1,3 +1,5 @@
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+
 /// Manages BLE peripheral role (server) including:
 /// - GATT service and characteristic setup
 /// - Advertising start/stop and data updates
@@ -64,4 +66,33 @@ abstract class IBLEAdvertisingService {
 
   /// Has MTU negotiation completed with connecting central?
   bool get isPeripheralMTUReady;
+
+  // ============================================================================
+  // MISSING MEMBERS ADDED
+  // ============================================================================
+
+  /// The characteristic currently used for messaging (if central is subscribed)
+  /// Used by messaging service to route inbound data
+  GATTCharacteristic? get messageCharacteristic;
+
+  /// Whether a handshake with the connected central has been started
+  /// Used by BLEServiceFacade to coordinate handshake state
+  bool get peripheralHandshakeStarted;
+  set peripheralHandshakeStarted(bool value);
+
+  /// Stop advertising immediately
+  /// Low-level control for mesh networking coordinator
+  Future<void> stopAdvertising();
+
+  /// Start advertising with current configuration
+  /// Low-level control for mesh networking coordinator
+  Future<void> startAdvertising();
+
+  /// Update the MTU for the current peripheral session
+  /// Called by BLEConnectionManager upon MTU exchange
+  void updatePeripheralMtu(int mtu);
+
+  /// Reset the peripheral session state (e.g., on disconnect)
+  /// Called by BLEServiceFacade to clear per-connection flags
+  void resetPeripheralSession();
 }

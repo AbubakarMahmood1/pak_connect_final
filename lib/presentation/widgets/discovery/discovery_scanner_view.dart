@@ -15,6 +15,8 @@ class DiscoveryScannerView extends ConsumerWidget {
     required this.devicesAsync,
     required this.discoveryDataAsync,
     required this.deduplicatedDevicesAsync,
+    required this.activeConnectedIds,
+    required this.readyConnectedCount,
     required this.state,
     required this.controller,
     required this.maxDevices,
@@ -29,6 +31,8 @@ class DiscoveryScannerView extends ConsumerWidget {
   final AsyncValue<List<Peripheral>> devicesAsync;
   final AsyncValue<Map<String, DiscoveredEventArgs>> discoveryDataAsync;
   final AsyncValue<Map<String, DiscoveredDevice>> deduplicatedDevicesAsync;
+  final Set<String> activeConnectedIds;
+  final int readyConnectedCount;
   final DiscoveryOverlayState state;
   final DiscoveryOverlayController controller;
   final int maxDevices;
@@ -42,6 +46,8 @@ class DiscoveryScannerView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final connectionService = ref.read(connectionServiceProvider);
+    final connectionInfo = ref.watch(connectionInfoProvider).value;
+    final isConnectionReady = connectionInfo?.isReady ?? false;
 
     return Column(
       children: [
@@ -52,8 +58,12 @@ class DiscoveryScannerView extends ConsumerWidget {
         const Divider(),
         Expanded(
           child: devicesAsync.when(
-            data: (devices) =>
-                _buildDeviceList(context, connectionService, devices),
+            data: (devices) => _buildDeviceList(
+              context,
+              connectionService,
+              devices,
+              isConnectionReady,
+            ),
             loading: () => _buildBurstAwareLoadingState(context, ref),
             error: (error, stack) => _buildErrorState(context, error),
           ),
@@ -66,17 +76,23 @@ class DiscoveryScannerView extends ConsumerWidget {
     BuildContext context,
     IConnectionService connectionService,
     List<Peripheral> devices,
+    bool isConnectionReady,
   ) {
-    if (devices.isEmpty) {
-      return _buildEmptyState(context);
-    }
-
     final discoveryData = discoveryDataAsync.value ?? {};
     final deduplicatedDevices = deduplicatedDevicesAsync.value ?? {};
 
+    // Use deduplicated cache when live discovered list is empty (keeps last snapshot visible).
+    final devicesForList = devices.isNotEmpty
+        ? devices
+        : deduplicatedDevices.values.map((d) => d.peripheral).toList();
+
+    if (devicesForList.isEmpty) {
+      return _buildEmptyState(context);
+    }
+
     final now = DateTime.now();
     const staleThreshold = Duration(minutes: 3);
-    final freshDevices = devices.where((device) {
+    final freshDevices = devicesForList.where((device) {
       final lastSeen = state.deviceLastSeen[device.uuid.toString()];
       return lastSeen != null && now.difference(lastSeen) <= staleThreshold;
     }).toList();
@@ -86,6 +102,7 @@ class DiscoveryScannerView extends ConsumerWidget {
 
     for (final device in freshDevices) {
       final deviceId = device.uuid.toString();
+      if (activeConnectedIds.contains(deviceId)) continue;
       final dedupDevice = deduplicatedDevices[deviceId];
 
       // Hide retired/ghost entries until a fresh advertisement revives them.
@@ -143,6 +160,7 @@ class DiscoveryScannerView extends ConsumerWidget {
               isConnectedAsPeripheral:
                   connectionService.connectedCentral?.uuid.toString() ==
                   device.uuid.toString(),
+              connectionReady: isConnectionReady,
               onConnect: () => onConnect(device),
               onRetry: () => onRetry(device),
               onOpenChat: () => onOpenChat(device),
@@ -179,6 +197,7 @@ class DiscoveryScannerView extends ConsumerWidget {
               isConnectedAsPeripheral:
                   connectionService.connectedCentral?.uuid.toString() ==
                   device.uuid.toString(),
+              connectionReady: isConnectionReady,
               onConnect: () => onConnect(device),
               onRetry: () => onRetry(device),
               onOpenChat: () => onOpenChat(device),
@@ -566,7 +585,7 @@ class DiscoveryScannerView extends ConsumerWidget {
   }
 
   Widget _buildConnectionSlotIndicator(IConnectionService connectionService) {
-    final currentConnections = connectionService.clientConnectionCount;
+    final currentConnections = readyConnectedCount;
     final maxConnections = connectionService.maxCentralConnections;
     final availableSlots = maxConnections - currentConnections;
 

@@ -12,6 +12,8 @@ import '../../domain/entities/enhanced_contact.dart';
 import '../../domain/entities/contact.dart';
 import '../../core/security/security_types.dart';
 import '../../core/utils/string_extensions.dart';
+import '../../core/models/connection_state.dart' show ChatConnectionState;
+import '../../core/config/kill_switches.dart';
 
 /// Manages BLE connection lifecycle including connection state and monitoring.
 ///
@@ -217,8 +219,15 @@ class BLEConnectionService implements IBLEConnectionService {
   Future<void> disconnect() => connectionManager.disconnect();
 
   @override
-  void startConnectionMonitoring() =>
-      connectionManager.startConnectionMonitoring();
+  void startConnectionMonitoring() {
+    if (KillSwitches.disableAutoConnect || KillSwitches.disableHealthChecks) {
+      _logger.warning(
+        '⚠️ Connection monitoring disabled via kill switch (autoConnect=${KillSwitches.disableAutoConnect}, healthChecks=${KillSwitches.disableHealthChecks})',
+      );
+      return;
+    }
+    connectionManager.startConnectionMonitoring();
+  }
 
   @override
   void stopConnectionMonitoring() =>
@@ -394,6 +403,72 @@ class BLEConnectionService implements IBLEConnectionService {
   // Setup callbacks and listeners
   void _setupAutoConnectCallback() {
     _logger.info('🔗 Setting up auto-connect callback for known contacts...');
+
+    DeviceDeduplicationManager.shouldAutoConnect = (device) {
+      final deviceId = device.deviceId;
+      // Seed the hint cache so rotated MACs map correctly and refresh existing
+      // links before evaluating the veto.
+      connectionManager.cachePeerHintForAddress(
+        deviceId,
+        device.ephemeralHint,
+      );
+      connectionManager.refreshPeerHintsFromDedup();
+
+      // Debounce when a no-hint inbound is in progress.
+      if (connectionManager.serverConnectionCount > 0 &&
+          connectionManager.hasAnyLinkForPeerHint(device.ephemeralHint)) {
+        _logger.info(
+          '🛑 AUTO-CONNECT: Suppressing for ${deviceId.shortId(8)} '
+          '(server link present for hint ${device.ephemeralHint})',
+        );
+        return false;
+      }
+
+      if (connectionManager.serverConnectionCount > 0 &&
+          !connectionManager.hasAnyLinkForPeerHint(device.ephemeralHint) &&
+          connectionManager.isNoHintDebounceActive) {
+        _logger.info(
+          '🛑 AUTO-CONNECT: Suppressing for ${deviceId.shortId(8)} '
+          '(no-hint inbound debounce active)',
+        );
+        return false;
+      }
+
+      // Debounce when any server link exists for the same hint to avoid
+      // simultaneous outbound + inbound on role glare.
+      // If we are already in a non-disconnected state, avoid layering another dial.
+      if (connectionManager.connectionState != ChatConnectionState.disconnected) {
+        _logger.info(
+          '🛑 AUTO-CONNECT: Suppressing for ${deviceId.shortId(8)} '
+          '(state=${connectionManager.connectionState.name})',
+        );
+        return false;
+      }
+
+      final hasClientForPeer = connectionManager.hasClientLinkForPeer(deviceId);
+      final hasServerForPeer = connectionManager.hasServerLinkForPeer(deviceId);
+      final hasPendingClientForPeer =
+          connectionManager.hasPendingClientForPeer(deviceId);
+      final hasHintCollision =
+          connectionManager.hasAnyLinkForPeerHint(device.ephemeralHint);
+      final ChatConnectionState connectionState =
+          connectionManager.connectionState;
+
+      if (hasClientForPeer ||
+          hasServerForPeer ||
+          hasPendingClientForPeer ||
+          hasHintCollision) {
+        _logger.info(
+          '🛑 AUTO-CONNECT: Suppressing for ${deviceId.shortId(8)} '
+          '(clientLink=$hasClientForPeer, serverLink=$hasServerForPeer, '
+          'pendingDial=$hasPendingClientForPeer, '
+          'hintMatch=$hasHintCollision, state=${connectionState.name})',
+        );
+        return false;
+      }
+
+      return true;
+    };
 
     DeviceDeduplicationManager
         .onKnownContactDiscovered = (device, contactName) async {

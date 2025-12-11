@@ -44,7 +44,7 @@ class ChatMessagingViewModel {
   final MessageRepository messageRepository;
   final ContactRepository contactRepository;
   final ChatId chatId;
-  final String contactPublicKey;
+  String contactPublicKey;
   final ChatManagementFacade? chatManagementFacade;
 
   final List<String> _messageBuffer = [];
@@ -65,6 +65,80 @@ class ChatMessagingViewModel {
     _logger.info(
       '🎯 Initializing ChatMessagingViewModel for chat: ${chatId.value}',
     );
+  }
+
+  /// Update recipient key when identity/ephemeral changes.
+  void updateRecipientKey(String key) {
+    if (key.isEmpty || key == contactPublicKey) return;
+    _logger.fine('🔑 Updating recipient key for ${chatId.value} -> $key');
+    contactPublicKey = key;
+  }
+
+  /// Resolve the most appropriate recipient key for this chat:
+  /// - Low security: prefer current session ephemeral, then stored/public key.
+  /// - Medium/High security: prefer persistent key (if available), else session ephemeral.
+  Future<String> _resolveRecipientKey() async {
+    try {
+      final contact = await contactRepository.getContact(contactPublicKey);
+      final level = await SecurityManager.instance.getCurrentLevel(
+        contactPublicKey,
+        contactRepository,
+      );
+
+      final hasPersistent =
+          contact?.persistentPublicKey != null &&
+          contact!.persistentPublicKey!.isNotEmpty;
+      final hasEphemeral =
+          contact?.currentEphemeralId != null &&
+          contact!.currentEphemeralId!.isNotEmpty;
+
+      final prefersPersistent =
+          (level == SecurityLevel.high || level == SecurityLevel.medium) &&
+          hasPersistent;
+
+      // Medium/High: persistent → ephemeral → stored/public.
+      if (prefersPersistent) {
+        if (hasPersistent) {
+          _logger.fine(
+            '🔑 Using contact persistent key for ${chatId.value}: ${contact!.persistentPublicKey}',
+          );
+          return contact!.persistentPublicKey!;
+        }
+        if (hasEphemeral) {
+          _logger.fine(
+            '🔑 Using contact session key for ${chatId.value}: ${contact!.currentEphemeralId}',
+          );
+          return contact!.currentEphemeralId!;
+        }
+        if (contact.publicKey.isNotEmpty) {
+          return contact.publicKey;
+        }
+      }
+
+      // Low (or no persistent): ephemeral → stored/public → persistent as last resort.
+      if (contact != null) {
+        if (hasEphemeral) {
+          _logger.fine(
+            '🔑 Using contact session key for ${chatId.value}: ${contact.currentEphemeralId}',
+          );
+          return contact.currentEphemeralId!;
+        }
+        if (contact.publicKey.isNotEmpty) {
+          return contact.publicKey;
+        }
+        if (!prefersPersistent &&
+            contact.persistentPublicKey != null &&
+            contact.persistentPublicKey!.isNotEmpty) {
+          // Only as a last resort for low security if nothing else is present.
+          return contact.persistentPublicKey!;
+        }
+      }
+    } catch (e) {
+      _logger.warning('⚠️ Failed to resolve recipient key: $e');
+    }
+
+    // Fallback to whatever the chat was opened with.
+    return contactPublicKey;
   }
 
   /// Load messages from both repository and queue, merge and deduplicate
@@ -191,11 +265,15 @@ class ChatMessagingViewModel {
         return;
       }
 
+      // Resolve best recipient key (ephemeral → persistent → stored)
+      final resolvedRecipientKey = await _resolveRecipientKey();
+      contactPublicKey = resolvedRecipientKey;
+
       // Use AppCore to queue message (uses proper queue system)
       final secureMessageId = await AppCore.instance.sendSecureMessage(
         chatId: chatId.value,
         content: content,
-        recipientPublicKey: contactPublicKey,
+        recipientPublicKey: resolvedRecipientKey,
       );
 
       _logger.info('📤 Message queued with secure ID: $secureMessageId');
@@ -210,6 +288,9 @@ class ChatMessagingViewModel {
         isFromMe: true,
         status: MessageStatus.sending,
       );
+
+      // Persist immediately so chat lists create entries even if delivery lags.
+      await messageRepository.saveMessage(tempMessage);
 
       // Notify UI of new message
       onMessageAdded?.call(tempMessage);
