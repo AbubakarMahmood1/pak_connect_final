@@ -37,6 +37,13 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   // Queue sync callbacks (registered by relay coordinator)
   Function(QueueSyncMessage, String)? _onQueueSyncReceived;
+  Function(ProtocolMessage message)? _onSendAckMessage;
+  Future<void> Function(
+    String content,
+    String? messageId,
+    String? senderNodeId,
+  )?
+  _onTextMessageReceived;
 
   String? _currentNodeId;
   String _encryptionMethod = 'none';
@@ -55,9 +62,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     required ProtocolMessage message,
     required String fromDeviceId,
     required String fromNodeId,
+    String? transportMessageId,
   }) async {
     try {
-      return await _processProtocolMessage(message, fromNodeId);
+      return await _processProtocolMessage(
+        message,
+        fromNodeId,
+        transportMessageId,
+      );
     } catch (e) {
       _logger.severe('Failed to process protocol message: $e');
       return null;
@@ -71,12 +83,17 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     required String fromDeviceId,
     required String fromNodeId,
     required Map<String, dynamic>? messageData,
+    String? transportMessageId,
   }) async {
     try {
       final protocolMessage = ProtocolMessage.fromBytes(
         Uint8List.fromList(content.codeUnits),
       );
-      return await _processProtocolMessage(protocolMessage, fromNodeId);
+      return await _processProtocolMessage(
+        protocolMessage,
+        fromNodeId,
+        transportMessageId,
+      );
     } catch (e) {
       _logger.severe('Failed to process complete protocol message: $e');
       return null;
@@ -88,9 +105,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Future<String?> handleDirectProtocolMessage({
     required ProtocolMessage message,
     required String fromDeviceId,
+    String? transportMessageId,
   }) async {
     try {
-      return await _processProtocolMessage(message, fromDeviceId);
+      return await _processProtocolMessage(
+        message,
+        fromDeviceId,
+        transportMessageId,
+      );
     } catch (e) {
       _logger.severe('Failed to handle direct protocol message: $e');
       return null;
@@ -101,10 +123,15 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Future<String?> _processProtocolMessage(
     ProtocolMessage message,
     String fromNodeId,
+    String? transportMessageId,
   ) async {
     switch (message.type) {
       case ProtocolMessageType.textMessage:
-        return await _handleTextMessage(message, fromNodeId);
+        return await _handleTextMessage(
+          message,
+          fromNodeId,
+          transportMessageId,
+        );
 
       case ProtocolMessageType.ack:
         // ACKs are handled by fragmentation handler
@@ -126,7 +153,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         return await _handleCryptoVerificationResponse(message);
 
       case ProtocolMessageType.queueSync:
-        return await _handleQueueSync(message, fromNodeId);
+        return await _handleQueueSync(message, fromNodeId, transportMessageId);
 
       case ProtocolMessageType.friendReveal:
         return await _handleFriendReveal(message);
@@ -149,6 +176,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Future<String?> _handleTextMessage(
     ProtocolMessage message,
     String fromNodeId,
+    String? transportMessageId,
   ) async {
     try {
       final messageId = message.textMessageId!;
@@ -173,8 +201,10 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
           );
           _logger.fine('🔒 Message decrypted successfully');
         } catch (e) {
-          _logger.severe('🔒 Decryption failed: $e');
-          return '[❌ Could not decrypt message - please reconnect]';
+          _logger.warning(
+            '🔒 Decryption failed for ${fromNodeId.shortId(8)}: $e',
+          );
+          return null;
         }
       }
 
@@ -201,6 +231,19 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         );
       }
 
+      _sendAck(messageId ?? transportMessageId, fromNodeId);
+      final textCallback = _onTextMessageReceived;
+      if (textCallback != null) {
+        try {
+          await textCallback(
+            decryptedContent,
+            messageId ?? transportMessageId,
+            fromNodeId.isNotEmpty ? fromNodeId : null,
+          );
+        } catch (e, stack) {
+          _logger.warning('⚠️ Inbound text callback failed: $e', e, stack);
+        }
+      }
       return decryptedContent;
     } catch (e) {
       _logger.severe('Failed to handle text message: $e');
@@ -302,12 +345,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Future<String?> _handleQueueSync(
     ProtocolMessage message,
     String fromNodeId,
+    String? transportMessageId,
   ) async {
     try {
       final queueMessage = message.queueSyncMessage;
       if (queueMessage != null) {
         _onQueueSyncReceived?.call(queueMessage, fromNodeId);
         _logger.info('📦 Queue sync received');
+        _sendAck(transportMessageId ?? queueMessage.queueHash, fromNodeId);
       } else {
         _logger.warning('⚠️ Queue sync payload missing expected fields');
       }
@@ -485,5 +530,36 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   @override
   void onIdentityRevealed(Function(String contactName) callback) {
     _onIdentityRevealed = callback;
+  }
+
+  @override
+  void onSendAckMessage(Function(ProtocolMessage message) callback) {
+    _onSendAckMessage = callback;
+  }
+
+  void onTextMessageReceived(
+    Future<void> Function(
+      String content,
+      String? messageId,
+      String? senderNodeId,
+    )
+    callback,
+  ) {
+    _onTextMessageReceived = callback;
+  }
+
+  void _sendAck(String? messageId, String fromNodeId) {
+    if (messageId == null || messageId.isEmpty) return;
+    if (_onSendAckMessage == null) return;
+
+    try {
+      final ackMessage = ProtocolMessage.ack(originalMessageId: messageId);
+      _onSendAckMessage!.call(ackMessage);
+      _logger.info(
+        '📨 ACK sent for ${messageId.shortId(8)} to ${fromNodeId.shortId(8)}',
+      );
+    } catch (e) {
+      _logger.warning('⚠️ Failed to send ACK for ${messageId.shortId(8)}: $e');
+    }
   }
 }

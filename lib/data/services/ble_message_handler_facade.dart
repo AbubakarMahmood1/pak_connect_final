@@ -376,6 +376,9 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
           return await _protocolHandler.handleDirectProtocolMessage(
             message: protocolMessage,
             fromDeviceId: fromDeviceId,
+            transportMessageId:
+                protocolMessage.textMessageId ??
+                protocolMessage.queueSyncMessage?.queueHash,
           );
         } catch (e) {
           _logger.warning('Failed to parse direct protocol message: $e');
@@ -415,6 +418,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
             message: protocolMessage,
             fromDeviceId: fromDeviceId,
             fromNodeId: fromNodeId,
+            transportMessageId: messageId,
           );
         } catch (e) {
           _logger.warning('Failed to parse reassembled protocol message: $e');
@@ -458,6 +462,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
                 message: protocolMessage,
                 fromDeviceId: fromDeviceId,
                 fromNodeId: fromNodeId,
+                transportMessageId: msgId,
               );
             } catch (e) {
               _logger.warning(
@@ -727,6 +732,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     _ensureInitialized();
     if (callback != null) {
       _relayCoordinator.onSendAckMessage(callback);
+      _protocolHandler.onSendAckMessage(callback);
     }
   }
 
@@ -737,6 +743,21 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     _ensureInitialized();
     if (callback != null) {
       _relayCoordinator.onSendRelayMessage(callback);
+    }
+  }
+
+  @override
+  set onTextMessageReceived(
+    Future<void> Function(
+      String content,
+      String? messageId,
+      String? senderNodeId,
+    )?
+    callback,
+  ) {
+    _ensureInitialized();
+    if (callback != null) {
+      _protocolHandler.onTextMessageReceived(callback);
     }
   }
 

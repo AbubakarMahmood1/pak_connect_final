@@ -21,7 +21,7 @@ class ChatUtils {
   /// - Post-pairing: theirId = persistent key (same across sessions)
   /// - Chat ID = theirId (simple and elegant)
   ///
-    /// Result: Different sessions → different chats (session isolation achieved)
+  /// Result: Different sessions → different chats (session isolation achieved)
   static String generateChatId(String theirId) {
     final preview = theirId.length > 16 ? '${theirId.shortId()}...' : theirId;
     _logger.fine('🆔 CHAT ID GENERATED: $preview (session-specific)');
@@ -30,6 +30,25 @@ class ChatUtils {
     );
 
     return theirId;
+  }
+
+  /// Resolve the best identifier for chat/security state:
+  /// persistentPublicKey → currentSessionId → currentEphemeralId.
+  static String? resolveChatKey({
+    String? persistentPublicKey,
+    String? currentSessionId,
+    String? currentEphemeralId,
+  }) {
+    if (persistentPublicKey != null && persistentPublicKey.isNotEmpty) {
+      return persistentPublicKey;
+    }
+    if (currentSessionId != null && currentSessionId.isNotEmpty) {
+      return currentSessionId;
+    }
+    if (currentEphemeralId != null && currentEphemeralId.isNotEmpty) {
+      return currentEphemeralId;
+    }
+    return null;
   }
 
   /// Generate 8-character hash from public key for BLE advertising

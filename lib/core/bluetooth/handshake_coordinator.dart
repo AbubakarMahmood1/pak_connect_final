@@ -458,13 +458,11 @@ class HandshakeCoordinator {
       final noiseService = SecurityManager.instance.noiseService;
       if (peerId != null && noiseService != null) {
         final sessionState = noiseService.getSessionState(peerId);
-        final needsRekey =
-            noiseService.checkForRekeyNeeded().contains(peerId);
+        final needsRekey = noiseService.checkForRekeyNeeded().contains(peerId);
 
         final isEstablished = sessionState == NoiseSessionState.established;
-        final shouldPreserveEstablished = isEstablished &&
-            !needsRekey &&
-            _phase == ConnectionPhase.complete;
+        final shouldPreserveEstablished =
+            isEstablished && !needsRekey && _phase == ConnectionPhase.complete;
 
         if (shouldPreserveEstablished) {
           _logger.warning(

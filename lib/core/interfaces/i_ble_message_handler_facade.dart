@@ -238,6 +238,18 @@ abstract interface class IBLEMessageHandlerFacade {
     Function(ProtocolMessage relayMessage, String nextHopId)? callback,
   );
 
+  /// Called when a text message has been decrypted and verified.
+  /// Provides plaintext content, transport/message ID (if present), and the
+  /// sender node identifier used during decryption.
+  set onTextMessageReceived(
+    Future<void> Function(
+      String content,
+      String? messageId,
+      String? senderNodeId,
+    )?
+    callback,
+  );
+
   /// Called when identity is revealed (spy mode)
   set onIdentityRevealed(Function(String contactName)? callback);
 

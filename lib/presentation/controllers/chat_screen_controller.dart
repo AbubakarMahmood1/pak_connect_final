@@ -284,31 +284,37 @@ class ChatScreenController extends ChangeNotifier {
   }
 
   String? get securityStateKey {
-    final publicKey = config.contactPublicKey ?? _contactPublicKey;
-    if (publicKey != null && publicKey.isNotEmpty) {
-      return 'repo_$publicKey';
-    }
+    final connectionService = ref.read(connectionServiceProvider);
+    final publicKey =
+        config.contactPublicKey ??
+        ChatUtils.resolveChatKey(
+          persistentPublicKey: connectionService.theirPersistentKey,
+          currentSessionId: connectionService.currentSessionId,
+          currentEphemeralId: connectionService.theirEphemeralId,
+        );
 
-    return ref.read(connectionServiceProvider).currentSessionId;
+    return (publicKey != null && publicKey.isNotEmpty)
+        ? publicKey
+        : connectionService.currentSessionId;
   }
 
   String? get _contactPublicKey {
-    if (config.contactPublicKey != null &&
-        config.contactPublicKey!.isNotEmpty) {
-      return config.contactPublicKey;
+    final configKey = config.contactPublicKey;
+    if (configKey != null && configKey.isNotEmpty) {
+      _cachedContactPublicKey = configKey;
+      return configKey;
     }
 
     final connectionService = ref.read(connectionServiceProvider);
-    final currentKey = connectionService.currentSessionId;
-    if (currentKey != null && currentKey.isNotEmpty) {
-      _cachedContactPublicKey = currentKey;
-      return currentKey;
-    }
+    final resolved = ChatUtils.resolveChatKey(
+      persistentPublicKey: connectionService.theirPersistentKey,
+      currentSessionId: connectionService.currentSessionId,
+      currentEphemeralId: connectionService.theirEphemeralId,
+    );
 
-    final ephemeralId = connectionService.theirEphemeralId;
-    if (ephemeralId != null && ephemeralId.isNotEmpty) {
-      _cachedContactPublicKey = ephemeralId;
-      return ephemeralId;
+    if (resolved != null && resolved.isNotEmpty) {
+      _cachedContactPublicKey = resolved;
+      return resolved;
     }
 
     return _cachedContactPublicKey;

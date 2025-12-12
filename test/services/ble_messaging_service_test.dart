@@ -809,4 +809,14 @@ class _ForwardingHarnessHandler extends Mock
     Function(String originalMessageId, String content, String originalSender)?
     callback,
   ) {}
+
+  @override
+  set onTextMessageReceived(
+    Future<void> Function(
+      String content,
+      String? messageId,
+      String? senderNodeId,
+    )?
+    callback,
+  ) {}
 }

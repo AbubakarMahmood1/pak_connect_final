@@ -16,6 +16,7 @@ class ProtocolMessageDispatcher {
       String? senderPublicKey,
     )
     onUnhandledMessage,
+    Future<void> Function(String messageId)? onAckReceived,
     Future<void> Function({
       required String originalMessageId,
       required String relayNode,
@@ -35,6 +36,7 @@ class ProtocolMessageDispatcher {
     Logger? logger,
   }) : _ackTracker = ackTracker,
        _onUnhandledMessage = onUnhandledMessage,
+       _onAckReceived = onAckReceived,
        _onRelayAck = onRelayAck,
        _onRelayAckIds = onRelayAckIds,
        _onQueueSyncReceived = onQueueSyncReceived,
@@ -42,6 +44,7 @@ class ProtocolMessageDispatcher {
 
   final Logger _logger;
   final MessageAckTracker _ackTracker;
+  final Future<void> Function(String messageId)? _onAckReceived;
   final Future<String?> Function(
     ProtocolMessage protocolMessage,
     String? Function(String)? onMessageIdFound,
@@ -85,6 +88,9 @@ class ProtocolMessageDispatcher {
         final completed = _ackTracker.complete(messageId.value);
         if (completed) {
           _logger.info('Received protocol ACK for: ${messageId.value}');
+          if (_onAckReceived != null) {
+            await _onAckReceived!(messageId.value);
+          }
         } else {
           _logger.fine('Protocol ACK for unknown message: ${messageId.value}');
         }

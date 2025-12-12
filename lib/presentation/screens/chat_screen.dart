@@ -233,18 +233,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _connectionSubscription = ref.listenManual<AsyncValue<ConnectionInfo>>(
       connectionInfoProvider,
       (previous, next) {
-        final actions = ref.read(
-          chatSessionHandleProvider(_controllerArgs),
-        ).actions;
+        final actions = ref
+            .read(chatSessionHandleProvider(_controllerArgs))
+            .actions;
         actions.handleConnectionChange(previous?.value, next.value);
       },
     );
     _meshSubscription = ref.listenManual<AsyncValue<MeshNetworkStatus>>(
       meshNetworkStatusProvider,
       (previous, next) {
-        final actions = ref.read(
-          chatSessionHandleProvider(_controllerArgs),
-        ).actions;
+        final actions = ref
+            .read(chatSessionHandleProvider(_controllerArgs))
+            .actions;
         actions.handleMeshInitializationStatusChange(previous, next);
       },
     );

@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -25,7 +23,9 @@ import '../../core/messaging/inbound_text_processor.dart';
 import '../../core/messaging/protocol_message_dispatcher.dart';
 import '../../core/messaging/message_chunk_sender.dart';
 import '../../domain/entities/enhanced_message.dart';
+import '../../domain/entities/message.dart';
 import '../../data/repositories/user_preferences.dart';
+import '../../data/repositories/message_repository.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
@@ -36,6 +36,12 @@ import '../../domain/values/id_types.dart';
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
   final ContactRepository _contactRepository = ContactRepository();
+  // For status updates on ACK receipt.
+  final MessageRepository _messageRepository = MessageRepository();
+  static const bool _bleVerboseLogging = bool.fromEnvironment(
+    'PAKCONNECT_VERBOSE_BLE',
+    defaultValue: false,
+  );
 
   /// 🔧 UTILITY: Safe string truncation to prevent RangeError
   static String _safeTruncate(
@@ -46,6 +52,12 @@ class BLEMessageHandler {
     if (input == null || input.isEmpty) return fallback;
     if (input.length <= maxLength) return input;
     return input.substring(0, maxLength);
+  }
+
+  void _trace(String message) {
+    if (_bleVerboseLogging) {
+      _logger.finer(message);
+    }
   }
 
   // Message fragmentation and reassembly
@@ -144,6 +156,12 @@ class BLEMessageHandler {
   set onSendRelayMessage(
     Function(ProtocolMessage relayMessage, String nextHopId)? callback,
   ) => _meshRelayHandler.onSendRelayMessage = callback;
+  Future<void> Function(
+    String content,
+    String? messageId,
+    String? senderNodeId,
+  )?
+  onTextMessageReceived;
 
   // Spy mode callbacks
   Function(String contactName)? onIdentityRevealed;
@@ -213,6 +231,7 @@ class BLEMessageHandler {
                 onMessageIdFound,
                 senderPublicKey,
               ),
+      onAckReceived: (messageId) => _handleInboundAck(messageId),
       logger: _logger,
     );
 
@@ -233,9 +252,9 @@ class BLEMessageHandler {
     _outboundSender.setCurrentNodeId(nodeId);
 
     // 🚨 DIAGNOSTIC: Check for bounds error cause
-    print('🔧 DIAGNOSTIC: Node ID length: ${nodeId.length}');
-    print('🔧 DIAGNOSTIC: Node ID: "$nodeId"');
-    print(
+    _trace('🔧 DIAGNOSTIC: Node ID length: ${nodeId.length}');
+    _trace('🔧 DIAGNOSTIC: Node ID: "$nodeId"');
+    _trace(
       '🔧 ROUTING DEBUG: Current node ID set to: ${_safeTruncate(nodeId, 16)}...',
     );
   }
@@ -368,28 +387,28 @@ class BLEMessageHandler {
     required ContactRepository contactRepository,
   }) async {
     try {
-      print('📥 RECEIVE STEP 1: Received ${data.length} bytes from BLE');
-      print(
+      _trace('📥 RECEIVE STEP 1: Received ${data.length} bytes from BLE');
+      _trace(
         '📥 RECEIVE STEP 1a: First 50 bytes: ${data.sublist(0, data.length > 50 ? 50 : data.length)}',
       );
-      print(
+      _trace(
         '📥 RECEIVE STEP 1b: First 50 chars as string: ${String.fromCharCodes(data.sublist(0, data.length > 50 ? 50 : data.length))}',
       );
 
       // Skip single-byte pings
       if (data.length == 1 && data[0] == 0x00) {
-        print('📥 RECEIVE: Skipping single-byte ping [0x00]');
+        _trace('📥 RECEIVE: Skipping single-byte ping [0x00]');
         return null;
       }
 
       // Check for direct protocol messages (non-fragmented ACKs/pings)
       try {
-        print(
+        _trace(
           '📥 RECEIVE STEP 2: Attempting UTF-8 decode for direct protocol message check',
         );
         final directMessage = utf8.decode(data);
         if (ProtocolMessage.isProtocolMessage(directMessage)) {
-          print(
+          _trace(
             '📥 RECEIVE STEP 2✅: Detected direct protocol message (non-chunked)',
           );
           final messageBytes = utf8.encode(directMessage);
@@ -401,9 +420,9 @@ class BLEMessageHandler {
             senderPublicKey: senderPublicKey,
           );
         }
-        print('📥 RECEIVE STEP 2❌: Not a direct protocol message');
+        _trace('📥 RECEIVE STEP 2❌: Not a direct protocol message');
       } catch (e) {
-        print(
+        _trace(
           '📥 RECEIVE STEP 2❌: UTF-8 decode failed (expected for chunked messages): $e',
         );
         // Not a direct message, try chunk processing
@@ -412,28 +431,28 @@ class BLEMessageHandler {
       // Process as message chunk ONLY if it looks like our chunk string format
       if (_looksLikeChunkString(data)) {
         try {
-          print('📥 RECEIVE STEP 3: Attempting to parse as MessageChunk');
+          _trace('📥 RECEIVE STEP 3: Attempting to parse as MessageChunk');
           final chunk = MessageChunk.fromBytes(data);
-          print(
+          _trace(
             '📥 RECEIVE STEP 3✅: Parsed chunk: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}',
           );
 
-          print('📥 RECEIVE STEP 4: Adding chunk to reassembler');
+          _trace('📥 RECEIVE STEP 4: Adding chunk to reassembler');
           // Use addChunkBytes() to get raw bytes
           final completeMessageBytes = _messageReassembler.addChunkBytes(chunk);
-          print(
+          _trace(
             '📥 RECEIVE STEP 4: Reassembler result: ${completeMessageBytes != null ? "MESSAGE COMPLETE ✅" : "waiting for more chunks ⏳"}',
           );
 
           if (completeMessageBytes != null) {
-            print(
+            _trace(
               '📥 RECEIVE STEP 5: Processing complete message (${completeMessageBytes.length} bytes)',
             );
             try {
               final protocolMessage = ProtocolMessage.fromBytes(
                 completeMessageBytes,
               );
-              print(
+              _trace(
                 '📥 RECEIVE STEP 5✅: Protocol message parsed successfully (type: ${protocolMessage.type})',
               );
 
@@ -444,18 +463,20 @@ class BLEMessageHandler {
                 senderPublicKey: senderPublicKey,
               );
             } catch (e) {
-              print('📥 RECEIVE STEP 5❌: Failed to parse protocol message: $e');
+              _trace(
+                '📥 RECEIVE STEP 5❌: Failed to parse protocol message: $e',
+              );
               _logger.warning('Protocol message parsing failed: $e');
               return null;
             }
           }
         } catch (e) {
-          print('📥 RECEIVE STEP 3❌: Chunk parsing failed: $e');
+          _trace('📥 RECEIVE STEP 3❌: Chunk parsing failed: $e');
           _logger.warning('Chunk processing failed: $e');
         }
       } else {
         // Not a chunk-string payload; ignore here so other handlers (e.g., handshake) can process
-        print(
+        _trace(
           '📥 RECEIVE STEP 3❌: Not a chunk-string payload; ignoring in message handler',
         );
         return null;
@@ -496,11 +517,33 @@ class BLEMessageHandler {
     try {
       switch (protocolMessage.type) {
         case ProtocolMessageType.textMessage:
-          return await _inboundTextProcessor.process(
+          final inboundResult = await _inboundTextProcessor.process(
             protocolMessage: protocolMessage,
             senderPublicKey: senderPublicKey,
             onMessageIdFound: onMessageIdFound,
           );
+
+          final inboundMessageId = protocolMessage.textMessageId;
+          if (inboundResult.shouldAck && inboundMessageId != null) {
+            await _sendAckForMessage(
+              inboundMessageId,
+              senderPublicKey: senderPublicKey,
+            );
+          }
+
+          if (inboundResult.content != null && onTextMessageReceived != null) {
+            try {
+              await onTextMessageReceived!(
+                inboundResult.content!,
+                protocolMessage.textMessageId,
+                inboundResult.resolvedSenderKey ?? senderPublicKey,
+              );
+            } catch (e, stack) {
+              _logger.warning('⚠️ Inbound text callback failed: $e', e, stack);
+            }
+          }
+
+          return inboundResult.content;
 
         case ProtocolMessageType.ack:
           // ACKs are handled in ProtocolMessageDispatcher; ignore here.
@@ -728,6 +771,59 @@ class BLEMessageHandler {
   /// Get relay engine statistics
   RelayStatistics? getRelayStatistics() {
     return _meshRelayHandler.getRelayStatistics();
+  }
+
+  Future<void> _sendAckForMessage(
+    String messageId, {
+    String? senderPublicKey,
+  }) async {
+    try {
+      if (onSendAckMessage == null) {
+        _logger.fine(
+          'ACK callback not configured; skipping ACK for ${messageId.shortId(8)}...',
+        );
+        return;
+      }
+
+      final ackMessage = ProtocolMessage.ack(originalMessageId: messageId);
+      onSendAckMessage!(ackMessage);
+
+      final senderPreview = senderPublicKey != null
+          ? senderPublicKey.shortId(8)
+          : 'unknown';
+      _logger.info(
+        '📨 Sending ACK for ${messageId.shortId(8)} to $senderPreview',
+      );
+    } catch (e, stack) {
+      _logger.warning(
+        '⚠️ Failed to send ACK for ${messageId.shortId(8)}: $e',
+        e,
+        stack,
+      );
+    }
+  }
+
+  /// Handle inbound ACK by updating message status to delivered.
+  Future<void> _handleInboundAck(String messageId) async {
+    try {
+      final existing = await _messageRepository.getMessageById(
+        MessageId(messageId),
+      );
+      if (existing == null) {
+        _logger.fine('ACK received for unknown message $messageId');
+        return;
+      }
+      if (existing.status == MessageStatus.delivered) {
+        return;
+      }
+      final updated = existing.copyWith(status: MessageStatus.delivered);
+      await _messageRepository.updateMessage(updated);
+      _logger.info(
+        '✅ Message ${messageId.shortId(8)}... marked delivered from ACK',
+      );
+    } catch (e) {
+      _logger.warning('⚠️ Failed to handle inbound ACK for $messageId: $e');
+    }
   }
 
   /// Dispose of resources

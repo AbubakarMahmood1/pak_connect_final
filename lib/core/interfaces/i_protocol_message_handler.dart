@@ -29,6 +29,7 @@ abstract interface class IProtocolMessageHandler {
     required ProtocolMessage message,
     required String fromDeviceId,
     required String fromNodeId,
+    String? transportMessageId,
   });
 
   /// Processes a complete protocol message (all fragments received)
@@ -39,6 +40,7 @@ abstract interface class IProtocolMessageHandler {
     required String fromDeviceId,
     required String fromNodeId,
     required Map<String, dynamic>? messageData,
+    String? transportMessageId,
   });
 
   /// Handles direct protocol messages (not relayed)
@@ -47,6 +49,7 @@ abstract interface class IProtocolMessageHandler {
   Future<String?> handleDirectProtocolMessage({
     required ProtocolMessage message,
     required String fromDeviceId,
+    String? transportMessageId,
   });
 
   /// Handles QR code introduction claim
@@ -102,6 +105,10 @@ abstract interface class IProtocolMessageHandler {
 
   /// Gets current encryption method setting
   String getEncryptionMethod();
+
+  /// Registers callback for emitting ACK protocol messages after successful
+  /// handling of inbound frames.
+  void onSendAckMessage(Function(ProtocolMessage message) callback);
 
   /// Registers callback for contact request events
   void onContactRequestReceived(

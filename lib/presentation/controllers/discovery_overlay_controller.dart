@@ -184,9 +184,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
   Future<void> _refreshContacts() async {
     try {
       final contacts = await ContactRepository().getAllContacts();
-      state = state.whenData(
-        (current) => current.copyWith(contacts: contacts),
-      );
+      state = state.whenData((current) => current.copyWith(contacts: contacts));
     } catch (e) {
       _logger.fine('Failed to refresh contacts for discovery overlay: $e');
     }
@@ -281,7 +279,6 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
 }
 
 final discoveryOverlayControllerProvider =
-    AsyncNotifierProvider<
-      DiscoveryOverlayController,
-      DiscoveryOverlayState
-    >(DiscoveryOverlayController.new);
+    AsyncNotifierProvider<DiscoveryOverlayController, DiscoveryOverlayState>(
+      DiscoveryOverlayController.new,
+    );

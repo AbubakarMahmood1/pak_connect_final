@@ -66,6 +66,7 @@ class OutboundMessageSender {
   void setCurrentNodeId(String? nodeId) {
     _currentNodeId = nodeId;
   }
+
   String? get _safeNodeId =>
       _currentNodeId ?? EphemeralKeyManager.currentSessionKey;
 
@@ -92,14 +93,21 @@ class OutboundMessageSender {
       onMessageOperationChanged?.call(true);
       // Skip extra ping writes; they have been causing GATT 133 on some stacks.
 
+      final contactKey = (contactPublicKey?.isNotEmpty ?? false)
+          ? contactPublicKey
+          : recipientId;
       final identities = await _resolveMessageIdentities(
-        contactPublicKey: contactPublicKey,
+        contactPublicKey: contactKey,
         contactRepository: contactRepository,
         stateManager: stateManager,
       );
 
       final finalRecipientId = identities.intendedRecipient;
       final finalSenderIf = identities.originalSender;
+      final encryptionKey = (contactPublicKey?.isNotEmpty ?? false)
+          ? contactPublicKey!
+          : finalRecipientId;
+
       if (finalRecipientId.isEmpty) {
         _logger.severe(
           '❌ SEND ABORTED: Intended recipient is empty; cannot send message $msgId',
@@ -120,15 +128,15 @@ class OutboundMessageSender {
       String payload = message;
       String encryptionMethod = 'none';
 
-      if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+      if (encryptionKey.isNotEmpty) {
         try {
           payload = await SecurityManager.instance.encryptMessage(
             message,
-            contactPublicKey,
+            encryptionKey,
             contactRepository,
           );
           encryptionMethod = await _getSimpleEncryptionMethod(
-            contactPublicKey,
+            encryptionKey,
             contactRepository,
           );
           _logger.info(
@@ -141,13 +149,15 @@ class OutboundMessageSender {
           encryptionMethod = 'none';
         }
       } else {
-        _logger.info('🔒 MESSAGE: No contact key, sending unencrypted');
+        _logger.info(
+          '🔒 MESSAGE: No encryption key resolved, sending unencrypted',
+        );
       }
 
       SecurityLevel trustLevel;
       try {
         trustLevel = await SecurityManager.instance.getCurrentLevel(
-          contactPublicKey ?? '',
+          encryptionKey,
           contactRepository,
         );
       } catch (e) {
@@ -164,14 +174,17 @@ class OutboundMessageSender {
         messageId: msgId,
         content: payload,
         encrypted: encryptionMethod != 'none',
-        recipientId: recipientId,
+        recipientId: finalRecipientId,
         useEphemeralAddressing: useEphemeralAddressing,
       );
+
+      final intendedRecipientPayload =
+          originalIntendedRecipient ?? finalRecipientId;
 
       final legacyPayload = {
         ...protocolMessage.payload,
         'encryptionMethod': encryptionMethod,
-        'intendedRecipient': originalIntendedRecipient ?? finalRecipientId,
+        'intendedRecipient': intendedRecipientPayload,
         'originalSender': finalSenderIf,
       };
 
@@ -186,9 +199,9 @@ class OutboundMessageSender {
 
       _logOutboundDiagnostics(
         msgId: msgId,
-        recipientId: recipientId,
+        recipientId: finalRecipientId,
         useEphemeralAddressing: useEphemeralAddressing,
-        contactPublicKey: contactPublicKey,
+        contactPublicKey: contactKey,
         currentNodeId: _currentNodeId,
         encryptionMethod: encryptionMethod,
         message: message,
@@ -324,18 +337,40 @@ class OutboundMessageSender {
     final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
 
     try {
+      final contactKey = (contactPublicKey?.isNotEmpty ?? false)
+          ? contactPublicKey
+          : recipientId;
+      final identities = await _resolveMessageIdentities(
+        contactPublicKey: contactKey,
+        contactRepository: contactRepository,
+        stateManager: stateManager,
+      );
+
+      final finalRecipientId = identities.intendedRecipient;
+      final finalSenderIf = identities.originalSender;
+      final encryptionKey = (contactPublicKey?.isNotEmpty ?? false)
+          ? contactPublicKey!
+          : finalRecipientId;
+
+      if (finalRecipientId.isEmpty) {
+        _logger.severe(
+          '❌ PERIPHERAL SEND ABORTED: Intended recipient is empty; cannot send message $msgId',
+        );
+        throw Exception('Intended recipient not set');
+      }
+
       String payload = message;
       String encryptionMethod = 'none';
 
-      if (contactPublicKey != null && contactPublicKey.isNotEmpty) {
+      if (encryptionKey.isNotEmpty) {
         try {
           payload = await SecurityManager.instance.encryptMessage(
             message,
-            contactPublicKey,
+            encryptionKey,
             contactRepository,
           );
           encryptionMethod = await _getSimpleEncryptionMethod(
-            contactPublicKey,
+            encryptionKey,
             contactRepository,
           );
           _logger.info(
@@ -349,14 +384,14 @@ class OutboundMessageSender {
         }
       } else {
         _logger.info(
-          '🔒 PERIPHERAL MESSAGE: No contact key, sending unencrypted',
+          '🔒 PERIPHERAL MESSAGE: No encryption key resolved, sending unencrypted',
         );
       }
 
       SecurityLevel trustLevel;
       try {
         trustLevel = await SecurityManager.instance.getCurrentLevel(
-          contactPublicKey ?? '',
+          encryptionKey,
           contactRepository,
         );
       } catch (e) {
@@ -375,27 +410,21 @@ class OutboundMessageSender {
         );
       }
 
-      final identities = await _resolveMessageIdentities(
-        contactPublicKey: contactPublicKey,
-        contactRepository: contactRepository,
-        stateManager: stateManager,
-      );
-
-      final finalRecipientId = identities.intendedRecipient;
-      final finalSenderIf = identities.originalSender;
-
       final protocolMessage = ProtocolMessage.textMessage(
         messageId: msgId,
         content: payload,
         encrypted: encryptionMethod != 'none',
-        recipientId: recipientId,
+        recipientId: finalRecipientId,
         useEphemeralAddressing: useEphemeralAddressing,
       );
+
+      final intendedRecipientPayload =
+          originalIntendedRecipient ?? finalRecipientId;
 
       final legacyPayload = {
         ...protocolMessage.payload,
         'encryptionMethod': encryptionMethod,
-        'intendedRecipient': originalIntendedRecipient ?? finalRecipientId,
+        'intendedRecipient': intendedRecipientPayload,
         'originalSender': finalSenderIf,
       };
 
@@ -412,13 +441,13 @@ class OutboundMessageSender {
         '🔧 PERIPHERAL SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...',
       );
       _logger.info(
-        '🔧 PERIPHERAL SEND DEBUG: Recipient ID: ${_safeTruncate(recipientId, 16, fallback: "NOT SPECIFIED")}...',
+        '🔧 PERIPHERAL SEND DEBUG: Recipient ID: ${_safeTruncate(finalRecipientId, 16, fallback: "NOT SPECIFIED")}...',
       );
       _logger.info(
         '🔧 PERIPHERAL SEND DEBUG: Addressing: ${useEphemeralAddressing ? "EPHEMERAL" : "PERSISTENT"}',
       );
       _logger.info(
-        '🔧 PERIPHERAL SEND DEBUG: Intended recipient: ${_safeTruncate(contactPublicKey, 16, fallback: "NOT SPECIFIED")}...',
+        '🔧 PERIPHERAL SEND DEBUG: Intended recipient: ${_safeTruncate(contactKey, 16, fallback: "NOT SPECIFIED")}...',
       );
       _logger.info(
         '🔧 PERIPHERAL SEND DEBUG: Current node ID: ${_safeTruncate(_currentNodeId, 16, fallback: "NOT SET")}...',
@@ -563,6 +592,17 @@ class OutboundMessageSender {
       return 'global';
     }
 
+    final contact = await contactRepository.getContactByAnyId(contactPublicKey);
+    final sessionLookupKey = contact?.sessionIdForNoise ?? contactPublicKey;
+    final hasNoise =
+        SecurityManager.instance.noiseService?.hasEstablishedSession(
+          sessionLookupKey,
+        ) ==
+        true;
+    if (hasNoise) {
+      return 'noise';
+    }
+
     final level = await SecurityManager.instance.getCurrentLevel(
       contactPublicKey,
       contactRepository,
@@ -583,6 +623,7 @@ class OutboundMessageSender {
     required ContactRepository contactRepository,
     required BLEStateManager stateManager,
   }) async {
+    final normalizedContactKey = _normalizeContactKey(contactPublicKey);
     final userPrefs = UserPreferences();
     final hintsEnabled = await userPrefs.getHintBroadcastEnabled();
 
@@ -591,11 +632,12 @@ class OutboundMessageSender {
         EphemeralKeyManager.currentSessionKey ??
         EphemeralKeyManager.generateMyEphemeralKey();
 
-    final contact = contactPublicKey != null
-        ? await contactRepository.getContact(contactPublicKey)
+    final contact = normalizedContactKey != null
+        ? await contactRepository.getContact(normalizedContactKey)
         : null;
 
-    final noiseSessionExists = contact?.currentEphemeralId != null &&
+    final noiseSessionExists =
+        contact?.currentEphemeralId != null &&
         SecurityManager.instance.noiseService?.hasEstablishedSession(
               contact!.currentEphemeralId!,
             ) ==
@@ -607,7 +649,7 @@ class OutboundMessageSender {
     SecurityLevel securityLevel = SecurityLevel.low;
     try {
       securityLevel = await SecurityManager.instance.getCurrentLevel(
-        contactPublicKey ?? '',
+        normalizedContactKey ?? '',
         contactRepository,
       );
     } catch (_) {
@@ -622,7 +664,9 @@ class OutboundMessageSender {
 
     final originalSender = prefersPersistent
         ? myPersistentKey
-        : (mySessionEphemeral.isNotEmpty ? mySessionEphemeral : myPersistentKey);
+        : (mySessionEphemeral.isNotEmpty
+              ? mySessionEphemeral
+              : myPersistentKey);
 
     // Recipient resolution order with security level awareness:
     // Medium/High: persistent (if present), else session ephemeral.
@@ -630,10 +674,9 @@ class OutboundMessageSender {
     String intendedRecipient = '';
 
     if (prefersPersistent) {
-      intendedRecipient =
-          contact?.persistentPublicKey?.isNotEmpty == true
-              ? contact!.persistentPublicKey!
-              : '';
+      intendedRecipient = contact?.persistentPublicKey?.isNotEmpty == true
+          ? contact!.persistentPublicKey!
+          : '';
     }
 
     if (intendedRecipient.isEmpty &&
@@ -641,19 +684,31 @@ class OutboundMessageSender {
       intendedRecipient = contact!.currentEphemeralId!;
     }
 
-    if (intendedRecipient.isEmpty &&
-        (contact?.publicKey.isNotEmpty ?? false)) {
+    if (intendedRecipient.isEmpty && (contact?.publicKey.isNotEmpty ?? false)) {
       intendedRecipient = contact!.publicKey;
     }
 
     if (intendedRecipient.isEmpty &&
-        contactPublicKey != null &&
-        contactPublicKey.isNotEmpty) {
-      intendedRecipient = contactPublicKey;
+        normalizedContactKey != null &&
+        normalizedContactKey.isNotEmpty) {
+      intendedRecipient = normalizedContactKey;
     }
 
-    if (intendedRecipient.isEmpty) {
-      intendedRecipient = _safeNodeId ?? mySessionEphemeral;
+    // Fallback: if we still have nothing, use our current session as a last
+    // resort, but abort later if that would address the message to ourselves.
+    if (intendedRecipient.isEmpty && _safeNodeId != null) {
+      intendedRecipient = _safeNodeId!;
+    }
+
+    // Prevent misaddressing to ourselves (observed as “NOT SPECIFIED”/self
+    // sends). If the resolved recipient matches our node ID, clear it so the
+    // caller can abort instead of silently looping.
+    if (intendedRecipient.isEmpty ||
+        (_safeNodeId != null && intendedRecipient == _safeNodeId)) {
+      _logger.severe(
+        '❌ Recipient resolution failed (resolved to self or empty) for contact ${contactPublicKey?.shortId(8) ?? "UNKNOWN"}',
+      );
+      intendedRecipient = '';
     }
 
     return _MessageIdentities(
@@ -661,6 +716,14 @@ class OutboundMessageSender {
       intendedRecipient: intendedRecipient,
       isSpyMode: !hintsEnabled && noiseSessionExists,
     );
+  }
+
+  String? _normalizeContactKey(String? contactKey) {
+    if (contactKey == null || contactKey.isEmpty) return contactKey;
+    if (contactKey.startsWith('repo_') && contactKey.length > 5) {
+      return contactKey.substring(5);
+    }
+    return contactKey;
   }
 
   static String _safeTruncate(

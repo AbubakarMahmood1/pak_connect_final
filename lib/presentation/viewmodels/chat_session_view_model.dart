@@ -95,7 +95,9 @@ class ChatSessionViewModel {
 
   bool get _isDisposed => isDisposedFn?.call() ?? false;
   bool get _canUpdateState =>
-      !_isDisposed && (stateStore?.isMounted ?? false) && !(stateStore?.isDisposed ?? true);
+      !_isDisposed &&
+      (stateStore?.isMounted ?? false) &&
+      !(stateStore?.isDisposed ?? true);
 
   /// Public hook for scroll state changes (wired to scrolling controller).
   void onScrollStateChanged() => _syncScrollStateFromController();
@@ -119,8 +121,9 @@ class ChatSessionViewModel {
 
   /// Navigate to a search result index (uses current state length).
   void onNavigateToSearchResultIndex(int messageIndex) {
-    final totalMessages =
-        _canUpdateState ? stateStore?.current.messages.length ?? 0 : 0;
+    final totalMessages = _canUpdateState
+        ? stateStore?.current.messages.length ?? 0
+        : 0;
     navigateToSearchResult(messageIndex, totalMessages);
   }
 

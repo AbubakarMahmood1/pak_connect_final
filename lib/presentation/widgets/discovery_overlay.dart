@@ -71,8 +71,8 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
         if (mounted) setState(() {});
       },
     );
-    _dedupDevicesSub =
-        ref.listenManual<AsyncValue<Map<String, DiscoveredDevice>>>(
+    _dedupDevicesSub = ref
+        .listenManual<AsyncValue<Map<String, DiscoveredDevice>>>(
           deduplicatedDevicesProvider,
           (previous, next) => next.whenData(_updateLastSeenFromDedup),
         );
@@ -269,9 +269,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   }
 
   void _updateLastSeenFromDedup(Map<String, DiscoveredDevice> devices) {
-    _updateLastSeenForDevices(
-      devices.values.map((d) => d.peripheral),
-    );
+    _updateLastSeenForDevices(devices.values.map((d) => d.peripheral));
   }
 
   @override
