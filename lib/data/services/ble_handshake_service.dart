@@ -146,8 +146,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
     );
 
     try {
-      if (_handshakeCoordinator != null &&
-          !_handshakeCoordinator!.isComplete) {
+      if (_handshakeCoordinator != null && !_handshakeCoordinator!.isComplete) {
         _logger.warning(
           '⚠️ Handshake already in progress '
           '(phase: ${_handshakeCoordinator!.currentPhase}) - ignoring duplicate performHandshake call',

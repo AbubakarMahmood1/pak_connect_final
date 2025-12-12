@@ -571,12 +571,11 @@ final bleStateProvider =
     });
 
 // Discovered devices provider (driven by BleRuntimeNotifier)
-final discoveredDevicesProvider =
-    Provider<AsyncValue<List<Peripheral>>>((ref) {
-      return ref.watch(bleRuntimeProvider).whenData((state) {
-        return state.discoveredDevices;
-      });
-    });
+final discoveredDevicesProvider = Provider<AsyncValue<List<Peripheral>>>((ref) {
+  return ref.watch(bleRuntimeProvider).whenData((state) {
+    return state.discoveredDevices;
+  });
+});
 
 // Received messages provider
 // FIX-007: Added autoDispose to prevent memory leaks

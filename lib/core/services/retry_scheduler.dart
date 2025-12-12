@@ -25,9 +25,12 @@ class RetryScheduler implements IRetryScheduler {
   /// Calculate exponential backoff delay
   @override
   Duration calculateBackoffDelay(int attempt) {
+    // Guard against invalid attempt values (e.g., 0 from first failure callbacks)
+    final safeAttempt = attempt < 1 ? 1 : attempt;
+
     // Exponential formula: initialDelay * (2 ^ (attempt - 1))
     final exponentialDelay = Duration(
-      milliseconds: _initialDelay.inMilliseconds * (1 << (attempt - 1)),
+      milliseconds: _initialDelay.inMilliseconds * (1 << (safeAttempt - 1)),
     );
 
     // Cap at maximum delay

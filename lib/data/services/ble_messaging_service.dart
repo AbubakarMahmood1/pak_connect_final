@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
@@ -18,12 +20,16 @@ import 'ble_connection_manager.dart';
 import '../../core/constants/ble_constants.dart';
 import '../../core/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/repositories/contact_repository.dart';
+import '../../data/repositories/message_repository.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/models/ble_server_connection.dart';
+import '../../core/utils/chat_utils.dart';
 import 'ble_state_manager_facade.dart';
 import 'ble_state_manager.dart';
 import '../../core/models/connection_state.dart';
+import '../../domain/entities/message.dart';
+import '../../domain/values/id_types.dart';
 
 // Type aliases for better clarity
 typedef CentralManagerType = CentralManager;
@@ -55,6 +61,7 @@ class BLEMessagingService implements IBLEMessagingService {
   final BLEConnectionManager _connectionManager;
   final IBLEStateManagerFacade _stateManager;
   final ContactRepository _contactRepository;
+  final MessageRepository _messageRepository;
   final CentralManager Function() _getCentralManager;
   final PeripheralManager Function() _getPeripheralManager;
 
@@ -81,12 +88,15 @@ class BLEMessagingService implements IBLEMessagingService {
 
   // Callbacks for facade coordination
   final Function(bool)? onMessageOperationChanged;
+  // Keep in sync with DeviceDeduplicationManager._noHintValue
+  static const String _noHintValue = 'NO_HINT';
 
   BLEMessagingService({
     required IBLEMessageHandlerFacade messageHandler,
     required BLEConnectionManager connectionManager,
     required IBLEStateManagerFacade stateManager,
     required ContactRepository contactRepository,
+    MessageRepository? messageRepository,
     required CentralManager Function() getCentralManager,
     required PeripheralManager Function() getPeripheralManager,
     required Function() getConnectedCentral,
@@ -98,6 +108,7 @@ class BLEMessagingService implements IBLEMessagingService {
        _connectionManager = connectionManager,
        _stateManager = stateManager,
        _contactRepository = contactRepository,
+       _messageRepository = messageRepository ?? MessageRepository(),
        _getCentralManager = getCentralManager,
        _getPeripheralManager = getPeripheralManager,
        _getConnectedCentral = getConnectedCentral,
@@ -148,6 +159,68 @@ class BLEMessagingService implements IBLEMessagingService {
             ),
           );
         };
+
+    _messageHandler.onTextMessageReceived =
+        (String content, String? messageId, String? senderNodeId) async {
+          await _handleInboundTextMessage(
+            content: content,
+            messageId: messageId,
+            senderNodeId: senderNodeId,
+          );
+        };
+  }
+
+  Future<String> _resolveSenderNodeId(
+    String deviceId, {
+    String? providedNodeId,
+  }) async {
+    bool _isPlaceholder(String value) {
+      if (value.isEmpty || value == _noHintValue) return true;
+      final normalized = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '');
+      return normalized.isNotEmpty && RegExp(r'^0+$').hasMatch(normalized);
+    }
+
+    if (providedNodeId != null && !_isPlaceholder(providedNodeId)) {
+      return providedNodeId;
+    }
+
+    final dedupDevice = DeviceDeduplicationManager.getDevice(deviceId);
+    final contact = dedupDevice?.contactInfo?.contact;
+
+    final sessionId = contact?.currentEphemeralId;
+    if (sessionId != null && sessionId.isNotEmpty) {
+      return sessionId;
+    }
+
+    final contactId = contact?.chatId;
+    if (contactId != null && contactId.isNotEmpty) {
+      return contactId;
+    }
+
+    final hint = dedupDevice?.ephemeralHint;
+    if (hint != null && hint.isNotEmpty && hint != _noHintValue) {
+      final contactFromHint = await _contactRepository.getContactByAnyId(hint);
+      if (contactFromHint?.currentEphemeralId?.isNotEmpty == true) {
+        return contactFromHint!.currentEphemeralId!;
+      }
+      if (contactFromHint != null) {
+        return contactFromHint.chatId;
+      }
+      return hint;
+    }
+
+    // Fallback: use active peer session from state manager when device/hint
+    // are placeholders (e.g., 0000... MAC).
+    final theirEphemeral = _stateManager.theirEphemeralId;
+    if (theirEphemeral != null && theirEphemeral.isNotEmpty) {
+      return theirEphemeral;
+    }
+    final currentSession = _stateManager.currentSessionId;
+    if (currentSession != null && currentSession.isNotEmpty) {
+      return currentSession;
+    }
+
+    return deviceId;
   }
 
   // ============================================================================
@@ -923,8 +996,8 @@ class BLEMessagingService implements IBLEMessagingService {
             _logger.warning(
               '⚠️ No inbound notify subscription detected within wait window; initiator may not be enabling notifications',
             );
-            final reconnectAddress =
-                _connectionManager.connectedDevice?.uuid.toString();
+            final reconnectAddress = _connectionManager.connectedDevice?.uuid
+                .toString();
             if (reconnectAddress != null) {
               _logger.info(
                 '🔁 Notify wait timed out — reconnecting client link $reconnectAddress',
@@ -1095,10 +1168,10 @@ class BLEMessagingService implements IBLEMessagingService {
     String? senderNodeId,
   }) async {
     try {
-      final inferredNodeId =
-          senderNodeId ??
-          DeviceDeduplicationManager.getDevice(senderDeviceId)?.ephemeralHint ??
-          senderDeviceId;
+      final inferredNodeId = await _resolveSenderNodeId(
+        senderDeviceId,
+        providedNodeId: senderNodeId,
+      );
       await _messageHandler.processReceivedData(
         data: data,
         fromDeviceId: senderDeviceId,
@@ -1168,6 +1241,82 @@ class BLEMessagingService implements IBLEMessagingService {
         );
       }
     }
+  }
+
+  Future<void> _handleInboundTextMessage({
+    required String content,
+    String? messageId,
+    String? senderNodeId,
+  }) async {
+    try {
+      final senderId = await _resolveStorageSenderId(senderNodeId);
+      final chatId = ChatId(ChatUtils.generateChatId(senderId));
+      final resolvedMessageId = (messageId != null && messageId.isNotEmpty)
+          ? messageId
+          : _generateFallbackMessageId(senderId, content);
+
+      extractedMessageId = resolvedMessageId;
+
+      final existing = await _messageRepository.getMessageById(
+        MessageId(resolvedMessageId),
+      );
+      if (existing != null) {
+        return;
+      }
+
+      final inbound = Message(
+        id: MessageId(resolvedMessageId),
+        chatId: chatId,
+        content: content,
+        timestamp: DateTime.now(),
+        isFromMe: false,
+        status: MessageStatus.delivered,
+      );
+
+      await _messageRepository.saveMessage(inbound);
+      _emitReceivedMessage(content);
+
+      final previewId = resolvedMessageId.length > 8
+          ? resolvedMessageId.substring(0, 8)
+          : resolvedMessageId;
+      final previewChat = chatId.value.length > 8
+          ? chatId.value.substring(0, 8)
+          : chatId.value;
+      _logger.info(
+        '💾 Stored inbound message $previewId... in chat $previewChat...',
+      );
+    } catch (e) {
+      _logger.warning('⚠️ Failed to persist inbound message: $e');
+    }
+  }
+
+  Future<String> _resolveStorageSenderId(String? senderNodeId) async {
+    final fallbackId =
+        _stateManager.theirPersistentKey ?? _stateManager.currentSessionId;
+    final candidate = senderNodeId?.isNotEmpty == true
+        ? senderNodeId!
+        : (fallbackId ?? 'unknown_sender');
+
+    try {
+      final contact = await _contactRepository.getContactByAnyId(candidate);
+      if (contact != null) {
+        if (contact.persistentPublicKey?.isNotEmpty == true) {
+          return contact.persistentPublicKey!;
+        }
+        return contact.publicKey;
+      }
+    } catch (_) {
+      // Fallback below
+    }
+
+    return candidate;
+  }
+
+  String _generateFallbackMessageId(String senderId, String content) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final payload = '$timestamp|$senderId|$content';
+    final hash = sha256.convert(utf8.encode(payload)).toString();
+    return 'rx_${hash.substring(0, 32)}';
   }
 
   // ============================================================================

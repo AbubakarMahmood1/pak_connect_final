@@ -125,7 +125,9 @@ class MeshQueueSyncCoordinator {
       return;
     }
     if (KillSwitches.disableQueueSync) {
-      _logger.warning('⚠️ Queue sync handler registration skipped (kill switch)');
+      _logger.warning(
+        '⚠️ Queue sync handler registration skipped (kill switch)',
+      );
       return;
     }
     _bleService.registerQueueSyncHandler(_handleIncomingQueueSync);
@@ -412,17 +414,20 @@ class MeshQueueSyncCoordinator {
 
       // Defer marking delivered until ACK arrives; queue already sets awaitingAck.
       // MessageAckTracker is completed by BLEMessageHandler on ACK.
-      _ackTracker.track(
-        messageId,
-        onTimeout: (id) {
-          _logger.warning('ACK timeout for message ${id.shortId()}...');
-          queue.markMessageFailed(id, 'ACK timeout');
-        },
-      ).future.then((ackSuccess) async {
-        if (ackSuccess) {
-          await queue.markMessageDelivered(messageId);
-        }
-      });
+      _ackTracker
+          .track(
+            messageId,
+            onTimeout: (id) {
+              _logger.warning('ACK timeout for message ${id.shortId()}...');
+              queue.markMessageFailed(id, 'ACK timeout');
+            },
+          )
+          .future
+          .then((ackSuccess) async {
+            if (ackSuccess) {
+              await queue.markMessageDelivered(messageId);
+            }
+          });
     } catch (e) {
       _logger.severe('Error sending message $truncatedId...: $e');
       await _messageQueue?.markMessageFailed(messageId, 'Send error: $e');

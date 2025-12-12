@@ -408,10 +408,7 @@ class BLEConnectionService implements IBLEConnectionService {
       final deviceId = device.deviceId;
       // Seed the hint cache so rotated MACs map correctly and refresh existing
       // links before evaluating the veto.
-      connectionManager.cachePeerHintForAddress(
-        deviceId,
-        device.ephemeralHint,
-      );
+      connectionManager.cachePeerHintForAddress(deviceId, device.ephemeralHint);
       connectionManager.refreshPeerHintsFromDedup();
 
       // Debounce when a no-hint inbound is in progress.
@@ -437,7 +434,8 @@ class BLEConnectionService implements IBLEConnectionService {
       // Debounce when any server link exists for the same hint to avoid
       // simultaneous outbound + inbound on role glare.
       // If we are already in a non-disconnected state, avoid layering another dial.
-      if (connectionManager.connectionState != ChatConnectionState.disconnected) {
+      if (connectionManager.connectionState !=
+          ChatConnectionState.disconnected) {
         _logger.info(
           '🛑 AUTO-CONNECT: Suppressing for ${deviceId.shortId(8)} '
           '(state=${connectionManager.connectionState.name})',
@@ -447,10 +445,12 @@ class BLEConnectionService implements IBLEConnectionService {
 
       final hasClientForPeer = connectionManager.hasClientLinkForPeer(deviceId);
       final hasServerForPeer = connectionManager.hasServerLinkForPeer(deviceId);
-      final hasPendingClientForPeer =
-          connectionManager.hasPendingClientForPeer(deviceId);
-      final hasHintCollision =
-          connectionManager.hasAnyLinkForPeerHint(device.ephemeralHint);
+      final hasPendingClientForPeer = connectionManager.hasPendingClientForPeer(
+        deviceId,
+      );
+      final hasHintCollision = connectionManager.hasAnyLinkForPeerHint(
+        device.ephemeralHint,
+      );
       final ChatConnectionState connectionState =
           connectionManager.connectionState;
 

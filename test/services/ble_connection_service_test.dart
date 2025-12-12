@@ -354,8 +354,9 @@ void main() {
         when(mockConnectionManager.maxClientConnections).thenReturn(3);
         when(mockConnectionManager.canAcceptClientConnection).thenReturn(true);
         when(mockStateManager.isPeripheralMode).thenReturn(false);
-        when(mockConnectionManager.connectionState)
-            .thenReturn(ChatConnectionState.ready);
+        when(
+          mockConnectionManager.connectionState,
+        ).thenReturn(ChatConnectionState.ready);
         mockConnectionManager.hasClientLink = false;
         mockConnectionManager.hasServerLink = false;
         mockConnectionManager.hasPendingClient = false;
@@ -371,10 +372,7 @@ void main() {
         final predicate = DeviceDeduplicationManager.shouldAutoConnect;
         expect(predicate, isNotNull);
 
-        final device = _buildDiscoveredDevice(
-          deviceId: deviceId,
-          hint: hint,
-        );
+        final device = _buildDiscoveredDevice(deviceId: deviceId, hint: hint);
 
         final shouldConnect = predicate!(device);
 

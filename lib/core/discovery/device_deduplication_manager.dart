@@ -47,7 +47,7 @@ class DeviceDeduplicationManager {
   // 🆕 ENHANCEMENT 3: Auto-connect callback
   // Set by BLEService to enable auto-connect functionality
   static Future<void> Function(Peripheral device, String contactName)?
-      onKnownContactDiscovered;
+  onKnownContactDiscovered;
   // Optional guard to let host services veto auto-connect attempts
   static bool Function(DiscoveredDevice device)? shouldAutoConnect;
 

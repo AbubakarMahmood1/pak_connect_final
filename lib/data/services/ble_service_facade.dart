@@ -38,10 +38,12 @@ import '../../core/services/hint_scanner_service.dart';
 import '../../core/bluetooth/ble_platform_host.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/di/service_locator.dart';
+import '../../core/services/security_manager.dart';
 import '../../core/utils/string_extensions.dart';
 import '../../core/models/connection_state.dart' show ChatConnectionState;
 import '../repositories/user_preferences.dart';
 import '../../core/security/ephemeral_key_manager.dart';
+import '../../core/security/security_types.dart';
 
 /// Main orchestrator for the entire BLE stack.
 ///
@@ -82,7 +84,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     isReady: false,
     statusMessage: 'Ready',
   );
-  
+
   // Timer for delayed responder handshake (collision handling)
   Timer? _serverHandshakeTimer;
 
@@ -256,7 +258,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   /// Get or create messaging service (lazy singleton)
   IBLEMessagingService _getMessagingService() {
-    return _messagingService ??= BLEMessagingService(
+    final service = _messagingService ??= BLEMessagingService(
       messageHandler: _messageHandlerFacade,
       connectionManager: _connectionManager,
       stateManager: _stateManager,
@@ -273,6 +275,11 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           _connectionManager.mtuSize ??
           20,
     );
+    // Wire ACK sender so inbound text messages can emit ProtocolMessage.ack.
+    _messageHandlerFacade.onSendAckMessage = (protocolMessage) async {
+      await service.sendHandshakeMessage(protocolMessage);
+    };
+    return service;
   }
 
   /// Get or create handshake service (lazy singleton)
@@ -1292,7 +1299,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   }) {
     // Only schedule if a server connection exists and no handshake has started.
     if (_connectionManager.serverConnectionCount == 0) return;
-    
+
     // 🚀 NEW: Early exit if we're already busy or ready
     if (_connectionManager.connectionState == ChatConnectionState.ready ||
         _getHandshakeService().isHandshakeInProgress) {
@@ -1323,14 +1330,14 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       );
       return;
     }
-    
+
     // Timer logic updated to use the new field
     _serverHandshakeTimer?.cancel();
     _serverHandshakeTimer = Timer(delay, () {
       _serverHandshakeTimer = null;
       try {
         if (_connectionManager.serverConnectionCount == 0) return;
-        
+
         // 🚀 NEW: Double check status inside timer
         if (_connectionManager.connectionState == ChatConnectionState.ready ||
             _getHandshakeService().isHandshakeInProgress) {
@@ -1360,7 +1367,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           );
           return;
         }
-        
+
         final advertisingService = _getAdvertisingService();
         if (advertisingService.peripheralHandshakeStarted) {
           return;
@@ -1563,16 +1570,38 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     _logger.info('🤝 Handshake complete with $displayName ($truncatedId)');
     _stateManager.setOtherUserName(displayName);
     _stateManager.setTheirEphemeralId(ephemeralId, displayName);
-    // Persist the latest session ID on the contact record (ephemeral used as key for low-security contacts).
+    // Persist or create contact record using the session ephemeral as the
+    // immutable key for LOW security contacts. This prevents later sends from
+    // resolving to an empty/“NOT SPECIFIED” recipient.
     try {
-      await _contactRepository.updateContactEphemeralId(
-        ephemeralId,
-        ephemeralId,
-      );
+      final existingContact = await _contactRepository.getContact(ephemeralId);
+      if (existingContact == null) {
+        await _contactRepository.saveContactWithSecurity(
+          ephemeralId,
+          displayName,
+          SecurityLevel.low,
+          currentEphemeralId: ephemeralId,
+        );
+        _logger.info(
+          '🔒 HANDSHAKE: Created LOW-security contact for $displayName ($truncatedId)',
+        );
+      } else {
+        if (existingContact.currentEphemeralId != ephemeralId) {
+          await _contactRepository.updateContactEphemeralId(
+            existingContact.publicKey,
+            ephemeralId,
+          );
+        }
+        if (existingContact.persistentPublicKey != null &&
+            existingContact.persistentPublicKey!.isNotEmpty) {
+          SecurityManager.instance.registerIdentityMapping(
+            persistentPublicKey: existingContact.persistentPublicKey!,
+            ephemeralID: ephemeralId,
+          );
+        }
+      }
     } catch (e) {
-      _logger.warning(
-        '⚠️ Failed to persist contact ephemeral ID after handshake: $e',
-      );
+      _logger.warning('⚠️ Failed to persist contact after handshake: $e');
     }
     // Allow health checks now that handshake is done.
     _connectionManager.markHandshakeComplete();

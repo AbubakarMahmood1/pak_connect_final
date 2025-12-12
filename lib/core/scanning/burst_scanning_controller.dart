@@ -458,13 +458,19 @@ class BurstScanningController {
     final now = DateTime.now();
 
     // If scanning and burst end reached, stop and schedule cooldown.
-    if (_isBurstActive && _burstEndTime != null && now.isAfter(_burstEndTime!)) {
-      _logger.fine('🔥 BURST: Scan duration elapsed - stopping and entering cooldown');
+    if (_isBurstActive &&
+        _burstEndTime != null &&
+        now.isAfter(_burstEndTime!)) {
+      _logger.fine(
+        '🔥 BURST: Scan duration elapsed - stopping and entering cooldown',
+      );
       _handleBurstScanStop();
     }
 
     // If not scanning and next action time reached, start scanning.
-    if (!_isBurstActive && _nextActionTime != null && now.isAfter(_nextActionTime!)) {
+    if (!_isBurstActive &&
+        _nextActionTime != null &&
+        now.isAfter(_nextActionTime!)) {
       _logger.fine('🔥 BURST: Cooldown elapsed - starting scan');
       unawaited(_handleBurstScanStart());
     }

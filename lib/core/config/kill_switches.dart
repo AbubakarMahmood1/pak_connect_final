@@ -64,7 +64,10 @@ class KillSwitches {
     }
     if (discoveryScheduler != null) {
       disableDiscoveryScheduler = discoveryScheduler;
-      await setBool(PreferenceKeys.killSwitchDiscoveryScheduler, discoveryScheduler);
+      await setBool(
+        PreferenceKeys.killSwitchDiscoveryScheduler,
+        discoveryScheduler,
+      );
     }
   }
 }

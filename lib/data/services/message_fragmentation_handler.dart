@@ -161,9 +161,7 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
         }
       } catch (e) {
         // Not a direct message, try chunk processing
-        _v(
-          '📥 Not a direct protocol message, checking for fragments: $e',
-        );
+        _v('📥 Not a direct protocol message, checking for fragments: $e');
       }
 
       // Process as message chunk ONLY if it looks like chunk format
@@ -561,9 +559,7 @@ extension on MessageFragmentationHandler {
     if (seenTs != null &&
         now.difference(seenTs) <=
             MessageFragmentationHandler._fragmentTimeout) {
-      _v(
-        '📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}',
-      );
+      _v('📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}');
       return null;
     }
     seenForId[env.index] = now;
@@ -581,9 +577,7 @@ extension on MessageFragmentationHandler {
     );
 
     if (acc.parts.containsKey(env.index)) {
-      _v(
-        '📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}',
-      );
+      _v('📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}');
       return null;
     }
 

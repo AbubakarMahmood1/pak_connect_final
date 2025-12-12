@@ -405,10 +405,14 @@ class SecurityManager implements ISecurityManager {
           case EncryptionType.noise:
             if (_noiseService != null) {
               try {
+                final resolvedPeerId = await _resolveNoisePeerId(
+                  publicKey,
+                  repo,
+                );
                 final encryptedBytes = base64.decode(encryptedMessage);
                 final decryptedBytes = await _noiseService!.decrypt(
                   Uint8List.fromList(encryptedBytes),
-                  publicKey,
+                  resolvedPeerId,
                 );
                 if (decryptedBytes != null) {
                   final decrypted = utf8.decode(decryptedBytes);
@@ -454,6 +458,74 @@ class SecurityManager implements ISecurityManager {
     throw Exception(
       'All decryption methods failed - security resync requested',
     );
+  }
+
+  /// Resolve the correct Noise session identifier for decryption.
+  ///
+  /// - Prefers the contact's currentEphemeralId when available.
+  /// - Registers persistent→ephemeral mapping so future lookups succeed.
+  /// - Falls back to the presented key when no contact is found.
+  Future<String> _resolveNoisePeerId(
+    String presentedKey,
+    IContactRepository repo,
+  ) async {
+    try {
+      final contact = await repo.getContactByAnyId(presentedKey);
+      if (contact != null) {
+        final sessionId = contact.currentEphemeralId?.isNotEmpty == true
+            ? contact.currentEphemeralId!
+            : contact.publicKey;
+        final persistentKey = contact.persistentPublicKey;
+
+        if (persistentKey != null &&
+            persistentKey.isNotEmpty &&
+            sessionId.isNotEmpty) {
+          registerIdentityMapping(
+            persistentPublicKey: persistentKey,
+            ephemeralID: sessionId,
+          );
+        }
+
+        if (sessionId.isNotEmpty) {
+          return sessionId;
+        }
+
+        if (persistentKey != null && persistentKey.isNotEmpty) {
+          return persistentKey;
+        }
+      }
+    } catch (e) {
+      _logger.fine(
+        '🔒 NOISE: Failed to resolve peer session for ${presentedKey.shortId(8)}: $e',
+      );
+    }
+
+    // Late-bind: if we already have an established Noise session but no contact
+    // record, use that session so decrypt can proceed and register a mapping
+    // for future lookups.
+    try {
+      final lateBoundSessionId = _noiseService?.resolveEstablishedSessionId(
+        presentedKey,
+      );
+      if (lateBoundSessionId != null) {
+        if (lateBoundSessionId != presentedKey) {
+          registerIdentityMapping(
+            persistentPublicKey: presentedKey,
+            ephemeralID: lateBoundSessionId,
+          );
+        }
+        _logger.info(
+          '🔒 NOISE: Late-bound session ${lateBoundSessionId.shortId(8)} for ${presentedKey.shortId(8)}',
+        );
+        return lateBoundSessionId;
+      }
+    } catch (e) {
+      _logger.fine(
+        '🔒 NOISE: Late-bind resolution failed for ${presentedKey.shortId(8)}: $e',
+      );
+    }
+
+    return presentedKey;
   }
 
   /// Request security level resync instead of immediate downgrade

@@ -88,7 +88,9 @@ class NoiseSessionManager {
 
   /// Check if session exists and is established
   bool hasEstablishedSession(String peerID) {
-    final session = _sessions[peerID];
+    // Accept either ephemeral or persistent identifiers by resolving first.
+    final sessionID = resolveSessionID(peerID);
+    final session = _sessions[sessionID];
     return session != null && session.isEstablished();
   }
 

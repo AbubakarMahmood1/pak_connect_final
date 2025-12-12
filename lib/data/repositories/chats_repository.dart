@@ -52,7 +52,12 @@ class ChatsRepository implements IChatsRepository {
       LEFT JOIN messages m ON m.chat_id = ch.chat_id
       LEFT JOIN contact_last_seen cls ON cls.public_key = c.public_key
       GROUP BY ch.chat_id
-      HAVING message_count > 0
+      HAVING SUM(
+        CASE
+          WHEN m.status IN (0, 1, 2, 3) THEN 1
+          ELSE 0
+        END
+      ) > 0
       ORDER BY latest_message_timestamp DESC NULLS LAST
     ''');
 

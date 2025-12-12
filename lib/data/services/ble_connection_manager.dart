@@ -209,8 +209,9 @@ class BLEConnectionManager {
     final stored = _peerHintsByAddress[address];
     if (_isMeaningfulHint(stored)) return stored;
 
-    final dedupHint =
-        DeviceDeduplicationManager.getDevice(address)?.ephemeralHint;
+    final dedupHint = DeviceDeduplicationManager.getDevice(
+      address,
+    )?.ephemeralHint;
     if (_isMeaningfulHint(dedupHint)) {
       _peerHintsByAddress[address] = dedupHint;
       return dedupHint;
@@ -227,8 +228,9 @@ class BLEConnectionManager {
     // If no hint, start a short inbound-first debounce to let the server side settle
     // before any outbound dial with missing hint could collide.
     if (!_isMeaningfulHint(hint)) {
-      _noHintInboundDebounceUntil =
-          DateTime.now().add(const Duration(seconds: 3));
+      _noHintInboundDebounceUntil = DateTime.now().add(
+        const Duration(seconds: 3),
+      );
     }
   }
 
@@ -470,9 +472,7 @@ class BLEConnectionManager {
         }
       }
 
-      _logger.info(
-        '🧹 Removed inbound server connection ($reasonLog)',
-      );
+      _logger.info('🧹 Removed inbound server connection ($reasonLog)');
     }
 
     // Ensure tracker does not retain stale server-side entries
@@ -493,7 +493,9 @@ class BLEConnectionManager {
     await _removeServerConnection(address, reasonLog: reason);
 
     // Tracker should reflect the surviving client link so reconnect suppression stays active.
-    _connectionTracker.removeConnection(address); // remove stale server-side entry
+    _connectionTracker.removeConnection(
+      address,
+    ); // remove stale server-side entry
     final clientKey = _matchClientAddressByPeer(address);
     if (clientKey != null) {
       final client = _clientConnections[clientKey];
@@ -514,8 +516,7 @@ class BLEConnectionManager {
         if (!_deferredServerTeardown.contains(address)) return;
 
         final serverConn = _serverConnections[address];
-        final hasSubscription =
-            serverConn?.subscribedCharacteristic != null;
+        final hasSubscription = serverConn?.subscribedCharacteristic != null;
         if (hasSubscription || _healthMonitor.isHandshakeInProgress) {
           await _completeDeferredServerTeardown(
             address,

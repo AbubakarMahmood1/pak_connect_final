@@ -507,6 +507,19 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   }
 
   @override
+  set onTextMessageReceived(
+    Future<void> Function(
+      String content,
+      String? messageId,
+      String? senderNodeId,
+    )?
+    callback,
+  ) {
+    _handler.onTextMessageReceived = callback;
+    _splitFacade.onTextMessageReceived = callback;
+  }
+
+  @override
   set onSendAckMessage(Function(ProtocolMessage message)? callback) {
     _handler.onSendAckMessage = callback;
     _splitFacade.onSendAckMessage = callback;

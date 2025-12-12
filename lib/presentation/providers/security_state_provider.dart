@@ -36,7 +36,15 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((
 ) async {
   final runtime = ref.watch(bleRuntimeProvider);
   final connectionInfo = runtime.asData?.value.connectionInfo;
-  final isRepositoryMode = otherPublicKey?.startsWith('repo_') ?? false;
+  final bleService = ref.watch(bleServiceProvider);
+  final connectedKeys = <String?>{
+    bleService.theirPersistentKey,
+    bleService.currentSessionId,
+    bleService.theirEphemeralId,
+  };
+  final isRepositoryMode = otherPublicKey == null
+      ? !(connectionInfo?.isReady ?? false)
+      : !connectedKeys.contains(otherPublicKey);
 
   final cached = _getCached(otherPublicKey);
   if (cached != null) {
@@ -44,7 +52,6 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((
     return cached;
   }
 
-  final bleService = ref.watch(bleServiceProvider);
   print(
     '🐛 NAV DEBUG: - bleService.theirPersistentKey: ${bleService.theirPersistentKey != null && bleService.theirPersistentKey!.length > 16 ? '${bleService.theirPersistentKey!.shortId()}...' : bleService.theirPersistentKey ?? 'null'}',
   );

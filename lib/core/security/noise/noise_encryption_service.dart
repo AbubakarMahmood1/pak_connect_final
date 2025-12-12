@@ -233,6 +233,25 @@ class NoiseEncryptionService {
     return _sessionManager.hasEstablishedSession(peerID);
   }
 
+  /// Resolve to an established session ID (ephemeral) if one exists for [peerID].
+  ///
+  /// Returns the resolved session identifier or null when no established session
+  /// can be found.
+  String? resolveEstablishedSessionId(String peerID) {
+    _checkInitialized();
+
+    final resolved = _sessionManager.resolveSessionID(peerID);
+    if (_sessionManager.hasEstablishedSession(resolved)) {
+      return resolved;
+    }
+
+    if (_sessionManager.hasEstablishedSessionByAnyKey(peerID)) {
+      return _sessionManager.resolveSessionID(peerID);
+    }
+
+    return null;
+  }
+
   /// Get session state for peer
   NoiseSessionState getSessionState(String peerID) {
     _checkInitialized();
@@ -251,7 +270,9 @@ class NoiseEncryptionService {
   Future<Uint8List?> encrypt(Uint8List data, String peerID) async {
     _checkInitialized();
 
-    if (!hasEstablishedSession(peerID)) {
+    final resolvedPeerID = _sessionManager.resolveSessionID(peerID);
+
+    if (!hasEstablishedSession(resolvedPeerID)) {
       _logger.warning(
         'No established session with $peerID - handshake required',
       );
@@ -260,7 +281,7 @@ class NoiseEncryptionService {
     }
 
     try {
-      return await _sessionManager.encrypt(data, peerID);
+      return await _sessionManager.encrypt(data, resolvedPeerID);
     } catch (e) {
       _logger.severe('Failed to encrypt for $peerID: $e');
       return null;
@@ -277,7 +298,9 @@ class NoiseEncryptionService {
   Future<Uint8List?> decrypt(Uint8List encryptedData, String peerID) async {
     _checkInitialized();
 
-    if (!hasEstablishedSession(peerID)) {
+    final resolvedPeerID = _sessionManager.resolveSessionID(peerID);
+
+    if (!hasEstablishedSession(resolvedPeerID)) {
       _logger.warning(
         'No established session with $peerID when trying to decrypt',
       );
@@ -285,7 +308,7 @@ class NoiseEncryptionService {
     }
 
     try {
-      return await _sessionManager.decrypt(encryptedData, peerID);
+      return await _sessionManager.decrypt(encryptedData, resolvedPeerID);
     } catch (e) {
       _logger.severe('Failed to decrypt from $peerID: $e');
       return null;

@@ -368,10 +368,7 @@ class SeenMessageStore implements ISeenMessageStore {
 
       // Clean up if over limit
       if (deliveredTotal > limit) {
-        await _cleanupOldEntries(
-          SeenType.delivered,
-          deliveredTotal - limit,
-        );
+        await _cleanupOldEntries(SeenType.delivered, deliveredTotal - limit);
       }
 
       if (readTotal > limit) {
@@ -422,7 +419,9 @@ class SeenMessageStore implements ISeenMessageStore {
     for (final id in toPrune) {
       set.remove(id);
     }
-    _trace('Pruned ${toPrune.length} cached entries to cap in-memory at $limit');
+    _trace(
+      'Pruned ${toPrune.length} cached entries to cap in-memory at $limit',
+    );
   }
 
   void _trace(String message) {
