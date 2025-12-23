@@ -60,7 +60,7 @@ pnpm-debug.log*
 .pub/
 .packages
 /build/
-.metadata           # usually not needed; comment out if you prefer to track
+.metadata
 
 # App symbol/obfuscation artifacts
 app.*.symbols
@@ -81,6 +81,10 @@ coverage/
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/app/.cxx/
+/android/app/build/
+/android/.idea/
+
 # Signing (keep these out of git)
 /android/key.properties
 *.jks
@@ -90,10 +94,17 @@ coverage/
 # iOS / CocoaPods
 # =========================
 /ios/Pods/
+/ios/Flutter/ephemeral/
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/Flutter.podspec
+
 # If you prefer to commit Pods, comment out the line above.
 
 # =========================
 # Desktop (Linux/Mac/Windows) generated
+/linux/flutter/
+/windows/flutter/
+/macos/Flutter/
 # =========================
 # Flutter generates platform registrant files; most teams commit them.
 # Build artifacts are already covered by /build/
@@ -115,3 +126,11 @@ reference/
 serena/
 
 .analysis.machine.txt
+
+.env
+.env.*
+*.pem
+*.key
+
+*.stacktrace
+crashlytics_export*
