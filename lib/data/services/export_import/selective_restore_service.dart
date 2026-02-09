@@ -46,13 +46,22 @@ class SelectiveRestoreService {
         }
       }
 
-      final backupDb = await factory.openDatabase(
-        backupPath,
-        options: sqflite_common.OpenDatabaseOptions(
-          readOnly: true,
-          password: encryptionKey, // Use encryption key on mobile platforms
-        ),
-      );
+      // Open database with platform-specific options
+      final backupDb = Platform.isAndroid || Platform.isIOS
+          ? await factory.openDatabase(
+              backupPath,
+              options: sqlcipher.OpenDatabaseOptions(
+                readOnly: true,
+                password: encryptionKey, // Use encryption key on mobile platforms
+              ),
+            )
+          : await factory.openDatabase(
+              backupPath,
+              options: sqflite_common.OpenDatabaseOptions(
+                readOnly: true,
+                // No password parameter for sqflite_common
+              ),
+            );
 
       // Get target database
       final targetDb = await DatabaseHelper.database;

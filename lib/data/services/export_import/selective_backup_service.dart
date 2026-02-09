@@ -54,16 +54,28 @@ class SelectiveBackupService {
         }
       }
 
-      final backupDb = await factory.openDatabase(
-        backupPath,
-        options: sqflite_common.OpenDatabaseOptions(
-          version: 1,
-          onCreate: (db, version) async {
-            await _createSelectiveSchema(db, exportType);
-          },
-          password: encryptionKey, // Encrypt backup on mobile platforms
-        ),
-      );
+      // Open database with platform-specific options
+      final backupDb = Platform.isAndroid || Platform.isIOS
+          ? await factory.openDatabase(
+              backupPath,
+              options: sqlcipher.OpenDatabaseOptions(
+                version: 1,
+                onCreate: (db, version) async {
+                  await _createSelectiveSchema(db, exportType);
+                },
+                password: encryptionKey, // Encrypt backup on mobile platforms
+              ),
+            )
+          : await factory.openDatabase(
+              backupPath,
+              options: sqflite_common.OpenDatabaseOptions(
+                version: 1,
+                onCreate: (db, version) async {
+                  await _createSelectiveSchema(db, exportType);
+                },
+                // No password parameter for sqflite_common
+              ),
+            );
 
       // Copy data based on export type
       int recordCount = 0;
