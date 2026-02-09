@@ -149,8 +149,15 @@ return await factory.openDatabase(
    - **Schema validation**: Only copies tables that exist in destination schema
    - **Skips removed tables**: Tables like `user_preferences` (removed in v3) are skipped
    - **No errors**: Migration completes successfully even if source has old tables
-8. **File replaced** → Old file backed up, new encrypted file in place
-9. **Database opens** → With encryption key, reads encrypted data
+8. **Data backfills applied** → `_applyDataMigrationBackfills()` runs
+   - **v8 backfill**: Updates `current_ephemeral_id` from `ephemeral_id` for existing contacts
+   - **Preserves functionality**: Ensures post-v8 identity/session tracking works correctly
+   - **Critical for upgrades**: Without this, pre-v8 users would have broken session tracking
+9. **Plaintext backup deleted** → Temporary backup removed for security
+   - **Security**: No plaintext data remains on device
+   - **Encryption at rest**: Fully achieved after this step
+10. **File replaced** → Old file deleted, new encrypted file in place
+11. **Database opens** → With encryption key, reads encrypted data
 
 ### Subsequent Launches
 1. File is already encrypted
@@ -260,9 +267,36 @@ flutter test
 ### Existing Users
 - ✅ Seamless migration - no action required
 - ✅ No data loss during migration
-- ✅ Backup of old unencrypted file created
+- ✅ **No plaintext backup left on device** - Temporary backup is deleted after successful migration
 - ✅ App continues to work normally
 - ✅ **Schema evolution handled**: Migration skips tables removed in later versions
+- ✅ **Data migrations applied**: Critical backfills (like v8 current_ephemeral_id) are applied
+
+### Critical Migration Fixes
+
+Three critical issues were identified and fixed in the migration process:
+
+**1. Security: Plaintext Backup Cleanup**
+- **Problem**: Migration created `.backup_unencrypted` file that was never deleted
+- **Impact**: Plaintext data remained on device, undermining encryption at rest
+- **Solution**: Added cleanup step to delete backup after successful migration
+- **Result**: No plaintext data remains on device
+
+**2. Platform-Specific Options**
+- **Problem**: Desktop/test platforms were using `sqlcipher.OpenDatabaseOptions` which doesn't work with `sqflite_common`
+- **Impact**: Runtime failures on desktop/test platforms
+- **Solution**: Split code to use platform-specific options classes
+  - Mobile: `sqlcipher.OpenDatabaseOptions` with password
+  - Desktop/Test: `sqflite_common.OpenDatabaseOptions` without password
+- **Result**: Correct options for each platform, no runtime errors
+
+**3. Data Migration Backfills**
+- **Problem**: Migration copied raw data without running `_onUpgrade` transformations
+- **Impact**: Users upgrading from pre-v8 databases had NULL `current_ephemeral_id`, breaking session tracking
+- **Solution**: Added `_applyDataMigrationBackfills()` to apply critical data transformations after copy
+  - v8 backfill: `UPDATE contacts SET current_ephemeral_id = ephemeral_id`
+  - Extensible for future migration backfills
+- **Result**: Migrated databases have correct data state for all versions
 
 ### Schema Evolution Protection
 The migration system includes protection against schema evolution issues:
