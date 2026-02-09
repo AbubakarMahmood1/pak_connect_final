@@ -354,16 +354,19 @@ class SecurityManager implements ISecurityManager {
           return encrypted;
 
         case EncryptionType.global:
-          final encrypted = SimpleCrypto.encrypt(message);
-          _logger.info('🔒 ENCRYPT: GLOBAL → ${message.length} chars');
-          return encrypted;
+          // 🔒 SECURITY FIX: Do not silently encrypt with insecure global key
+          // Return plaintext with marker to make it obvious no encryption was applied
+          _logger.warning(
+            '🔒 ENCRYPT: GLOBAL FALLBACK (PLAINTEXT) → ${message.length} chars',
+          );
+          return 'PLAINTEXT:$message';
       }
     } catch (e) {
       _logger.severe('🔒 ENCRYPT FAILED: ${method.type.name} → $e');
-      // Fallback to global
+      // Fallback to plaintext marker
       if (method.type != EncryptionType.global) {
-        _logger.info('🔒 FALLBACK: Using global encryption');
-        return SimpleCrypto.encrypt(message);
+        _logger.warning('🔒 FALLBACK: Using plaintext marker (NO ENCRYPTION)');
+        return 'PLAINTEXT:$message';
       }
       rethrow;
     }
@@ -439,8 +442,15 @@ class SecurityManager implements ISecurityManager {
             break;
 
           case EncryptionType.global:
+            // Handle plaintext marker
+            if (encryptedMessage.startsWith('PLAINTEXT:')) {
+              final plaintext = encryptedMessage.substring('PLAINTEXT:'.length);
+              _logger.info('🔒 DECRYPT: PLAINTEXT ✅ (no encryption was used)');
+              return plaintext;
+            }
+            // Try legacy decryption for backward compatibility
             final decrypted = SimpleCrypto.decrypt(encryptedMessage);
-            _logger.info('🔒 DECRYPT: GLOBAL ✅');
+            _logger.info('🔒 DECRYPT: GLOBAL (legacy) ✅');
             return decrypted;
         }
       } catch (e) {
@@ -586,10 +596,10 @@ class SecurityManager implements ISecurityManager {
           throw Exception('Noise encryption failed for binary payload');
         }
         _logger.warning(
-          '🔒 BIN ENCRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... falling back',
+          '🔒 BIN ENCRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... falling back to plaintext',
         );
         return Uint8List.fromList(
-          utf8.encode(SimpleCrypto.encrypt(plaintextBase64)),
+          utf8.encode('PLAINTEXT:$plaintextBase64'),
         );
 
       case EncryptionType.ecdh:
@@ -617,11 +627,14 @@ class SecurityManager implements ISecurityManager {
         return Uint8List.fromList(utf8.encode(encrypted));
 
       case EncryptionType.global:
-        final encrypted = SimpleCrypto.encrypt(plaintextBase64);
-        _logger.fine(
-          '🔒 BIN ENCRYPT: GLOBAL → ${data.length} bytes to ${publicKey.shortId(8)}...',
+        // 🔒 SECURITY FIX: Do not silently encrypt with insecure global key
+        _logger.warning(
+          '🔒 BIN ENCRYPT: GLOBAL (PLAINTEXT) → ${data.length} bytes to ${publicKey.shortId(8)}...',
         );
-        return Uint8List.fromList(utf8.encode(encrypted));
+        // Return plaintext with marker
+        return Uint8List.fromList(
+          utf8.encode('PLAINTEXT:$plaintextBase64'),
+        );
     }
   }
 
@@ -655,11 +668,20 @@ class SecurityManager implements ISecurityManager {
           throw Exception('Noise decryption failed for binary payload');
         }
         _logger.warning(
-          '🔒 BIN DECRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... falling back',
+          '🔒 BIN DECRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... trying plaintext fallback',
         );
+        // Handle plaintext marker
+        if (encryptedString.startsWith('PLAINTEXT:')) {
+          final plaintext = encryptedString.substring('PLAINTEXT:'.length);
+          _logger.fine(
+            '🔒 BIN DECRYPT: PLAINTEXT (fallback) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+          );
+          return Uint8List.fromList(base64.decode(plaintext));
+        }
+        // Try legacy decryption
         final decryptedFallback = SimpleCrypto.decrypt(encryptedString);
         _logger.fine(
-          '🔒 BIN DECRYPT: GLOBAL (fallback) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+          '🔒 BIN DECRYPT: GLOBAL (legacy fallback) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
         );
         return Uint8List.fromList(base64.decode(decryptedFallback));
 
@@ -688,9 +710,18 @@ class SecurityManager implements ISecurityManager {
         return Uint8List.fromList(base64.decode(decrypted));
 
       case EncryptionType.global:
+        // Handle plaintext marker
+        if (encryptedString.startsWith('PLAINTEXT:')) {
+          final plaintext = encryptedString.substring('PLAINTEXT:'.length);
+          _logger.fine(
+            '🔒 BIN DECRYPT: PLAINTEXT ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+          );
+          return Uint8List.fromList(base64.decode(plaintext));
+        }
+        // Try legacy decryption for backward compatibility
         final decrypted = SimpleCrypto.decrypt(encryptedString);
         _logger.fine(
-          '🔒 BIN DECRYPT: GLOBAL ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+          '🔒 BIN DECRYPT: GLOBAL (legacy) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
         );
         return Uint8List.fromList(base64.decode(decrypted));
     }
