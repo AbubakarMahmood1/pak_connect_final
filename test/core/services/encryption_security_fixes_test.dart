@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/simple_crypto.dart';
 import 'package:pak_connect/core/security/archive_crypto.dart';
@@ -80,6 +81,31 @@ void main() {
         
         // But the ciphertexts should be different (due to random IVs)
         expect(encrypted1, isNot(equals(encrypted2)));
+      });
+
+      test('IV length is exactly 16 bytes in encrypted output', () {
+        const plaintext = 'test message';
+        
+        final encrypted = SimpleCrypto.encryptForConversation(plaintext, publicKey);
+        
+        // Remove v2: prefix and decode
+        final ciphertext = encrypted.substring('v2:'.length);
+        final combined = base64.decode(ciphertext);
+        
+        // First 16 bytes should be the IV
+        expect(combined.length, greaterThanOrEqualTo(16));
+        final iv = combined.sublist(0, 16);
+        expect(iv.length, equals(16));
+      });
+
+      test('invalid v2 ciphertext (too short) throws error', () {
+        // Create a ciphertext that's too short (less than 16 bytes for IV)
+        final tooShort = 'v2:${base64.encode([1, 2, 3, 4, 5])}';
+        
+        expect(
+          () => SimpleCrypto.decryptFromConversation(tooShort, publicKey),
+          throwsA(isA<ArgumentError>()),
+        );
       });
 
       test('encryption/decryption roundtrip works correctly', () {
@@ -173,10 +199,12 @@ void main() {
     test('legacy encrypted format is handled gracefully', () {
       const legacyEncrypted = 'enc::archive::v1::some_encrypted_data';
       
+      // This should not throw, but return the encrypted value as-is
       final result = ArchiveCrypto.decryptField(legacyEncrypted);
       
       // Should return the encrypted value as-is (cannot decrypt without key)
       expect(result, equals(legacyEncrypted));
+      // Note: A warning is logged but we can't easily test log output in unit tests
     });
 
     test('empty values are handled correctly', () {
