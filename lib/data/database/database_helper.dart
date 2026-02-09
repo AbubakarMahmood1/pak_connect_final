@@ -85,7 +85,11 @@ class DatabaseHelper {
           _logger.warning(
             '⚠️ Existing database is unencrypted - migrating to encrypted storage',
           );
-          await _migrateUnencryptedDatabase(path, encryptionKey, factory);
+          await _migrateUnencryptedDatabase(
+            path,
+            encryptionKey,
+            factory as sqlcipher.DatabaseFactory,
+          );
         }
       }
     } else {
@@ -147,10 +151,11 @@ class DatabaseHelper {
 
   /// Migrate an existing unencrypted database to encrypted format
   /// This is a one-time migration for existing users
+  /// Note: This method is only called on mobile platforms (Android/iOS)
   static Future<void> _migrateUnencryptedDatabase(
     String oldPath,
     String encryptionKey,
-    dynamic factory,
+    sqlcipher.DatabaseFactory factory,
   ) async {
     try {
       _logger.info('🔄 Starting database encryption migration...');
