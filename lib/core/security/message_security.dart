@@ -2,6 +2,7 @@
 
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
@@ -283,9 +284,10 @@ class MessageSecurity {
 
   /// Generate cryptographically secure random string
   static String _generateRandomString(int length) {
+    final random = Random.secure();
     final bytes = Uint8List(length);
     for (int i = 0; i < length; i++) {
-      bytes[i] = DateTime.now().microsecondsSinceEpoch % 256;
+      bytes[i] = random.nextInt(256);
     }
     return base64Url.encode(bytes).substring(0, length);
   }

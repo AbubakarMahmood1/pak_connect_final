@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:pointycastle/export.dart';
 import '../services/simple_crypto.dart';
@@ -36,12 +37,10 @@ class SigningManager {
       final signer = ECDSASigner(SHA256Digest());
       final secureRandom = FortunaRandom();
 
-      // Seed random
+      // Seed random with cryptographically secure randomness
+      final random = Random.secure();
       final seed = Uint8List.fromList(
-        List<int>.generate(
-          32,
-          (i) => DateTime.now().microsecondsSinceEpoch ~/ (i + 1),
-        ),
+        List<int>.generate(32, (_) => random.nextInt(256)),
       );
       secureRandom.seed(KeyParameter(seed));
 
