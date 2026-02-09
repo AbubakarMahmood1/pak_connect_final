@@ -24,45 +24,65 @@ class SimpleCrypto {
   static final Map<String, Encrypter> _conversationEncrypters = {};
   static final Map<String, IV> _conversationIVs = {};
 
-  // Initialize with shared passphrase
+  // Wire format version prefix
+  static const String _wireFormatV2 = 'v2:';
+  
+  // Initialize (legacy - kept for backward compatibility)
   static void initialize() {
-    // Always use hardcoded global passphrase for baseline encryption
-    const String globalPassphrase = "PakConnect2024_SecureBase_v1";
-
-    // Generate key from hardcoded passphrase using existing logic
-    final keyBytes = sha256
-        .convert(utf8.encode('${globalPassphrase}BLE_CHAT_SALT'))
-        .bytes;
-    final key = Key(Uint8List.fromList(keyBytes));
-
-    // Use fixed IV for simplicity (existing logic)
-    final ivBytes = sha256
-        .convert(utf8.encode('${globalPassphrase}BLE_CHAT_IV'))
-        .bytes
-        .sublist(0, 16);
-    _iv = IV(Uint8List.fromList(ivBytes));
-
-    _encrypter = Encrypter(AES(key));
+    // 🔒 SECURITY: Legacy global encryption removed - this method is deprecated
+    // Global encryption with hardcoded passphrase is now disabled
+    // Keep minimal initialization for backward compatibility
+    _encrypter = null;
+    _iv = null;
   }
 
-  // Encrypt message content
+  // ========== DEPRECATED GLOBAL ENCRYPTION ==========
+  // 🚨 SECURITY WARNING: These methods previously used a hardcoded passphrase
+  // and are now deprecated. They return plaintext markers to avoid silent insecurity.
+
+  /// ⚠️ DEPRECATED: Global encryption with hardcoded key is insecure
+  /// Returns plaintext with PLAINTEXT: prefix to make it obvious no encryption is applied
+  @Deprecated('Use proper encryption methods (Noise, ECDH, or Pairing). '
+      'This method does NOT provide real security.')
   static String encrypt(String plaintext) {
-    if (_encrypter == null) {
-      throw StateError('Crypto not initialized. Call initialize() first.');
+    if (kDebugMode) {
+      print(
+        '⚠️ SECURITY WARNING: SimpleCrypto.encrypt() called - '
+        'returning plaintext marker (NO ENCRYPTION)',
+      );
     }
-
-    final encrypted = _encrypter!.encrypt(plaintext, iv: _iv!);
-    return encrypted.base64;
+    return 'PLAINTEXT:$plaintext';
   }
 
-  // Decrypt message content
+  /// ⚠️ DEPRECATED: Global decryption for legacy compatibility
+  /// Handles both PLAINTEXT: prefix and legacy encrypted format
+  @Deprecated('Use proper decryption methods (Noise, ECDH, or Pairing)')
   static String decrypt(String encryptedBase64) {
-    if (_encrypter == null) {
-      throw StateError('Crypto not initialized. Call initialize() first.');
+    // Handle plaintext marker
+    if (encryptedBase64.startsWith('PLAINTEXT:')) {
+      return encryptedBase64.substring('PLAINTEXT:'.length);
     }
-
-    final encrypted = Encrypted.fromBase64(encryptedBase64);
-    return _encrypter!.decrypt(encrypted, iv: _iv!);
+    
+    // Legacy decryption for backward compatibility (old messages)
+    // This will fail gracefully if the old key isn't available
+    if (_encrypter != null && _iv != null) {
+      try {
+        final encrypted = Encrypted.fromBase64(encryptedBase64);
+        return _encrypter!.decrypt(encrypted, iv: _iv!);
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ Legacy decryption failed: $e');
+        }
+        // Return as-is if decryption fails
+        return encryptedBase64;
+      }
+    }
+    
+    // No decryption possible, return as-is
+    if (kDebugMode) {
+      print('⚠️ Cannot decrypt: no legacy keys available');
+    }
+    return encryptedBase64;
   }
 
   // Check if crypto is ready
@@ -76,20 +96,14 @@ class SimpleCrypto {
   }
 
   static void initializeConversation(String publicKey, String sharedSecret) {
-    // Generate conversation-specific key and IV
+    // Generate conversation-specific key (IV is now random per message)
     final keyBytes = sha256
         .convert(utf8.encode('${sharedSecret}CONVERSATION_KEY'))
         .bytes;
     final key = Key(Uint8List.fromList(keyBytes));
 
-    final ivBytes = sha256
-        .convert(utf8.encode('${sharedSecret}CONVERSATION_IV'))
-        .bytes
-        .sublist(0, 16);
-    final iv = IV(Uint8List.fromList(ivBytes));
-
     _conversationEncrypters[publicKey] = Encrypter(AES(key));
-    _conversationIVs[publicKey] = iv;
+    // No longer store a static IV - each message gets a random IV
 
     if (kDebugMode) {
       print(
@@ -101,14 +115,21 @@ class SimpleCrypto {
   // Add conversation-aware encrypt method
   static String encryptForConversation(String plaintext, String publicKey) {
     final encrypter = _conversationEncrypters[publicKey];
-    final iv = _conversationIVs[publicKey];
 
-    if (encrypter == null || iv == null) {
+    if (encrypter == null) {
       throw StateError('No conversation key for $publicKey');
     }
 
+    // 🔒 SECURITY FIX: Use random IV for each message
+    final iv = IV.fromSecureRandom(16);
     final encrypted = encrypter.encrypt(plaintext, iv: iv);
-    return encrypted.base64;
+    
+    // Prepend IV to ciphertext and encode the whole thing
+    final combined = Uint8List.fromList(iv.bytes + encrypted.bytes);
+    final result = base64.encode(combined);
+    
+    // Add v2 wire format prefix
+    return '$_wireFormatV2$result';
   }
 
   // Add conversation-aware decrypt method
@@ -117,14 +138,46 @@ class SimpleCrypto {
     String publicKey,
   ) {
     final encrypter = _conversationEncrypters[publicKey];
-    final iv = _conversationIVs[publicKey];
 
-    if (encrypter == null || iv == null) {
+    if (encrypter == null) {
       throw StateError('No conversation key for $publicKey');
     }
 
-    final encrypted = Encrypted.fromBase64(encryptedBase64);
-    return encrypter.decrypt(encrypted, iv: iv);
+    // Check for wire format version
+    String ciphertext = encryptedBase64;
+    bool isV2Format = false;
+    
+    if (encryptedBase64.startsWith(_wireFormatV2)) {
+      ciphertext = encryptedBase64.substring(_wireFormatV2.length);
+      isV2Format = true;
+    }
+
+    if (isV2Format) {
+      // 🔒 NEW FORMAT: Extract IV from first 16 bytes
+      final combined = base64.decode(ciphertext);
+      if (combined.length < 16) {
+        throw ArgumentError('Invalid v2 ciphertext: too short');
+      }
+      final iv = IV(Uint8List.fromList(combined.sublist(0, 16)));
+      final encryptedBytes = Encrypted(Uint8List.fromList(combined.sublist(16)));
+      return encrypter.decrypt(encryptedBytes, iv: iv);
+    } else {
+      // ⚠️ LEGACY FORMAT: Use deterministic IV (for backward compatibility)
+      // This should only be used for old messages
+      final legacyIV = _conversationIVs[publicKey];
+      if (legacyIV == null) {
+        throw StateError(
+          'No legacy IV for $publicKey - cannot decrypt old format message',
+        );
+      }
+      if (kDebugMode) {
+        print(
+          '⚠️ Decrypting legacy conversation message for ${_safeTruncate(publicKey, 8)}...',
+        );
+      }
+      final encrypted = Encrypted.fromBase64(ciphertext);
+      return encrypter.decrypt(encrypted, iv: legacyIV);
+    }
   }
 
   static bool hasConversationKey(String publicKey) {
@@ -312,7 +365,7 @@ class SimpleCrypto {
       );
       print('🔧 ECDH ENCRYPT DEBUG: SharedSecret: $truncatedSecret...');
 
-      // Enhanced key derivation with optional pairing key
+      // Enhanced key derivation (WITHOUT hardcoded string)
       final enhancedSecret = _deriveEnhancedContactKey(
         sharedSecret,
         contactPublicKey,
@@ -325,31 +378,34 @@ class SimpleCrypto {
       final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
       final key = Key(Uint8List.fromList(keyBytes));
 
-      // Enhanced IV derivation with deterministic SHA256-based approach
-      final ivSeed = '${enhancedSecret}_IV_DERIVATION';
-      final ivBytes = sha256.convert(utf8.encode(ivSeed)).bytes.sublist(0, 16);
-      final iv = IV(Uint8List.fromList(ivBytes));
+      // 🔒 SECURITY FIX: Use random IV for each message
+      final iv = IV.fromSecureRandom(16);
 
       print(
         '🔧 ECDH ENCRYPT DEBUG: Key: ${keyBytes.sublist(0, 8).map((b) => b.toRadixString(16)).join()}...',
       );
       print(
-        '🔧 ECDH ENCRYPT DEBUG: IV: ${ivBytes.map((b) => b.toRadixString(16)).join()}',
+        '🔧 ECDH ENCRYPT DEBUG: IV: ${iv.bytes.map((b) => b.toRadixString(16)).join()}',
       );
 
       final encrypter = Encrypter(AES(key));
       final encrypted = encrypter.encrypt(plaintext, iv: iv);
 
+      // Prepend IV to ciphertext
+      final combined = Uint8List.fromList(iv.bytes + encrypted.bytes);
+      final result = base64.encode(combined);
+
       final pairingKey = _getPairingKeyForContact(contactPublicKey);
       if (pairingKey != null) {
         print(
-          '✅ ENHANCED ECDH encryption successful (ECDH + Pairing + Global)',
+          '✅ ENHANCED ECDH encryption successful (ECDH + Pairing)',
         );
       } else {
         print('✅ STANDARD ECDH encryption successful (ECDH only)');
       }
 
-      return encrypted.base64;
+      // Add v2 wire format prefix
+      return '$_wireFormatV2$result';
     } catch (e) {
       print('❌ Enhanced ECDH encryption failed: $e');
       return null;
@@ -384,7 +440,7 @@ class SimpleCrypto {
       );
       print('🔧 ECDH DECRYPT DEBUG: SharedSecret: $truncatedSecret...');
 
-      // Enhanced key derivation with optional pairing key
+      // Enhanced key derivation (WITHOUT hardcoded string)
       final enhancedSecret = _deriveEnhancedContactKey(
         sharedSecret,
         contactPublicKey,
@@ -397,27 +453,28 @@ class SimpleCrypto {
       final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
       final key = Key(Uint8List.fromList(keyBytes));
 
-      // Enhanced IV derivation with deterministic SHA256-based approach
-      final ivSeed = '${enhancedSecret}_IV_DERIVATION';
-      final ivBytes = sha256.convert(utf8.encode(ivSeed)).bytes.sublist(0, 16);
-      final iv = IV(Uint8List.fromList(ivBytes));
+      // Check for wire format version
+      String ciphertext = encryptedBase64;
+      bool isV2Format = false;
+      
+      if (encryptedBase64.startsWith(_wireFormatV2)) {
+        ciphertext = encryptedBase64.substring(_wireFormatV2.length);
+        isV2Format = true;
+      }
+
+      final encrypter = Encrypter(AES(key));
+      final decrypted = isV2Format
+          ? _decryptV2Format(encrypter, ciphertext)
+          : _decryptLegacyFormat(encrypter, ciphertext, enhancedSecret);
 
       print(
         '🔧 ECDH DECRYPT DEBUG: Key: ${keyBytes.sublist(0, 8).map((b) => b.toRadixString(16)).join()}...',
       );
-      print(
-        '🔧 ECDH DECRYPT DEBUG: IV: ${ivBytes.map((b) => b.toRadixString(16)).join()}',
-      );
-
-      final encrypter = Encrypter(AES(key));
-      final encrypted = Encrypted.fromBase64(encryptedBase64);
-
-      final decrypted = encrypter.decrypt(encrypted, iv: iv);
 
       final pairingKey = _getPairingKeyForContact(contactPublicKey);
       if (pairingKey != null) {
         print(
-          '✅ ENHANCED ECDH decryption successful (ECDH + Pairing + Global)',
+          '✅ ENHANCED ECDH decryption successful (ECDH + Pairing)',
         );
       } else {
         print('✅ STANDARD ECDH decryption successful (ECDH only)');
@@ -428,6 +485,38 @@ class SimpleCrypto {
       print('❌ Enhanced ECDH decryption failed: $e');
       return null;
     }
+  }
+
+  /// Decrypt v2 format (random IV prepended)
+  static String _decryptV2Format(Encrypter encrypter, String ciphertext) {
+    final combined = base64.decode(ciphertext);
+    if (combined.length < 16) {
+      throw ArgumentError('Invalid v2 ciphertext: too short');
+    }
+    final iv = IV(Uint8List.fromList(combined.sublist(0, 16)));
+    final encryptedBytes = Encrypted(Uint8List.fromList(combined.sublist(16)));
+    return encrypter.decrypt(encryptedBytes, iv: iv);
+  }
+
+  /// Decrypt legacy format (deterministic IV for backward compatibility)
+  static String _decryptLegacyFormat(
+    Encrypter encrypter,
+    String ciphertext,
+    String enhancedSecret,
+  ) {
+    // Legacy IV derivation (for backward compatibility)
+    final ivSeed = '${enhancedSecret}_IV_DERIVATION';
+    final ivBytes = sha256.convert(utf8.encode(ivSeed)).bytes.sublist(0, 16);
+    final iv = IV(Uint8List.fromList(ivBytes));
+    
+    if (kDebugMode) {
+      print(
+        '⚠️ Decrypting legacy ECDH message with deterministic IV',
+      );
+    }
+    
+    final encrypted = Encrypted.fromBase64(ciphertext);
+    return encrypter.decrypt(encrypted, iv: iv);
   }
 
   // Get pairing key for a contact if available
@@ -455,6 +544,7 @@ class SimpleCrypto {
   }
 
   /// Enhanced key derivation: ECDH + Pairing Key (when both available)
+  /// 🔒 SECURITY FIX: Removed hardcoded string constant
   static String _deriveEnhancedContactKey(
     String ecdhSecret,
     String contactPublicKey,
@@ -462,17 +552,16 @@ class SimpleCrypto {
     final pairingKey = _getPairingKeyForContact(contactPublicKey);
 
     if (pairingKey != null) {
-      // MAXIMUM SECURITY: Combine ECDH + Pairing + Global for triple-layer protection
+      // ENHANCED SECURITY: Combine ECDH + Pairing for dual-layer protection
       // CRITICAL: Ensure consistent ordering between devices
       final sortedSecrets = [
         ecdhSecret,
         pairingKey,
-        'PakConnect2024_SecureBase_v1',
       ]..sort();
       final combinedSecret = sortedSecrets.join('_COMBINED_');
 
       print(
-        '🔧 ENHANCED SECURITY: Using ECDH + Pairing + Global key derivation',
+        '🔧 ENHANCED SECURITY: Using ECDH + Pairing key derivation',
       );
       return '${combinedSecret}_ENHANCED_ECDH_AES_SALT';
     } else {
