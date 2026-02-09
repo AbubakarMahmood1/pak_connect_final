@@ -102,18 +102,29 @@ class DatabaseHelper {
       'Initializing database at: $path (factory: ${factory.runtimeType}, encrypted: ${encryptionKey != null})',
     );
 
-    return await factory.openDatabase(
-      path,
-      options: sqlcipher.OpenDatabaseOptions(
-        version: _databaseVersion,
-        onCreate: _onCreate,
-        onUpgrade: _onUpgrade,
-        onConfigure: _onConfigure,
-        // Pass encryption key on mobile platforms (Android/iOS)
-        // Desktop/test platforms use sqflite_common which ignores this parameter
-        password: encryptionKey,
-      ),
-    );
+    // Use platform-specific options to avoid runtime errors
+    // - Mobile: sqlcipher.OpenDatabaseOptions supports password parameter
+    // - Desktop/Test: sqflite_common.OpenDatabaseOptions does NOT support password
+    return isMobilePlatform
+        ? await factory.openDatabase(
+            path,
+            options: sqlcipher.OpenDatabaseOptions(
+              version: _databaseVersion,
+              onCreate: _onCreate,
+              onUpgrade: _onUpgrade,
+              onConfigure: _onConfigure,
+              password: encryptionKey,
+            ),
+          )
+        : await factory.openDatabase(
+            path,
+            options: sqflite_common.OpenDatabaseOptions(
+              version: _databaseVersion,
+              onCreate: _onCreate,
+              onUpgrade: _onUpgrade,
+              onConfigure: _onConfigure,
+            ),
+          );
   }
 
   /// Check if a database file is encrypted (SQLCipher format)
@@ -185,6 +196,12 @@ class DatabaseHelper {
       _logger.fine('Copying data to encrypted database...');
       await _copyDatabaseContents(oldDb, newDb);
       
+      // 3.5. Apply critical data migration backfills
+      // Since _copyDatabaseContents doesn't run _onUpgrade, we need to manually
+      // apply any data transformations that would normally happen during upgrades
+      _logger.fine('Applying data migration backfills...');
+      await _applyDataMigrationBackfills(newDb);
+      
       // 4. Close both databases
       await oldDb.close();
       await newDb.close();
@@ -198,9 +215,20 @@ class DatabaseHelper {
       await File(oldPath).delete();
       await File(tempPath).rename(oldPath);
       
+      // 7. Delete the plaintext backup for security
+      // The backup was only kept for recovery in case of migration failure
+      _logger.fine('Deleting plaintext backup for security...');
+      try {
+        await File(backupPath).delete();
+        _logger.info('✅ Plaintext backup deleted');
+      } catch (e) {
+        _logger.warning('Could not delete plaintext backup: $e');
+        // Non-fatal - migration succeeded
+      }
+      
       _logger.info(
         '✅ Database encryption migration complete. '
-        'Old unencrypted database backed up to: $backupPath',
+        'Data migrated and plaintext backup removed.',
       );
     } catch (e, stackTrace) {
       _logger.severe(
@@ -287,6 +315,60 @@ class DatabaseHelper {
     _logger.info(
       '✅ Migration complete: Copied $copiedCount tables, skipped $skippedCount tables',
     );
+  }
+
+  /// Apply critical data migration backfills after copying database contents
+  /// 
+  /// When migrating from unencrypted to encrypted, _copyDatabaseContents only
+  /// copies raw data without running _onUpgrade migrations. This method applies
+  /// the critical data transformations that would normally happen during upgrades.
+  static Future<void> _applyDataMigrationBackfills(
+    sqlcipher.Database db,
+  ) async {
+    try {
+      // v8 Migration Backfill: current_ephemeral_id
+      // This backfill is critical for post-v8 identity/session tracking
+      // Without it, upgraded users will have NULL current_ephemeral_id
+      _logger.fine('Applying v8 backfill: current_ephemeral_id');
+      
+      // Check if current_ephemeral_id column exists (it should, from _onCreate)
+      final columns = await db.rawQuery('PRAGMA table_info(contacts)');
+      final hasCurrentEphemeralId = columns.any(
+        (col) => col['name'] == 'current_ephemeral_id',
+      );
+      
+      if (hasCurrentEphemeralId) {
+        // Backfill current_ephemeral_id from ephemeral_id for existing contacts
+        final result = await db.rawUpdate('''
+          UPDATE contacts 
+          SET current_ephemeral_id = ephemeral_id 
+          WHERE ephemeral_id IS NOT NULL 
+            AND current_ephemeral_id IS NULL
+        ''');
+        _logger.info(
+          '✅ v8 backfill complete: Updated $result contacts with current_ephemeral_id',
+        );
+      } else {
+        _logger.warning(
+          'current_ephemeral_id column not found - skipping v8 backfill',
+        );
+      }
+      
+      // Add more backfills here as needed for future migrations
+      // Example:
+      // if (oldVersion < 9) {
+      //   await _applyV9Backfill(db);
+      // }
+      
+    } catch (e, stackTrace) {
+      _logger.severe(
+        'Failed to apply data migration backfills',
+        e,
+        stackTrace,
+      );
+      // Don't rethrow - migration can continue with copied data
+      // But log the error so it can be investigated
+    }
   }
 
   /// Configure database before opening
