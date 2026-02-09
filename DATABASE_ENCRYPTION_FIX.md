@@ -153,11 +153,16 @@ return await factory.openDatabase(
    - **v8 backfill**: Updates `current_ephemeral_id` from `ephemeral_id` for existing contacts
    - **Preserves functionality**: Ensures post-v8 identity/session tracking works correctly
    - **Critical for upgrades**: Without this, pre-v8 users would have broken session tracking
-9. **Plaintext backup deleted** → Temporary backup removed for security
+9. **FTS indexes rebuilt** → `_rebuildFtsIndexes()` runs
+   - **Rebuilds FTS tables**: Creates `archived_messages_fts` virtual table and triggers
+   - **Repopulates indexes**: Inserts all existing archived messages into FTS index
+   - **Restores search**: Full-text search functionality works after migration
+   - **Critical for search**: Without this, search results would be empty
+10. **Plaintext backup deleted** → Temporary backup removed for security
    - **Security**: No plaintext data remains on device
    - **Encryption at rest**: Fully achieved after this step
-10. **File replaced** → Old file deleted, new encrypted file in place
-11. **Database opens** → With encryption key, reads encrypted data
+11. **File replaced** → Old file deleted, new encrypted file in place
+12. **Database opens** → With encryption key, reads encrypted data
 
 ### Subsequent Launches
 1. File is already encrypted
@@ -271,10 +276,11 @@ flutter test
 - ✅ App continues to work normally
 - ✅ **Schema evolution handled**: Migration skips tables removed in later versions
 - ✅ **Data migrations applied**: Critical backfills (like v8 current_ephemeral_id) are applied
+- ✅ **FTS indexes rebuilt**: Full-text search works after migration
 
 ### Critical Migration Fixes
 
-Three critical issues were identified and fixed in the migration process:
+Four critical issues were identified and fixed in the migration process:
 
 **1. Security: Plaintext Backup Cleanup**
 - **Problem**: Migration created `.backup_unencrypted` file that was never deleted
@@ -297,6 +303,15 @@ Three critical issues were identified and fixed in the migration process:
   - v8 backfill: `UPDATE contacts SET current_ephemeral_id = ephemeral_id`
   - Extensible for future migration backfills
 - **Result**: Migrated databases have correct data state for all versions
+
+**4. FTS Index Rebuild**
+- **Problem**: Migration skipped FTS tables but never rebuilt or repopulated them
+- **Impact**: Users with archived messages had completely broken search after migration (empty results)
+- **Solution**: Added `_rebuildFtsIndexes()` to rebuild FTS tables and repopulate from base data
+  - Recreates `archived_messages_fts` virtual table and triggers
+  - Repopulates index: `INSERT INTO archived_messages_fts ... SELECT ... FROM archived_messages`
+  - Logs number of messages indexed
+- **Result**: Full-text search functionality works correctly after migration
 
 ### Schema Evolution Protection
 The migration system includes protection against schema evolution issues:
