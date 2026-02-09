@@ -84,19 +84,16 @@ class EphemeralKeyManager {
     // Generate ephemeral signing keypair
     await _generateEphemeralSigningKeys();
 
-    // 🔧 FIXED: Still save for debugging/UI purposes only
-    // Note: These will NOT be restored on app restart (see _tryRestoreSession)
-    // This is intentional - ephemeral keys should be fresh per app session
+    // 🔒 SECURITY FIX: NEVER persist private key material to disk
+    // Private keys are held in memory only - fresh keys generated on app restart
+    // Only persist non-sensitive session metadata and public key
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('current_ephemeral_session', _currentSessionKey!);
     await prefs.setInt(
       'session_start_time',
       _sessionStartTime!.millisecondsSinceEpoch,
     );
-    await prefs.setString(
-      'ephemeral_signing_private',
-      _ephemeralSigningPrivateKey!,
-    );
+    // Public key is non-sensitive, safe to persist
     await prefs.setString(
       'ephemeral_signing_public',
       _ephemeralSigningPublicKey!,
@@ -186,6 +183,11 @@ class EphemeralKeyManager {
   static Duration? get sessionAge => _sessionStartTime != null
       ? DateTime.now().difference(_sessionStartTime!)
       : null;
+  
+  // 🔒 SECURITY: Private key access restricted to trusted internal components only
+  // This getter is NOT public API - only for signing operations
+  @visibleForTesting
   static String? get ephemeralSigningPrivateKey => _ephemeralSigningPrivateKey;
+  
   static String? get ephemeralSigningPublicKey => _ephemeralSigningPublicKey;
 }
