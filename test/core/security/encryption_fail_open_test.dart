@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/core/exceptions/encryption_exception.dart';
@@ -110,7 +111,7 @@ void main() {
 
     test('encryptBinaryPayload throws EncryptionException when no encryption available', () async {
       // Arrange
-      final testData = List<int>.generate(100, (i) => i);
+      final testData = Uint8List.fromList(List<int>.generate(100, (i) => i));
       const publicKey = 'test_public_key_12345';
 
       // Mock contact with LOW security level (no encryption keys)
@@ -128,7 +129,7 @@ void main() {
       // Act & Assert - encryptBinaryPayload should throw when no encryption method is available
       expect(
         () => SecurityManager.instance.encryptBinaryPayload(
-          testData as dynamic,
+          testData,
           publicKey,
           mockRepo,
         ),

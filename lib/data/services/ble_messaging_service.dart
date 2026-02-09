@@ -535,25 +535,25 @@ class BLEMessagingService implements IBLEMessagingService {
   // ============================================================================
 
   /// Fragments and enqueues a binary payload for BLE transport.
-  /// Requires encryption when recipientId is provided; aborts if encryption fails.
+  /// Requires encryption - aborts if recipientId is missing or encryption fails.
   Future<void> _sendBinaryPayload({
     required Uint8List data,
     required int originalType,
     String? recipientId,
   }) async {
-    var payload = data;
-    if (recipientId != null && recipientId.isNotEmpty) {
-      // Encryption is required when recipientId is present
-      payload = await SecurityManager.instance.encryptBinaryPayload(
-        data,
-        recipientId,
-        _contactRepository,
+    // Encryption is required for all binary payloads
+    if (recipientId == null || recipientId.isEmpty) {
+      _logger.severe(
+        '❌ SEND ABORTED: Cannot send binary payload without recipient ID (encryption required)',
       );
-    } else {
-      _logger.warning(
-        '⚠️ Binary payload sent without encryption - no recipient specified',
-      );
+      throw Exception('Cannot send binary payload without recipient ID');
     }
+
+    final payload = await SecurityManager.instance.encryptBinaryPayload(
+      data,
+      recipientId,
+      _contactRepository,
+    );
 
     final mtuSize = _connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
     final fragments = BinaryFragmenter.fragment(
