@@ -15,6 +15,7 @@ import 'package:pak_connect/core/constants/binary_payload_types.dart';
 import 'package:pak_connect/core/interfaces/i_message_fragmentation_handler.dart';
 import 'package:pak_connect/core/utils/binary_fragmenter.dart';
 import 'package:pak_connect/data/models/ble_client_connection.dart';
+import '../helpers/ble/ble_fakes.dart';
 
 @GenerateNiceMocks([
   MockSpec<BLEConnectionManager>(),
@@ -383,8 +384,8 @@ void main() {
         permissions: [GATTCharacteristicPermission.write],
         descriptors: const [],
       );
-      final peripheral = Peripheral(
-        uuid: UUID.fromString('00000000-0000-0000-0000-00000000f2f2'),
+      final peripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000f2f2',
       );
 
       when(mockConnectionManager.hasBleConnection).thenReturn(true);
@@ -459,11 +460,11 @@ void main() {
           descriptors: const [],
         );
 
-        final relayPeripheral = Peripheral(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000aaaa'),
+        final relayPeripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000aaaa',
         );
-        final nextHopPeripheral = Peripheral(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000bbbb'),
+        final nextHopPeripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000bbbb',
         );
 
         final relayConnection = BLEClientConnection(
@@ -485,8 +486,8 @@ void main() {
           connectionManager.clientConnections,
         ).thenReturn([relayConnection, nextHopConnection]);
 
-        final connectedCentral = Central(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000cccc'),
+        final connectedCentral = fakeCentralFromString(
+          '00000000-0000-0000-0000-00000000cccc',
         );
         final peripheralCharacteristic = GATTCharacteristic.mutable(
           uuid: UUID.fromString('00000000-0000-0000-0000-00000000d0d0'),
@@ -628,11 +629,11 @@ void main() {
           descriptors: const [],
         );
 
-        final relayer = Peripheral(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000aaaa'),
+        final relayer = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000aaaa',
         );
-        final nextHop = Peripheral(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000bbbb'),
+        final nextHop = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000bbbb',
         );
 
         final relayerConn = BLEClientConnection(

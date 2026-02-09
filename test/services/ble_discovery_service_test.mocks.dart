@@ -4,31 +4,30 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'dart:async' as _i5;
-import 'dart:typed_data' as _i11;
+import 'dart:typed_data' as _i10;
 
-import 'package:bluetooth_low_energy_platform_interface/src/bluetooth_low_energy_manager.dart'
-    as _i7;
 import 'package:bluetooth_low_energy_platform_interface/src/bluetooth_low_energy_state.dart'
-    as _i6;
+    as _i7;
 import 'package:bluetooth_low_energy_platform_interface/src/central_manager.dart'
     as _i4;
-import 'package:bluetooth_low_energy_platform_interface/src/gatt.dart' as _i10;
+import 'package:bluetooth_low_energy_platform_interface/src/event_args.dart'
+    as _i6;
+import 'package:bluetooth_low_energy_platform_interface/src/gatt.dart' as _i9;
 import 'package:bluetooth_low_energy_platform_interface/src/peripheral.dart'
-    as _i9;
+    as _i2;
 import 'package:bluetooth_low_energy_platform_interface/src/uuid.dart' as _i8;
-import 'package:logging/logging.dart' as _i2;
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:mockito/src/dummies.dart' as _i16;
+import 'package:mockito/src/dummies.dart' as _i15;
 import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart'
-    as _i12;
-import 'package:pak_connect/core/models/protocol_message.dart' as _i14;
-import 'package:pak_connect/core/models/spy_mode_info.dart' as _i15;
+    as _i11;
+import 'package:pak_connect/core/models/protocol_message.dart' as _i13;
+import 'package:pak_connect/core/models/spy_mode_info.dart' as _i14;
 import 'package:pak_connect/core/services/hint_scanner_service.dart' as _i3;
-import 'package:pak_connect/core/services/security_manager.dart' as _i18;
-import 'package:pak_connect/domain/entities/contact.dart' as _i17;
+import 'package:pak_connect/core/services/security_manager.dart' as _i17;
+import 'package:pak_connect/domain/entities/contact.dart' as _i16;
 import 'package:pak_connect/domain/entities/ephemeral_discovery_hint.dart'
-    as _i19;
-import 'package:pak_connect/domain/values/id_types.dart' as _i13;
+    as _i18;
+import 'package:pak_connect/domain/values/id_types.dart' as _i12;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -43,9 +42,10 @@ import 'package:pak_connect/domain/values/id_types.dart' as _i13;
 // ignore_for_file: unnecessary_parenthesis
 // ignore_for_file: camel_case_types
 // ignore_for_file: subtype_of_sealed_class
+// ignore_for_file: invalid_use_of_internal_member
 
-class _FakeLevel_0 extends _i1.SmartFake implements _i2.Level {
-  _FakeLevel_0(Object parent, Invocation parentInvocation)
+class _FakePeripheral_0 extends _i1.SmartFake implements _i2.Peripheral {
+  _FakePeripheral_0(Object parent, Invocation parentInvocation)
     : super(parent, parentInvocation);
 }
 
@@ -60,90 +60,72 @@ class _FakeHintMatchResult_1 extends _i1.SmartFake
 /// See the documentation for Mockito's code generation for more information.
 class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
   @override
-  _i5.Stream<_i4.DiscoveredEventArgs> get discovered =>
+  _i5.Stream<_i6.DiscoveredEventArgs> get discovered =>
       (super.noSuchMethod(
             Invocation.getter(#discovered),
-            returnValue: _i5.Stream<_i4.DiscoveredEventArgs>.empty(),
+            returnValue: _i5.Stream<_i6.DiscoveredEventArgs>.empty(),
             returnValueForMissingStub:
-                _i5.Stream<_i4.DiscoveredEventArgs>.empty(),
+                _i5.Stream<_i6.DiscoveredEventArgs>.empty(),
           )
-          as _i5.Stream<_i4.DiscoveredEventArgs>);
+          as _i5.Stream<_i6.DiscoveredEventArgs>);
 
   @override
-  _i5.Stream<_i4.PeripheralConnectionStateChangedEventArgs>
+  _i5.Stream<_i6.PeripheralConnectionStateChangedEventArgs>
   get connectionStateChanged =>
       (super.noSuchMethod(
             Invocation.getter(#connectionStateChanged),
             returnValue:
                 _i5.Stream<
-                  _i4.PeripheralConnectionStateChangedEventArgs
+                  _i6.PeripheralConnectionStateChangedEventArgs
                 >.empty(),
             returnValueForMissingStub:
                 _i5.Stream<
-                  _i4.PeripheralConnectionStateChangedEventArgs
+                  _i6.PeripheralConnectionStateChangedEventArgs
                 >.empty(),
           )
-          as _i5.Stream<_i4.PeripheralConnectionStateChangedEventArgs>);
+          as _i5.Stream<_i6.PeripheralConnectionStateChangedEventArgs>);
 
   @override
-  _i5.Stream<_i4.PeripheralMTUChangedEventArgs> get mtuChanged =>
+  _i5.Stream<_i6.PeripheralMTUChangedEventArgs> get mtuChanged =>
       (super.noSuchMethod(
             Invocation.getter(#mtuChanged),
-            returnValue: _i5.Stream<_i4.PeripheralMTUChangedEventArgs>.empty(),
+            returnValue: _i5.Stream<_i6.PeripheralMTUChangedEventArgs>.empty(),
             returnValueForMissingStub:
-                _i5.Stream<_i4.PeripheralMTUChangedEventArgs>.empty(),
+                _i5.Stream<_i6.PeripheralMTUChangedEventArgs>.empty(),
           )
-          as _i5.Stream<_i4.PeripheralMTUChangedEventArgs>);
+          as _i5.Stream<_i6.PeripheralMTUChangedEventArgs>);
 
   @override
-  _i5.Stream<_i4.GATTCharacteristicNotifiedEventArgs>
+  _i5.Stream<_i6.GATTCharacteristicNotifiedEventArgs>
   get characteristicNotified =>
       (super.noSuchMethod(
             Invocation.getter(#characteristicNotified),
             returnValue:
-                _i5.Stream<_i4.GATTCharacteristicNotifiedEventArgs>.empty(),
+                _i5.Stream<_i6.GATTCharacteristicNotifiedEventArgs>.empty(),
             returnValueForMissingStub:
-                _i5.Stream<_i4.GATTCharacteristicNotifiedEventArgs>.empty(),
+                _i5.Stream<_i6.GATTCharacteristicNotifiedEventArgs>.empty(),
           )
-          as _i5.Stream<_i4.GATTCharacteristicNotifiedEventArgs>);
+          as _i5.Stream<_i6.GATTCharacteristicNotifiedEventArgs>);
 
   @override
-  _i6.BluetoothLowEnergyState get state =>
+  _i7.BluetoothLowEnergyState get state =>
       (super.noSuchMethod(
             Invocation.getter(#state),
-            returnValue: _i6.BluetoothLowEnergyState.unknown,
-            returnValueForMissingStub: _i6.BluetoothLowEnergyState.unknown,
+            returnValue: _i7.BluetoothLowEnergyState.unknown,
+            returnValueForMissingStub: _i7.BluetoothLowEnergyState.unknown,
           )
-          as _i6.BluetoothLowEnergyState);
+          as _i7.BluetoothLowEnergyState);
 
   @override
-  _i5.Stream<_i7.BluetoothLowEnergyStateChangedEventArgs> get stateChanged =>
+  _i5.Stream<_i6.BluetoothLowEnergyStateChangedEventArgs> get stateChanged =>
       (super.noSuchMethod(
             Invocation.getter(#stateChanged),
             returnValue:
-                _i5.Stream<_i7.BluetoothLowEnergyStateChangedEventArgs>.empty(),
+                _i5.Stream<_i6.BluetoothLowEnergyStateChangedEventArgs>.empty(),
             returnValueForMissingStub:
-                _i5.Stream<_i7.BluetoothLowEnergyStateChangedEventArgs>.empty(),
+                _i5.Stream<_i6.BluetoothLowEnergyStateChangedEventArgs>.empty(),
           )
-          as _i5.Stream<_i7.BluetoothLowEnergyStateChangedEventArgs>);
-
-  @override
-  _i2.Level get logLevel =>
-      (super.noSuchMethod(
-            Invocation.getter(#logLevel),
-            returnValue: _FakeLevel_0(this, Invocation.getter(#logLevel)),
-            returnValueForMissingStub: _FakeLevel_0(
-              this,
-              Invocation.getter(#logLevel),
-            ),
-          )
-          as _i2.Level);
-
-  @override
-  set logLevel(_i2.Level? value) => super.noSuchMethod(
-    Invocation.setter(#logLevel, value),
-    returnValueForMissingStub: null,
-  );
+          as _i5.Stream<_i6.BluetoothLowEnergyStateChangedEventArgs>);
 
   @override
   _i5.Future<void> startDiscovery({List<_i8.UUID>? serviceUUIDs}) =>
@@ -166,20 +148,39 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
           as _i5.Future<void>);
 
   @override
-  _i5.Future<List<_i9.Peripheral>> retrieveConnectedPeripherals() =>
+  _i5.Future<_i2.Peripheral> getPeripheral(String? address) =>
       (super.noSuchMethod(
-            Invocation.method(#retrieveConnectedPeripherals, []),
-            returnValue: _i5.Future<List<_i9.Peripheral>>.value(
-              <_i9.Peripheral>[],
+            Invocation.method(#getPeripheral, [address]),
+            returnValue: _i5.Future<_i2.Peripheral>.value(
+              _FakePeripheral_0(
+                this,
+                Invocation.method(#getPeripheral, [address]),
+              ),
             ),
-            returnValueForMissingStub: _i5.Future<List<_i9.Peripheral>>.value(
-              <_i9.Peripheral>[],
+            returnValueForMissingStub: _i5.Future<_i2.Peripheral>.value(
+              _FakePeripheral_0(
+                this,
+                Invocation.method(#getPeripheral, [address]),
+              ),
             ),
           )
-          as _i5.Future<List<_i9.Peripheral>>);
+          as _i5.Future<_i2.Peripheral>);
 
   @override
-  _i5.Future<void> connect(_i9.Peripheral? peripheral) =>
+  _i5.Future<List<_i2.Peripheral>> retrieveConnectedPeripherals() =>
+      (super.noSuchMethod(
+            Invocation.method(#retrieveConnectedPeripherals, []),
+            returnValue: _i5.Future<List<_i2.Peripheral>>.value(
+              <_i2.Peripheral>[],
+            ),
+            returnValueForMissingStub: _i5.Future<List<_i2.Peripheral>>.value(
+              <_i2.Peripheral>[],
+            ),
+          )
+          as _i5.Future<List<_i2.Peripheral>>);
+
+  @override
+  _i5.Future<void> connect(_i2.Peripheral? peripheral) =>
       (super.noSuchMethod(
             Invocation.method(#connect, [peripheral]),
             returnValue: _i5.Future<void>.value(),
@@ -188,7 +189,7 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
           as _i5.Future<void>);
 
   @override
-  _i5.Future<void> disconnect(_i9.Peripheral? peripheral) =>
+  _i5.Future<void> disconnect(_i2.Peripheral? peripheral) =>
       (super.noSuchMethod(
             Invocation.method(#disconnect, [peripheral]),
             returnValue: _i5.Future<void>.value(),
@@ -197,7 +198,7 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
           as _i5.Future<void>);
 
   @override
-  _i5.Future<int> requestMTU(_i9.Peripheral? peripheral, {required int? mtu}) =>
+  _i5.Future<int> requestMTU(_i2.Peripheral? peripheral, {required int? mtu}) =>
       (super.noSuchMethod(
             Invocation.method(#requestMTU, [peripheral], {#mtu: mtu}),
             returnValue: _i5.Future<int>.value(0),
@@ -207,8 +208,8 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
 
   @override
   _i5.Future<int> getMaximumWriteLength(
-    _i9.Peripheral? peripheral, {
-    required _i10.GATTCharacteristicWriteType? type,
+    _i2.Peripheral? peripheral, {
+    required _i9.GATTCharacteristicWriteType? type,
   }) =>
       (super.noSuchMethod(
             Invocation.method(
@@ -222,7 +223,7 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
           as _i5.Future<int>);
 
   @override
-  _i5.Future<int> readRSSI(_i9.Peripheral? peripheral) =>
+  _i5.Future<int> readRSSI(_i2.Peripheral? peripheral) =>
       (super.noSuchMethod(
             Invocation.method(#readRSSI, [peripheral]),
             returnValue: _i5.Future<int>.value(0),
@@ -231,41 +232,41 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
           as _i5.Future<int>);
 
   @override
-  _i5.Future<List<_i10.GATTService>> discoverGATT(_i9.Peripheral? peripheral) =>
+  _i5.Future<List<_i9.GATTService>> discoverGATT(_i2.Peripheral? peripheral) =>
       (super.noSuchMethod(
             Invocation.method(#discoverGATT, [peripheral]),
-            returnValue: _i5.Future<List<_i10.GATTService>>.value(
-              <_i10.GATTService>[],
+            returnValue: _i5.Future<List<_i9.GATTService>>.value(
+              <_i9.GATTService>[],
             ),
-            returnValueForMissingStub: _i5.Future<List<_i10.GATTService>>.value(
-              <_i10.GATTService>[],
+            returnValueForMissingStub: _i5.Future<List<_i9.GATTService>>.value(
+              <_i9.GATTService>[],
             ),
           )
-          as _i5.Future<List<_i10.GATTService>>);
+          as _i5.Future<List<_i9.GATTService>>);
 
   @override
-  _i5.Future<_i11.Uint8List> readCharacteristic(
-    _i9.Peripheral? peripheral,
-    _i10.GATTCharacteristic? characteristic,
+  _i5.Future<_i10.Uint8List> readCharacteristic(
+    _i2.Peripheral? peripheral,
+    _i9.GATTCharacteristic? characteristic,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#readCharacteristic, [
               peripheral,
               characteristic,
             ]),
-            returnValue: _i5.Future<_i11.Uint8List>.value(_i11.Uint8List(0)),
-            returnValueForMissingStub: _i5.Future<_i11.Uint8List>.value(
-              _i11.Uint8List(0),
+            returnValue: _i5.Future<_i10.Uint8List>.value(_i10.Uint8List(0)),
+            returnValueForMissingStub: _i5.Future<_i10.Uint8List>.value(
+              _i10.Uint8List(0),
             ),
           )
-          as _i5.Future<_i11.Uint8List>);
+          as _i5.Future<_i10.Uint8List>);
 
   @override
   _i5.Future<void> writeCharacteristic(
-    _i9.Peripheral? peripheral,
-    _i10.GATTCharacteristic? characteristic, {
-    required _i11.Uint8List? value,
-    required _i10.GATTCharacteristicWriteType? type,
+    _i2.Peripheral? peripheral,
+    _i9.GATTCharacteristic? characteristic, {
+    required _i10.Uint8List? value,
+    required _i9.GATTCharacteristicWriteType? type,
   }) =>
       (super.noSuchMethod(
             Invocation.method(
@@ -280,8 +281,8 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
 
   @override
   _i5.Future<void> setCharacteristicNotifyState(
-    _i9.Peripheral? peripheral,
-    _i10.GATTCharacteristic? characteristic, {
+    _i2.Peripheral? peripheral,
+    _i9.GATTCharacteristic? characteristic, {
     required bool? state,
   }) =>
       (super.noSuchMethod(
@@ -296,24 +297,24 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
           as _i5.Future<void>);
 
   @override
-  _i5.Future<_i11.Uint8List> readDescriptor(
-    _i9.Peripheral? peripheral,
-    _i10.GATTDescriptor? descriptor,
+  _i5.Future<_i10.Uint8List> readDescriptor(
+    _i2.Peripheral? peripheral,
+    _i9.GATTDescriptor? descriptor,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#readDescriptor, [peripheral, descriptor]),
-            returnValue: _i5.Future<_i11.Uint8List>.value(_i11.Uint8List(0)),
-            returnValueForMissingStub: _i5.Future<_i11.Uint8List>.value(
-              _i11.Uint8List(0),
+            returnValue: _i5.Future<_i10.Uint8List>.value(_i10.Uint8List(0)),
+            returnValueForMissingStub: _i5.Future<_i10.Uint8List>.value(
+              _i10.Uint8List(0),
             ),
           )
-          as _i5.Future<_i11.Uint8List>);
+          as _i5.Future<_i10.Uint8List>);
 
   @override
   _i5.Future<void> writeDescriptor(
-    _i9.Peripheral? peripheral,
-    _i10.GATTDescriptor? descriptor, {
-    required _i11.Uint8List? value,
+    _i2.Peripheral? peripheral,
+    _i9.GATTDescriptor? descriptor, {
+    required _i10.Uint8List? value,
   }) =>
       (super.noSuchMethod(
             Invocation.method(
@@ -349,7 +350,7 @@ class MockCentralManager extends _i1.Mock implements _i4.CentralManager {
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockIBLEStateManagerFacade extends _i1.Mock
-    implements _i12.IBLEStateManagerFacade {
+    implements _i11.IBLEStateManagerFacade {
   @override
   bool get isConnected =>
       (super.noSuchMethod(
@@ -405,177 +406,151 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as bool);
 
   @override
-  set onDeviceDiscovered(void Function(dynamic, int?)? _onDeviceDiscovered) =>
+  set onDeviceDiscovered(void Function(dynamic, int?)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onDeviceDiscovered, _onDeviceDiscovered),
+        Invocation.setter(#onDeviceDiscovered, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onMessageSent(void Function(String, bool)? _onMessageSent) =>
+  set onMessageSent(void Function(String, bool)? value) => super.noSuchMethod(
+    Invocation.setter(#onMessageSent, value),
+    returnValueForMissingStub: null,
+  );
+
+  @override
+  set onMessageSentIds(void Function(_i12.MessageId, bool)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onMessageSent, _onMessageSent),
+        Invocation.setter(#onMessageSentIds, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onMessageSentIds(
-    void Function(_i13.MessageId, bool)? _onMessageSentIds,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onMessageSentIds, _onMessageSentIds),
+  set onNameChanged(void Function(String?)? value) => super.noSuchMethod(
+    Invocation.setter(#onNameChanged, value),
     returnValueForMissingStub: null,
   );
 
   @override
-  set onNameChanged(void Function(String?)? _onNameChanged) =>
+  set onMyUsernameChanged(void Function(String)? value) => super.noSuchMethod(
+    Invocation.setter(#onMyUsernameChanged, value),
+    returnValueForMissingStub: null,
+  );
+
+  @override
+  set onSendPairingCode(void Function(String)? value) => super.noSuchMethod(
+    Invocation.setter(#onSendPairingCode, value),
+    returnValueForMissingStub: null,
+  );
+
+  @override
+  set onSendPairingVerification(void Function(String)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onNameChanged, _onNameChanged),
+        Invocation.setter(#onSendPairingVerification, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onMyUsernameChanged(void Function(String)? _onMyUsernameChanged) =>
+  set onContactRequestReceived(void Function(String, String)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onMyUsernameChanged, _onMyUsernameChanged),
+        Invocation.setter(#onContactRequestReceived, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onSendPairingCode(void Function(String)? _onSendPairingCode) =>
+  set onContactRequestCompleted(void Function(bool)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onSendPairingCode, _onSendPairingCode),
+        Invocation.setter(#onContactRequestCompleted, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onSendPairingVerification(
-    void Function(String)? _onSendPairingVerification,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onSendPairingVerification, _onSendPairingVerification),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onContactRequestReceived(
-    void Function(String, String)? _onContactRequestReceived,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onContactRequestReceived, _onContactRequestReceived),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onContactRequestCompleted(
-    void Function(bool)? _onContactRequestCompleted,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onContactRequestCompleted, _onContactRequestCompleted),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onSendContactRequest(
-    void Function(String, String)? _onSendContactRequest,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onSendContactRequest, _onSendContactRequest),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onSendContactAccept(
-    void Function(String, String)? _onSendContactAccept,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onSendContactAccept, _onSendContactAccept),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onSendContactReject(void Function()? _onSendContactReject) =>
+  set onSendContactRequest(void Function(String, String)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onSendContactReject, _onSendContactReject),
+        Invocation.setter(#onSendContactRequest, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onSendContactStatus(
-    void Function(_i14.ProtocolMessage)? _onSendContactStatus,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onSendContactStatus, _onSendContactStatus),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onAsymmetricContactDetected(
-    void Function(String, String)? _onAsymmetricContactDetected,
-  ) => super.noSuchMethod(
-    Invocation.setter(
-      #onAsymmetricContactDetected,
-      _onAsymmetricContactDetected,
-    ),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onMutualConsentRequired(
-    void Function(String, String)? _onMutualConsentRequired,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onMutualConsentRequired, _onMutualConsentRequired),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onSpyModeDetected(void Function(_i15.SpyModeInfo)? _onSpyModeDetected) =>
+  set onSendContactAccept(void Function(String, String)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onSpyModeDetected, _onSpyModeDetected),
+        Invocation.setter(#onSendContactAccept, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onIdentityRevealed(void Function(String)? _onIdentityRevealed) =>
+  set onSendContactReject(void Function()? value) => super.noSuchMethod(
+    Invocation.setter(#onSendContactReject, value),
+    returnValueForMissingStub: null,
+  );
+
+  @override
+  set onSendContactStatus(void Function(_i13.ProtocolMessage)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onIdentityRevealed, _onIdentityRevealed),
+        Invocation.setter(#onSendContactStatus, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onSendPairingRequest(
-    void Function(_i14.ProtocolMessage)? _onSendPairingRequest,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onSendPairingRequest, _onSendPairingRequest),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onSendPairingAccept(
-    void Function(_i14.ProtocolMessage)? _onSendPairingAccept,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onSendPairingAccept, _onSendPairingAccept),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onSendPairingCancel(
-    void Function(_i14.ProtocolMessage)? _onSendPairingCancel,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onSendPairingCancel, _onSendPairingCancel),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onPairingCancelled(void Function()? _onPairingCancelled) =>
+  set onAsymmetricContactDetected(void Function(String, String)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onPairingCancelled, _onPairingCancelled),
+        Invocation.setter(#onAsymmetricContactDetected, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onSendPersistentKeyExchange(
-    void Function(_i14.ProtocolMessage)? _onSendPersistentKeyExchange,
-  ) => super.noSuchMethod(
-    Invocation.setter(
-      #onSendPersistentKeyExchange,
-      _onSendPersistentKeyExchange,
-    ),
+  set onMutualConsentRequired(void Function(String, String)? value) =>
+      super.noSuchMethod(
+        Invocation.setter(#onMutualConsentRequired, value),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  set onSpyModeDetected(void Function(_i14.SpyModeInfo)? value) =>
+      super.noSuchMethod(
+        Invocation.setter(#onSpyModeDetected, value),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  set onIdentityRevealed(void Function(String)? value) => super.noSuchMethod(
+    Invocation.setter(#onIdentityRevealed, value),
     returnValueForMissingStub: null,
   );
+
+  @override
+  set onSendPairingRequest(void Function(_i13.ProtocolMessage)? value) =>
+      super.noSuchMethod(
+        Invocation.setter(#onSendPairingRequest, value),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  set onSendPairingAccept(void Function(_i13.ProtocolMessage)? value) =>
+      super.noSuchMethod(
+        Invocation.setter(#onSendPairingAccept, value),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  set onSendPairingCancel(void Function(_i13.ProtocolMessage)? value) =>
+      super.noSuchMethod(
+        Invocation.setter(#onSendPairingCancel, value),
+        returnValueForMissingStub: null,
+      );
+
+  @override
+  set onPairingCancelled(void Function()? value) => super.noSuchMethod(
+    Invocation.setter(#onPairingCancelled, value),
+    returnValueForMissingStub: null,
+  );
+
+  @override
+  set onSendPersistentKeyExchange(void Function(_i13.ProtocolMessage)? value) =>
+      super.noSuchMethod(
+        Invocation.setter(#onSendPersistentKeyExchange, value),
+        returnValueForMissingStub: null,
+      );
 
   @override
   _i5.Future<void> initialize() =>
@@ -600,13 +575,13 @@ class MockIBLEStateManagerFacade extends _i1.Mock
       (super.noSuchMethod(
             Invocation.method(#getMyPersistentId, []),
             returnValue: _i5.Future<String>.value(
-              _i16.dummyValue<String>(
+              _i15.dummyValue<String>(
                 this,
                 Invocation.method(#getMyPersistentId, []),
               ),
             ),
             returnValueForMissingStub: _i5.Future<String>.value(
-              _i16.dummyValue<String>(
+              _i15.dummyValue<String>(
                 this,
                 Invocation.method(#getMyPersistentId, []),
               ),
@@ -668,11 +643,11 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   String getIdType() =>
       (super.noSuchMethod(
             Invocation.method(#getIdType, []),
-            returnValue: _i16.dummyValue<String>(
+            returnValue: _i15.dummyValue<String>(
               this,
               Invocation.method(#getIdType, []),
             ),
-            returnValueForMissingStub: _i16.dummyValue<String>(
+            returnValueForMissingStub: _i15.dummyValue<String>(
               this,
               Invocation.method(#getIdType, []),
             ),
@@ -697,27 +672,27 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  _i5.Future<_i17.Contact?> getContact(String? publicKey) =>
+  _i5.Future<_i16.Contact?> getContact(String? publicKey) =>
       (super.noSuchMethod(
             Invocation.method(#getContact, [publicKey]),
-            returnValue: _i5.Future<_i17.Contact?>.value(),
-            returnValueForMissingStub: _i5.Future<_i17.Contact?>.value(),
+            returnValue: _i5.Future<_i16.Contact?>.value(),
+            returnValueForMissingStub: _i5.Future<_i16.Contact?>.value(),
           )
-          as _i5.Future<_i17.Contact?>);
+          as _i5.Future<_i16.Contact?>);
 
   @override
-  _i5.Future<Map<String, _i17.Contact>> getAllContacts() =>
+  _i5.Future<Map<String, _i16.Contact>> getAllContacts() =>
       (super.noSuchMethod(
             Invocation.method(#getAllContacts, []),
-            returnValue: _i5.Future<Map<String, _i17.Contact>>.value(
-              <String, _i17.Contact>{},
+            returnValue: _i5.Future<Map<String, _i16.Contact>>.value(
+              <String, _i16.Contact>{},
             ),
             returnValueForMissingStub:
-                _i5.Future<Map<String, _i17.Contact>>.value(
-                  <String, _i17.Contact>{},
+                _i5.Future<Map<String, _i16.Contact>>.value(
+                  <String, _i16.Contact>{},
                 ),
           )
-          as _i5.Future<Map<String, _i17.Contact>>);
+          as _i5.Future<Map<String, _i16.Contact>>);
 
   @override
   _i5.Future<String?> getContactName(String? publicKey) =>
@@ -738,17 +713,17 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  _i5.Future<_i17.TrustStatus> getContactTrustStatus(String? publicKey) =>
+  _i5.Future<_i16.TrustStatus> getContactTrustStatus(String? publicKey) =>
       (super.noSuchMethod(
             Invocation.method(#getContactTrustStatus, [publicKey]),
-            returnValue: _i5.Future<_i17.TrustStatus>.value(
-              _i17.TrustStatus.newContact,
+            returnValue: _i5.Future<_i16.TrustStatus>.value(
+              _i16.TrustStatus.newContact,
             ),
-            returnValueForMissingStub: _i5.Future<_i17.TrustStatus>.value(
-              _i17.TrustStatus.newContact,
+            returnValueForMissingStub: _i5.Future<_i16.TrustStatus>.value(
+              _i16.TrustStatus.newContact,
             ),
           )
-          as _i5.Future<_i17.TrustStatus>);
+          as _i5.Future<_i16.TrustStatus>);
 
   @override
   _i5.Future<bool> hasContactKeyChanged(
@@ -775,7 +750,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  _i5.Future<void> handlePairingRequest(_i14.ProtocolMessage? message) =>
+  _i5.Future<void> handlePairingRequest(_i13.ProtocolMessage? message) =>
       (super.noSuchMethod(
             Invocation.method(#handlePairingRequest, [message]),
             returnValue: _i5.Future<void>.value(),
@@ -799,7 +774,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   );
 
   @override
-  _i5.Future<void> handlePairingAccept(_i14.ProtocolMessage? message) =>
+  _i5.Future<void> handlePairingAccept(_i13.ProtocolMessage? message) =>
       (super.noSuchMethod(
             Invocation.method(#handlePairingAccept, [message]),
             returnValue: _i5.Future<void>.value(),
@@ -808,7 +783,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  void handlePairingCancel(_i14.ProtocolMessage? message) => super.noSuchMethod(
+  void handlePairingCancel(_i13.ProtocolMessage? message) => super.noSuchMethod(
     Invocation.method(#handlePairingCancel, [message]),
     returnValueForMissingStub: null,
   );
@@ -938,7 +913,7 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   @override
   _i5.Future<bool> confirmSecurityUpgrade(
     String? publicKey,
-    _i18.SecurityLevel? newLevel,
+    _i17.SecurityLevel? newLevel,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#confirmSecurityUpgrade, [publicKey, newLevel]),
@@ -997,14 +972,14 @@ class MockIBLEStateManagerFacade extends _i1.Mock
   );
 
   @override
-  _i5.Future<_i14.ProtocolMessage?> revealIdentityToFriend() =>
+  _i5.Future<_i13.ProtocolMessage?> revealIdentityToFriend() =>
       (super.noSuchMethod(
             Invocation.method(#revealIdentityToFriend, []),
-            returnValue: _i5.Future<_i14.ProtocolMessage?>.value(),
+            returnValue: _i5.Future<_i13.ProtocolMessage?>.value(),
             returnValueForMissingStub:
-                _i5.Future<_i14.ProtocolMessage?>.value(),
+                _i5.Future<_i13.ProtocolMessage?>.value(),
           )
-          as _i5.Future<_i14.ProtocolMessage?>);
+          as _i5.Future<_i13.ProtocolMessage?>);
 
   @override
   void setPeripheralMode(bool? isPeripheral) => super.noSuchMethod(
@@ -1059,7 +1034,7 @@ class MockHintScannerService extends _i1.Mock
           as _i5.Future<void>);
 
   @override
-  void addActiveIntroHint(_i19.EphemeralDiscoveryHint? hint) =>
+  void addActiveIntroHint(_i18.EphemeralDiscoveryHint? hint) =>
       super.noSuchMethod(
         Invocation.method(#addActiveIntroHint, [hint]),
         returnValueForMissingStub: null,
@@ -1079,7 +1054,7 @@ class MockHintScannerService extends _i1.Mock
 
   @override
   _i5.Future<_i3.HintMatchResult> checkDevice(
-    _i11.Uint8List? advertisementData,
+    _i10.Uint8List? advertisementData,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#checkDevice, [advertisementData]),

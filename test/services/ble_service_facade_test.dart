@@ -1280,10 +1280,7 @@ final class _StubHandshakeService implements IBLEHandshakeService {
 final class _FakeBlePlatformHost implements IBLEPlatformHost {
   _FakeBlePlatformHost()
     : _centralManager = _FakeCentralManager(),
-      _peripheralManager = _FakePeripheralManager() {
-    PlatformCentralManager.instance = _centralManager;
-    PlatformPeripheralManager.instance = _peripheralManager;
-  }
+      _peripheralManager = _FakePeripheralManager();
 
   final _FakeCentralManager _centralManager;
   final _FakePeripheralManager _peripheralManager;
@@ -1309,7 +1306,7 @@ final class _FakeBlePlatformHost implements IBLEPlatformHost {
   }
 }
 
-final class _FakeCentralManager extends PlatformCentralManager {
+final class _FakeCentralManager implements CentralManager {
   final _discovered = StreamController<DiscoveredEventArgs>.broadcast();
   final _connectionState =
       StreamController<PeripheralConnectionStateChangedEventArgs>.broadcast();
@@ -1321,11 +1318,6 @@ final class _FakeCentralManager extends PlatformCentralManager {
       StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
 
   BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
-
-  @override
-  void initialize() {
-    // No-op for tests
-  }
 
   Future<void> dispose() async {
     await _discovered.close();
@@ -1367,6 +1359,10 @@ final class _FakeCentralManager extends PlatformCentralManager {
 
   @override
   Future<void> stopDiscovery() async {}
+
+  @override
+  Future<Peripheral> getPeripheral(String address) async =>
+      _FakePeripheral(UUID.fromString(address));
 
   @override
   Future<List<Peripheral>> retrieveConnectedPeripherals() async => [];
@@ -1428,7 +1424,7 @@ final class _FakeCentralManager extends PlatformCentralManager {
   }) async {}
 }
 
-final class _FakePeripheralManager extends PlatformPeripheralManager {
+final class _FakePeripheralManager implements PeripheralManager {
   final _connectionState =
       StreamController<CentralConnectionStateChangedEventArgs>.broadcast();
   final _mtuChanged = StreamController<CentralMTUChangedEventArgs>.broadcast();
@@ -1448,11 +1444,6 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
       StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
 
   BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
-
-  @override
-  void initialize() {
-    // No-op for tests
-  }
 
   Future<void> dispose() async {
     await _connectionState.close();
@@ -1522,6 +1513,16 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
   Future<void> stopAdvertising() async {}
 
   @override
+  Future<Central> getCentral(String address) async =>
+      _FakeCentral(UUID.fromString(address));
+
+  @override
+  Future<List<Central>> retrieveConnectedCentrals() async => [];
+
+  @override
+  Future<void> disconnect(Central central) async {}
+
+  @override
   Future<int> getMaximumNotifyLength(Central central) async => 20;
 
   @override
@@ -1552,8 +1553,20 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
     required Uint8List value,
   }) async {}
 
+}
+
+final class _FakePeripheral implements Peripheral {
+  const _FakePeripheral(this.uuid);
+
   @override
-  Future<void> disconnectCentral(Central central) async {}
+  final UUID uuid;
+}
+
+final class _FakeCentral implements Central {
+  const _FakeCentral(this.uuid);
+
+  @override
+  final UUID uuid;
 }
 
 // No additional mock helpers needed - all tests use facade directly

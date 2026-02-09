@@ -108,7 +108,7 @@ class DatabaseHelper {
     return isMobilePlatform
         ? await factory.openDatabase(
             path,
-            options: sqlcipher.OpenDatabaseOptions(
+            options: sqlcipher.SqlCipherOpenDatabaseOptions(
               version: _databaseVersion,
               onCreate: _onCreate,
               onUpgrade: _onUpgrade,
@@ -185,7 +185,7 @@ class DatabaseHelper {
       _logger.fine('Creating new encrypted database...');
       final newDb = await factory.openDatabase(
         tempPath,
-        options: sqlcipher.OpenDatabaseOptions(
+        options: sqlcipher.SqlCipherOpenDatabaseOptions(
           version: _databaseVersion,
           onCreate: _onCreate,
           password: encryptionKey, // Apply encryption
@@ -390,8 +390,8 @@ class DatabaseHelper {
       final archivedCount = await db.rawQuery(
         'SELECT COUNT(*) as count FROM archived_messages',
       );
-      final hasArchivedMessages = 
-          (archivedCount.first['count'] as int?) ?? 0 > 0;
+      final hasArchivedMessages =
+          ((archivedCount.first['count'] as int?) ?? 0) > 0;
       
       if (hasArchivedMessages) {
         // Use ArchiveDbUtilities to rebuild the FTS table and triggers

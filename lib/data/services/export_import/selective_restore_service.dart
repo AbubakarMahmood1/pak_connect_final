@@ -50,7 +50,7 @@ class SelectiveRestoreService {
       final backupDb = Platform.isAndroid || Platform.isIOS
           ? await factory.openDatabase(
               backupPath,
-              options: sqlcipher.OpenDatabaseOptions(
+              options: sqlcipher.SqlCipherOpenDatabaseOptions(
                 readOnly: true,
                 password: encryptionKey, // Use encryption key on mobile platforms
               ),

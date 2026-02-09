@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/core/services/simple_crypto.dart';
 import 'package:pak_connect/core/security/noise/noise_session_manager.dart';
 import 'package:pak_connect/core/security/noise/noise_session.dart';
 
@@ -22,6 +23,7 @@ void main() {
       allowedSevere = {};
       Logger.root.level = Level.ALL;
       Logger.root.onRecord.listen(logRecords.add);
+      SimpleCrypto.resetDeprecatedWrapperUsageCounts();
       // Alice static key pair
       aliceStaticPrivate = Uint8List.fromList([
         0x77,
@@ -198,6 +200,14 @@ void main() {
           reason: 'Missing expected SEVERE matching "$pattern"',
         );
       }
+
+      final wrapperUsage = SimpleCrypto.getDeprecatedWrapperUsageCounts();
+      expect(
+        wrapperUsage['total'],
+        equals(0),
+        reason:
+            'Deprecated SimpleCrypto wrappers were used unexpectedly: $wrapperUsage',
+      );
     });
 
     test('creates manager with keys', () {

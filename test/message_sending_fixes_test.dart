@@ -2,6 +2,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
+import 'package:pak_connect/core/services/simple_crypto.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 import 'test_helpers/test_setup.dart';
@@ -26,6 +27,7 @@ void main() {
     logRecords.clear();
     Logger.root.level = Level.ALL;
     Logger.root.onRecord.listen(logRecords.add);
+    SimpleCrypto.resetDeprecatedWrapperUsageCounts();
     await TestSetup.configureTestDatabase(label: 'message_sending_fixes');
     TestSetup.resetSharedPreferences();
   });
@@ -43,6 +45,13 @@ void main() {
       isEmpty,
       reason:
           'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+    );
+    final wrapperUsage = SimpleCrypto.getDeprecatedWrapperUsageCounts();
+    expect(
+      wrapperUsage['total'],
+      equals(0),
+      reason:
+          'Deprecated SimpleCrypto wrappers were used unexpectedly: $wrapperUsage',
     );
     await TestSetup.nukeDatabase();
   });

@@ -21,11 +21,11 @@ class _MockSecureStorage implements FlutterSecureStorage {
   Future<void> write({
     required String key,
     required String? value,
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     if (value != null) {
@@ -36,22 +36,22 @@ class _MockSecureStorage implements FlutterSecureStorage {
   @override
   Future<String?> read({
     required String key,
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async => _storage[key];
 
   @override
   Future<void> delete({
     required String key,
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     _storage.remove(key);
@@ -59,21 +59,21 @@ class _MockSecureStorage implements FlutterSecureStorage {
 
   @override
   Future<Map<String, String>> readAll({
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async => Map.from(_storage);
 
   @override
   Future<void> deleteAll({
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     _storage.clear();
@@ -82,11 +82,11 @@ class _MockSecureStorage implements FlutterSecureStorage {
   @override
   Future<bool> containsKey({
     required String key,
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async => _storage.containsKey(key);
 
@@ -143,6 +143,7 @@ class _FakePeripheralManager implements PeripheralManager {
 
 void main() {
   late _FakeStateManager stateManager;
+  late ContactRepository contactRepository;
   late FakeBleWriteClient writeClient;
   late BleWriteAdapter adapter;
   late List<LogRecord> logRecords;
@@ -176,9 +177,10 @@ void main() {
     Logger.root.onRecord.listen(logRecords.add);
 
     stateManager = _FakeStateManager();
+    contactRepository = ContactRepository();
     writeClient = FakeBleWriteClient();
     adapter = BleWriteAdapter(
-      contactRepository: ContactRepository(),
+      contactRepository: contactRepository,
       stateManagerProvider: () => stateManager,
       writeClient: writeClient,
     );
@@ -222,6 +224,9 @@ void main() {
   });
 
   test('central send returns false when write client throws', () async {
+    await contactRepository.saveContact('recipient', 'Recipient');
+    SimpleCrypto.initializeConversation('recipient', 'ble-write-test-secret');
+
     // This test intentionally throws an error to test error handling
     allowSevere('Failed to send message: Exception: central boom');
     allowSevere('Stack trace'); // Allow the stack trace log
@@ -230,7 +235,7 @@ void main() {
 
     final result = await adapter.sendCentralMessage(
       centralManager: _FakeCentralManager(),
-      connectedDevice: Peripheral(uuid: makeUuid(1)),
+      connectedDevice: FakePeripheral(uuid: makeUuid(1)),
       messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(2)),
       recipientKey: 'recipient',
       content: 'hi',
@@ -245,7 +250,7 @@ void main() {
 
     final result = await adapter.sendPeripheralMessage(
       peripheralManager: _FakePeripheralManager(),
-      connectedCentral: Central(uuid: makeUuid(3)),
+      connectedCentral: FakeCentral(uuid: makeUuid(3)),
       messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(4)),
       senderKey: 'sender',
       content: 'hello',

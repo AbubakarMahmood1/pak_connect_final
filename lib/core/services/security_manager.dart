@@ -461,7 +461,9 @@ class SecurityManager implements ISecurityManager {
 
           case EncryptionType.global:
             // Try legacy decryption for backward compatibility
-            final decrypted = SimpleCrypto.decrypt(encryptedMessage);
+            final decrypted = SimpleCrypto.decryptLegacyCompatible(
+              encryptedMessage,
+            );
             _logger.info('🔒 DECRYPT: GLOBAL (legacy) ✅');
             return decrypted;
         }
@@ -704,7 +706,9 @@ class SecurityManager implements ISecurityManager {
           '🔒 BIN DECRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... trying legacy fallback',
         );
         // Try legacy decryption
-        final decryptedFallback = SimpleCrypto.decrypt(encryptedString);
+        final decryptedFallback = SimpleCrypto.decryptLegacyCompatible(
+          encryptedString,
+        );
         _logger.fine(
           '🔒 BIN DECRYPT: GLOBAL (legacy fallback) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
         );
@@ -736,7 +740,7 @@ class SecurityManager implements ISecurityManager {
 
       case EncryptionType.global:
         // Try legacy decryption for backward compatibility
-        final decrypted = SimpleCrypto.decrypt(encryptedString);
+        final decrypted = SimpleCrypto.decryptLegacyCompatible(encryptedString);
         _logger.fine(
           '🔒 BIN DECRYPT: GLOBAL (legacy) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
         );

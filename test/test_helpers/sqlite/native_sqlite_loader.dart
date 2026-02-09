@@ -2,7 +2,6 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/open.dart';
 
 /// Ensures the sqlite3 dynamic library can be located inside sandboxed tests.
 ///
@@ -20,12 +19,21 @@ class NativeSqliteLoader {
   static void ensureInitialized() {
     if (_configured) return;
 
-    final os = _detectOperatingSystem();
     final opener = _resolveDynamicLibraryOpener();
 
-    if (os != null && opener != null) {
-      open.overrideFor(os, opener);
-    } else if (opener == null) {
+    if (opener != null) {
+      try {
+        // sqlite3 >= 3 removed package:sqlite3/open.dart override hooks.
+        // Best effort: proactively load a known sqlite3 dynamic library path.
+        opener();
+      } catch (_) {
+        // ignore: avoid_print
+        print(
+          '⚠️ NativeSqliteLoader: Failed to preload sqlite3 dynamic library. '
+          'Falling back to system defaults.',
+        );
+      }
+    } else {
       // ignore: avoid_print
       print(
         '⚠️ NativeSqliteLoader: Unable to locate sqlite3 dynamic library. '
@@ -34,13 +42,6 @@ class NativeSqliteLoader {
     }
 
     _configured = true;
-  }
-
-  static OperatingSystem? _detectOperatingSystem() {
-    if (Platform.isLinux) return OperatingSystem.linux;
-    if (Platform.isMacOS) return OperatingSystem.macOS;
-    if (Platform.isWindows) return OperatingSystem.windows;
-    return null;
   }
 
   static DynamicLibrary Function()? _resolveDynamicLibraryOpener() {

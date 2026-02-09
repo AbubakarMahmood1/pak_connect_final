@@ -7,37 +7,69 @@ import 'package:bluetooth_low_energy_platform_interface/src/peripheral_manager.d
 
 /// Registers no-op BLE platform managers so tests can instantiate [BLEService]
 /// without hitting platform channels (which are unavailable in `flutter test`).
-///
-/// The real plugin uses a factory constructor that immediately talks to the
-/// host platform and throws `UnimplementedError` on non-mobile targets. These
-/// lightweight fakes implement the required interfaces with stubbed behavior,
-/// allowing higher-level services to run inside the Dart VM.
 class FakeBlePlatform {
   static bool _registered = false;
 
   static void ensureRegistered() {
     if (_registered) return;
 
-    PlatformCentralManager.instance = _FakeCentralManager();
-    PlatformPeripheralManager.instance = _FakePeripheralManager();
+    CentralManagerChannel.instance = _FakeCentralManagerChannel();
+    PeripheralManagerChannel.instance = _FakePeripheralManagerChannel();
     _registered = true;
   }
 }
 
-final class _FakeCentralManager extends PlatformCentralManager {
+final class _FakeCentralManagerChannel extends CentralManagerChannel {
+  final CentralManager _manager = _FakeCentralManager();
+
+  @override
+  CentralManager create() => _manager;
+}
+
+final class _FakePeripheralManagerChannel extends PeripheralManagerChannel {
+  final PeripheralManager _manager = _FakePeripheralManager();
+
+  @override
+  PeripheralManager create() => _manager;
+}
+
+final class _FakePeripheral implements Peripheral {
+  const _FakePeripheral(this.uuid);
+
+  @override
+  final UUID uuid;
+}
+
+final class _FakeCentral implements Central {
+  const _FakeCentral(this.uuid);
+
+  @override
+  final UUID uuid;
+}
+
+UUID _uuidFromAddress(String address) {
+  try {
+    return UUID.fromString(address);
+  } catch (_) {
+    final bytes = List<int>.filled(16, 0);
+    final codeUnits = address.codeUnits;
+    for (var i = 0; i < codeUnits.length; i++) {
+      bytes[i % 16] = (bytes[i % 16] + codeUnits[i]) & 0xFF;
+    }
+    return UUID(bytes);
+  }
+}
+
+final class _FakeCentralManager implements CentralManager {
   final _stateController =
       StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
-  final _discoveredController =
-      StreamController<DiscoveredEventArgs>.broadcast();
+  final _discoveredController = StreamController<DiscoveredEventArgs>.broadcast();
   final _connectionStateController =
       StreamController<PeripheralConnectionStateChangedEventArgs>.broadcast();
   final _mtuController =
       StreamController<PeripheralMTUChangedEventArgs>.broadcast();
   final _notifyController =
       StreamController<GATTCharacteristicNotifiedEventArgs>.broadcast();
-
-  @override
-  void initialize() {}
 
   @override
   BluetoothLowEnergyState get state => BluetoothLowEnergyState.poweredOn;
@@ -56,8 +88,8 @@ final class _FakeCentralManager extends PlatformCentralManager {
   Stream<DiscoveredEventArgs> get discovered => _discoveredController.stream;
 
   @override
-  Stream<PeripheralConnectionStateChangedEventArgs>
-  get connectionStateChanged => _connectionStateController.stream;
+  Stream<PeripheralConnectionStateChangedEventArgs> get connectionStateChanged =>
+      _connectionStateController.stream;
 
   @override
   Stream<PeripheralMTUChangedEventArgs> get mtuChanged => _mtuController.stream;
@@ -73,6 +105,10 @@ final class _FakeCentralManager extends PlatformCentralManager {
   Future<void> stopDiscovery() async {}
 
   @override
+  Future<Peripheral> getPeripheral(String address) async =>
+      _FakePeripheral(_uuidFromAddress(address));
+
+  @override
   Future<List<Peripheral>> retrieveConnectedPeripherals() async => const [];
 
   @override
@@ -82,8 +118,7 @@ final class _FakeCentralManager extends PlatformCentralManager {
   Future<void> disconnect(Peripheral peripheral) async {}
 
   @override
-  Future<int> requestMTU(Peripheral peripheral, {required int mtu}) async =>
-      mtu;
+  Future<int> requestMTU(Peripheral peripheral, {required int mtu}) async => mtu;
 
   @override
   Future<int> getMaximumWriteLength(
@@ -95,8 +130,7 @@ final class _FakeCentralManager extends PlatformCentralManager {
   Future<int> readRSSI(Peripheral peripheral) async => -60;
 
   @override
-  Future<List<GATTService>> discoverGATT(Peripheral peripheral) async =>
-      const [];
+  Future<List<GATTService>> discoverGATT(Peripheral peripheral) async => const [];
 
   @override
   Future<Uint8List> readCharacteristic(
@@ -133,7 +167,7 @@ final class _FakeCentralManager extends PlatformCentralManager {
   }) async {}
 }
 
-final class _FakePeripheralManager extends PlatformPeripheralManager {
+final class _FakePeripheralManager implements PeripheralManager {
   final _stateController =
       StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
   final _connectionStateController =
@@ -145,16 +179,11 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
   final _charWriteController =
       StreamController<GATTCharacteristicWriteRequestedEventArgs>.broadcast();
   final _notifyController =
-      StreamController<
-        GATTCharacteristicNotifyStateChangedEventArgs
-      >.broadcast();
+      StreamController<GATTCharacteristicNotifyStateChangedEventArgs>.broadcast();
   final _descReadController =
       StreamController<GATTDescriptorReadRequestedEventArgs>.broadcast();
   final _descWriteController =
       StreamController<GATTDescriptorWriteRequestedEventArgs>.broadcast();
-
-  @override
-  void initialize() {}
 
   @override
   BluetoothLowEnergyState get state => BluetoothLowEnergyState.poweredOn;
@@ -212,32 +241,21 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
   Future<void> stopAdvertising() async {}
 
   @override
-  Future<void> respondToCharacteristicRequest(
-    GATTCharacteristic characteristic, {
-    required GATTReadRequest? readRequest,
-    required GATTWriteRequest? writeRequest,
-    Uint8List? value,
-    bool success = true,
-    int? offset,
-  }) async {}
+  Future<Central> getCentral(String address) async =>
+      _FakeCentral(_uuidFromAddress(address));
 
   @override
-  Future<void> respondToDescriptorRequest(
-    GATTDescriptor descriptor, {
-    required GATTReadRequest? readRequest,
-    required GATTWriteRequest? writeRequest,
-    Uint8List? value,
-    bool success = true,
-    int? offset,
-  }) async {}
+  Future<List<Central>> retrieveConnectedCentrals() async => const [];
+
+  @override
+  Future<void> disconnect(Central central) async {}
 
   @override
   Future<int> getMaximumNotifyLength(Central central) async => 512;
 
   @override
-  Future<void> notifyCharacteristic(
-    Central central,
-    GATTCharacteristic characteristic, {
+  Future<void> respondReadRequestWithValue(
+    GATTReadRequest request, {
     required Uint8List value,
   }) async {}
 
@@ -245,12 +263,6 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
   Future<void> respondReadRequestWithError(
     GATTReadRequest request, {
     required GATTError error,
-  }) async {}
-
-  @override
-  Future<void> respondReadRequestWithValue(
-    GATTReadRequest request, {
-    required Uint8List value,
   }) async {}
 
   @override
@@ -263,5 +275,9 @@ final class _FakePeripheralManager extends PlatformPeripheralManager {
   }) async {}
 
   @override
-  Future<void> disconnectCentral(Central central) async {}
+  Future<void> notifyCharacteristic(
+    Central central,
+    GATTCharacteristic characteristic, {
+    required Uint8List value,
+  }) async {}
 }

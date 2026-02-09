@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/core/services/simple_crypto.dart';
 import 'package:pak_connect/core/security/noise/primitives/symmetric_state.dart';
 
 void main() {
@@ -12,6 +13,7 @@ void main() {
       logRecords.clear();
       Logger.root.level = Level.ALL;
       Logger.root.onRecord.listen(logRecords.add);
+      SimpleCrypto.resetDeprecatedWrapperUsageCounts();
     });
 
     tearDown(() {
@@ -27,6 +29,13 @@ void main() {
         isEmpty,
         reason:
             'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+      final wrapperUsage = SimpleCrypto.getDeprecatedWrapperUsageCounts();
+      expect(
+        wrapperUsage['total'],
+        equals(0),
+        reason:
+            'Deprecated SimpleCrypto wrappers were used unexpectedly: $wrapperUsage',
       );
     });
 

@@ -455,7 +455,7 @@ class BLEConnectionManager {
     _blockedResponderHandshakes.remove(address);
     if (server != null) {
       try {
-        await peripheralManager.disconnectCentral(server.central);
+        await peripheralManager.disconnect(server.central);
         _logger.info('🔌 Force disconnected inbound central: $address');
       } catch (e) {
         _logger.warning(
@@ -463,7 +463,7 @@ class BLEConnectionManager {
         );
         try {
           await Future.delayed(const Duration(milliseconds: 200));
-          await peripheralManager.disconnectCentral(server.central);
+          await peripheralManager.disconnect(server.central);
           _logger.info('🔌 Retry disconnect succeeded for inbound $address');
         } catch (secondError) {
           _logger.warning(
@@ -783,7 +783,7 @@ class BLEConnectionManager {
       );
       try {
         _blockedResponderHandshakes.add(address);
-        await peripheralManager.disconnectCentral(central);
+        await peripheralManager.disconnect(central);
         // Keep tracker aligned with the surviving client link if present.
         _ensureTrackerForClientPeer(address);
         _notifyInboundRejected(address);
@@ -800,7 +800,7 @@ class BLEConnectionManager {
         '⚠️ Central already connected: ${_formatAddress(address)} — rejecting duplicate inbound',
       );
       try {
-        await peripheralManager.disconnectCentral(central);
+        await peripheralManager.disconnect(central);
       } catch (e) {
         _logger.warning(
           '⚠️ Failed to disconnect duplicate inbound central: $e',

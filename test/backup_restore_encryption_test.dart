@@ -4,7 +4,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:path/path.dart';
+import 'package:path/path.dart' hide equals;
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/services/export_import/selective_backup_service.dart';
 import 'package:pak_connect/data/services/export_import/selective_restore_service.dart';
@@ -13,6 +13,24 @@ import 'test_helpers/test_setup.dart';
 
 void main() {
   final List<LogRecord> logRecords = [];
+
+  Future<void> insertContact({
+    required String publicKey,
+    required String displayName,
+  }) async {
+    final db = await DatabaseHelper.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.insert('contacts', {
+      'public_key': publicKey,
+      'display_name': displayName,
+      'trust_status': 0,
+      'security_level': 0,
+      'first_seen': now,
+      'last_seen': now,
+      'created_at': now,
+      'updated_at': now,
+    });
+  }
 
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(
@@ -34,7 +52,7 @@ void main() {
   group('Selective Backup with Encryption Tests', () {
     test('Contacts-only backup succeeds', () async {
       final db = await DatabaseHelper.database;
-      
+
       // Create test contacts
       for (var i = 0; i < 3; i++) {
         await db.insert('contacts', {
@@ -48,24 +66,24 @@ void main() {
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });
       }
-      
+
       // Create backup
       final dbPath = await DatabaseHelper.getDatabasePath();
       final backupDir = join(dirname(dbPath), 'test_backups');
-      
+
       final result = await SelectiveBackupService.createSelectiveBackup(
         exportType: ExportType.contactsOnly,
         customBackupDir: backupDir,
       );
-      
+
       expect(result.success, isTrue);
       expect(result.backupPath, isNotNull);
       expect(result.recordCount, equals(3));
-      
+
       // Verify backup file exists
       final backupFile = File(result.backupPath!);
       expect(await backupFile.exists(), isTrue);
-      
+
       // Clean up
       if (await backupFile.exists()) {
         await backupFile.delete();
@@ -78,7 +96,9 @@ void main() {
 
     test('Messages-only backup succeeds', () async {
       final db = await DatabaseHelper.database;
-      
+
+      await insertContact(publicKey: 'test_key_1', displayName: 'Test User');
+
       // Create test chat
       await db.insert('chats', {
         'chat_id': 'chat_test',
@@ -87,7 +107,7 @@ void main() {
         'created_at': DateTime.now().millisecondsSinceEpoch,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       });
-      
+
       // Create test messages
       for (var i = 0; i < 5; i++) {
         await db.insert('messages', {
@@ -101,20 +121,20 @@ void main() {
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });
       }
-      
+
       // Create backup
       final dbPath = await DatabaseHelper.getDatabasePath();
       final backupDir = join(dirname(dbPath), 'test_backups');
-      
+
       final result = await SelectiveBackupService.createSelectiveBackup(
         exportType: ExportType.messagesOnly,
         customBackupDir: backupDir,
       );
-      
+
       expect(result.success, isTrue);
       expect(result.backupPath, isNotNull);
       expect(result.recordCount, equals(6)); // 1 chat + 5 messages
-      
+
       // Clean up
       final backupFile = File(result.backupPath!);
       if (await backupFile.exists()) {
@@ -128,7 +148,7 @@ void main() {
 
     test('Backup file can be read after creation', () async {
       final db = await DatabaseHelper.database;
-      
+
       // Create test contacts
       await db.insert('contacts', {
         'public_key': 'test_key_backup',
@@ -140,23 +160,23 @@ void main() {
         'created_at': DateTime.now().millisecondsSinceEpoch,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       });
-      
+
       // Create backup
       final dbPath = await DatabaseHelper.getDatabasePath();
       final backupDir = join(dirname(dbPath), 'test_backups');
-      
+
       final result = await SelectiveBackupService.createSelectiveBackup(
         exportType: ExportType.contactsOnly,
         customBackupDir: backupDir,
       );
-      
+
       expect(result.success, isTrue);
-      
+
       // Verify file exists and has size
       final backupFile = File(result.backupPath!);
       expect(await backupFile.exists(), isTrue);
       expect(await backupFile.length(), greaterThan(0));
-      
+
       // Clean up
       if (await backupFile.exists()) {
         await backupFile.delete();
@@ -171,7 +191,7 @@ void main() {
   group('Selective Restore with Encryption Tests', () {
     test('Contacts-only restore succeeds', () async {
       final db = await DatabaseHelper.database;
-      
+
       // Create test contacts
       for (var i = 0; i < 3; i++) {
         await db.insert('contacts', {
@@ -185,39 +205,40 @@ void main() {
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });
       }
-      
+
       // Create backup
       final dbPath = await DatabaseHelper.getDatabasePath();
       final backupDir = join(dirname(dbPath), 'test_backups');
-      
+
       final backupResult = await SelectiveBackupService.createSelectiveBackup(
         exportType: ExportType.contactsOnly,
         customBackupDir: backupDir,
       );
-      
+
       expect(backupResult.success, isTrue);
-      
+
       // Clear contacts from main DB
       await db.delete('contacts');
-      
+
       // Verify contacts are deleted
       final contactsBeforeRestore = await db.query('contacts');
       expect(contactsBeforeRestore.length, equals(0));
-      
+
       // Restore from backup
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: backupResult.backupPath!,
-        exportType: ExportType.contactsOnly,
-        clearExistingData: false,
-      );
-      
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: backupResult.backupPath!,
+            exportType: ExportType.contactsOnly,
+            clearExistingData: false,
+          );
+
       expect(restoreResult.success, isTrue);
       expect(restoreResult.recordsRestored, equals(3));
-      
+
       // Verify contacts are restored
       final contactsAfterRestore = await db.query('contacts');
       expect(contactsAfterRestore.length, equals(3));
-      
+
       // Clean up
       final backupFile = File(backupResult.backupPath!);
       if (await backupFile.exists()) {
@@ -231,7 +252,12 @@ void main() {
 
     test('Messages-only restore succeeds', () async {
       final db = await DatabaseHelper.database;
-      
+
+      await insertContact(
+        publicKey: 'restore_key',
+        displayName: 'Restore User',
+      );
+
       // Create test chat and messages
       await db.insert('chats', {
         'chat_id': 'restore_chat',
@@ -240,7 +266,7 @@ void main() {
         'created_at': DateTime.now().millisecondsSinceEpoch,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       });
-      
+
       for (var i = 0; i < 3; i++) {
         await db.insert('messages', {
           'id': 'restore_msg_$i',
@@ -253,39 +279,40 @@ void main() {
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });
       }
-      
+
       // Create backup
       final dbPath = await DatabaseHelper.getDatabasePath();
       final backupDir = join(dirname(dbPath), 'test_backups');
-      
+
       final backupResult = await SelectiveBackupService.createSelectiveBackup(
         exportType: ExportType.messagesOnly,
         customBackupDir: backupDir,
       );
-      
+
       expect(backupResult.success, isTrue);
-      
+
       // Clear messages and chats
       await db.delete('messages');
       await db.delete('chats');
-      
+
       // Restore from backup
-      final restoreResult = await SelectiveRestoreService.restoreSelectiveBackup(
-        backupPath: backupResult.backupPath!,
-        exportType: ExportType.messagesOnly,
-        clearExistingData: false,
-      );
-      
+      final restoreResult =
+          await SelectiveRestoreService.restoreSelectiveBackup(
+            backupPath: backupResult.backupPath!,
+            exportType: ExportType.messagesOnly,
+            clearExistingData: false,
+          );
+
       expect(restoreResult.success, isTrue);
       expect(restoreResult.recordsRestored, equals(4)); // 1 chat + 3 messages
-      
+
       // Verify data is restored
       final chats = await db.query('chats');
       expect(chats.length, equals(1));
-      
+
       final messages = await db.query('messages');
       expect(messages.length, equals(3));
-      
+
       // Clean up
       final backupFile = File(backupResult.backupPath!);
       if (await backupFile.exists()) {
@@ -301,7 +328,7 @@ void main() {
   group('Backup/Restore Statistics Tests', () {
     test('getSelectiveStats returns correct contact counts', () async {
       final db = await DatabaseHelper.database;
-      
+
       // Create test contacts
       for (var i = 0; i < 5; i++) {
         await db.insert('contacts', {
@@ -315,11 +342,11 @@ void main() {
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });
       }
-      
+
       final stats = await SelectiveBackupService.getSelectiveStats(
         ExportType.contactsOnly,
       );
-      
+
       expect(stats['type'], equals('contacts_only'));
       expect(stats['record_count'], equals(5));
       expect(stats['tables'], contains('contacts'));
@@ -327,7 +354,9 @@ void main() {
 
     test('getSelectiveStats returns correct message counts', () async {
       final db = await DatabaseHelper.database;
-      
+
+      await insertContact(publicKey: 'stats_key', displayName: 'Stats User');
+
       // Create test chat and messages
       await db.insert('chats', {
         'chat_id': 'stats_chat',
@@ -336,7 +365,7 @@ void main() {
         'created_at': DateTime.now().millisecondsSinceEpoch,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       });
-      
+
       for (var i = 0; i < 7; i++) {
         await db.insert('messages', {
           'id': 'stats_msg_$i',
@@ -349,11 +378,11 @@ void main() {
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         });
       }
-      
+
       final stats = await SelectiveBackupService.getSelectiveStats(
         ExportType.messagesOnly,
       );
-      
+
       expect(stats['type'], equals('messages_only'));
       expect(stats['chat_count'], equals(1));
       expect(stats['message_count'], equals(7));

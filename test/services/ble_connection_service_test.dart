@@ -11,6 +11,7 @@ import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
 import 'package:pak_connect/core/discovery/device_deduplication_manager.dart';
+import '../helpers/ble/ble_fakes.dart';
 
 @GenerateNiceMocks([
   MockSpec<IBLEStateManagerFacade>(),
@@ -278,8 +279,8 @@ void main() {
       when(mockConnectionManager.canAcceptClientConnection).thenReturn(false);
       when(mockStateManager.isPeripheralMode).thenReturn(false);
 
-      final peripheral = Peripheral(
-        uuid: UUID.fromString('00000000-0000-0000-0000-00000000dcba'),
+      final peripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000dcba',
       );
 
       createService();
@@ -313,8 +314,8 @@ void main() {
         when(mockConnectionManager.canAcceptClientConnection).thenReturn(true);
         when(mockStateManager.isPeripheralMode).thenReturn(false);
 
-        final peripheral = Peripheral(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000abcd'),
+        final peripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000abcd',
         );
         mockConnectionManager.connectedAddressesStub = [
           peripheral.uuid.toString(),
@@ -389,7 +390,7 @@ DiscoveredDevice _buildDiscoveredDevice({
   return DiscoveredDevice(
     deviceId: deviceId,
     ephemeralHint: hint,
-    peripheral: Peripheral(uuid: UUID.fromString(deviceId)),
+    peripheral: fakePeripheralFromString(deviceId),
     rssi: -50,
     advertisement: Advertisement(name: 'Known'),
     firstSeen: DateTime.now().subtract(const Duration(seconds: 5)),
@@ -408,13 +409,13 @@ class _MockConnectionManagerWithAddresses extends MockBLEConnectionManager {
   List<String> get connectedAddresses => connectedAddressesStub;
 
   @override
-  bool hasClientLinkForPeer(String peerAddress) => hasClientLink;
+  bool hasClientLinkForPeer(String? peerAddress) => hasClientLink;
 
   @override
-  bool hasServerLinkForPeer(String peerAddress) => hasServerLink;
+  bool hasServerLinkForPeer(String? peerAddress) => hasServerLink;
 
   @override
-  bool hasPendingClientForPeer(String peerAddress) => hasPendingClient;
+  bool hasPendingClientForPeer(String? peerAddress) => hasPendingClient;
 
   @override
   bool hasAnyLinkForPeerHint(String? peerHint) => hasHintCollision;

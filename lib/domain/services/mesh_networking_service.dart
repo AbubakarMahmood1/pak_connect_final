@@ -664,7 +664,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
         'transferId': transferId,
         'originalType': originalType,
         'peerNodeId': peerId,
-        if (recipientId != null) 'recipientId': recipientId,
+        'recipientId': ?recipientId,
         'direction': isFromMe ? 'outbound' : 'inbound',
       },
     );
@@ -683,7 +683,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
         'size': size,
         'originalType': originalType,
         'peerNodeId': peerId,
-        if (recipientId != null) 'recipientId': recipientId,
+        'recipientId': ?recipientId,
       },
     );
 
