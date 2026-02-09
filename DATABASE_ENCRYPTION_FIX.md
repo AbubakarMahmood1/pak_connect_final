@@ -100,16 +100,24 @@ return await factory.openDatabase(
 **Changes:**
 - Added import for `DatabaseEncryption`
 - Retrieve encryption key on mobile platforms
-- Pass `password: encryptionKey` when creating backup databases
+- Use platform-specific `OpenDatabaseOptions`:
+  - Mobile: `sqlcipher.OpenDatabaseOptions` with `password:` parameter
+  - Desktop/Test: `sqflite_common.OpenDatabaseOptions` without `password:` parameter
 - Backup files are now encrypted on mobile
+
+**Important**: The `password:` parameter is only supported by `sqlcipher.OpenDatabaseOptions`. Using it with `sqflite_common.OpenDatabaseOptions` causes compilation errors.
 
 ### 3. Selective Restore Service (`lib/data/services/export_import/selective_restore_service.dart`)
 
 **Changes:**
 - Added import for `DatabaseEncryption`
 - Retrieve encryption key on mobile platforms
-- Pass `password: encryptionKey` when opening backup databases
+- Use platform-specific `OpenDatabaseOptions`:
+  - Mobile: `sqlcipher.OpenDatabaseOptions` with `password:` parameter
+  - Desktop/Test: `sqflite_common.OpenDatabaseOptions` without `password:` parameter
 - Can restore encrypted backup files
+
+**Important**: Same platform-specific options handling as backup service to avoid compilation errors.
 
 ## Platform Behavior
 
