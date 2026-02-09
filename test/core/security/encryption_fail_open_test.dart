@@ -136,5 +136,40 @@ void main() {
         throwsA(isA<EncryptionException>()),
       );
     });
+
+    test('encryptBinaryPayload with proper Uint8List type exercises encryption logic', () async {
+      // Arrange
+      final testData = Uint8List.fromList([1, 2, 3, 4, 5]);
+      const publicKey = 'test_public_key_12345';
+
+      // Mock contact with LOW security level (triggers global encryption path)
+      final contact = Contact(
+        publicKey: publicKey,
+        displayName: 'Test Contact',
+        securityLevel: SecurityLevel.low,
+        trustStatus: TrustStatus.unknown,
+        isOnline: false,
+        createdAt: DateTime.now(),
+      );
+
+      final mockRepo = _MockContactRepository(contact: contact);
+
+      // Act & Assert - Should throw EncryptionException (not TypeError)
+      // This validates the test now properly exercises the encryption path
+      expect(
+        () => SecurityManager.instance.encryptBinaryPayload(
+          testData,
+          publicKey,
+          mockRepo,
+        ),
+        throwsA(
+          isA<EncryptionException>().having(
+            (e) => e.encryptionMethod,
+            'encryptionMethod',
+            'global',
+          ),
+        ),
+      );
+    });
   });
 }
