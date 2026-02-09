@@ -72,6 +72,7 @@ class SimpleCrypto {
 
   /// ⚠️ DEPRECATED: Global decryption for legacy compatibility
   /// Handles both PLAINTEXT: prefix and legacy encrypted format
+  /// Throws exception on decryption failure to ensure proper error handling
   @Deprecated('Use proper decryption methods (Noise, ECDH, or Pairing)')
   static String decrypt(String encryptedBase64) {
     // Handle plaintext marker
@@ -80,7 +81,6 @@ class SimpleCrypto {
     }
     
     // Legacy decryption for backward compatibility (old messages)
-    // This will fail gracefully if the old key isn't available
     if (_encrypter != null && _iv != null) {
       try {
         final encrypted = Encrypted.fromBase64(encryptedBase64);
@@ -89,16 +89,17 @@ class SimpleCrypto {
         if (kDebugMode) {
           print('⚠️ Legacy decryption failed: $e');
         }
-        // Return as-is if decryption fails
-        return encryptedBase64;
+        // Throw exception instead of returning ciphertext
+        // This ensures SecurityManager can trigger resync on failure
+        throw Exception('Legacy decryption failed: $e');
       }
     }
     
-    // No decryption possible, return as-is
+    // No decryption possible, throw exception
     if (kDebugMode) {
       print('⚠️ Cannot decrypt: no legacy keys available');
     }
-    return encryptedBase64;
+    throw Exception('Cannot decrypt: no legacy keys available');
   }
 
   // Check if crypto is ready
@@ -374,41 +375,26 @@ class SimpleCrypto {
     if (sharedSecret == null) return null;
 
     try {
-      // DEBUG: Log the key derivation process
+      // DEBUG: Log the encryption process (without key material)
       // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
       final truncatedPublicKey = contactPublicKey.length > 16
           ? contactPublicKey.shortId()
           : contactPublicKey;
-      final truncatedSecret = sharedSecret.length > 16
-          ? sharedSecret.shortId()
-          : sharedSecret;
       print(
         '🔧 ECDH ENCRYPT DEBUG: Starting encryption for $truncatedPublicKey...',
       );
-      print('🔧 ECDH ENCRYPT DEBUG: SharedSecret: $truncatedSecret...');
 
       // Enhanced key derivation (WITHOUT hardcoded string)
       final enhancedSecret = _deriveEnhancedContactKey(
         sharedSecret,
         contactPublicKey,
       );
-      final truncatedEnhanced = enhancedSecret.length > 16
-          ? enhancedSecret.shortId()
-          : enhancedSecret;
-      print('🔧 ECDH ENCRYPT DEBUG: EnhancedSecret: $truncatedEnhanced...');
 
       final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
       final key = Key(Uint8List.fromList(keyBytes));
 
       // 🔒 SECURITY FIX: Use random IV for each message
       final iv = IV.fromSecureRandom(16);
-
-      print(
-        '🔧 ECDH ENCRYPT DEBUG: Key: ${keyBytes.sublist(0, 8).map((b) => b.toRadixString(16)).join()}...',
-      );
-      print(
-        '🔧 ECDH ENCRYPT DEBUG: IV: ${iv.bytes.map((b) => b.toRadixString(16)).join()}',
-      );
 
       final encrypter = Encrypter(AES(key));
       final encrypted = encrypter.encrypt(plaintext, iv: iv);
@@ -449,28 +435,20 @@ class SimpleCrypto {
     if (sharedSecret == null) return null;
 
     try {
-      // DEBUG: Log the key derivation process
+      // DEBUG: Log the decryption process (without key material)
       // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
       final truncatedPublicKey = contactPublicKey.length > 16
           ? contactPublicKey.shortId()
           : contactPublicKey;
-      final truncatedSecret = sharedSecret.length > 16
-          ? sharedSecret.shortId()
-          : sharedSecret;
       print(
         '🔧 ECDH DECRYPT DEBUG: Starting decryption for $truncatedPublicKey...',
       );
-      print('🔧 ECDH DECRYPT DEBUG: SharedSecret: $truncatedSecret...');
 
       // Enhanced key derivation (WITHOUT hardcoded string)
       final enhancedSecret = _deriveEnhancedContactKey(
         sharedSecret,
         contactPublicKey,
       );
-      final truncatedEnhanced = enhancedSecret.length > 16
-          ? enhancedSecret.shortId()
-          : enhancedSecret;
-      print('🔧 ECDH DECRYPT DEBUG: EnhancedSecret: $truncatedEnhanced...');
 
       final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
       final key = Key(Uint8List.fromList(keyBytes));
@@ -488,10 +466,6 @@ class SimpleCrypto {
       final decrypted = isV2Format
           ? _decryptV2Format(encrypter, ciphertext)
           : _decryptLegacyFormat(encrypter, ciphertext, enhancedSecret);
-
-      print(
-        '🔧 ECDH DECRYPT DEBUG: Key: ${keyBytes.sublist(0, 8).map((b) => b.toRadixString(16)).join()}...',
-      );
 
       final pairingKey = _getPairingKeyForContact(contactPublicKey);
       if (pairingKey != null) {
