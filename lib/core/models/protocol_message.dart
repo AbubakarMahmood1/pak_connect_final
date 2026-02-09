@@ -211,7 +211,7 @@ class ProtocolMessage {
     payload: {
       'publicKey': publicKey,
       'displayName': displayName,
-      if (legacyDeviceId != null) 'deviceId': legacyDeviceId,
+      'deviceId': ?legacyDeviceId,
     },
     timestamp: DateTime.now(),
   );
@@ -258,8 +258,8 @@ class ProtocolMessage {
       'reason': reason,
       'attemptedPattern': attemptedPattern,
       'suggestedPattern': suggestedPattern,
-      if (peerEphemeralId != null) 'peerId': peerEphemeralId,
-      if (contactStatus != null) 'contactStatus': contactStatus,
+      'peerId': ?peerEphemeralId,
+      'contactStatus': ?contactStatus,
     },
     timestamp: DateTime.now(),
   );
@@ -276,7 +276,7 @@ class ProtocolMessage {
       'messageId': messageId,
       'content': content,
       'encrypted': encrypted,
-      if (recipientId != null) 'recipientId': recipientId,
+      'recipientId': ?recipientId,
       'useEphemeralAddressing': useEphemeralAddressing,
     },
     timestamp: DateTime.now(),
@@ -423,7 +423,7 @@ class ProtocolMessage {
 
   static ProtocolMessage pairingCancel({String? reason}) => ProtocolMessage(
     type: ProtocolMessageType.pairingCancel,
-    payload: {if (reason != null) 'reason': reason},
+    payload: {'reason': ?reason},
     timestamp: DateTime.now(),
   );
 
@@ -605,7 +605,7 @@ class ProtocolMessage {
       'challenge': challenge,
       'decryptedMessage': decryptedMessage,
       'success': success,
-      if (results != null) 'results': results,
+      'results': ?results,
     },
     timestamp: DateTime.now(),
   );
@@ -779,7 +779,7 @@ class ProtocolMessage {
     type: ProtocolMessageType.connectionReady,
     payload: {
       'deviceId': deviceId,
-      if (deviceName != null) 'deviceName': deviceName,
+      'deviceName': ?deviceName,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     },
     timestamp: DateTime.now(),

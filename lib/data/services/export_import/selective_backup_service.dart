@@ -58,7 +58,7 @@ class SelectiveBackupService {
       final backupDb = Platform.isAndroid || Platform.isIOS
           ? await factory.openDatabase(
               backupPath,
-              options: sqlcipher.OpenDatabaseOptions(
+              options: sqlcipher.SqlCipherOpenDatabaseOptions(
                 version: 1,
                 onCreate: (db, version) async {
                   await _createSelectiveSchema(db, exportType);

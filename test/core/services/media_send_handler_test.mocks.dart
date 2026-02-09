@@ -39,6 +39,7 @@ import 'package:pak_connect/domain/services/mesh_networking_service.dart'
 // ignore_for_file: unnecessary_parenthesis
 // ignore_for_file: camel_case_types
 // ignore_for_file: subtype_of_sealed_class
+// ignore_for_file: invalid_use_of_internal_member
 
 class _FakeMeshSendResult_0 extends _i1.SmartFake
     implements _i2.MeshSendResult {
@@ -437,19 +438,17 @@ class MockNoiseEncryptionService extends _i1.Mock
   }
 
   @override
-  set onPeerAuthenticated(
-    void Function(String, String)? _onPeerAuthenticated,
-  ) => super.noSuchMethod(
-    Invocation.setter(#onPeerAuthenticated, _onPeerAuthenticated),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  set onHandshakeRequired(void Function(String)? _onHandshakeRequired) =>
+  set onPeerAuthenticated(void Function(String, String)? value) =>
       super.noSuchMethod(
-        Invocation.setter(#onHandshakeRequired, _onHandshakeRequired),
+        Invocation.setter(#onPeerAuthenticated, value),
         returnValueForMissingStub: null,
       );
+
+  @override
+  set onHandshakeRequired(void Function(String)? value) => super.noSuchMethod(
+    Invocation.setter(#onHandshakeRequired, value),
+    returnValueForMissingStub: null,
+  );
 
   @override
   _i5.Future<void> initialize() =>
@@ -540,6 +539,13 @@ class MockNoiseEncryptionService extends _i1.Mock
             returnValue: false,
           )
           as bool);
+
+  @override
+  String? resolveEstablishedSessionId(String? peerID) =>
+      (super.noSuchMethod(
+            Invocation.method(#resolveEstablishedSessionId, [peerID]),
+          )
+          as String?);
 
   @override
   _i17.NoiseSessionState getSessionState(String? peerID) =>

@@ -10,6 +10,7 @@ import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/ble_service.dart';
 import 'package:pak_connect/domain/entities/enhanced_contact.dart';
 
+import '../helpers/ble/ble_fakes.dart';
 import '../test_helpers/test_setup.dart';
 
 void main() {
@@ -136,7 +137,7 @@ void main() {
     test('returns nearby when device UUID appears in discovery list', () {
       final manager = _createManager();
       final uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-      final peripheral = Peripheral(uuid: UUID.fromString(uuid));
+      final peripheral = fakePeripheralFromString(uuid);
 
       final status = manager.determineConnectionStatus(
         contactPublicKey: 'contact-$uuid',
@@ -305,7 +306,7 @@ void main() {
     test('isDeviceDiscovered matches UUID substring', () {
       final manager = _createManager();
       final uuid = 'ffffffff-0000-1111-2222-333333333333';
-      final peripheral = Peripheral(uuid: UUID.fromString(uuid));
+      final peripheral = fakePeripheralFromString(uuid);
 
       final result = manager.isDeviceDiscovered(
         contactPublicKey: 'abc$uuid',
@@ -363,7 +364,7 @@ DiscoveredDevice _buildDiscoveredDevice({
   final device = DiscoveredDevice(
     deviceId: uuid,
     ephemeralHint: 'hint-$uuid',
-    peripheral: Peripheral(uuid: UUID.fromString(uuid)),
+    peripheral: fakePeripheralFromString(uuid),
     rssi: -45,
     advertisement: Advertisement(name: contact?.contact.displayName),
     firstSeen: DateTime.now().subtract(const Duration(minutes: 1)),

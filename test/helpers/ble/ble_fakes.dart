@@ -6,12 +6,44 @@ UUID makeUuid(int seed) {
   return UUID(bytes);
 }
 
-/// Minimal fake characteristic satisfying the base class requirements.
-base class FakeGATTCharacteristic extends GATTCharacteristic {
-  FakeGATTCharacteristic({UUID? uuid})
-    : super(
-        uuid: uuid ?? makeUuid(0),
-        properties: const <GATTCharacteristicProperty>[],
-        descriptors: const <GATTDescriptor>[],
-      );
+FakePeripheral fakePeripheralFromString(String uuid) =>
+    FakePeripheral(uuid: UUID.fromString(uuid));
+
+FakeCentral fakeCentralFromString(String uuid) =>
+    FakeCentral(uuid: UUID.fromString(uuid));
+
+/// Minimal fake peripheral for tests.
+final class FakePeripheral implements Peripheral {
+  const FakePeripheral({required this.uuid});
+
+  @override
+  final UUID uuid;
+}
+
+/// Minimal fake central for tests.
+final class FakeCentral implements Central {
+  const FakeCentral({required this.uuid});
+
+  @override
+  final UUID uuid;
+}
+
+/// Minimal fake characteristic for tests.
+final class FakeGATTCharacteristic implements GATTCharacteristic {
+  FakeGATTCharacteristic({
+    UUID? uuid,
+    List<GATTCharacteristicProperty>? properties,
+    List<GATTDescriptor>? descriptors,
+  }) : uuid = uuid ?? makeUuid(0),
+       properties = properties ?? const <GATTCharacteristicProperty>[],
+       descriptors = descriptors ?? const <GATTDescriptor>[];
+
+  @override
+  final UUID uuid;
+
+  @override
+  final List<GATTCharacteristicProperty> properties;
+
+  @override
+  final List<GATTDescriptor> descriptors;
 }

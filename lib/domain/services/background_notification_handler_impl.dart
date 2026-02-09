@@ -75,7 +75,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
 
       // Initialize with tap callback
       await _notificationsPlugin.initialize(
-        initSettings,
+        settings: initSettings,
         onDidReceiveNotificationResponse: _onNotificationTapped,
       );
 
@@ -142,10 +142,10 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
       );
 
       await _notificationsPlugin.show(
-        id.hashCode,
-        title,
-        body,
-        platformDetails,
+        id: id.hashCode,
+        title: title,
+        body: body,
+        notificationDetails: platformDetails,
         payload: payload,
       );
 
@@ -206,10 +206,10 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
       );
 
       await _notificationsPlugin.show(
-        'msg_${message.id}'.hashCode,
-        contactName,
-        message.content,
-        platformDetails,
+        id: 'msg_${message.id}'.hashCode,
+        title: contactName,
+        body: message.content,
+        notificationDetails: platformDetails,
         payload: jsonEncode({
           'type': 'message',
           'chatId': message.chatId,
@@ -287,7 +287,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
     if (!_isInitialized) return;
 
     try {
-      await _notificationsPlugin.cancel(id.hashCode);
+      await _notificationsPlugin.cancel(id: id.hashCode);
       _logger.fine('Notification cancelled: $id');
     } catch (e, stackTrace) {
       _logger.severe('Failed to cancel notification', e, stackTrace);

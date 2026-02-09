@@ -90,9 +90,10 @@ class GCSFilter {
       encoded = _encode(mapped2, p);
     }
 
-    final finalM = trimmedN << p;
-
-    return GCSFilterParams(p: p, m: finalM, data: encoded);
+    // Keep original range `m` so decode/membership stay consistent with the
+    // hashed values already encoded above. If we trim encoded values without
+    // re-hashing/re-mapping, shrinking M here can make decode stop early.
+    return GCSFilterParams(p: p, m: m, data: encoded);
   }
 
   /// Decode filter to sorted set of values

@@ -4,7 +4,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:path/path.dart';
+import 'package:path/path.dart' hide equals;
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'test_helpers/test_setup.dart';

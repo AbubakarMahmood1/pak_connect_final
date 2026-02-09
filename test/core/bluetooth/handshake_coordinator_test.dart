@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
+import 'package:pak_connect/core/services/simple_crypto.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import '../../test_helpers/test_setup.dart';
 
@@ -17,11 +18,11 @@ class MockSecureStorage implements FlutterSecureStorage {
   Future<void> write({
     required String key,
     required String? value,
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     if (value != null) {
@@ -32,11 +33,11 @@ class MockSecureStorage implements FlutterSecureStorage {
   @override
   Future<String?> read({
     required String key,
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     return _storage[key];
@@ -45,11 +46,11 @@ class MockSecureStorage implements FlutterSecureStorage {
   @override
   Future<void> delete({
     required String key,
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     _storage.remove(key);
@@ -57,11 +58,11 @@ class MockSecureStorage implements FlutterSecureStorage {
 
   @override
   Future<void> deleteAll({
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     _storage.clear();
@@ -69,11 +70,11 @@ class MockSecureStorage implements FlutterSecureStorage {
 
   @override
   Future<Map<String, String>> readAll({
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     return Map.from(_storage);
@@ -82,11 +83,11 @@ class MockSecureStorage implements FlutterSecureStorage {
   @override
   Future<bool> containsKey({
     required String key,
-    IOSOptions? iOptions,
+    AppleOptions? iOptions,
     AndroidOptions? aOptions,
     LinuxOptions? lOptions,
     WebOptions? webOptions,
-    MacOsOptions? mOptions,
+    AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
     return _storage.containsKey(key);
@@ -121,6 +122,7 @@ void main() {
       logRecords.clear();
       Logger.root.level = Level.ALL;
       Logger.root.onRecord.listen(logRecords.add);
+      SimpleCrypto.resetDeprecatedWrapperUsageCounts();
     });
 
     tearDown(() {
@@ -136,6 +138,13 @@ void main() {
         isEmpty,
         reason:
             'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+      final wrapperUsage = SimpleCrypto.getDeprecatedWrapperUsageCounts();
+      expect(
+        wrapperUsage['total'],
+        equals(0),
+        reason:
+            'Deprecated SimpleCrypto wrappers were used unexpectedly: $wrapperUsage',
       );
     });
 
