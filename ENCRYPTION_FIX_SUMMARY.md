@@ -20,12 +20,13 @@ All acceptance criteria have been met:
 ## 📊 Changes Summary
 
 ### Files Modified (3)
-1. **lib/data/database/database_helper.dart** (+145 lines)
+1. **lib/data/database/database_helper.dart** (+165 lines)
    - Fixed `_initDatabase()` to capture and use encryption key
    - Added `_isDatabaseEncrypted()` helper
    - Added `_migrateUnencryptedDatabase()` helper
-   - Added `_copyDatabaseContents()` helper
+   - Added `_copyDatabaseContents()` helper with **schema validation**
    - Added public `verifyEncryption()` method
+   - **NEW**: Migration now validates destination schema before copying tables
 
 2. **lib/data/services/export_import/selective_backup_service.dart** (+14 lines)
    - Import DatabaseEncryption
@@ -35,10 +36,11 @@ All acceptance criteria have been met:
    - Import DatabaseEncryption
    - Retrieve and pass encryption key when opening backups
 
-### Tests Added (3 files, 33 tests)
+### Tests Added (4 files, 35+ tests)
 1. **test/database_encryption_test.dart** (17 tests)
 2. **test/database_migration_encryption_test.dart** (9 tests)
 3. **test/backup_restore_encryption_test.dart** (7 tests)
+4. **test/migration_removed_tables_test.dart** (2 tests) - **NEW: Validates schema evolution handling**
 
 ### Documentation Added (3 files)
 1. **DATABASE_ENCRYPTION_FIX.md** - Comprehensive implementation guide
@@ -139,6 +141,7 @@ Tests are designed to run with `flutter test` and validate:
    flutter test test/database_encryption_test.dart
    flutter test test/database_migration_encryption_test.dart
    flutter test test/backup_restore_encryption_test.dart
+   flutter test test/migration_removed_tables_test.dart
    ```
 
 2. **Check code**:
@@ -226,13 +229,26 @@ All documentation is comprehensive and includes:
 - ✅ `verifyEncryption()` method for runtime validation
 - ✅ Platform-specific handling
 - ✅ Comprehensive tests and documentation
+- ✅ **Schema evolution handling**: Migration skips tables removed from schema
+
+### Additional Fix: Schema Evolution Protection
+**Problem**: Migration failed when old databases contained tables removed in later versions (e.g., `user_preferences` removed in v3).
+
+**Solution**: 
+- Query destination database schema before copying
+- Only copy tables that exist in both source and destination
+- Skip removed tables with warning log
+- Migration succeeds even with schema evolution
+
+**Impact**: Users upgrading from any old version (v1, v2, etc.) can now migrate successfully without "no such table" errors.
 
 ### Best Practices Applied
 - **Fail Closed**: App crashes on mobile if encryption key unavailable
 - **No Key Logging**: Encryption keys are never logged or printed
 - **Platform Isolation**: Clear separation between mobile (encrypted) and test (unencrypted)
 - **Atomic Migration**: Database migration is safe and reversible
-- **Comprehensive Testing**: 33 tests validate encryption behavior
+- **Schema Validation**: Migration validates destination schema before copying
+- **Comprehensive Testing**: 35+ tests validate encryption behavior and schema evolution
 - **Documentation**: Extensive docs for developers and security team
 
 ## 🔮 Future Enhancements

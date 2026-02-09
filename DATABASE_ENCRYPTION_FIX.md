@@ -137,7 +137,10 @@ return await factory.openDatabase(
 4. **File check** → Database file exists at path
 5. **Encryption check** → `_isDatabaseEncrypted()` returns `false` (plaintext)
 6. **Migration triggered** → `_migrateUnencryptedDatabase()` executes
-7. **Data copied** → All tables/data copied to new encrypted DB
+7. **Data copied** → All compatible tables/data copied to new encrypted DB
+   - **Schema validation**: Only copies tables that exist in destination schema
+   - **Skips removed tables**: Tables like `user_preferences` (removed in v3) are skipped
+   - **No errors**: Migration completes successfully even if source has old tables
 8. **File replaced** → Old file backed up, new encrypted file in place
 9. **Database opens** → With encryption key, reads encrypted data
 
@@ -167,12 +170,18 @@ return await factory.openDatabase(
    - Selective restore with encrypted backups
    - Statistics and validation
 
+4. **`test/migration_removed_tables_test.dart`**
+   - Migration with tables removed from schema
+   - Validates skipping of non-existent tables
+   - Ensures migration doesn't fail on schema evolution
+
 ### Running Tests
 ```bash
 # Run all encryption tests
 flutter test test/database_encryption_test.dart
 flutter test test/database_migration_encryption_test.dart
 flutter test test/backup_restore_encryption_test.dart
+flutter test test/migration_removed_tables_test.dart
 
 # Run all tests
 flutter test
@@ -245,6 +254,21 @@ flutter test
 - ✅ No data loss during migration
 - ✅ Backup of old unencrypted file created
 - ✅ App continues to work normally
+- ✅ **Schema evolution handled**: Migration skips tables removed in later versions
+
+### Schema Evolution Protection
+The migration system includes protection against schema evolution issues:
+- **Problem**: Old databases may contain tables removed in later versions (e.g., `user_preferences` removed in v3)
+- **Solution**: Migration validates each table exists in destination schema before copying
+- **Behavior**: Tables not in destination schema are skipped with warning log
+- **Result**: Migration succeeds even when source has old/removed tables
+
+**Example**: User upgrading from v2 (with `user_preferences`) to v10:
+1. Old DB has: `contacts`, `chats`, `messages`, `user_preferences`
+2. New DB schema (v10) has: `contacts`, `chats`, `messages` (no `user_preferences`)
+3. Migration copies: `contacts`, `chats`, `messages`
+4. Migration skips: `user_preferences` (logs: "⚠️ Skipping table user_preferences - not present in destination schema")
+5. Migration completes successfully
 
 ### New Users
 - ✅ Database created encrypted from the start
