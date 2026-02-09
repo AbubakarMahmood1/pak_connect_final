@@ -129,29 +129,23 @@ class OutboundMessageSender {
       String encryptionMethod = 'none';
 
       if (encryptionKey.isNotEmpty) {
-        try {
-          payload = await SecurityManager.instance.encryptMessage(
-            message,
-            encryptionKey,
-            contactRepository,
-          );
-          encryptionMethod = await _getSimpleEncryptionMethod(
-            encryptionKey,
-            contactRepository,
-          );
-          _logger.info(
-            '🔒 MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method',
-          );
-        } catch (e) {
-          _logger.warning(
-            '🔒 MESSAGE: Encryption failed, sending unencrypted: $e',
-          );
-          encryptionMethod = 'none';
-        }
-      } else {
-        _logger.info(
-          '🔒 MESSAGE: No encryption key resolved, sending unencrypted',
+        payload = await SecurityManager.instance.encryptMessage(
+          message,
+          encryptionKey,
+          contactRepository,
         );
+        encryptionMethod = await _getSimpleEncryptionMethod(
+          encryptionKey,
+          contactRepository,
+        );
+        _logger.info(
+          '🔒 MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method',
+        );
+      } else {
+        _logger.severe(
+          '❌ SEND ABORTED: No encryption key available for message $msgId',
+        );
+        throw Exception('Cannot send message without encryption key');
       }
 
       SecurityLevel trustLevel;
@@ -363,29 +357,23 @@ class OutboundMessageSender {
       String encryptionMethod = 'none';
 
       if (encryptionKey.isNotEmpty) {
-        try {
-          payload = await SecurityManager.instance.encryptMessage(
-            message,
-            encryptionKey,
-            contactRepository,
-          );
-          encryptionMethod = await _getSimpleEncryptionMethod(
-            encryptionKey,
-            contactRepository,
-          );
-          _logger.info(
-            '🔒 PERIPHERAL MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method',
-          );
-        } catch (e) {
-          _logger.warning(
-            '🔒 PERIPHERAL MESSAGE: Encryption failed, sending unencrypted: $e',
-          );
-          encryptionMethod = 'none';
-        }
-      } else {
-        _logger.info(
-          '🔒 PERIPHERAL MESSAGE: No encryption key resolved, sending unencrypted',
+        payload = await SecurityManager.instance.encryptMessage(
+          message,
+          encryptionKey,
+          contactRepository,
         );
+        encryptionMethod = await _getSimpleEncryptionMethod(
+          encryptionKey,
+          contactRepository,
+        );
+        _logger.info(
+          '🔒 PERIPHERAL MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method',
+        );
+      } else {
+        _logger.severe(
+          '❌ PERIPHERAL SEND ABORTED: No encryption key available for message $msgId',
+        );
+        throw Exception('Cannot send message without encryption key');
       }
 
       SecurityLevel trustLevel;
