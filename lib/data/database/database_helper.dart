@@ -51,8 +51,8 @@ class DatabaseHelper {
   /// Initialize the database with SQLCipher encryption
   static Future<sqlcipher.Database> _initDatabase() async {
     // Platform-specific database factory:
-    // - Android/iOS: Use sqlcipher.databaseFactory (already initialized)
-    // - Desktop/Tests: Use sqflite_common.databaseFactory (initialized by test setup)
+    // - Android/iOS: Use sqlcipher.databaseFactory (supports encryption)
+    // - Desktop/Tests: Use sqflite_common.databaseFactory (no encryption support)
     final factory = Platform.isAndroid || Platform.isIOS
         ? sqlcipher.databaseFactory
         : sqflite_common.databaseFactory;
@@ -61,27 +61,370 @@ class DatabaseHelper {
     final dbName = _testDatabaseName ?? _databaseName;
     final path = join(databasesPath, dbName);
 
-    // Get encryption key from secure storage (skip in test environment)
-    try {
-      await DatabaseEncryption.getOrCreateEncryptionKey();
-    } catch (e) {
-      _logger.fine('Encryption key retrieval skipped (test environment): $e');
-      // In test environment without secure storage, proceed without encryption
+    // Get encryption key from secure storage on mobile platforms
+    // Desktop/test builds use sqflite_common which doesn't support encryption
+    String? encryptionKey;
+    final isMobilePlatform = Platform.isAndroid || Platform.isIOS;
+    
+    if (isMobilePlatform) {
+      try {
+        encryptionKey = await DatabaseEncryption.getOrCreateEncryptionKey();
+        _logger.info('🔐 Retrieved encryption key for SQLCipher');
+      } catch (e) {
+        _logger.severe(
+          '❌ Failed to retrieve encryption key on mobile platform: $e',
+        );
+        // On mobile, encryption is required - fail closed
+        rethrow;
+      }
+
+      // Check if we need to migrate an existing unencrypted database
+      if (await File(path).exists()) {
+        final isEncrypted = await _isDatabaseEncrypted(path);
+        if (!isEncrypted) {
+          _logger.warning(
+            '⚠️ Existing database is unencrypted - migrating to encrypted storage',
+          );
+          await _migrateUnencryptedDatabase(
+            path,
+            encryptionKey,
+            factory as sqlcipher.DatabaseFactory,
+          );
+        }
+      }
+    } else {
+      _logger.fine(
+        'Encryption skipped (desktop/test platform - sqflite_common does not support SQLCipher)',
+      );
     }
 
     _logger.info(
-      'Initializing database at: $path (factory: ${factory.runtimeType})',
+      'Initializing database at: $path (factory: ${factory.runtimeType}, encrypted: ${encryptionKey != null})',
     );
 
-    return await factory.openDatabase(
-      path,
-      options: sqlcipher.OpenDatabaseOptions(
-        version: _databaseVersion,
-        onCreate: _onCreate,
-        onUpgrade: _onUpgrade,
-        onConfigure: _onConfigure,
-      ),
+    // Use platform-specific options to avoid runtime errors
+    // - Mobile: sqlcipher.OpenDatabaseOptions supports password parameter
+    // - Desktop/Test: sqflite_common.OpenDatabaseOptions does NOT support password
+    return isMobilePlatform
+        ? await factory.openDatabase(
+            path,
+            options: sqlcipher.OpenDatabaseOptions(
+              version: _databaseVersion,
+              onCreate: _onCreate,
+              onUpgrade: _onUpgrade,
+              onConfigure: _onConfigure,
+              password: encryptionKey,
+            ),
+          )
+        : await factory.openDatabase(
+            path,
+            options: sqflite_common.OpenDatabaseOptions(
+              version: _databaseVersion,
+              onCreate: _onCreate,
+              onUpgrade: _onUpgrade,
+              onConfigure: _onConfigure,
+            ),
+          );
+  }
+
+  /// Check if a database file is encrypted (SQLCipher format)
+  /// Returns true if encrypted, false if plaintext SQLite
+  static Future<bool> _isDatabaseEncrypted(String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) {
+        return false; // File doesn't exist, no encryption status
+      }
+
+      // Read first 16 bytes of the database file
+      // SQLite plaintext databases start with "SQLite format 3\0"
+      // SQLCipher encrypted databases have random-looking bytes
+      final bytes = await file.openRead(0, 16).first;
+      
+      // Check for SQLite magic header (plaintext)
+      const sqliteMagic = 'SQLite format 3';
+      final header = String.fromCharCodes(bytes.take(15));
+      
+      if (header == sqliteMagic) {
+        _logger.warning('Database file is plaintext SQLite (not encrypted)');
+        return false;
+      }
+      
+      // If header doesn't match SQLite magic, assume it's encrypted
+      _logger.fine('Database file appears to be encrypted');
+      return true;
+    } catch (e) {
+      _logger.warning('Could not determine database encryption status: $e');
+      // On error, assume encrypted to prevent data loss
+      return true;
+    }
+  }
+
+  /// Migrate an existing unencrypted database to encrypted format
+  /// This is a one-time migration for existing users
+  /// Note: This method is only called on mobile platforms (Android/iOS)
+  static Future<void> _migrateUnencryptedDatabase(
+    String oldPath,
+    String encryptionKey,
+    sqlcipher.DatabaseFactory factory,
+  ) async {
+    try {
+      _logger.info('🔄 Starting database encryption migration...');
+      
+      final tempPath = '$oldPath.encrypted_temp';
+      final backupPath = '$oldPath.backup_unencrypted';
+      
+      // 1. Open the old unencrypted database (no password)
+      _logger.fine('Opening unencrypted database for reading...');
+      final oldDb = await factory.openDatabase(
+        oldPath,
+        options: sqlcipher.OpenDatabaseOptions(readOnly: true),
+      );
+      
+      // 2. Create new encrypted database at temporary location
+      _logger.fine('Creating new encrypted database...');
+      final newDb = await factory.openDatabase(
+        tempPath,
+        options: sqlcipher.OpenDatabaseOptions(
+          version: _databaseVersion,
+          onCreate: _onCreate,
+          password: encryptionKey, // Apply encryption
+        ),
+      );
+      
+      // 3. Copy all data from old to new database
+      _logger.fine('Copying data to encrypted database...');
+      await _copyDatabaseContents(oldDb, newDb);
+      
+      // 3.5. Apply critical data migration backfills
+      // Since _copyDatabaseContents doesn't run _onUpgrade, we need to manually
+      // apply any data transformations that would normally happen during upgrades
+      _logger.fine('Applying data migration backfills...');
+      await _applyDataMigrationBackfills(newDb);
+      
+      // 3.6. Rebuild FTS indexes
+      // FTS virtual tables were skipped during copy and need to be repopulated
+      // from the base tables for search to work
+      _logger.fine('Rebuilding FTS indexes...');
+      await _rebuildFtsIndexes(newDb);
+      
+      // 4. Close both databases
+      await oldDb.close();
+      await newDb.close();
+      
+      // 5. Backup the old unencrypted database
+      _logger.fine('Backing up old unencrypted database...');
+      await File(oldPath).copy(backupPath);
+      
+      // 6. Replace old database with new encrypted one
+      _logger.fine('Replacing old database with encrypted version...');
+      await File(oldPath).delete();
+      await File(tempPath).rename(oldPath);
+      
+      // 7. Delete the plaintext backup for security
+      // The backup was only kept for recovery in case of migration failure
+      _logger.fine('Deleting plaintext backup for security...');
+      try {
+        await File(backupPath).delete();
+        _logger.info('✅ Plaintext backup deleted');
+      } catch (e) {
+        _logger.warning('Could not delete plaintext backup: $e');
+        // Non-fatal - migration succeeded
+      }
+      
+      _logger.info(
+        '✅ Database encryption migration complete. '
+        'Data migrated and plaintext backup removed.',
+      );
+    } catch (e, stackTrace) {
+      _logger.severe(
+        '❌ Database encryption migration failed',
+        e,
+        stackTrace,
+      );
+      rethrow;
+    }
+  }
+
+  /// Copy all tables and data from source to destination database
+  static Future<void> _copyDatabaseContents(
+    sqlcipher.Database sourceDb,
+    sqlcipher.Database destDb,
+  ) async {
+    // Get list of all tables from source (excluding sqlite internal tables)
+    final sourceTables = await sourceDb.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'",
     );
+    
+    // Get list of all tables from destination to validate against
+    final destTables = await destDb.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'",
+    );
+    
+    // Create a set of destination table names for fast lookup
+    final destTableNames = destTables
+        .map((table) => table['name'] as String)
+        .toSet();
+    
+    _logger.fine(
+      'Copying ${sourceTables.length} tables from source '
+      '(${destTableNames.length} tables in destination)...',
+    );
+    
+    int copiedCount = 0;
+    int skippedCount = 0;
+    
+    for (final table in sourceTables) {
+      final tableName = table['name'] as String;
+      
+      // Skip FTS tables - they will be rebuilt automatically
+      if (tableName.endsWith('_fts')) {
+        _logger.fine('Skipping FTS table: $tableName (will be rebuilt)');
+        skippedCount++;
+        continue;
+      }
+      
+      // Check if table exists in destination database
+      if (!destTableNames.contains(tableName)) {
+        _logger.warning(
+          '⚠️ Skipping table $tableName - not present in destination schema '
+          '(table was removed in a later version)',
+        );
+        skippedCount++;
+        continue;
+      }
+      
+      _logger.fine('Copying table: $tableName');
+      
+      // Read all rows from source table
+      final rows = await sourceDb.query(tableName);
+      
+      if (rows.isEmpty) {
+        _logger.fine('Table $tableName is empty');
+        copiedCount++;
+        continue;
+      }
+      
+      // Insert rows into destination table in batches
+      final batch = destDb.batch();
+      for (final row in rows) {
+        batch.insert(tableName, row);
+      }
+      
+      await batch.commit(noResult: true);
+      _logger.fine('Copied ${rows.length} rows from $tableName');
+      copiedCount++;
+    }
+    
+    _logger.info(
+      '✅ Migration complete: Copied $copiedCount tables, skipped $skippedCount tables',
+    );
+  }
+
+  /// Apply critical data migration backfills after copying database contents
+  /// 
+  /// When migrating from unencrypted to encrypted, _copyDatabaseContents only
+  /// copies raw data without running _onUpgrade migrations. This method applies
+  /// the critical data transformations that would normally happen during upgrades.
+  static Future<void> _applyDataMigrationBackfills(
+    sqlcipher.Database db,
+  ) async {
+    try {
+      // v8 Migration Backfill: current_ephemeral_id
+      // This backfill is critical for post-v8 identity/session tracking
+      // Without it, upgraded users will have NULL current_ephemeral_id
+      _logger.fine('Applying v8 backfill: current_ephemeral_id');
+      
+      // Check if current_ephemeral_id column exists (it should, from _onCreate)
+      final columns = await db.rawQuery('PRAGMA table_info(contacts)');
+      final hasCurrentEphemeralId = columns.any(
+        (col) => col['name'] == 'current_ephemeral_id',
+      );
+      
+      if (hasCurrentEphemeralId) {
+        // Backfill current_ephemeral_id from ephemeral_id for existing contacts
+        final result = await db.rawUpdate('''
+          UPDATE contacts 
+          SET current_ephemeral_id = ephemeral_id 
+          WHERE ephemeral_id IS NOT NULL 
+            AND current_ephemeral_id IS NULL
+        ''');
+        _logger.info(
+          '✅ v8 backfill complete: Updated $result contacts with current_ephemeral_id',
+        );
+      } else {
+        _logger.warning(
+          'current_ephemeral_id column not found - skipping v8 backfill',
+        );
+      }
+      
+      // Add more backfills here as needed for future migrations
+      // Example:
+      // if (oldVersion < 9) {
+      //   await _applyV9Backfill(db);
+      // }
+      
+    } catch (e, stackTrace) {
+      _logger.severe(
+        'Failed to apply data migration backfills',
+        e,
+        stackTrace,
+      );
+      // Don't rethrow - migration can continue with copied data
+      // But log the error so it can be investigated
+    }
+  }
+
+  /// Rebuild FTS (Full-Text Search) indexes after copying database contents
+  /// 
+  /// When migrating from unencrypted to encrypted, FTS virtual tables are
+  /// skipped during _copyDatabaseContents. This method rebuilds the FTS tables
+  /// and repopulates them from the base tables so search functionality works.
+  static Future<void> _rebuildFtsIndexes(sqlcipher.Database db) async {
+    try {
+      _logger.fine('Rebuilding FTS indexes for archived messages...');
+      
+      // Check if archived_messages table exists and has data
+      final archivedCount = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM archived_messages',
+      );
+      final hasArchivedMessages = 
+          (archivedCount.first['count'] as int?) ?? 0 > 0;
+      
+      if (hasArchivedMessages) {
+        // Use ArchiveDbUtilities to rebuild the FTS table and triggers
+        await ArchiveDbUtilities.rebuildArchiveFts(db);
+        
+        // Repopulate the FTS index from existing archived_messages data
+        // This is critical - without this, search results will be empty
+        final result = await db.rawInsert('''
+          INSERT INTO archived_messages_fts(rowid, searchable_text)
+          SELECT rowid, searchable_text 
+          FROM archived_messages
+          WHERE searchable_text IS NOT NULL
+        ''');
+        
+        _logger.info(
+          '✅ FTS rebuild complete: Indexed $result archived messages',
+        );
+      } else {
+        _logger.fine('No archived messages to index - skipping FTS rebuild');
+      }
+      
+      // Note: messages_fts is not currently used in the schema
+      // If it's added in the future, rebuild it here as well
+      
+    } catch (e, stackTrace) {
+      _logger.severe(
+        'Failed to rebuild FTS indexes',
+        e,
+        stackTrace,
+      );
+      // Don't rethrow - migration can continue without FTS
+      // But log the error so search issues can be investigated
+    }
   }
 
   /// Configure database before opening
@@ -964,6 +1307,71 @@ class DatabaseHelper {
     } catch (e) {
       _logger.severe('❌ Failed to clear all data: $e');
       rethrow;
+    }
+  }
+
+  /// Verify that the database is properly encrypted (SQLCipher format)
+  /// Returns true if encrypted, false if plaintext, null if cannot determine
+  /// 
+  /// This method is useful for:
+  /// - Runtime verification that encryption is working
+  /// - Testing encryption implementation
+  /// - Debugging encryption issues
+  /// 
+  /// Note: On desktop/test platforms using sqflite_common, this will return
+  /// false as those platforms don't support SQLCipher encryption.
+  static Future<bool?> verifyEncryption() async {
+    try {
+      final path = await getDatabasePath();
+      final file = File(path);
+      
+      if (!await file.exists()) {
+        _logger.warning('Cannot verify encryption - database file does not exist');
+        return null;
+      }
+      
+      // Check if file is encrypted using header inspection
+      final isEncrypted = await _isDatabaseEncrypted(path);
+      
+      // Additional verification: Try opening without password (should fail if encrypted)
+      if (isEncrypted) {
+        final factory = Platform.isAndroid || Platform.isIOS
+            ? sqlcipher.databaseFactory
+            : sqflite_common.databaseFactory;
+        
+        try {
+          // Try to open without password
+          final testDb = await factory.openDatabase(
+            path,
+            options: sqlcipher.OpenDatabaseOptions(
+              readOnly: true,
+              // No password parameter
+            ),
+          );
+          
+          // If we can query it without password, it's not encrypted
+          try {
+            await testDb.rawQuery('SELECT COUNT(*) FROM sqlite_master');
+            await testDb.close();
+            _logger.warning('⚠️ Database opened successfully without password - NOT ENCRYPTED');
+            return false;
+          } catch (e) {
+            // Query failed even though open succeeded - might be corrupt or encrypted
+            await testDb.close();
+            _logger.fine('Database query without password failed (expected for encryption): $e');
+            return true;
+          }
+        } catch (e) {
+          // Failed to open without password - good sign for encryption
+          _logger.fine('Database cannot be opened without password (encrypted): $e');
+          return true;
+        }
+      }
+      
+      return false; // File header indicates plaintext
+    } catch (e) {
+      _logger.warning('Failed to verify encryption status: $e');
+      return null;
     }
   }
 
