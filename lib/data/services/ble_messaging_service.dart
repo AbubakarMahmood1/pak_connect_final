@@ -535,7 +535,7 @@ class BLEMessagingService implements IBLEMessagingService {
   // ============================================================================
 
   /// Fragments and enqueues a binary payload for BLE transport.
-  /// Attempts Noise encryption when a session is available; otherwise sends plaintext.
+  /// Requires encryption when recipientId is provided; aborts if encryption fails.
   Future<void> _sendBinaryPayload({
     required Uint8List data,
     required int originalType,
@@ -543,15 +543,16 @@ class BLEMessagingService implements IBLEMessagingService {
   }) async {
     var payload = data;
     if (recipientId != null && recipientId.isNotEmpty) {
-      try {
-        payload = await SecurityManager.instance.encryptBinaryPayload(
-          data,
-          recipientId,
-          _contactRepository,
-        );
-      } catch (e) {
-        _logger.warning('⚠️ Binary payload encryption failed: $e');
-      }
+      // Encryption is required when recipientId is present
+      payload = await SecurityManager.instance.encryptBinaryPayload(
+        data,
+        recipientId,
+        _contactRepository,
+      );
+    } else {
+      _logger.warning(
+        '⚠️ Binary payload sent without encryption - no recipient specified',
+      );
     }
 
     final mtuSize = _connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
