@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import '../../database/database_helper.dart';
+import '../../database/database_encryption.dart';
 import 'export_bundle.dart';
 
 class SelectiveRestoreService {
@@ -33,10 +34,34 @@ class SelectiveRestoreService {
           ? sqlcipher.databaseFactory
           : sqflite_common.databaseFactory;
 
-      final backupDb = await factory.openDatabase(
-        backupPath,
-        options: sqflite_common.OpenDatabaseOptions(readOnly: true),
-      );
+      // Get encryption key for mobile platforms
+      String? encryptionKey;
+      if (Platform.isAndroid || Platform.isIOS) {
+        try {
+          encryptionKey = await DatabaseEncryption.getOrCreateEncryptionKey();
+          _logger.fine('Using encryption key to open backup database');
+        } catch (e) {
+          _logger.warning('Failed to get encryption key for restore: $e');
+          // Try opening without encryption
+        }
+      }
+
+      // Open database with platform-specific options
+      final backupDb = Platform.isAndroid || Platform.isIOS
+          ? await factory.openDatabase(
+              backupPath,
+              options: sqlcipher.OpenDatabaseOptions(
+                readOnly: true,
+                password: encryptionKey, // Use encryption key on mobile platforms
+              ),
+            )
+          : await factory.openDatabase(
+              backupPath,
+              options: sqflite_common.OpenDatabaseOptions(
+                readOnly: true,
+                // No password parameter for sqflite_common
+              ),
+            );
 
       // Get target database
       final targetDb = await DatabaseHelper.database;

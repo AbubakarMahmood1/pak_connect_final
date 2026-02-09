@@ -95,24 +95,12 @@ dev_dependencies:
   mockito: ^5.4.4
 
 dependency_overrides:
-  bluetooth_low_energy:
-    path: reference/bluetooth_low_energy/bluetooth_low_energy
-  bluetooth_low_energy_android:
-    path: reference/bluetooth_low_energy/bluetooth_low_energy_android
-  bluetooth_low_energy_platform_interface:
-    path: reference/bluetooth_low_energy/bluetooth_low_energy_platform_interface
-  bluetooth_low_energy_darwin:
-    path: reference/bluetooth_low_energy/bluetooth_low_energy_darwin
-  bluetooth_low_energy_linux:
-    path: reference/bluetooth_low_energy/bluetooth_low_energy_linux
-  bluetooth_low_energy_windows:
-    path: reference/bluetooth_low_energy/bluetooth_low_energy_windows
+  flutter_secure_storage_platform_interface: any
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
-  flutter_secure_storage_platform_interface: any
 flutter:
 
   # The following line ensures that the Material Icons font is
