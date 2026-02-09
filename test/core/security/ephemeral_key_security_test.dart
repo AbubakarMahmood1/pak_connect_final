@@ -62,7 +62,9 @@ void main() {
 
         print('📋 SharedPreferences keys after initialization:');
         for (final key in allKeys) {
-          print('  - $key: ${prefs.get(key).toString().substring(0, 20)}...');
+          final value = prefs.get(key).toString();
+          final preview = value.length > 20 ? value.substring(0, 20) : value;
+          print('  - $key: $preview${value.length > 20 ? "..." : ""}');
         }
 
         // THEN: Private key should NOT be in SharedPreferences
@@ -398,32 +400,68 @@ void main() {
     });
 
     test(
-      '@visibleForTesting annotation present on private key getter',
+      'Legacy private keys are removed on initialization',
       () async {
-        // This is a compile-time check verified by the annotation itself
-        // If the annotation is removed, this test serves as documentation
-        // that the getter should be restricted
+        // GIVEN: A legacy installation with persisted private key
+        final prefs = await SharedPreferences.getInstance();
+        
+        // Simulate legacy installation by manually writing private key
+        await prefs.setString(
+          'ephemeral_signing_private',
+          'legacy-private-key-from-old-version',
+        );
+        
+        print('💾 Simulated legacy private key persisted to disk');
+        
+        // Verify it exists before initialization
+        expect(
+          prefs.getString('ephemeral_signing_private'),
+          isNotNull,
+          reason: 'Legacy private key should exist before cleanup',
+        );
 
-        // GIVEN: Initialize EphemeralKeyManager
-        await EphemeralKeyManager.initialize('test-annotation');
+        // WHEN: Initialize EphemeralKeyManager (triggers cleanup)
+        await EphemeralKeyManager.initialize('test-cleanup');
         EphemeralKeyManager.generateMyEphemeralKey();
 
-        // WHEN: Access private key (only allowed in tests due to @visibleForTesting)
+        // THEN: Legacy private key should be removed
+        expect(
+          prefs.getString('ephemeral_signing_private'),
+          isNull,
+          reason:
+              '🚨 SECURITY VULNERABILITY: Legacy private key not cleaned up! '
+              'Existing installations will retain sensitive data after upgrade. '
+              'Must explicitly remove old private keys on initialization.',
+        );
+
+        print('✅ PASS: Legacy private key cleaned up on initialization');
+      },
+    );
+
+    test(
+      'Private key getter accessible for internal components',
+      () async {
+        // This test verifies that the private key getter works for
+        // trusted internal components like SigningManager
+        // The @visibleForTesting annotation was removed to allow production use
+
+        // GIVEN: Initialize EphemeralKeyManager
+        await EphemeralKeyManager.initialize('test-internal-access');
+        EphemeralKeyManager.generateMyEphemeralKey();
+
+        // WHEN: Access private key (as SigningManager does)
         final privateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
 
-        // THEN: Should be accessible in test context
+        // THEN: Should be accessible for internal use
         expect(
           privateKey,
           isNotNull,
           reason:
-              'Private key should be accessible in tests via @visibleForTesting',
+              'Private key should be accessible for internal components',
         );
 
         print(
-          '✅ PASS: Private key getter accessible in test context with @visibleForTesting',
-        );
-        print(
-          '⚠️  WARNING: In production code, this getter should trigger a lint warning',
+          '✅ PASS: Private key getter accessible for internal components (SigningManager)',
         );
       },
     );
