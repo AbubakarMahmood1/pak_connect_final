@@ -217,20 +217,48 @@ class DatabaseHelper {
     sqlcipher.Database sourceDb,
     sqlcipher.Database destDb,
   ) async {
-    // Get list of all tables (excluding sqlite internal tables)
-    final tables = await sourceDb.rawQuery(
+    // Get list of all tables from source (excluding sqlite internal tables)
+    final sourceTables = await sourceDb.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='table' "
       "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'",
     );
     
-    _logger.fine('Copying ${tables.length} tables...');
+    // Get list of all tables from destination to validate against
+    final destTables = await destDb.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'",
+    );
     
-    for (final table in tables) {
+    // Create a set of destination table names for fast lookup
+    final destTableNames = destTables
+        .map((table) => table['name'] as String)
+        .toSet();
+    
+    _logger.fine(
+      'Copying ${sourceTables.length} tables from source '
+      '(${destTableNames.length} tables in destination)...',
+    );
+    
+    int copiedCount = 0;
+    int skippedCount = 0;
+    
+    for (final table in sourceTables) {
       final tableName = table['name'] as String;
       
       // Skip FTS tables - they will be rebuilt automatically
       if (tableName.endsWith('_fts')) {
         _logger.fine('Skipping FTS table: $tableName (will be rebuilt)');
+        skippedCount++;
+        continue;
+      }
+      
+      // Check if table exists in destination database
+      if (!destTableNames.contains(tableName)) {
+        _logger.warning(
+          '⚠️ Skipping table $tableName - not present in destination schema '
+          '(table was removed in a later version)',
+        );
+        skippedCount++;
         continue;
       }
       
@@ -241,6 +269,7 @@ class DatabaseHelper {
       
       if (rows.isEmpty) {
         _logger.fine('Table $tableName is empty');
+        copiedCount++;
         continue;
       }
       
@@ -252,7 +281,12 @@ class DatabaseHelper {
       
       await batch.commit(noResult: true);
       _logger.fine('Copied ${rows.length} rows from $tableName');
+      copiedCount++;
     }
+    
+    _logger.info(
+      '✅ Migration complete: Copied $copiedCount tables, skipped $skippedCount tables',
+    );
   }
 
   /// Configure database before opening
