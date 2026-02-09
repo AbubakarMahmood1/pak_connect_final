@@ -2,6 +2,7 @@
 
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -251,12 +252,10 @@ class SimpleCrypto {
       // Step 3: Create our own SecureRandom (bypass registry)
       final secureRandom = FortunaRandom();
 
-      // Seed it properly
+      // Seed it properly with cryptographically secure randomness
+      final random = Random.secure();
       final seed = Uint8List.fromList(
-        List<int>.generate(
-          32,
-          (i) => DateTime.now().microsecondsSinceEpoch ~/ (i + 1),
-        ),
+        List<int>.generate(32, (_) => random.nextInt(256)),
       );
       secureRandom.seed(KeyParameter(seed));
 

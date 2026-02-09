@@ -33,9 +33,15 @@ class ArchiveCrypto {
   static String decryptField(String value) {
     // Check for legacy encrypted format
     if (value.startsWith(_legacyPrefix)) {
+      final ciphertext = value.substring(_legacyPrefix.length);
+      
+      // Handle P0.2 transition window: PLAINTEXT: marker inside legacy prefix
+      if (ciphertext.startsWith('PLAINTEXT:')) {
+        return ciphertext.substring('PLAINTEXT:'.length);
+      }
+      
       try {
         _ensureLegacyKeyInitialized();
-        final ciphertext = value.substring(_legacyPrefix.length);
         final encrypted = Encrypted.fromBase64(ciphertext);
         final decrypted = _legacyEncrypter!.decrypt(encrypted, iv: _legacyIV!);
         

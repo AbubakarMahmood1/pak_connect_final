@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:logging/logging.dart';
 import 'dart:typed_data';
+import 'dart:math';
 
 class UserPreferences {
   static final _logger = Logger('UserPreferences');
@@ -112,12 +113,12 @@ class UserPreferences {
     final keyGen = ECKeyGenerator();
     final secureRandom = FortunaRandom();
 
-    // Seed the random number generator
-    final seed = List<int>.generate(
-      32,
-      (i) => DateTime.now().millisecondsSinceEpoch ~/ (i + 1),
+    // Seed the random number generator with cryptographically secure randomness
+    final random = Random.secure();
+    final seed = Uint8List.fromList(
+      List<int>.generate(32, (_) => random.nextInt(256)),
     );
-    secureRandom.seed(KeyParameter(Uint8List.fromList(seed)));
+    secureRandom.seed(KeyParameter(seed));
 
     // Generate P-256 key pair
     final keyParams = ECKeyGeneratorParameters(ECCurve_secp256r1());
