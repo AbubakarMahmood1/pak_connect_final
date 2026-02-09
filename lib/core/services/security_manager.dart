@@ -13,6 +13,7 @@ import '../security/noise/models/noise_models.dart';
 import 'simple_crypto.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
+import '../exceptions/encryption_exception.dart';
 
 export '../security/security_types.dart';
 
@@ -327,11 +328,19 @@ class SecurityManager implements ISecurityManager {
             _logger.info('🔒 ENCRYPT: ECDH → ${message.length} chars');
             return encrypted;
           }
-          throw Exception('ECDH encryption failed');
+          throw EncryptionException(
+            'ECDH encryption failed',
+            publicKey: publicKey,
+            encryptionMethod: 'ECDH',
+          );
 
         case EncryptionType.noise:
           if (_noiseService == null) {
-            throw Exception('Noise service not initialized');
+            throw EncryptionException(
+              'Noise service not initialized',
+              publicKey: publicKey,
+              encryptionMethod: 'Noise',
+            );
           }
           final messageBytes = utf8.encode(message);
           final encrypted = await _noiseService!.encrypt(
@@ -343,7 +352,11 @@ class SecurityManager implements ISecurityManager {
             _logger.info('🔒 ENCRYPT: NOISE → ${message.length} chars');
             return encryptedBase64;
           }
-          throw Exception('Noise encryption failed');
+          throw EncryptionException(
+            'Noise encryption failed',
+            publicKey: publicKey,
+            encryptionMethod: 'Noise',
+          );
 
         case EncryptionType.pairing:
           final encrypted = SimpleCrypto.encryptForConversation(
@@ -354,21 +367,26 @@ class SecurityManager implements ISecurityManager {
           return encrypted;
 
         case EncryptionType.global:
-          // 🔒 SECURITY FIX: Do not silently encrypt with insecure global key
-          // Return plaintext with marker to make it obvious no encryption was applied
-          _logger.warning(
-            '🔒 ENCRYPT: GLOBAL FALLBACK (PLAINTEXT) → ${message.length} chars',
+          // 🔒 SECURITY FIX: Never send unencrypted messages
+          // If we reach this point with global encryption, it means encryption setup failed
+          throw EncryptionException(
+            'Cannot send message - no encryption method available',
+            publicKey: publicKey,
+            encryptionMethod: 'global',
           );
-          return 'PLAINTEXT:$message';
       }
     } catch (e) {
-      _logger.severe('🔒 ENCRYPT FAILED: ${method.type.name} → $e');
-      // Fallback to plaintext marker
-      if (method.type != EncryptionType.global) {
-        _logger.warning('🔒 FALLBACK: Using plaintext marker (NO ENCRYPTION)');
-        return 'PLAINTEXT:$message';
+      if (e is EncryptionException) {
+        _logger.severe('🔒 ENCRYPT FAILED: ${e.encryptionMethod ?? method.type.name} → $e');
+        rethrow;
       }
-      rethrow;
+      _logger.severe('🔒 ENCRYPT FAILED: ${method.type.name} → $e');
+      throw EncryptionException(
+        'Encryption failed',
+        publicKey: publicKey,
+        encryptionMethod: method.type.name,
+        cause: e,
+      );
     }
   }
 
@@ -442,12 +460,6 @@ class SecurityManager implements ISecurityManager {
             break;
 
           case EncryptionType.global:
-            // Handle plaintext marker
-            if (encryptedMessage.startsWith('PLAINTEXT:')) {
-              final plaintext = encryptedMessage.substring('PLAINTEXT:'.length);
-              _logger.info('🔒 DECRYPT: PLAINTEXT ✅ (no encryption was used)');
-              return plaintext;
-            }
             // Try legacy decryption for backward compatibility
             final decrypted = SimpleCrypto.decrypt(encryptedMessage);
             _logger.info('🔒 DECRYPT: GLOBAL (legacy) ✅');
@@ -575,11 +587,23 @@ class SecurityManager implements ISecurityManager {
     final method = await getEncryptionMethod(publicKey, repo);
     final plaintextBase64 = base64.encode(data);
 
-    switch (method.type) {
-      case EncryptionType.noise:
-        if (_noiseService != null &&
-            method.publicKey != null &&
-            _noiseService!.hasEstablishedSession(method.publicKey!)) {
+    try {
+      switch (method.type) {
+        case EncryptionType.noise:
+          if (_noiseService == null) {
+            throw EncryptionException(
+              'Noise service not initialized for binary encryption',
+              publicKey: publicKey,
+              encryptionMethod: 'Noise',
+            );
+          }
+          if (method.publicKey == null || !_noiseService!.hasEstablishedSession(method.publicKey!)) {
+            throw EncryptionException(
+              'No established Noise session for binary encryption',
+              publicKey: publicKey,
+              encryptionMethod: 'Noise',
+            );
+          }
           final encrypted = await _noiseService!.encrypt(
             data,
             method.publicKey!,
@@ -590,51 +614,60 @@ class SecurityManager implements ISecurityManager {
             );
             return encrypted;
           }
-          _logger.warning(
-            '🔒 BIN ENCRYPT: Noise encryption returned null for ${publicKey.shortId(8)}...',
+          throw EncryptionException(
+            'Noise encryption returned null for binary payload',
+            publicKey: publicKey,
+            encryptionMethod: 'Noise',
           );
-          throw Exception('Noise encryption failed for binary payload');
-        }
-        _logger.warning(
-          '🔒 BIN ENCRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... falling back to plaintext',
-        );
-        return Uint8List.fromList(
-          utf8.encode('PLAINTEXT:$plaintextBase64'),
-        );
 
-      case EncryptionType.ecdh:
-        final encrypted = await SimpleCrypto.encryptForContact(
-          plaintextBase64,
-          publicKey,
-          repo,
-        );
-        if (encrypted != null) {
+        case EncryptionType.ecdh:
+          final encrypted = await SimpleCrypto.encryptForContact(
+            plaintextBase64,
+            publicKey,
+            repo,
+          );
+          if (encrypted != null) {
+            _logger.fine(
+              '🔒 BIN ENCRYPT: ECDH → ${data.length} bytes to ${publicKey.shortId(8)}...',
+            );
+            return Uint8List.fromList(utf8.encode(encrypted));
+          }
+          throw EncryptionException(
+            'ECDH encryption failed for binary payload',
+            publicKey: publicKey,
+            encryptionMethod: 'ECDH',
+          );
+
+        case EncryptionType.pairing:
+          final encrypted = SimpleCrypto.encryptForConversation(
+            plaintextBase64,
+            publicKey,
+          );
           _logger.fine(
-            '🔒 BIN ENCRYPT: ECDH → ${data.length} bytes to ${publicKey.shortId(8)}...',
+            '🔒 BIN ENCRYPT: PAIRING → ${data.length} bytes to ${publicKey.shortId(8)}...',
           );
           return Uint8List.fromList(utf8.encode(encrypted));
-        }
-        throw Exception('ECDH encryption failed for binary payload');
 
-      case EncryptionType.pairing:
-        final encrypted = SimpleCrypto.encryptForConversation(
-          plaintextBase64,
-          publicKey,
-        );
-        _logger.fine(
-          '🔒 BIN ENCRYPT: PAIRING → ${data.length} bytes to ${publicKey.shortId(8)}...',
-        );
-        return Uint8List.fromList(utf8.encode(encrypted));
-
-      case EncryptionType.global:
-        // 🔒 SECURITY FIX: Do not silently encrypt with insecure global key
-        _logger.warning(
-          '🔒 BIN ENCRYPT: GLOBAL (PLAINTEXT) → ${data.length} bytes to ${publicKey.shortId(8)}...',
-        );
-        // Return plaintext with marker
-        return Uint8List.fromList(
-          utf8.encode('PLAINTEXT:$plaintextBase64'),
-        );
+        case EncryptionType.global:
+          // 🔒 SECURITY FIX: Never send unencrypted binary data
+          throw EncryptionException(
+            'Cannot send binary data - no encryption method available',
+            publicKey: publicKey,
+            encryptionMethod: 'global',
+          );
+      }
+    } catch (e) {
+      if (e is EncryptionException) {
+        _logger.severe('🔒 BIN ENCRYPT FAILED: ${e.encryptionMethod ?? method.type.name} → $e');
+        rethrow;
+      }
+      _logger.severe('🔒 BIN ENCRYPT FAILED: ${method.type.name} → $e');
+      throw EncryptionException(
+        'Binary payload encryption failed',
+        publicKey: publicKey,
+        encryptionMethod: method.type.name,
+        cause: e,
+      );
     }
   }
 
@@ -668,16 +701,8 @@ class SecurityManager implements ISecurityManager {
           throw Exception('Noise decryption failed for binary payload');
         }
         _logger.warning(
-          '🔒 BIN DECRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... trying plaintext fallback',
+          '🔒 BIN DECRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... trying legacy fallback',
         );
-        // Handle plaintext marker
-        if (encryptedString.startsWith('PLAINTEXT:')) {
-          final plaintext = encryptedString.substring('PLAINTEXT:'.length);
-          _logger.fine(
-            '🔒 BIN DECRYPT: PLAINTEXT (fallback) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
-          );
-          return Uint8List.fromList(base64.decode(plaintext));
-        }
         // Try legacy decryption
         final decryptedFallback = SimpleCrypto.decrypt(encryptedString);
         _logger.fine(
@@ -710,14 +735,6 @@ class SecurityManager implements ISecurityManager {
         return Uint8List.fromList(base64.decode(decrypted));
 
       case EncryptionType.global:
-        // Handle plaintext marker
-        if (encryptedString.startsWith('PLAINTEXT:')) {
-          final plaintext = encryptedString.substring('PLAINTEXT:'.length);
-          _logger.fine(
-            '🔒 BIN DECRYPT: PLAINTEXT ← ${data.length} bytes from ${publicKey.shortId(8)}...',
-          );
-          return Uint8List.fromList(base64.decode(plaintext));
-        }
         // Try legacy decryption for backward compatibility
         final decrypted = SimpleCrypto.decrypt(encryptedString);
         _logger.fine(
