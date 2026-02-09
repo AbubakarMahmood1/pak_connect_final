@@ -222,3 +222,56 @@ test/core/security/encryption_fail_open_test.dart | 139 +++++++++++++
 ---
 
 **Reviewer Notes**: This fix addresses a critical security vulnerability. All fail-open patterns have been converted to fail-closed with proper exception handling. No message or file can be transmitted without successful encryption.
+
+## Review Feedback and Additional Fixes (2026-02-09)
+
+### Issue 1: Test Type Safety
+
+**Problem**: The `encryptBinaryPayload` test created `testData` as `List<int>` and cast it to `dynamic` when calling the method. Under sound null safety, this triggered a runtime `TypeError` before the method executed, so the test failed for the wrong reason and never verified the intended `EncryptionException`.
+
+**Fix**: Changed test to use `Uint8List.fromList(testData)` to provide proper type safety. Added `dart:typed_data` import.
+
+**Verification**: Added additional test case that explicitly validates `EncryptionException` is thrown (not `TypeError`), confirming the encryption logic is properly exercised.
+
+**Commit**: 3fc8e3f, 80c5b50
+
+### Issue 2: Null RecipientId Handling
+
+**Problem**: `BLEMessagingService._sendBinaryPayload` still allowed sending unencrypted binary data when `recipientId` was null or empty, logging a warning but proceeding with transmission. This contradicted the fail-closed security pattern.
+
+**Fix**: Changed `_sendBinaryPayload` to throw an exception and abort when `recipientId` is null or empty, consistent with the fail-closed pattern used throughout the codebase.
+
+**Before**:
+```dart
+if (recipientId != null && recipientId.isNotEmpty) {
+  payload = await SecurityManager.instance.encryptBinaryPayload(...);
+} else {
+  _logger.warning('⚠️ Binary payload sent without encryption - no recipient specified');
+}
+```
+
+**After**:
+```dart
+if (recipientId == null || recipientId.isEmpty) {
+  _logger.severe('❌ SEND ABORTED: Cannot send binary payload without recipient ID');
+  throw Exception('Cannot send binary payload without recipient ID');
+}
+final payload = await SecurityManager.instance.encryptBinaryPayload(...);
+```
+
+**Impact**: All binary payload transmissions now require both a valid `recipientId` and successful encryption. No code path exists for unencrypted binary transmission.
+
+**Commit**: 3fc8e3f
+
+## Final Security Posture
+
+After addressing review feedback:
+
+✅ **No plaintext transmission on encryption failure** - All encryption methods throw exceptions  
+✅ **No plaintext transmission on missing recipientId** - All send methods require valid recipient  
+✅ **No plaintext transmission on null recipientId** - Binary payloads abort if no recipient  
+✅ **Type-safe tests** - Tests properly exercise encryption logic (not just type checking)  
+✅ **Consistent fail-closed pattern** - All code paths aligned with security requirements  
+
+---
+**Review Feedback Addressed**: All issues from code review have been resolved.
