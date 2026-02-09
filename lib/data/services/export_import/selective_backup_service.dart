@@ -4,6 +4,7 @@ import 'package:path/path.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import '../../database/database_helper.dart';
+import '../../database/database_encryption.dart';
 import 'export_bundle.dart';
 
 class SelectiveBackupService {
@@ -41,6 +42,18 @@ class SelectiveBackupService {
           ? sqlcipher.databaseFactory
           : sqflite_common.databaseFactory;
 
+      // Get encryption key for mobile platforms
+      String? encryptionKey;
+      if (Platform.isAndroid || Platform.isIOS) {
+        try {
+          encryptionKey = await DatabaseEncryption.getOrCreateEncryptionKey();
+          _logger.fine('Using encryption key for backup database');
+        } catch (e) {
+          _logger.warning('Failed to get encryption key for backup: $e');
+          // Continue without encryption for backup
+        }
+      }
+
       final backupDb = await factory.openDatabase(
         backupPath,
         options: sqflite_common.OpenDatabaseOptions(
@@ -48,6 +61,7 @@ class SelectiveBackupService {
           onCreate: (db, version) async {
             await _createSelectiveSchema(db, exportType);
           },
+          password: encryptionKey, // Encrypt backup on mobile platforms
         ),
       );
 
