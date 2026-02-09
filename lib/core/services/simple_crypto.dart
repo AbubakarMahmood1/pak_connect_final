@@ -29,11 +29,27 @@ class SimpleCrypto {
   
   // Initialize (legacy - kept for backward compatibility)
   static void initialize() {
-    // 🔒 SECURITY: Legacy global encryption removed - this method is deprecated
-    // Global encryption with hardcoded passphrase is now disabled
-    // Keep minimal initialization for backward compatibility
-    _encrypter = null;
-    _iv = null;
+    // 🔒 SECURITY FIX: Setup legacy keys ONLY for backward-compatible decryption
+    // New encryption uses PLAINTEXT: marker, but we can still decrypt old messages
+    const String legacyPassphrase = "PakConnect2024_SecureBase_v1";
+    
+    final keyBytes = sha256
+        .convert(utf8.encode('${legacyPassphrase}BLE_CHAT_SALT'))
+        .bytes;
+    final key = Key(Uint8List.fromList(keyBytes));
+    
+    final ivBytes = sha256
+        .convert(utf8.encode('${legacyPassphrase}BLE_CHAT_IV'))
+        .bytes
+        .sublist(0, 16);
+    _iv = IV(Uint8List.fromList(ivBytes));
+    
+    // Setup encrypter for legacy decryption only
+    _encrypter = Encrypter(AES(key));
+    
+    if (kDebugMode) {
+      print('⚠️ SimpleCrypto initialized in LEGACY MODE (decryption-only)');
+    }
   }
 
   // ========== DEPRECATED GLOBAL ENCRYPTION ==========
@@ -103,7 +119,13 @@ class SimpleCrypto {
     final key = Key(Uint8List.fromList(keyBytes));
 
     _conversationEncrypters[publicKey] = Encrypter(AES(key));
-    // No longer store a static IV - each message gets a random IV
+    
+    // Store legacy IV for backward compatibility with old messages
+    final ivBytes = sha256
+        .convert(utf8.encode('${sharedSecret}CONVERSATION_IV'))
+        .bytes
+        .sublist(0, 16);
+    _conversationIVs[publicKey] = IV(Uint8List.fromList(ivBytes));
 
     if (kDebugMode) {
       print(
