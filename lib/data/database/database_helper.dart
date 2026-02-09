@@ -202,6 +202,12 @@ class DatabaseHelper {
       _logger.fine('Applying data migration backfills...');
       await _applyDataMigrationBackfills(newDb);
       
+      // 3.6. Rebuild FTS indexes
+      // FTS virtual tables were skipped during copy and need to be repopulated
+      // from the base tables for search to work
+      _logger.fine('Rebuilding FTS indexes...');
+      await _rebuildFtsIndexes(newDb);
+      
       // 4. Close both databases
       await oldDb.close();
       await newDb.close();
@@ -368,6 +374,56 @@ class DatabaseHelper {
       );
       // Don't rethrow - migration can continue with copied data
       // But log the error so it can be investigated
+    }
+  }
+
+  /// Rebuild FTS (Full-Text Search) indexes after copying database contents
+  /// 
+  /// When migrating from unencrypted to encrypted, FTS virtual tables are
+  /// skipped during _copyDatabaseContents. This method rebuilds the FTS tables
+  /// and repopulates them from the base tables so search functionality works.
+  static Future<void> _rebuildFtsIndexes(sqlcipher.Database db) async {
+    try {
+      _logger.fine('Rebuilding FTS indexes for archived messages...');
+      
+      // Check if archived_messages table exists and has data
+      final archivedCount = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM archived_messages',
+      );
+      final hasArchivedMessages = 
+          (archivedCount.first['count'] as int?) ?? 0 > 0;
+      
+      if (hasArchivedMessages) {
+        // Use ArchiveDbUtilities to rebuild the FTS table and triggers
+        await ArchiveDbUtilities.rebuildArchiveFts(db);
+        
+        // Repopulate the FTS index from existing archived_messages data
+        // This is critical - without this, search results will be empty
+        final result = await db.rawInsert('''
+          INSERT INTO archived_messages_fts(rowid, searchable_text)
+          SELECT rowid, searchable_text 
+          FROM archived_messages
+          WHERE searchable_text IS NOT NULL
+        ''');
+        
+        _logger.info(
+          '✅ FTS rebuild complete: Indexed $result archived messages',
+        );
+      } else {
+        _logger.fine('No archived messages to index - skipping FTS rebuild');
+      }
+      
+      // Note: messages_fts is not currently used in the schema
+      // If it's added in the future, rebuild it here as well
+      
+    } catch (e, stackTrace) {
+      _logger.severe(
+        'Failed to rebuild FTS indexes',
+        e,
+        stackTrace,
+      );
+      // Don't rethrow - migration can continue without FTS
+      // But log the error so search issues can be investigated
     }
   }
 
