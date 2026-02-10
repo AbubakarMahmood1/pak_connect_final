@@ -73,6 +73,12 @@ lib/
 - `flutter test` runs the unit and widget suites; use `flutter test integration_test/` for device-level coverage.
 - **Always capture full-suite test runs**: when executing `flutter test` against the full suite, pipe the output to `flutter_test_latest.log` (or the appropriate log listed in `TESTING_STRATEGY.md`) and review it before ending the session so regressions are documented.
 - **Sandbox note**: When running Flutter CLI commands from Codex, request elevated permissions up front—the CLI sandbox otherwise blocks writes to `/home/abubakar/flutter/bin/cache` (e.g., `engine.stamp` updates) and causes false "Permission denied" failures. Asking the user to approve elevated execution keeps `flutter analyze`, `flutter run`, and `flutter test` working.
+- **Windows fallback when Flutter wrapper/Puro is unavailable in agent sandbox**:
+  - If `flutter` / `flutter.bat` fails due to wrapper/path/mount issues, invoke Flutter tools directly via the copied SDK Dart binary:
+    - `& "$PWD\\.tmp_flutter_sdk_<N>\\bin\\cache\\dart-sdk\\bin\\dart.exe" "$PWD\\.tmp_flutter_sdk_<N>\\packages\\flutter_tools\\bin\\flutter_tools.dart" analyze --no-pub`
+    - `& "$PWD\\.tmp_flutter_sdk_<N>\\bin\\cache\\dart-sdk\\bin\\dart.exe" "$PWD\\.tmp_flutter_sdk_<N>\\packages\\flutter_tools\\bin\\flutter_tools.dart" test --no-pub <path-or-args>`
+  - Keep `.tmp_flutter_sdk_*` as local scratch only; do not commit/push it.
+  - If accidentally staged, unstage with `git rm --cached -r .tmp_flutter_sdk_*`.
 
 ## Coding Style & Naming Conventions
 - Follow Flutter default lints: two-space indentation, trailing commas for multiline widgets, const constructors when possible.
