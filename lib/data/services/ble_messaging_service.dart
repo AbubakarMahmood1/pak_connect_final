@@ -806,8 +806,8 @@ class BLEMessagingService implements IBLEMessagingService {
   /// Public helper for sending binary/media payloads over BLE.
   ///
   /// Returns [transferId] so the origin can retry with fresh fragmentation.
-  /// Attempts to encrypt via Noise session before fragmenting; falls back to
-  /// plaintext if no session is available.
+  /// Requires an established encryption path; throws instead of sending
+  /// plaintext when encryption cannot be applied.
   Future<String> sendBinaryMedia({
     required Uint8List data,
     required String recipientId,

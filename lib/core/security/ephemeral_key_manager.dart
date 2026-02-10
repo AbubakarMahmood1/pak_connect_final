@@ -70,9 +70,12 @@ class EphemeralKeyManager {
 
   // Generate ephemeral key for current session (stays same until rotation)
   static Future<void> _generateNewSession() async {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final randomComponent = Random.secure().nextInt(0xFFFFFFFF);
-    final seed = '$_myPrivateKey:$_userSalt:$timestamp:$randomComponent';
+    final random = Random.secure();
+    final entropy = List<int>.generate(
+      32,
+      (_) => random.nextInt(256),
+    ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    final seed = '$_myPrivateKey:$_userSalt:$entropy';
 
     // Generate ephemeral session key (64-char hex)
     _currentSessionKey = sha256
@@ -88,14 +91,14 @@ class EphemeralKeyManager {
     // Private keys are held in memory only - fresh keys generated on app restart
     // Only persist non-sensitive session metadata and public key
     final prefs = await SharedPreferences.getInstance();
-    
+
     // 🧹 CLEANUP: Remove legacy private key if it exists from previous versions
     // This ensures existing installations scrub old sensitive data on upgrade
     if (prefs.containsKey('ephemeral_signing_private')) {
       await prefs.remove('ephemeral_signing_private');
       _logger.info('🧹 Removed legacy ephemeral private key from storage');
     }
-    
+
     await prefs.setString('current_ephemeral_session', _currentSessionKey!);
     await prefs.setInt(
       'session_start_time',
@@ -191,11 +194,11 @@ class EphemeralKeyManager {
   static Duration? get sessionAge => _sessionStartTime != null
       ? DateTime.now().difference(_sessionStartTime!)
       : null;
-  
+
   // 🔒 SECURITY: Private key access restricted to trusted internal components only
   // This getter is INTERNAL USE ONLY - required by SigningManager for cryptographic operations
   // Should NOT be accessed outside core security components
   static String? get ephemeralSigningPrivateKey => _ephemeralSigningPrivateKey;
-  
+
   static String? get ephemeralSigningPublicKey => _ephemeralSigningPublicKey;
 }

@@ -176,6 +176,10 @@ void main() {
     Logger.root.level = Level.ALL;
     Logger.root.onRecord.listen(logRecords.add);
 
+    // Keep each test independent from previous key/session state.
+    SimpleCrypto.clearAllConversationKeys();
+    SecurityManager.instance.clearAllNoiseSessions();
+
     stateManager = _FakeStateManager();
     contactRepository = ContactRepository();
     writeClient = FakeBleWriteClient();
@@ -244,6 +248,39 @@ void main() {
 
     expect(result, isFalse);
   });
+
+  test(
+    'central send does not transmit plaintext when encryption fails',
+    () async {
+      await contactRepository.saveContact(
+        'recipient_fail_closed',
+        'Recipient Fail Closed',
+      );
+
+      // No conversation key and no Noise session -> SecurityManager must fail
+      // closed before any transport write is attempted.
+      allowSevere(RegExp(r'ENCRYPT FAILED'));
+      allowSevere(RegExp(r'Failed to send message: EncryptionException'));
+      allowSevere('Stack trace');
+
+      final result = await adapter.sendCentralMessage(
+        centralManager: _FakeCentralManager(),
+        connectedDevice: FakePeripheral(uuid: makeUuid(11)),
+        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(12)),
+        recipientKey: 'recipient_fail_closed',
+        content: 'plaintext must never be transmitted',
+        mtuSize: 185,
+      );
+
+      expect(result, isFalse);
+      expect(
+        writeClient.lastCentralValue,
+        isNull,
+        reason:
+            'No BLE bytes should be written when encryption fails (fail-closed)',
+      );
+    },
+  );
 
   test('peripheral send short-circuits when not in peripheral mode', () async {
     stateManager.peripheralMode = false;
