@@ -274,7 +274,7 @@ void main() {
 
     group('No Hardcoded Passphrase in Codebase', () {
       test('SimpleCrypto does not expose hardcoded passphrase', () {
-        // The hardcoded passphrase "PakConnect2024_SecureBase_v1" should not be
+        // A hardcoded global passphrase should not be
         // used in any active encryption paths.
         // This test verifies that encrypt() returns PLAINTEXT: marker instead.
 
@@ -372,7 +372,7 @@ void main() {
 
   group('Security Regression Tests', () {
     test('hardcoded passphrase is not used in active code paths', () {
-      // Verify that the hardcoded passphrase "PakConnect2024_SecureBase_v1"
+      // Verify that a hardcoded global passphrase
       // is not being used for any real encryption
 
       const plaintext = 'sensitive data';

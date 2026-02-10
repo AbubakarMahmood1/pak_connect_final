@@ -29,20 +29,37 @@ class SimpleCrypto {
 
   // Wire format version prefix
   static const String _wireFormatV2 = 'v2:';
+  static const String _legacyPassphraseFromDefine = String.fromEnvironment(
+    'PAKCONNECT_LEGACY_PASSPHRASE',
+    defaultValue: '',
+  );
 
   // Initialize (legacy - kept for backward compatibility)
   static void initialize() {
-    // 🔒 SECURITY FIX: Setup legacy keys ONLY for backward-compatible decryption
-    // New encryption uses PLAINTEXT: marker, but we can still decrypt old messages
-    const String legacyPassphrase = "PakConnect2024_SecureBase_v1";
+    // Reset legacy decryptor state first.
+    _encrypter = null;
+    _iv = null;
+
+    // Security hardening: legacy passphrase is not hardcoded.
+    // To decrypt old payloads, provide it at build time:
+    // --dart-define=PAKCONNECT_LEGACY_PASSPHRASE=...
+    if (_legacyPassphraseFromDefine.isEmpty) {
+      if (kDebugMode) {
+        print(
+          '⚠️ SimpleCrypto legacy decryptor disabled '
+          '(PAKCONNECT_LEGACY_PASSPHRASE not set)',
+        );
+      }
+      return;
+    }
 
     final keyBytes = sha256
-        .convert(utf8.encode('${legacyPassphrase}BLE_CHAT_SALT'))
+        .convert(utf8.encode('${_legacyPassphraseFromDefine}BLE_CHAT_SALT'))
         .bytes;
     final key = Key(Uint8List.fromList(keyBytes));
 
     final ivBytes = sha256
-        .convert(utf8.encode('${legacyPassphrase}BLE_CHAT_IV'))
+        .convert(utf8.encode('${_legacyPassphraseFromDefine}BLE_CHAT_IV'))
         .bytes
         .sublist(0, 16);
     _iv = IV(Uint8List.fromList(ivBytes));
@@ -113,6 +130,10 @@ class SimpleCrypto {
       return encryptedBase64.substring('PLAINTEXT:'.length);
     }
 
+    if (_encrypter == null || _iv == null) {
+      initialize();
+    }
+
     // Legacy decryption for backward compatibility (old messages)
     if (_encrypter != null && _iv != null) {
       try {
@@ -130,9 +151,9 @@ class SimpleCrypto {
 
     // No decryption possible, throw exception
     if (kDebugMode) {
-      print('⚠️ Cannot decrypt: no legacy keys available');
+      print('⚠️ Cannot decrypt: legacy decryptor unavailable');
     }
-    throw Exception('Cannot decrypt: no legacy keys available');
+    throw Exception('Cannot decrypt: legacy decryptor unavailable');
   }
 
   /// ⚠️ DEPRECATED: Global encryption with hardcoded key is insecure
