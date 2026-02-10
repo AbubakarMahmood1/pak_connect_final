@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
-import '../../domain/entities/enhanced_message.dart';
 import '../../domain/values/id_types.dart';
 import '../interfaces/i_message_queue_repository.dart';
 import '../interfaces/i_database_provider.dart';

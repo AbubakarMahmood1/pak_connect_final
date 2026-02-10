@@ -5,7 +5,6 @@ import 'package:pak_connect/core/messaging/mesh_relay_engine.dart'
     show RelayStatistics;
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart'
     show QueueSyncManagerStats;
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 
@@ -22,8 +21,6 @@ void main() {
       Logger.root.onRecord.listen(logRecords.add);
       monitor = MeshNetworkHealthMonitor();
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -158,3 +155,4 @@ void main() {
     });
   });
 }
+

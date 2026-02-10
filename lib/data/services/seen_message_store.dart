@@ -37,7 +37,7 @@ class SeenMessageStore implements ISeenMessageStore {
 
   SeenMessageStore._() {
     // Keep noisy logs muted unless explicitly enabled.
-    _logger.level ??= Level.INFO;
+    _logger.level = Level.INFO;
   }
 
   // In-memory cache for fast lookups (populated from DB)
@@ -66,6 +66,7 @@ class SeenMessageStore implements ISeenMessageStore {
   }
 
   /// Check if message was already delivered
+  @override
   bool hasDelivered(String messageId) {
     if (!_initialized) {
       _logger.warning('hasDelivered called before initialization');
@@ -76,6 +77,7 @@ class SeenMessageStore implements ISeenMessageStore {
   }
 
   /// Check if message was already read
+  @override
   bool hasRead(String messageId) {
     if (!_initialized) {
       _logger.warning('hasRead called before initialization');
@@ -86,6 +88,7 @@ class SeenMessageStore implements ISeenMessageStore {
   }
 
   /// Mark message as delivered
+  @override
   Future<void> markDelivered(String messageId) async {
     if (!_initialized) {
       await initialize();
@@ -119,6 +122,7 @@ class SeenMessageStore implements ISeenMessageStore {
   }
 
   /// Mark message as read
+  @override
   Future<void> markRead(String messageId) async {
     if (!_initialized) {
       await initialize();
@@ -152,6 +156,7 @@ class SeenMessageStore implements ISeenMessageStore {
   }
 
   /// Get statistics
+  @override
   Map<String, dynamic> getStatistics() {
     return {
       'deliveredCount': _deliveredIds.length,
@@ -163,6 +168,7 @@ class SeenMessageStore implements ISeenMessageStore {
   }
 
   /// Clear all seen messages (for testing)
+  @override
   Future<void> clear() async {
     try {
       _deliveredIds.clear();
@@ -347,6 +353,7 @@ class SeenMessageStore implements ISeenMessageStore {
   }
 
   /// Cleanup old entries (called periodically)
+  @override
   Future<void> performMaintenance() async {
     try {
       final db = await DatabaseHelper.database;

@@ -1,12 +1,12 @@
-/// Identity Manager Interface
+// Identity Manager Interface
 import '../../domain/values/id_types.dart';
 
-///
-/// Manages user and contact identity:
-/// - User's own username and persistent public key (Ed25519)
-/// - Connected peer's display name and ephemeral/persistent keys
-/// - Identity resolution (publicKey vs persistentKey)
-/// - Ephemeral-to-persistent key mapping
+//
+// Manages user and contact identity:
+// - User's own username and persistent public key (Ed25519)
+// - Connected peer's display name and ephemeral/persistent keys
+// - Identity resolution (publicKey vs persistentKey)
+// - Ephemeral-to-persistent key mapping
 
 abstract class IIdentityManager {
   // ============================================================================
@@ -49,12 +49,6 @@ abstract class IIdentityManager {
 
   /// Look up peer's persistent public key by ephemeral ID
   String? getPersistentKeyFromEphemeral(String ephemeralId);
-
-  /// Initialize SimpleCrypto with user's key pair for message signing
-  void _initializeSigning();
-
-  /// Initialize baseline encryption (SimpleCrypto)
-  void _initializeCrypto();
 
   // ============================================================================
   // GETTERS (Active Session State)

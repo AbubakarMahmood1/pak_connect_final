@@ -1,10 +1,10 @@
-/// Session Service Interface
-///
-/// Manages active session state:
-/// - Ephemeral and session IDs
-/// - Contact status synchronization
-/// - Message addressing (which ID to use)
-/// - Bilateral contact sync and asymmetric detection
+// Session Service Interface
+//
+// Manages active session state:
+// - Ephemeral and session IDs
+// - Contact status synchronization
+// - Message addressing (which ID to use)
+// - Bilateral contact sync and asymmetric detection
 
 abstract class ISessionService {
   // ============================================================================
@@ -42,48 +42,6 @@ abstract class ISessionService {
 
   /// Update session's view of peer's contact claim with callback
   void updateTheirContactClaim(bool theyClaimUs);
-
-  // ============================================================================
-  // BILATERAL SYNC STATE TRACKING
-  // ============================================================================
-
-  /// Check if bilateral contact sync finished for this peer
-  bool _isBilateralSyncComplete(String theirPublicKey);
-
-  /// Mark bilateral sync complete (prevents infinite loops)
-  void _markBilateralSyncComplete(String theirPublicKey);
-
-  /// Reset sync state for new connection (fresh start)
-  void _resetBilateralSyncStatus(String theirPublicKey);
-
-  /// Orchestrate full bilateral sync, handle asymmetric states
-  Future<void> _performBilateralContactSync(
-    String theirPublicKey,
-    bool theyHaveUs,
-  );
-
-  /// Determine if sync is complete and mark it
-  Future<void> _checkAndMarkSyncComplete(
-    String theirPublicKey,
-    bool weHaveThem,
-    bool theyHaveUs,
-  );
-
-  /// Detect and log asymmetric relationship states
-  void _checkForAsymmetricRelationship(String theirPublicKey, bool theyHaveUs);
-
-  // ============================================================================
-  // INTERNAL HELPERS
-  // ============================================================================
-
-  /// Send contact status only if changed or cooldown expired (debouncing)
-  Future<void> _sendContactStatusIfChanged(
-    bool weHaveThem,
-    String theirPublicKey,
-  );
-
-  /// Actually send contact status protocol message
-  Future<void> _doSendContactStatus(bool weHaveThem, String theirPublicKey);
 
   // ============================================================================
   // STATE QUERIES

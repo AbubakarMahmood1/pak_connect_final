@@ -9,11 +9,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
-import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
-import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'package:pak_connect/core/security/noise/models/noise_models.dart';
 
 // Mock implementations for testing
 
@@ -233,9 +228,6 @@ void main() {
           await Future.delayed(Duration(milliseconds: 50));
           continue;
         }
-
-        // Would get key here if service wasn't null
-        break;
       }
 
       // Assert: Should have tried all retries
@@ -286,11 +278,6 @@ void main() {
       // Assert: Key should be set
       expect(mockTheirNoisePublicKey, isNotNull);
       expect(mockTheirNoisePublicKey, isNotEmpty);
-
-      // Verify defensive check would pass
-      if (mockTheirNoisePublicKey == null) {
-        fail('Should never happen after successful wait');
-      }
 
       expect(
         mockTheirNoisePublicKey,

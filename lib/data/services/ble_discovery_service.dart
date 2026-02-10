@@ -49,7 +49,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   Timer? _staleDeviceTimer;
   StreamSubscription<Map<String, dynamic>>? _deduplicationSubscription;
   StreamSubscription<DiscoveredEventArgs>? _centralDiscoverySubscription;
-  Map<String, DiscoveredEventArgs> _discoveryData = {};
+  final Map<String, DiscoveredEventArgs> _discoveryData = {};
 
   // Authoritativestate getters (from facade)
   final bool Function() isAdvertising;
@@ -366,16 +366,6 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
           e,
           stackTrace,
         );
-      }
-    }
-  }
-
-  void _notifyHint(String hint) {
-    for (final listener in List.of(_hintListeners)) {
-      try {
-        listener(hint);
-      } catch (e, stackTrace) {
-        _logger.warning('Error notifying hint listener: $e', e, stackTrace);
       }
     }
   }

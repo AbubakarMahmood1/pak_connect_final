@@ -56,7 +56,6 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   final void Function(bool)? _onMessageOperationChanged;
   List<String> Function()? _nextHopsProviderOverride;
   String? _currentNodeId;
-  bool _initialized = false;
 
   BLEMessageHandlerFacadeImpl(
     this._handler,
@@ -149,7 +148,6 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
         onRelayStatsUpdated: onRelayStatsUpdated,
       );
 
-      _initialized = true;
       _logger.info('✅ Relay system initialized');
     } catch (e) {
       _logger.severe('❌ Failed to initialize: $e');
@@ -201,7 +199,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
               dedup!.ephemeralHint != DeviceDeduplicationManager.noHintValue;
           final peerId =
               dedup?.contactInfo?.publicKey ??
-              (hasHint ? dedup!.ephemeralHint : null);
+              (hasHint ? dedup.ephemeralHint : null);
           if (peerId != null) {
             peers.add(peerId);
           } else {
@@ -570,7 +568,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
 
   BLEStateManager? _resolveLegacyStateManager() {
     if (_stateManager is BLEStateManagerFacade) {
-      return (_stateManager as BLEStateManagerFacade).legacyStateManager;
+      return _stateManager.legacyStateManager;
     }
     if (_stateManager is BLEStateManager) {
       return _stateManager as BLEStateManager;
@@ -599,16 +597,6 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     }
     if (manager is BLEStateManager) {
       return manager.isPeripheralMode;
-    }
-    return false;
-  }
-
-  bool _isPaired(Object manager) {
-    if (manager is IBLEStateManagerFacade) {
-      return manager.isPaired;
-    }
-    if (manager is BLEStateManager) {
-      return manager.isPaired;
     }
     return false;
   }
@@ -663,7 +651,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
 
       if (_connectionManager == null ||
           _getCentralManager == null ||
-          _connectionManager!.connectedDevice == null) {
+          _connectionManager.connectedDevice == null) {
         _logger.warning(
           '⚠️ sendMessage skipped - missing BLE connection context',
         );
@@ -671,7 +659,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       }
 
       final characteristic =
-          _connectionManager!.messageCharacteristic ??
+          _connectionManager.messageCharacteristic ??
           _getMessageCharacteristic?.call();
       if (characteristic == null) {
         _logger.warning(
@@ -680,11 +668,11 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
         return false;
       }
 
-      final mtuSize = _connectionManager!.mtuSize ?? 20;
+      final mtuSize = _connectionManager.mtuSize ?? 20;
 
       return await adapter.sendCentralMessage(
-        centralManager: _getCentralManager!(),
-        connectedDevice: _connectionManager!.connectedDevice!,
+        centralManager: _getCentralManager(),
+        connectedDevice: _connectionManager.connectedDevice!,
         messageCharacteristic: characteristic,
         recipientKey: recipientKey,
         content: content,
@@ -745,7 +733,6 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       }
 
       final mtuSize = _getPeripheralNegotiatedMtu?.call() ?? 20;
-      final isPaired = _isPaired(stateManager);
       final idType = _getIdType(stateManager);
 
       final truncatedId = senderKey.length > 16
@@ -756,7 +743,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       );
 
       return await adapter.sendPeripheralMessage(
-        peripheralManager: _getPeripheralManager!(),
+        peripheralManager: _getPeripheralManager(),
         connectedCentral: connectedCentral,
         messageCharacteristic: messageCharacteristic,
         senderKey: senderKey,

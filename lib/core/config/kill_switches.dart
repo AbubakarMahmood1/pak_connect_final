@@ -1,7 +1,7 @@
-/// Runtime kill switches to simplify debugging/triage.
-///
-/// Defaults are all `false` (features enabled). Toggle to true to disable
-/// specific subsystems without ripping code paths apart.
+// Runtime kill switches to simplify debugging/triage.
+//
+// Defaults are all `false` (features enabled). Toggle to true to disable
+// specific subsystems without ripping code paths apart.
 import 'package:pak_connect/domain/entities/preference_keys.dart';
 
 class KillSwitches {

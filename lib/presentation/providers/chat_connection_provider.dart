@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
 import '../../core/models/connection_status.dart';
 import '../../core/services/chat_connection_manager.dart';
-import '../../core/interfaces/i_connection_service.dart';
 import 'ble_providers.dart';
 
 final _logger = Logger('ChatConnectionProvider');

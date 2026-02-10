@@ -163,7 +163,7 @@ void main() {
       expect(completionMarker, isNotNull);
       expect(completionMarker!.startsWith('REASSEMBLY_COMPLETE:'), isTrue);
 
-      final completionId = completionMarker!.substring(
+      final completionId = completionMarker.substring(
         'REASSEMBLY_COMPLETE:'.length,
       );
       final expectedId = chunks.first.messageId.length >= 6

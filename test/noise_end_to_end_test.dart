@@ -2,8 +2,12 @@
 ///
 /// Tests complete flow: BLE handshake → Noise session → encryption → decryption
 /// Simulates two-device communication in a single test process
+//
+// Diagnostic output is intentional to trace end-to-end handshake flow.
+
 library;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
@@ -150,8 +154,6 @@ void main() {
       Logger.root.onRecord.listen(logRecords.add);
     });
 
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
-
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
       final unexpected = severe.where(
@@ -203,7 +205,7 @@ void main() {
           sendMessage: (msg) async =>
               await bobCoordinator.handleReceivedMessage(msg),
           onHandshakeComplete: (ephemeralId, displayName, noiseKey) async {
-            print('✅ Alice completed handshake with $displayName');
+            debugPrint('✅ Alice completed handshake with $displayName');
             aliceCompleted = true;
             aliceSeesNoiseKey = aliceCoordinator.theirNoisePublicKey;
 
@@ -226,7 +228,7 @@ void main() {
           sendMessage: (msg) async =>
               await aliceCoordinator.handleReceivedMessage(msg),
           onHandshakeComplete: (ephemeralId, displayName, noiseKey) async {
-            print('✅ Bob completed handshake with $displayName');
+            debugPrint('✅ Bob completed handshake with $displayName');
             bobCompleted = true;
             bobSeesNoiseKey = bobCoordinator.theirNoisePublicKey;
 
@@ -272,7 +274,6 @@ void main() {
       'Encrypt and decrypt messages after Noise session established',
       () async {
         final aliceContactRepo = ContactRepository();
-        final bobContactRepo = ContactRepository();
 
         late HandshakeCoordinator aliceCoordinator;
         late HandshakeCoordinator bobCoordinator;
@@ -338,7 +339,6 @@ void main() {
 
     test('Session persists across app restart simulation', () async {
       final aliceContactRepo = ContactRepository();
-      final bobContactRepo = ContactRepository();
       String? savedNoiseKey;
 
       late HandshakeCoordinator aliceCoordinator;
@@ -391,7 +391,6 @@ void main() {
 
     test('Session rekey updates database with new session', () async {
       final aliceContactRepo = ContactRepository();
-      final bobContactRepo = ContactRepository();
 
       late HandshakeCoordinator aliceCoordinator1;
       late HandshakeCoordinator bobCoordinator1;
@@ -499,7 +498,6 @@ void main() {
 
     test('Large message (10KB) encryption and decryption', () async {
       final aliceContactRepo = ContactRepository();
-      final bobContactRepo = ContactRepository();
 
       late HandshakeCoordinator aliceCoordinator;
       late HandshakeCoordinator bobCoordinator;
@@ -557,7 +555,6 @@ void main() {
 
     test('10 sequential messages maintain session integrity', () async {
       final aliceContactRepo = ContactRepository();
-      final bobContactRepo = ContactRepository();
 
       late HandshakeCoordinator aliceCoordinator;
       late HandshakeCoordinator bobCoordinator;
@@ -618,3 +615,4 @@ void main() {
     });
   });
 }
+

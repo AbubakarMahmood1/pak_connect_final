@@ -30,8 +30,6 @@ void main() {
     Logger.root.onRecord.listen(logRecords.add);
   });
 
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
-
   tearDown(() {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
     final unexpected = severe.where(
@@ -60,7 +58,7 @@ void main() {
     }
   });
 
-  Future<void> _pumpApp(WidgetTester tester) async {
+  Future<void> pumpApp(WidgetTester tester) async {
     final fakeBleService = FakeBleService();
     addTearDown(fakeBleService.dispose);
 
@@ -75,7 +73,7 @@ void main() {
   testWidgets('PakConnect app initialization smoke test', (
     WidgetTester tester,
   ) async {
-    await _pumpApp(tester);
+    await pumpApp(tester);
 
     // Wait for the initialization process
     await tester.pump();
@@ -101,7 +99,7 @@ void main() {
     WidgetTester tester,
   ) async {
     // Test that the app wrapper can handle different states without crashing
-    await _pumpApp(tester);
+    await pumpApp(tester);
 
     // Verify MaterialApp is created
     expect(find.byType(MaterialApp), findsOneWidget);
@@ -114,3 +112,4 @@ void main() {
     // Should not throw any exceptions during initialization
   });
 }
+

@@ -96,8 +96,10 @@ void main() {
 
     group('Deprecated Wrapper Usage Telemetry', () {
       test('deprecated wrappers increment usage counters', () {
+        // Intentional deprecated path coverage: validate wrapper usage telemetry.
         // ignore: deprecated_member_use_from_same_package
         SimpleCrypto.encrypt('legacy plaintext payload');
+        // Intentional deprecated path coverage: validate wrapper usage telemetry.
         // ignore: deprecated_member_use_from_same_package
         final decrypted = SimpleCrypto.decrypt(
           'PLAINTEXT:legacy plaintext payload',

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
-import '../../domain/services/chat_management_models.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../core/routing/network_topology_analyzer.dart';
 import '../../core/routing/routing_models.dart';

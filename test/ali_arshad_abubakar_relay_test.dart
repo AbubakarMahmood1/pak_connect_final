@@ -1,12 +1,11 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'test_helpers/test_setup.dart';
 import 'test_helpers/test_seen_message_store.dart';
 
@@ -29,8 +28,6 @@ void main() {
     // Clean database before each test
     await TestSetup.fullDatabaseReset();
   });
-
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
   tearDown(() {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -60,7 +57,6 @@ void main() {
 
     // Create separate instances for each node simulation
     Future<MeshRelayEngine> createRelayEngineForNode(String nodeId) async {
-      final contactRepository = ContactRepository();
       final messageQueue = OfflineMessageQueue();
       final spamPrevention = SpamPreventionManager();
 
@@ -69,8 +65,7 @@ void main() {
         await spamPrevention.initialize();
       } catch (e) {
         // Ignore SharedPreferences errors in test environment
-        // ignore: avoid_print
-        print('Warning: Initialization error (expected in test): $e');
+        debugPrint('Warning: Initialization error (expected in test): $e');
       }
 
       final relayEngine = MeshRelayEngine(
@@ -274,3 +269,4 @@ void main() {
     });
   });
 }
+

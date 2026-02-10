@@ -128,7 +128,6 @@ class _FakeCentralManager implements CentralManager {
 }
 
 class _FakePeripheralManager implements PeripheralManager {
-  @override
   Future<void> writeCharacteristic(
     GATTCharacteristic characteristic, {
     required Uint8List value,

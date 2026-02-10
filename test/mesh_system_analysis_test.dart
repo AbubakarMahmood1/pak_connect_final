@@ -3,9 +3,7 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/core/routing/smart_mesh_router.dart';
 import 'package:pak_connect/core/routing/route_calculator.dart';
 import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
@@ -28,8 +26,6 @@ void main() {
       Logger.root.level = Level.ALL;
       Logger.root.onRecord.listen(logRecords.add);
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -68,7 +64,6 @@ void main() {
       'Mesh networking system provides proper status and analysis',
       () async {
         // Create components without BLE dependencies
-        final contactRepository = ContactRepository();
         final messageQueue = OfflineMessageQueue();
         final spamPrevention = SpamPreventionManager();
 
@@ -214,7 +209,6 @@ void main() {
       // This test specifically addresses the user's concern about analysis not completing
       // without turning off bluetooth
 
-      final contactRepository = ContactRepository();
       final messageQueue = OfflineMessageQueue();
       final spamPrevention = SpamPreventionManager();
 
@@ -284,7 +278,6 @@ void main() {
     });
 
     test('Relay message validation prevents incorrect processing', () async {
-      final contactRepository = ContactRepository();
       final messageQueue = OfflineMessageQueue();
       final spamPrevention = SpamPreventionManager();
 
@@ -356,3 +349,4 @@ void main() {
     });
   });
 }
+

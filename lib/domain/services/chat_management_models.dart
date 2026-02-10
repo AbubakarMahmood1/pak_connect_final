@@ -2,7 +2,6 @@
 
 import '../entities/archived_message.dart';
 import '../entities/enhanced_message.dart';
-import '../../core/models/archive_models.dart';
 import '../values/id_types.dart';
 
 /// Sorting options for chat lists

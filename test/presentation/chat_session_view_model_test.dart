@@ -18,7 +18,6 @@ import 'package:pak_connect/core/models/spy_mode_info.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/core/security/message_security.dart';
-import 'package:pak_connect/core/services/message_retry_coordinator.dart';
 import 'package:pak_connect/core/services/persistent_chat_state_manager.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';
@@ -37,7 +36,6 @@ import 'package:pak_connect/presentation/controllers/chat_search_controller.dart
 import 'package:pak_connect/core/utils/chat_utils.dart';
 import 'package:pak_connect/presentation/notifiers/chat_session_state_notifier.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
-import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
@@ -280,7 +278,7 @@ Future<ChatSessionViewModel> _buildViewModel({
           );
           final searchController = ChatSearchController(
             onSearchModeToggled: (_) {},
-            onSearchResultsChanged: (_, __) {},
+            onSearchResultsChanged: (results, currentIndex) {},
             onNavigateToResult: (_) {},
             scrollController: scrollingController.scrollController,
           );
@@ -339,10 +337,9 @@ final _deliveredMessage = Message(
 
 class _RecordingLifecycle extends ChatSessionLifecycle {
   _RecordingLifecycle({
-    required ChatSessionViewModel viewModel,
+    required super.viewModel,
     this.sendSuccess = true,
   }) : super(
-         viewModel: viewModel,
          connectionService: _FakeConnectionService(),
          meshService: _FakeMeshService(),
          messageSecurity: MessageSecurity(),
@@ -502,6 +499,7 @@ class _FakeChatsRepository extends ChatsRepository implements IChatsRepository {
 class _FakeConnectionService implements IConnectionService {
   _FakeConnectionService({this.theirPersistentKey});
 
+  @override
   final String? theirPersistentKey;
   final StreamController<String> messageController =
       StreamController<String>.broadcast();

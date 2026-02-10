@@ -1,12 +1,9 @@
-// ignore_for_file: depend_on_referenced_packages
-
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 import 'package:get_it/get_it.dart';
 import '../interfaces/i_connection_service.dart';
 import '../../core/app_core.dart';
-import '../../domain/entities/enhanced_message.dart';
 import './offline_message_queue.dart';
 import '../interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
@@ -43,7 +40,7 @@ class MessageRouter {
   }
 
   // Dependencies
-  late final IConnectionService _bleService; // ignore: unused_field
+  late final IConnectionService _bleService;
   late final OfflineMessageQueue _offlineQueue;
 
   OfflineMessageQueue get offlineQueue => _offlineQueue;
@@ -94,10 +91,13 @@ class MessageRouter {
       _logger.info(
         '📨 MessageRouter: Delegating to OfflineMessageQueue for ${recipientId.shortId(8)}...',
       );
+      _logger.fine(
+        '📶 BLE connected at route time: ${_bleService.isConnected}',
+      );
 
       // Get sender's public key
       final prefs = GetIt.instance<IPreferencesRepository>();
-      final senderKey = await prefs.getString('public_key') ?? '';
+      final senderKey = await prefs.getString('public_key');
 
       if (senderKey.isEmpty) {
         _logger.severe('❌ No sender public key available');

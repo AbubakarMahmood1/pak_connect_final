@@ -6,7 +6,6 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/config/kill_switches.dart';
 import '../../core/services/security_manager.dart';
-import '../../domain/entities/contact.dart';
 import '../../domain/entities/enhanced_contact.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/utils/string_extensions.dart';

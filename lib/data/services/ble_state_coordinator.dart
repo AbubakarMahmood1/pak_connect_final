@@ -9,7 +9,6 @@ import '../../core/interfaces/i_identity_manager.dart';
 import '../../core/interfaces/i_pairing_service.dart';
 import '../../core/interfaces/i_session_service.dart';
 import '../../core/security/ephemeral_key_manager.dart';
-import 'chat_migration_service.dart';
 
 /// BLE State Coordinator
 ///
@@ -105,7 +104,7 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
     final myEphemeralId =
         _identityManager.myEphemeralId ??
         EphemeralKeyManager.generateMyEphemeralKey();
-    if (myEphemeralId == null || myEphemeralId.isEmpty) {
+    if (myEphemeralId.isEmpty) {
       _logger.warning(
         '❌ Cannot send pairing request - my ephemeral ID unavailable',
       );
@@ -185,19 +184,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
   // ============================================================================
 
   @override
-  Future<void> _exchangePersistentKeys() async {
-    final myPersistentKey = _identityManager.getMyPersistentId();
-    if (myPersistentKey == null || myPersistentKey.isEmpty) {
-      _logger.warning('❌ Cannot exchange persistent keys - no persistent ID');
-      return;
-    }
-    _logger.info('🔑 STEP 4: Exchanging persistent keys');
-
-    onSendPersistentKeyExchange?.call(myPersistentKey);
-    _logger.info('📤 STEP 4: Sent my persistent public key');
-  }
-
-  @override
   Future<void> handlePersistentKeyExchange(String theirPersistentKey) async {
     _logger.info('📥 STEP 4: Received persistent key from peer');
 
@@ -219,7 +205,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
   // SPY MODE (Asymmetric Contact Detection)
   // ============================================================================
 
-  @override
   Future<void> _detectSpyMode(String theirPersistentKey) async {
     try {
       final contact = await _contactRepository.getContact(theirPersistentKey);
@@ -235,7 +220,7 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
   @override
   Future<void> revealIdentityToFriend() async {
     try {
-      final myPersistentKey = await _identityManager.getMyPersistentId();
+      _identityManager.getMyPersistentId();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
       // Generate cryptographic proof of ownership
@@ -257,35 +242,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
   // ============================================================================
   // CHAT MIGRATION (Ephemeral → Persistent ID)
   // ============================================================================
-
-  @override
-  Future<void> _triggerChatMigration(
-    String ephemeralId,
-    String persistentKey,
-    String displayName,
-  ) async {
-    _logger.info('🔄 STEP 6: Triggering chat migration');
-    _logger.info('   From: $ephemeralId');
-    _logger.info('   To: $persistentKey');
-
-    try {
-      final migrationService = ChatMigrationService();
-
-      final success = await migrationService.migrateChatToPersistentId(
-        ephemeralId: ephemeralId,
-        persistentPublicKey: persistentKey,
-        contactName: displayName,
-      );
-
-      if (success) {
-        _logger.info('✅ STEP 6: Chat migration completed successfully');
-      } else {
-        _logger.info('ℹ️ STEP 6: No chat migration needed (no messages)');
-      }
-    } catch (e, stackTrace) {
-      _logger.severe('❌ STEP 6: Chat migration failed', e, stackTrace);
-    }
-  }
 
   // ============================================================================
   // CONTACT REQUEST FLOW (Orchestrated Lifecycle)
@@ -417,7 +373,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
     }
   }
 
-  @override
   Future<void> _finalizeContactAddition(
     String publicKey,
     String displayName,
@@ -474,51 +429,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
   // SECURITY LEVEL UPGRADES (ECDH Coordination)
   // ============================================================================
 
-  @override
-  Future<void> _ensureMutualECDH(String theirPublicKey) async {
-    try {
-      _logger.info('📱 Ensuring mutual ECDH for contact');
-
-      // Check if we have ECDH secret
-      final existingSecret = await _contactRepository.getCachedSharedSecret(
-        theirPublicKey,
-      );
-
-      if (existingSecret == null) {
-        // Compute and cache ECDH
-        final sharedSecret = SimpleCrypto.computeSharedSecret(theirPublicKey);
-        if (sharedSecret != null) {
-          await _contactRepository.cacheSharedSecret(
-            theirPublicKey,
-            sharedSecret,
-          );
-          await SimpleCrypto.restoreConversationKey(
-            theirPublicKey,
-            sharedSecret,
-          );
-          _logger.info('📱 ECDH secret computed for mutual contact');
-        }
-      }
-
-      // Upgrade security level if needed
-      final currentLevel = await _contactRepository.getContactSecurityLevel(
-        theirPublicKey,
-      );
-      if (currentLevel != SecurityLevel.high) {
-        await _contactRepository.updateContactSecurityLevel(
-          theirPublicKey,
-          SecurityLevel.high,
-        );
-        _logger.info('📱 Upgraded to high security for mutual contact');
-      }
-
-      // Trigger UI refresh
-      onContactRequestCompleted?.call();
-    } catch (e) {
-      _logger.warning('Failed to ensure mutual ECDH: $e');
-    }
-  }
-
   // ============================================================================
   // CONTACT STATUS SYNCHRONIZATION
   // ============================================================================
@@ -539,7 +449,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
     _logger.info('✅ Contact flags initialization requested');
   }
 
-  @override
   Future<void> _retryContactStatusExchange() async {
     try {
       final shouldRetry = await _isContactStateAsymmetric();
@@ -555,7 +464,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
     }
   }
 
-  @override
   Future<bool> _isContactStateAsymmetric() async {
     _logger.info('🔄 Checking if contact state is asymmetric');
     return false; // Simplified for now
@@ -619,14 +527,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
     );
   }
 
-  @override
-  void _triggerMutualConsentPrompt(String theirPublicKey) {
-    _logger.info(
-      '📱 MUTUAL CONSENT: Prompting user to initiate contact request',
-    );
-    onMutualConsentRequired?.call();
-  }
-
   // ============================================================================
   // HELPER METHODS
   // ============================================================================
@@ -635,10 +535,6 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
     _pendingOutgoingRequests[publicKey]?.cancel();
     _pendingOutgoingRequests.remove(publicKey);
     _outgoingRequestCompleters.remove(publicKey);
-  }
-
-  bool _isBilateralSyncComplete(String publicKey) {
-    return _bilateralSyncComplete[publicKey] ?? false;
   }
 
   void _markBilateralSyncComplete(String publicKey) {

@@ -5,13 +5,11 @@ import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/core/interfaces/i_chat_interaction_handler.dart';
 import 'package:pak_connect/core/interfaces/i_chats_repository.dart';
-import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/models/connection_status.dart';
 import 'package:pak_connect/core/services/home_screen_facade.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
-import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 import '../../test_helpers/mocks/mock_connection_service.dart';
@@ -148,29 +146,6 @@ class _FakeInteractionHandler implements IChatInteractionHandler {
 
   @override
   Future<void> markChatAsRead(ChatId chatId) async {}
-}
-
-class _StubSeenStore implements ISeenMessageStore {
-  @override
-  Future<void> clear() async {}
-
-  @override
-  Map<String, dynamic> getStatistics() => const {};
-
-  @override
-  bool hasDelivered(String messageId) => false;
-
-  @override
-  bool hasRead(String messageId) => false;
-
-  @override
-  Future<void> markDelivered(String messageId) async {}
-
-  @override
-  Future<void> markRead(String messageId) async {}
-
-  @override
-  Future<void> performMaintenance() async {}
 }
 
 ChatListItem _sampleChat() => ChatListItem(

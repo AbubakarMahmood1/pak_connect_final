@@ -14,40 +14,6 @@ analyzer:
     - serena/**
     - reference/**
 
-  # Optional: relax in tests
-  errors:
-    unused_import: ignore
-    unused_local_variable: ignore
-    unused_field: ignore
-    dead_code: ignore
-    dead_null_aware_expression: ignore
-    depend_on_referenced_packages: ignore
-    override_on_non_overriding_member: ignore
-    unnecessary_import: ignore
-    no_leading_underscores_for_local_identifiers: ignore
-    unnecessary_brace_in_string_interps: ignore
-    prefer_final_fields: ignore
-    annotate_overrides: ignore
-    unused_element: ignore
-    unused_element_parameter: ignore
-    unnecessary_non_null_assertion: ignore
-    invalid_use_of_visible_for_testing_member: ignore
-    duplicate_import: ignore
-    avoid_print: ignore
-    file_names: ignore
-    use_super_parameters: ignore
-    unnecessary_underscores: ignore
-    undefined_shown_name: ignore
-    unnecessary_cast: ignore
-    unnecessary_null_comparison: ignore
-    unnecessary_string_escapes: ignore
-    await_only_futures: ignore
-    constant_identifier_names: ignore
-    dangling_library_doc_comments: ignore
-    use_build_context_synchronously: ignore
-    unintended_html_in_doc_comment: ignore
-
-
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

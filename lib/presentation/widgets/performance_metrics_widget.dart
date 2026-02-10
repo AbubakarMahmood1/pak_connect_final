@@ -1,7 +1,7 @@
-/// Performance Metrics Display Widget
-///
-/// Shows in-app encryption performance metrics to help users and developers
-/// understand device performance and make informed decisions about FIX-013.
+// Performance Metrics Display Widget
+//
+// Shows in-app encryption performance metrics to help users and developers
+// understand device performance and make informed decisions about FIX-013.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -72,15 +72,15 @@ class _PerformanceMetricsWidgetState extends State<PerformanceMetricsWidget> {
   Future<void> _exportMetrics() async {
     final exported = await PerformanceMonitor.exportMetrics();
 
-    if (mounted) {
-      await Clipboard.setData(ClipboardData(text: exported));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Metrics copied to clipboard'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
+    if (!mounted) return;
+    await Clipboard.setData(ClipboardData(text: exported));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Metrics copied to clipboard'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override

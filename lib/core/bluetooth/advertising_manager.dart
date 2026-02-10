@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/ble_constants.dart';
 import '../interfaces/i_intro_hint_repository.dart';
-import 'package:get_it/get_it.dart';
 import '../services/hint_advertisement_service.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import 'peripheral_initializer.dart';

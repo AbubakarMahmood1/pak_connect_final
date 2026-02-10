@@ -17,7 +17,6 @@ import '../../core/messaging/message_router.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initialization check
 import '../../core/services/security_manager.dart';
-import '../../domain/entities/contact.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
 import '../../core/interfaces/i_mesh_ble_service.dart';
@@ -30,7 +29,6 @@ import '../../core/models/ble_server_connection.dart';
 import 'mesh_networking_provider.dart';
 import 'runtime_providers.dart';
 import '../../core/utils/string_extensions.dart';
-import 'ble_service_facade_provider.dart';
 
 // =============================================================================
 // CORE RUNTIME NOTIFIER (BLE)

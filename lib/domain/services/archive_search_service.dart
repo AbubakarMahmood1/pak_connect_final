@@ -7,8 +7,6 @@ import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get_it/get_it.dart';
 import '../../core/interfaces/i_archive_repository.dart';
-import '../../domain/entities/archived_chat.dart';
-import '../../domain/entities/archived_message.dart';
 import '../../core/models/archive_models.dart';
 import 'archive_search_indexing.dart';
 import 'archive_search_query_builder.dart';

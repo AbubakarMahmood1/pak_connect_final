@@ -25,6 +25,7 @@ class ContactRepository implements IContactRepository {
   Future<Database> get _db async => await DatabaseHelper.database;
 
   /// Save or update a contact
+  @override
   Future<void> saveContact(String publicKey, String displayName) async {
     final userId = UserId(publicKey);
     final existing = await getContactByUserId(userId);
@@ -59,6 +60,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get a specific contact by public key
+  @override
   Future<Contact?> getContact(String publicKey) async {
     final db = await _db;
 
@@ -79,6 +81,7 @@ class ContactRepository implements IContactRepository {
       getContact(userId.value);
 
   /// 🔧 NEW MODEL: Get contact by persistent public key (MEDIUM+ identity)
+  @override
   Future<Contact?> getContactByPersistentKey(String persistentPublicKey) async {
     final db = await _db;
 
@@ -100,6 +103,7 @@ class ContactRepository implements IContactRepository {
 
   /// 🔧 NEW MODEL: Get contact by current ephemeral ID (session-specific identifier)
   /// Used when looking up contacts by their active session ID
+  @override
   Future<Contact?> getContactByCurrentEphemeralId(String ephemeralId) async {
     final db = await _db;
 
@@ -128,6 +132,7 @@ class ContactRepository implements IContactRepository {
   /// - Reconnection with new ephemeral: identifier = new ephemeralId (matches currentEphemeralId)
   /// - After MEDIUM+ pairing: identifier = persistentKey (matches persistentPublicKey)
   /// - Repository mode with "repo_" prefix: identifier could be any of the above
+  @override
   Future<Contact?> getContactByAnyId(String identifier) async {
     // Try by publicKey first (primary key - fastest)
     var contact = await getContact(identifier);
@@ -143,6 +148,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get all contacts as a map (public key → contact)
+  @override
   Future<Map<String, Contact>> getAllContacts() async {
     final db = await _db;
 
@@ -162,6 +168,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Mark contact as verified
+  @override
   Future<void> markContactVerified(String publicKey) async {
     final contact = await getContact(publicKey);
     if (contact != null) {
@@ -183,6 +190,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Update Noise session data for a contact (Phase 2 integration)
+  @override
   Future<void> updateNoiseSession({
     required String publicKey,
     required String noisePublicKey,
@@ -230,6 +238,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Cache shared secret (uses FlutterSecureStorage - NOT database)
+  @override
   Future<void> cacheSharedSecret(String publicKey, String sharedSecret) async {
     // Use SHA256 hash of full public key for consistent cache key generation
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
@@ -238,6 +247,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get cached shared secret (from FlutterSecureStorage)
+  @override
   Future<String?> getCachedSharedSecret(String publicKey) async {
     // Use SHA256 hash of full public key for consistent cache key generation
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
@@ -246,6 +256,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Cache shared seed as bytes (for hint system)
+  @override
   Future<void> cacheSharedSeedBytes(
     String publicKey,
     Uint8List seedBytes,
@@ -259,6 +270,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get cached shared seed as bytes (for hint system)
+  @override
   Future<Uint8List?> getCachedSharedSeedBytes(String publicKey) async {
     final keyHash = sha256.convert(utf8.encode(publicKey)).toString();
     final key = '$_sharedSecretPrefix${keyHash.shortId()}_seed';
@@ -277,12 +289,14 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get contact name by public key
+  @override
   Future<String?> getContactName(String publicKey) async {
     final contact = await getContact(publicKey);
     return contact?.displayName;
   }
 
   /// Update contact security level
+  @override
   Future<void> updateContactSecurityLevel(
     String publicKey,
     SecurityLevel newLevel,
@@ -309,6 +323,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Update contact's current ephemeral ID (session tracking)
+  @override
   Future<void> updateContactEphemeralId(
     String publicKey,
     String newEphemeralId,
@@ -326,12 +341,14 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get contact's current security level
+  @override
   Future<SecurityLevel> getContactSecurityLevel(String publicKey) async {
     final contact = await getContact(publicKey);
     return contact?.securityLevel ?? SecurityLevel.low;
   }
 
   /// Downgrade security for deleted contact
+  @override
   Future<void> downgradeSecurityForDeletedContact(
     String publicKey,
     String reason,
@@ -349,6 +366,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Upgrade security level (with validation)
+  @override
   Future<bool> upgradeContactSecurity(
     String publicKey,
     SecurityLevel newLevel,
@@ -401,6 +419,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Reset contact security
+  @override
   Future<bool> resetContactSecurity(String publicKey, String reason) async {
     _logger.info(
       '🔧 SECURITY RESET: ${publicKey.shortId(8)}... due to: $reason',
@@ -436,6 +455,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Clear cached secrets (public)
+  @override
   Future<void> clearCachedSecrets(String publicKey) async {
     try {
       // Use SHA256 hash of full public key for consistent cache key generation
@@ -462,6 +482,7 @@ class ContactRepository implements IContactRepository {
   ///   - publicKey = still first ephemeral ID (unchanged)
   ///   - persistentPublicKey = real persistent key (set during upgrade)
   ///   - currentEphemeralId = current session ID (updates on reconnect)
+  @override
   Future<void> saveContactWithSecurity(
     String publicKey, // Immutable: first ephemeral ID or existing publicKey
     String displayName,
@@ -517,6 +538,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Delete contact completely from storage
+  @override
   Future<bool> deleteContact(String publicKey) async {
     try {
       final db = await _db;
@@ -567,6 +589,7 @@ class ContactRepository implements IContactRepository {
   // =========================
 
   /// Get total contact count
+  @override
   Future<int> getContactCount() async {
     try {
       final db = await _db;
@@ -581,6 +604,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get verified contact count
+  @override
   Future<int> getVerifiedContactCount() async {
     try {
       final db = await _db;
@@ -596,6 +620,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get contact count by security level
+  @override
   Future<Map<SecurityLevel, int>> getContactsBySecurityLevel() async {
     try {
       final db = await _db;
@@ -617,6 +642,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get recently active contacts (last 7 days)
+  @override
   Future<int> getRecentlyActiveContactCount() async {
     try {
       final db = await _db;
@@ -641,6 +667,7 @@ class ContactRepository implements IContactRepository {
   // =========================
 
   /// Mark a contact as favorite
+  @override
   Future<void> markContactFavorite(String publicKey) async {
     final contact = await getContact(publicKey);
     if (contact == null) {
@@ -669,6 +696,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Remove favorite status from a contact
+  @override
   Future<void> unmarkContactFavorite(String publicKey) async {
     final contact = await getContact(publicKey);
     if (contact == null) {
@@ -699,6 +727,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Toggle favorite status for a contact
+  @override
   Future<bool> toggleContactFavorite(String publicKey) async {
     final contact = await getContact(publicKey);
     if (contact == null) {
@@ -718,6 +747,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get all favorite contacts
+  @override
   Future<List<Contact>> getFavoriteContacts() async {
     final db = await _db;
 
@@ -740,6 +770,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Get count of favorite contacts
+  @override
   Future<int> getFavoriteContactCount() async {
     try {
       final db = await _db;
@@ -754,6 +785,7 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Check if a contact is marked as favorite
+  @override
   Future<bool> isContactFavorite(String publicKey) async {
     final contact = await getContact(publicKey);
     return contact?.isFavorite ?? false;

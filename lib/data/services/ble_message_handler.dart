@@ -22,7 +22,6 @@ import '../../core/messaging/message_ack_tracker.dart';
 import '../../core/messaging/inbound_text_processor.dart';
 import '../../core/messaging/protocol_message_dispatcher.dart';
 import '../../core/messaging/message_chunk_sender.dart';
-import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/message.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../data/repositories/message_repository.dart';

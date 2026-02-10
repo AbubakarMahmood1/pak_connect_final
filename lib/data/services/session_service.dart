@@ -17,10 +17,8 @@ class SessionService implements ISessionService {
   // DEPENDENCIES (Injected)
   // ============================================================================
 
-  final ContactRepository _contactRepository;
-
   /// Callback to check if we have peer as contact
-  /// Returns: Future<bool> - true if we have them in our contact list
+  /// Returns: `Future<bool>` - true if we have them in our contact list
   final Future<bool> Function() getWeHaveThemAsContact;
 
   /// Callback to get our persistent ID
@@ -83,7 +81,7 @@ class SessionService implements ISessionService {
     required this.getMyPersistentId,
     required this.getTheirPersistentKey,
     required this.getTheirEphemeralId,
-  }) : _contactRepository = contactRepository ?? ContactRepository();
+  });
 
   // ============================================================================
   // SESSION ID MANAGEMENT
@@ -242,18 +240,6 @@ class SessionService implements ISessionService {
     }
   }
 
-  void _resetBilateralSyncStatus(String theirPublicKey) {
-    try {
-      _bilateralSyncComplete[theirPublicKey] = false;
-      _lastSentContactStatus.remove(theirPublicKey);
-      _lastStatusSentTime.remove(theirPublicKey);
-      _lastReceivedContactStatus.remove(theirPublicKey);
-      _logger.info('🔄 SYNC RESET: ${theirPublicKey.substring(0, 8)}...');
-    } catch (e) {
-      _logger.warning('Failed to reset bilateral sync status: $e');
-    }
-  }
-
   Future<void> _performBilateralContactSync(
     String theirPublicKey,
     bool theyHaveUs,
@@ -404,18 +390,6 @@ class SessionService implements ISessionService {
   // ============================================================================
   // HELPER METHODS
   // ============================================================================
-
-  /// Cache shared secret for a contact
-  void _cacheConversationKey(String publicKey, String sharedSecret) {
-    try {
-      _conversationKeys[publicKey] = sharedSecret;
-      _logger.fine(
-        'Cached conversation key for ${publicKey.substring(0, 8)}...',
-      );
-    } catch (e) {
-      _logger.warning('Failed to cache conversation key: $e');
-    }
-  }
 
   // ============================================================================
   // CLEANUP (Dispose)

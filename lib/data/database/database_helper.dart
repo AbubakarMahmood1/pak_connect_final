@@ -88,7 +88,7 @@ class DatabaseHelper {
           await _migrateUnencryptedDatabase(
             path,
             encryptionKey,
-            factory as sqlcipher.DatabaseFactory,
+            factory,
           );
         }
       }

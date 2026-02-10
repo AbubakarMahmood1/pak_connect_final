@@ -29,22 +29,18 @@ class AppLogger {
       // In debug mode: use emoji-enhanced formatting
       if (kDebugMode) {
         final emoji = _getEmojiForLevel(record.level);
-        // ignore: avoid_print
-        print('$emoji [${record.loggerName}] ${record.message}');
+        debugPrint('$emoji [${record.loggerName}] ${record.message}');
         if (record.error != null) {
-          // ignore: avoid_print
-          print('  ↳ Error: ${record.error}');
+          debugPrint('  ↳ Error: ${record.error}');
         }
         if (record.stackTrace != null) {
-          // ignore: avoid_print
-          print('  ↳ Stack: ${record.stackTrace}');
+          debugPrint('  ↳ Stack: ${record.stackTrace}');
         }
       } else {
         // In release mode: minimal, structured output
         // (could be sent to Crashlytics/Sentry here)
         if (record.level >= Level.WARNING) {
-          // ignore: avoid_print
-          print(
+          debugPrint(
             '[${record.level.name}] ${record.loggerName}: ${record.message}',
           );
         }

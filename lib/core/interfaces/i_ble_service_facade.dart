@@ -50,6 +50,7 @@ abstract interface class IBLEServiceFacade
   /// Throws:
   ///   StateError if AppCore not initialized
   ///   PlatformException if BLE initialization fails
+  @override
   Future<void> initialize();
 
   /// Cleanup all resources and cancel subscriptions
@@ -63,6 +64,7 @@ abstract interface class IBLEServiceFacade
   /// 5. Cleanup gossip sync manager
   /// 6. Cleanup hint scanner
   /// 7. Shutdown external managers
+  @override
   Future<void> dispose();
 
   /// Future that completes when initialization is done

@@ -89,13 +89,12 @@ void main() {
       strategy.setDebugOverride(true);
 
       var usedSync = false;
-      var usedIsolate = false;
 
       // Small message (500 bytes)
       final plaintext = Uint8List(500);
       final key = Uint8List(32);
 
-      final result = await strategy.encrypt(
+      await strategy.encrypt(
         plaintext: plaintext,
         key: key,
         nonce: 0,
@@ -168,8 +167,6 @@ void main() {
 
       final plaintext = Uint8List(2000); // >1KB to avoid bypass
       final key = Uint8List(32);
-
-      int recheckCount = 0;
 
       // Override _checkMetrics to count calls (indirect test via operations)
       // We'll simulate this by calling encrypt 101 times

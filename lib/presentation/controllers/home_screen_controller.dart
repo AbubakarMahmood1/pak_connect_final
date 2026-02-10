@@ -17,7 +17,6 @@ import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/values/id_types.dart';
 import '../providers/ble_providers.dart';
-import '../providers/mesh_networking_provider.dart';
 import '../../core/performance/performance_monitor.dart';
 
 class HomeScreenControllerArgs {
@@ -266,8 +265,6 @@ class HomeScreenController extends ChangeNotifier {
     await loadChats();
   }
 
-  void _setupPeriodicRefresh() {}
-
   void _setupGlobalMessageListener() {
     if (_isDisposed) return;
     try {
@@ -403,11 +400,6 @@ class HomeScreenController extends ChangeNotifier {
     if (_isDisposed) return;
     notifyListeners();
   }
-}
-
-class _ChatManagementServiceHolder {
-  _ChatManagementServiceHolder();
-  final ChatManagementService instance = ChatManagementService();
 }
 
 final homeScreenControllerProvider = ChangeNotifierProvider.autoDispose

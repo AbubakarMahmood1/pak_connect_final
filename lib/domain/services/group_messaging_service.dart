@@ -3,7 +3,7 @@
 
 import 'package:logging/logging.dart';
 import '../../core/models/contact_group.dart';
-import '../../domain/entities/enhanced_message.dart'; // For MessagePriority
+// For MessagePriority
 import '../../core/interfaces/i_group_repository.dart';
 import '../../core/interfaces/i_contact_repository.dart';
 import '../../core/messaging/offline_message_queue.dart';

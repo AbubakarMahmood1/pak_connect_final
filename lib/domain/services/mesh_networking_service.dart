@@ -2,8 +2,6 @@
 // Integrates MeshRelayEngine, QueueSyncManager, SpamPreventionManager with BLE services
 // Provides clean APIs and integration points for mesh-enabled messaging
 
-// ignore_for_file: unnecessary_null_comparison, dead_code
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -18,7 +16,6 @@ import 'package:meta/meta.dart';
 
 import '../../core/app_core.dart';
 import '../../core/interfaces/i_ble_message_handler_facade.dart';
-import '../../core/interfaces/i_contact_repository.dart';
 import '../../core/interfaces/i_message_repository.dart';
 import '../../core/interfaces/i_connection_service.dart';
 import '../../core/interfaces/i_mesh_networking_service.dart';
@@ -72,7 +69,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
   // from concrete data-layer implementations.
   final IConnectionService _bleService;
   final IBLEMessageHandlerFacade _messageHandler;
-  final IContactRepository _contactRepository;
   // Note: _chatManagementService kept for API compatibility but not currently used
   // May be needed for future chat-related mesh operations (group chats, etc.)
   final IMessageRepository _messageRepository;
@@ -100,6 +96,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
       _healthMonitor.messageDeliveryStream;
 
   /// Stream of received binary/media payloads saved to disk.
+  @override
   Stream<ReceivedBinaryEvent> get binaryPayloadStream =>
       _binaryController.stream;
 
@@ -112,6 +109,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
 
   /// Send a binary/media payload and return transferId for retry tracking.
   /// The BLE layer will attempt Noise encryption if a session is available.
+  @override
   Future<String> sendBinaryMedia({
     required Uint8List data,
     required String recipientId,
@@ -125,6 +123,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   );
 
   /// Retry a previously persisted binary/media payload.
+  @override
   Future<bool> retryBinaryMedia({
     required String transferId,
     String? recipientId,
@@ -306,9 +305,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
     MeshQueueSyncCoordinator? queueCoordinator,
   }) : _bleService = bleService,
        _messageHandler = messageHandler,
-       _contactRepository =
-           (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
-               .contactRepository,
        _messageRepository =
            (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
                .messageRepository,
@@ -343,6 +339,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   }
 
   /// Initialize the mesh networking service
+  @override
   Future<void> initialize({String? nodeId}) async {
     if (_isInitialized) {
       _logger.warning('Mesh networking service already initialized');
@@ -836,6 +833,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   }
 
   /// Send message through mesh network (main API for UI)
+  @override
   Future<MeshSendResult> sendMeshMessage({
     required String content,
     required String recipientPublicKey,
@@ -905,9 +903,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   Future<bool> _canDeliverDirectly(String recipientPublicKey) async {
     // Check if we're connected and the other user is the recipient
     final connectionInfo = _bleService.currentConnectionInfo;
-    if (connectionInfo == null ||
-        !connectionInfo.isConnected ||
-        !connectionInfo.isReady) {
+    if (!connectionInfo.isConnected || !connectionInfo.isReady) {
       return false;
     }
 
@@ -916,6 +912,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   }
 
   /// Get comprehensive network statistics
+  @override
   MeshNetworkStatistics getNetworkStatistics() {
     final relayStats = _relayCoordinator.relayStatistics;
     final queueStats = _queueCoordinator.queueStatistics;
@@ -935,32 +932,38 @@ class MeshNetworkingService implements IMeshNetworkingService {
   }
 
   /// Force refresh mesh status broadcast (for provider initialization)
+  @override
   void refreshMeshStatus() {
     _broadcastMeshStatus();
   }
 
   /// Sync queues with connected nodes
+  @override
   Future<Map<String, QueueSyncResult>> syncQueuesWithPeers() async {
     final availableNodes = await _relayCoordinator.getAvailableNextHops();
     return _queueCoordinator.syncWithPeers(availableNodes);
   }
 
   /// Retry a specific message in the queue
+  @override
   Future<bool> retryMessage(String messageId) async {
     return _queueCoordinator.retryMessage(messageId);
   }
 
   /// Remove a specific message from the queue
+  @override
   Future<bool> removeMessage(String messageId) async {
     return _queueCoordinator.removeMessage(messageId);
   }
 
   /// Set high priority for a specific message
+  @override
   Future<bool> setPriority(String messageId, MessagePriority priority) async {
     return _queueCoordinator.setPriority(messageId, priority);
   }
 
   /// Retry all failed messages
+  @override
   Future<int> retryAllMessages() async {
     return _queueCoordinator.retryAllMessages();
   }
@@ -968,6 +971,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   /// Get queued messages for a specific chat (for UI display)
   /// Returns only in-flight messages (pending, sending, retrying)
   /// Excludes delivered messages (those have moved to MessageRepository)
+  @override
   List<QueuedMessage> getQueuedMessagesForChat(String chatId) {
     return _queueCoordinator.getQueuedMessagesForChat(chatId);
   }
@@ -1053,6 +1057,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   }
 
   /// Dispose of all resources
+  @override
   void dispose() {
     _relayCoordinator.dispose();
     unawaited(_queueCoordinator.dispose());

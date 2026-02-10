@@ -16,6 +16,7 @@ class PreferencesRepository implements IPreferencesRepository {
   static final _logger = Logger('PreferencesRepository');
 
   /// Get string preference
+  @override
   Future<String> getString(String key, {String? defaultValue}) async {
     try {
       final db = await DatabaseHelper.database;
@@ -38,11 +39,13 @@ class PreferencesRepository implements IPreferencesRepository {
   }
 
   /// Set string preference
+  @override
   Future<void> setString(String key, String value) async {
     await _setValue(key, value, PreferenceValueType.string);
   }
 
   /// Get boolean preference
+  @override
   Future<bool> getBool(String key, {bool? defaultValue}) async {
     try {
       final db = await DatabaseHelper.database;
@@ -77,11 +80,13 @@ class PreferencesRepository implements IPreferencesRepository {
   }
 
   /// Set boolean preference
+  @override
   Future<void> setBool(String key, bool value) async {
     await _setValue(key, value.toString(), PreferenceValueType.boolean);
   }
 
   /// Get integer preference
+  @override
   Future<int> getInt(String key, {int? defaultValue}) async {
     try {
       final db = await DatabaseHelper.database;
@@ -104,11 +109,13 @@ class PreferencesRepository implements IPreferencesRepository {
   }
 
   /// Set integer preference
+  @override
   Future<void> setInt(String key, int value) async {
     await _setValue(key, value.toString(), PreferenceValueType.integer);
   }
 
   /// Get double preference
+  @override
   Future<double> getDouble(String key, {double? defaultValue}) async {
     try {
       final db = await DatabaseHelper.database;
@@ -131,6 +138,7 @@ class PreferencesRepository implements IPreferencesRepository {
   }
 
   /// Set double preference
+  @override
   Future<void> setDouble(String key, double value) async {
     await _setValue(key, value.toString(), PreferenceValueType.double);
   }
@@ -208,6 +216,7 @@ class PreferencesRepository implements IPreferencesRepository {
   }
 
   /// Delete a preference
+  @override
   Future<void> delete(String key) async {
     try {
       final db = await DatabaseHelper.database;
@@ -219,6 +228,7 @@ class PreferencesRepository implements IPreferencesRepository {
   }
 
   /// Clear all preferences (reset to defaults)
+  @override
   Future<void> clearAll() async {
     try {
       final db = await DatabaseHelper.database;
@@ -231,6 +241,7 @@ class PreferencesRepository implements IPreferencesRepository {
   }
 
   /// Get all preferences (for debugging/export)
+  @override
   Future<Map<String, dynamic>> getAll() async {
     try {
       final db = await DatabaseHelper.database;

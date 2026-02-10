@@ -4,12 +4,10 @@ import '../../core/interfaces/i_relay_coordinator.dart';
 import '../../core/interfaces/i_seen_message_store.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/models/mesh_relay_models.dart';
-import '../../domain/entities/enhanced_message.dart';
 import '../../domain/values/id_types.dart';
 import '../../core/messaging/mesh_relay_engine.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/queue_sync_manager.dart';
-import '../../domain/values/id_types.dart';
 import '../../core/security/spam_prevention_manager.dart';
 import '../../core/app_core.dart';
 import '../../core/utils/string_extensions.dart';
@@ -527,6 +525,10 @@ class RelayCoordinator implements IRelayCoordinator {
     for (var timer in _relayAckTimeouts.values) {
       timer.cancel();
     }
+    if (_onQueueSyncCompleted != null) {
+      _logger.fine('Clearing queue sync completion callback');
+    }
+    _onQueueSyncCompleted = null;
     _relayAckTimeouts.clear();
     _relayAcks.clear();
     _logger.info('🔌 RelayCoordinator disposed');

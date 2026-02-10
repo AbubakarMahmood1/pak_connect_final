@@ -540,6 +540,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   }
 
   /// Retrieve fully reassembled binary payload for forwarding (MTU adaptation).
+  @override
   ForwardReassembledPayload? takeForwardReassembledPayload(String fragmentId) {
     _ensureInitialized();
     return _fragmentationHandler.takeForwardReassembledPayload(fragmentId);

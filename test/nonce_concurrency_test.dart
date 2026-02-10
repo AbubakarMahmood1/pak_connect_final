@@ -190,7 +190,6 @@ void main() {
       logger.info('PHASE 1: Establishing Noise session between Alice and Bob');
 
       final aliceContactRepo = ContactRepository();
-      final bobContactRepo = ContactRepository();
 
       late HandshakeCoordinator aliceCoordinator;
       late HandshakeCoordinator bobCoordinator;
@@ -436,7 +435,6 @@ void main() {
 
       // Establish session (same as concurrent test)
       final aliceContactRepo = ContactRepository();
-      final bobContactRepo = ContactRepository();
 
       late HandshakeCoordinator aliceCoordinator;
       late HandshakeCoordinator bobCoordinator;

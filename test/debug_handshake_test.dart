@@ -1,3 +1,7 @@
+//
+// Diagnostic output is intentional in this debug-only handshake trace test.
+
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
@@ -116,8 +120,6 @@ void main() {
     TestSetup.resetSharedPreferences();
   });
 
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
-
   tearDown(() async {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
     final unexpected = severe.where(
@@ -160,7 +162,7 @@ void main() {
   });
 
   test('DEBUG: Trace handshake coordinator flow step by step', () async {
-    print('\n========== TEST START ==========\n');
+    debugPrint('\n========== TEST START ==========\n');
 
     final aliceContactRepo = ContactRepository();
     final bobContactRepo = ContactRepository();
@@ -172,19 +174,19 @@ void main() {
     late HandshakeCoordinator aliceCoordinator;
     late HandshakeCoordinator bobCoordinator;
 
-    print('Creating Alice coordinator...');
+    debugPrint('Creating Alice coordinator...');
     aliceCoordinator = HandshakeCoordinator(
       myEphemeralId: 'alice_id',
       myPublicKey: 'alice_perm',
       myDisplayName: 'Alice',
       sendMessage: (msg) async {
-        print('>>> ALICE SENDING: ${msg.type}');
+        debugPrint('>>> ALICE SENDING: ${msg.type}');
         // Simulate async network delay
         await Future.delayed(Duration(milliseconds: 1));
         await bobCoordinator.handleReceivedMessage(msg);
       },
       onHandshakeComplete: (id, name, noiseKey) async {
-        print('✅ ALICE HANDSHAKE COMPLETE');
+        debugPrint('✅ ALICE HANDSHAKE COMPLETE');
         aliceCompleted = true;
         await aliceContactRepo.saveContact(id, name);
         if (aliceCoordinator.theirNoisePublicKey != null) {
@@ -197,19 +199,19 @@ void main() {
       },
     );
 
-    print('Creating Bob coordinator...');
+    debugPrint('Creating Bob coordinator...');
     bobCoordinator = HandshakeCoordinator(
       myEphemeralId: 'bob_id',
       myPublicKey: 'bob_perm',
       myDisplayName: 'Bob',
       sendMessage: (msg) async {
-        print('<<< BOB SENDING: ${msg.type}');
+        debugPrint('<<< BOB SENDING: ${msg.type}');
         // Simulate async network delay
         await Future.delayed(Duration(milliseconds: 1));
         await aliceCoordinator.handleReceivedMessage(msg);
       },
       onHandshakeComplete: (id, name, noiseKey) async {
-        print('✅ BOB HANDSHAKE COMPLETE');
+        debugPrint('✅ BOB HANDSHAKE COMPLETE');
         bobCompleted = true;
         await bobContactRepo.saveContact(id, name);
         if (bobCoordinator.theirNoisePublicKey != null) {
@@ -222,21 +224,22 @@ void main() {
       },
     );
 
-    print('\n--- Starting handshake ---\n');
-    print('Alice phase before start: ${aliceCoordinator.currentPhase}');
-    print('Bob phase before start: ${bobCoordinator.currentPhase}');
+    debugPrint('\n--- Starting handshake ---\n');
+    debugPrint('Alice phase before start: ${aliceCoordinator.currentPhase}');
+    debugPrint('Bob phase before start: ${bobCoordinator.currentPhase}');
 
     await aliceCoordinator.startHandshake();
 
-    print('\n--- After startHandshake() ---\n');
-    print('Alice phase: ${aliceCoordinator.currentPhase}');
-    print('Bob phase: ${bobCoordinator.currentPhase}');
-    print('Alice completed: $aliceCompleted');
-    print('Bob completed: $bobCompleted');
+    debugPrint('\n--- After startHandshake() ---\n');
+    debugPrint('Alice phase: ${aliceCoordinator.currentPhase}');
+    debugPrint('Bob phase: ${bobCoordinator.currentPhase}');
+    debugPrint('Alice completed: $aliceCompleted');
+    debugPrint('Bob completed: $bobCompleted');
 
-    print('\n========== TEST END ==========\n');
+    debugPrint('\n========== TEST END ==========\n');
 
     expect(aliceCompleted, true, reason: 'Alice should complete');
     expect(bobCompleted, true, reason: 'Bob should complete');
   });
 }
+

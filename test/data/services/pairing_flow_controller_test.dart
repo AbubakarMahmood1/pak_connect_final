@@ -11,7 +11,6 @@ import 'package:pak_connect/core/security/security_types.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/pairing_flow_controller.dart';
 import 'package:pak_connect/data/services/pairing_lifecycle_service.dart';
-import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:shared_preferences/shared_preferences.dart';

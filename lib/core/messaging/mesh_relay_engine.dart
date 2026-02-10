@@ -12,7 +12,6 @@ import '../models/protocol_message.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_seen_message_store.dart';
 import '../interfaces/i_identity_manager.dart';
-import '../../domain/entities/enhanced_message.dart';
 import '../../domain/values/id_types.dart';
 import '../services/security_manager.dart';
 import 'offline_message_queue.dart';
@@ -188,8 +187,7 @@ class MeshRelayEngine {
     _logger.info(
       '🌊 Flood mode: ${forceFloodMode ? "ENABLED (broadcast for p2p)" : "disabled"}',
     );
-    // ignore: avoid_print
-    print(
+    _logger.info(
       '📡 RELAY ENGINE: Node ID set to $truncatedNodeId... (EPHEMERAL) | Smart Routing: ${_routingService != null} | Relay: ${_relayConfig.isRelayEnabled() ? "ON" : "OFF"} | Network: $networkSize nodes',
     );
   }
@@ -562,7 +560,7 @@ class MeshRelayEngine {
       // Check if we have a relationship with sender that might indicate
       // we could be an intended intermediate recipient
       if (_repositoryProvider != null) {
-        final senderContact = await _repositoryProvider!.contactRepository
+        final senderContact = await _repositoryProvider.contactRepository
             .getContact(originalSenderPublicKey);
         if (senderContact != null &&
             senderContact.securityLevel != SecurityLevel.low) {
@@ -570,7 +568,7 @@ class MeshRelayEngine {
         }
 
         // Check if we have a relationship with final recipient (could be group message)
-        final recipientContact = await _repositoryProvider!.contactRepository
+        final recipientContact = await _repositoryProvider.contactRepository
             .getContact(finalRecipientPublicKey);
         if (recipientContact != null) {
           return true;

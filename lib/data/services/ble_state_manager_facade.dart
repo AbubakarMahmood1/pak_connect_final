@@ -6,7 +6,6 @@ import '../../core/models/protocol_message.dart';
 import '../../core/models/spy_mode_info.dart';
 import '../../core/services/security_manager.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../domain/entities/contact.dart';
 import '../../domain/values/id_types.dart';
 import 'ble_state_coordinator.dart';
 import 'ble_state_manager.dart';

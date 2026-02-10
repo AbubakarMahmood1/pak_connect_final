@@ -5,9 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:bluetooth_low_energy_platform_interface/bluetooth_low_energy_platform_interface.dart';
-import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/interfaces/i_ble_platform_host.dart';
-import 'package:pak_connect/core/interfaces/i_ble_service_facade.dart';
 import 'package:pak_connect/core/interfaces/i_ble_connection_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
@@ -57,8 +55,6 @@ void main() {
         handshakeService: handshakeStub,
       );
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       facade.dispose();
@@ -265,7 +261,7 @@ void main() {
         final spyInfo = SpyModeInfo(contactName: 'Alice', ephemeralID: 'eph1');
         final received = <String>[];
         localFacade.stateManager.onSpyModeDetected = (info) {
-          received.add(info.contactName ?? '');
+          received.add(info.contactName);
         };
 
         final streamFuture = localFacade.spyModeDetectedStream.first;
@@ -1317,7 +1313,7 @@ final class _FakeCentralManager implements CentralManager {
   final _stateChanged =
       StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
 
-  BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
+  final BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
 
   Future<void> dispose() async {
     await _discovered.close();
@@ -1443,7 +1439,7 @@ final class _FakePeripheralManager implements PeripheralManager {
   final _stateChanged =
       StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
 
-  BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
+  final BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
 
   Future<void> dispose() async {
     await _connectionState.close();
@@ -1570,3 +1566,4 @@ final class _FakeCentral implements Central {
 }
 
 // No additional mock helpers needed - all tests use facade directly
+

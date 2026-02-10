@@ -1,15 +1,12 @@
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_archive_repository.dart';
-import '../../core/models/archive_models.dart';
 import 'archive_management_models.dart';
 
 /// Handles archive maintenance tasks (cleanup, compression, index rebuilds)
 class ArchiveMaintenance {
   final _logger = Logger('ArchiveMaintenance');
-  final IArchiveRepository _archiveRepository;
 
-  ArchiveMaintenance({required IArchiveRepository archiveRepository})
-    : _archiveRepository = archiveRepository;
+  ArchiveMaintenance({required IArchiveRepository archiveRepository});
 
   Future<ArchiveMaintenanceResult> performMaintenance({
     Set<ArchiveMaintenanceTask> tasks = const {},

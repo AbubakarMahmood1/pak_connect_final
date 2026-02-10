@@ -11,7 +11,6 @@ import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/services/home_screen_facade.dart';
 import 'package:pak_connect/core/models/archive_models.dart';
 import 'package:pak_connect/domain/entities/archived_chat.dart';
-import 'package:pak_connect/domain/entities/archived_message.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
@@ -19,8 +18,6 @@ import 'package:pak_connect/presentation/controllers/home_screen_controller.dart
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import '../../test_helpers/test_setup.dart';
-
-ChatId _cid(String value) => ChatId(value);
 
 class _FakeChatsRepository implements IChatsRepository {
   int totalUnreadCountCalls = 0;
@@ -211,7 +208,7 @@ class _InMemorySeenMessageStore implements ISeenMessageStore {
 }
 
 class _TestHomeScreenController extends HomeScreenController {
-  _TestHomeScreenController(HomeScreenControllerArgs args) : super(args);
+  _TestHomeScreenController(super.args);
 
   int loadCount = 0;
 

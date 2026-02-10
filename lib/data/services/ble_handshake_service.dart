@@ -129,7 +129,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
   bool get _isBleConnected {
     if (_connectionStatusProvider != null) {
       try {
-        return _connectionStatusProvider!();
+        return _connectionStatusProvider();
       } catch (_) {}
     }
     try {
@@ -289,10 +289,10 @@ class BLEHandshakeService implements IBLEHandshakeService {
   @override
   Future<void> onHandshakeComplete() async {
     _logger.info(
-      '🎉 [INTERFACE] onHandshakeComplete() - actual implementation via callback',
+      '🎉 [INTERFACE] onHandshakeComplete() - running completion hooks',
     );
-    // Note: Actual completion handling is done via _onHandshakeCompleteCallback
-    // passed to HandshakeCoordinator during initialization
+    await _processPendingMessages();
+    await _startGossipSync();
   }
 
   @override
@@ -437,6 +437,11 @@ class BLEHandshakeService implements IBLEHandshakeService {
   }
 
   void _emitSpyMode(SpyModeInfo info) {
+    try {
+      _handleSpyModeDetected(info);
+    } catch (e, stackTrace) {
+      _logger.warning('Error invoking spy mode callback: $e', e, stackTrace);
+    }
     for (final listener in List.of(_spyModeListeners)) {
       try {
         listener(info);
@@ -447,6 +452,11 @@ class BLEHandshakeService implements IBLEHandshakeService {
   }
 
   void _emitIdentity(String identity) {
+    try {
+      _handleIdentityRevealed(identity);
+    } catch (e, stackTrace) {
+      _logger.warning('Error invoking identity callback: $e', e, stackTrace);
+    }
     for (final listener in List.of(_identityRevealedListeners)) {
       try {
         listener(identity);

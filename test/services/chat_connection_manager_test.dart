@@ -376,11 +376,10 @@ DiscoveredDevice _buildDiscoveredDevice({
 }
 
 class _StubBleService extends BLEService {
-  _StubBleService({this.persistentKey, this.sessionId, this.ephemeralId});
+  _StubBleService({this.persistentKey, this.sessionId});
 
   final String? persistentKey;
   final String? sessionId;
-  final String? ephemeralId;
 
   @override
   String? get theirPersistentKey => persistentKey;
@@ -392,5 +391,5 @@ class _StubBleService extends BLEService {
   String? get currentSessionId => sessionId;
 
   @override
-  String? get theirEphemeralId => ephemeralId ?? sessionId;
+  String? get theirEphemeralId => sessionId;
 }

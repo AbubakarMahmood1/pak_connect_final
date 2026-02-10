@@ -2,7 +2,6 @@ import 'package:logging/logging.dart';
 import '../repositories/contact_repository.dart';
 import '../repositories/message_repository.dart';
 import '../../core/utils/chat_utils.dart';
-import '../../domain/entities/contact.dart';
 import '../../core/services/message_queue_repository.dart';
 import '../../domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/values/id_types.dart';

@@ -23,8 +23,6 @@ void main() {
   late List<LogRecord> logRecords;
   late Set<Pattern> allowedSevere;
 
-  Map<String, dynamic> connectionInfoUpdates = {};
-
   setUp(() {
     logRecords = [];
     allowedSevere = {};
@@ -40,8 +38,8 @@ void main() {
       centralManager: mockCentralManager,
       stateManager: mockStateManager,
       hintScanner: mockHintScanner,
-      onUpdateConnectionInfo:
-          ({
+        onUpdateConnectionInfo:
+            ({
             bool? isConnected,
             bool? isReady,
             String? otherUserName,
@@ -49,18 +47,11 @@ void main() {
             bool? isScanning,
             bool? isAdvertising,
             bool? isReconnecting,
-          }) {
-            connectionInfoUpdates = {
-              'isScanning': isScanning,
-              'statusMessage': statusMessage,
-            };
-          },
+          }) {},
       isAdvertising: () => false,
       isConnected: () => false,
     );
   });
-
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
   tearDown(() {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -160,3 +151,4 @@ void main() {
     });
   });
 }
+

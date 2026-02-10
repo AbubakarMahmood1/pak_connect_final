@@ -100,15 +100,15 @@ class ChatMessagingViewModel {
       if (prefersPersistent) {
         if (hasPersistent) {
           _logger.fine(
-            '🔑 Using contact persistent key for ${chatId.value}: ${contact!.persistentPublicKey}',
+            '🔑 Using contact persistent key for ${chatId.value}: ${contact.persistentPublicKey}',
           );
-          return contact!.persistentPublicKey!;
+          return contact.persistentPublicKey!;
         }
         if (hasEphemeral) {
           _logger.fine(
-            '🔑 Using contact session key for ${chatId.value}: ${contact!.currentEphemeralId}',
+            '🔑 Using contact session key for ${chatId.value}: ${contact.currentEphemeralId}',
           );
-          return contact!.currentEphemeralId!;
+          return contact.currentEphemeralId!;
         }
         if (contact.publicKey.isNotEmpty) {
           return contact.publicKey;

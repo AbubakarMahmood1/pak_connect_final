@@ -3,7 +3,6 @@ import '../../core/models/archive_models.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'chat_management_service.dart';
 import 'archive_search_service.dart';
-import 'chat_management_models.dart';
 
 import 'package:pak_connect/domain/values/id_types.dart';
 
@@ -88,6 +87,7 @@ class ChatManagementFacade implements IChatManagement {
     return _chatManagementService.toggleChatPin(chatId);
   }
 
+  @override
   Future<ChatOperationResult> toggleMessageStarById(MessageId messageId) async {
     await _ensureInitialized();
     return _chatManagementService.toggleMessageStar(messageId);

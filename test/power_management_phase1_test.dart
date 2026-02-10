@@ -8,7 +8,10 @@
 // 4. Background state awareness
 // 5. RSSI filtering per power mode
 // 6. Connection limits per power mode
+//
+// Diagnostic output is intentional for power-mode benchmark reporting.
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/power/adaptive_power_manager.dart';
@@ -85,11 +88,11 @@ void main() {
         expect(powerSaverStats.dutyCyclePercentage, 20.0); // 2s ON / 8s OFF
         expect(ultraLowStats.dutyCyclePercentage, 9.0); // 1s ON / 10s OFF
 
-        print('✅ Duty cycle percentages verified:');
-        print('   Performance: ${perfStats.dutyCyclePercentage}%');
-        print('   Balanced: ${balancedStats.dutyCyclePercentage}%');
-        print('   Power Saver: ${powerSaverStats.dutyCyclePercentage}%');
-        print('   Ultra Low: ${ultraLowStats.dutyCyclePercentage}%');
+        debugPrint('✅ Duty cycle percentages verified:');
+        debugPrint('   Performance: ${perfStats.dutyCyclePercentage}%');
+        debugPrint('   Balanced: ${balancedStats.dutyCyclePercentage}%');
+        debugPrint('   Power Saver: ${powerSaverStats.dutyCyclePercentage}%');
+        debugPrint('   Ultra Low: ${ultraLowStats.dutyCyclePercentage}%');
       },
     );
 
@@ -135,11 +138,11 @@ void main() {
       );
       expect(ultraLowStats.batteryEfficiencyRating, greaterThan(0.9));
 
-      print('✅ Battery efficiency ratings:');
-      print(
+      debugPrint('✅ Battery efficiency ratings:');
+      debugPrint(
         '   Performance mode: ${(perfStats.batteryEfficiencyRating * 100).toStringAsFixed(1)}%',
       );
-      print(
+      debugPrint(
         '   Ultra Low Power: ${(ultraLowStats.batteryEfficiencyRating * 100).toStringAsFixed(1)}%',
       );
     });
@@ -152,8 +155,8 @@ void main() {
       // Note: Initial state is performance mode (100% battery, not background)
       // Verify RSSI threshold matches performance mode
 
-      print('✅ RSSI thresholds by power mode:');
-      print(
+      debugPrint('✅ RSSI thresholds by power mode:');
+      debugPrint(
         '   ${powerManager.currentPowerMode.name}: ${powerManager.rssiThreshold} dBm',
       );
 
@@ -167,8 +170,8 @@ void main() {
       await powerManager.initialize();
 
       // Test connection limits
-      print('✅ Connection limits by power mode:');
-      print(
+      debugPrint('✅ Connection limits by power mode:');
+      debugPrint(
         '   Current mode (${powerManager.currentPowerMode.name}): ${powerManager.maxConnections} connections',
       );
       expect(powerManager.maxConnections, greaterThan(0));
@@ -214,7 +217,7 @@ void main() {
       expect(stats['batteryLevel'], 50);
       expect(stats['isCharging'], false);
 
-      print(
+      debugPrint(
         '✅ Normal mode: battery ${stats['batteryLevel']}% - emergency mode: ${stats['emergencyMode']}',
       );
     });
@@ -226,7 +229,7 @@ void main() {
       expect(stats['emergencyMode'], true);
       expect(stats['batteryLevel'], 9);
 
-      print(
+      debugPrint(
         '⚠️  Emergency mode: battery ${stats['batteryLevel']}% - emergency mode: ${stats['emergencyMode']}',
       );
     });
@@ -239,7 +242,7 @@ void main() {
       expect(stats['batteryLevel'], 5);
       expect(stats['isCharging'], true);
 
-      print(
+      debugPrint(
         '✅ Charging overrides emergency mode: battery ${stats['batteryLevel']}% charging: ${stats['isCharging']} - emergency mode: ${stats['emergencyMode']}',
       );
     });
@@ -255,7 +258,7 @@ void main() {
       final stats = syncManager.getStatistics();
       expect(stats['emergencyMode'], false); // Charging overrides
 
-      print('✅ Battery transitions handled correctly');
+      debugPrint('✅ Battery transitions handled correctly');
     });
 
     test('Skipped syncs counter increments in emergency mode', () async {
@@ -266,7 +269,7 @@ void main() {
       final stats = syncManager.getStatistics();
       expect(stats['skippedSyncsCount'], 0); // Initially 0
 
-      print('✅ Skipped syncs counter ready: ${stats['skippedSyncsCount']}');
+      debugPrint('✅ Skipped syncs counter ready: ${stats['skippedSyncsCount']}');
     });
   });
 
@@ -301,8 +304,8 @@ void main() {
       // BitChat logic: charging + foreground → performance
       expect(powerManager.currentPowerMode, PowerMode.performance);
 
-      print('✅ Power mode transitions:');
-      print(
+      debugPrint('✅ Power mode transitions:');
+      debugPrint(
         '   Initial (100% battery, foreground): ${powerManager.currentPowerMode.name}',
       );
 
@@ -310,14 +313,14 @@ void main() {
       powerManager.setAppBackgroundState(true);
       // Mode should change to balanced (good battery + background)
       expect(powerManager.currentPowerMode, PowerMode.balanced);
-      print(
+      debugPrint(
         '   After background (100% battery, background): ${powerManager.currentPowerMode.name}',
       );
 
       powerManager.setAppBackgroundState(false);
       // Back to performance
       expect(powerManager.currentPowerMode, PowerMode.performance);
-      print(
+      debugPrint(
         '   After foreground (100% battery, foreground): ${powerManager.currentPowerMode.name}',
       );
     });
@@ -369,8 +372,8 @@ void main() {
       expect(str, contains('25%')); // Battery level
       expect(str, contains('20.0%')); // Duty cycle for power saver
 
-      print('✅ PowerManagementStats toString:');
-      print('   $str');
+      debugPrint('✅ PowerManagementStats toString:');
+      debugPrint('   $str');
     });
 
     test('GossipSyncManager statistics include emergency mode info', () {
@@ -388,10 +391,10 @@ void main() {
       expect(stats.containsKey('emergencyMode'), true);
       expect(stats.containsKey('skippedSyncsCount'), true);
 
-      print('✅ GossipSyncManager statistics:');
-      print('   Battery: ${stats['batteryLevel']}%');
-      print('   Emergency mode: ${stats['emergencyMode']}');
-      print('   Skipped syncs: ${stats['skippedSyncsCount']}');
+      debugPrint('✅ GossipSyncManager statistics:');
+      debugPrint('   Battery: ${stats['batteryLevel']}%');
+      debugPrint('   Emergency mode: ${stats['emergencyMode']}');
+      debugPrint('   Skipped syncs: ${stats['skippedSyncsCount']}');
     });
   });
 }

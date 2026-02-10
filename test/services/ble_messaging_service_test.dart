@@ -77,8 +77,6 @@ void main() {
       );
     });
 
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
-
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
       final unexpected = severe.where(
@@ -821,3 +819,4 @@ class _ForwardingHarnessHandler extends Mock
     callback,
   ) {}
 }
+

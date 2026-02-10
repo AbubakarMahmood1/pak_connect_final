@@ -5,7 +5,6 @@ import '../../core/security/spam_prevention_manager.dart';
 import '../../core/models/mesh_relay_models.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/utils/string_extensions.dart';
-import '../../domain/entities/enhanced_message.dart';
 import '../../domain/values/id_types.dart';
 
 /// Encapsulates mesh relay handling (ACKs, forwarding, delivery) so

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/models/pairing_state.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../data/repositories/contact_repository.dart';

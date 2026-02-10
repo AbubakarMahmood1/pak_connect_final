@@ -56,7 +56,7 @@ class ContactStatusSyncController {
     _lastSyncedTheirStatus = theyClaimUs ? 'yes' : 'no';
 
     _logger.fine(
-      '🔒 SESSION: They ${theyClaimUs ? "claim to have" : "don\'t have"} us as contact',
+      '🔒 SESSION: They ${theyClaimUs ? "claim to have" : "don't have"} us as contact',
     );
 
     if (previousState != _lastSyncedTheirStatus) {

@@ -1,11 +1,9 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/messaging/offline_message_queue.dart';
 import '../../core/interfaces/i_mesh_networking_service.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../core/utils/mesh_debug_logger.dart';
 import '../../core/utils/app_logger.dart';
-import '../../domain/entities/enhanced_message.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
@@ -22,11 +20,10 @@ class RelayQueueWidget extends StatefulWidget {
   });
 
   @override
-  // ignore: library_private_types_in_public_api
-  _RelayQueueWidgetState createState() => _RelayQueueWidgetState();
+  RelayQueueWidgetState createState() => RelayQueueWidgetState();
 }
 
-class _RelayQueueWidgetState extends State<RelayQueueWidget> {
+class RelayQueueWidgetState extends State<RelayQueueWidget> {
   static final _logger = AppLogger.getLogger(LoggerNames.ui);
 
   // ✅ FIX: Track last logged status to prevent duplicate logs
@@ -117,61 +114,6 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
             style: TextStyle(color: Colors.grey[500], fontSize: 12),
           ),
         ],
-      ),
-    );
-  }
-
-  /// Build state when loading timeout is reached
-  Widget _buildTimeoutState() {
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.warning_amber_rounded,
-              size: 64,
-              color: Colors.orange[400],
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Connection Timeout',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.orange[700],
-              ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Unable to load relay queue status. This may indicate a connection issue.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-            ),
-            SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () => setState(() {}),
-                  icon: Icon(Icons.refresh),
-                  label: Text('Retry'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange[600],
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-                SizedBox(width: 16),
-                OutlinedButton.icon(
-                  onPressed: () => _handleCloseRequest(),
-                  icon: Icon(Icons.close),
-                  label: Text('Close'),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -722,28 +664,4 @@ class _RelayQueueWidgetState extends State<RelayQueueWidget> {
     MeshDebugLogger.info('UI Action', 'Clear failed messages requested');
   }
 
-  /// Handle close request with proper coordination
-  void _handleCloseRequest() {
-    MeshDebugLogger.info(
-      'RelayQueueWidget',
-      'Close request - using coordinated close',
-    );
-
-    // Use callback if provided (for tab-based integration)
-    if (widget.onRequestClose != null) {
-      widget.onRequestClose!();
-    } else {
-      // Fallback: Only pop if this is actually a separate screen
-      // Check if we're in a tab view by examining the route
-      final route = ModalRoute.of(context);
-      if (route != null && route.isFirst == false) {
-        Navigator.pop(context);
-      } else {
-        MeshDebugLogger.warning(
-          'RelayQueueWidget',
-          'Cannot close - appears to be in tab view without callback',
-        );
-      }
-    }
-  }
 }

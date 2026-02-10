@@ -23,18 +23,14 @@ import '../domain/services/auto_archive_scheduler.dart';
 import '../domain/services/notification_service.dart';
 import '../domain/services/notification_handler_factory.dart';
 import '../data/services/ble_service.dart';
-import '../data/services/ble_message_handler.dart';
-import '../data/services/ble_message_handler_facade_impl.dart';
 import '../data/services/seen_message_store.dart';
 import '../data/repositories/preferences_repository.dart';
 import '../data/repositories/contact_repository.dart';
 import '../data/repositories/user_preferences.dart';
 import '../data/repositories/archive_repository.dart';
-import '../data/repositories/preferences_repository.dart';
 import '../data/repositories/message_repository.dart';
 import '../data/database/database_helper.dart';
 import '../domain/entities/message.dart';
-import '../domain/entities/preference_keys.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 import '../core/messaging/message_router.dart';
 import 'di/service_locator.dart';
@@ -405,11 +401,7 @@ class AppCore {
       bleService = legacyBleService;
       _logger.info('✅ BLEService initialized via AppCore');
 
-      final messageHandlerFacade = BLEMessageHandlerFacadeImpl(
-        legacyBleService.messageHandler,
-        SeenMessageStore.instance,
-        enableFragmentCleanupTimer: true,
-      );
+      final messageHandlerFacade = legacyBleService.meshMessageHandler;
 
       meshNetworkingService = MeshNetworkingService(
         bleService: bleService,

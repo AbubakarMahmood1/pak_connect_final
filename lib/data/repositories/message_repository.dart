@@ -15,6 +15,7 @@ class MessageRepository implements IMessageRepository {
   static final _logger = Logger('MessageRepository');
 
   /// Get all messages for a specific chat, sorted by timestamp
+  @override
   Future<List<Message>> getMessages(ChatId chatId) async {
     try {
       final db = await DatabaseHelper.database;
@@ -34,6 +35,7 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Get a single message by ID (for duplicate checking)
+  @override
   Future<Message?> getMessageById(MessageId messageId) async {
     try {
       final db = await DatabaseHelper.database;
@@ -57,6 +59,7 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Save a new message (with duplicate prevention)
+  @override
   Future<void> saveMessage(Message message) async {
     try {
       final db = await DatabaseHelper.database;
@@ -89,6 +92,7 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Update an existing message
+  @override
   Future<void> updateMessage(Message message) async {
     try {
       final db = await DatabaseHelper.database;
@@ -122,6 +126,7 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Clear all messages for a specific chat
+  @override
   Future<void> clearMessages(ChatId chatId) async {
     try {
       final db = await DatabaseHelper.database;
@@ -140,6 +145,7 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Delete a specific message by ID
+  @override
   Future<bool> deleteMessage(MessageId messageId) async {
     try {
       final db = await DatabaseHelper.database;
@@ -165,6 +171,7 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Get all messages for interaction calculations
+  @override
   Future<List<Message>> getAllMessages() async {
     try {
       final db = await DatabaseHelper.database;
@@ -179,6 +186,7 @@ class MessageRepository implements IMessageRepository {
   }
 
   /// Get messages for a specific contact (by public key/chat ID)
+  @override
   Future<List<Message>> getMessagesForContact(String publicKey) async {
     try {
       final db = await DatabaseHelper.database;

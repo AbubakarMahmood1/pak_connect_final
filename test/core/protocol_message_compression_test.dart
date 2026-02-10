@@ -1,3 +1,7 @@
+//
+// Diagnostic output is intentional in this test to inspect compression behavior.
+
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,7 +49,7 @@ void main() {
 
         // Verify compression was beneficial
         expect(compressed.length, lessThan(uncompressed.length));
-        print(
+        debugPrint(
           'Compression savings: ${uncompressed.length} → ${compressed.length} bytes '
           '(${((1 - compressed.length / uncompressed.length) * 100).toStringAsFixed(1)}% reduction)',
         );
@@ -351,14 +355,14 @@ void main() {
           totalOriginal += uncompressed.length;
           totalCompressed += compressed.length;
 
-          print(
+          debugPrint(
             '${message.type}: ${uncompressed.length} → ${compressed.length} bytes '
             '(${((1 - compressed.length / uncompressed.length) * 100).toStringAsFixed(1)}% saved)',
           );
         }
 
         final overallSavings = ((1 - totalCompressed / totalOriginal) * 100);
-        print(
+        debugPrint(
           'Overall compression savings: ${overallSavings.toStringAsFixed(1)}%',
         );
 
@@ -442,7 +446,7 @@ void main() {
         stopwatch.stop();
 
         final avgMs = stopwatch.elapsedMilliseconds / 100;
-        print(
+        debugPrint(
           'Average compression time: ${avgMs.toStringAsFixed(2)}ms per message',
         );
 
@@ -465,7 +469,7 @@ void main() {
         stopwatch.stop();
 
         final avgMs = stopwatch.elapsedMilliseconds / 100;
-        print(
+        debugPrint(
           'Average decompression time: ${avgMs.toStringAsFixed(2)}ms per message',
         );
 

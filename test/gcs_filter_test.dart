@@ -1,6 +1,9 @@
 // Unit tests for GCS (Golomb-Coded Sets) filter
 // Validates encoding, decoding, membership testing, and bandwidth efficiency
+//
+// Diagnostic output is intentional for benchmark-style bandwidth reporting.
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
@@ -239,8 +242,8 @@ void main() {
       final reduction = 1.0 - (newSize / oldSize);
       expect(reduction, greaterThan(0.90));
 
-      print('Bandwidth reduction: ${(reduction * 100).toStringAsFixed(2)}%');
-      print('Old size: $oldSize bytes, New size: $newSize bytes');
+      debugPrint('Bandwidth reduction: ${(reduction * 100).toStringAsFixed(2)}%');
+      debugPrint('Old size: $oldSize bytes, New size: $newSize bytes');
     });
 
     test('filter size scales sub-linearly with element count', () {
@@ -256,7 +259,7 @@ void main() {
         sizes[count] = filter.data.length;
       }
 
-      print('Filter sizes: $sizes');
+      debugPrint('Filter sizes: $sizes');
 
       // Verify sub-linear scaling (not doubling with element count)
       // Note: This may hit the maxBytes limit
@@ -389,9 +392,9 @@ void main() {
       // At least some should be found (accounting for trimming and deduplication)
       expect(foundCount, greaterThan(0));
 
-      print('Found $foundCount matches while inspecting $inspected messages');
-      print('Filter size: ${filter.data.length} bytes (target: 512)');
-      print('Encoded ${decoded.length} elements (from 1000 input)');
+      debugPrint('Found $foundCount matches while inspecting $inspected messages');
+      debugPrint('Filter size: ${filter.data.length} bytes (target: 512)');
+      debugPrint('Encoded ${decoded.length} elements (from 1000 input)');
     });
 
     test('compares bandwidth: 5 peers syncing every 30s', () {
@@ -415,21 +418,21 @@ void main() {
 
       final reduction = 1.0 - (newDailyBandwidth / oldDailyBandwidth);
 
-      print('=== Daily Bandwidth Comparison ===');
-      print('Messages: $messageCount');
-      print('Peers: $peerCount');
-      print('Syncs per day: $syncsPerDay');
-      print('');
-      print('OLD (full ID list):');
-      print('  Per sync: ${oldSyncSize / 1024} KB');
-      print('  Daily: ${oldDailyBandwidth / (1024 * 1024)} MB');
-      print('');
-      print('NEW (GCS filter):');
-      print('  Per sync: ${newSyncSize / 1024} KB');
-      print('  Daily: ${newDailyBandwidth / (1024 * 1024)} MB');
-      print('');
-      print('Bandwidth reduction: ${(reduction * 100).toStringAsFixed(2)}%');
-      print('=============================');
+      debugPrint('=== Daily Bandwidth Comparison ===');
+      debugPrint('Messages: $messageCount');
+      debugPrint('Peers: $peerCount');
+      debugPrint('Syncs per day: $syncsPerDay');
+      debugPrint('');
+      debugPrint('OLD (full ID list):');
+      debugPrint('  Per sync: ${oldSyncSize / 1024} KB');
+      debugPrint('  Daily: ${oldDailyBandwidth / (1024 * 1024)} MB');
+      debugPrint('');
+      debugPrint('NEW (GCS filter):');
+      debugPrint('  Per sync: ${newSyncSize / 1024} KB');
+      debugPrint('  Daily: ${newDailyBandwidth / (1024 * 1024)} MB');
+      debugPrint('');
+      debugPrint('Bandwidth reduction: ${(reduction * 100).toStringAsFixed(2)}%');
+      debugPrint('=============================');
 
       // Should achieve at least 95% reduction
       expect(reduction, greaterThan(0.95));

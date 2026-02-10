@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 void main() {
   group('Mesh Relay Integration Tests', () {
@@ -16,8 +15,6 @@ void main() {
       Logger.root.level = Level.ALL;
       Logger.root.onRecord.listen(logRecords.add);
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -372,3 +369,4 @@ void main() {
     });
   });
 }
+

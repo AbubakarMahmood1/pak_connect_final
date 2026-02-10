@@ -9,7 +9,6 @@ import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/security/message_security.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
@@ -38,8 +37,6 @@ void main() {
     await TestSetup.configureTestDatabase(label: 'mesh_relay_flow');
     TestSetup.resetSharedPreferences();
   });
-
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
   tearDown(() async {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -580,3 +577,4 @@ void main() {
     });
   });
 }
+

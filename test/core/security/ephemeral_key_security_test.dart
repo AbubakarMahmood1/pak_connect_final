@@ -1,3 +1,7 @@
+//
+// Diagnostic output is intentional in this security verification test.
+
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -60,11 +64,11 @@ void main() {
         final prefs = await SharedPreferences.getInstance();
         final allKeys = prefs.getKeys();
 
-        print('📋 SharedPreferences keys after initialization:');
+        debugPrint('📋 SharedPreferences keys after initialization:');
         for (final key in allKeys) {
           final value = prefs.get(key).toString();
           final preview = value.length > 20 ? value.substring(0, 20) : value;
-          print('  - $key: $preview${value.length > 20 ? "..." : ""}');
+          debugPrint('  - $key: $preview${value.length > 20 ? "..." : ""}');
         }
 
         // THEN: Private key should NOT be in SharedPreferences
@@ -77,7 +81,7 @@ void main() {
               'This defeats the purpose of ephemeral keys and enables session impersonation.',
         );
 
-        print('✅ PASS: No private key in SharedPreferences (secure)');
+        debugPrint('✅ PASS: No private key in SharedPreferences (secure)');
       },
     );
 
@@ -111,7 +115,7 @@ void main() {
           reason: 'Public key should be persisted (non-sensitive)',
         );
 
-        print('✅ PASS: Non-sensitive data properly persisted');
+        debugPrint('✅ PASS: Non-sensitive data properly persisted');
       },
     );
 
@@ -129,10 +133,10 @@ void main() {
         expect(firstPrivateKey, isNotNull);
         expect(firstPublicKey, isNotNull);
 
-        print(
+        debugPrint(
           '🔑 First session private key (first 16 chars): ${firstPrivateKey!.substring(0, 16)}...',
         );
-        print(
+        debugPrint(
           '🔑 First session public key (first 16 chars): ${firstPublicKey!.substring(0, 16)}...',
         );
 
@@ -148,10 +152,10 @@ void main() {
         expect(secondPrivateKey, isNotNull);
         expect(secondPublicKey, isNotNull);
 
-        print(
+        debugPrint(
           '🔑 Second session private key (first 16 chars): ${secondPrivateKey!.substring(0, 16)}...',
         );
-        print(
+        debugPrint(
           '🔑 Second session public key (first 16 chars): ${secondPublicKey!.substring(0, 16)}...',
         );
 
@@ -172,7 +176,7 @@ void main() {
               'Public key should also be fresh (paired with new private key)',
         );
 
-        print('✅ PASS: Fresh key pair generated on app restart (not restored)');
+        debugPrint('✅ PASS: Fresh key pair generated on app restart (not restored)');
       },
     );
 
@@ -193,7 +197,7 @@ void main() {
           privateKeys.add(privateKey);
           publicKeys.add(publicKey);
 
-          print(
+          debugPrint(
             '🔑 Restart $i - Private: ${privateKey.substring(0, 16)}..., Public: ${publicKey.substring(0, 16)}...',
           );
 
@@ -220,7 +224,7 @@ void main() {
           reason: 'Each restart should generate unique public keys',
         );
 
-        print(
+        debugPrint(
           '✅ PASS: All ${privateKeys.length} restarts generated unique key pairs',
         );
       },
@@ -256,7 +260,7 @@ void main() {
               'Private keys must only exist in memory, never persisted to disk.',
         );
 
-        print(
+        debugPrint(
           '✅ PASS: Private key exists in memory only (${privateKeyInMemory!.substring(0, 16)}...), not in storage',
         );
       },
@@ -272,7 +276,7 @@ void main() {
         final initialPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
         expect(initialPrivateKey, isNotNull);
 
-        print(
+        debugPrint(
           '🔑 Initial private key: ${initialPrivateKey!.substring(0, 16)}...',
         );
 
@@ -283,7 +287,7 @@ void main() {
             EphemeralKeyManager.ephemeralSigningPrivateKey;
         expect(rotatedPrivateKey, isNotNull);
 
-        print(
+        debugPrint(
           '🔑 Rotated private key: ${rotatedPrivateKey!.substring(0, 16)}...',
         );
 
@@ -303,7 +307,7 @@ void main() {
               '🚨 SECURITY VULNERABILITY: Rotated private key found in SharedPreferences!',
         );
 
-        print('✅ PASS: Session rotation generates new private key (not persisted)');
+        debugPrint('✅ PASS: Session rotation generates new private key (not persisted)');
       },
     );
 
@@ -322,7 +326,7 @@ void main() {
           'fake-leaked-private-key-from-backup',
         );
 
-        print('💣 Manually injected fake private key into SharedPreferences');
+        debugPrint('💣 Manually injected fake private key into SharedPreferences');
 
         // WHEN: Re-initialize (simulate app restart)
         await EphemeralKeyManager.initialize('test-private-key-corrupt');
@@ -341,7 +345,7 @@ void main() {
 
         // THEN: Fake private key should still exist (we don't delete it on read)
         // But it should be ignored and overwritten eventually
-        print(
+        debugPrint(
           '✅ PASS: Corrupted private key ignored, fresh key generated: ${newPrivateKey.substring(0, 16)}...',
         );
       },
@@ -372,9 +376,9 @@ void main() {
         final prefs = await SharedPreferences.getInstance();
         final allKeys = prefs.getKeys();
 
-        print('📋 SharedPreferences after multiple operations:');
+        debugPrint('📋 SharedPreferences after multiple operations:');
         for (final key in allKeys) {
-          print('  - $key');
+          debugPrint('  - $key');
         }
 
         // THEN: Private key should NEVER appear in SharedPreferences
@@ -386,7 +390,7 @@ void main() {
               'No operation should ever persist private keys.',
         );
 
-        print(
+        debugPrint(
           '✅ PASS: No private key leakage after multiple operations',
         );
       },
@@ -411,7 +415,7 @@ void main() {
           'legacy-private-key-from-old-version',
         );
         
-        print('💾 Simulated legacy private key persisted to disk');
+        debugPrint('💾 Simulated legacy private key persisted to disk');
         
         // Verify it exists before initialization
         expect(
@@ -434,7 +438,7 @@ void main() {
               'Must explicitly remove old private keys on initialization.',
         );
 
-        print('✅ PASS: Legacy private key cleaned up on initialization');
+        debugPrint('✅ PASS: Legacy private key cleaned up on initialization');
       },
     );
 
@@ -460,7 +464,7 @@ void main() {
               'Private key should be accessible for internal components',
         );
 
-        print(
+        debugPrint(
           '✅ PASS: Private key getter accessible for internal components (SigningManager)',
         );
       },

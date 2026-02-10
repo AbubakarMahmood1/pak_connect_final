@@ -239,7 +239,7 @@ class OutboundMessageSender {
           recipientId: finalRecipientId,
           sendChunk: (chunkData) async {
             if (_centralWrite != null) {
-              await _centralWrite!(
+              await _centralWrite(
                 centralManager: centralManager,
                 peripheral: connectedDevice,
                 characteristic: messageCharacteristic,
@@ -261,7 +261,7 @@ class OutboundMessageSender {
           fragments: [singleChunk],
           sendChunk: (chunkData) async {
             if (_centralWrite != null) {
-              await _centralWrite!(
+              await _centralWrite(
                 centralManager: centralManager,
                 peripheral: connectedDevice,
                 characteristic: messageCharacteristic,
@@ -277,16 +277,16 @@ class OutboundMessageSender {
             }
           },
           onBeforeSend: (index, chunk) {
-            print('📨 SEND STEP 5.1: Converting chunk 1/1 to bytes');
-            print(
+            _logger.fine('📨 SEND STEP 5.1: Converting chunk 1/1 to bytes');
+            _logger.fine(
               '📨 SEND STEP 5.1a: Chunk format: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}|[${chunk.content.length} chars]',
             );
-            print(
+            _logger.fine(
               '📨 SEND STEP 5.1b: Chunk 1 → ${chunk.toBytes().length} bytes',
             );
           },
           onAfterSend: (index, _) {
-            print('📨 SEND STEP 6.1✅: Chunk written to BLE successfully');
+            _logger.fine('📨 SEND STEP 6.1✅: Chunk written to BLE successfully');
           },
         );
       }
@@ -475,7 +475,7 @@ class OutboundMessageSender {
           recipientId: finalRecipientId,
           sendChunk: (chunkData) async {
             if (_peripheralWrite != null) {
-              await _peripheralWrite!(
+              await _peripheralWrite(
                 peripheralManager: peripheralManager,
                 central: connectedCentral,
                 characteristic: messageCharacteristic,
@@ -497,7 +497,7 @@ class OutboundMessageSender {
           fragments: [singleChunk],
           sendChunk: (chunkData) async {
             if (_peripheralWrite != null) {
-              await _peripheralWrite!(
+              await _peripheralWrite(
                 peripheralManager: peripheralManager,
                 central: connectedCentral,
                 characteristic: messageCharacteristic,
@@ -545,31 +545,33 @@ class OutboundMessageSender {
     required String encryptionMethod,
     required String message,
   }) {
-    print('🔧 SEND DEBUG: ===== MESSAGE SENDING ANALYSIS =====');
-    print('🔧 SEND DIAGNOSTIC: Message ID length: ${msgId.length}');
-    print(
+    _logger.fine('🔧 SEND DEBUG: ===== MESSAGE SENDING ANALYSIS =====');
+    _logger.fine('🔧 SEND DIAGNOSTIC: Message ID length: ${msgId.length}');
+    _logger.fine(
       '🔧 SEND DIAGNOSTIC: Contact key length: ${contactPublicKey?.length ?? 0}',
     );
-    print(
+    _logger.fine(
       '🔧 SEND DIAGNOSTIC: Current node length: ${currentNodeId?.length ?? 0}',
     );
 
-    print('🔧 SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...');
-    print(
+    _logger.fine('🔧 SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...');
+    _logger.fine(
       '🔧 SEND DEBUG: Recipient ID: ${_safeTruncate(recipientId, 16, fallback: "NOT SPECIFIED")}...',
     );
-    print(
+    _logger.fine(
       '🔧 SEND DEBUG: Addressing: ${useEphemeralAddressing ? "EPHEMERAL" : "PERSISTENT"}',
     );
-    print(
+    _logger.fine(
       '🔧 SEND DEBUG: Intended recipient: ${_safeTruncate(contactPublicKey, 16, fallback: "NOT SPECIFIED")}...',
     );
-    print(
+    _logger.fine(
       '🔧 SEND DEBUG: Current node ID: ${_safeTruncate(currentNodeId, 16, fallback: "NOT SET")}...',
     );
-    print('🔧 SEND DEBUG: Encryption method: $encryptionMethod');
-    print('🔧 SEND DEBUG: Message content: "${_safeTruncate(message, 50)}..."');
-    print('🔧 SEND DEBUG: ===== END SENDING ANALYSIS =====');
+    _logger.fine('🔧 SEND DEBUG: Encryption method: $encryptionMethod');
+    _logger.fine(
+      '🔧 SEND DEBUG: Message content: "${_safeTruncate(message, 50)}..."',
+    );
+    _logger.fine('🔧 SEND DEBUG: ===== END SENDING ANALYSIS =====');
   }
 
   Future<String> _getSimpleEncryptionMethod(

@@ -7,7 +7,6 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
@@ -63,8 +62,6 @@ void main() {
       await syncManager1.initialize();
       await syncManager2.initialize();
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() async {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -736,3 +733,4 @@ void main() {
     });
   });
 }
+

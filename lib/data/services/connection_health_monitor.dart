@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'dart:math';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../core/config/kill_switches.dart';
@@ -220,8 +219,7 @@ class ConnectionHealthMonitor {
         }
 
         final nextInterval =
-            (_monitoringInterval * 12 ~/ 10).clamp(minInterval, maxInterval)
-                as int;
+            (_monitoringInterval * 12 ~/ 10).clamp(minInterval, maxInterval);
         _monitoringInterval = nextInterval;
 
         if (_isMonitoring) {

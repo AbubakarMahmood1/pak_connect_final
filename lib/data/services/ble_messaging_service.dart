@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
@@ -25,9 +24,6 @@ import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/models/ble_server_connection.dart';
 import '../../core/utils/chat_utils.dart';
-import 'ble_state_manager_facade.dart';
-import 'ble_state_manager.dart';
-import '../../core/models/connection_state.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/values/id_types.dart';
 
@@ -117,7 +113,7 @@ class BLEMessagingService implements IBLEMessagingService {
        _getPeripheralNegotiatedMtu = getPeripheralNegotiatedMtu {
     // Relay messages from handler into internal listeners.
     _messageHandler.onRelayMessageReceived =
-        (String _, String content, String __) {
+        (String originalMessageId, String content, String originalSender) {
           _emitReceivedMessage(content);
         };
 
@@ -174,13 +170,13 @@ class BLEMessagingService implements IBLEMessagingService {
     String deviceId, {
     String? providedNodeId,
   }) async {
-    bool _isPlaceholder(String value) {
+    bool isPlaceholder(String value) {
       if (value.isEmpty || value == _noHintValue) return true;
       final normalized = value.replaceAll(RegExp(r'[^0-9A-Fa-f]'), '');
       return normalized.isNotEmpty && RegExp(r'^0+$').hasMatch(normalized);
     }
 
-    if (providedNodeId != null && !_isPlaceholder(providedNodeId)) {
+    if (providedNodeId != null && !isPlaceholder(providedNodeId)) {
       return providedNodeId;
     }
 
@@ -244,7 +240,6 @@ class BLEMessagingService implements IBLEMessagingService {
         originalIntendedRecipient.isNotEmpty) {
       recipientId = originalIntendedRecipient;
     }
-    final isPaired = _stateManager.isPaired;
     final idType = _stateManager.getIdType();
 
     if (recipientId != null && recipientId.isNotEmpty) {
@@ -262,7 +257,7 @@ class BLEMessagingService implements IBLEMessagingService {
     }
 
     return await _messageHandler.sendMessage(
-      recipientKey: recipientId ?? '',
+      recipientKey: recipientId,
       content: message,
       timeout: Duration(seconds: 5),
       messageId: messageId,
@@ -323,7 +318,6 @@ class BLEMessagingService implements IBLEMessagingService {
         _stateManager.theirPersistentKey!.isNotEmpty) {
       recipientId = _stateManager.theirPersistentKey;
     }
-    final isPaired = _stateManager.isPaired;
     final idType = _stateManager.getIdType();
 
     if (recipientId != null) {
@@ -808,6 +802,7 @@ class BLEMessagingService implements IBLEMessagingService {
   /// Returns [transferId] so the origin can retry with fresh fragmentation.
   /// Requires an established encryption path; throws instead of sending
   /// plaintext when encryption cannot be applied.
+  @override
   Future<String> sendBinaryMedia({
     required Uint8List data,
     required String recipientId,
@@ -836,6 +831,7 @@ class BLEMessagingService implements IBLEMessagingService {
   }
 
   /// Retry a previously persisted binary payload using the latest MTU.
+  @override
   Future<bool> retryBinaryMedia({
     required String transferId,
     String? recipientId,
@@ -890,7 +886,7 @@ class BLEMessagingService implements IBLEMessagingService {
           message.type == ProtocolMessageType.contactStatus;
 
       try {
-        bool _peripheralNotifyReady() {
+        bool peripheralNotifyReady() {
           try {
             final central = _getConnectedCentral() as Central?;
             final characteristic =
@@ -910,15 +906,15 @@ class BLEMessagingService implements IBLEMessagingService {
           }
         }
 
-        Future<bool> _waitForPeripheralNotifyReady({
+        Future<bool> waitForPeripheralNotifyReady({
           Duration timeout = const Duration(milliseconds: 1200),
         }) async {
           final deadline = DateTime.now().add(timeout);
           while (DateTime.now().isBefore(deadline)) {
-            if (_peripheralNotifyReady()) return true;
+            if (peripheralNotifyReady()) return true;
             await Future.delayed(Duration(milliseconds: 50));
           }
-          return _peripheralNotifyReady();
+          return peripheralNotifyReady();
         }
 
         // Bail out early if neither central nor peripheral link is usable.
@@ -986,11 +982,11 @@ class BLEMessagingService implements IBLEMessagingService {
 
         if (isHandshakeMessage &&
             hasPeripheralLink &&
-            !_peripheralNotifyReady()) {
+            !peripheralNotifyReady()) {
           _logger.fine(
             '⏳ Waiting for peripheral notify subscription before sending handshake...',
           );
-          final ready = await _waitForPeripheralNotifyReady();
+          final ready = await waitForPeripheralNotifyReady();
           if (!ready) {
             final msg = 'Responder notify not enabled for handshake path';
             _logger.warning('⚠️ Handshake send blocked: $msg');
@@ -1138,7 +1134,7 @@ class BLEMessagingService implements IBLEMessagingService {
       if (!hasCentralLink && !hasPeripheralLink) {
         _logger.warning(
           '⚠️ Aborting write queue; BLE connection not ready '
-          '(central=${hasCentralLink}, peripheral=${hasPeripheralLink}, '
+          '(central=$hasCentralLink, peripheral=$hasPeripheralLink, '
           'state=${_connectionManager.connectionState.name})',
         );
         _isProcessingWriteQueue = false;

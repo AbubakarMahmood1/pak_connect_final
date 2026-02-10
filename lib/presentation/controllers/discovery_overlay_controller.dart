@@ -8,7 +8,6 @@ import 'package:logging/logging.dart';
 import '../../core/security/hint_cache_manager.dart';
 import '../../core/models/connection_info.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../domain/entities/contact.dart';
 import '../../domain/entities/enhanced_contact.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/security/security_types.dart';

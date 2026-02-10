@@ -17,7 +17,6 @@ import 'package:pak_connect/core/models/spy_mode_info.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
 import 'package:pak_connect/core/models/ble_server_connection.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
@@ -51,7 +50,7 @@ void main() {
         bleService: bleService,
         messageRepository: messageRepository,
         healthMonitor: monitor,
-        shouldRelayThroughDevice: (_, __) async => false,
+        shouldRelayThroughDevice: (message, deviceId) async => false,
         queueSyncManagerFactory: (queue, nodeId) => fakeManager,
       );
 
@@ -61,8 +60,6 @@ void main() {
         onStatusChanged: () => statusRefreshes++,
       );
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -630,3 +627,4 @@ class _FakeMessageRepository implements IMessageRepository {
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
+

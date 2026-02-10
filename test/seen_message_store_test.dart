@@ -37,8 +37,6 @@ void main() {
       store.setMaxIdsPerTypeForTests(200);
     });
 
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
-
     tearDown(() async {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
       final unexpected = severe.where(
@@ -235,3 +233,4 @@ void main() {
     });
   });
 }
+

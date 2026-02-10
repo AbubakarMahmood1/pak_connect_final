@@ -98,7 +98,7 @@ packages:
     source: hosted
     version: "6.2.1"
   bluetooth_low_energy_platform_interface:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: bluetooth_low_energy_platform_interface
       sha256: "430a137fe0a662e2dd632390aa6e020a1c91335a5821ae07dacc9f319f9e590a"
@@ -322,7 +322,7 @@ packages:
     source: hosted
     version: "5.0.3"
   fake_async:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: fake_async
       sha256: "5368f224a74523e8d2e7399ea1638b37aecfca824a3cc4dfdf77bf1fa905ac44"
@@ -540,7 +540,7 @@ packages:
     source: hosted
     version: "3.0.0"
   flutter_secure_storage_platform_interface:
-    dependency: "direct overridden"
+    dependency: "direct dev"
     description:
       name: flutter_secure_storage_platform_interface
       sha256: "8ceea1223bee3c6ac1a22dabd8feefc550e4729b3675de4b5900f55afcb435d6"
@@ -920,7 +920,7 @@ packages:
     source: hosted
     version: "2.2.1"
   path_provider_platform_interface:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: path_provider_platform_interface
       sha256: "88f5779f72ba699763fa3a3b06aa4bf6de76c8e5de842cf6f29e2e06476c2334"

@@ -116,6 +116,7 @@ void main() {
           },
         ),
       );
+      await newDb.close();
       
       // Reopen databases for migration test
       final sourceDb = await factory.openDatabase(

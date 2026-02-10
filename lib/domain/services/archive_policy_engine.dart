@@ -1,6 +1,5 @@
 import 'package:logging/logging.dart';
 import '../../core/interfaces/i_archive_repository.dart';
-import '../../core/models/archive_models.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../values/id_types.dart';
 import 'archive_management_models.dart';
@@ -8,13 +7,11 @@ import 'archive_management_models.dart';
 /// Evaluates and applies archive policies
 class ArchivePolicyEngine {
   final _logger = Logger('ArchivePolicyEngine');
-  final IArchiveRepository _archiveRepository;
 
   ArchiveManagementConfig config = ArchiveManagementConfig.defaultConfig();
   List<ArchivePolicy> policies = [];
 
-  ArchivePolicyEngine({required IArchiveRepository archiveRepository})
-    : _archiveRepository = archiveRepository;
+  ArchivePolicyEngine({required IArchiveRepository archiveRepository});
 
   Future<ArchivePolicyResult> applyPolicies({
     List<String>? specificPolicies,

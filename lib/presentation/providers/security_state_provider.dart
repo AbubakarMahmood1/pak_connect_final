@@ -1,6 +1,5 @@
-// ignore_for_file: avoid_print
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 import '../../core/models/security_state.dart';
 import '../../data/services/security_state_computer.dart';
 import 'ble_providers.dart';
@@ -10,6 +9,7 @@ import 'package:pak_connect/core/utils/string_extensions.dart';
 final Map<String, SecurityState> _securityStateCache = {};
 final Map<String, DateTime> _cacheTimestamps = {};
 const Duration _cacheValidityDuration = Duration(seconds: 30);
+final _logger = Logger('SecurityStateProvider');
 
 SecurityState? _getCached(String? key) {
   if (key == null) return null;
@@ -48,17 +48,19 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((
 
   final cached = _getCached(otherPublicKey);
   if (cached != null) {
-    print('🐛 NAV DEBUG: Using cached security state for key: $otherPublicKey');
+    _logger.fine(
+      '🐛 NAV DEBUG: Using cached security state for key: $otherPublicKey',
+    );
     return cached;
   }
 
-  print(
+  _logger.fine(
     '🐛 NAV DEBUG: - bleService.theirPersistentKey: ${bleService.theirPersistentKey != null && bleService.theirPersistentKey!.length > 16 ? '${bleService.theirPersistentKey!.shortId()}...' : bleService.theirPersistentKey ?? 'null'}',
   );
-  print(
+  _logger.fine(
     '🐛 NAV DEBUG: - connectionInfo: ${connectionInfo?.isConnected}/${connectionInfo?.isReady}',
   );
-  print('🐛 NAV DEBUG: - isRepositoryMode: $isRepositoryMode');
+  _logger.fine('🐛 NAV DEBUG: - isRepositoryMode: $isRepositoryMode');
 
   final result = await SecurityStateComputer.computeState(
     isRepositoryMode: isRepositoryMode,
@@ -69,7 +71,7 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((
 
   _cacheResult(otherPublicKey, result);
 
-  print(
+  _logger.fine(
     '🐛 NAV DEBUG: securityStateProvider RESULT: ${result.status.name} for key: $otherPublicKey',
   );
   return result;

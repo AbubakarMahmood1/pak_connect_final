@@ -27,11 +27,7 @@ class MeshRoutingService implements IMeshRoutingService {
   final RouteCalculator _routeCalculator = RouteCalculator();
   final ConnectionQualityMonitor _qualityMonitor = ConnectionQualityMonitor();
 
-  late String _currentNodeId;
   bool _isInitialized = false;
-
-  int _totalDecisionsMade = 0;
-  double _cumulativeRouteScore = 0.0;
 
   @override
   Future<void> initialize({
@@ -39,7 +35,6 @@ class MeshRoutingService implements IMeshRoutingService {
     required NetworkTopologyAnalyzer topologyAnalyzer,
   }) async {
     try {
-      _currentNodeId = currentNodeId;
       _topologyAnalyzer = topologyAnalyzer;
 
       _logger.info(
@@ -93,12 +88,6 @@ class MeshRoutingService implements IMeshRoutingService {
         strategy: strategy,
       );
 
-      // Track statistics
-      _totalDecisionsMade++;
-      if (decision.isSuccessful && decision.routeScore != null) {
-        _cumulativeRouteScore += decision.routeScore!;
-      }
-
       _logger.info(
         '✅ Route decision: ${decision.type.name} via ${decision.nextHop} (score: ${decision.routeScore?.toStringAsFixed(2)})',
       );
@@ -143,8 +132,6 @@ class MeshRoutingService implements IMeshRoutingService {
     try {
       _logger.info('🔄 Clearing all routing state');
       _smartRouter?.clearAll();
-      _totalDecisionsMade = 0;
-      _cumulativeRouteScore = 0.0;
     } catch (e) {
       _logger.warning('⚠️ Failed to clear routing state: $e');
     }

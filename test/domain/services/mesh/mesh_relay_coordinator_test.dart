@@ -22,7 +22,6 @@ import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
@@ -61,8 +60,6 @@ void main() {
       relayStats = [];
       deliveredMessages = [];
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -396,12 +393,11 @@ class _FakeRelayEngine extends MeshRelayEngine {
 
   _FakeRelayEngine({
     required OfflineMessageQueue queue,
-    required SpamPreventionManager spamPrevention,
+    required super.spamPrevention,
   }) : super(
          repositoryProvider: _StubRepositoryProvider(),
          seenMessageStore: _StubSeenMessageStore(),
          messageQueue: queue,
-         spamPrevention: spamPrevention,
          forceFloodMode: true,
        );
 
@@ -711,3 +707,4 @@ class _FakeMeshBleService implements IConnectionService {
 class _MockContactRepository extends Mock implements IContactRepository {}
 
 class _MockMessageRepository extends Mock implements IMessageRepository {}
+

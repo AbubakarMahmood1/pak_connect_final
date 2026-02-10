@@ -61,16 +61,16 @@ void main() {
         expect(true, isTrue);
       });
 
-      test('setupServiceLocator respects USE_DI flag', () async {
+      test('setupServiceLocator respects useDi flag', () async {
         // Arrange
-        // Note: In Phase 1, USE_DI = true by default
+        // Note: In Phase 1, useDi = true by default
         // This test documents expected behavior
 
         // Act
         await setupServiceLocator();
 
         // Assert
-        expect(USE_DI, isTrue, reason: 'DI should be enabled in Phase 1');
+        expect(useDi, isTrue, reason: 'DI should be enabled in Phase 1');
       });
     });
 
@@ -175,9 +175,9 @@ void main() {
     });
 
     group('Documentation Validation', () {
-      test('USE_DI constant is accessible', () {
+      test('useDi constant is accessible', () {
         // Arrange & Act
-        final flag = USE_DI;
+        final flag = useDi;
 
         // Assert
         expect(flag, isNotNull);
@@ -193,7 +193,7 @@ void main() {
         expect(resetServiceLocator, isNotNull);
         expect(isRegistered, isNotNull);
         expect(getIt, isNotNull);
-        expect(USE_DI, isNotNull);
+        expect(useDi, isNotNull);
       });
     });
 

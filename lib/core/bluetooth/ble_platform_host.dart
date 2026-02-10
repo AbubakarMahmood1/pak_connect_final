@@ -39,14 +39,14 @@ class BlePlatformHost implements IBLEPlatformHost {
   @override
   Future<void> ensureEphemeralKeysInitialized() async {
     if (_ensureEphemeralKeysInitialized != null) {
-      await _ensureEphemeralKeysInitialized!();
+      await _ensureEphemeralKeysInitialized();
     }
   }
 
   @override
   String getCurrentEphemeralId() {
     if (_ephemeralIdProvider != null) {
-      return _ephemeralIdProvider!();
+      return _ephemeralIdProvider();
     }
     return EphemeralKeyManager.generateMyEphemeralKey();
   }

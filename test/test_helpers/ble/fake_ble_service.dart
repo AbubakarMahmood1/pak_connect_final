@@ -65,12 +65,11 @@ class FakeBleService extends BLEService {
   }
 
   void _emitConnectionInfo() {
-    // ignore: discarded_futures
-    Future.microtask(() {
+    unawaited(Future.microtask(() {
       if (!_connectionInfoController.isClosed) {
         _connectionInfoController.add(_connectionInfo);
       }
-    });
+    }));
   }
 
   String get lastMessageContent => _lastMessageContent;
