@@ -1,11 +1,10 @@
-// ignore_for_file: avoid_print
-
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:logging/logging.dart';
 import 'package:pointycastle/export.dart';
 import '../interfaces/i_contact_repository.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
@@ -18,6 +17,7 @@ String _safeTruncate(String? input, int maxLength, {String fallback = "NULL"}) {
 }
 
 class SimpleCrypto {
+  static final _logger = Logger('SimpleCrypto');
   static Encrypter? _encrypter;
   static IV? _iv;
   static ECPrivateKey? _privateKey;
@@ -26,6 +26,10 @@ class SimpleCrypto {
   static final Map<String, IV> _conversationIVs = {};
   static int _deprecatedEncryptWrapperCallCount = 0;
   static int _deprecatedDecryptWrapperCallCount = 0;
+
+  static void _log(Object? message, {Level level = Level.FINE}) {
+    _logger.log(level, message);
+  }
 
   // Wire format version prefix
   static const String _wireFormatV2 = 'v2:';
@@ -45,7 +49,7 @@ class SimpleCrypto {
     // --dart-define=PAKCONNECT_LEGACY_PASSPHRASE=...
     if (_legacyPassphraseFromDefine.isEmpty) {
       if (kDebugMode) {
-        print(
+        _log(
           '⚠️ SimpleCrypto legacy decryptor disabled '
           '(PAKCONNECT_LEGACY_PASSPHRASE not set)',
         );
@@ -68,7 +72,7 @@ class SimpleCrypto {
     _encrypter = Encrypter(AES(key));
 
     if (kDebugMode) {
-      print('⚠️ SimpleCrypto initialized in LEGACY MODE (decryption-only)');
+      _log('⚠️ SimpleCrypto initialized in LEGACY MODE (decryption-only)');
     }
   }
 
@@ -84,7 +88,7 @@ class SimpleCrypto {
     }
 
     if (kDebugMode) {
-      print(
+      _log(
         '⚠️ SECURITY WARNING: Deprecated SimpleCrypto.$wrapperName() wrapper '
         'invoked. Migrate caller to explicit legacy APIs.',
       );
@@ -109,7 +113,7 @@ class SimpleCrypto {
   /// intentionally unencrypted payloads from encrypted legacy payloads.
   static String encodeLegacyPlaintext(String plaintext) {
     if (kDebugMode) {
-      print(
+      _log(
         '⚠️ SECURITY WARNING: encodeLegacyPlaintext() called - '
         'returning plaintext marker (NO ENCRYPTION)',
       );
@@ -141,7 +145,7 @@ class SimpleCrypto {
         return _encrypter!.decrypt(encrypted, iv: _iv!);
       } catch (e) {
         if (kDebugMode) {
-          print('⚠️ Legacy decryption failed: $e');
+          _log('⚠️ Legacy decryption failed: $e');
         }
         // Throw exception instead of returning ciphertext
         // This ensures SecurityManager can trigger resync on failure
@@ -151,7 +155,7 @@ class SimpleCrypto {
 
     // No decryption possible, throw exception
     if (kDebugMode) {
-      print('⚠️ Cannot decrypt: legacy decryptor unavailable');
+      _log('⚠️ Cannot decrypt: legacy decryptor unavailable');
     }
     throw Exception('Cannot decrypt: legacy decryptor unavailable');
   }
@@ -203,7 +207,7 @@ class SimpleCrypto {
     _conversationIVs[publicKey] = IV(Uint8List.fromList(ivBytes));
 
     if (kDebugMode) {
-      print(
+      _log(
         'Initialized conversation crypto for ${_safeTruncate(publicKey, 8)}...',
       );
     }
@@ -277,7 +281,7 @@ class SimpleCrypto {
         );
       }
       if (kDebugMode) {
-        print(
+        _log(
           '⚠️ Decrypting legacy conversation message for ${_safeTruncate(publicKey, 8)}...',
         );
       }
@@ -306,15 +310,15 @@ class SimpleCrypto {
 
       curve.curve.decodePoint(publicKeyBytes);
 
-      print('🟢 INIT SUCCESS: Message signing initialized completely');
+      _log('🟢 INIT SUCCESS: Message signing initialized completely');
     } catch (e, stackTrace) {
-      print('🔴 INIT FAIL: Exception during initialization');
-      print('🔴 INIT FAIL: Error type: ${e.runtimeType}');
-      print('🔴 INIT FAIL: Error message: $e');
-      print('🔴 INIT FAIL: Stack trace first 3 lines:');
+      _log('🔴 INIT FAIL: Exception during initialization');
+      _log('🔴 INIT FAIL: Error type: ${e.runtimeType}');
+      _log('🔴 INIT FAIL: Error message: $e');
+      _log('🔴 INIT FAIL: Stack trace first 3 lines:');
       final stackLines = stackTrace.toString().split('\n');
       for (int i = 0; i < 3 && i < stackLines.length; i++) {
-        print('🔴 INIT STACK $i: ${stackLines[i]}');
+        _log('🔴 INIT STACK $i: ${stackLines[i]}');
       }
       _privateKey = null;
     }
@@ -323,7 +327,7 @@ class SimpleCrypto {
   // Direct constructor approach (NO registry)
   static String? signMessage(String content) {
     if (_privateKey == null) {
-      print('🔴 SIGN FAIL: No private key available');
+      _log('🔴 SIGN FAIL: No private key available');
       return null;
     }
 
@@ -360,13 +364,13 @@ class SimpleCrypto {
 
       return result;
     } catch (e, stackTrace) {
-      print('🔴 SIGN FAIL: Exception caught');
-      print('🔴 SIGN FAIL: Error type: ${e.runtimeType}');
-      print('🔴 SIGN FAIL: Error message: $e');
-      print('🔴 SIGN FAIL: Stack trace first 3 lines:');
+      _log('🔴 SIGN FAIL: Exception caught');
+      _log('🔴 SIGN FAIL: Error type: ${e.runtimeType}');
+      _log('🔴 SIGN FAIL: Error message: $e');
+      _log('🔴 SIGN FAIL: Stack trace first 3 lines:');
       final stackLines = stackTrace.toString().split('\n');
       for (int i = 0; i < 3 && i < stackLines.length; i++) {
-        print('🔴 STACK $i: ${stackLines[i]}');
+        _log('🔴 STACK $i: ${stackLines[i]}');
       }
       return null;
     }
@@ -398,7 +402,7 @@ class SimpleCrypto {
       final messageBytes = utf8.encode(content);
       return verifier.verifySignature(messageBytes, signature);
     } catch (e) {
-      print('Signature verification failed: $e');
+      _log('Signature verification failed: $e');
       return false;
     }
   }
@@ -418,7 +422,7 @@ class SimpleCrypto {
   // === ECDH KEY EXCHANGE ===
   static String? computeSharedSecret(String theirPublicKeyHex) {
     if (_privateKey == null) {
-      print('Cannot compute shared secret - no private key');
+      _log('Cannot compute shared secret - no private key');
       return null;
     }
 
@@ -435,7 +439,7 @@ class SimpleCrypto {
 
       return sharedSecret;
     } catch (e) {
-      print('🔴 ECDH computation failed: $e');
+      _log('🔴 ECDH computation failed: $e');
       return null;
     }
   }
@@ -461,7 +465,7 @@ class SimpleCrypto {
       final truncatedPublicKey = contactPublicKey.length > 16
           ? contactPublicKey.shortId()
           : contactPublicKey;
-      print(
+      _log(
         '🔧 ECDH ENCRYPT DEBUG: Starting encryption for $truncatedPublicKey...',
       );
 
@@ -486,15 +490,15 @@ class SimpleCrypto {
 
       final pairingKey = _getPairingKeyForContact(contactPublicKey);
       if (pairingKey != null) {
-        print('✅ ENHANCED ECDH encryption successful (ECDH + Pairing)');
+        _log('✅ ENHANCED ECDH encryption successful (ECDH + Pairing)');
       } else {
-        print('✅ STANDARD ECDH encryption successful (ECDH only)');
+        _log('✅ STANDARD ECDH encryption successful (ECDH only)');
       }
 
       // Add v2 wire format prefix
       return '$_wireFormatV2$result';
     } catch (e) {
-      print('❌ Enhanced ECDH encryption failed: $e');
+      _log('❌ Enhanced ECDH encryption failed: $e');
       return null;
     }
   }
@@ -519,7 +523,7 @@ class SimpleCrypto {
       final truncatedPublicKey = contactPublicKey.length > 16
           ? contactPublicKey.shortId()
           : contactPublicKey;
-      print(
+      _log(
         '🔧 ECDH DECRYPT DEBUG: Starting decryption for $truncatedPublicKey...',
       );
 
@@ -548,14 +552,14 @@ class SimpleCrypto {
 
       final pairingKey = _getPairingKeyForContact(contactPublicKey);
       if (pairingKey != null) {
-        print('✅ ENHANCED ECDH decryption successful (ECDH + Pairing)');
+        _log('✅ ENHANCED ECDH decryption successful (ECDH + Pairing)');
       } else {
-        print('✅ STANDARD ECDH decryption successful (ECDH only)');
+        _log('✅ STANDARD ECDH decryption successful (ECDH only)');
       }
 
       return decrypted;
     } catch (e) {
-      print('❌ Enhanced ECDH decryption failed: $e');
+      _log('❌ Enhanced ECDH decryption failed: $e');
       return null;
     }
   }
@@ -583,7 +587,7 @@ class SimpleCrypto {
     final iv = IV(Uint8List.fromList(ivBytes));
 
     if (kDebugMode) {
-      print('⚠️ Decrypting legacy ECDH message with deterministic IV');
+      _log('⚠️ Decrypting legacy ECDH message with deterministic IV');
     }
 
     final encrypted = Encrypted.fromBase64(ciphertext);
@@ -604,14 +608,14 @@ class SimpleCrypto {
   static void clearConversationKey(String publicKey) {
     _conversationEncrypters.remove(publicKey);
     _conversationIVs.remove(publicKey);
-    print('Cleared conversation key for ${_safeTruncate(publicKey, 8)}...');
+    _log('Cleared conversation key for ${_safeTruncate(publicKey, 8)}...');
   }
 
   /// Clear all conversation keys (for complete reset)
   static void clearAllConversationKeys() {
     _conversationEncrypters.clear();
     _conversationIVs.clear();
-    print('Cleared all conversation keys');
+    _log('Cleared all conversation keys');
   }
 
   /// Enhanced key derivation: ECDH + Pairing Key (when both available)
@@ -628,11 +632,11 @@ class SimpleCrypto {
       final sortedSecrets = [ecdhSecret, pairingKey]..sort();
       final combinedSecret = sortedSecrets.join('_COMBINED_');
 
-      print('🔧 ENHANCED SECURITY: Using ECDH + Pairing key derivation');
+      _log('🔧 ENHANCED SECURITY: Using ECDH + Pairing key derivation');
       return '${combinedSecret}_ENHANCED_ECDH_AES_SALT';
     } else {
       // FALLBACK: ECDH only (current implementation)
-      print('🔧 STANDARD ECDH: Using ECDH-only key derivation');
+      _log('🔧 STANDARD ECDH: Using ECDH-only key derivation');
       return '${ecdhSecret}_ECDH_AES_SALT';
     }
   }
@@ -651,18 +655,18 @@ class SimpleCrypto {
       contactPublicKey,
     );
     if (cachedSecret != null) {
-      print('Loaded shared secret from secure storage');
+      _log('Loaded shared secret from secure storage');
       _sharedSecretCache[contactPublicKey] = cachedSecret;
       return cachedSecret;
     }
 
     // Compute new shared secret (expensive)
-    print('Computing new ECDH shared secret - will cache for future use');
+    _log('Computing new ECDH shared secret - will cache for future use');
     final newSecret = computeSharedSecret(contactPublicKey);
     if (newSecret != null) {
       _sharedSecretCache[contactPublicKey] = newSecret;
       await contactRepo.cacheSharedSecret(contactPublicKey, newSecret);
-      print('ECDH shared secret computed and cached');
+      _log('ECDH shared secret computed and cached');
     }
 
     return newSecret;
@@ -677,7 +681,7 @@ class SimpleCrypto {
       final cachedSecret = await repo.getCachedSharedSecret(publicKey);
       if (cachedSecret != null) {
         await restoreConversationKey(publicKey, cachedSecret);
-        print(
+        _log(
           '🔄 SYNC: Restored conversation key for ${_safeTruncate(publicKey, 8)}...',
         );
       }
@@ -704,9 +708,9 @@ class SimpleCrypto {
       _conversationEncrypters[publicKey] = Encrypter(AES(key));
       _conversationIVs[publicKey] = iv;
 
-      print('Restored conversation key for ${_safeTruncate(publicKey, 8)}...');
+      _log('Restored conversation key for ${_safeTruncate(publicKey, 8)}...');
     } catch (e) {
-      print('Failed to restore conversation key: $e');
+      _log('Failed to restore conversation key: $e');
     }
   }
 
@@ -759,10 +763,10 @@ class SimpleCrypto {
       );
       results['overallSuccess'] = allPassed;
 
-      print('🔍 CRYPTO VERIFICATION: Overall success = $allPassed');
+      _log('🔍 CRYPTO VERIFICATION: Overall success = $allPassed');
       return results;
     } catch (e) {
-      print('🔍 CRYPTO VERIFICATION: Fatal error during verification: $e');
+      _log('🔍 CRYPTO VERIFICATION: Fatal error during verification: $e');
       results['error'] = e.toString();
       results['overallSuccess'] = false;
       return results;
@@ -772,7 +776,7 @@ class SimpleCrypto {
   /// Test ECDH key generation capability
   static Future<Map<String, dynamic>> _testECDHKeyGeneration() async {
     try {
-      print('🔍 TEST: ECDH Key Generation');
+      _log('🔍 TEST: ECDH Key Generation');
 
       // Check if we have a private key initialized
       if (_privateKey == null) {
@@ -807,14 +811,14 @@ class SimpleCrypto {
         };
       }
 
-      print('🔍 TEST: ✅ ECDH Key Generation - All components available');
+      _log('🔍 TEST: ✅ ECDH Key Generation - All components available');
       return {
         'success': true,
         'details': 'Private key and curve available for ECDH operations',
         'testName': 'ECDH Key Generation',
       };
     } catch (e) {
-      print('🔍 TEST: ❌ ECDH Key Generation failed: $e');
+      _log('🔍 TEST: ❌ ECDH Key Generation failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -826,7 +830,7 @@ class SimpleCrypto {
   /// Test AES encryption/decryption functionality
   static Future<Map<String, dynamic>> _testAESEncryption() async {
     try {
-      print('🔍 TEST: AES Encryption/Decryption');
+      _log('🔍 TEST: AES Encryption/Decryption');
 
       const testMessage = 'PakConnect_Crypto_Test_Message_123';
 
@@ -847,14 +851,14 @@ class SimpleCrypto {
         };
       }
 
-      print('🔍 TEST: ✅ AES Encryption/Decryption - Round trip successful');
+      _log('🔍 TEST: ✅ AES Encryption/Decryption - Round trip successful');
       return {
         'success': true,
         'details': 'AES-256 encryption/decryption working correctly',
         'testName': 'AES Encryption',
       };
     } catch (e) {
-      print('🔍 TEST: ❌ AES Encryption/Decryption failed: $e');
+      _log('🔍 TEST: ❌ AES Encryption/Decryption failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -866,7 +870,7 @@ class SimpleCrypto {
   /// Test enhanced key derivation functionality
   static Future<Map<String, dynamic>> _testEnhancedKeyDerivation() async {
     try {
-      print('🔍 TEST: Enhanced Key Derivation');
+      _log('🔍 TEST: Enhanced Key Derivation');
 
       const mockECDHSecret = 'test_ecdh_secret_12345';
       const mockPublicKey = 'test_public_key_67890';
@@ -904,7 +908,7 @@ class SimpleCrypto {
       // Cleanup test conversation key
       clearConversationKey(mockPublicKey);
 
-      print(
+      _log(
         '🔍 TEST: ✅ Enhanced Key Derivation - Multiple derivation methods working',
       );
       return {
@@ -914,7 +918,7 @@ class SimpleCrypto {
         'testName': 'Enhanced Key Derivation',
       };
     } catch (e) {
-      print('🔍 TEST: ❌ Enhanced Key Derivation failed: $e');
+      _log('🔍 TEST: ❌ Enhanced Key Derivation failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -926,7 +930,7 @@ class SimpleCrypto {
   /// Test message signing and verification
   static Future<Map<String, dynamic>> _testMessageSigning() async {
     try {
-      print('🔍 TEST: Message Signing/Verification');
+      _log('🔍 TEST: Message Signing/Verification');
 
       const testMessage = 'PakConnect_Signature_Test_Message';
 
@@ -948,7 +952,7 @@ class SimpleCrypto {
         };
       }
 
-      print(
+      _log(
         '🔍 TEST: ✅ Message Signing/Verification - Signature generation and verification working',
       );
       return {
@@ -957,7 +961,7 @@ class SimpleCrypto {
         'testName': 'Message Signing',
       };
     } catch (e) {
-      print('🔍 TEST: ❌ Message Signing/Verification failed: $e');
+      _log('🔍 TEST: ❌ Message Signing/Verification failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -972,7 +976,7 @@ class SimpleCrypto {
     IContactRepository repo,
   ) async {
     try {
-      print('🔍 TEST: Key Storage/Retrieval');
+      _log('🔍 TEST: Key Storage/Retrieval');
 
       const testSecret = 'test_shared_secret_for_storage_12345';
       const testSecretUpdated = 'updated_test_shared_secret_67890';
@@ -1015,7 +1019,7 @@ class SimpleCrypto {
         };
       }
 
-      print(
+      _log(
         '🔍 TEST: ✅ Key Storage/Retrieval - All operations working correctly',
       );
       return {
@@ -1025,7 +1029,7 @@ class SimpleCrypto {
         'testName': 'Key Storage',
       };
     } catch (e) {
-      print('🔍 TEST: ❌ Key Storage/Retrieval failed: $e');
+      _log('🔍 TEST: ❌ Key Storage/Retrieval failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -1039,7 +1043,7 @@ class SimpleCrypto {
     String contactPublicKey,
   ) async {
     try {
-      print('🔍 TEST: ECDH Shared Secret Computation');
+      _log('🔍 TEST: ECDH Shared Secret Computation');
 
       // Attempt to compute shared secret
       final sharedSecret = computeSharedSecret(contactPublicKey);
@@ -1063,7 +1067,7 @@ class SimpleCrypto {
         };
       }
 
-      print(
+      _log(
         '🔍 TEST: ✅ ECDH Shared Secret Computation - Successfully computed shared secret',
       );
       return {
@@ -1073,7 +1077,7 @@ class SimpleCrypto {
         'testName': 'ECDH Shared Secret',
       };
     } catch (e) {
-      print('🔍 TEST: ❌ ECDH Shared Secret Computation failed: $e');
+      _log('🔍 TEST: ❌ ECDH Shared Secret Computation failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -1096,7 +1100,7 @@ class SimpleCrypto {
     String testMessage,
   ) async {
     try {
-      print('🔍 TEST: Bidirectional Encryption with contact');
+      _log('🔍 TEST: Bidirectional Encryption with contact');
 
       // Test encryption
       final encryptedMessage = await encryptForContact(
@@ -1134,14 +1138,14 @@ class SimpleCrypto {
         };
       }
 
-      print('🔍 TEST: ✅ Bidirectional Encryption - Round trip successful');
+      _log('🔍 TEST: ✅ Bidirectional Encryption - Round trip successful');
       return {
         'success': true,
         'details': 'Bidirectional encryption/decryption working correctly',
         'testName': 'Bidirectional Encryption',
       };
     } catch (e) {
-      print('🔍 TEST: ❌ Bidirectional Encryption failed: $e');
+      _log('🔍 TEST: ❌ Bidirectional Encryption failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -1150,3 +1154,4 @@ class SimpleCrypto {
     }
   }
 }
+

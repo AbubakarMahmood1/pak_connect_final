@@ -94,7 +94,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
     );
 
     _interactionHandler = _interactionHandlerBuilder != null
-        ? _interactionHandlerBuilder!(
+        ? _interactionHandlerBuilder(
             context: _context,
             ref: _ref,
             chatsRepository: _chatsRepository,
@@ -136,10 +136,6 @@ class HomeScreenFacade implements IHomeScreenFacade {
   @override
   Future<List<ChatListItem>> loadChats({String? searchQuery}) =>
       _listCoordinator.loadChats(searchQuery: searchQuery);
-
-  /// Internal: Update single chat item (called when message arrives)
-  Future<void> _updateSingleChatItem() =>
-      _listCoordinator.updateSingleChatItem();
 
   @override
   Stream<int> get unreadCountStream => _listCoordinator.unreadCountStream;
@@ -223,7 +219,6 @@ class HomeScreenFacade implements IHomeScreenFacade {
   Future<String?> editDisplayName(String currentName) =>
       _interactionHandler.editDisplayName(currentName);
 
-  @override
   void handleMenuAction(String action) =>
       _interactionHandler.handleMenuAction(action);
 
@@ -371,18 +366,4 @@ class _NullChatInteractionHandler implements IChatInteractionHandler {
   @override
   Future<void> markChatAsRead(ChatId chatId) async {}
 
-  void _handleInteractionIntent(ChatInteractionIntent intent) =>
-      _emitIntent(intent);
-
-  void _emitIntent(ChatInteractionIntent intent) {
-    for (final listener in List.of(_intentListeners)) {
-      try {
-        listener(intent);
-      } catch (e, stackTrace) {
-        Logger(
-          'NullChatInteractionHandler',
-        ).warning('Error notifying intent listener: $e', e, stackTrace);
-      }
-    }
-  }
 }

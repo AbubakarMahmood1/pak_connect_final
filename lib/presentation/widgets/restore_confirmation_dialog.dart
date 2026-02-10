@@ -4,7 +4,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/archived_chat.dart';
-import '../../domain/values/id_types.dart';
 import '../providers/archive_provider.dart';
 
 /// Comprehensive confirmation dialog for chat restoration

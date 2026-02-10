@@ -44,14 +44,6 @@ class AdaptivePowerManager {
   static const int _lowBatteryPercent = 20;
   static const int _mediumBatteryPercent = 50;
 
-  // Duty cycle periods (BitChat pattern)
-  static const int _scanOnDurationNormal = 8000; // 8s ON
-  static const int _scanOffDurationNormal = 2000; // 2s OFF (80% duty cycle)
-  static const int _scanOnDurationPowerSave = 2000; // 2s ON
-  static const int _scanOffDurationPowerSave = 8000; // 8s OFF (20% duty cycle)
-  static const int _scanOnDurationUltraLow = 1000; // 1s ON
-  static const int _scanOffDurationUltraLow = 10000; // 10s OFF (9% duty cycle)
-
   // RSSI thresholds per power mode (BitChat pattern)
   static const int _rssiThresholdPerformance = -95; // dBm
   static const int _rssiThresholdBalanced = -85; // dBm
@@ -206,82 +198,6 @@ class AdaptivePowerManager {
   // ============================================================================
   // Phase 1: Duty Cycle Scanning (BitChat Pattern)
   // ============================================================================
-
-  /// [DEPRECATED] Old duty cycle check
-  @Deprecated('Phase 2a: Use burst scanning for all modes')
-  bool _shouldUseDutyCycle() {
-    return false; // Always use burst scanning now
-  }
-
-  /// [DEPRECATED] Old duty cycle scanning - replaced by burst scanning with variable waits
-  @Deprecated(
-    'Phase 2a: Use burst scanning with _getBaseIntervalForPowerMode() instead',
-  )
-  // ignore: unused_element
-  void _startDutyCycleScanning() {
-    _stopDutyCycleScanning();
-
-    final (onDuration, offDuration) = switch (_currentPowerMode) {
-      PowerMode.balanced => (_scanOnDurationNormal, _scanOffDurationNormal),
-      PowerMode.powerSaver => (
-        _scanOnDurationPowerSave,
-        _scanOffDurationPowerSave,
-      ),
-      PowerMode.ultraLowPower => (
-        _scanOnDurationUltraLow,
-        _scanOffDurationUltraLow,
-      ),
-      PowerMode.performance => (0, 0), // No duty cycle
-    };
-
-    if (onDuration == 0) {
-      // Performance mode - no duty cycle
-      return;
-    }
-
-    _logger.info(
-      'Starting duty cycle: ${onDuration}ms ON / ${offDuration}ms OFF '
-      '(${((onDuration / (onDuration + offDuration)) * 100).toStringAsFixed(1)}% duty cycle)',
-    );
-
-    // Start with ON period immediately
-    _isDutyCycleScanning = true;
-    onStartScan?.call();
-
-    // Schedule duty cycle loop
-    _dutyCycleTimer?.cancel();
-    _dutyCycleTimer = Timer.periodic(
-      Duration(milliseconds: onDuration + offDuration),
-      (_) {
-        if (_isDutyCycleScanning) {
-          // End ON period, start OFF period
-          _logger.fine('Duty cycle: Scan OFF for ${offDuration}ms');
-          _isDutyCycleScanning = false;
-          onStopScan?.call();
-
-          // Schedule next ON period
-          Timer(Duration(milliseconds: offDuration), () {
-            if (_shouldUseDutyCycle()) {
-              _logger.fine('Duty cycle: Scan ON for ${onDuration}ms');
-              _isDutyCycleScanning = true;
-              onStartScan?.call();
-            }
-          });
-        }
-      },
-    );
-  }
-
-  /// Stop duty cycle scanning
-  void _stopDutyCycleScanning() {
-    _dutyCycleTimer?.cancel();
-    _dutyCycleTimer = null;
-
-    if (_isDutyCycleScanning) {
-      _isDutyCycleScanning = false;
-      onStopScan?.call();
-    }
-  }
 
   /// Update power mode based on battery and background state (BitChat logic)
   void _updatePowerMode() {

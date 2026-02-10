@@ -30,7 +30,7 @@ void main() {
       expect(marker, isNotNull);
       expect(marker!.startsWith('REASSEMBLY_COMPLETE_BIN:'), isTrue);
 
-      final parts = marker!.split(':');
+      final parts = marker.split(':');
       final payload = handler.takeReassembledPayload(parts[1]);
       expect(payload, isNotNull);
       expect(payload!.originalType, 0x90);

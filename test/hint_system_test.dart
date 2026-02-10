@@ -21,8 +21,6 @@ void main() {
     Logger.root.onRecord.listen(logRecords.add);
   });
 
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
-
   tearDown(() {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
     final unexpected = severe.where(
@@ -330,3 +328,4 @@ void main() {
     });
   });
 }
+

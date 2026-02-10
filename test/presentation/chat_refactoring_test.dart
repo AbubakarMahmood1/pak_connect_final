@@ -6,16 +6,13 @@ import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/presentation/models/chat_ui_state.dart';
 import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.dart';
-import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/core/interfaces/i_message_repository.dart';
 
-ChatId _cid(String value) => ChatId(value);
-
 // Mock implementations
 class MockMessageRepository implements IMessageRepository {
-  List<Message> _messages = [];
+  final List<Message> _messages = [];
 
   @override
   Future<void> saveMessage(Message message) async {

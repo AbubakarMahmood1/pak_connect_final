@@ -15,9 +15,7 @@ import 'package:pak_connect/core/models/connection_info.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/utils/chat_utils.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
-import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/presentation/controllers/chat_screen_controller.dart';
 import 'package:pak_connect/presentation/models/chat_screen_config.dart';
@@ -76,7 +74,7 @@ void main() {
       );
     });
 
-    final _readyStatus = MeshNetworkStatus(
+    final readyStatus = MeshNetworkStatus(
       isInitialized: true,
       currentNodeId: 'node',
       isConnected: true,
@@ -455,7 +453,7 @@ void main() {
                 ),
               ),
               meshNetworkStatusProvider.overrideWith(
-                (ref) => AsyncValue.data(_readyStatus),
+                (ref) => AsyncValue.data(readyStatus),
               ),
             ],
             child: Builder(
@@ -555,7 +553,7 @@ void main() {
                 ),
               ),
               meshNetworkStatusProvider.overrideWith(
-                (ref) => AsyncValue.data(_readyStatus),
+                (ref) => AsyncValue.data(readyStatus),
               ),
             ],
             child: Builder(
@@ -636,7 +634,7 @@ void main() {
               MeshNetworkingController(meshService),
             ),
             meshNetworkStatusProvider.overrideWith(
-              (ref) => AsyncValue.data(_readyStatus),
+              (ref) => AsyncValue.data(readyStatus),
             ),
             connectionInfoProvider.overrideWith(
               (ref) => const AsyncValue.data(
@@ -696,7 +694,7 @@ void main() {
               MeshNetworkingController(meshService),
             ),
             meshNetworkStatusProvider.overrideWith(
-              (ref) => AsyncValue.data(_readyStatus),
+              (ref) => AsyncValue.data(readyStatus),
             ),
             connectionInfoProvider.overrideWith(
               (ref) => const AsyncValue.data(
@@ -1200,15 +1198,11 @@ class _RecordingPairingController extends ChatPairingDialogController {
   bool cleared = false;
 
   _RecordingPairingController({
-    required BLEStateManager stateManager,
-    required IConnectionService connectionService,
-    required ContactRepository contactRepository,
-    required BuildContext context,
+    required super.stateManager,
+    required super.connectionService,
+    required super.contactRepository,
+    required super.context,
   }) : super(
-         stateManager: stateManager,
-         connectionService: connectionService,
-         contactRepository: contactRepository,
-         context: context,
          navigator: Navigator.of(context),
          getTheirPersistentKey: () =>
              connectionService.theirPersistentPublicKey,

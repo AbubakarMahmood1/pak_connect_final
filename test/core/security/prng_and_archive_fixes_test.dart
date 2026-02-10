@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/simple_crypto.dart';
 import 'package:pak_connect/core/security/archive_crypto.dart';
-import 'package:pak_connect/core/security/signing_manager.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

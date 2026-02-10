@@ -60,7 +60,7 @@ void main() {
         // Create once
         await manager.createQueueTablesIfNotExist();
         // Try to create again - should succeed but return false
-        final result = await manager.createQueueTablesIfNotExist();
+        await manager.createQueueTablesIfNotExist();
         // Note: We expect the operation to complete without error
         // The actual return value depends on DatabaseHelper implementation
       });

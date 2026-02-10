@@ -519,12 +519,6 @@ void main() {
   });
 
   group('MessageFragmenter - Edge Cases', () {
-    late MessageReassembler reassembler;
-
-    setUp(() {
-      reassembler = MessageReassembler();
-    });
-
     test('handles MTU too small error', () {
       final data = Uint8List.fromList([1, 2, 3]);
       final messageId = 'tiny_mtu';

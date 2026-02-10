@@ -7,11 +7,9 @@ import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/data/services/seen_message_store.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'test_helpers/test_setup.dart';
 
 Future<void> _resetSeenStore() async {
@@ -37,8 +35,6 @@ void main() {
     Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.configureTestDatabase(label: 'relay_phase3');
   });
-
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
   tearDown(() async {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -109,13 +105,10 @@ void main() {
   group('Phase 3: Relay Probability Calculation', () {
     late MeshRelayEngine relayEngine;
     late NetworkTopologyAnalyzer topologyAnalyzer;
-    late ContactRepository contactRepo;
     late OfflineMessageQueue messageQueue;
     late SpamPreventionManager spamPrevention;
 
     setUp(() async {
-      contactRepo = ContactRepository();
-
       messageQueue = OfflineMessageQueue();
       await messageQueue.initialize();
 
@@ -212,13 +205,10 @@ void main() {
   group('Phase 3: Probabilistic Relay Behavior', () {
     late MeshRelayEngine relayEngine;
     late NetworkTopologyAnalyzer topologyAnalyzer;
-    late ContactRepository contactRepo;
     late OfflineMessageQueue messageQueue;
     late SpamPreventionManager spamPrevention;
 
     setUp(() async {
-      contactRepo = ContactRepository();
-
       messageQueue = OfflineMessageQueue();
       await messageQueue.initialize();
 
@@ -393,13 +383,10 @@ void main() {
   group('Phase 3: Statistics Tracking', () {
     late MeshRelayEngine relayEngine;
     late NetworkTopologyAnalyzer topologyAnalyzer;
-    late ContactRepository contactRepo;
     late OfflineMessageQueue messageQueue;
     late SpamPreventionManager spamPrevention;
 
     setUp(() async {
-      contactRepo = ContactRepository();
-
       messageQueue = OfflineMessageQueue();
       await messageQueue.initialize();
 
@@ -523,8 +510,6 @@ void main() {
 
   group('Phase 3: Integration Tests', () {
     test('Probabilistic relay works with existing relay logic', () async {
-      final contactRepo = ContactRepository();
-
       final messageQueue = OfflineMessageQueue();
       await messageQueue.initialize();
 
@@ -590,8 +575,6 @@ void main() {
     test(
       'Messages for current node always delivered (bypass probabilistic skip)',
       () async {
-        final contactRepo = ContactRepository();
-
         final messageQueue = OfflineMessageQueue();
         await messageQueue.initialize();
 
@@ -656,3 +639,4 @@ void main() {
     );
   });
 }
+

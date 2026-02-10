@@ -1,7 +1,7 @@
-/// Queue statistics entity
-///
-/// Extracted from offline_message_queue.dart for better separation of concerns.
-/// Provides metrics and health information about the message queue.
+// Queue statistics entity
+//
+// Extracted from offline_message_queue.dart for better separation of concerns.
+// Provides metrics and health information about the message queue.
 
 import 'queued_message.dart';
 

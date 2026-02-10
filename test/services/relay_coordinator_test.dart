@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/relay_coordinator.dart';
 import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 
 /// Mock SeenMessageStore for testing deduplication
@@ -77,8 +76,6 @@ void main() {
       coordinator = RelayCoordinator();
       coordinator.setMessageQueue(_FakeOfflineQueue());
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -211,11 +208,7 @@ void main() {
     });
 
     test('registers relay stats callback', () {
-      var statsReceived = false;
-
-      coordinator.onRelayStatsUpdated((stats) {
-        statsReceived = true;
-      });
+      coordinator.onRelayStatsUpdated((stats) {});
 
       expect(coordinator, isNotNull);
     });
@@ -321,6 +314,7 @@ void main() {
         ),
         returnsNormally,
       );
+      expect(messageReceivedCallbackFired, isTrue);
     });
 
     test('sends relay ACK', () async {
@@ -367,3 +361,4 @@ void main() {
     });
   });
 }
+

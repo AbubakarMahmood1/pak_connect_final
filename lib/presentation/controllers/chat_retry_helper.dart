@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
 import '../../core/app_core.dart';
-import '../../core/models/connection_info.dart';
 import '../../core/services/message_retry_coordinator.dart';
 import '../../core/utils/string_extensions.dart';
 import '../../domain/entities/message.dart';

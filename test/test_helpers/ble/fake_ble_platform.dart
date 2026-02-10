@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy_platform_interface/bluetooth_low_energy_platform_interface.dart';
-import 'package:bluetooth_low_energy_platform_interface/src/central_manager.dart';
-import 'package:bluetooth_low_energy_platform_interface/src/peripheral_manager.dart';
 
 /// Registers no-op BLE platform managers so tests can instantiate [BLEService]
 /// without hitting platform channels (which are unavailable in `flutter test`).

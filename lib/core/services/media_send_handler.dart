@@ -159,7 +159,7 @@ class MediaSendHandler {
       // CRITICAL: Verify Noise session is established before sending
       // This prevents plaintext fallback and enforces encryption-ready state
       if (_securityManager != null) {
-        final noiseService = _securityManager!.noiseService;
+        final noiseService = _securityManager.noiseService;
         if (noiseService != null &&
             !noiseService.hasEstablishedSession(recipientId)) {
           _logger.warning('❌ Noise session not established for $recipientId');
@@ -246,7 +246,7 @@ class MediaSendHandler {
       // CRITICAL: Verify Noise session is established before sending
       // This prevents plaintext fallback and enforces encryption-ready state
       if (_securityManager != null) {
-        final noiseService = _securityManager!.noiseService;
+        final noiseService = _securityManager.noiseService;
         if (noiseService != null &&
             !noiseService.hasEstablishedSession(recipientId)) {
           _logger.warning('❌ Noise session not established for $recipientId');

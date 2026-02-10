@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:ffi';
 import 'dart:io';
 
@@ -27,15 +28,13 @@ class NativeSqliteLoader {
         // Best effort: proactively load a known sqlite3 dynamic library path.
         opener();
       } catch (_) {
-        // ignore: avoid_print
-        print(
+        debugPrint(
           '⚠️ NativeSqliteLoader: Failed to preload sqlite3 dynamic library. '
           'Falling back to system defaults.',
         );
       }
     } else {
-      // ignore: avoid_print
-      print(
+      debugPrint(
         '⚠️ NativeSqliteLoader: Unable to locate sqlite3 dynamic library. '
         'Falling back to system defaults.',
       );

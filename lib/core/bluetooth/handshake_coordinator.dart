@@ -13,7 +13,6 @@ import 'handshake_timeout_manager.dart';
 import 'kk_pattern_tracker.dart';
 import 'noise_handshake_driver.dart';
 import 'handshake_peer_state.dart';
-import 'package:pak_connect/core/security/noise/noise_session.dart';
 
 /// Connection phases for the sequential handshake protocol
 /// Response IS the acknowledgment (no separate ACK messages)
@@ -774,7 +773,7 @@ class HandshakeCoordinator {
 
       if (_peerState.theirNoisePublicKey != null) {
         try {
-          final contact = await _repositoryProvider!.contactRepository
+          final contact = await _repositoryProvider.contactRepository
               .getContact(_peerState.theirNoisePublicKey!);
 
           if (contact != null && contact.securityLevel != SecurityLevel.low) {
@@ -784,7 +783,7 @@ class HandshakeCoordinator {
             _logger.warning('   Peer may have reset device or lost data');
 
             // Downgrade contact security level
-            await _repositoryProvider!.contactRepository
+            await _repositoryProvider.contactRepository
                 .downgradeSecurityForDeletedContact(
                   _peerState.theirNoisePublicKey!,
                   'pattern_mismatch',

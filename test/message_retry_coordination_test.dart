@@ -6,8 +6,6 @@ import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/domain/entities/message.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
-import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:pak_connect/core/di/repository_provider_impl.dart';
 import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/interfaces/i_contact_repository.dart';

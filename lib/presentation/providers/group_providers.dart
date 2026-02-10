@@ -7,7 +7,6 @@ import '../../core/interfaces/i_group_repository.dart';
 import '../../data/repositories/group_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/services/group_messaging_service.dart';
-import '../../core/messaging/offline_message_queue.dart';
 import '../../core/messaging/offline_queue_facade.dart';
 import '../../domain/values/id_types.dart';
 

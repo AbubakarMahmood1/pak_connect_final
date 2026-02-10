@@ -2,8 +2,6 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get_it/get_it.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/message_repository.dart';
 import '../../core/interfaces/i_chats_repository.dart';
 import '../../core/interfaces/i_message_repository.dart';
 import '../entities/chat_list_item.dart';

@@ -5,7 +5,6 @@ import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/queue_sync_manager.dart'
     show QueueSyncManagerStats, QueueSyncResult;
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
     show PendingBinaryTransfer, ReceivedBinaryEvent;

@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/gossip_sync_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 void main() {
   group('GossipSyncManager', () {

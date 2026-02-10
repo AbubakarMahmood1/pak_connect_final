@@ -70,7 +70,6 @@ void main() {
 
     test('stores ephemeral ID mapping', () {
       const ephemeralId = 'eph12345';
-      const persistentKey = 'persistent_key_123';
 
       identityManager.setTheirEphemeralId(ephemeralId, 'Carol');
       expect(identityManager.theirEphemeralId, equals(ephemeralId));
@@ -78,13 +77,12 @@ void main() {
 
     test('retrieves persistent key from ephemeral ID mapping', () {
       const ephemeralId = 'eph12345';
-      const persistentKey = 'persistent_key_123';
 
       // Note: This would require the mapping to be stored
       // Current implementation needs to be enhanced to store mappings
       identityManager.setTheirEphemeralId(ephemeralId, 'Dave');
 
-      final result = identityManager.getPersistentKeyFromEphemeral(ephemeralId);
+      identityManager.getPersistentKeyFromEphemeral(ephemeralId);
       // Verify the mapping can be retrieved
     });
 
@@ -98,10 +96,7 @@ void main() {
     test(
       'triggers onNameChanged callback when other username changes',
       () async {
-        var callbackTriggered = false;
-        identityManager.onNameChanged = (name) {
-          callbackTriggered = true;
-        };
+        identityManager.onNameChanged = (name) {};
 
         identityManager.setOtherUserName('Eve');
         // Note: Callback triggering depends on implementation
@@ -109,7 +104,7 @@ void main() {
     );
 
     test('getMyPersistentId returns persistent ID', () {
-      final id = identityManager.getMyPersistentId();
+      identityManager.getMyPersistentId();
       // Should return ID or null depending on initialization
     });
   });

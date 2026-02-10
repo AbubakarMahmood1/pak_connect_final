@@ -5,7 +5,6 @@ import '../../core/models/pairing_state.dart';
 import '../../core/models/protocol_message.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/utils/string_extensions.dart';
 import 'pairing_service.dart';
 
 /// Orchestrates pairing request/accept/cancel flows and timeout handling.
@@ -71,7 +70,7 @@ class PairingRequestCoordinator {
     }
 
     final myEphId = EphemeralKeyManager.generateMyEphemeralKey();
-    if (myEphId == null) {
+    if (myEphId.isEmpty) {
       _logger.warning(
         '❌ Cannot send pairing request - my ephemeral ID not set',
       );
@@ -129,7 +128,7 @@ class PairingRequestCoordinator {
     }
 
     final myEphId = EphemeralKeyManager.generateMyEphemeralKey();
-    if (myEphId == null) {
+    if (myEphId.isEmpty) {
       _logger.warning('❌ Cannot accept - my ephemeral ID not set');
       return;
     }

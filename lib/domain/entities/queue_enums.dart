@@ -1,7 +1,7 @@
-/// Queue message status and exception types
-///
-/// Extracted from offline_message_queue.dart for better separation of concerns.
-/// These enums and exceptions are used across multiple layers.
+// Queue message status and exception types
+//
+// Extracted from offline_message_queue.dart for better separation of concerns.
+// These enums and exceptions are used across multiple layers.
 
 /// Queue message status
 enum QueuedMessageStatus {

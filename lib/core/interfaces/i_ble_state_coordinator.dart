@@ -45,10 +45,6 @@ abstract class IBLEStateCoordinator {
   // PERSISTENT KEY EXCHANGE (Security Gate #1)
   // ============================================================================
 
-  /// STEP 4.1: Send our persistent public key after pairing verification
-  /// **SECURITY**: Only called after _performVerification succeeds
-  Future<void> _exchangePersistentKeys();
-
   /// STEP 4.2: Receive peer's persistent key, store mapping, create contact
   /// **SECURITY**: Must validate both keys match before accepting
   Future<void> handlePersistentKeyExchange(String theirPersistentKey);
@@ -57,28 +53,12 @@ abstract class IBLEStateCoordinator {
   // SPY MODE (Asymmetric Contact Detection)
   // ============================================================================
 
-  /// Detect if connected to a friend anonymously (hints disabled)
-  /// Emits onSpyModeDetected if asymmetric
-  void _detectSpyMode(String theirPersistentKey);
-
   /// Reveal identity to friend in spy mode (cryptographic proof)
   /// Emits onIdentityRevealed after success
   Future<void> revealIdentityToFriend();
 
   // ============================================================================
   // CHAT MIGRATION (Ephemeral → Persistent ID)
-  // ============================================================================
-
-  /// STEP 6: Migrate chat from ephemeral ID to persistent ID after pairing
-  /// Updates all existing messages with new contact key
-  Future<void> _triggerChatMigration(
-    String ephemeralId,
-    String persistentKey,
-    String displayName,
-  );
-
-  // ============================================================================
-  // CONTACT REQUEST FLOW (Orchestrated Lifecycle)
   // ============================================================================
 
   /// User initiates contact request, set timeout, send, wait for response
@@ -102,14 +82,6 @@ abstract class IBLEStateCoordinator {
   /// Peer rejected contact request, complete completer
   void handleContactRequestRejectResponse();
 
-  /// FINAL STEP: Save contact with HIGH security, verify, compute ECDH
-  /// **SECURITY**: Called only after both sides confirm mutual consent
-  Future<void> _finalizeContactAddition(
-    String publicKey,
-    String displayName,
-    bool mutualConsent,
-  );
-
   /// Send contact request (legacy, largely superseded by pairing flow)
   Future<void> sendContactRequest();
 
@@ -117,18 +89,11 @@ abstract class IBLEStateCoordinator {
   // SECURITY LEVEL UPGRADES (ECDH Coordination)
   // ============================================================================
 
-  /// Ensure both devices have computed ECDH secret, upgrade to HIGH security
-  /// **SECURITY**: Prevents encryption before ECDH setup
-  Future<void> _ensureMutualECDH(String theirPublicKey);
-
   /// Preserve contact across mode switch (navigation preservation)
   void preserveContactRelationship({
     required String contactKey,
     required String displayName,
   });
-
-  /// Show mutual consent prompt to user
-  void _triggerMutualConsentPrompt(String theirPublicKey);
 
   // ============================================================================
   // CONTACT STATUS SYNCHRONIZATION
@@ -136,16 +101,6 @@ abstract class IBLEStateCoordinator {
 
   /// Initialize contact status exchange (send our status to peer)
   Future<void> initializeContactFlags();
-
-  /// Retry contact status exchange if asymmetric state detected
-  Future<void> _retryContactStatusExchange();
-
-  /// Check if contact state is asymmetric and needs resolution
-  bool _isContactStateAsymmetric();
-
-  // ============================================================================
-  // SESSION LIFECYCLE
-  // ============================================================================
 
   /// Clear session state with optional preservation of persistent ID during nav
   /// **SECURITY**: Atomic operation to prevent partial state

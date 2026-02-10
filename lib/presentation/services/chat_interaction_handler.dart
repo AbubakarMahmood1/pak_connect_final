@@ -83,7 +83,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
       if (!_canNavigate()) return;
 
       await Navigator.push(
-        _context!,
+        _context,
         MaterialPageRoute(
           builder: (context) => ChatScreen.fromChatData(
             chatId: chat.chatId.value,
@@ -125,7 +125,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
     try {
       Navigator.push(
-        _context!,
+        _context,
         MaterialPageRoute(builder: (context) => const SettingsScreen()),
       );
       _emitIntent(NavigationIntent('settings'));
@@ -141,7 +141,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
     try {
       Navigator.push(
-        _context!,
+        _context,
         MaterialPageRoute(builder: (context) => const ProfileScreen()),
       );
       _emitIntent(NavigationIntent('profile'));
@@ -159,9 +159,9 @@ class ChatInteractionHandler implements IChatInteractionHandler {
       final controller = TextEditingController(text: currentName);
 
       final newName = await showModalBottomSheet<String>(
-        context: _context!,
+        context: _context,
         isScrollControlled: true,
-        backgroundColor: Theme.of(_context!).colorScheme.surface,
+        backgroundColor: Theme.of(_context).colorScheme.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
@@ -232,7 +232,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
       );
 
       if (newName != null && newName.isNotEmpty && newName != currentName) {
-        await _ref!.read(usernameProvider.notifier).updateUsername(newName);
+        await _ref.read(usernameProvider.notifier).updateUsername(newName);
         _logger.info('✅ Display name updated: $newName');
         return newName;
       }
@@ -270,7 +270,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
     try {
       Navigator.push(
-        _context!,
+        _context,
         MaterialPageRoute(builder: (context) => const ContactsScreen()),
       );
       _emitIntent(NavigationIntent('contacts'));
@@ -286,7 +286,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
     try {
       Navigator.push(
-        _context!,
+        _context,
         MaterialPageRoute(builder: (context) => ArchiveScreen()),
       );
       _emitIntent(NavigationIntent('archives'));
@@ -302,7 +302,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
     try {
       return await showDialog<bool>(
-            context: _context!,
+            context: _context,
             builder: (context) => AlertDialog(
               title: Row(
                 children: [
@@ -376,7 +376,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
     if (_ref == null) return;
 
     try {
-      final result = await _ref!
+      final result = await _ref
           .read(archiveOperationsProvider.notifier)
           .archiveChat(
             chatId: chat.chatId,
@@ -390,8 +390,8 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
       if (result.success) {
         _logger.info('✅ Chat archived: ${chat.contactName}');
-        _ref!.invalidate(archiveListProvider);
-        _ref!.invalidate(archiveStatisticsProvider);
+        _ref.invalidate(archiveListProvider);
+        _ref.invalidate(archiveStatisticsProvider);
         _emitIntent(ChatArchivedIntent(chat.chatId.value));
       } else {
         _logger.warning('⚠️ Failed to archive: ${result.message}');
@@ -407,7 +407,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
     try {
       return await showDialog<bool>(
-            context: _context!,
+            context: _context,
             builder: (context) => AlertDialog(
               title: Row(
                 children: [
@@ -518,7 +518,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
       final hasUnread = chat.unreadCount > 0;
 
       showMenu<String>(
-        context: _context!,
+        context: _context,
         position: RelativeRect.fromLTRB(100, 100, 100, 100),
         items: [
           PopupMenuItem(
@@ -538,13 +538,13 @@ class ChatInteractionHandler implements IChatInteractionHandler {
                 Icon(
                   Icons.delete,
                   size: 18,
-                  color: Theme.of(_context!).colorScheme.error,
+                  color: Theme.of(_context).colorScheme.error,
                 ),
                 SizedBox(width: 8),
                 Text(
                   'Delete Chat',
                   style: TextStyle(
-                    color: Theme.of(_context!).colorScheme.error,
+                    color: Theme.of(_context).colorScheme.error,
                   ),
                 ),
               ],

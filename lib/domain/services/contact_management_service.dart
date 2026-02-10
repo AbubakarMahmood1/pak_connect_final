@@ -806,10 +806,6 @@ class ContactManagementService {
     }
   }
 
-  UserId? _toUserId(String publicKey) {
-    if (publicKey.isEmpty) return null;
-    return UserId(publicKey);
-  }
 }
 
 // Enums and data classes would be defined in separate files in a real app

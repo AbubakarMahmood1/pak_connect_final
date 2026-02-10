@@ -61,7 +61,7 @@ class RelaySendPipeline {
 
       onRelayMessage?.call(nextHopMessage, nextHopNodeId);
       if (onRelayMessageIds != null) {
-        onRelayMessageIds!(
+        onRelayMessageIds(
           nextHopMessage.originalMessageIdValue,
           nextHopMessage,
           nextHopNodeId,
@@ -156,7 +156,7 @@ class RelaySendPipeline {
 
           onRelayMessage?.call(nextHopMessage, neighborId);
           if (onRelayMessageIds != null) {
-            onRelayMessageIds!(
+            onRelayMessageIds(
               nextHopMessage.originalMessageIdValue,
               nextHopMessage,
               neighborId,

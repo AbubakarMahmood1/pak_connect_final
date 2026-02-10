@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - refactor/**
+      - release/**
   pull_request:
 
 jobs:
@@ -22,6 +23,64 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Determine release strict mode
+        id: release_mode
+        run: |
+          if [[ "${GITHUB_REF}" == refs/heads/release/* ]] || [[ "${GITHUB_EVENT_NAME}" == "pull_request" && "${GITHUB_BASE_REF}" == release/* ]]; then
+            echo "release_strict=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_strict=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run flutter analyze (non-fatal)
+        if: steps.release_mode.outputs.release_strict != 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          flutter analyze --no-pub | tee flutter_analyze_latest.log
+
+      - name: Run flutter analyze (fatal on release branches)
+        if: steps.release_mode.outputs.release_strict == 'true'
+        run: |
+          set -o pipefail
+          flutter analyze --no-pub | tee flutter_analyze_latest.log
+
+      - name: Guard broad analyzer suppressions in lib
+        run: |
+          if grep -R -n "ignore_for_file:" lib; then
+            echo "Disallowed ignore_for_file directive found under lib/. Use targeted // ignore: with justification." >&2
+            exit 1
+          fi
+
+      - name: Guard broad analyzer suppressions in non-generated tests
+        run: |
+          if grep -R -n --include="*.dart" --exclude="*.mocks.dart" "ignore_for_file:" test; then
+            echo "Disallowed ignore_for_file directive found in non-generated tests. Use targeted // ignore: with justification." >&2
+            exit 1
+          fi
+
+      - name: Guard inline ignore allowlist in non-generated tests
+        run: |
+          set -euo pipefail
+          matches="$(grep -R -n -E --include="*.dart" --exclude="*.mocks.dart" '^[[:space:]]*//[[:space:]]*ignore:' test || true)"
+          if [ -z "$matches" ]; then
+            exit 0
+          fi
+
+          fail=0
+          while IFS= read -r line; do
+            if echo "$line" | grep -Eq '^test/core/services/encryption_security_fixes_test\.dart:[0-9]+:[[:space:]]*//[[:space:]]*ignore:[[:space:]]*deprecated_member_use_from_same_package[[:space:]]*$'; then
+              continue
+            fi
+            echo "Unexpected inline ignore directive in non-generated tests: $line" >&2
+            fail=1
+          done <<< "$matches"
+
+          if [ "$fail" -ne 0 ]; then
+            echo "Only allowlisted, justified inline ignores are permitted in non-generated tests." >&2
+            exit 1
+          fi
+
       - name: Run flutter test --coverage
         run: |
           set -o pipefail
@@ -33,4 +92,5 @@ jobs:
           name: flutter-test-coverage
           path: |
             coverage/lcov.info
+            flutter_analyze_latest.log
             flutter_test_latest.log

@@ -5,9 +5,6 @@ import 'package:logging/logging.dart';
 import '../../core/messaging/message_ack_tracker.dart';
 import '../../core/messaging/message_chunk_sender.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/utils/message_fragmenter.dart';
-import '../../core/models/protocol_message.dart';
 import '../../core/interfaces/i_ble_write_client.dart';
 import 'ble_write_client.dart';
 import 'ble_state_manager.dart';
@@ -70,10 +67,8 @@ class BleWriteAdapter {
   late final MessageAckTracker _ackTracker;
   late final MessageChunkSender _chunkSender;
   late final OutboundMessageSender _outboundSender;
-  String? _currentNodeId;
 
   void setCurrentNodeId(String nodeId) {
-    _currentNodeId = nodeId;
     _outboundSender.setCurrentNodeId(nodeId);
   }
 

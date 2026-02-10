@@ -1,5 +1,6 @@
 // Shared test harness utilities for pak_connect tests
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
@@ -20,13 +21,9 @@ import 'package:pak_connect/core/networking/topology_manager.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/database/database_encryption.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:pak_connect/data/database/database_provider.dart';
-import 'package:pak_connect/data/repositories/archive_repository.dart';
-import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/services/seen_message_store.dart';
-import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -39,7 +36,6 @@ import 'mocks/in_memory_secure_storage.dart';
 import 'mocks/mock_flutter_secure_storage.dart';
 import 'mocks/mock_contact_repository.dart';
 import 'mocks/mock_message_repository.dart';
-import 'mocks/mock_connection_service.dart';
 import 'sqlite/native_sqlite_loader.dart';
 
 /// Test harness utilities shared across suites.
@@ -96,15 +92,14 @@ class TestSetup {
     Logger.root.level = level;
     Logger.root.clearListeners();
     Logger.root.onRecord.listen((record) {
-      // ignore: avoid_print
-      print('${record.level.name}: ${record.message}');
+      debugPrint('${record.level.name}: ${record.message}');
     });
   }
 
   static Future<void> configureTestDatabase({String? label}) async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final sanitized = _sanitize(label ?? 'suite');
-    final dbName = 'pak_connect_test_${sanitized}_${timestamp}.db';
+    final dbName = 'pak_connect_test_${sanitized}_$timestamp.db';
     await DatabaseHelper.close();
     DatabaseHelper.setTestDatabaseName(dbName);
     await DatabaseHelper.deleteDatabase();
@@ -188,17 +183,15 @@ class TestSetup {
       override<IArchiveRepository>(archiveRepository);
     }
 
-    // Update repository provider if we registered any repositories
-    if (contactRepo != null || messageRepo != null) {
-      final finalContactRepo = locator<IContactRepository>();
-      final finalMessageRepo = locator<IMessageRepository>();
-      override<IRepositoryProvider>(
-        RepositoryProviderImpl(
-          contactRepository: finalContactRepo,
-          messageRepository: finalMessageRepo,
-        ),
-      );
-    }
+    // Keep repository provider aligned with active repository bindings.
+    final finalContactRepo = locator<IContactRepository>();
+    final finalMessageRepo = locator<IMessageRepository>();
+    override<IRepositoryProvider>(
+      RepositoryProviderImpl(
+        contactRepository: finalContactRepo,
+        messageRepository: finalMessageRepo,
+      ),
+    );
   }
 
   static Future<void> cleanupDatabase() async {
@@ -206,8 +199,7 @@ class TestSetup {
       await DatabaseHelper.close();
       await DatabaseHelper.deleteDatabase();
     } catch (e) {
-      // ignore: avoid_print
-      print('Warning: Database cleanup error: $e');
+      debugPrint('Warning: Database cleanup error: $e');
     }
   }
 
@@ -224,8 +216,7 @@ class TestSetup {
       }
       await db.execute('PRAGMA foreign_keys = ON');
     } catch (e) {
-      // ignore: avoid_print
-      print('Warning: Database nuke error: $e');
+      debugPrint('Warning: Database nuke error: $e');
     }
   }
 
@@ -242,8 +233,7 @@ class TestSetup {
       await db.execute('VACUUM');
       await DatabaseHelper.close();
     } catch (e) {
-      // ignore: avoid_print
-      print('Warning: Full database reset error: $e');
+      debugPrint('Warning: Full database reset error: $e');
     }
   }
 
@@ -256,8 +246,7 @@ class TestSetup {
     try {
       await di_service_locator.resetServiceLocator();
     } catch (e) {
-      // ignore: avoid_print
-      print('Warning: Service locator reset error: $e');
+      debugPrint('Warning: Service locator reset error: $e');
     }
   }
 

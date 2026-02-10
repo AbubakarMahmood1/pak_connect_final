@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import '../../core/bluetooth/identity_session_state.dart';
 import '../../core/models/pairing_state.dart';
@@ -9,7 +7,6 @@ import '../../core/models/spy_mode_info.dart';
 import '../../core/services/security_manager.dart';
 import '../../core/services/simple_crypto.dart';
 import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/utils/string_extensions.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'pairing_lifecycle_service.dart';
 import 'pairing_service.dart';
@@ -108,11 +105,7 @@ class PairingFlowController {
 
   // Accessors to identity state
   String? get _currentSessionId => _identityState.currentSessionId;
-  set _currentSessionId(String? value) =>
-      _identityState.currentSessionId = value;
   String? get _theirEphemeralId => _identityState.theirEphemeralId;
-  set _theirEphemeralId(String? value) =>
-      _identityState.theirEphemeralId = value;
   String? get _theirPersistentKey => _identityState.theirPersistentKey;
   set _theirPersistentKey(String? value) =>
       _identityState.theirPersistentKey = value;
@@ -252,7 +245,7 @@ class PairingFlowController {
       return false;
     }
 
-    print(
+    _logger.fine(
       '[BLEStateManager] 🔧 DEBUG: confirmSecurityUpgrade called for ${_truncateId(userId.value)} to ${newLevel.name}',
     );
 
@@ -262,7 +255,7 @@ class PairingFlowController {
       );
 
       if (existingContact == null) {
-        print(
+        _logger.fine(
           '[BLEStateManager] 🔧 DEBUG: No existing contact - creating new with ${newLevel.name} level',
         );
         await _contactRepository.saveContactWithSecurity(
@@ -274,13 +267,13 @@ class PairingFlowController {
         return true;
       }
 
-      print(
+      _logger.fine(
         '🔧 DEBUG: Current level: ${existingContact.securityLevel.name}, Target: ${newLevel.name}',
       );
 
       if (existingContact.securityLevel == SecurityLevel.high) {
         if (newLevel == SecurityLevel.medium) {
-          print(
+          _logger.fine(
             '🔧 DEBUG: Contact already has ECDH (high security) - pairing unnecessary',
           );
 
@@ -292,7 +285,7 @@ class PairingFlowController {
       }
 
       if (existingContact.securityLevel == newLevel) {
-        print(
+        _logger.fine(
           '🔧 DEBUG: Already at ${newLevel.name} level - re-initializing crypto',
         );
         await _initializeCryptoForLevel(userId.value, newLevel);
@@ -301,7 +294,7 @@ class PairingFlowController {
       }
 
       if (newLevel.index > existingContact.securityLevel.index) {
-        print(
+        _logger.fine(
           '🔧 DEBUG: Valid upgrade from ${existingContact.securityLevel.name} to ${newLevel.name}',
         );
         final success = await _contactRepository.upgradeContactSecurity(
@@ -314,12 +307,12 @@ class PairingFlowController {
         }
         return success;
       } else {
-        print('🔧 DEBUG: Invalid downgrade attempt blocked');
+        _logger.warning('🔧 DEBUG: Invalid downgrade attempt blocked');
         onContactRequestCompleted?.call(true);
         return false;
       }
     } catch (e) {
-      print('🔧 DEBUG: confirmSecurityUpgrade failed: $e');
+      _logger.severe('🔧 DEBUG: confirmSecurityUpgrade failed: $e');
       return false;
     }
   }
@@ -331,7 +324,7 @@ class PairingFlowController {
       return false;
     }
 
-    print('🔧 SECURITY RESET: Resetting $publicKey due to: $reason');
+    _logger.warning('🔧 SECURITY RESET: Resetting $publicKey due to: $reason');
 
     try {
       final success = await _contactRepository.resetContactSecurity(
@@ -346,7 +339,7 @@ class PairingFlowController {
 
       return success;
     } catch (e) {
-      print('🔧 SECURITY RESET FAILED: $e');
+      _logger.severe('🔧 SECURITY RESET FAILED: $e');
       return false;
     }
   }
@@ -355,27 +348,33 @@ class PairingFlowController {
     final theirSecurityLevel =
         SecurityLevel.values[payload['securityLevel'] as int];
 
-    print('🔒 SECURITY SYNC: They have us at ${theirSecurityLevel.name} level');
+    _logger.fine(
+      '🔒 SECURITY SYNC: They have us at ${theirSecurityLevel.name} level',
+    );
 
     if (_currentSessionId != null) {
       final ourSecurityLevel = await _contactRepository.getContactSecurityLevel(
         _currentSessionId!,
       );
 
-      print('🔒 SECURITY SYNC: We have them at ${ourSecurityLevel.name} level');
+      _logger.fine(
+        '🔒 SECURITY SYNC: We have them at ${ourSecurityLevel.name} level',
+      );
 
       final mutualLevel = ourSecurityLevel.index < theirSecurityLevel.index
           ? ourSecurityLevel
           : theirSecurityLevel;
 
-      print('🔒 SECURITY SYNC: Mutual level determined: ${mutualLevel.name}');
+      _logger.fine(
+        '🔒 SECURITY SYNC: Mutual level determined: ${mutualLevel.name}',
+      );
 
       if (ourSecurityLevel != mutualLevel) {
         await _contactRepository.updateContactSecurityLevel(
           _currentSessionId!,
           mutualLevel,
         );
-        print(
+        _logger.fine(
           '🔒 SECURITY SYNC: Updated our level to match mutual: ${mutualLevel.name}',
         );
 

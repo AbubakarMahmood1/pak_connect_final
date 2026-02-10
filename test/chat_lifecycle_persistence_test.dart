@@ -1,5 +1,5 @@
-// ignore_for_file: avoid_print
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
@@ -184,7 +184,7 @@ void main() {
         stream1Controller.close();
         stream2Controller.close();
 
-        print('✅ Multi-chat persistence verified');
+        debugPrint('✅ Multi-chat persistence verified');
       },
     );
 
@@ -241,7 +241,7 @@ void main() {
 
       streamController.close();
 
-      print('✅ Debug info accuracy verified');
+      debugPrint('✅ Debug info accuracy verified');
     });
   });
 }

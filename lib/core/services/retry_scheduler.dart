@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../domain/entities/enhanced_message.dart';
 import '../interfaces/i_retry_scheduler.dart';
 import '../messaging/offline_message_queue.dart';
 import '../../domain/values/id_types.dart';

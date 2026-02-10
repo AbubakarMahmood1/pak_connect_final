@@ -814,11 +814,6 @@ class ArchiveManagementService {
     return {'source': 'user_initiated'};
   }
 
-  ArchivePolicy? _findApplicablePolicy(ChatId chatId) {
-    // Implementation would find applicable policy
-    return null;
-  }
-
   Future<void> _handlePostArchiveActions(
     String chatId,
     ArchiveId archiveId,
@@ -847,22 +842,6 @@ class ArchiveManagementService {
   ) async {
     // Implementation would get business metadata
     return ArchiveBusinessMetadata.empty();
-  }
-
-  Future<ArchivePolicyApplication> _applyArchivePolicy(
-    ArchivePolicy policy,
-    bool dryRun,
-  ) async {
-    // Implementation would apply specific policy
-    return ArchivePolicyApplication.empty(policy.name);
-  }
-
-  Future<Map<String, dynamic>> _performMaintenanceTask(
-    ArchiveMaintenanceTask task,
-    bool force,
-  ) async {
-    // Implementation would perform specific maintenance task
-    return {'operationsCount': 0, 'spaceFreed': 0};
   }
 
   Future<void> _saveMaintenanceHistory(ArchiveMaintenanceResult result) async {

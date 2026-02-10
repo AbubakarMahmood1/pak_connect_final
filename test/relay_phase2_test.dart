@@ -10,8 +10,6 @@ import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 void main() {
   group('Phase 2: ProtocolMessage Message Type Serialization', () {
@@ -221,7 +219,6 @@ void main() {
 
   group('Phase 2: Relay Engine Message Type Filtering', () {
     late MeshRelayEngine relayEngine;
-    late ContactRepository contactRepo;
     late OfflineMessageQueue messageQueue;
     late SpamPreventionManager spamPrevention;
     late List<LogRecord> logRecords;
@@ -232,7 +229,6 @@ void main() {
       allowedSevere = {};
       Logger.root.level = Level.ALL;
       Logger.root.onRecord.listen(logRecords.add);
-      contactRepo = ContactRepository();
       messageQueue = OfflineMessageQueue();
       await messageQueue.initialize();
       spamPrevention = SpamPreventionManager();
@@ -250,8 +246,6 @@ void main() {
       await config.resetToDefaults();
       await config.enableRelay();
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -428,7 +422,6 @@ void main() {
     test(
       'Should preserve message type through multi-hop relay chain',
       () async {
-        final contactRepo = ContactRepository();
         final messageQueue = OfflineMessageQueue();
         await messageQueue.initialize();
         final spamPrevention = SpamPreventionManager();
@@ -505,7 +498,6 @@ void main() {
     });
 
     test('Non-eligible types should be rejected at relay engine', () async {
-      final contactRepo = ContactRepository();
       final messageQueue = OfflineMessageQueue();
       await messageQueue.initialize();
       final spamPrevention = SpamPreventionManager();
@@ -552,3 +544,4 @@ void main() {
     });
   });
 }
+

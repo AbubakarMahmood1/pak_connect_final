@@ -1,5 +1,3 @@
-// ignore_for_file: avoid_print
-
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -46,17 +44,6 @@ class BLEStateManager {
   set _currentSessionId(String? value) =>
       _identityState.currentSessionId = value;
 
-  String? get _theirEphemeralId => _identityState.theirEphemeralId;
-  set _theirEphemeralId(String? value) =>
-      _identityState.theirEphemeralId = value;
-
-  String? get _theirPersistentKey => _identityState.theirPersistentKey;
-  set _theirPersistentKey(String? value) =>
-      _identityState.theirPersistentKey = value;
-
-  Map<String, String> get _ephemeralToPersistent =>
-      _identityState.ephemeralToPersistent;
-
   // ============================================================================
   // END REFACTORED IDENTITY TRACKING
   // ============================================================================
@@ -91,8 +78,8 @@ class BLEStateManager {
   // REFACTORED: Identity getters with clear naming
   // 🔧 FIX BUG #3: myEphemeralId now comes from EphemeralKeyManager (single source of truth)
   String? get myEphemeralId => EphemeralKeyManager.generateMyEphemeralKey();
-  String? get theirEphemeralId => _theirEphemeralId;
-  String? get theirPersistentKey => _theirPersistentKey;
+  String? get theirEphemeralId => _identityState.theirEphemeralId;
+  String? get theirPersistentKey => _identityState.theirPersistentKey;
 
   /// The currently active ID for this session
   /// Pre-pairing: ephemeral ID (8 chars)
@@ -299,7 +286,7 @@ class BLEStateManager {
 
   Future<void> loadUserName() async {
     _myUserName = await _userPreferences.getUserName();
-    print('🐛 DEBUG NAME: loadUserName() loaded: "$_myUserName"');
+    _logger.fine('🐛 DEBUG NAME: loadUserName() loaded: "$_myUserName"');
   }
 
   Future<void> _initializeSigning() async {
@@ -323,7 +310,7 @@ class BLEStateManager {
   }
 
   Future<void> setMyUserName(String name) async {
-    print('🔧 NAME DEBUG: setMyUserName called with: "$name"');
+    _logger.fine('🔧 NAME DEBUG: setMyUserName called with: "$name"');
     final oldName = _myUserName;
 
     // Update internal cache
@@ -335,10 +322,10 @@ class BLEStateManager {
     // USERNAME PROPAGATION FIX: Trigger callback for reactive updates
     if (oldName != name && onMyUsernameChanged != null) {
       onMyUsernameChanged!(name);
-      print('🔧 NAME DEBUG: Triggered username change callback');
+      _logger.fine('🔧 NAME DEBUG: Triggered username change callback');
     }
 
-    print(
+    _logger.fine(
       '🔧 NAME DEBUG: setMyUserName completed, _myUserName is now: "$_myUserName"',
     );
   }
@@ -351,13 +338,13 @@ class BLEStateManager {
     await loadUserName();
 
     // If connected, the identity re-exchange should be handled by the caller
-    print(
+    _logger.fine(
       '🔧 NAME DEBUG: Username set with enhanced callbacks and cache invalidation',
     );
   }
 
   void setOtherUserName(String? name) {
-    print(
+    _logger.fine(
       '🐛 NAV DEBUG: setOtherUserName called with: "$name" (was: "$_otherUserName")',
     );
     _logger.info('Setting other user name: "$name" (was: "$_otherUserName")');
@@ -373,10 +360,12 @@ class BLEStateManager {
   }
 
   void setOtherDeviceIdentity(String deviceId, String displayName) {
-    print('🐛 NAV DEBUG: setOtherDeviceIdentity called');
-    print('🐛 NAV DEBUG: - deviceId: $deviceId');
-    print('🐛 NAV DEBUG: - displayName: "$displayName"');
-    print('🐛 NAV DEBUG: - previous _currentSessionId: $_currentSessionId');
+    _logger.fine('🐛 NAV DEBUG: setOtherDeviceIdentity called');
+    _logger.fine('🐛 NAV DEBUG: - deviceId: $deviceId');
+    _logger.fine('🐛 NAV DEBUG: - displayName: "$displayName"');
+    _logger.fine(
+      '🐛 NAV DEBUG: - previous _currentSessionId: $_currentSessionId',
+    );
 
     _logger.info(
       'Setting other device identity: "$displayName" (ID: $deviceId)',
@@ -524,7 +513,7 @@ class BLEStateManager {
 
   /// STEP 7.2: Check if we're paired with the current contact
   /// Paired = we've completed persistent key exchange
-  bool get isPaired => _theirPersistentKey != null;
+  bool get isPaired => _identityState.theirPersistentKey != null;
 
   /// STEP 7.3: Get ID type for logging
   String getIdType() {
@@ -760,7 +749,7 @@ class BLEStateManager {
       );
 
       onSendContactStatus?.call(syncMessage);
-      print(
+      _logger.fine(
         '🔒 SECURITY SYNC: Requested sync with current level: ${mySecurityLevel.name}',
       );
     } catch (e) {
@@ -868,7 +857,7 @@ class BLEStateManager {
   }
 
   void clearOtherUserName() {
-    print('🐛 NAV DEBUG: clearOtherUserName() called');
+    _logger.fine('🐛 NAV DEBUG: clearOtherUserName() called');
     // For navigation, preserve persistent ID to maintain security state
     clearSessionState(preservePersistentId: true);
   }

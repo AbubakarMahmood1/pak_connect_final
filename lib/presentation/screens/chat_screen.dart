@@ -14,7 +14,6 @@ import '../../core/services/security_manager.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
-import '../../data/services/ble_state_manager.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -80,7 +79,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   ProviderSubscription<AsyncValue<MeshNetworkStatus>>? _meshSubscription;
   bool get _isRepositoryMode => widget.chatId != null;
   bool get _isPeripheralMode => widget.central != null;
-  bool get _isCentralMode => widget.device != null;
 
   @override
   void initState() {

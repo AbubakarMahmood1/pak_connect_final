@@ -21,10 +21,6 @@ abstract class IPairingService {
   /// Receive peer's code, compare with our entered code, trigger verification
   void handleReceivedPairingCode(String theirCode);
 
-  /// Core verification logic: compute shared secret from codes & keys
-  /// Upgrade contact security, establish persistent key exchange
-  Future<void> _performVerification();
-
   /// Receive peer's verification hash, compare with our computed hash
   Future<void> handlePairingVerification(String theirSecretHash);
 

@@ -46,8 +46,7 @@ class MockConnectionService implements IConnectionService {
   final StreamController<BinaryPayload> _binaryPayloadController =
       StreamController<BinaryPayload>.broadcast();
   final List<BLEServerConnection> _serverConnections = [];
-  bool _pairingInProgress = false;
-  bool _isActivelyReconnecting = false;
+  final bool _isActivelyReconnecting = false;
   String _myUserName = 'Mock User';
   Peripheral? _connectedDevice;
   void Function(bool success)? _contactRequestCompletedListener;
@@ -520,7 +519,7 @@ class MockConnectionService implements IConnectionService {
 
   @override
   void setPairingInProgress(bool isInProgress) {
-    _pairingInProgress = isInProgress;
+    // No-op in mock.
   }
 
   @override

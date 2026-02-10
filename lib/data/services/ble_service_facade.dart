@@ -43,7 +43,6 @@ import '../../core/utils/string_extensions.dart';
 import '../../core/models/connection_state.dart' show ChatConnectionState;
 import '../repositories/user_preferences.dart';
 import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/security/security_types.dart';
 
 /// Main orchestrator for the entire BLE stack.
 ///
@@ -1619,7 +1618,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   void _handleSpyModeDetected(SpyModeInfo info) {
     _logger.warning(
-      '🕵️ Spy mode detected with ${info.contactName ?? 'unknown contact'}',
+      '🕵️ Spy mode detected with ${info.contactName}',
     );
     emitSpyModeDetected(info);
   }
@@ -1648,6 +1647,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       handler(message, fromNodeId);
     }
   }
+
+  /// Production accessor for the configured message handler facade used by mesh
+  /// networking and queue orchestration.
+  BLEMessageHandlerFacadeImpl get meshMessageHandler => _messageHandlerFacade;
 
   /// Expose underlying message handler for integration wiring (AppCore tests).
   @visibleForTesting

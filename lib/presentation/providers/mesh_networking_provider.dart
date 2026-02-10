@@ -19,9 +19,6 @@ import '../../core/messaging/queue_sync_manager.dart';
 import '../../core/interfaces/i_mesh_routing_service.dart';
 import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../domain/models/mesh_network_models.dart';
-import '../../domain/services/mesh_networking_service.dart'
-    show ReceivedBinaryEvent, PendingBinaryTransfer;
-import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/services/mesh/mesh_relay_coordinator.dart';
 import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';

@@ -1,7 +1,7 @@
-/// Queued message entity with delivery tracking
-///
-/// Extracted from offline_message_queue.dart for better separation of concerns.
-/// This is a domain entity used across core, data, and presentation layers.
+// Queued message entity with delivery tracking
+//
+// Extracted from offline_message_queue.dart for better separation of concerns.
+// This is a domain entity used across core, data, and presentation layers.
 
 import '../../core/models/message_priority.dart';
 import '../../core/models/mesh_relay_models.dart';

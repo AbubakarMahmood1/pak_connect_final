@@ -3,7 +3,6 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 
 import '../bluetooth/bluetooth_state_monitor.dart';
 import '../interfaces/i_mesh_ble_service.dart';
-import 'i_ble_discovery_service.dart';
 import '../models/spy_mode_info.dart';
 import '../models/connection_info.dart';
 import '../models/ble_server_connection.dart';
@@ -27,6 +26,7 @@ abstract interface class IConnectionService implements IMeshBleService {
   Stream<String> get hintMatches;
 
   /// Discovery metadata stream (deduplicated devices with advertisement data).
+  @override
   Stream<Map<String, DiscoveredEventArgs>> get discoveryData;
 
   /// Scan for a specific device, optionally with a timeout.
@@ -45,6 +45,7 @@ abstract interface class IConnectionService implements IMeshBleService {
   Peripheral? get connectedDevice;
 
   /// Send binary/media payload; returns transferId for retry tracking.
+  @override
   Future<String> sendBinaryMedia({
     required Uint8List data,
     required String recipientId,
@@ -54,6 +55,7 @@ abstract interface class IConnectionService implements IMeshBleService {
   });
 
   /// Retry a previously persisted binary/media payload using the latest MTU.
+  @override
   Future<bool> retryBinaryMedia({
     required String transferId,
     String? recipientId,
@@ -75,12 +77,15 @@ abstract interface class IConnectionService implements IMeshBleService {
   BluetoothLowEnergyState get state;
 
   /// Last-known connection information.
+  @override
   ConnectionInfo get currentConnectionInfo;
 
   /// Stream of connection information updates.
+  @override
   Stream<ConnectionInfo> get connectionInfo;
 
   /// Binary/media payloads received for this node.
+  @override
   Stream<BinaryPayload> get receivedBinaryStream;
 
   // ===== Advertising / role management =====
@@ -122,6 +127,7 @@ abstract interface class IConnectionService implements IMeshBleService {
 
   // ===== Identity snapshot =====
   String? get otherUserName;
+  @override
   String? get currentSessionId;
   String? get theirEphemeralId;
   String? get theirPersistentKey;
@@ -166,5 +172,6 @@ abstract interface class IConnectionService implements IMeshBleService {
   /// Connection slots and server connection metadata.
   List<BLEServerConnection> get serverConnections;
   int get clientConnectionCount;
+  @override
   int get maxCentralConnections;
 }

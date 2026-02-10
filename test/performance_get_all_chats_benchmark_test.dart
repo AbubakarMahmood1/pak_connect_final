@@ -1,8 +1,12 @@
 /// Performance benchmark for ChatsRepository.getAllChats()
 ///
 /// Tests the N+1 query performance issue identified in CONFIDENCE_GAPS.md
+//
+// Diagnostic output is intentional for benchmark result reporting.
+
 library;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -66,14 +70,14 @@ void main() {
     });
 
     /// Seed database with N contacts, each with M messages
-    Future<void> _seedDatabase({
+    Future<void> seedDatabase({
       required int contactCount,
       required int messagesPerContact,
     }) async {
-      print('\n🌱 Seeding database:');
-      print('   - $contactCount contacts');
-      print('   - $messagesPerContact messages per contact');
-      print('   - Total messages: ${contactCount * messagesPerContact}');
+      debugPrint('\n🌱 Seeding database:');
+      debugPrint('   - $contactCount contacts');
+      debugPrint('   - $messagesPerContact messages per contact');
+      debugPrint('   - Total messages: ${contactCount * messagesPerContact}');
 
       for (int i = 0; i < contactCount; i++) {
         // Use simple key format to avoid chat ID parsing bug
@@ -101,22 +105,22 @@ void main() {
         }
       }
 
-      print('✅ Database seeding complete\n');
+      debugPrint('✅ Database seeding complete\n');
     }
 
     // BENCHMARK TEST 1: Small dataset (10 contacts)
     test('benchmark getAllChats with 10 contacts', () async {
-      await _seedDatabase(contactCount: 10, messagesPerContact: 10);
+      await seedDatabase(contactCount: 10, messagesPerContact: 10);
 
-      print('⏱️  Starting benchmark: 10 contacts...');
+      debugPrint('⏱️  Starting benchmark: 10 contacts...');
       final stopwatch = Stopwatch()..start();
       final chats = await chatsRepo.getAllChats(nearbyDevices: []);
       stopwatch.stop();
 
       final elapsed = stopwatch.elapsedMilliseconds;
-      print('⏱️  getAllChats() completed in ${elapsed}ms');
-      print('   - Chats returned: ${chats.length}');
-      print('   - Avg time per chat: ${elapsed / chats.length}ms\n');
+      debugPrint('⏱️  getAllChats() completed in ${elapsed}ms');
+      debugPrint('   - Chats returned: ${chats.length}');
+      debugPrint('   - Avg time per chat: ${elapsed / chats.length}ms\n');
 
       // Verify correctness
       expect(chats.length, greaterThan(0));
@@ -124,9 +128,9 @@ void main() {
 
       // Log performance instead of failing the suite (diagnostic benchmark)
       if (elapsed < 500) {
-        print('✅ 10 contacts completed within 500ms');
+        debugPrint('✅ 10 contacts completed within 500ms');
       } else {
-        print(
+        debugPrint(
           '⚠️  10-contact benchmark exceeded 500ms (${elapsed}ms). '
           'This is informational only.',
         );
@@ -135,17 +139,17 @@ void main() {
 
     // BENCHMARK TEST 2: Medium dataset (50 contacts)
     test('benchmark getAllChats with 50 contacts', () async {
-      await _seedDatabase(contactCount: 50, messagesPerContact: 10);
+      await seedDatabase(contactCount: 50, messagesPerContact: 10);
 
-      print('⏱️  Starting benchmark: 50 contacts...');
+      debugPrint('⏱️  Starting benchmark: 50 contacts...');
       final stopwatch = Stopwatch()..start();
       final chats = await chatsRepo.getAllChats(nearbyDevices: []);
       stopwatch.stop();
 
       final elapsed = stopwatch.elapsedMilliseconds;
-      print('⏱️  getAllChats() completed in ${elapsed}ms');
-      print('   - Chats returned: ${chats.length}');
-      print('   - Avg time per chat: ${elapsed / chats.length}ms\n');
+      debugPrint('⏱️  getAllChats() completed in ${elapsed}ms');
+      debugPrint('   - Chats returned: ${chats.length}');
+      debugPrint('   - Avg time per chat: ${elapsed / chats.length}ms\n');
 
       // Verify correctness
       expect(chats.length, greaterThan(0));
@@ -155,31 +159,31 @@ void main() {
       // N+1 pattern: 1 + 50 queries = ~500ms (10ms per query)
       // Acceptable: <1000ms
       // Optimal (after fix): <100ms
-      print('📊 Performance Analysis:');
+      debugPrint('📊 Performance Analysis:');
       if (elapsed < 100) {
-        print('   ✅ EXCELLENT: ${elapsed}ms (optimized query detected)');
+        debugPrint('   ✅ EXCELLENT: ${elapsed}ms (optimized query detected)');
       } else if (elapsed < 500) {
-        print('   ✅ GOOD: ${elapsed}ms (acceptable performance)');
+        debugPrint('   ✅ GOOD: ${elapsed}ms (acceptable performance)');
       } else if (elapsed < 1000) {
-        print('   ⚠️  SLOW: ${elapsed}ms (N+1 query pattern likely)');
+        debugPrint('   ⚠️  SLOW: ${elapsed}ms (N+1 query pattern likely)');
       } else {
-        print('   ❌ CRITICAL: ${elapsed}ms (major performance issue)');
+        debugPrint('   ❌ CRITICAL: ${elapsed}ms (major performance issue)');
       }
     });
 
     // BENCHMARK TEST 3: Large dataset (100 contacts) - CRITICAL TEST
     test('benchmark getAllChats with 100 contacts (N+1 query test)', () async {
-      await _seedDatabase(contactCount: 100, messagesPerContact: 10);
+      await seedDatabase(contactCount: 100, messagesPerContact: 10);
 
-      print('⏱️  Starting benchmark: 100 contacts...');
+      debugPrint('⏱️  Starting benchmark: 100 contacts...');
       final stopwatch = Stopwatch()..start();
       final chats = await chatsRepo.getAllChats(nearbyDevices: []);
       stopwatch.stop();
 
       final elapsed = stopwatch.elapsedMilliseconds;
-      print('⏱️  getAllChats() completed in ${elapsed}ms');
-      print('   - Chats returned: ${chats.length}');
-      print(
+      debugPrint('⏱️  getAllChats() completed in ${elapsed}ms');
+      debugPrint('   - Chats returned: ${chats.length}');
+      debugPrint(
         '   - Avg time per chat: ${(elapsed / chats.length).toStringAsFixed(1)}ms\n',
       );
 
@@ -188,9 +192,9 @@ void main() {
       expect(chats.length, lessThanOrEqualTo(100));
 
       // Performance analysis
-      print('📊 Performance Analysis for 100 contacts:');
-      print('   - Total time: ${elapsed}ms');
-      print(
+      debugPrint('📊 Performance Analysis for 100 contacts:');
+      debugPrint('   - Total time: ${elapsed}ms');
+      debugPrint(
         '   - Per-chat avg: ${(elapsed / chats.length).toStringAsFixed(1)}ms',
       );
 
@@ -201,43 +205,43 @@ void main() {
       final estimatedN1Time = 1000; // Approximate N+1 query time
 
       if (elapsed < 100) {
-        print('   ✅ OPTIMAL: Query optimization detected!');
-        print('      Using JOIN or similar optimization');
-        print(
+        debugPrint('   ✅ OPTIMAL: Query optimization detected!');
+        debugPrint('      Using JOIN or similar optimization');
+        debugPrint(
           '      ${((estimatedN1Time / elapsed) * 10).toStringAsFixed(0)}x faster than N+1 pattern',
         );
       } else if (elapsed < 500) {
-        print('   ✅ GOOD: Acceptable performance');
-        print(
+        debugPrint('   ✅ GOOD: Acceptable performance');
+        debugPrint(
           '      ${((estimatedN1Time / elapsed) * 10).toStringAsFixed(1)}x faster than worst case',
         );
       } else if (elapsed < 1500) {
-        print('   ⚠️  CONFIRMED N+1 QUERY PATTERN');
-        print('      Expected with N+1: ~${estimatedN1Time}ms');
-        print(
+        debugPrint('   ⚠️  CONFIRMED N+1 QUERY PATTERN');
+        debugPrint('      Expected with N+1: ~${estimatedN1Time}ms');
+        debugPrint(
           '      Actual: ${elapsed}ms (${((elapsed / estimatedN1Time) * 100).toStringAsFixed(0)}% of expected)',
         );
-        print('      Impact: Linear growth (200 contacts = ${elapsed * 2}ms)');
-        print('      Recommendation: Apply FIX-006 from RECOMMENDED_FIXES.md');
+        debugPrint('      Impact: Linear growth (200 contacts = ${elapsed * 2}ms)');
+        debugPrint('      Recommendation: Apply FIX-006 from RECOMMENDED_FIXES.md');
       } else {
-        print('   ❌ CRITICAL PERFORMANCE ISSUE');
-        print('      Worse than N+1 pattern suggests other issues');
-        print('      Investigation required');
+        debugPrint('   ❌ CRITICAL PERFORMANCE ISSUE');
+        debugPrint('      Worse than N+1 pattern suggests other issues');
+        debugPrint('      Investigation required');
       }
 
       // Document findings
-      print('\n📝 Confidence Gap Update:');
-      print('   - Gap #2: N+1 Query Performance');
+      debugPrint('\n📝 Confidence Gap Update:');
+      debugPrint('   - Gap #2: N+1 Query Performance');
       if (elapsed > 500) {
-        print('   - Status: ✅ CONFIRMED (${elapsed}ms for 100 contacts)');
-        print('   - Confidence: 95% → 100%');
-        print('   - Evidence: Runtime benchmark proves performance impact');
+        debugPrint('   - Status: ✅ CONFIRMED (${elapsed}ms for 100 contacts)');
+        debugPrint('   - Confidence: 95% → 100%');
+        debugPrint('   - Evidence: Runtime benchmark proves performance impact');
       } else {
-        print('   - Status: ⚠️  NOT REPRODUCED');
-        print(
+        debugPrint('   - Status: ⚠️  NOT REPRODUCED');
+        debugPrint(
           '   - Confidence: 95% (N+1 pattern exists, but optimized somehow)',
         );
-        print('   - Note: SQLite query planner may be caching/optimizing');
+        debugPrint('   - Note: SQLite query planner may be caching/optimizing');
       }
     });
 
@@ -245,27 +249,27 @@ void main() {
     test(
       'stress test getAllChats with 500 contacts',
       () async {
-        await _seedDatabase(contactCount: 500, messagesPerContact: 10);
+        await seedDatabase(contactCount: 500, messagesPerContact: 10);
 
-        print('⏱️  Starting stress test: 500 contacts...');
+        debugPrint('⏱️  Starting stress test: 500 contacts...');
         final stopwatch = Stopwatch()..start();
         final chats = await chatsRepo.getAllChats(nearbyDevices: []);
         stopwatch.stop();
 
         final elapsed = stopwatch.elapsedMilliseconds;
-        print('⏱️  getAllChats() completed in ${elapsed}ms');
-        print('   - Chats returned: ${chats.length}');
-        print(
+        debugPrint('⏱️  getAllChats() completed in ${elapsed}ms');
+        debugPrint('   - Chats returned: ${chats.length}');
+        debugPrint(
           '   - Avg time per chat: ${(elapsed / chats.length).toStringAsFixed(1)}ms',
         );
 
         // With N+1 pattern: 1 + 500 queries = ~5000ms (5 seconds)
         // This is unacceptable for production
         if (elapsed > 5000) {
-          print(
+          debugPrint(
             '   ❌ UNACCEPTABLE: ${elapsed}ms (${(elapsed / 1000).toStringAsFixed(1)}s)',
           );
-          print('      FIX-006 is CRITICAL for production');
+          debugPrint('      FIX-006 is CRITICAL for production');
         }
       },
       timeout: Timeout(Duration(minutes: 2)),

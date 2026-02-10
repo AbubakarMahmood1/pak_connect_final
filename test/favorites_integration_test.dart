@@ -8,7 +8,6 @@ import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/core/di/repository_provider_impl.dart';
 import 'test_helpers/test_setup.dart';
 

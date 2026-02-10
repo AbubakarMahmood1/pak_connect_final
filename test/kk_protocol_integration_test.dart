@@ -1,3 +1,7 @@
+//
+// Diagnostic output is intentional in this protocol integration trace test.
+
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
@@ -254,10 +258,10 @@ void main() {
     test(
       'Scenario C: Happy Path KK - Both devices complete 2-message handshake',
       () async {
-        print('\n=== SCENARIO C: Happy Path KK ===');
+        debugPrint('\n=== SCENARIO C: Happy Path KK ===');
 
         // Step 1: Establish initial XX session
-        print('\n1. Establishing initial XX session...');
+        debugPrint('\n1. Establishing initial XX session...');
         final coords1 = await createCoordinatorPair(
           aliceId: 'alice_eph_1',
           bobId: 'bob_eph_1',
@@ -275,10 +279,10 @@ void main() {
           bobRepo: bobContactRepo,
         );
 
-        print('✅ Initial XX session established');
+        debugPrint('✅ Initial XX session established');
 
         // Step 2: Simulate reconnection with new coordinators
-        print('\n2. Simulating reconnection with KK...');
+        debugPrint('\n2. Simulating reconnection with KK...');
         final coords2 = await createCoordinatorPair(
           aliceId: 'alice_eph_1', // Same IDs = known peers
           bobId: 'bob_eph_1',
@@ -304,7 +308,7 @@ void main() {
           reason: 'Bob should complete handshake',
         );
 
-        print('✅ Handshake completed successfully');
+        debugPrint('✅ Handshake completed successfully');
 
         // Step 5: Verify sessions still work
         final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
@@ -313,17 +317,17 @@ void main() {
         expect(aliceContact?.noiseSessionState, 'established');
         expect(bobContact?.noiseSessionState, 'established');
 
-        print('✅ Scenario C: Happy Path KK - PASSED');
+        debugPrint('✅ Scenario C: Happy Path KK - PASSED');
       },
     );
 
     test(
       'Scenario A: Central Lost Data - Peripheral detects mismatch, both downgrade to XX',
       () async {
-        print('\n=== SCENARIO A: Central Lost Data ===');
+        debugPrint('\n=== SCENARIO A: Central Lost Data ===');
 
         // Step 1: Establish initial session (Alice=Central, Bob=Peripheral)
-        print('\n1. Establishing initial XX session...');
+        debugPrint('\n1. Establishing initial XX session...');
         final coords1 = await createCoordinatorPair(
           aliceId: 'alice_eph_1',
           bobId: 'bob_eph_1',
@@ -341,20 +345,20 @@ void main() {
           bobRepo: bobContactRepo,
         );
 
-        print('✅ Initial session established');
+        debugPrint('✅ Initial session established');
 
         // Step 2: Simulate central (Alice) data loss
-        print('\n2. Simulating central data loss...');
+        debugPrint('\n2. Simulating central data loss...');
         final aliceContacts = await aliceContactRepo.getAllContacts();
         for (var key in aliceContacts.keys) {
           await aliceContactRepo.deleteContact(key);
         }
         // Also clear Alice's Noise session (simulates app restart after data loss)
         SecurityManager.instance.noiseService?.removeSession('bob_eph_1');
-        print('✅ Central data cleared');
+        debugPrint('✅ Central data cleared');
 
         // Step 3: Create new coordinators for reconnection
-        print(
+        debugPrint(
           '\n3. Reconnecting with peripheral having session, central without...',
         );
         final coords2 = await createCoordinatorPair(
@@ -368,7 +372,7 @@ void main() {
         final bob2 = coords2['bob'] as HandshakeCoordinator;
 
         // Step 4: Bob (peripheral) initiates - will try KK
-        print('\n4. Peripheral initiating handshake with KK...');
+        debugPrint('\n4. Peripheral initiating handshake with KK...');
         await bob2.startHandshake();
 
         // Step 5: Verify handshake completed with XX fallback
@@ -398,17 +402,17 @@ void main() {
           reason: 'Bob should have updated session',
         );
 
-        print('✅ Scenario A: Central Lost Data - PASSED');
+        debugPrint('✅ Scenario A: Central Lost Data - PASSED');
       },
     );
 
     test(
       'Scenario B: Peripheral Lost Data - Central detects failure, both downgrade to XX',
       () async {
-        print('\n=== SCENARIO B: Peripheral Lost Data ===');
+        debugPrint('\n=== SCENARIO B: Peripheral Lost Data ===');
 
         // Step 1: Establish initial session
-        print('\n1. Establishing initial XX session...');
+        debugPrint('\n1. Establishing initial XX session...');
         final coords1 = await createCoordinatorPair(
           aliceId: 'alice_eph_1',
           bobId: 'bob_eph_1',
@@ -426,20 +430,20 @@ void main() {
           bobRepo: bobContactRepo,
         );
 
-        print('✅ Initial session established');
+        debugPrint('✅ Initial session established');
 
         // Step 2: Simulate peripheral (Bob) data loss
-        print('\n2. Simulating peripheral data loss...');
+        debugPrint('\n2. Simulating peripheral data loss...');
         final bobContacts = await bobContactRepo.getAllContacts();
         for (var key in bobContacts.keys) {
           await bobContactRepo.deleteContact(key);
         }
         // Also clear Bob's Noise session (simulates app restart after data loss)
         SecurityManager.instance.noiseService?.removeSession('alice_eph_1');
-        print('✅ Peripheral data cleared');
+        debugPrint('✅ Peripheral data cleared');
 
         // Step 3: Create new coordinators for reconnection
-        print(
+        debugPrint(
           '\n3. Reconnecting with central having session, peripheral without...',
         );
         final coords2 = await createCoordinatorPair(
@@ -453,7 +457,7 @@ void main() {
         final bob2 = coords2['bob'] as HandshakeCoordinator;
 
         // Step 4: Alice (central) initiates - will try KK
-        print('\n4. Central initiating handshake with KK...');
+        debugPrint('\n4. Central initiating handshake with KK...');
         await alice2.startHandshake();
 
         // Step 5: Verify handshake completed with XX fallback
@@ -483,17 +487,17 @@ void main() {
           reason: 'Bob should have new session',
         );
 
-        print('✅ Scenario B: Peripheral Lost Data - PASSED');
+        debugPrint('✅ Scenario B: Peripheral Lost Data - PASSED');
       },
     );
 
     test(
       'Scenario D: 3-Strike Downgrade - Multiple KK failures trigger permanent XX',
       () async {
-        print('\n=== SCENARIO D: 3-Strike Downgrade ===');
+        debugPrint('\n=== SCENARIO D: 3-Strike Downgrade ===');
 
         // Step 1: Establish initial session
-        print('\n1. Establishing initial XX session...');
+        debugPrint('\n1. Establishing initial XX session...');
         final coords1 = await createCoordinatorPair(
           aliceId: 'alice_eph_1',
           bobId: 'bob_eph_1',
@@ -511,11 +515,11 @@ void main() {
           bobRepo: bobContactRepo,
         );
 
-        print('✅ Initial session established');
+        debugPrint('✅ Initial session established');
 
         // Step 2-4: Simulate 3 consecutive reconnections with data loss
         for (int attempt = 1; attempt <= 3; attempt++) {
-          print('\n$attempt. Attempt #$attempt - Simulating failure...');
+          debugPrint('\n$attempt. Attempt #$attempt - Simulating failure...');
 
           // Clear Bob's data to force KK failure
           final bobContacts = await bobContactRepo.getAllContacts();
@@ -549,7 +553,7 @@ void main() {
             reason: 'Attempt $attempt: Bob should complete',
           );
 
-          print('✅ Attempt $attempt completed with XX fallback');
+          debugPrint('✅ Attempt $attempt completed with XX fallback');
 
           // Re-establish Bob's session for next attempt
           final aliceContact = await aliceContactRepo.getContact('bob_eph_1');
@@ -564,7 +568,7 @@ void main() {
         }
 
         // Step 5: Fourth attempt should use XX directly (no KK attempt)
-        print('\n5. Fourth attempt - Should skip KK entirely...');
+        debugPrint('\n5. Fourth attempt - Should skip KK entirely...');
 
         final coords4 = await createCoordinatorPair(
           aliceId: 'alice_eph_1',
@@ -589,16 +593,16 @@ void main() {
           reason: 'Fourth attempt: Should complete with XX',
         );
 
-        print('✅ Scenario D: 3-Strike Downgrade - PASSED');
-        print('   After 3 failures, system correctly uses XX directly');
+        debugPrint('✅ Scenario D: 3-Strike Downgrade - PASSED');
+        debugPrint('   After 3 failures, system correctly uses XX directly');
       },
     );
 
     test('Backward Compatibility: XX-only devices can still connect', () async {
-      print('\n=== BACKWARD COMPATIBILITY TEST ===');
+      debugPrint('\n=== BACKWARD COMPATIBILITY TEST ===');
 
       // Create two devices with no prior session (fresh connection)
-      print('\n1. Creating fresh device pair...');
+      debugPrint('\n1. Creating fresh device pair...');
       final coords = await createCoordinatorPair(
         aliceId: 'alice_new',
         bobId: 'bob_new',
@@ -610,7 +614,7 @@ void main() {
       final bob = coords['bob'] as HandshakeCoordinator;
 
       // Step 2: Initiate handshake (should use XX for first contact)
-      print('\n2. Initiating first-time handshake...');
+      debugPrint('\n2. Initiating first-time handshake...');
       await alice.startHandshake();
 
       // Step 3: Verify XX handshake completed
@@ -634,19 +638,19 @@ void main() {
       expect(aliceContact?.noisePublicKey, isNotEmpty);
       expect(bobContact?.noisePublicKey, isNotEmpty);
 
-      print('✅ Backward Compatibility: XX works correctly for first contact');
+      debugPrint('✅ Backward Compatibility: XX works correctly for first contact');
     });
 
     test(
       'Pattern Detection: Correctly identifies XX vs KK by message size',
       () async {
-        print('\n=== PATTERN DETECTION TEST ===');
+        debugPrint('\n=== PATTERN DETECTION TEST ===');
 
         // This test verifies the size-based detection logic:
         // - XX handshake1: 32 bytes (e only)
         // - KK handshake1: 96 bytes (e, es, ss)
 
-        print('\n1. Testing XX detection (32 bytes)...');
+        debugPrint('\n1. Testing XX detection (32 bytes)...');
         final coords = await createCoordinatorPair(
           aliceId: 'alice_test',
           bobId: 'bob_test',
@@ -671,12 +675,12 @@ void main() {
           reason: 'XX pattern should complete',
         );
 
-        print('✅ Pattern detection working correctly');
+        debugPrint('✅ Pattern detection working correctly');
       },
     );
 
     test('Rejection Message Format: Verify all required fields present', () async {
-      print('\n=== REJECTION MESSAGE FORMAT TEST ===');
+      debugPrint('\n=== REJECTION MESSAGE FORMAT TEST ===');
 
       // Step 1: Establish initial session
       final coords1 = await createCoordinatorPair(
@@ -725,7 +729,7 @@ void main() {
       expect(alice2.currentPhase, ConnectionPhase.complete);
       expect(bob2.currentPhase, ConnectionPhase.complete);
 
-      print(
+      debugPrint(
         '✅ Rejection handling verified (handshake completed with fallback)',
       );
     });
@@ -733,7 +737,7 @@ void main() {
     test(
       'Session State Reconciliation: Detects desync and downgrades',
       () async {
-        print('\n=== SESSION STATE RECONCILIATION TEST ===');
+        debugPrint('\n=== SESSION STATE RECONCILIATION TEST ===');
 
         // Step 1: Create initial session
         final coords1 = await createCoordinatorPair(
@@ -760,7 +764,7 @@ void main() {
           sessionState: 'established',
         );
 
-        print('✅ Session desync created');
+        debugPrint('✅ Session desync created');
 
         // Step 3: Attempt reconnection
         final coords2 = await createCoordinatorPair(
@@ -794,7 +798,7 @@ void main() {
         expect(aliceContact?.noiseSessionState, 'established');
         expect(bobContact?.noiseSessionState, 'established');
 
-        print('✅ Session reconciliation successful');
+        debugPrint('✅ Session reconciliation successful');
       },
     );
   });

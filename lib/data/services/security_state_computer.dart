@@ -1,13 +1,14 @@
-// ignore_for_file: avoid_print
-
 import '../../core/models/security_state.dart';
 import '../../data/services/ble_service.dart';
 import '../../core/models/connection_info.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/security_manager.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:logging/logging.dart';
 
 class SecurityStateComputer {
+  static final _logger = Logger('SecurityStateComputer');
+
   /// Main entry point - computes complete security state for any context
   static Future<SecurityState> computeState({
     required bool isRepositoryMode,
@@ -15,19 +16,19 @@ class SecurityStateComputer {
     required BLEService bleService,
     String? otherPublicKey,
   }) async {
-    print('🐛 DEBUG: SecurityStateComputer.computeState called');
-    print('🐛 DEBUG: - isRepositoryMode: $isRepositoryMode');
-    print(
+    _logger.fine('🐛 DEBUG: SecurityStateComputer.computeState called');
+    _logger.fine('🐛 DEBUG: - isRepositoryMode: $isRepositoryMode');
+    _logger.fine(
       '🐛 DEBUG: - connectionInfo: ${connectionInfo?.isConnected}/${connectionInfo?.isReady}',
     );
-    print('🐛 DEBUG: - otherPublicKey: $otherPublicKey');
+    _logger.fine('🐛 DEBUG: - otherPublicKey: $otherPublicKey');
 
     if (isRepositoryMode) {
       final result = await _computeRepositoryModeState(
         otherPublicKey,
         bleService,
       );
-      print('🐛 DEBUG: Repository mode result: ${result.status.name}');
+      _logger.fine('🐛 DEBUG: Repository mode result: ${result.status.name}');
       return result;
     }
 
@@ -35,7 +36,7 @@ class SecurityStateComputer {
       connectionInfo,
       bleService,
     );
-    print('🐛 DEBUG: Live connection result: ${result.status.name}');
+    _logger.fine('🐛 DEBUG: Live connection result: ${result.status.name}');
     return result;
   }
 
@@ -53,7 +54,7 @@ class SecurityStateComputer {
         ? otherPublicKey.substring(5)
         : otherPublicKey;
 
-    print(
+    _logger.fine(
       '🔧 REPO DEBUG: Processing key: ${actualKey.length > 16 ? '${actualKey.shortId()}...' : actualKey}',
     );
 
@@ -62,9 +63,11 @@ class SecurityStateComputer {
     // This fixes "Contact exists: false" bug when looking up by persistent or ephemeral IDs
     final contact = await contactRepo.getContactByAnyId(actualKey);
 
-    print('🔧 REPO DEBUG: Contact found: ${contact != null}');
-    print('🔧 REPO DEBUG: Contact trust status: ${contact?.trustStatus.name}');
-    print(
+    _logger.fine('🔧 REPO DEBUG: Contact found: ${contact != null}');
+    _logger.fine(
+      '🔧 REPO DEBUG: Contact trust status: ${contact?.trustStatus.name}',
+    );
+    _logger.fine(
       '🔧 REPO DEBUG: Contact security level: ${contact?.securityLevel.name}',
     );
 
@@ -77,7 +80,7 @@ class SecurityStateComputer {
 
     // Check if this is a verified contact (highest security)
     if (contact.trustStatus == TrustStatus.verified) {
-      print('🔧 REPO DEBUG: → VERIFIED CONTACT');
+      _logger.fine('🔧 REPO DEBUG: → VERIFIED CONTACT');
       return SecurityState.verifiedContact(
         otherUserName: contact.displayName,
         otherPublicKey: actualKey,
@@ -141,19 +144,19 @@ class SecurityStateComputer {
     required String otherPublicKey,
     required ContactRepository contactRepo,
   }) async {
-    print('🔧 DEBUG: _computeBilateralSecurityState');
-    print('🔧 DEBUG: - weHaveThem: $weHaveThem');
-    print('🔧 DEBUG: - theyHaveUs: $theyHaveUs');
+    _logger.fine('🔧 DEBUG: _computeBilateralSecurityState');
+    _logger.fine('🔧 DEBUG: - weHaveThem: $weHaveThem');
+    _logger.fine('🔧 DEBUG: - theyHaveUs: $theyHaveUs');
 
     // Get the actual stored security level for accurate state
     final storedSecurityLevel = await contactRepo.getContactSecurityLevel(
       otherPublicKey,
     );
-    print('🔧 DEBUG: - storedSecurityLevel: ${storedSecurityLevel.name}');
+    _logger.fine('🔧 DEBUG: - storedSecurityLevel: ${storedSecurityLevel.name}');
 
     // VERIFIED CONTACT: Both have each other AND we have high security
     if (weHaveThem && theyHaveUs && storedSecurityLevel == SecurityLevel.high) {
-      print('🔧 DEBUG: → VERIFIED CONTACT');
+      _logger.fine('🔧 DEBUG: → VERIFIED CONTACT');
       return SecurityState.verifiedContact(
         otherUserName: otherUserName,
         otherPublicKey: otherPublicKey,
@@ -162,7 +165,7 @@ class SecurityStateComputer {
 
     // ASYMMETRIC: They have us but we don't have them
     if (!weHaveThem && theyHaveUs) {
-      print('🔧 DEBUG: → ASYMMETRIC CONTACT');
+      _logger.fine('🔧 DEBUG: → ASYMMETRIC CONTACT');
       return SecurityState.asymmetricContact(
         otherUserName: otherUserName,
         otherPublicKey: otherPublicKey,
@@ -171,7 +174,7 @@ class SecurityStateComputer {
 
     // PAIRED: We have medium security (pairing completed)
     if (storedSecurityLevel == SecurityLevel.medium) {
-      print('🔧 DEBUG: → PAIRED');
+      _logger.fine('🔧 DEBUG: → PAIRED');
       return SecurityState.paired(
         otherUserName: otherUserName,
         otherPublicKey: otherPublicKey,
@@ -179,7 +182,7 @@ class SecurityStateComputer {
     }
 
     // DEFAULT: Basic/low security
-    print('🔧 DEBUG: → NEEDS PAIRING');
+    _logger.fine('🔧 DEBUG: → NEEDS PAIRING');
     return SecurityState.needsPairing(
       otherUserName: otherUserName,
       otherPublicKey: otherPublicKey,

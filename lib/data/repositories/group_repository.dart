@@ -7,7 +7,6 @@ import '../../core/interfaces/i_group_repository.dart';
 import '../database/database_helper.dart';
 import '../../core/models/contact_group.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../domain/values/id_types.dart';
 
 /// Repository for managing contact groups in SQLite
 ///
@@ -23,6 +22,7 @@ class GroupRepository implements IGroupRepository {
   ///
   /// Atomically creates group and adds members in a single transaction.
   /// Returns the created group with generated ID.
+  @override
   Future<ContactGroup> createGroup(ContactGroup group) async {
     final db = await DatabaseHelper.database;
 
@@ -60,6 +60,7 @@ class GroupRepository implements IGroupRepository {
   }
 
   /// Get a group by ID
+  @override
   Future<ContactGroup?> getGroup(String groupId) async {
     final db = await DatabaseHelper.database;
 
@@ -108,6 +109,7 @@ class GroupRepository implements IGroupRepository {
   }
 
   /// Get all groups
+  @override
   Future<List<ContactGroup>> getAllGroups() async {
     final db = await DatabaseHelper.database;
 
@@ -160,6 +162,7 @@ class GroupRepository implements IGroupRepository {
   ///
   /// Replaces members atomically - removes old members and adds new ones
   /// in a single transaction.
+  @override
   Future<void> updateGroup(ContactGroup group) async {
     final db = await DatabaseHelper.database;
 
@@ -207,6 +210,7 @@ class GroupRepository implements IGroupRepository {
   /// - group_members (FK constraint)
   /// - group_messages (FK constraint)
   /// - group_message_delivery (FK constraint on messages)
+  @override
   Future<void> deleteGroup(String groupId) async {
     final db = await DatabaseHelper.database;
 
@@ -232,6 +236,7 @@ class GroupRepository implements IGroupRepository {
   ///
   /// Creates message record + delivery tracking records for all members
   /// (excluding sender) in a single transaction.
+  @override
   Future<void> saveGroupMessage(GroupMessage message) async {
     final db = await DatabaseHelper.database;
 
@@ -267,6 +272,7 @@ class GroupRepository implements IGroupRepository {
   }
 
   /// Update delivery status for a specific member
+  @override
   Future<void> updateDeliveryStatus(
     String messageId,
     String memberKey,
@@ -295,6 +301,7 @@ class GroupRepository implements IGroupRepository {
   }
 
   /// Get messages for a group
+  @override
   Future<List<GroupMessage>> getGroupMessages(
     String groupId, {
     int limit = 50,
@@ -350,6 +357,7 @@ class GroupRepository implements IGroupRepository {
   }
 
   /// Get a specific message with delivery status
+  @override
   Future<GroupMessage?> getMessage(String messageId) async {
     final db = await DatabaseHelper.database;
 
@@ -397,6 +405,7 @@ class GroupRepository implements IGroupRepository {
   }
 
   /// Get groups that contain a specific member
+  @override
   Future<List<ContactGroup>> getGroupsForMember(String memberKey) async {
     final db = await DatabaseHelper.database;
 
@@ -434,6 +443,7 @@ class GroupRepository implements IGroupRepository {
   }
 
   /// Get statistics for debugging
+  @override
   Future<Map<String, int>> getStatistics() async {
     final db = await DatabaseHelper.database;
 

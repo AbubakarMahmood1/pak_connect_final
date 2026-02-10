@@ -3,9 +3,7 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'test_helpers/test_setup.dart';
 import 'test_helpers/test_seen_message_store.dart';
 
@@ -26,8 +24,6 @@ void main() {
     Logger.root.onRecord.listen(logRecords.add);
     await TestSetup.configureTestDatabase(label: 'relay_ack');
   });
-
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
   tearDown(() async {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -66,7 +62,6 @@ void main() {
 
     // Create relay engine for a node
     Future<MeshRelayEngine> createRelayEngineForNode(String nodeId) async {
-      final contactRepository = ContactRepository();
       final messageQueue = OfflineMessageQueue();
       final spamPrevention = SpamPreventionManager();
 
@@ -339,3 +334,4 @@ extension RelayMetadataTest on RelayMetadata {
     );
   }
 }
+

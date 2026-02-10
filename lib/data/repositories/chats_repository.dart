@@ -19,6 +19,7 @@ class ChatsRepository implements IChatsRepository {
   // Note: UserPreferences removed after FIX-006 optimization
   // The JOIN query doesn't need myPublicKey since it uses direct contact matching
 
+  @override
   Future<List<ChatListItem>> getAllChats({
     List<Peripheral>? nearbyDevices,
     Map<String, DiscoveredEventArgs>? discoveryData,
@@ -146,6 +147,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Get list of contacts without active chats (for discovery integration)
+  @override
   Future<List<Contact>> getContactsWithoutChats() async {
     final allContacts = await _contactRepository.getAllContacts();
 
@@ -164,6 +166,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Mark chat as read (reset unread count)
+  @override
   Future<void> markChatAsRead(ChatId chatId) async {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -197,6 +200,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Increment unread count for received message
+  @override
   Future<void> incrementUnreadCount(ChatId chatId) async {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -231,6 +235,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Update contact's last seen timestamp
+  @override
   Future<void> updateContactLastSeen(String publicKey) async {
     final db = await DatabaseHelper.database;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -245,6 +250,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Get total unread count across all chats
+  @override
   Future<int> getTotalUnreadCount() async {
     final db = await DatabaseHelper.database;
 
@@ -260,6 +266,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Store device UUID to public key mapping
+  @override
   Future<void> storeDeviceMapping(String? deviceUuid, String publicKey) async {
     if (deviceUuid == null) return;
 
@@ -329,6 +336,7 @@ class ChatsRepository implements IChatsRepository {
   // =========================
 
   /// Get total chat count (non-archived)
+  @override
   Future<int> getChatCount() async {
     try {
       final db = await DatabaseHelper.database;
@@ -343,6 +351,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Get archived chat count
+  @override
   Future<int> getArchivedChatCount() async {
     try {
       final db = await DatabaseHelper.database;
@@ -357,6 +366,7 @@ class ChatsRepository implements IChatsRepository {
   }
 
   /// Get total message count across all chats
+  @override
   Future<int> getTotalMessageCount() async {
     try {
       final db = await DatabaseHelper.database;
@@ -373,6 +383,7 @@ class ChatsRepository implements IChatsRepository {
   /// 🔥 Clean up orphaned ephemeral contacts (no chat history, not verified/paired)
   /// This removes temporary contacts that were never upgraded to persistent relationships
   /// Called during app maintenance or when storage needs cleaning
+  @override
   Future<int> cleanupOrphanedEphemeralContacts() async {
     try {
       _logger.info('🧹 Starting cleanup of orphaned ephemeral contacts...');

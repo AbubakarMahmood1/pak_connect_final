@@ -43,6 +43,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
        _deletedMessageIds = deletedMessageIds ?? {};
 
   /// Load initial sync state from storage
+  @override
   Future<void> initialize({required Set<String> deletedIds}) async {
     _deletedMessageIds.addAll(deletedIds.map(MessageId.new));
     _logger.info(

@@ -8,7 +8,6 @@ import 'package:logging/logging.dart';
 
 import '../controllers/settings_controller.dart';
 import '../providers/ble_providers.dart';
-import '../providers/theme_provider.dart';
 import '../widgets/settings/about_section.dart';
 import '../widgets/settings/appearance_section.dart';
 import '../widgets/settings/data_storage_section.dart';
@@ -75,8 +74,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: _controller.isLoading

@@ -9,7 +9,6 @@ import '../../core/models/protocol_message.dart';
 import '../../core/security/ephemeral_key_manager.dart';
 import '../../core/security/signing_manager.dart';
 import '../../core/services/security_manager.dart';
-import '../../core/messaging/queue_sync_manager.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
@@ -231,13 +230,13 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         );
       }
 
-      _sendAck(messageId ?? transportMessageId, fromNodeId);
+      _sendAck(messageId, fromNodeId);
       final textCallback = _onTextMessageReceived;
       if (textCallback != null) {
         try {
           await textCallback(
             decryptedContent,
-            messageId ?? transportMessageId,
+            messageId,
             fromNodeId.isNotEmpty ? fromNodeId : null,
           );
         } catch (e, stack) {

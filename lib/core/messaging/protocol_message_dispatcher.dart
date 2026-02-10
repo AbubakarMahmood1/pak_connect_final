@@ -89,7 +89,7 @@ class ProtocolMessageDispatcher {
         if (completed) {
           _logger.info('Received protocol ACK for: ${messageId.value}');
           if (_onAckReceived != null) {
-            await _onAckReceived!(messageId.value);
+            await _onAckReceived(messageId.value);
           }
         } else {
           _logger.fine('Protocol ACK for unknown message: ${messageId.value}');
@@ -115,14 +115,14 @@ class ProtocolMessageDispatcher {
         final messageId = MessageId(originalMessageId);
 
         if (_onRelayAckIds != null) {
-          await _onRelayAckIds!(
+          await _onRelayAckIds(
             originalMessageId: messageId,
             relayNode: relayNode,
             delivered: delivered,
             ackRoutingPath: ackRoutingPath?.cast<String>(),
           );
         } else if (_onRelayAck != null) {
-          await _onRelayAck!(
+          await _onRelayAck(
             originalMessageId: messageId.value,
             relayNode: relayNode,
             delivered: delivered,
@@ -137,7 +137,7 @@ class ProtocolMessageDispatcher {
         if (queueSyncMessage != null &&
             senderPublicKey != null &&
             _onQueueSyncReceived != null) {
-          _onQueueSyncReceived!(queueSyncMessage, senderPublicKey);
+          _onQueueSyncReceived(queueSyncMessage, senderPublicKey);
 
           final truncated = senderPublicKey.length > 16
               ? senderPublicKey.substring(0, 16)

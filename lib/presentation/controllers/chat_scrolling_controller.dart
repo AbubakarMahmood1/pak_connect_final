@@ -29,7 +29,6 @@ class ChatScrollingController {
 
   // Message state
   int _newMessagesWhileScrolledUp = 0;
-  bool _messageListenerActive = false;
   bool _showUnreadSeparator = false;
 
   ChatScrollingController({
@@ -221,7 +220,6 @@ class ChatScrollingController {
     _lastReadMessageIndex = -1;
     _unreadMessageCount = 0;
     _newMessagesWhileScrolledUp = 0;
-    _messageListenerActive = false;
     _markAsReadDebounceTimer?.cancel();
     _unreadSeparatorTimer?.cancel();
   }
@@ -244,7 +242,7 @@ class ChatScrollingController {
 
   /// Update message listener state
   void setMessageListenerActive(bool active) {
-    _messageListenerActive = active;
+    // No-op: listener lifecycle is now managed by ChatMessagingViewModel.
   }
 
   /// Dispose resources

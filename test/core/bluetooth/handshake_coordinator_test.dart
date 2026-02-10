@@ -7,7 +7,6 @@ import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/core/services/simple_crypto.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
 import '../../test_helpers/test_setup.dart';
 
 // Mock secure storage for testing

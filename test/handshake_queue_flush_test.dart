@@ -3,8 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 
 import 'test_helpers/test_setup.dart';
 
@@ -22,7 +20,6 @@ void main() {
     final myPublicKey = 'my_public_key_12345';
     final myEphemeralId = 'my_ephemeral_123';
     final peerEphemeralId = 'peer_ephemeral_456';
-    final peerDisplayName = 'Test Peer';
 
     setUp(() async {
       logRecords.clear();
@@ -169,7 +166,7 @@ void main() {
       };
 
       // Queue messages with different priorities
-      final lowId = await queue.queueMessage(
+      await queue.queueMessage(
         chatId: 'chat',
         content: 'Low priority',
         recipientPublicKey: peerEphemeralId,
@@ -185,7 +182,7 @@ void main() {
         priority: MessagePriority.urgent,
       );
 
-      final normalId = await queue.queueMessage(
+      await queue.queueMessage(
         chatId: 'chat',
         content: 'Normal',
         recipientPublicKey: peerEphemeralId,

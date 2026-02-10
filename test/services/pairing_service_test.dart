@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/pairing_service.dart';
-import 'package:mockito/mockito.dart';
 
 void main() {
   final List<LogRecord> logRecords = [];
@@ -117,20 +116,10 @@ void main() {
       pairingService.handlePairingVerification('hash123');
     });
 
-    test('invokes onSendPairingCode callback when code generated', () {
-      var codeCallbackInvoked = false;
-      var sentCode = '';
-
-      pairingService.onSendPairingCode = (code) {
-        codeCallbackInvoked = true;
-        sentCode = code;
-      };
-
+    test('registers onSendPairingCode callback and generates code', () {
+      pairingService.onSendPairingCode = (_) {};
       final code = pairingService.generatePairingCode();
-
-      // Callback should be invoked if implemented
-      // expect(codeCallbackInvoked, isTrue);
-      // expect(sentCode, equals(code));
+      expect(code, matches(RegExp(r'^\d{4}$')));
     });
   });
 }

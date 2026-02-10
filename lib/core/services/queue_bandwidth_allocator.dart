@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../domain/entities/queued_message.dart';
 import '../../domain/entities/queue_enums.dart';

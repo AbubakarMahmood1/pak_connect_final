@@ -1,6 +1,5 @@
 import '../messaging/offline_message_queue.dart';
 import '../models/mesh_relay_models.dart';
-import '../../domain/entities/enhanced_message.dart';
 
 export '../messaging/offline_message_queue.dart'
     show QueuedMessage, QueueStatistics, QueuedMessageStatus;

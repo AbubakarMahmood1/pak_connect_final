@@ -18,7 +18,6 @@ import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/models/ble_server_connection.dart';
 import 'package:pak_connect/core/models/spy_mode_info.dart';
 import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
-import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';

@@ -355,7 +355,7 @@ class PerformanceMonitor {
     buffer.writeln('--- Recommendation ---');
     if (metrics.shouldUseIsolate) {
       buffer.writeln(
-        '⚠️ USE ISOLATE: ${metrics.jankPercentage.toStringAsFixed(1)}% jank rate exceeds ${_isolateThresholdPercent}% threshold',
+        '⚠️ USE ISOLATE: ${metrics.jankPercentage.toStringAsFixed(1)}% jank rate exceeds $_isolateThresholdPercent% threshold',
       );
       buffer.writeln(
         '   This device would benefit from background encryption (FIX-013)',

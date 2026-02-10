@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
@@ -11,8 +12,7 @@ import 'test_helpers/test_setup.dart';
 void main() {
   Logger.root.level = Level.ALL;
   Logger.root.onRecord.listen((record) {
-    // ignore: avoid_print
-    print('${record.level.name}: ${record.time}: ${record.message}');
+    debugPrint('${record.level.name}: ${record.time}: ${record.message}');
   });
 
   setUpAll(() async {
@@ -200,8 +200,7 @@ Future<void> _runDbTest(Future<void> Function() body) async {
         message.contains('Failed to load dynamic library') ||
         message.contains('databaseFactory not initialized');
     if (skip) {
-      // ignore: avoid_print
-      print(
+      debugPrint(
         '⚠️  Skipping seen_messages DB test - SQLite FFI unavailable:\n$message',
       );
       return;

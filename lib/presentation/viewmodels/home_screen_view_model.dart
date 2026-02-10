@@ -7,7 +7,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
-import 'package:state_notifier/state_notifier.dart';
 
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../core/interfaces/i_chats_repository.dart';
@@ -22,7 +21,6 @@ import '../controllers/chat_list_controller.dart';
 import '../models/home_screen_state.dart';
 import '../providers/ble_providers.dart';
 import '../providers/chat_notification_providers.dart';
-import '../providers/mesh_networking_provider.dart';
 import '../providers/home_screen_providers.dart';
 
 class HomeScreenViewModel extends StateNotifier<HomeScreenState> {

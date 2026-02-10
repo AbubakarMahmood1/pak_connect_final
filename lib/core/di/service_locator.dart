@@ -38,7 +38,7 @@ import 'repository_provider_impl.dart';
 final getIt = GetIt.instance;
 
 /// Feature flag to enable/disable DI (for gradual migration)
-const bool USE_DI = true;
+const bool useDi = true;
 
 final _logger = Logger('ServiceLocator');
 
@@ -56,8 +56,8 @@ final _logger = Logger('ServiceLocator');
 Future<void> setupServiceLocator() async {
   _logger.info('🎯 Setting up service locator...');
 
-  if (!USE_DI) {
-    _logger.warning('⚠️ DI is disabled via USE_DI flag');
+  if (!useDi) {
+    _logger.warning('⚠️ DI is disabled via useDi flag');
     return;
   }
 

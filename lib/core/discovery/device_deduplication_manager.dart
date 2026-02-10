@@ -404,7 +404,7 @@ class DeviceDeduplicationManager {
 
     if (candidates.isEmpty) return;
 
-    candidates.sort((a, b) => (b.rssi ?? -999).compareTo(a.rssi ?? -999));
+    candidates.sort((a, b) => b.rssi.compareTo(a.rssi));
     final top = candidates.first;
 
     if (shouldAutoConnect != null && !shouldAutoConnect!(top)) {

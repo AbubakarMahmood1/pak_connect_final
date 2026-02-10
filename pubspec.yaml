@@ -96,6 +96,11 @@ dev_dependencies:
   # Mock generation for testing (Phase 1 - P2 Refactoring)
   mockito: ^5.4.4
 
+  fake_async: any
+  path_provider_platform_interface: any
+  bluetooth_low_energy_platform_interface: any
+  flutter_secure_storage_platform_interface: any
+
 dependency_overrides:
   flutter_secure_storage_platform_interface: any
 

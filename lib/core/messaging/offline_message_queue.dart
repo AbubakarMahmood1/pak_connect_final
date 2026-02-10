@@ -1,14 +1,12 @@
 // Comprehensive offline message delivery and queue management system
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import '../interfaces/i_repository_provider.dart';
-import '../../domain/entities/enhanced_message.dart' hide MessagePriority;
 import '../security/message_security.dart';
 import '../models/mesh_relay_models.dart';
 import '../interfaces/i_database_provider.dart';
@@ -42,11 +40,6 @@ class OfflineMessageQueue {
 
   // Performance optimization constants
   static const int _maxDeletedIdsToKeep = 5000;
-  static const int _cleanupThreshold = 10000;
-
-  // Per-peer queue limits (favorites-based store-and-forward)
-  static const int _maxMessagesPerFavorite = 500;
-  static const int _maxMessagesPerRegular = 100;
 
   // Queue management
   // PRIORITY 1 FIX: Dual-queue system to prevent relay flooding
@@ -71,10 +64,6 @@ class OfflineMessageQueue {
   );
 
   late final QueueBandwidthAllocator _bandwidth = QueueBandwidthAllocator();
-
-  // Bandwidth allocation constant
-  static const double _directBandwidthRatio =
-      0.8; // 80% for direct, 20% for relay
 
   // Repository provider for favorites support
   IRepositoryProvider? _repositoryProvider;
@@ -166,7 +155,7 @@ class OfflineMessageQueue {
 
     if (!Platform.isAndroid && !Platform.isIOS) {
       // Ensure sqflite_common_ffi is initialized for desktop/test environments
-      if (sqflite_common.databaseFactoryOrNull == null) {
+      if (sqflite_common.databaseFactory != sqflite_ffi.databaseFactoryFfi) {
         sqflite_ffi.sqfliteFfiInit();
         sqflite_common.databaseFactory = sqflite_ffi.databaseFactoryFfi;
       }

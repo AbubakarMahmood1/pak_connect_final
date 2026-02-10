@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import '../models/chat_ui_state.dart';
 import '../models/chat_screen_config.dart';
@@ -314,7 +313,6 @@ class ChatSessionViewModel {
   /// Load all messages (extracted from ChatScreenController)
   Future<void> loadMessages() async {
     try {
-      final chatId = getChatIdFn?.call() ?? '';
       final allMessages = await messagingViewModel.loadMessages(
         onLoadingStateChanged: (isLoading) {
           if (_canUpdateState) {

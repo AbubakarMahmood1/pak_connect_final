@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/relay_send_pipeline.dart';
 import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/models/message_priority.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 

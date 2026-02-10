@@ -65,6 +65,7 @@ class ArchiveRepository implements IArchiveRepository {
   bool _isInitialized = false;
 
   /// Initialize repository (idempotent - safe to call multiple times)
+  @override
   Future<void> initialize() async {
     if (_isInitialized) {
       _logger.fine('ArchiveRepository already initialized - skipping');
@@ -86,6 +87,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   /// Archive a chat with all its messages
+  @override
   Future<ArchiveOperationResult> archiveChat({
     required String chatId,
     String? archiveReason,
@@ -214,6 +216,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   /// Restore an archived chat
+  @override
   Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async {
     final startTime = DateTime.now();
 
@@ -308,6 +311,7 @@ class ArchiveRepository implements IArchiveRepository {
 
   /// Get all archived chats (summaries for performance)
   /// Get count of archived chats
+  @override
   Future<int> getArchivedChatsCount() async {
     try {
       final db = await DatabaseHelper.database;
@@ -321,6 +325,7 @@ class ArchiveRepository implements IArchiveRepository {
     }
   }
 
+  @override
   Future<List<ArchivedChatSummary>> getArchivedChats({
     ArchiveSearchFilter? filter,
     int? limit,
@@ -426,6 +431,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   /// Get specific archived chat with full data
+  @override
   Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async {
     try {
       final db = await DatabaseHelper.database;
@@ -560,6 +566,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   /// Permanently delete an archived chat
+  @override
   Future<ArchiveOperationResult> permanentlyDeleteArchive(
     ArchiveId archiveId,
   ) async {
@@ -617,6 +624,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   /// Get archive statistics
+  @override
   Future<ArchiveStatistics> getArchiveStatistics() async {
     try {
       final db = await DatabaseHelper.database;
@@ -730,6 +738,7 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   /// Clear all cache (no-op for SQLite, kept for interface compatibility)
+  @override
   void clearCache() {
     _logger.info('Archive repository cache cleared (no-op for SQLite)');
   }
@@ -902,13 +911,6 @@ class ArchiveRepository implements IArchiveRepository {
   }
 
   // Mapping methods
-
-  Map<String, dynamic> _archivedMessageToMap(
-    ArchivedMessage message,
-    ArchiveId archiveId,
-  ) {
-    return _dataHelper.archivedMessageToMap(message, archiveId);
-  }
 
   ArchivedMessage _mapToArchivedMessage(Map<String, dynamic> row) {
     final decryptedContent = ArchiveCrypto.decryptField(

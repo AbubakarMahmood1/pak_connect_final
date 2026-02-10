@@ -18,6 +18,7 @@ class IntroHintRepository implements IIntroHintRepository {
   static const String _scannedHintsKey = 'scanned_intro_hints';
 
   /// Get our currently active intro hints
+  @override
   Future<List<EphemeralDiscoveryHint>> getMyActiveHints() async {
     final prefs = await SharedPreferences.getInstance();
     final json = prefs.getString(_myActiveHintsKey);
@@ -46,6 +47,7 @@ class IntroHintRepository implements IIntroHintRepository {
   }
 
   /// Save our active intro hint (when generating QR)
+  @override
   Future<void> saveMyActiveHint(EphemeralDiscoveryHint hint) async {
     final hints = await getMyActiveHints();
 
@@ -60,6 +62,7 @@ class IntroHintRepository implements IIntroHintRepository {
   }
 
   /// Get all scanned intro hints (from other people)
+  @override
   Future<Map<String, EphemeralDiscoveryHint>> getScannedHints() async {
     final prefs = await SharedPreferences.getInstance();
     final json = prefs.getString(_scannedHintsKey);
@@ -96,6 +99,7 @@ class IntroHintRepository implements IIntroHintRepository {
   }
 
   /// Save a scanned intro hint (from someone's QR code)
+  @override
   Future<void> saveScannedHint(String key, EphemeralDiscoveryHint hint) async {
     final hints = await getScannedHints();
 
@@ -106,6 +110,7 @@ class IntroHintRepository implements IIntroHintRepository {
   }
 
   /// Remove a scanned hint (after successful pairing)
+  @override
   Future<void> removeScannedHint(String hintHex) async {
     final hints = await getScannedHints();
 
@@ -116,6 +121,7 @@ class IntroHintRepository implements IIntroHintRepository {
   }
 
   /// Clean up all expired hints
+  @override
   Future<void> cleanupExpiredHints() async {
     // Clean up our active hints
     final myHints = await getMyActiveHints();
@@ -141,12 +147,14 @@ class IntroHintRepository implements IIntroHintRepository {
   }
 
   /// Get most recent active hint for advertising
+  @override
   Future<EphemeralDiscoveryHint?> getMostRecentActiveHint() async {
     final hints = await getMyActiveHints();
     return hints.isEmpty ? null : hints.first;
   }
 
   /// Clear all hints (for testing)
+  @override
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_myActiveHintsKey);

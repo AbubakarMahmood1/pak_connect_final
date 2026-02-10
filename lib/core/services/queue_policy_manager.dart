@@ -1,7 +1,6 @@
 import 'package:logging/logging.dart';
 import '../../domain/entities/queued_message.dart';
 import '../../domain/entities/queue_enums.dart';
-import '../../core/models/message_priority.dart';
 import '../interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/utils/string_extensions.dart';
 
@@ -29,7 +28,7 @@ class QueuePolicyManager {
     if (_repositoryProvider == null) return false;
 
     try {
-      return await _repositoryProvider!.contactRepository.isContactFavorite(
+      return await _repositoryProvider.contactRepository.isContactFavorite(
         publicKey,
       );
     } catch (e) {

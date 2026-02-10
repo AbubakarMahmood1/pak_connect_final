@@ -680,13 +680,9 @@ class BLEConnectionManager {
             isClient: false,
             rssi: null,
           );
-          if (clientKey != null) {
-            _connectionTracker.removeConnection(clientKey);
-          }
+          _connectionTracker.removeConnection(clientKey);
         } else {
-          if (clientKey != null) {
-            _connectionTracker.removeConnection(clientKey);
-          }
+          _connectionTracker.removeConnection(clientKey);
           _connectionTracker.removeConnection(address);
         }
       } else {
@@ -1005,21 +1001,21 @@ class BLEConnectionManager {
       return false;
     }
 
-    bool _inboundViable(BLEServerConnection? conn) {
+    bool inboundViable(BLEServerConnection? conn) {
       if (conn == null) return false;
       final hasSubscription = conn.subscribedCharacteristic != null;
       final hasMtu = conn.mtu != null && conn.mtu! > 0;
       return hasSubscription || hasMtu;
     }
 
-    Future<bool> _waitForInboundViable(Duration timeout) async {
+    Future<bool> waitForInboundViable(Duration timeout) async {
       final deadline = DateTime.now().add(timeout);
       while (DateTime.now().isBefore(deadline)) {
         final conn = _serverConnections[address];
-        if (_inboundViable(conn)) return true;
+        if (inboundViable(conn)) return true;
         await Future.delayed(Duration(milliseconds: 50));
       }
-      return _inboundViable(_serverConnections[address]);
+      return inboundViable(_serverConnections[address]);
     }
 
     try {
@@ -1033,7 +1029,7 @@ class BLEConnectionManager {
       );
       final serverConn = _serverConnections[address];
       final inboundWaitDuration = const Duration(milliseconds: 2500);
-      final inboundViable = await _waitForInboundViable(inboundWaitDuration);
+      final inboundViable = await waitForInboundViable(inboundWaitDuration);
       _logger.fine(
         '📡 Inbound viability after $inboundWaitDuration '
         '(hadEntry=${initialServerConn != null}) -> $inboundViable',

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../core/services/simple_crypto.dart';
-import '../../core/models/security_state.dart';
 import '../../data/services/ble_state_manager.dart';
 import '../../core/services/security_manager.dart';
 import '../widgets/pairing_dialog.dart';

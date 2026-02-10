@@ -1,12 +1,12 @@
-// ignore_for_file: avoid_print
-
 import 'dart:async';
 import 'dart:collection';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:logging/logging.dart';
 
 /// Manages persistent chat state across navigation cycles
 /// Prevents message loss during ChatScreen dispose/recreate cycles
 class PersistentChatStateManager {
+  final _logger = Logger('PersistentChatStateManager');
   static final PersistentChatStateManager _instance =
       PersistentChatStateManager._internal();
   factory PersistentChatStateManager() => _instance;
@@ -27,7 +27,7 @@ class PersistentChatStateManager {
 
   /// Register a chat screen as active
   void registerChatScreen(String chatId, Function(String) messageHandler) {
-    print('🔄 PERSISTENT: Registering chat screen for $chatId');
+    _logger.fine('🔄 PERSISTENT: Registering chat screen for $chatId');
     _activeChatIds.add(chatId);
     _activeMessageHandlers[chatId] = messageHandler;
 
@@ -37,7 +37,7 @@ class PersistentChatStateManager {
 
   /// Unregister a chat screen (temporarily inactive during navigation)
   void unregisterChatScreen(String chatId) {
-    print('🔄 PERSISTENT: Unregistering chat screen for $chatId');
+    _logger.fine('🔄 PERSISTENT: Unregistering chat screen for $chatId');
     _activeChatIds.remove(chatId);
     _activeMessageHandlers.remove(chatId);
 
@@ -47,29 +47,31 @@ class PersistentChatStateManager {
   /// Setup persistent message listener for a chat
   void setupPersistentListener(String chatId, Stream<String> messageStream) {
     if (_persistentMessageListeners.containsKey(chatId)) {
-      print('🔄 PERSISTENT: Listener already exists for $chatId');
+      _logger.fine('🔄 PERSISTENT: Listener already exists for $chatId');
       return;
     }
 
-    print('🔄 PERSISTENT: Setting up persistent listener for $chatId');
+    _logger.fine('🔄 PERSISTENT: Setting up persistent listener for $chatId');
     _messageBuffers[chatId] ??= Queue<String>();
 
     _persistentMessageListeners[chatId] = messageStream.listen(
       (content) async {
-        print('�🟡🟡 PERSISTENT MANAGER RECEIVED MESSAGE 🟡🟡🟡');
-        print('🟡 Chat ID: $chatId');
-        print('🟡 Content length: ${content.length}');
-        print('🟡 Is chat active: ${_activeChatIds.contains(chatId)}');
-        print('🟡 Has handler: ${_activeMessageHandlers.containsKey(chatId)}');
+        _logger.fine('🟡🟡🟡 PERSISTENT MANAGER RECEIVED MESSAGE 🟡🟡🟡');
+        _logger.fine('🟡 Chat ID: $chatId');
+        _logger.fine('🟡 Content length: ${content.length}');
+        _logger.fine('🟡 Is chat active: ${_activeChatIds.contains(chatId)}');
+        _logger.fine(
+          '🟡 Has handler: ${_activeMessageHandlers.containsKey(chatId)}',
+        );
 
         if (_activeChatIds.contains(chatId) &&
             _activeMessageHandlers.containsKey(chatId)) {
           // Chat screen is active - deliver directly
-          print('� ➡️ DELIVERING TO ACTIVE CHAT SCREEN');
+          _logger.fine('➡️ DELIVERING TO ACTIVE CHAT SCREEN');
           _activeMessageHandlers[chatId]!(content);
         } else {
           // Chat screen not active - buffer the message
-          print('🟡 � BUFFERING MESSAGE (chat not active)');
+          _logger.fine('🟡 BUFFERING MESSAGE (chat not active)');
           _messageBuffers[chatId]!.add(content);
 
           // 🔧 FIX: Don't persist here - it will be persisted when chat screen processes the buffer
@@ -77,7 +79,9 @@ class PersistentChatStateManager {
         }
       },
       onError: (error) {
-        print('🔄 PERSISTENT: Error in message listener for $chatId: $error');
+        _logger.warning(
+          '🔄 PERSISTENT: Error in message listener for $chatId: $error',
+        );
       },
     );
   }
@@ -87,7 +91,7 @@ class PersistentChatStateManager {
     final buffer = _messageBuffers[chatId];
     if (buffer == null || buffer.isEmpty) return;
 
-    print(
+    _logger.fine(
       '🔄 PERSISTENT: Processing ${buffer.length} buffered messages for $chatId',
     );
 
@@ -117,7 +121,7 @@ class PersistentChatStateManager {
 
   /// Cleanup persistent listener when chat is permanently closed
   void cleanupChatListener(String chatId) {
-    print('🔄 PERSISTENT: Cleaning up listener for $chatId');
+    _logger.fine('🔄 PERSISTENT: Cleaning up listener for $chatId');
     _persistentMessageListeners[chatId]?.cancel();
     _persistentMessageListeners.remove(chatId);
     _messageBuffers.remove(chatId);
@@ -127,7 +131,7 @@ class PersistentChatStateManager {
 
   /// Cleanup all listeners (app shutdown)
   void cleanupAll() {
-    print('🔄 PERSISTENT: Cleaning up all persistent listeners');
+    _logger.fine('🔄 PERSISTENT: Cleaning up all persistent listeners');
     for (final subscription in _persistentMessageListeners.values) {
       subscription.cancel();
     }

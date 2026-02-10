@@ -113,35 +113,19 @@ void main() {
     });
 
     test('registers contact request callback', () {
-      var callbackInvoked = false;
-      String? receivedKey;
-      String? receivedName;
-
-      handler.onContactRequestReceived((key, name) {
-        callbackInvoked = true;
-        receivedKey = key;
-        receivedName = name;
-      });
+      handler.onContactRequestReceived((key, name) {});
 
       expect(handler, isNotNull);
     });
 
     test('registers contact accept callback', () {
-      var callbackInvoked = false;
-
-      handler.onContactAcceptReceived((key, name) {
-        callbackInvoked = true;
-      });
+      handler.onContactAcceptReceived((key, name) {});
 
       expect(handler, isNotNull);
     });
 
     test('registers contact reject callback', () {
-      var callbackInvoked = false;
-
-      handler.onContactRejectReceived(() {
-        callbackInvoked = true;
-      });
+      handler.onContactRejectReceived(() {});
 
       expect(handler, isNotNull);
     });

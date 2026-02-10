@@ -89,6 +89,7 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
   }
 
   /// Legacy chunk-string detection
+  @override
   bool looksLikeChunkString(Uint8List bytes) {
     final max = bytes.length < 128 ? bytes.length : 128;
     int pipes = 0;

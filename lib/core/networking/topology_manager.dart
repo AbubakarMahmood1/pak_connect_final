@@ -41,7 +41,7 @@ class TopologyManager {
           _listeners.remove(listener);
         };
       });
-  Duration _cleanupInterval = const Duration(minutes: 1);
+  final Duration _cleanupInterval = const Duration(minutes: 1);
 
   // Cleanup timer
   Timer? _cleanupTimer;

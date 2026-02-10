@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -193,15 +191,9 @@ class ChatScreenController extends ChangeNotifier {
       ref = args.ref,
       context = args.context,
       config = args.config,
-      messageRepository =
-          args.messageRepository ??
-          (throw ArgumentError('messageRepository is required')),
-      contactRepository =
-          args.contactRepository ??
-          (throw ArgumentError('contactRepository is required')),
-      chatsRepository =
-          args.chatsRepository ??
-          (throw ArgumentError('chatsRepository is required')),
+      messageRepository = args.messageRepository,
+      contactRepository = args.contactRepository,
+      chatsRepository = args.chatsRepository,
       _injectedMessageRouter = args.messageRouter,
       _injectedPairingController = args.pairingDialogController,
       _initialRetryCoordinator = args.retryCoordinator {
@@ -326,17 +318,11 @@ class ChatScreenController extends ChangeNotifier {
     return UserId(key);
   }
 
-  ChatId get _chatIdValue => _chatId;
-
   void _initializeControllers({ChatMessagingViewModel? messagingViewModel}) {
     _messagingViewModel =
         messagingViewModel ??
         _args.messagingViewModel ??
-        _args.messagingViewModelFactory.call(
-          _chatId,
-          _contactPublicKey ?? '',
-        ) ??
-        (throw ArgumentError('ChatMessagingViewModel factory not provided'));
+        _args.messagingViewModelFactory.call(_chatId, _contactPublicKey ?? '');
 
     _scrollingController =
         _args.scrollingControllerFactory.call(
@@ -344,8 +330,7 @@ class ChatScreenController extends ChangeNotifier {
           () => _stateStore.clearNewWhileScrolledUp(),
           (count) => _stateStore.setUnreadCount(count),
           () => _sessionViewModel.onScrollStateChanged(),
-        ) ??
-        (throw ArgumentError('ChatScrollingController factory not provided'));
+        );
 
     _searchController =
         _args.searchControllerFactory.call(
@@ -354,8 +339,7 @@ class ChatScreenController extends ChangeNotifier {
           (messageIndex) =>
               _sessionViewModel.onNavigateToSearchResultIndex(messageIndex),
           _scrollingController.scrollController,
-        ) ??
-        (throw ArgumentError('ChatSearchController factory not provided'));
+        );
 
     final connectionService = ref.read(connectionServiceProvider);
     _pairingDialogController =
@@ -373,10 +357,7 @@ class ChatScreenController extends ChangeNotifier {
           },
           _showError,
           _showSuccess,
-        ) ??
-        (throw ArgumentError(
-          'ChatPairingDialogController factory not provided',
-        ));
+        );
 
     _sessionViewModel =
         _args.sessionViewModel ??
@@ -422,10 +403,9 @@ class ChatScreenController extends ChangeNotifier {
                 previousMessagingViewModel: previousMessagingViewModel,
                 previousScrollingController: previousScrollingController,
                 previousSearchController: previousSearchController,
-              ),
+          ),
           getConnectionServiceFn: () => ref.read(connectionServiceProvider),
-        ) ??
-        (throw ArgumentError('ChatSessionViewModel factory not provided'));
+        );
 
     _sessionLifecycle =
         _args.sessionLifecycle ??
@@ -439,8 +419,7 @@ class ChatScreenController extends ChangeNotifier {
           retryCoordinator: _initialRetryCoordinator,
           offlineQueue: null,
           logger: _logger,
-        ) ??
-        (throw ArgumentError('ChatSessionLifecycle factory not provided'));
+        );
     _sessionLifecycle.pairingController = _pairingDialogController;
     // Phase 6A: Set lifecycle reference on ViewModel after creation
     _sessionViewModel.sessionLifecycle = _sessionLifecycle;
@@ -450,7 +429,7 @@ class ChatScreenController extends ChangeNotifier {
     IConnectionService connectionService,
   ) {
     if (_injectedPairingController != null) {
-      return _injectedPairingController!.stateManager;
+      return _injectedPairingController.stateManager;
     }
 
     try {
@@ -609,13 +588,13 @@ class ChatScreenController extends ChangeNotifier {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_disposed) return;
       if (searchChanged) {
-        previousSearchController!.clear();
+        previousSearchController.clear();
       }
       if (scrollChanged) {
-        previousScrollingController!.dispose();
+        previousScrollingController.dispose();
       }
       if (messagingChanged) {
-        previousMessagingViewModel!.dispose();
+        previousMessagingViewModel.dispose();
       }
     });
   }
@@ -695,19 +674,6 @@ class ChatScreenController extends ChangeNotifier {
     );
   }
 
-  void _setupContactRequestHandling() {
-    _sessionLifecycle.setupContactRequestHandling(
-      context: context,
-      mounted: () => context.mounted,
-      onSecurityStateInvalidate: () {
-        final key = securityStateKey;
-        if (key != null) {
-          ref.invalidate(securityStateProvider(key));
-        }
-      },
-    );
-  }
-
   Future<void> userRequestedPairing() async {
     final connectionService = ref.read(connectionServiceProvider);
     final connectionInfoAsync = ref.read(connectionInfoProvider);
@@ -726,23 +692,9 @@ class ChatScreenController extends ChangeNotifier {
     onErrorMessage: _showError,
   );
 
-  bool _hasMessagesQueuedForRelay() {
-    return _sessionLifecycle.hasMessagesQueuedForRelay(_contactPublicKey);
-  }
-
   Future<void> _loadMessages() async {
     // Phase 6A: Delegate to ViewModel
     await _sessionViewModel.loadMessages();
-  }
-
-  Future<void> _autoRetryFailedMessages() async {
-    // Phase 6A: Delegate to ViewModel
-    await _sessionViewModel.autoRetryFailedMessages();
-  }
-
-  Future<void> _addReceivedMessage(String content) async {
-    // Phase 6A: Delegate to ViewModel
-    await _sessionViewModel.addReceivedMessage(content);
   }
 
   Future<void> sendMessage(String content) async {

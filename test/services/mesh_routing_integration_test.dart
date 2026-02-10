@@ -4,9 +4,7 @@ import 'package:pak_connect/data/services/mesh_routing_service.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/core/security/spam_prevention_manager.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import '../test_helpers/test_setup.dart';
 
 void main() {
@@ -21,7 +19,6 @@ void main() {
     late MeshRelayEngine relayEngine;
     late NetworkTopologyAnalyzer topologyAnalyzer;
     late OfflineMessageQueue messageQueue;
-    late ContactRepository contactRepository;
     late SpamPreventionManager spamPrevention;
     late List<LogRecord> logRecords;
     late Set<Pattern> allowedSevere;
@@ -45,7 +42,6 @@ void main() {
         topologyAnalyzer: topologyAnalyzer,
       );
 
-      contactRepository = ContactRepository();
       messageQueue = OfflineMessageQueue();
       spamPrevention = SpamPreventionManager();
 
@@ -67,8 +63,6 @@ void main() {
         topologyAnalyzer: topologyAnalyzer,
       );
     });
-
-    void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
     tearDown(() {
       final severe = logRecords.where((l) => l.level >= Level.SEVERE);
@@ -534,3 +528,4 @@ void main() {
     });
   });
 }
+

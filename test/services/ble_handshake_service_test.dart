@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:mockito/annotations.dart';
-import 'package:mockito/mockito.dart';
 import 'package:pak_connect/core/models/protocol_message.dart';
 import 'package:pak_connect/core/models/spy_mode_info.dart';
 import 'package:pak_connect/core/interfaces/i_ble_state_manager_facade.dart';
@@ -15,11 +14,10 @@ import 'ble_handshake_service_test.mocks.dart';
 
 class _TestBufferedMessage {
   final Uint8List data;
-  final bool isFromPeripheral;
+  final bool isFromPeripheral = false;
   final DateTime timestamp;
 
-  _TestBufferedMessage({required this.data, this.isFromPeripheral = false})
-    : timestamp = DateTime.now();
+  _TestBufferedMessage({required this.data}) : timestamp = DateTime.now();
 }
 
 class _StubStateManager implements IBLEStateManagerFacade {
@@ -104,7 +102,7 @@ void main() {
   late List<LogRecord> logRecords;
   late Set<Pattern> allowedSevere;
 
-  void _stubDefaults() {
+  void stubDefaults() {
     mockStateManager
       ..connected = true
       ..peripheralMode = false
@@ -124,11 +122,11 @@ void main() {
     spyModeController = StreamController<SpyModeInfo>.broadcast();
     identityController = StreamController<String>.broadcast();
     sentMessages = [];
-    _stubDefaults();
+    stubDefaults();
 
     service = BLEHandshakeService(
       stateManager: mockStateManager,
-      onIdentityExchangeSent: (_, __) {},
+      onIdentityExchangeSent: (publicKey, displayName) {},
       updateConnectionInfo:
           ({
             bool? isConnected,
@@ -142,13 +140,12 @@ void main() {
       sendProtocolMessage: (message) async => sentMessages.add(message),
       processPendingMessages: () async {},
       startGossipSync: () async {},
-      onHandshakeCompleteCallback: (_, __, ___) async {},
+      onHandshakeCompleteCallback:
+          (ephemeralId, displayName, noiseKey) async {},
       introHintRepo: mockIntroHintRepository,
       messageBuffer: [],
     );
   });
-
-  void allowSevere(Pattern pattern) => allowedSevere.add(pattern);
 
   tearDown(() async {
     await spyModeController.close();
@@ -231,7 +228,7 @@ void main() {
 
     service = BLEHandshakeService(
       stateManager: mockStateManager,
-      onIdentityExchangeSent: (_, __) {},
+      onIdentityExchangeSent: (publicKey, displayName) {},
       updateConnectionInfo:
           ({
             bool? isConnected,
@@ -245,7 +242,8 @@ void main() {
       sendProtocolMessage: (message) async => sentMessages.add(message),
       processPendingMessages: () async {},
       startGossipSync: () async {},
-      onHandshakeCompleteCallback: (_, __, ___) async {},
+      onHandshakeCompleteCallback:
+          (ephemeralId, displayName, noiseKey) async {},
       introHintRepo: mockIntroHintRepository,
       messageBuffer: buffer,
     );
@@ -283,3 +281,4 @@ void main() {
     expect(service.currentHandshakePhase, isNull);
   });
 }
+

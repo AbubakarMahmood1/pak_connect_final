@@ -9,7 +9,6 @@ import '../../core/bluetooth/bluetooth_state_monitor.dart';
 import '../../core/discovery/device_deduplication_manager.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/entities/enhanced_contact.dart';
-import '../../domain/entities/contact.dart';
 import '../../core/security/security_types.dart';
 import '../../core/utils/string_extensions.dart';
 import '../../core/models/connection_state.dart' show ChatConnectionState;
@@ -146,6 +145,7 @@ class BLEConnectionService implements IBLEConnectionService {
     }
   }
 
+  @override
   void disposeConnection() {
     stopConnectionMonitoring();
     _connectionInfoListeners.clear();
@@ -561,85 +561,6 @@ class BLEConnectionService implements IBLEConnectionService {
         }
       }
     });
-  }
-
-  void _onBluetoothBecameReady() {
-    _logger.info('🔵 Bluetooth became ready');
-
-    _updateConnectionInfo(
-      statusMessage: 'Bluetooth ready for dual-role operation',
-    );
-
-    // Start mesh networking if it was deferred during initialization
-    if (!meshNetworkingStarted) {
-      _logger.info('🚀 Starting deferred mesh networking...');
-      meshNetworkingStarted = true;
-
-      Future.delayed(Duration(milliseconds: 500), () async {
-        try {
-          await connectionManager.startMeshNetworking(
-            onStartAdvertising: onStartAdvertising ?? () async {},
-          );
-          _logger.info(
-            '✅ Mesh advertising active - device is now discoverable',
-          );
-        } catch (e) {
-          _logger.warning('Failed to start mesh networking: $e');
-          meshNetworkingStarted = false;
-        }
-      });
-    }
-  }
-
-  void _onBluetoothBecameUnavailable() {
-    _logger.warning('🔵 Bluetooth became unavailable');
-
-    // Only clear session state if there's actually a connection
-    final hasActiveSession =
-        stateManager.otherUserName != null ||
-        connectedCentral != null ||
-        connectionManager.connectedDevice != null;
-
-    if (hasActiveSession) {
-      _logger.info('🔌 Active connection detected - clearing session state');
-      stateManager.clearSessionState();
-    }
-
-    // Reset peripheral state variables
-    connectedCentral = null;
-    connectedCharacteristic = null;
-    peripheralHandshakeStarted = false;
-
-    // Provide specific status message
-    String statusMessage;
-    switch (bluetoothStateMonitor.currentState) {
-      case BluetoothLowEnergyState.poweredOff:
-        statusMessage =
-            '📴 Bluetooth is turned off - please enable it in settings';
-        break;
-      case BluetoothLowEnergyState.unauthorized:
-        statusMessage =
-            '🔒 Bluetooth permission required - grant permission in app settings';
-        break;
-      case BluetoothLowEnergyState.unsupported:
-        statusMessage = '❌ Bluetooth Low Energy not supported on this device';
-        break;
-      case BluetoothLowEnergyState.unknown:
-        statusMessage = '⚠️ Bluetooth state unknown - checking...';
-        break;
-      default:
-        statusMessage =
-            '⚠️ Bluetooth unavailable - mesh networking requires Bluetooth';
-    }
-
-    _updateConnectionInfo(
-      isConnected: false,
-      isReady: false,
-      isScanning: false,
-      isAdvertising: false,
-      otherUserName: null,
-      statusMessage: statusMessage,
-    );
   }
 
   // ============================================================================
