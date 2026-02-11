@@ -1,9 +1,9 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 
-import '../../../core/discovery/device_deduplication_manager.dart';
-import '../../../core/models/ble_server_connection.dart';
-import '../../../core/utils/string_extensions.dart';
+import '../../../domain/services/device_deduplication_manager.dart';
+import '../../../domain/models/ble_server_connection.dart';
+import '../../../domain/utils/string_extensions.dart';
 
 class DiscoveryPeripheralView extends StatelessWidget {
   const DiscoveryPeripheralView({

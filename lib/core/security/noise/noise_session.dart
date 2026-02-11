@@ -9,7 +9,7 @@ library;
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:synchronized/synchronized.dart';
-import 'package:pak_connect/core/monitoring/performance_metrics.dart';
+import 'package:pak_connect/domain/services/performance_metrics.dart';
 import '../secure_key.dart';
 import 'models/noise_models.dart';
 import 'primitives/handshake_state.dart';

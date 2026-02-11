@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 
 /// 🔒 SECURITY TEST: Ephemeral Key Private Key Protection
 ///
@@ -50,40 +50,37 @@ void main() {
       );
     });
 
-    test(
-      'CRITICAL: Private key NEVER written to SharedPreferences',
-      () async {
-        // GIVEN: Initialize EphemeralKeyManager
-        await EphemeralKeyManager.initialize('test-private-key-123');
+    test('CRITICAL: Private key NEVER written to SharedPreferences', () async {
+      // GIVEN: Initialize EphemeralKeyManager
+      await EphemeralKeyManager.initialize('test-private-key-123');
 
-        // Force session generation
-        final sessionKey = EphemeralKeyManager.generateMyEphemeralKey();
-        expect(sessionKey, isNotNull);
+      // Force session generation
+      final sessionKey = EphemeralKeyManager.generateMyEphemeralKey();
+      expect(sessionKey, isNotNull);
 
-        // WHEN: Check SharedPreferences contents
-        final prefs = await SharedPreferences.getInstance();
-        final allKeys = prefs.getKeys();
+      // WHEN: Check SharedPreferences contents
+      final prefs = await SharedPreferences.getInstance();
+      final allKeys = prefs.getKeys();
 
-        debugPrint('📋 SharedPreferences keys after initialization:');
-        for (final key in allKeys) {
-          final value = prefs.get(key).toString();
-          final preview = value.length > 20 ? value.substring(0, 20) : value;
-          debugPrint('  - $key: $preview${value.length > 20 ? "..." : ""}');
-        }
+      debugPrint('📋 SharedPreferences keys after initialization:');
+      for (final key in allKeys) {
+        final value = prefs.get(key).toString();
+        final preview = value.length > 20 ? value.substring(0, 20) : value;
+        debugPrint('  - $key: $preview${value.length > 20 ? "..." : ""}');
+      }
 
-        // THEN: Private key should NOT be in SharedPreferences
-        expect(
-          prefs.getString('ephemeral_signing_private'),
-          isNull,
-          reason:
-              '🚨 SECURITY VULNERABILITY: Private key found in SharedPreferences! '
-              'Private keys must NEVER be persisted to disk. '
-              'This defeats the purpose of ephemeral keys and enables session impersonation.',
-        );
+      // THEN: Private key should NOT be in SharedPreferences
+      expect(
+        prefs.getString('ephemeral_signing_private'),
+        isNull,
+        reason:
+            '🚨 SECURITY VULNERABILITY: Private key found in SharedPreferences! '
+            'Private keys must NEVER be persisted to disk. '
+            'This defeats the purpose of ephemeral keys and enables session impersonation.',
+      );
 
-        debugPrint('✅ PASS: No private key in SharedPreferences (secure)');
-      },
-    );
+      debugPrint('✅ PASS: No private key in SharedPreferences (secure)');
+    });
 
     test(
       'Public key and session metadata CAN be persisted (non-sensitive)',
@@ -119,197 +116,186 @@ void main() {
       },
     );
 
-    test(
-      'Fresh key pair generated on app restart (not restored from disk)',
-      () async {
-        // GIVEN: First app session
-        await EphemeralKeyManager.initialize('test-private-key-789');
+    test('Fresh key pair generated on app restart (not restored from disk)', () async {
+      // GIVEN: First app session
+      await EphemeralKeyManager.initialize('test-private-key-789');
+      EphemeralKeyManager.generateMyEphemeralKey();
+
+      // Capture first session's keys (using @visibleForTesting getter)
+      final firstPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
+      final firstPublicKey = EphemeralKeyManager.ephemeralSigningPublicKey;
+
+      expect(firstPrivateKey, isNotNull);
+      expect(firstPublicKey, isNotNull);
+
+      debugPrint(
+        '🔑 First session private key (first 16 chars): ${firstPrivateKey!.substring(0, 16)}...',
+      );
+      debugPrint(
+        '🔑 First session public key (first 16 chars): ${firstPublicKey!.substring(0, 16)}...',
+      );
+
+      // WHEN: Simulate app restart by re-initializing
+      // (In real app, this would be a full app restart clearing memory)
+      await EphemeralKeyManager.initialize('test-private-key-789');
+      EphemeralKeyManager.generateMyEphemeralKey();
+
+      // Capture second session's keys
+      final secondPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
+      final secondPublicKey = EphemeralKeyManager.ephemeralSigningPublicKey;
+
+      expect(secondPrivateKey, isNotNull);
+      expect(secondPublicKey, isNotNull);
+
+      debugPrint(
+        '🔑 Second session private key (first 16 chars): ${secondPrivateKey!.substring(0, 16)}...',
+      );
+      debugPrint(
+        '🔑 Second session public key (first 16 chars): ${secondPublicKey!.substring(0, 16)}...',
+      );
+
+      // THEN: Keys should be DIFFERENT (fresh generation, not restoration)
+      expect(
+        secondPrivateKey,
+        isNot(equals(firstPrivateKey)),
+        reason:
+            '🚨 SECURITY VULNERABILITY: Private key was restored from disk! '
+            'Fresh keys must be generated on app restart, not restored from SharedPreferences. '
+            'This is critical for ephemeral key security.',
+      );
+
+      expect(
+        secondPublicKey,
+        isNot(equals(firstPublicKey)),
+        reason: 'Public key should also be fresh (paired with new private key)',
+      );
+
+      debugPrint(
+        '✅ PASS: Fresh key pair generated on app restart (not restored)',
+      );
+    });
+
+    test('Multiple restarts generate unique key pairs', () async {
+      // GIVEN: Multiple app restart simulations
+      final privateKeys = <String>[];
+      final publicKeys = <String>[];
+
+      for (int i = 0; i < 5; i++) {
+        await EphemeralKeyManager.initialize('test-private-key-multi');
         EphemeralKeyManager.generateMyEphemeralKey();
 
-        // Capture first session's keys (using @visibleForTesting getter)
-        final firstPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
-        final firstPublicKey = EphemeralKeyManager.ephemeralSigningPublicKey;
+        final privateKey = EphemeralKeyManager.ephemeralSigningPrivateKey!;
+        final publicKey = EphemeralKeyManager.ephemeralSigningPublicKey!;
 
-        expect(firstPrivateKey, isNotNull);
-        expect(firstPublicKey, isNotNull);
-
-        debugPrint(
-          '🔑 First session private key (first 16 chars): ${firstPrivateKey!.substring(0, 16)}...',
-        );
-        debugPrint(
-          '🔑 First session public key (first 16 chars): ${firstPublicKey!.substring(0, 16)}...',
-        );
-
-        // WHEN: Simulate app restart by re-initializing
-        // (In real app, this would be a full app restart clearing memory)
-        await EphemeralKeyManager.initialize('test-private-key-789');
-        EphemeralKeyManager.generateMyEphemeralKey();
-
-        // Capture second session's keys
-        final secondPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
-        final secondPublicKey = EphemeralKeyManager.ephemeralSigningPublicKey;
-
-        expect(secondPrivateKey, isNotNull);
-        expect(secondPublicKey, isNotNull);
+        privateKeys.add(privateKey);
+        publicKeys.add(publicKey);
 
         debugPrint(
-          '🔑 Second session private key (first 16 chars): ${secondPrivateKey!.substring(0, 16)}...',
-        );
-        debugPrint(
-          '🔑 Second session public key (first 16 chars): ${secondPublicKey!.substring(0, 16)}...',
+          '🔑 Restart $i - Private: ${privateKey.substring(0, 16)}..., Public: ${publicKey.substring(0, 16)}...',
         );
 
-        // THEN: Keys should be DIFFERENT (fresh generation, not restoration)
-        expect(
-          secondPrivateKey,
-          isNot(equals(firstPrivateKey)),
-          reason:
-              '🚨 SECURITY VULNERABILITY: Private key was restored from disk! '
-              'Fresh keys must be generated on app restart, not restored from SharedPreferences. '
-              'This is critical for ephemeral key security.',
-        );
+        // Small delay to ensure different timestamps
+        await Future.delayed(Duration(milliseconds: 10));
+      }
 
-        expect(
-          secondPublicKey,
-          isNot(equals(firstPublicKey)),
-          reason:
-              'Public key should also be fresh (paired with new private key)',
-        );
+      // THEN: All private keys should be unique
+      final uniquePrivateKeys = privateKeys.toSet();
+      expect(
+        uniquePrivateKeys.length,
+        equals(privateKeys.length),
+        reason:
+            '🚨 SECURITY VULNERABILITY: Some private keys were reused! '
+            'Expected ${privateKeys.length} unique private keys, got ${uniquePrivateKeys.length}. '
+            'Each app restart must generate fresh keys.',
+      );
 
-        debugPrint('✅ PASS: Fresh key pair generated on app restart (not restored)');
-      },
-    );
+      // THEN: All public keys should be unique
+      final uniquePublicKeys = publicKeys.toSet();
+      expect(
+        uniquePublicKeys.length,
+        equals(publicKeys.length),
+        reason: 'Each restart should generate unique public keys',
+      );
 
-    test(
-      'Multiple restarts generate unique key pairs',
-      () async {
-        // GIVEN: Multiple app restart simulations
-        final privateKeys = <String>[];
-        final publicKeys = <String>[];
+      debugPrint(
+        '✅ PASS: All ${privateKeys.length} restarts generated unique key pairs',
+      );
+    });
 
-        for (int i = 0; i < 5; i++) {
-          await EphemeralKeyManager.initialize('test-private-key-multi');
-          EphemeralKeyManager.generateMyEphemeralKey();
+    test('Private key exists in memory but not in SharedPreferences', () async {
+      // GIVEN: Initialize EphemeralKeyManager
+      await EphemeralKeyManager.initialize('test-private-key-memory');
+      EphemeralKeyManager.generateMyEphemeralKey();
 
-          final privateKey = EphemeralKeyManager.ephemeralSigningPrivateKey!;
-          final publicKey = EphemeralKeyManager.ephemeralSigningPublicKey!;
+      // WHEN: Access private key from memory (via @visibleForTesting getter)
+      final privateKeyInMemory = EphemeralKeyManager.ephemeralSigningPrivateKey;
 
-          privateKeys.add(privateKey);
-          publicKeys.add(publicKey);
+      // THEN: Private key should exist in memory
+      expect(
+        privateKeyInMemory,
+        isNotNull,
+        reason: 'Private key should exist in memory for signing operations',
+      );
 
-          debugPrint(
-            '🔑 Restart $i - Private: ${privateKey.substring(0, 16)}..., Public: ${publicKey.substring(0, 16)}...',
-          );
+      // THEN: But NOT in SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final privateKeyInStorage = prefs.getString('ephemeral_signing_private');
 
-          // Small delay to ensure different timestamps
-          await Future.delayed(Duration(milliseconds: 10));
-        }
+      expect(
+        privateKeyInStorage,
+        isNull,
+        reason:
+            '🚨 SECURITY VULNERABILITY: Private key found in persistent storage! '
+            'Private keys must only exist in memory, never persisted to disk.',
+      );
 
-        // THEN: All private keys should be unique
-        final uniquePrivateKeys = privateKeys.toSet();
-        expect(
-          uniquePrivateKeys.length,
-          equals(privateKeys.length),
-          reason:
-              '🚨 SECURITY VULNERABILITY: Some private keys were reused! '
-              'Expected ${privateKeys.length} unique private keys, got ${uniquePrivateKeys.length}. '
-              'Each app restart must generate fresh keys.',
-        );
+      debugPrint(
+        '✅ PASS: Private key exists in memory only (${privateKeyInMemory!.substring(0, 16)}...), not in storage',
+      );
+    });
 
-        // THEN: All public keys should be unique
-        final uniquePublicKeys = publicKeys.toSet();
-        expect(
-          uniquePublicKeys.length,
-          equals(publicKeys.length),
-          reason: 'Each restart should generate unique public keys',
-        );
+    test('Session rotation generates new private key (not persisted)', () async {
+      // GIVEN: Initial session
+      await EphemeralKeyManager.initialize('test-private-key-rotate');
+      EphemeralKeyManager.generateMyEphemeralKey();
 
-        debugPrint(
-          '✅ PASS: All ${privateKeys.length} restarts generated unique key pairs',
-        );
-      },
-    );
+      final initialPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
+      expect(initialPrivateKey, isNotNull);
 
-    test(
-      'Private key exists in memory but not in SharedPreferences',
-      () async {
-        // GIVEN: Initialize EphemeralKeyManager
-        await EphemeralKeyManager.initialize('test-private-key-memory');
-        EphemeralKeyManager.generateMyEphemeralKey();
+      debugPrint(
+        '🔑 Initial private key: ${initialPrivateKey!.substring(0, 16)}...',
+      );
 
-        // WHEN: Access private key from memory (via @visibleForTesting getter)
-        final privateKeyInMemory =
-            EphemeralKeyManager.ephemeralSigningPrivateKey;
+      // WHEN: Rotate session
+      await EphemeralKeyManager.rotateSession();
 
-        // THEN: Private key should exist in memory
-        expect(
-          privateKeyInMemory,
-          isNotNull,
-          reason: 'Private key should exist in memory for signing operations',
-        );
+      final rotatedPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
+      expect(rotatedPrivateKey, isNotNull);
 
-        // THEN: But NOT in SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        final privateKeyInStorage = prefs.getString('ephemeral_signing_private');
+      debugPrint(
+        '🔑 Rotated private key: ${rotatedPrivateKey!.substring(0, 16)}...',
+      );
 
-        expect(
-          privateKeyInStorage,
-          isNull,
-          reason:
-              '🚨 SECURITY VULNERABILITY: Private key found in persistent storage! '
-              'Private keys must only exist in memory, never persisted to disk.',
-        );
+      // THEN: Private key should be different after rotation
+      expect(
+        rotatedPrivateKey,
+        isNot(equals(initialPrivateKey)),
+        reason: 'Session rotation should generate new private key',
+      );
 
-        debugPrint(
-          '✅ PASS: Private key exists in memory only (${privateKeyInMemory!.substring(0, 16)}...), not in storage',
-        );
-      },
-    );
+      // THEN: New private key should NOT be in SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('ephemeral_signing_private'),
+        isNull,
+        reason:
+            '🚨 SECURITY VULNERABILITY: Rotated private key found in SharedPreferences!',
+      );
 
-    test(
-      'Session rotation generates new private key (not persisted)',
-      () async {
-        // GIVEN: Initial session
-        await EphemeralKeyManager.initialize('test-private-key-rotate');
-        EphemeralKeyManager.generateMyEphemeralKey();
-
-        final initialPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
-        expect(initialPrivateKey, isNotNull);
-
-        debugPrint(
-          '🔑 Initial private key: ${initialPrivateKey!.substring(0, 16)}...',
-        );
-
-        // WHEN: Rotate session
-        await EphemeralKeyManager.rotateSession();
-
-        final rotatedPrivateKey =
-            EphemeralKeyManager.ephemeralSigningPrivateKey;
-        expect(rotatedPrivateKey, isNotNull);
-
-        debugPrint(
-          '🔑 Rotated private key: ${rotatedPrivateKey!.substring(0, 16)}...',
-        );
-
-        // THEN: Private key should be different after rotation
-        expect(
-          rotatedPrivateKey,
-          isNot(equals(initialPrivateKey)),
-          reason: 'Session rotation should generate new private key',
-        );
-
-        // THEN: New private key should NOT be in SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        expect(
-          prefs.getString('ephemeral_signing_private'),
-          isNull,
-          reason:
-              '🚨 SECURITY VULNERABILITY: Rotated private key found in SharedPreferences!',
-        );
-
-        debugPrint('✅ PASS: Session rotation generates new private key (not persisted)');
-      },
-    );
+      debugPrint(
+        '✅ PASS: Session rotation generates new private key (not persisted)',
+      );
+    });
 
     test(
       'Manual SharedPreferences corruption does not affect key generation',
@@ -326,7 +312,9 @@ void main() {
           'fake-leaked-private-key-from-backup',
         );
 
-        debugPrint('💣 Manually injected fake private key into SharedPreferences');
+        debugPrint(
+          '💣 Manually injected fake private key into SharedPreferences',
+        );
 
         // WHEN: Re-initialize (simulate app restart)
         await EphemeralKeyManager.initialize('test-private-key-corrupt');
@@ -351,50 +339,45 @@ void main() {
       },
     );
 
-    test(
-      'No private key leakage after multiple operations',
-      () async {
-        // GIVEN: Multiple operations that could potentially leak private key
-        await EphemeralKeyManager.initialize('test-private-key-ops');
+    test('No private key leakage after multiple operations', () async {
+      // GIVEN: Multiple operations that could potentially leak private key
+      await EphemeralKeyManager.initialize('test-private-key-ops');
 
-        // Perform various operations
-        for (int i = 0; i < 3; i++) {
-          EphemeralKeyManager.generateMyEphemeralKey();
-          await Future.delayed(Duration(milliseconds: 5));
-        }
+      // Perform various operations
+      for (int i = 0; i < 3; i++) {
+        EphemeralKeyManager.generateMyEphemeralKey();
+        await Future.delayed(Duration(milliseconds: 5));
+      }
 
-        // Rotate session
-        await EphemeralKeyManager.rotateSession();
+      // Rotate session
+      await EphemeralKeyManager.rotateSession();
 
-        // Generate more keys
-        for (int i = 0; i < 3; i++) {
-          EphemeralKeyManager.generateMyEphemeralKey();
-          await Future.delayed(Duration(milliseconds: 5));
-        }
+      // Generate more keys
+      for (int i = 0; i < 3; i++) {
+        EphemeralKeyManager.generateMyEphemeralKey();
+        await Future.delayed(Duration(milliseconds: 5));
+      }
 
-        // WHEN: Check SharedPreferences after all operations
-        final prefs = await SharedPreferences.getInstance();
-        final allKeys = prefs.getKeys();
+      // WHEN: Check SharedPreferences after all operations
+      final prefs = await SharedPreferences.getInstance();
+      final allKeys = prefs.getKeys();
 
-        debugPrint('📋 SharedPreferences after multiple operations:');
-        for (final key in allKeys) {
-          debugPrint('  - $key');
-        }
+      debugPrint('📋 SharedPreferences after multiple operations:');
+      for (final key in allKeys) {
+        debugPrint('  - $key');
+      }
 
-        // THEN: Private key should NEVER appear in SharedPreferences
-        expect(
-          allKeys.contains('ephemeral_signing_private'),
-          isFalse,
-          reason:
-              '🚨 SECURITY VULNERABILITY: Private key found in SharedPreferences after operations! '
-              'No operation should ever persist private keys.',
-        );
+      // THEN: Private key should NEVER appear in SharedPreferences
+      expect(
+        allKeys.contains('ephemeral_signing_private'),
+        isFalse,
+        reason:
+            '🚨 SECURITY VULNERABILITY: Private key found in SharedPreferences after operations! '
+            'No operation should ever persist private keys.',
+      );
 
-        debugPrint(
-          '✅ PASS: No private key leakage after multiple operations',
-        );
-      },
-    );
+      debugPrint('✅ PASS: No private key leakage after multiple operations');
+    });
   });
 
   group('🔒 Private Key Getter Access Control', () {
@@ -403,71 +386,64 @@ void main() {
       await SharedPreferences.getInstance().then((prefs) => prefs.clear());
     });
 
-    test(
-      'Legacy private keys are removed on initialization',
-      () async {
-        // GIVEN: A legacy installation with persisted private key
-        final prefs = await SharedPreferences.getInstance();
-        
-        // Simulate legacy installation by manually writing private key
-        await prefs.setString(
-          'ephemeral_signing_private',
-          'legacy-private-key-from-old-version',
-        );
-        
-        debugPrint('💾 Simulated legacy private key persisted to disk');
-        
-        // Verify it exists before initialization
-        expect(
-          prefs.getString('ephemeral_signing_private'),
-          isNotNull,
-          reason: 'Legacy private key should exist before cleanup',
-        );
+    test('Legacy private keys are removed on initialization', () async {
+      // GIVEN: A legacy installation with persisted private key
+      final prefs = await SharedPreferences.getInstance();
 
-        // WHEN: Initialize EphemeralKeyManager (triggers cleanup)
-        await EphemeralKeyManager.initialize('test-cleanup');
-        EphemeralKeyManager.generateMyEphemeralKey();
+      // Simulate legacy installation by manually writing private key
+      await prefs.setString(
+        'ephemeral_signing_private',
+        'legacy-private-key-from-old-version',
+      );
 
-        // THEN: Legacy private key should be removed
-        expect(
-          prefs.getString('ephemeral_signing_private'),
-          isNull,
-          reason:
-              '🚨 SECURITY VULNERABILITY: Legacy private key not cleaned up! '
-              'Existing installations will retain sensitive data after upgrade. '
-              'Must explicitly remove old private keys on initialization.',
-        );
+      debugPrint('💾 Simulated legacy private key persisted to disk');
 
-        debugPrint('✅ PASS: Legacy private key cleaned up on initialization');
-      },
-    );
+      // Verify it exists before initialization
+      expect(
+        prefs.getString('ephemeral_signing_private'),
+        isNotNull,
+        reason: 'Legacy private key should exist before cleanup',
+      );
 
-    test(
-      'Private key getter accessible for internal components',
-      () async {
-        // This test verifies that the private key getter works for
-        // trusted internal components like SigningManager
-        // The @visibleForTesting annotation was removed to allow production use
+      // WHEN: Initialize EphemeralKeyManager (triggers cleanup)
+      await EphemeralKeyManager.initialize('test-cleanup');
+      EphemeralKeyManager.generateMyEphemeralKey();
 
-        // GIVEN: Initialize EphemeralKeyManager
-        await EphemeralKeyManager.initialize('test-internal-access');
-        EphemeralKeyManager.generateMyEphemeralKey();
+      // THEN: Legacy private key should be removed
+      expect(
+        prefs.getString('ephemeral_signing_private'),
+        isNull,
+        reason:
+            '🚨 SECURITY VULNERABILITY: Legacy private key not cleaned up! '
+            'Existing installations will retain sensitive data after upgrade. '
+            'Must explicitly remove old private keys on initialization.',
+      );
 
-        // WHEN: Access private key (as SigningManager does)
-        final privateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
+      debugPrint('✅ PASS: Legacy private key cleaned up on initialization');
+    });
 
-        // THEN: Should be accessible for internal use
-        expect(
-          privateKey,
-          isNotNull,
-          reason:
-              'Private key should be accessible for internal components',
-        );
+    test('Private key getter accessible for internal components', () async {
+      // This test verifies that the private key getter works for
+      // trusted internal components like SigningManager
+      // The @visibleForTesting annotation was removed to allow production use
 
-        debugPrint(
-          '✅ PASS: Private key getter accessible for internal components (SigningManager)',
-        );
-      },
-    );
+      // GIVEN: Initialize EphemeralKeyManager
+      await EphemeralKeyManager.initialize('test-internal-access');
+      EphemeralKeyManager.generateMyEphemeralKey();
+
+      // WHEN: Access private key (as SigningManager does)
+      final privateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
+
+      // THEN: Should be accessible for internal use
+      expect(
+        privateKey,
+        isNotNull,
+        reason: 'Private key should be accessible for internal components',
+      );
+
+      debugPrint(
+        '✅ PASS: Private key getter accessible for internal components (SigningManager)',
+      );
+    });
   });
 }

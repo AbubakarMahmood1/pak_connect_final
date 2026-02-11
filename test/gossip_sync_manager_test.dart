@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/messaging/gossip_sync_manager.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/messaging/gossip_sync_manager.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
+import 'package:pak_connect/domain/entities/queue_statistics.dart';
+import 'test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
   group('GossipSyncManager', () {
@@ -254,7 +256,7 @@ void main() {
 }
 
 /// Mock OfflineMessageQueue for testing
-class MockOfflineMessageQueue extends OfflineMessageQueue {
+class MockOfflineMessageQueue extends InMemoryOfflineMessageQueue {
   String _mockHash = 'mock_hash_123';
   final List<QueuedMessage> _mockMessages = [];
 

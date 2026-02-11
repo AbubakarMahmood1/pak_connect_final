@@ -1,6 +1,6 @@
-import '../interfaces/i_repository_provider.dart';
-import '../interfaces/i_contact_repository.dart';
-import '../interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 
 /// Implementation of IRepositoryProvider
 ///

@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:pak_connect/core/models/connection_info.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
 import 'package:pak_connect/data/services/ble_service.dart';
 
@@ -65,11 +65,13 @@ class FakeBleService extends BLEService {
   }
 
   void _emitConnectionInfo() {
-    unawaited(Future.microtask(() {
-      if (!_connectionInfoController.isClosed) {
-        _connectionInfoController.add(_connectionInfo);
-      }
-    }));
+    unawaited(
+      Future.microtask(() {
+        if (!_connectionInfoController.isClosed) {
+          _connectionInfoController.add(_connectionInfo);
+        }
+      }),
+    );
   }
 
   String get lastMessageContent => _lastMessageContent;

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
-import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
-import 'package:pak_connect/core/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/core/di/repository_provider_impl.dart';
 import '../../test_helpers/test_setup.dart';
 

@@ -4,9 +4,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get_it/get_it.dart';
 import 'package:share_plus/share_plus.dart';
-import '../../data/services/export_import/export_service.dart';
-import '../../data/services/export_import/export_bundle.dart';
+import '../../domain/interfaces/i_export_service.dart';
+import '../../domain/models/export_bundle.dart';
 import 'passphrase_strength_indicator.dart';
 
 class ExportDialog extends StatefulWidget {
@@ -17,6 +18,7 @@ class ExportDialog extends StatefulWidget {
 }
 
 class _ExportDialogState extends State<ExportDialog> {
+  late final IExportService _exportService = _resolveExportService();
   final _formKey = GlobalKey<FormState>();
   final _passphraseController = TextEditingController();
   final _confirmPassphraseController = TextEditingController();
@@ -50,7 +52,7 @@ class _ExportDialogState extends State<ExportDialog> {
 
     try {
       // Create export
-      final result = await ExportService.createExport(
+      final result = await _exportService.createExport(
         userPassphrase: _passphraseController.text,
         exportType: _selectedExportType, // NEW: Use selected export type
       );
@@ -517,5 +519,13 @@ class _ExportDialogState extends State<ExportDialog> {
         child: const Text('Done'),
       ),
     ];
+  }
+
+  IExportService _resolveExportService() {
+    final serviceLocator = GetIt.instance;
+    if (serviceLocator.isRegistered<IExportService>()) {
+      return serviceLocator<IExportService>();
+    }
+    throw StateError('IExportService is not registered in GetIt');
   }
 }

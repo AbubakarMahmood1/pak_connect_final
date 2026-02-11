@@ -1,24 +1,26 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import '../interfaces/i_repository_provider.dart';
-import '../interfaces/i_contact_repository.dart';
-import '../interfaces/i_security_manager.dart';
-import '../security/security_types.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/models/encryption_method.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 import '../../domain/entities/contact.dart';
 import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
-import 'simple_crypto.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
 import '../exceptions/encryption_exception.dart';
 
-export '../security/security_types.dart';
-
-class SecurityManager implements ISecurityManager {
-  SecurityManager._internal();
+class SecurityManager implements ISecurityService {
+  SecurityManager._internal() {
+    SecurityServiceLocator.registerFallback(this);
+  }
   static final SecurityManager _instance = SecurityManager._internal();
   factory SecurityManager() => _instance;
   static SecurityManager get instance => _instance;
@@ -26,11 +28,13 @@ class SecurityManager implements ISecurityManager {
   static final _logger = Logger('SecurityManager');
   NoiseEncryptionService? _noiseService;
 
-  @override
   NoiseEncryptionService? get noiseService => _noiseService;
 
-  /// Initialize the Noise Protocol encryption service
   @override
+  bool hasEstablishedNoiseSession(String peerSessionId) =>
+      _noiseService?.hasEstablishedSession(peerSessionId) ?? false;
+
+  /// Initialize the Noise Protocol encryption service
   Future<void> initialize({FlutterSecureStorage? secureStorage}) async {
     if (_noiseService != null) {
       _logger.info('🔒 SecurityManager already initialized');
@@ -51,14 +55,12 @@ class SecurityManager implements ISecurityManager {
   }
 
   /// Clear all Noise sessions (for testing)
-  @override
   void clearAllNoiseSessions() {
     _noiseService?.clearAllSessions();
     _logger.info('🔒 Cleared all Noise sessions');
   }
 
   /// Shutdown the security manager
-  @override
   void shutdown() {
     _noiseService?.shutdown();
     _noiseService = null;
@@ -200,7 +202,6 @@ class SecurityManager implements ISecurityManager {
   ///
   /// - LOW security: Always XX (first-time contact)
   /// - MEDIUM/HIGH security: Try KK if we have their static key, otherwise XX
-  @override
   Future<(NoisePattern, Uint8List?)> selectNoisePattern(
     String publicKey, [
     IContactRepository? repo,
@@ -377,7 +378,9 @@ class SecurityManager implements ISecurityManager {
       }
     } catch (e) {
       if (e is EncryptionException) {
-        _logger.severe('🔒 ENCRYPT FAILED: ${e.encryptionMethod ?? method.type.name} → $e');
+        _logger.severe(
+          '🔒 ENCRYPT FAILED: ${e.encryptionMethod ?? method.type.name} → $e',
+        );
         rethrow;
       }
       _logger.severe('🔒 ENCRYPT FAILED: ${method.type.name} → $e');
@@ -599,7 +602,8 @@ class SecurityManager implements ISecurityManager {
               encryptionMethod: 'Noise',
             );
           }
-          if (method.publicKey == null || !_noiseService!.hasEstablishedSession(method.publicKey!)) {
+          if (method.publicKey == null ||
+              !_noiseService!.hasEstablishedSession(method.publicKey!)) {
             throw EncryptionException(
               'No established Noise session for binary encryption',
               publicKey: publicKey,
@@ -660,7 +664,9 @@ class SecurityManager implements ISecurityManager {
       }
     } catch (e) {
       if (e is EncryptionException) {
-        _logger.severe('🔒 BIN ENCRYPT FAILED: ${e.encryptionMethod ?? method.type.name} → $e');
+        _logger.severe(
+          '🔒 BIN ENCRYPT FAILED: ${e.encryptionMethod ?? method.type.name} → $e',
+        );
         rethrow;
       }
       _logger.severe('🔒 BIN ENCRYPT FAILED: ${method.type.name} → $e');

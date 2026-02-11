@@ -4,13 +4,13 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get_it/get_it.dart';
-import '../../core/interfaces/i_contact_repository.dart';
-import '../../core/interfaces/i_message_repository.dart';
-import '../../core/services/security_manager.dart';
+import '../interfaces/i_contact_repository.dart';
+import '../interfaces/i_message_repository.dart';
 import '../entities/contact.dart' show Contact, TrustStatus;
 import '../entities/enhanced_contact.dart';
+import '../models/security_level.dart';
 import '../values/id_types.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Comprehensive contact management service with advanced search and privacy features
 /// Singleton pattern to prevent multiple service instances
@@ -805,7 +805,6 @@ class ContactManagementService {
       _logger.warning('Failed to save exported data: $e');
     }
   }
-
 }
 
 // Enums and data classes would be defined in separate files in a real app

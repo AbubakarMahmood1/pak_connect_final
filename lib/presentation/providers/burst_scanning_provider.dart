@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pak_connect/core/scanning/burst_scanning_controller.dart';
+import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
 import 'ble_providers.dart';
 
 /// Provider for BurstScanningController instance

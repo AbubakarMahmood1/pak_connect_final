@@ -4,9 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/connection_phase.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/core/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
 import '../../test_helpers/test_setup.dart';
 
 // Mock secure storage for testing

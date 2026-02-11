@@ -3,17 +3,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 
-import '../../core/app_core.dart';
-import '../../core/interfaces/i_connection_service.dart';
-import '../../core/interfaces/i_mesh_networking_service.dart';
-import '../../core/messaging/message_router.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/security/message_security.dart';
-import '../../core/services/message_retry_coordinator.dart';
-import '../../core/services/persistent_chat_state_manager.dart';
-import '../../data/repositories/message_repository.dart';
+import '../../domain/interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_mesh_networking_service.dart';
+import '../../domain/interfaces/i_shared_message_queue_provider.dart';
+import '../../domain/services/message_router.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
+import '../../domain/models/connection_info.dart';
+import '../../domain/services/message_security.dart';
+import '../../domain/services/message_retry_coordinator.dart';
+import '../../domain/services/persistent_chat_state_manager.dart';
+import '../../domain/interfaces/i_message_repository.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/values/id_types.dart';
@@ -49,9 +50,9 @@ class ChatSessionLifecycle {
   final IMeshNetworkingService meshService;
   late final MessageRouter? messageRouter;
   final MessageSecurity messageSecurity;
-  final MessageRepository messageRepository;
+  final IMessageRepository messageRepository;
   final MessageRetryCoordinator? retryCoordinator;
-  final OfflineMessageQueue? offlineQueue;
+  final OfflineMessageQueueContract? offlineQueue;
   final Logger _logger;
   ChatRetryHelper? retryHelper;
   ChatPairingDialogController? pairingController;
@@ -64,7 +65,7 @@ class ChatSessionLifecycle {
   Timer? _initializationTimeoutTimer;
   Timer? _delayedRetryTimer;
   PersistentChatStateManager? persistentChatManager;
-  OfflineMessageQueue? _fallbackOfflineQueue;
+  OfflineMessageQueueContract? _fallbackOfflineQueue;
   bool _fallbackQueueInitialized = false;
   Future<void>? _fallbackQueueInitFuture;
 
@@ -271,13 +272,13 @@ class ChatSessionLifecycle {
     }
   }
 
-  OfflineMessageQueue? resolveOfflineQueue() {
+  OfflineMessageQueueContract? resolveOfflineQueue() {
     if (offlineQueue != null) {
       return offlineQueue;
     }
-    final appCoreQueue = _tryResolveAppCoreQueue();
-    if (appCoreQueue != null) {
-      return appCoreQueue;
+    final sharedQueue = _tryResolveSharedQueue();
+    if (sharedQueue != null) {
+      return sharedQueue;
     }
 
     try {
@@ -288,22 +289,27 @@ class ChatSessionLifecycle {
     return _getFallbackQueue();
   }
 
-  OfflineMessageQueue? _tryResolveAppCoreQueue() {
-    final appCore = AppCore.instance;
-    if (!appCore.isInitialized && !appCore.isInitializing) {
-      _logger.fine('AppCore not initialized; offline queue unavailable');
+  OfflineMessageQueueContract? _tryResolveSharedQueue() {
+    if (!GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
+      _logger.fine('Shared queue provider not registered');
+      return null;
+    }
+
+    final provider = GetIt.instance<ISharedMessageQueueProvider>();
+    if (!provider.isInitialized && !provider.isInitializing) {
+      _logger.fine('Shared queue host not initialized; queue unavailable');
       return null;
     }
 
     try {
-      return appCore.messageQueue;
+      return provider.messageQueue;
     } catch (error) {
-      _logger.warning('Failed to access offline queue: $error');
+      _logger.warning('Failed to access shared offline queue: $error');
       return null;
     }
   }
 
-  Future<OfflineMessageQueue> _buildFallbackOfflineQueue() async {
+  Future<OfflineMessageQueueContract> _buildFallbackOfflineQueue() async {
     final queue = _getFallbackQueue(ensureInitialized: true);
     if (_fallbackQueueInitFuture != null) {
       try {
@@ -318,8 +324,10 @@ class ChatSessionLifecycle {
     return queue;
   }
 
-  OfflineMessageQueue _getFallbackQueue({bool ensureInitialized = false}) {
-    _fallbackOfflineQueue ??= OfflineMessageQueue();
+  OfflineMessageQueueContract _getFallbackQueue({
+    bool ensureInitialized = false,
+  }) {
+    _fallbackOfflineQueue ??= MessageRouter.createStandaloneQueue();
     if (_fallbackQueueInitFuture == null && !_fallbackQueueInitialized) {
       _fallbackQueueInitialized = true;
       _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
@@ -337,7 +345,7 @@ class ChatSessionLifecycle {
     return _fallbackOfflineQueue!;
   }
 
-  Future<OfflineMessageQueue> buildFallbackOfflineQueue() =>
+  Future<OfflineMessageQueueContract> buildFallbackOfflineQueue() =>
       _buildFallbackOfflineQueue();
 
   MessageRouter? _resolveMessageRouter(IConnectionService connectionService) {
@@ -362,11 +370,6 @@ class ChatSessionLifecycle {
           'MessageRouter initialization failed; routing hooks disabled: $error',
           stack,
         );
-        if (AppCore.instance.isInitialized) {
-          _logger.warning(
-            'AppCore initialized but MessageRouter still unavailable',
-          );
-        }
         return null;
       }
     }
@@ -389,7 +392,7 @@ class ChatSessionLifecycle {
     required String Function() chatId,
     required String? Function() contactPublicKey,
     required String Function() displayContactName,
-    required MessageRepository messageRepository,
+    required IMessageRepository messageRepository,
     required Future<void> Function(Message message) repositoryRetryHandler,
     required void Function(String) showSuccess,
     required void Function(String) showError,

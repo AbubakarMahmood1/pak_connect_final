@@ -5,15 +5,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pak_connect/core/interfaces/i_mesh_networking_service.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
-import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
-import 'package:pak_connect/core/messaging/message_router.dart';
-import 'package:pak_connect/core/services/message_retry_coordinator.dart';
-import 'package:pak_connect/core/models/connection_info.dart';
-import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
-import 'package:pak_connect/core/utils/chat_utils.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart'
+    show RelayStatistics;
+import 'package:pak_connect/domain/services/message_router.dart';
+import 'package:pak_connect/domain/services/message_retry_coordinator.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
@@ -25,7 +29,7 @@ import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/presentation/controllers/chat_pairing_dialog_controller.dart';
-import 'package:pak_connect/core/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.dart'
@@ -34,11 +38,12 @@ import 'package:pak_connect/presentation/controllers/chat_search_controller.dart
 import 'package:pak_connect/presentation/controllers/chat_session_lifecycle.dart';
 import 'package:pak_connect/presentation/providers/chat_messaging_view_model.dart';
 import 'package:pak_connect/presentation/viewmodels/chat_session_view_model.dart';
-import 'package:pak_connect/core/security/message_security.dart';
-import 'package:pak_connect/core/constants/binary_payload_types.dart';
+import 'package:pak_connect/domain/services/message_security.dart';
+import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
     show PendingBinaryTransfer, ReceivedBinaryEvent;
 import '../test_helpers/mocks/mock_connection_service.dart';
+import '../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -831,9 +836,9 @@ ChatScreenController _buildController({
       sessionViewModelFactory:
           ({
             required ChatScreenConfig config,
-            required MessageRepository messageRepository,
-            required ContactRepository contactRepository,
-            required ChatsRepository chatsRepository,
+            required IMessageRepository messageRepository,
+            required IContactRepository contactRepository,
+            required IChatsRepository chatsRepository,
             required ChatMessagingViewModel messagingViewModel,
             required chat_controller.ChatScrollingController
             scrollingController,
@@ -894,9 +899,9 @@ ChatScreenController _buildController({
             required IMeshNetworkingService meshService,
             MessageRouter? messageRouter,
             required MessageSecurity messageSecurity,
-            required MessageRepository messageRepository,
+            required IMessageRepository messageRepository,
             MessageRetryCoordinator? retryCoordinator,
-            OfflineMessageQueue? offlineQueue,
+            OfflineMessageQueueContract? offlineQueue,
             Logger? logger,
           }) => ChatSessionLifecycle(
             viewModel: viewModel,
@@ -1180,7 +1185,7 @@ class _FakeMessageRetryCoordinator extends MessageRetryCoordinator {
   }
 }
 
-class _FakeOfflineMessageQueue extends OfflineMessageQueue {}
+class _FakeOfflineMessageQueue extends InMemoryOfflineMessageQueue {}
 
 class _FakeRepositoryProvider implements IRepositoryProvider {
   _FakeRepositoryProvider(this.contactRepository, this.messageRepository);

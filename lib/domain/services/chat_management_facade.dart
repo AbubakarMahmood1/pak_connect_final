@@ -1,5 +1,5 @@
 import 'package:logging/logging.dart';
-import '../../core/models/archive_models.dart';
+import '../models/archive_models.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'chat_management_service.dart';
 import 'archive_search_service.dart';

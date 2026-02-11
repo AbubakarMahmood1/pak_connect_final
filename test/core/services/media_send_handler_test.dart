@@ -5,19 +5,13 @@ import 'package:mockito/mockito.dart';
 import 'package:mockito/annotations.dart';
 import 'package:logging/logging.dart';
 
-import 'package:pak_connect/core/services/media_send_handler.dart';
-import 'package:pak_connect/core/interfaces/i_mesh_networking_service.dart';
-import 'package:pak_connect/core/constants/binary_payload_types.dart';
+import 'package:pak_connect/domain/services/media_send_handler.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
+import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 
 // Generate mocks
-@GenerateMocks([
-  IMeshNetworkingService,
-  ISecurityManager,
-  NoiseEncryptionService,
-])
+@GenerateMocks([IMeshNetworkingService])
 import 'media_send_handler_test.mocks.dart';
-import 'package:pak_connect/core/interfaces/i_security_manager.dart';
-import 'package:pak_connect/core/security/noise/noise_encryption_service.dart';
 
 void main() {
   group('MediaSendHandler', () {
@@ -664,16 +658,19 @@ void main() {
     });
 
     group('Noise session gating', () {
-      late MockISecurityManager mockSecurityManager;
-      late MockNoiseEncryptionService mockNoiseService;
       late MediaSendHandler handlerWithSecurity;
+      late String? capturedRecipientId;
+      late bool hasNoiseSession;
 
       setUp(() {
-        mockSecurityManager = MockISecurityManager();
-        mockNoiseService = MockNoiseEncryptionService();
+        capturedRecipientId = null;
+        hasNoiseSession = true;
         handlerWithSecurity = MediaSendHandler(
           meshService: mockMeshService,
-          securityManager: mockSecurityManager,
+          hasEstablishedNoiseSession: (recipientId) {
+            capturedRecipientId = recipientId;
+            return hasNoiseSession;
+          },
           logger: Logger.detached('MediaSendHandlerTest'),
         );
       });
@@ -683,10 +680,7 @@ void main() {
         () async {
           final testFile = File('${testDir.path}/test.jpg');
           await testFile.writeAsBytes(Uint8List.fromList([1, 2, 3]));
-
-          // Mock Noise service with no established session
-          when(mockSecurityManager.noiseService).thenReturn(mockNoiseService);
-          when(mockNoiseService.hasEstablishedSession(any)).thenReturn(false);
+          hasNoiseSession = false;
 
           await expectLater(
             handlerWithSecurity.sendImage(
@@ -713,6 +707,7 @@ void main() {
               metadata: anyNamed('metadata'),
             ),
           );
+          expect(capturedRecipientId, equals('recipient-123'));
         },
       );
 
@@ -721,9 +716,7 @@ void main() {
         final testBytes = Uint8List.fromList([1, 2, 3]);
         await testFile.writeAsBytes(testBytes);
 
-        // Mock Noise service with established session
-        when(mockSecurityManager.noiseService).thenReturn(mockNoiseService);
-        when(mockNoiseService.hasEstablishedSession(any)).thenReturn(true);
+        hasNoiseSession = true;
         when(
           mockMeshService.sendBinaryMedia(
             data: anyNamed('data'),
@@ -739,9 +732,7 @@ void main() {
         );
 
         expect(transferId, equals('test-transfer-id'));
-        verify(
-          mockNoiseService.hasEstablishedSession('recipient-123'),
-        ).called(1);
+        expect(capturedRecipientId, equals('recipient-123'));
         verify(
           mockMeshService.sendBinaryMedia(
             data: testBytes,
@@ -752,8 +743,8 @@ void main() {
         ).called(1);
       });
 
-      test('should skip Noise check when securityManager is null', () async {
-        // Use handler without security manager
+      test('should skip Noise check when callback is null', () async {
+        // Use handler without noise-session callback
         final testFile = File('${testDir.path}/test.jpg');
         await testFile.writeAsBytes(Uint8List.fromList([1, 2, 3]));
 

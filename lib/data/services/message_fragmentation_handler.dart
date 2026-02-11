@@ -3,11 +3,11 @@ import 'dart:typed_data';
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/interfaces/i_message_fragmentation_handler.dart';
-import '../../core/utils/message_fragmenter.dart';
-import '../../core/models/protocol_message.dart';
+import 'package:pak_connect/domain/interfaces/i_message_fragmentation_handler.dart';
+import '../../domain/utils/message_fragmenter.dart';
+import '../../domain/models/protocol_message.dart';
 import '../../domain/values/id_types.dart';
-import '../../core/utils/binary_fragmenter.dart';
+import '../../domain/utils/binary_fragmenter.dart';
 
 /// Handles message fragmentation, reassembly, and ACK management
 ///

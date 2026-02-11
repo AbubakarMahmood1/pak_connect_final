@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/core/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/core/exceptions/encryption_exception.dart';
-import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 
 // Simple mock for testing - no external dependencies needed
 class _MockContactRepository implements IContactRepository {

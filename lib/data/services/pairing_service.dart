@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_pairing_service.dart';
-import '../../core/models/pairing_state.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/interfaces/i_pairing_service.dart';
+import 'package:pak_connect/domain/models/pairing_state.dart';
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Pairing Service
 ///

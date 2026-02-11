@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../core/bluetooth/identity_session_state.dart';
-import '../../core/models/pairing_state.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/services/simple_crypto.dart';
+import '../../domain/models/identity_session_state.dart';
+import 'package:pak_connect/domain/models/pairing_state.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import '../../domain/services/simple_crypto.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'pairing_service.dart';
 
 /// Handles cleanup and state resets when pairing verification fails.
@@ -62,7 +63,16 @@ class PairingFailureHandler {
     }
 
     if (theirPersistentKey != null) {
-      SecurityManager.instance.unregisterIdentityMapping(theirPersistentKey);
+      try {
+        SecurityServiceLocator.instance.unregisterIdentityMapping(
+          theirPersistentKey,
+        );
+      } catch (e) {
+        _logger.fine(
+          'Skipping identity mapping unregister for '
+          '${theirPersistentKey.shortId()}...: $e',
+        );
+      }
       setTheirPersistentKey(null);
     }
     identityState.theirPersistentKey = null;

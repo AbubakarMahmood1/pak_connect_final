@@ -174,4 +174,3 @@ class MockFlutterSecureStorage implements FlutterSecureStorage {
   /// Get number of stored items
   int get length => _storage.length;
 }
-

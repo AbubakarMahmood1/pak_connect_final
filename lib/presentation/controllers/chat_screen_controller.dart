@@ -3,25 +3,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_connection_service.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/messaging/message_router.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/security/message_security.dart';
-import '../../core/services/message_retry_coordinator.dart';
-import '../../core/services/persistent_chat_state_manager.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/utils/chat_utils.dart';
-import '../../core/utils/string_extensions.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/repositories/message_repository.dart';
-import '../../data/services/ble_state_manager.dart';
-import '../../data/services/ble_state_manager_facade.dart';
+import '../../domain/interfaces/i_connection_service.dart';
+import '../../domain/models/connection_info.dart';
+import '../../domain/services/message_router.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
+import '../../domain/services/message_security.dart';
+import '../../domain/services/message_retry_coordinator.dart';
+import '../../domain/services/persistent_chat_state_manager.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import '../../domain/utils/chat_utils.dart';
+import '../../domain/utils/string_extensions.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_message_repository.dart';
+import '../../domain/interfaces/i_pairing_state_manager.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/models/mesh_network_models.dart';
-import '../../core/interfaces/i_mesh_networking_service.dart';
+import '../../domain/models/security_level.dart';
+import '../../domain/interfaces/i_mesh_networking_service.dart';
 import '../models/chat_screen_config.dart';
 import '../../presentation/controllers/chat_pairing_dialog_controller.dart';
 import '../../presentation/controllers/chat_scrolling_controller.dart'
@@ -67,9 +66,9 @@ class ChatScreenControllerArgs {
   final WidgetRef ref;
   final BuildContext context;
   final ChatScreenConfig config;
-  final MessageRepository messageRepository;
-  final ContactRepository contactRepository;
-  final ChatsRepository chatsRepository;
+  final IMessageRepository messageRepository;
+  final IContactRepository contactRepository;
+  final IChatsRepository chatsRepository;
   final PersistentChatStateManager? persistentChatManager;
   final MessageRetryCoordinator? retryCoordinator;
   final ChatMessagingViewModel? messagingViewModel;
@@ -98,9 +97,9 @@ class ChatScreenControllerArgs {
   final ChatPairingDialogController Function(
     BuildContext context,
     IConnectionService connectionService,
-    ContactRepository contactRepository,
+    IContactRepository contactRepository,
     NavigatorState navigator,
-    BLEStateManager stateManager,
+    IPairingStateManager stateManager,
     void Function(bool success) onPairingCompleted,
     void Function(String) onPairingError,
     void Function(String) onPairingSuccess,
@@ -108,9 +107,9 @@ class ChatScreenControllerArgs {
   pairingControllerFactory;
   final ChatSessionViewModel Function({
     required ChatScreenConfig config,
-    required MessageRepository messageRepository,
-    required ContactRepository contactRepository,
-    required ChatsRepository chatsRepository,
+    required IMessageRepository messageRepository,
+    required IContactRepository contactRepository,
+    required IChatsRepository chatsRepository,
     required ChatMessagingViewModel messagingViewModel,
     required chat_controller.ChatScrollingController scrollingController,
     required ChatSearchController searchController,
@@ -145,9 +144,9 @@ class ChatScreenControllerArgs {
     required IMeshNetworkingService meshService,
     MessageRouter? messageRouter,
     required MessageSecurity messageSecurity,
-    required MessageRepository messageRepository,
+    required IMessageRepository messageRepository,
     MessageRetryCoordinator? retryCoordinator,
-    OfflineMessageQueue? offlineQueue,
+    OfflineMessageQueueContract? offlineQueue,
     Logger? logger,
   })
   sessionLifecycleFactory;
@@ -160,9 +159,9 @@ class ChatScreenController extends ChangeNotifier {
   final WidgetRef ref;
   final BuildContext context;
   final ChatScreenConfig config;
-  final MessageRepository messageRepository;
-  final ContactRepository contactRepository;
-  final ChatsRepository chatsRepository;
+  final IMessageRepository messageRepository;
+  final IContactRepository contactRepository;
+  final IChatsRepository chatsRepository;
   late final Future<void> Function(Message message) _repositoryRetryHandler;
   final MessageRouter? _injectedMessageRouter;
   final ChatPairingDialogController? _injectedPairingController;
@@ -324,22 +323,20 @@ class ChatScreenController extends ChangeNotifier {
         _args.messagingViewModel ??
         _args.messagingViewModelFactory.call(_chatId, _contactPublicKey ?? '');
 
-    _scrollingController =
-        _args.scrollingControllerFactory.call(
-          _chatId,
-          () => _stateStore.clearNewWhileScrolledUp(),
-          (count) => _stateStore.setUnreadCount(count),
-          () => _sessionViewModel.onScrollStateChanged(),
-        );
+    _scrollingController = _args.scrollingControllerFactory.call(
+      _chatId,
+      () => _stateStore.clearNewWhileScrolledUp(),
+      (count) => _stateStore.setUnreadCount(count),
+      () => _sessionViewModel.onScrollStateChanged(),
+    );
 
-    _searchController =
-        _args.searchControllerFactory.call(
-          (isSearchMode) => _stateStore.setSearchMode(isSearchMode),
-          (query, _) => _sessionViewModel.onSearchResultsChanged(query),
-          (messageIndex) =>
-              _sessionViewModel.onNavigateToSearchResultIndex(messageIndex),
-          _scrollingController.scrollController,
-        );
+    _searchController = _args.searchControllerFactory.call(
+      (isSearchMode) => _stateStore.setSearchMode(isSearchMode),
+      (query, _) => _sessionViewModel.onSearchResultsChanged(query),
+      (messageIndex) =>
+          _sessionViewModel.onNavigateToSearchResultIndex(messageIndex),
+      _scrollingController.scrollController,
+    );
 
     final connectionService = ref.read(connectionServiceProvider);
     _pairingDialogController =
@@ -403,7 +400,7 @@ class ChatScreenController extends ChangeNotifier {
                 previousMessagingViewModel: previousMessagingViewModel,
                 previousScrollingController: previousScrollingController,
                 previousSearchController: previousSearchController,
-          ),
+              ),
           getConnectionServiceFn: () => ref.read(connectionServiceProvider),
         );
 
@@ -425,7 +422,7 @@ class ChatScreenController extends ChangeNotifier {
     _sessionViewModel.sessionLifecycle = _sessionLifecycle;
   }
 
-  BLEStateManager _resolvePairingStateManager(
+  IPairingStateManager _resolvePairingStateManager(
     IConnectionService connectionService,
   ) {
     if (_injectedPairingController != null) {
@@ -435,30 +432,25 @@ class ChatScreenController extends ChangeNotifier {
     try {
       final dynamic maybeWithManager = connectionService;
       final manager = maybeWithManager.stateManager;
-      if (manager is BLEStateManager) {
+      if (manager is IPairingStateManager) {
         return manager;
       }
-      if (manager is BLEStateManagerFacade) {
-        return manager.legacyStateManager;
-      }
-      if (manager is IBLEStateManagerFacade) {
-        // Best effort: some facades expose legacyStateManager dynamically.
-        try {
-          final dynamic dynamicManager = manager;
-          final legacy = dynamicManager.legacyStateManager;
-          if (legacy is BLEStateManager) {
-            return legacy;
-          }
-        } catch (_) {}
-      }
+      // Best effort: some facades expose legacyStateManager dynamically.
+      try {
+        final dynamic dynamicManager = manager;
+        final legacy = dynamicManager.legacyStateManager;
+        if (legacy is IPairingStateManager) {
+          return legacy;
+        }
+      } catch (_) {}
     } catch (_) {
       // Fall back below when the connection service doesn't expose stateManager.
     }
 
     _logger.warning(
-      'BLEStateManager not exposed by connection service; using fallback instance',
+      'Pairing state manager not exposed by connection service; using no-op fallback',
     );
-    return BLEStateManager();
+    return const _NoopPairingStateManager();
   }
 
   Future<void> initialize({bool logChatOpen = true}) async {
@@ -611,14 +603,12 @@ class ChatScreenController extends ChangeNotifier {
     }
 
     final contact = await contactRepository.getContactByUserId(userId);
-    final securityLevel = await SecurityManager.instance.getCurrentLevel(
+    final securityLevel = await SecurityServiceLocator.instance.getCurrentLevel(
       userId.value,
       contactRepository,
     );
-    final encryptionMethod = await SecurityManager.instance.getEncryptionMethod(
-      userId.value,
-      contactRepository,
-    );
+    final encryptionMethod = await SecurityServiceLocator.instance
+        .getEncryptionMethod(userId.value, contactRepository);
 
     _logger.info(
       'Chat open: ${config.contactName ?? "Unknown"} | Security=${securityLevel.name} | Encryption=${encryptionMethod.type.name}',
@@ -831,3 +821,22 @@ final chatScreenControllerProvider = ChangeNotifierProvider.autoDispose
       unawaited(controller.initialize());
       return controller;
     });
+
+class _NoopPairingStateManager implements IPairingStateManager {
+  const _NoopPairingStateManager();
+
+  @override
+  void clearPairing() {}
+
+  @override
+  Future<bool> completePairing(String theirCode) async => false;
+
+  @override
+  Future<bool> confirmSecurityUpgrade(
+    String publicKey,
+    SecurityLevel newLevel,
+  ) async => false;
+
+  @override
+  String generatePairingCode() => '';
+}

@@ -4,21 +4,19 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/interfaces/i_chats_repository.dart';
-import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/core/interfaces/i_mesh_networking_service.dart';
-import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/models/connection_info.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
-import 'package:pak_connect/core/models/ble_server_connection.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
-import 'package:pak_connect/core/models/spy_mode_info.dart';
-import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
+import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
-import 'package:pak_connect/core/security/message_security.dart';
-import 'package:pak_connect/core/services/persistent_chat_state_manager.dart';
+import 'package:pak_connect/domain/services/message_security.dart';
+import 'package:pak_connect/domain/services/persistent_chat_state_manager.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/repositories/chats_repository.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
@@ -33,15 +31,16 @@ import 'package:pak_connect/presentation/models/chat_screen_config.dart';
 import 'package:pak_connect/presentation/providers/chat_messaging_view_model.dart';
 import 'package:pak_connect/presentation/viewmodels/chat_session_view_model.dart';
 import 'package:pak_connect/presentation/controllers/chat_search_controller.dart';
-import 'package:pak_connect/core/utils/chat_utils.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
 import 'package:pak_connect/presentation/notifiers/chat_session_state_notifier.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
-import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
-import 'package:pak_connect/core/constants/binary_payload_types.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
+import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
     show PendingBinaryTransfer, ReceivedBinaryEvent;
+import 'package:pak_connect/domain/entities/queued_message.dart';
 
 ChatId _cid(String value) => ChatId(value);
 MessageId _mid(String value) => MessageId(value);
@@ -336,15 +335,13 @@ final _deliveredMessage = Message(
 );
 
 class _RecordingLifecycle extends ChatSessionLifecycle {
-  _RecordingLifecycle({
-    required super.viewModel,
-    this.sendSuccess = true,
-  }) : super(
-         connectionService: _FakeConnectionService(),
-         meshService: _FakeMeshService(),
-         messageSecurity: MessageSecurity(),
-         messageRepository: _FakeMessageRepository(),
-       );
+  _RecordingLifecycle({required super.viewModel, this.sendSuccess = true})
+    : super(
+        connectionService: _FakeConnectionService(),
+        meshService: _FakeMeshService(),
+        messageSecurity: MessageSecurity(),
+        messageRepository: _FakeMessageRepository(),
+      );
 
   final bool sendSuccess;
   _SendPayload? lastSendPayload;

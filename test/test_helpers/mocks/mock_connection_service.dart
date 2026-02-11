@@ -3,15 +3,15 @@ import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 
-import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
-import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
-import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
-import 'package:pak_connect/core/models/connection_info.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/models/spy_mode_info.dart';
-import 'package:pak_connect/core/models/ble_server_connection.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 
 /// Lightweight mock for [IConnectionService] used by the Phase 5 harness.

@@ -5,8 +5,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pak_connect/core/monitoring/performance_metrics.dart';
-import 'package:pak_connect/core/security/noise/adaptive_encryption_strategy.dart';
+import 'package:pak_connect/domain/services/performance_metrics.dart';
+import 'package:pak_connect/domain/services/adaptive_encryption_strategy.dart';
 
 class PerformanceMetricsWidget extends StatefulWidget {
   const PerformanceMetricsWidget({super.key});

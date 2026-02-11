@@ -1,66 +1,81 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/app_core.dart';
+import '../../domain/interfaces/i_shared_message_queue_provider.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
+
+/// Bootstrap state values for the application lifecycle.
+enum AppBootstrapStatus { initializing, ready, running, error }
 
 /// Bootstrap state for the application lifecycle.
 class AppBootstrapState {
-  final AppStatus status;
+  final AppBootstrapStatus status;
   final Object? error;
   final StackTrace? stackTrace;
 
   const AppBootstrapState({required this.status, this.error, this.stackTrace});
 
-  bool get isReady => status == AppStatus.ready || status == AppStatus.running;
+  bool get isReady =>
+      status == AppBootstrapStatus.ready ||
+      status == AppBootstrapStatus.running;
 }
 
-/// AsyncNotifier that initializes [AppCore] once and surfaces lifecycle state.
+/// AsyncNotifier that initializes app runtime dependencies once.
 class AppBootstrapNotifier extends AsyncNotifier<AppBootstrapState> {
   final _logger = Logger('AppBootstrapNotifier');
-  StreamSubscription<AppStatus>? _statusSubscription;
 
   @override
   Future<AppBootstrapState> build() async {
-    ref.onDispose(() => _statusSubscription?.cancel());
-
-    final core = AppCore.instance;
-    final initialStatus = core.isInitialized
-        ? AppStatus.running
-        : AppStatus.initializing;
-    final initialState = AppBootstrapState(status: initialStatus);
-
-    // Listen for status transitions and keep state in sync.
-    _statusSubscription = core.statusStream.listen((status) {
-      final current = state.asData?.value ?? initialState;
-      state = AsyncValue.data(
-        AppBootstrapState(
-          status: status,
-          error: current.error,
-          stackTrace: current.stackTrace,
-        ),
-      );
-    });
+    final bootstrapHost = _resolveBootstrapHost();
+    final initialStatus = bootstrapHost.isInitialized
+        ? AppBootstrapStatus.running
+        : AppBootstrapStatus.initializing;
+    state = AsyncValue.data(AppBootstrapState(status: initialStatus));
 
     try {
-      _logger.info('🔧 Bootstrapping AppCore...');
-      await core.initialize();
-      _logger.info('✅ AppCore initialized');
-      return AppBootstrapState(status: AppStatus.ready);
+      _logger.info('🔧 Bootstrapping runtime host...');
+      await bootstrapHost.initialize();
+      _logger.info('✅ Runtime host initialized');
+      return const AppBootstrapState(status: AppBootstrapStatus.ready);
     } catch (e, stack) {
-      _logger.severe('❌ AppCore initialization failed', e, stack);
+      _logger.severe('❌ Runtime bootstrap failed', e, stack);
       return AppBootstrapState(
-        status: AppStatus.error,
+        status: AppBootstrapStatus.error,
         error: e,
         stackTrace: stack,
       );
     }
   }
+
+  ISharedMessageQueueProvider _resolveBootstrapHost() {
+    final di = GetIt.instance;
+    if (di.isRegistered<ISharedMessageQueueProvider>()) {
+      return di<ISharedMessageQueueProvider>();
+    }
+    return const _NoopSharedMessageQueueProvider();
+  }
 }
 
-/// Provider that ensures AppCore is initialized exactly once.
+/// Provider that ensures application bootstrap is triggered once.
 final appBootstrapProvider =
     AsyncNotifierProvider<AppBootstrapNotifier, AppBootstrapState>(
       () => AppBootstrapNotifier(),
     );
+
+class _NoopSharedMessageQueueProvider implements ISharedMessageQueueProvider {
+  const _NoopSharedMessageQueueProvider();
+
+  @override
+  bool get isInitialized => true;
+
+  @override
+  bool get isInitializing => false;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  OfflineMessageQueueContract get messageQueue =>
+      throw StateError('No shared queue host registered.');
+}

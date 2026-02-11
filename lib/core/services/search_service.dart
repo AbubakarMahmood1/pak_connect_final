@@ -5,13 +5,13 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get_it/get_it.dart';
-import '../interfaces/i_chats_repository.dart';
-import '../interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import '../../domain/services/archive_search_service.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/archived_message.dart';
-import '../../core/models/archive_models.dart';
+import '../../domain/models/archive_models.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Service for searching messages across chats and archives

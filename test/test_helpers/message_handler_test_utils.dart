@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 
 const _publicKeyStorageKey = 'ecdh_public_key_v2';
 

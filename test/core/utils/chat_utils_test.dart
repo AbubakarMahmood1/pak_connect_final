@@ -7,7 +7,7 @@ library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/utils/chat_utils.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
 
 void main() {
   group('ChatUtils.extractContactKey', () {

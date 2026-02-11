@@ -1,19 +1,19 @@
 import 'package:logging/logging.dart';
-import '../messaging/offline_message_queue.dart';
-import '../models/mesh_relay_models.dart';
-import '../security/spam_prevention_manager.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
 
 /// Handles relay send pipeline (broadcast + next-hop delivery) independent of decision logic.
 class RelaySendPipeline {
   final Logger _logger;
-  final OfflineMessageQueue _messageQueue;
+  final OfflineMessageQueueContract _messageQueue;
   final SpamPreventionManager _spamPrevention;
 
   RelaySendPipeline({
     required Logger logger,
-    required OfflineMessageQueue messageQueue,
+    required OfflineMessageQueueContract messageQueue,
     required SpamPreventionManager spamPrevention,
   }) : _logger = logger,
        _messageQueue = messageQueue,

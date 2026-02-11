@@ -1,5 +1,5 @@
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_archive_repository.dart';
+import '../interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 
 /// Manages archive search indexes and content tokenization

@@ -7,7 +7,7 @@ import '../providers/archive_provider.dart';
 import '../widgets/archived_chat_tile.dart';
 import '../widgets/archive_statistics_card.dart';
 import '../widgets/archive_search_delegate.dart';
-import '../../core/models/archive_models.dart';
+import '../../domain/models/archive_models.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/values/id_types.dart';

@@ -8,16 +8,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/interfaces/i_chats_repository.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/models/connection_status.dart';
-import '../../core/services/home_screen_facade.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_home_screen_facade.dart';
+import '../../domain/models/connection_info.dart';
+import '../../domain/models/connection_status.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/values/id_types.dart';
 import '../providers/ble_providers.dart';
-import '../../core/performance/performance_monitor.dart';
+import '../providers/home_screen_providers.dart';
+import '../../domain/services/performance_monitor.dart';
 
 class HomeScreenControllerArgs {
   const HomeScreenControllerArgs({
@@ -34,7 +34,7 @@ class HomeScreenControllerArgs {
   final IChatsRepository chatsRepository;
   final ChatManagementService chatManagementService;
   final Logger? logger;
-  final HomeScreenFacade? homeScreenFacade;
+  final IHomeScreenFacade? homeScreenFacade;
 }
 
 class HomeScreenController extends ChangeNotifier {
@@ -46,13 +46,16 @@ class HomeScreenController extends ChangeNotifier {
       _chatManagementService = args.chatManagementService,
       _homeScreenFacade =
           args.homeScreenFacade ??
-          HomeScreenFacade(
-            chatsRepository: args.chatsRepository,
-            bleService: args.ref.read(connectionServiceProvider),
-            chatManagementService: args.chatManagementService,
-            context: args.context,
-            ref: args.ref,
-            enableListCoordinatorInitialization: false,
+          args.ref.read(
+            homeScreenFacadeProvider(
+              HomeScreenProviderArgs(
+                context: args.context,
+                ref: args.ref,
+                chatsRepository: args.chatsRepository,
+                chatManagementService: args.chatManagementService,
+                logger: args.logger,
+              ),
+            ),
           );
 
   final WidgetRef ref;
@@ -60,7 +63,7 @@ class HomeScreenController extends ChangeNotifier {
   final Logger _logger;
   final IChatsRepository _chatsRepository;
   final ChatManagementService _chatManagementService;
-  final HomeScreenFacade _homeScreenFacade;
+  final IHomeScreenFacade _homeScreenFacade;
   final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
 
   bool _isDisposed = false;
@@ -371,7 +374,7 @@ class HomeScreenController extends ChangeNotifier {
     required String contactName,
     required ConnectionInfo? currentConnectionInfo,
     required List<Peripheral> discoveredDevices,
-    required Map<String, DiscoveredDevice> discoveryData,
+    required Map<String, dynamic> discoveryData,
     required DateTime? lastSeenTime,
   }) {
     return _homeScreenFacade.determineConnectionStatus(

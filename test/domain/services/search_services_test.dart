@@ -6,7 +6,7 @@ import 'package:pak_connect/domain/services/search_cache_manager.dart';
 import 'package:pak_connect/domain/services/search_history_manager.dart';
 import 'package:pak_connect/domain/services/search_analytics_tracker.dart';
 import 'package:pak_connect/domain/services/archive_search_models.dart';
-import 'package:pak_connect/core/models/archive_models.dart';
+import 'package:pak_connect/domain/models/archive_models.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

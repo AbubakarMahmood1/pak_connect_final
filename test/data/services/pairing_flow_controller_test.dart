@@ -4,15 +4,15 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
-import 'package:pak_connect/core/bluetooth/identity_session_state.dart';
-import 'package:pak_connect/core/models/pairing_state.dart';
-import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
-import 'package:pak_connect/core/security/security_types.dart';
+import 'package:pak_connect/domain/models/identity_session_state.dart';
+import 'package:pak_connect/domain/models/pairing_state.dart';
+import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/pairing_flow_controller.dart';
 import 'package:pak_connect/data/services/pairing_lifecycle_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _MockContactRepository extends Mock implements ContactRepository {

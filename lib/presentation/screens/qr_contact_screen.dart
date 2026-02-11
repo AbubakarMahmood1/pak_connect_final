@@ -2,12 +2,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:get_it/get_it.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:qr_barcode_dialog_scanner/qr_barcode_dialog_scanner.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/ephemeral_discovery_hint.dart';
-import '../../data/repositories/intro_hint_repository.dart';
-import '../../data/repositories/user_preferences.dart';
+import '../../domain/interfaces/i_intro_hint_repository.dart';
+import '../../domain/interfaces/i_user_preferences.dart';
 
 class QRContactScreen extends ConsumerStatefulWidget {
   const QRContactScreen({super.key});
@@ -22,7 +23,8 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
   EphemeralDiscoveryHint? _scannedHint;
   bool _hasScanned = false;
 
-  final _introHintRepo = IntroHintRepository();
+  late final IIntroHintRepository _introHintRepo =
+      _resolveIntroHintRepository();
 
   @override
   void initState() {
@@ -31,7 +33,7 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
   }
 
   Future<void> _generateMyQR() async {
-    final userPrefs = UserPreferences();
+    final userPrefs = _resolveUserPreferences();
     final displayName = await userPrefs.getUserName();
 
     // Generate ephemeral discovery hint (14-day validity)
@@ -47,6 +49,28 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
       _myHint = hint;
       _myQRData = hint.toQRString();
     });
+  }
+
+  IUserPreferences _resolveUserPreferences() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IUserPreferences>()) {
+      return di<IUserPreferences>();
+    }
+    throw StateError(
+      'IUserPreferences is not registered. '
+      'Call setupServiceLocator() before opening QRContactScreen.',
+    );
+  }
+
+  IIntroHintRepository _resolveIntroHintRepository() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IIntroHintRepository>()) {
+      return di<IIntroHintRepository>();
+    }
+    throw StateError(
+      'IIntroHintRepository is not registered. '
+      'Call setupServiceLocator() before opening QRContactScreen.',
+    );
   }
 
   @override

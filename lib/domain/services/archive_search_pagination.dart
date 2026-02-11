@@ -1,4 +1,4 @@
-import '../../core/models/archive_models.dart';
+import '../models/archive_models.dart';
 import '../../domain/entities/archived_message.dart';
 
 /// Helper to enforce pagination/limits on archive search results

@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/core/security/noise/primitives/symmetric_state.dart';
 
 void main() {

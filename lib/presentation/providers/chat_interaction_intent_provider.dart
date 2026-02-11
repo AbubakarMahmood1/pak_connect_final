@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/interfaces/i_chats_repository.dart';
-import '../../core/interfaces/i_chat_interaction_handler.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_chat_interaction_handler.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../presentation/services/chat_interaction_handler.dart';
 

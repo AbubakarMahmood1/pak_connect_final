@@ -52,7 +52,8 @@ class SelectiveRestoreService {
               backupPath,
               options: sqlcipher.SqlCipherOpenDatabaseOptions(
                 readOnly: true,
-                password: encryptionKey, // Use encryption key on mobile platforms
+                password:
+                    encryptionKey, // Use encryption key on mobile platforms
               ),
             )
           : await factory.openDatabase(

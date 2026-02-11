@@ -1,34 +1,32 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:get_it/get_it.dart';
 import 'dart:async';
-import '../../data/services/ble_service.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/models/spy_mode_info.dart';
-import '../../core/scanning/burst_scanning_controller.dart';
-import '../../core/power/adaptive_power_manager.dart';
-import '../../data/repositories/chats_repository.dart';
+import '../../domain/models/connection_info.dart';
+import '../../domain/models/spy_mode_info.dart';
+import '../../domain/services/burst_scanning_controller.dart';
+import '../../domain/services/adaptive_power_manager.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/enhanced_contact.dart';
-import '../../data/repositories/user_preferences.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../core/messaging/message_router.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/app_core.dart'; // ✅ FIX #1: Import AppCore for initialization check
-import '../../core/services/security_manager.dart';
-import '../../core/bluetooth/bluetooth_state_monitor.dart';
-import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
-import '../../core/interfaces/i_mesh_ble_service.dart';
-import '../../core/interfaces/i_connection_service.dart';
-import '../../core/interfaces/i_ble_service_facade.dart';
-import '../../core/interfaces/i_ble_service.dart';
-import '../../core/interfaces/i_ble_handshake_service.dart';
-import '../../core/bluetooth/handshake_coordinator.dart';
-import '../../core/models/ble_server_connection.dart';
+import '../../domain/entities/contact.dart';
+import '../../domain/services/message_router.dart';
+import '../../domain/services/device_deduplication_manager.dart';
+import '../../domain/models/security_level.dart';
+import '../../domain/services/bluetooth_state_monitor.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_user_preferences.dart';
+import '../../domain/models/connection_phase.dart';
+import '../../domain/models/ble_server_connection.dart';
 import 'mesh_networking_provider.dart';
 import 'runtime_providers.dart';
-import '../../core/utils/string_extensions.dart';
+import '../../domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/models/message_priority.dart';
+
+final GetIt getIt = GetIt.instance;
 
 // =============================================================================
 // CORE RUNTIME NOTIFIER (BLE)
@@ -202,10 +200,15 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
   }
 
   Future<void> _awaitInitialization(IConnectionService service) async {
-    if (service is IBLEServiceFacade) {
-      await (service as IBLEServiceFacade).initializationComplete;
-    } else if (service is IBLEService) {
-      await (service as IBLEService).initializationComplete;
+    try {
+      final dynamic maybeService = service;
+      final Future<void>? initializationComplete =
+          maybeService.initializationComplete as Future<void>?;
+      if (initializationComplete != null) {
+        await initializationComplete;
+      }
+    } catch (_) {
+      // Legacy/test implementations may not expose initializationComplete.
     }
   }
 
@@ -221,7 +224,8 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
           connectionService.currentSessionId;
       if (persistentKey == null || persistentKey.isEmpty) return;
 
-      final contactRepo = ContactRepository();
+      if (!getIt.isRegistered<IContactRepository>()) return;
+      final contactRepo = getIt<IContactRepository>();
       final contact = await contactRepo.getContactByAnyId(persistentKey);
 
       final displayName =
@@ -325,8 +329,15 @@ final bleBluetoothStatusStreamProvider = StreamProvider<BluetoothStatusMessage>(
 
 final bleHandshakePhaseStreamProvider = StreamProvider<ConnectionPhase>((ref) {
   final service = ref.watch(connectionServiceProvider);
-  if (service is IBLEHandshakeService) {
-    return (service as IBLEHandshakeService).handshakePhaseStream;
+  try {
+    final dynamic maybeService = service;
+    final Stream<ConnectionPhase>? handshakePhaseStream =
+        maybeService.handshakePhaseStream as Stream<ConnectionPhase>?;
+    if (handshakePhaseStream != null) {
+      return handshakePhaseStream;
+    }
+  } catch (_) {
+    // Some mock/test services do not expose handshake phase streams.
   }
   return const Stream.empty();
 });
@@ -340,19 +351,20 @@ class UsernameNotifier extends AsyncNotifier<String> {
   @override
   Future<String> build() async {
     // Initial load from storage
-    return await UserPreferences().getUserName();
+    return await _resolveUserPreferences().getUserName();
   }
 
   /// Update username with full BLE integration and real-time UI updates
   Future<void> updateUsername(String newUsername) async {
     final connectionService = ref.read(connectionServiceProvider);
+    final preferences = _resolveUserPreferences();
 
     // Set loading state
     state = const AsyncValue.loading();
 
     try {
       // 1. Update username in storage
-      await UserPreferences().setUserName(newUsername);
+      await preferences.setUserName(newUsername);
 
       // 2. Update BLE state manager cache
       await connectionService.setMyUserName(newUsername);
@@ -383,6 +395,13 @@ class UsernameNotifier extends AsyncNotifier<String> {
         print('Failed to re-exchange identity: $e');
       }
     }
+  }
+
+  IUserPreferences _resolveUserPreferences() {
+    if (getIt.isRegistered<IUserPreferences>()) {
+      return getIt<IUserPreferences>();
+    }
+    return _FallbackUserPreferences.instance;
   }
 }
 
@@ -435,107 +454,54 @@ class UsernameOperations {
   }
 }
 
-// BLE Service provider - fetches DI-registered instance or creates fallback
-final bleServiceProvider = Provider<BLEService>((ref) {
-  if (getIt.isRegistered<BLEService>()) {
-    return getIt<BLEService>();
-  }
-
-  final service = BLEService();
-  bool registered = false;
-
-  try {
-    getIt.registerSingleton<BLEService>(service);
-    registered = true;
-  } catch (_) {
-    // Already registered elsewhere (tests may double-register)
-  }
-
-  if (!getIt.isRegistered<IMeshBleService>()) {
-    try {
-      getIt.registerSingleton<IMeshBleService>(service);
-    } catch (_) {
-      // Ignore duplicate registration failures
-    }
-  }
-  if (!getIt.isRegistered<IConnectionService>()) {
-    try {
-      getIt.registerSingleton<IConnectionService>(service);
-    } catch (_) {
-      // Ignore duplicate registration failures
-    }
-  }
-  if (!getIt.isRegistered<IBLEServiceFacade>()) {
-    try {
-      getIt.registerSingleton<IBLEServiceFacade>(service);
-    } catch (_) {
-      // Ignore duplicate registration failures
-    }
-  }
-
-  ref.onDispose(() {
-    if (registered) {
-      try {
-        MessageRouter.instance.dispose();
-      } catch (_) {
-        // Router may not be initialized in fallback contexts
-      }
-      service.dispose();
-      try {
-        getIt.unregister<BLEService>();
-      } catch (_) {}
-      try {
-        getIt.unregister<IMeshBleService>();
-      } catch (_) {}
-      try {
-        getIt.unregister<IConnectionService>();
-      } catch (_) {}
-      try {
-        getIt.unregister<IBLEServiceFacade>();
-      } catch (_) {}
-    }
-  });
-
-  return service;
-});
-
-/// Preferred seam for new features - resolves the abstract connection service.
-/// Falls back to the legacy [BLEService] provider when AppCore has not
-/// registered the interface yet (e.g., widget tests).
-final connectionServiceProvider = Provider<IConnectionService>((ref) {
+// Legacy compatibility provider name retained for tests/overrides.
+// Source of truth is now the domain-facing IConnectionService contract.
+final bleServiceProvider = Provider<IConnectionService>((ref) {
   if (getIt.isRegistered<IConnectionService>()) {
     return getIt<IConnectionService>();
   }
+  throw StateError(
+    'IConnectionService is not registered. '
+    'Call setupServiceLocator() before using BLE providers.',
+  );
+});
 
-  // Fallback to the legacy provider so existing tests keep working.
+/// Preferred seam for new features - resolves the abstract connection service.
+final connectionServiceProvider = Provider<IConnectionService>((ref) {
   return ref.watch(bleServiceProvider);
 });
 
-// ✅ NEW: Initialized BLE service provider - waits for AppCore to be ready
+// ✅ NEW: Initialized BLE service provider - waits for bootstrap to be ready
 // Use this provider when you need a fully initialized BLE service
-final bleServiceInitializedProvider = FutureProvider<BLEService>((ref) async {
+final bleServiceInitializedProvider = FutureProvider<IConnectionService>((
+  ref,
+) async {
   final service = ref.watch(bleServiceProvider);
 
-  // Wait for AppCore to be fully initialized (messageQueue must exist)
-  int attempts = 0;
-  while (!AppCore.instance.isInitialized && attempts < 100) {
-    await Future.delayed(Duration(milliseconds: 100));
-    attempts++;
+  final bootstrapState = await ref.watch(appBootstrapProvider.future);
+  if (!bootstrapState.isReady) {
+    throw StateError('App bootstrap not ready (${bootstrapState.status.name})');
   }
 
-  if (!AppCore.instance.isInitialized) {
-    throw StateError(
-      'AppCore initialization timeout after ${attempts * 100}ms',
-    );
+  bool isInitialized = true;
+  try {
+    final dynamic maybeService = service;
+    final dynamic status = maybeService.isInitialized;
+    if (status is bool) {
+      isInitialized = status;
+    }
+  } catch (_) {
+    // Interface-only implementations may not expose initialization status.
   }
 
-  if (!service.isInitialized) {
+  if (!isInitialized) {
     if (kDebugMode) {
       print('✅ [BLEService] Starting initialization (AppCore is ready)');
     }
 
     try {
-      await service.initialize();
+      final dynamic maybeService = service;
+      await maybeService.initialize();
       await MessageRouter.initialize(service);
 
       if (kDebugMode) {
@@ -593,12 +559,18 @@ final peripheralConnectionChangesProvider =
 final serverConnectionsStreamProvider =
     StreamProvider.autoDispose<List<BLEServerConnection>>((ref) {
       final service = ref.watch(connectionServiceProvider);
-      // Check if the service exposes the manager directly or via facade
-      if (service is BLEService) {
-        return service.connectionManager.serverConnectionsStream;
+      // Check if the implementation exposes a connectionManager with stream.
+      try {
+        final dynamic dynamicService = service;
+        final dynamic manager = dynamicService.connectionManager;
+        final dynamic stream = manager.serverConnectionsStream;
+        if (stream is Stream<List<BLEServerConnection>>) {
+          return stream;
+        }
+      } catch (_) {
+        // Fall back below when implementation doesn't expose this internal API.
       }
-      // Fallback for facades/mocks if they don't expose the manager directly
-      // This might return empty if the facade doesn't support it, but prevents crashes
+      // Fallback for facades/mocks if they don't expose the manager directly.
       return const Stream.empty();
     });
 
@@ -644,8 +616,14 @@ final identityRevealedProvider = Provider.autoDispose<AsyncValue<String>>((
       );
 });
 
-final chatsRepositoryProvider = Provider<ChatsRepository>((ref) {
-  return ChatsRepository();
+final chatsRepositoryProvider = Provider<IChatsRepository>((ref) {
+  if (getIt.isRegistered<IChatsRepository>()) {
+    return getIt<IChatsRepository>();
+  }
+  throw StateError(
+    'IChatsRepository is not registered. '
+    'Call setupServiceLocator() before using chatsRepositoryProvider.',
+  );
 });
 
 // Discovery data with advertisements provider (driven by BleRuntimeNotifier)
@@ -1182,6 +1160,57 @@ class MessageSendCapabilities {
     if (canSendMesh) methods.add(MessageSendMethod.mesh);
     return methods;
   }
+}
+
+class _FallbackUserPreferences implements IUserPreferences {
+  static final _FallbackUserPreferences instance = _FallbackUserPreferences._();
+
+  _FallbackUserPreferences._();
+
+  String _name = 'User';
+  String? _deviceId;
+  bool _hintBroadcastEnabled = true;
+
+  @override
+  Future<String> getUserName() async => _name;
+
+  @override
+  Future<void> setUserName(String name) async {
+    final trimmed = name.trim();
+    _name = trimmed.isEmpty ? 'User' : trimmed;
+  }
+
+  @override
+  Future<String> getOrCreateDeviceId() async {
+    _deviceId ??= 'fallback-device-id';
+    return _deviceId!;
+  }
+
+  @override
+  Future<String?> getDeviceId() async => _deviceId;
+
+  @override
+  Future<Map<String, String>> getOrCreateKeyPair() async => {
+    'public': '',
+    'private': '',
+  };
+
+  @override
+  Future<String> getPublicKey() async => '';
+
+  @override
+  Future<String> getPrivateKey() async => '';
+
+  @override
+  Future<bool> getHintBroadcastEnabled() async => _hintBroadcastEnabled;
+
+  @override
+  Future<void> setHintBroadcastEnabled(bool enabled) async {
+    _hintBroadcastEnabled = enabled;
+  }
+
+  @override
+  Future<void> regenerateKeyPair() async {}
 }
 
 /// Burst scanning operations class for UI control

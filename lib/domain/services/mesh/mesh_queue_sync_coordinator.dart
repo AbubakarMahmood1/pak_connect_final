@@ -2,19 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/interfaces/i_message_repository.dart';
-import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/messaging/queue_sync_manager.dart';
-import 'package:pak_connect/core/messaging/message_ack_tracker.dart';
-import 'package:pak_connect/core/models/connection_info.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/utils/mesh_debug_logger.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/mesh_debug_logger.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/messaging/message_ack_tracker.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-import 'package:pak_connect/core/config/kill_switches.dart';
+import 'package:pak_connect/domain/config/kill_switches.dart';
 
 import 'mesh_network_health_monitor.dart';
 
@@ -22,7 +22,10 @@ typedef ShouldRelayThroughDevice =
     Future<bool> Function(QueuedMessage message, String deviceId);
 
 typedef QueueSyncManagerFactory =
-    QueueSyncManagerContract Function(OfflineMessageQueue queue, String nodeId);
+    QueueSyncManagerContract Function(
+      OfflineMessageQueueContract queue,
+      String nodeId,
+    );
 
 /// Coordinates queue + sync responsibilities for MeshNetworkingService.
 class MeshQueueSyncCoordinator {
@@ -33,7 +36,7 @@ class MeshQueueSyncCoordinator {
   final ShouldRelayThroughDevice _shouldRelayThroughDevice;
   final QueueSyncManagerFactory _queueSyncManagerFactory;
 
-  OfflineMessageQueue? _messageQueue;
+  OfflineMessageQueueContract? _messageQueue;
   QueueSyncManagerContract? _queueSyncManager;
   String? _currentNodeId;
   VoidCallback? _onStatusChanged;
@@ -61,7 +64,7 @@ class MeshQueueSyncCoordinator {
        _logger = logger ?? Logger('MeshQueueSyncCoordinator');
   late final MessageAckTracker _ackTracker = MessageAckTracker();
 
-  OfflineMessageQueue? get messageQueue => _messageQueue;
+  OfflineMessageQueueContract? get messageQueue => _messageQueue;
 
   QueueStatistics? get queueStatistics => _messageQueue?.getStatistics();
 
@@ -83,7 +86,7 @@ class MeshQueueSyncCoordinator {
 
   Future<void> initialize({
     required String nodeId,
-    required OfflineMessageQueue messageQueue,
+    required OfflineMessageQueueContract messageQueue,
     required VoidCallback onStatusChanged,
   }) async {
     if (KillSwitches.disableQueueSync) {
@@ -703,7 +706,7 @@ class QueueSyncManagerAdapter implements QueueSyncManagerContract {
   final QueueSyncManager _manager;
 
   QueueSyncManagerAdapter({
-    required OfflineMessageQueue queue,
+    required OfflineMessageQueueContract queue,
     required String nodeId,
   }) : _manager = QueueSyncManager(messageQueue: queue, nodeId: nodeId);
 

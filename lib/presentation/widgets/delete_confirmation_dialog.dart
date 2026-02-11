@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../domain/entities/message.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 class DeleteConfirmationDialog extends StatefulWidget {
   final Message message;

@@ -2,7 +2,7 @@ import 'dart:convert';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/values/id_types.dart';
-import '../../core/security/archive_crypto.dart';
+import '../../domain/services/archive_crypto.dart';
 
 /// Helper for archive data transformations, compression, and serialization
 class ArchiveDataHelper {

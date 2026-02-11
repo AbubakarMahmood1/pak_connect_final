@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pak_connect/core/networking/topology_manager.dart';
-import 'package:pak_connect/core/models/network_topology.dart';
+import 'package:pak_connect/domain/routing/topology_manager.dart';
+import 'package:pak_connect/domain/models/network_topology.dart';
 
 /// Provider for TopologyManager singleton
 final topologyManagerProvider = Provider.autoDispose<TopologyManager>((ref) {

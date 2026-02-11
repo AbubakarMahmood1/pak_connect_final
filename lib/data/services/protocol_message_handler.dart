@@ -2,15 +2,17 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_protocol_message_handler.dart';
-import '../../core/interfaces/i_identity_manager.dart';
-import '../../core/models/mesh_relay_models.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/security/signing_manager.dart';
-import '../../core/services/security_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_protocol_message_handler.dart';
+import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart'
+    as domain_models;
+import 'package:pak_connect/domain/models/protocol_message_type.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
+import '../../domain/services/signing_manager.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../data/repositories/contact_repository.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Handles protocol message parsing and dispatching
 ///
@@ -36,7 +38,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   // Queue sync callbacks (registered by relay coordinator)
   Function(QueueSyncMessage, String)? _onQueueSyncReceived;
-  Function(ProtocolMessage message)? _onSendAckMessage;
+  Function(domain_models.ProtocolMessage message)? _onSendAckMessage;
   Future<void> Function(
     String content,
     String? messageId,
@@ -58,7 +60,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   /// Processes a received protocol message
   @override
   Future<String?> processProtocolMessage({
-    required ProtocolMessage message,
+    required domain_models.ProtocolMessage message,
     required String fromDeviceId,
     required String fromNodeId,
     String? transportMessageId,
@@ -85,7 +87,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     String? transportMessageId,
   }) async {
     try {
-      final protocolMessage = ProtocolMessage.fromBytes(
+      final protocolMessage = domain_models.ProtocolMessage.fromBytes(
         Uint8List.fromList(content.codeUnits),
       );
       return await _processProtocolMessage(
@@ -102,7 +104,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   /// Handles direct protocol messages (not relayed)
   @override
   Future<String?> handleDirectProtocolMessage({
-    required ProtocolMessage message,
+    required domain_models.ProtocolMessage message,
     required String fromDeviceId,
     String? transportMessageId,
   }) async {
@@ -120,7 +122,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   /// Main protocol message processing dispatcher
   Future<String?> _processProtocolMessage(
-    ProtocolMessage message,
+    domain_models.ProtocolMessage message,
     String fromNodeId,
     String? transportMessageId,
   ) async {
@@ -173,7 +175,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   /// Handles text message reception with decryption and signature verification
   Future<String?> _handleTextMessage(
-    ProtocolMessage message,
+    domain_models.ProtocolMessage message,
     String fromNodeId,
     String? transportMessageId,
   ) async {
@@ -193,11 +195,8 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       String decryptedContent = content;
       if (message.isEncrypted && fromNodeId.isNotEmpty) {
         try {
-          decryptedContent = await SecurityManager.instance.decryptMessage(
-            content,
-            fromNodeId,
-            _contactRepository,
-          );
+          decryptedContent = await SecurityServiceLocator.instance
+              .decryptMessage(content, fromNodeId, _contactRepository);
           _logger.fine('🔒 Message decrypted successfully');
         } catch (e) {
           _logger.warning(
@@ -251,7 +250,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   }
 
   /// Handles incoming contact request
-  Future<String?> _handleContactRequest(ProtocolMessage message) async {
+  Future<String?> _handleContactRequest(
+    domain_models.ProtocolMessage message,
+  ) async {
     try {
       final publicKey = message.contactRequestPublicKey;
       final displayName = message.contactRequestDisplayName;
@@ -268,7 +269,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   }
 
   /// Handles incoming contact accept
-  Future<String?> _handleContactAccept(ProtocolMessage message) async {
+  Future<String?> _handleContactAccept(
+    domain_models.ProtocolMessage message,
+  ) async {
     try {
       final publicKey = message.contactAcceptPublicKey;
       final displayName = message.contactAcceptDisplayName;
@@ -297,7 +300,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   }
 
   /// Handles crypto verification request
-  Future<String?> _handleCryptoVerification(ProtocolMessage message) async {
+  Future<String?> _handleCryptoVerification(
+    domain_models.ProtocolMessage message,
+  ) async {
     try {
       final verificationId = message.payload['verificationId'] as String?;
       final contactKey = message.payload['contactKey'] as String?;
@@ -315,7 +320,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   /// Handles crypto verification response
   Future<String?> _handleCryptoVerificationResponse(
-    ProtocolMessage message,
+    domain_models.ProtocolMessage message,
   ) async {
     try {
       final verificationId = message.payload['verificationId'] as String?;
@@ -342,7 +347,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   /// Handles queue sync message
   Future<String?> _handleQueueSync(
-    ProtocolMessage message,
+    domain_models.ProtocolMessage message,
     String fromNodeId,
     String? transportMessageId,
   ) async {
@@ -363,7 +368,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   }
 
   /// Handles friend reveal (spy mode identity disclosure)
-  Future<String?> _handleFriendReveal(ProtocolMessage message) async {
+  Future<String?> _handleFriendReveal(
+    domain_models.ProtocolMessage message,
+  ) async {
     try {
       final contactName =
           message.payload['contactName'] as String? ??
@@ -532,7 +539,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   }
 
   @override
-  void onSendAckMessage(Function(ProtocolMessage message) callback) {
+  void onSendAckMessage(
+    Function(domain_models.ProtocolMessage message) callback,
+  ) {
     _onSendAckMessage = callback;
   }
 
@@ -552,7 +561,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     if (_onSendAckMessage == null) return;
 
     try {
-      final ackMessage = ProtocolMessage.ack(originalMessageId: messageId);
+      final ackMessage = domain_models.ProtocolMessage.ack(
+        originalMessageId: messageId,
+      );
       _onSendAckMessage!.call(ackMessage);
       _logger.info(
         '📨 ACK sent for ${messageId.shortId(8)} to ${fromNodeId.shortId(8)}',

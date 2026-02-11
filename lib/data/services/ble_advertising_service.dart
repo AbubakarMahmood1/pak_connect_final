@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_ble_advertising_service.dart';
-import '../../core/constants/ble_constants.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_advertising_service.dart';
+import '../../domain/constants/ble_constants.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/services/ble_connection_manager.dart';
-import '../../core/bluetooth/advertising_manager.dart';
-import '../../core/bluetooth/peripheral_initializer.dart';
+import '../../domain/services/advertising_manager.dart';
+import '../../domain/services/peripheral_initializer.dart';
 
 /// Manages BLE peripheral role (server) advertising and GATT services.
 ///

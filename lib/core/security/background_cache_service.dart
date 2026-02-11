@@ -1,8 +1,8 @@
 // File: lib/core/security/background_cache_service.dart
 import 'dart:async';
 import 'package:flutter/widgets.dart';
-import 'hint_cache_manager.dart';
-import '../utils/app_logger.dart';
+import 'package:pak_connect/domain/services/hint_cache_manager.dart';
+import 'package:pak_connect/domain/utils/app_logger.dart';
 
 class BackgroundCacheService {
   static final _logger = AppLogger.getLogger('BackgroundCache');

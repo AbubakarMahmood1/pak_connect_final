@@ -1,18 +1,18 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_ble_connection_service.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_connection_service.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/services/ble_connection_manager.dart';
-import '../../core/bluetooth/bluetooth_state_monitor.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
+import '../../domain/services/bluetooth_state_monitor.dart';
+import '../../domain/services/device_deduplication_manager.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/entities/enhanced_contact.dart';
-import '../../core/security/security_types.dart';
-import '../../core/utils/string_extensions.dart';
-import '../../core/models/connection_state.dart' show ChatConnectionState;
-import '../../core/config/kill_switches.dart';
+import '../../domain/models/security_level.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import '../../domain/models/connection_state.dart' show ChatConnectionState;
+import 'package:pak_connect/domain/config/kill_switches.dart';
 
 /// Manages BLE connection lifecycle including connection state and monitoring.
 ///

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_identity_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import '../repositories/user_preferences.dart';
-import '../../core/security/ephemeral_key_manager.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
 
 /// Identity Manager
 ///

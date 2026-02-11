@@ -8,7 +8,7 @@ import '../../domain/services/archive_management_service.dart';
 import '../../domain/services/archive_search_service.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/values/id_types.dart';
-import '../../core/models/archive_models.dart';
+import '../../domain/models/archive_models.dart';
 
 /// Logger for archive provider
 final _logger = Logger('ArchiveProvider');

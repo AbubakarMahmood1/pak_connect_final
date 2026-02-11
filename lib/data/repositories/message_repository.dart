@@ -5,10 +5,10 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../database/database_helper.dart';
-import '../../core/compression/compression_util.dart';
-import '../../core/utils/chat_utils.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../core/interfaces/i_message_repository.dart';
+import '../../domain/utils/compression_util.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 class MessageRepository implements IMessageRepository {

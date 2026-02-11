@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_chat_interaction_handler.dart';
-import '../../core/interfaces/i_chats_repository.dart';
-import '../../core/app_core.dart';
+import '../../domain/interfaces/i_chat_interaction_handler.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_shared_message_queue_provider.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/values/id_types.dart';
@@ -41,16 +42,19 @@ class ChatInteractionHandler implements IChatInteractionHandler {
   final WidgetRef? _ref;
   final IChatsRepository? _chatsRepository;
   final ChatManagementService? _chatManagementService;
+  final ISharedMessageQueueProvider? _sharedQueueProvider;
 
   ChatInteractionHandler({
     BuildContext? context,
     WidgetRef? ref,
     IChatsRepository? chatsRepository,
     ChatManagementService? chatManagementService,
+    ISharedMessageQueueProvider? sharedQueueProvider,
   }) : _context = context,
        _ref = ref,
        _chatsRepository = chatsRepository,
-       _chatManagementService = chatManagementService;
+       _chatManagementService = chatManagementService,
+       _sharedQueueProvider = sharedQueueProvider;
 
   /// Listener set for interaction intents
   final Set<void Function(ChatInteractionIntent)> _intentListeners = {};
@@ -485,11 +489,17 @@ class ChatInteractionHandler implements IChatInteractionHandler {
 
       if (result?.success ?? false) {
         try {
-          final purged = await AppCore.instance.messageQueue
-              .removeMessagesForChat(chat.chatId.value);
-          _logger.fine(
-            '🧹 Purged $purged queued messages for deleted chat ${chat.chatId.value}',
-          );
+          final queueProvider = _sharedQueueProvider ?? _resolveQueueProvider();
+          if (queueProvider != null) {
+            if (!queueProvider.isInitialized) {
+              await queueProvider.initialize();
+            }
+            final purged = await queueProvider.messageQueue
+                .removeMessagesForChat(chat.chatId.value);
+            _logger.fine(
+              '🧹 Purged $purged queued messages for deleted chat ${chat.chatId.value}',
+            );
+          }
         } catch (e, stack) {
           _logger.warning(
             '⚠️ Failed to purge queued messages for ${chat.chatId.value}: $e',
@@ -543,9 +553,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
                 SizedBox(width: 8),
                 Text(
                   'Delete Chat',
-                  style: TextStyle(
-                    color: Theme.of(_context).colorScheme.error,
-                  ),
+                  style: TextStyle(color: Theme.of(_context).colorScheme.error),
                 ),
               ],
             ),
@@ -655,6 +663,13 @@ class ChatInteractionHandler implements IChatInteractionHandler {
   }
 
   bool _canNavigate() => _context != null;
+
+  ISharedMessageQueueProvider? _resolveQueueProvider() {
+    if (GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
+      return GetIt.instance<ISharedMessageQueueProvider>();
+    }
+    return null;
+  }
 
   @override
   Future<void> dispose() async {

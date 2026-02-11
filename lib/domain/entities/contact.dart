@@ -1,4 +1,4 @@
-import '../../core/services/security_manager.dart';
+import '../models/security_level.dart';
 import '../values/id_types.dart';
 
 /// Trust status for a contact record.

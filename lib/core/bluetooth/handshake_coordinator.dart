@@ -2,53 +2,30 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/interfaces/i_handshake_coordinator.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/models/connection_phase.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/core/security/noise/models/noise_models.dart';
 import 'package:pak_connect/core/security/noise/noise_session.dart';
-import 'package:pak_connect/core/networking/topology_manager.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/routing/topology_manager.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'handshake_timeout_manager.dart';
 import 'kk_pattern_tracker.dart';
 import 'noise_handshake_driver.dart';
 import 'handshake_peer_state.dart';
-
-/// Connection phases for the sequential handshake protocol
-/// Response IS the acknowledgment (no separate ACK messages)
-enum ConnectionPhase {
-  // Initial state - BLE connected but handshake not started
-  bleConnected,
-
-  // Phase 0: Ready check - ensure both devices' BLE stacks are ready
-  readySent, // We sent connectionReady
-  readyComplete, // Both devices exchanged ready (response IS ack)
-  // Phase 1: Identity exchange - exchange public keys and display names
-  identitySent, // We sent identity
-  identityComplete, // Both devices exchanged identity (response IS ack)
-  // Phase 1.5: Noise Protocol XX Handshake - establish encrypted session
-  noiseHandshake1Sent, // We sent Noise message 1 (-> e)
-  noiseHandshake2Sent, // We sent Noise message 2 (<- e, ee, s, es)
-  noiseHandshakeComplete, // Noise session established
-  // Phase 2: Contact status sync - exchange relationship status
-  contactStatusSent, // We sent contact status
-  contactStatusComplete, // Both devices exchanged contact status (response IS ack)
-  // Final state - handshake complete
-  complete,
-
-  // Error states
-  timeout,
-  failed,
-}
+import 'package:pak_connect/domain/models/security_level.dart';
 
 /// Manages the handshake protocol between two BLE devices
 /// Ensures no message proceeds without explicit confirmation
-class HandshakeCoordinator {
+class HandshakeCoordinator implements IHandshakeCoordinator {
   final Logger _logger;
 
   // State management
   ConnectionPhase _phase = ConnectionPhase.bleConnected;
   final Set<void Function(ConnectionPhase)> _phaseListeners = {};
+  @override
   Stream<ConnectionPhase> get phaseStream =>
       Stream<ConnectionPhase>.multi((controller) {
         controller.add(_phase);
@@ -62,6 +39,7 @@ class HandshakeCoordinator {
           _phaseListeners.remove(listener);
         };
       });
+  @override
   ConnectionPhase get currentPhase => _phase;
   final HandshakePeerState _peerState = HandshakePeerState();
 
@@ -137,6 +115,7 @@ class HandshakeCoordinator {
     _noiseDriver = NoiseHandshakeDriver(
       logger: _logger,
       kkPatternTracker: _kkTracker,
+      noiseService: SecurityManager.instance.noiseService,
     );
     if (phaseTimeout != null) {
       _timeoutManager.phaseTimeout = phaseTimeout;
@@ -146,6 +125,7 @@ class HandshakeCoordinator {
 
   /// Start the handshake process
   /// This is the entry point - call this after BLE connection is established
+  @override
   Future<void> startHandshake() async {
     _logger.info(
       '🤝 Starting handshake @${DateTime.now().toIso8601String()} (phase: $_phase, role: ${_isInitiator ? 'INITIATOR' : 'RESPONDER'})',
@@ -169,6 +149,7 @@ class HandshakeCoordinator {
 
   /// Handle received protocol messages
   /// Routes messages based on current phase and type
+  @override
   Future<void> handleReceivedMessage(ProtocolMessage message) async {
     _logger.info('📨 Received ${message.type} in phase $_phase');
 
@@ -1020,6 +1001,7 @@ class HandshakeCoordinator {
 
   // ========== CLEANUP ==========
 
+  @override
   void dispose() {
     _timeoutManager.dispose();
     _phaseListeners.clear();
@@ -1033,6 +1015,7 @@ class HandshakeCoordinator {
       _peerState.theirNoisePublicKey; // Noise static public key (base64)
   String get myPersistentKey => _myPublicKey; // Accessor for pairing phase
   bool? get theyHaveUsAsContact => _peerState.theyHaveUsAsContact;
+  @override
   bool get isComplete => _phase == ConnectionPhase.complete;
   bool get hasFailed =>
       _phase == ConnectionPhase.failed || _phase == ConnectionPhase.timeout;

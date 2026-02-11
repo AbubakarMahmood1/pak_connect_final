@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/core/messaging/media_transfer_store.dart';
+import 'package:pak_connect/domain/messaging/media_transfer_store.dart';
 
 void main() {
   group('MediaTransferStore', () {

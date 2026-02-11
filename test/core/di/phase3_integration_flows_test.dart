@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
-import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
-import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
-import 'package:pak_connect/core/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import '../../test_helpers/test_setup.dart';
 
 void main() {
@@ -217,11 +217,11 @@ void main() {
       });
 
       test(
-        '✅ Core layer abstractions (interfaces) do NOT import Data layer implementations',
+        '✅ Domain layer abstractions (interfaces) do NOT import Data layer implementations',
         () {
           // Verify true dependency inversion
           final repositoryProviderInterfaceFile = TestSetup.readProjectFile(
-            'lib/core/interfaces/i_repository_provider.dart',
+            'lib/domain/interfaces/i_repository_provider.dart',
           );
 
           expect(
@@ -230,7 +230,7 @@ void main() {
             ),
             isFalse,
             reason:
-                'Core interfaces should not import Data layer implementations',
+                'Domain interfaces should not import Data layer implementations',
           );
         },
       );

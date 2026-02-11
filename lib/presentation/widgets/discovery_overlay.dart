@@ -3,21 +3,23 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../core/config/kill_switches.dart';
-import '../../core/services/security_manager.dart';
+import '../../domain/config/kill_switches.dart';
+import '../../domain/entities/contact.dart';
+import '../../domain/models/security_level.dart';
 import '../../domain/entities/enhanced_contact.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../core/utils/string_extensions.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/utils/string_extensions.dart';
 import '../providers/ble_providers.dart';
 import '../screens/chat_screen.dart';
 import '../controllers/discovery_overlay_controller.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
+import '../../domain/services/device_deduplication_manager.dart';
 import 'discovery/discovery_header.dart';
 import 'discovery/discovery_peripheral_view.dart';
 import 'discovery/discovery_scanner_view.dart';
 import 'discovery/discovery_types.dart';
-import '../../core/interfaces/i_ble_discovery_service.dart';
+import '../../domain/interfaces/i_ble_discovery_service.dart';
 
 class DiscoveryOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -207,7 +209,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
           connectionService.currentSessionId;
       if (persistentKey == null || persistentKey.isEmpty) return;
 
-      final contactRepo = ContactRepository();
+      final contactRepo = _resolveContactRepository();
       final contact = await contactRepo.getContactByAnyId(persistentKey);
       final displayName =
           contact?.displayName ??
@@ -251,6 +253,17 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       _logger.fine('Failed to resolve connection name: $e');
       _logger.finer(stackTrace.toString());
     }
+  }
+
+  IContactRepository _resolveContactRepository() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IContactRepository>()) {
+      return di<IContactRepository>();
+    }
+    throw StateError(
+      'IContactRepository is not registered. '
+      'Call setupServiceLocator() before using DiscoveryOverlay.',
+    );
   }
 
   // 🔧 MODE SWITCHING REMOVED: Dual mode now runs automatically

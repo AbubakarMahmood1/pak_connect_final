@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/group_providers.dart';
-import '../../core/models/contact_group.dart';
+import '../../domain/models/contact_group.dart';
 
 class GroupListScreen extends ConsumerWidget {
   const GroupListScreen({super.key});

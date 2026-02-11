@@ -3,10 +3,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/models/network_topology.dart';
+import '../../domain/models/network_topology.dart';
 import '../providers/mesh_networking_provider.dart';
 import 'dart:math' as math;
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 class NetworkTopologyScreen extends ConsumerStatefulWidget {
   const NetworkTopologyScreen({super.key});

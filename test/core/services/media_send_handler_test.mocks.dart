@@ -3,28 +3,19 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'dart:async' as _i5;
-import 'dart:typed_data' as _i10;
+import 'dart:async' as _i4;
+import 'dart:typed_data' as _i9;
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart' as _i13;
 import 'package:mockito/mockito.dart' as _i1;
-import 'package:mockito/src/dummies.dart' as _i11;
-import 'package:pak_connect/core/interfaces/i_contact_repository.dart' as _i14;
-import 'package:pak_connect/core/interfaces/i_mesh_networking_service.dart'
-    as _i4;
-import 'package:pak_connect/core/interfaces/i_security_manager.dart' as _i12;
-import 'package:pak_connect/core/messaging/mesh_relay_engine.dart' as _i6;
-import 'package:pak_connect/core/messaging/offline_message_queue.dart' as _i9;
-import 'package:pak_connect/core/messaging/queue_sync_manager.dart' as _i7;
-import 'package:pak_connect/core/security/noise/models/noise_models.dart'
-    as _i15;
-import 'package:pak_connect/core/security/noise/noise_encryption_service.dart'
-    as _i16;
-import 'package:pak_connect/core/security/noise/noise_session.dart' as _i17;
-import 'package:pak_connect/core/security/security_types.dart' as _i3;
+import 'package:mockito/src/dummies.dart' as _i10;
+import 'package:pak_connect/domain/entities/queued_message.dart' as _i8;
+import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart'
+    as _i3;
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart' as _i6;
 import 'package:pak_connect/domain/models/mesh_network_models.dart' as _i2;
+import 'package:pak_connect/domain/models/mesh_relay_models.dart' as _i5;
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
-    as _i8;
+    as _i7;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -53,69 +44,63 @@ class _FakeMeshNetworkStatistics_1 extends _i1.SmartFake
     : super(parent, parentInvocation);
 }
 
-class _FakeEncryptionMethod_2 extends _i1.SmartFake
-    implements _i3.EncryptionMethod {
-  _FakeEncryptionMethod_2(Object parent, Invocation parentInvocation)
-    : super(parent, parentInvocation);
-}
-
 /// A class which mocks [IMeshNetworkingService].
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockIMeshNetworkingService extends _i1.Mock
-    implements _i4.IMeshNetworkingService {
+    implements _i3.IMeshNetworkingService {
   MockIMeshNetworkingService() {
     _i1.throwOnMissingStub(this);
   }
 
   @override
-  _i5.Stream<_i2.MeshNetworkStatus> get meshStatus =>
+  _i4.Stream<_i2.MeshNetworkStatus> get meshStatus =>
       (super.noSuchMethod(
             Invocation.getter(#meshStatus),
-            returnValue: _i5.Stream<_i2.MeshNetworkStatus>.empty(),
+            returnValue: _i4.Stream<_i2.MeshNetworkStatus>.empty(),
           )
-          as _i5.Stream<_i2.MeshNetworkStatus>);
+          as _i4.Stream<_i2.MeshNetworkStatus>);
 
   @override
-  _i5.Stream<_i6.RelayStatistics> get relayStats =>
+  _i4.Stream<_i5.RelayStatistics> get relayStats =>
       (super.noSuchMethod(
             Invocation.getter(#relayStats),
-            returnValue: _i5.Stream<_i6.RelayStatistics>.empty(),
+            returnValue: _i4.Stream<_i5.RelayStatistics>.empty(),
           )
-          as _i5.Stream<_i6.RelayStatistics>);
+          as _i4.Stream<_i5.RelayStatistics>);
 
   @override
-  _i5.Stream<_i7.QueueSyncManagerStats> get queueStats =>
+  _i4.Stream<_i6.QueueSyncManagerStats> get queueStats =>
       (super.noSuchMethod(
             Invocation.getter(#queueStats),
-            returnValue: _i5.Stream<_i7.QueueSyncManagerStats>.empty(),
+            returnValue: _i4.Stream<_i6.QueueSyncManagerStats>.empty(),
           )
-          as _i5.Stream<_i7.QueueSyncManagerStats>);
+          as _i4.Stream<_i6.QueueSyncManagerStats>);
 
   @override
-  _i5.Stream<String> get messageDeliveryStream =>
+  _i4.Stream<String> get messageDeliveryStream =>
       (super.noSuchMethod(
             Invocation.getter(#messageDeliveryStream),
-            returnValue: _i5.Stream<String>.empty(),
+            returnValue: _i4.Stream<String>.empty(),
           )
-          as _i5.Stream<String>);
+          as _i4.Stream<String>);
 
   @override
-  _i5.Stream<_i8.ReceivedBinaryEvent> get binaryPayloadStream =>
+  _i4.Stream<_i7.ReceivedBinaryEvent> get binaryPayloadStream =>
       (super.noSuchMethod(
             Invocation.getter(#binaryPayloadStream),
-            returnValue: _i5.Stream<_i8.ReceivedBinaryEvent>.empty(),
+            returnValue: _i4.Stream<_i7.ReceivedBinaryEvent>.empty(),
           )
-          as _i5.Stream<_i8.ReceivedBinaryEvent>);
+          as _i4.Stream<_i7.ReceivedBinaryEvent>);
 
   @override
-  _i5.Future<void> initialize({String? nodeId}) =>
+  _i4.Future<void> initialize({String? nodeId}) =>
       (super.noSuchMethod(
             Invocation.method(#initialize, [], {#nodeId: nodeId}),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
+            returnValue: _i4.Future<void>.value(),
+            returnValueForMissingStub: _i4.Future<void>.value(),
           )
-          as _i5.Future<void>);
+          as _i4.Future<void>);
 
   @override
   void dispose() => super.noSuchMethod(
@@ -124,10 +109,10 @@ class MockIMeshNetworkingService extends _i1.Mock
   );
 
   @override
-  _i5.Future<_i2.MeshSendResult> sendMeshMessage({
+  _i4.Future<_i2.MeshSendResult> sendMeshMessage({
     required String? content,
     required String? recipientPublicKey,
-    _i9.MessagePriority? priority = _i9.MessagePriority.normal,
+    _i8.MessagePriority? priority = _i8.MessagePriority.normal,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#sendMeshMessage, [], {
@@ -135,7 +120,7 @@ class MockIMeshNetworkingService extends _i1.Mock
               #recipientPublicKey: recipientPublicKey,
               #priority: priority,
             }),
-            returnValue: _i5.Future<_i2.MeshSendResult>.value(
+            returnValue: _i4.Future<_i2.MeshSendResult>.value(
               _FakeMeshSendResult_0(
                 this,
                 Invocation.method(#sendMeshMessage, [], {
@@ -146,11 +131,11 @@ class MockIMeshNetworkingService extends _i1.Mock
               ),
             ),
           )
-          as _i5.Future<_i2.MeshSendResult>);
+          as _i4.Future<_i2.MeshSendResult>);
 
   @override
-  _i5.Future<String> sendBinaryMedia({
-    required _i10.Uint8List? data,
+  _i4.Future<String> sendBinaryMedia({
+    required _i9.Uint8List? data,
     required String? recipientId,
     int? originalType = 144,
     Map<String, dynamic>? metadata,
@@ -162,8 +147,8 @@ class MockIMeshNetworkingService extends _i1.Mock
               #originalType: originalType,
               #metadata: metadata,
             }),
-            returnValue: _i5.Future<String>.value(
-              _i11.dummyValue<String>(
+            returnValue: _i4.Future<String>.value(
+              _i10.dummyValue<String>(
                 this,
                 Invocation.method(#sendBinaryMedia, [], {
                   #data: data,
@@ -174,10 +159,10 @@ class MockIMeshNetworkingService extends _i1.Mock
               ),
             ),
           )
-          as _i5.Future<String>);
+          as _i4.Future<String>);
 
   @override
-  _i5.Future<bool> retryBinaryMedia({
+  _i4.Future<bool> retryBinaryMedia({
     required String? transferId,
     String? recipientId,
     int? originalType,
@@ -188,70 +173,70 @@ class MockIMeshNetworkingService extends _i1.Mock
               #recipientId: recipientId,
               #originalType: originalType,
             }),
-            returnValue: _i5.Future<bool>.value(false),
+            returnValue: _i4.Future<bool>.value(false),
           )
-          as _i5.Future<bool>);
+          as _i4.Future<bool>);
 
   @override
-  _i5.Future<Map<String, _i7.QueueSyncResult>> syncQueuesWithPeers() =>
+  _i4.Future<Map<String, _i6.QueueSyncResult>> syncQueuesWithPeers() =>
       (super.noSuchMethod(
             Invocation.method(#syncQueuesWithPeers, []),
-            returnValue: _i5.Future<Map<String, _i7.QueueSyncResult>>.value(
-              <String, _i7.QueueSyncResult>{},
+            returnValue: _i4.Future<Map<String, _i6.QueueSyncResult>>.value(
+              <String, _i6.QueueSyncResult>{},
             ),
           )
-          as _i5.Future<Map<String, _i7.QueueSyncResult>>);
+          as _i4.Future<Map<String, _i6.QueueSyncResult>>);
 
   @override
-  _i5.Future<bool> retryMessage(String? messageId) =>
+  _i4.Future<bool> retryMessage(String? messageId) =>
       (super.noSuchMethod(
             Invocation.method(#retryMessage, [messageId]),
-            returnValue: _i5.Future<bool>.value(false),
+            returnValue: _i4.Future<bool>.value(false),
           )
-          as _i5.Future<bool>);
+          as _i4.Future<bool>);
 
   @override
-  _i5.Future<bool> removeMessage(String? messageId) =>
+  _i4.Future<bool> removeMessage(String? messageId) =>
       (super.noSuchMethod(
             Invocation.method(#removeMessage, [messageId]),
-            returnValue: _i5.Future<bool>.value(false),
+            returnValue: _i4.Future<bool>.value(false),
           )
-          as _i5.Future<bool>);
+          as _i4.Future<bool>);
 
   @override
-  _i5.Future<bool> setPriority(
+  _i4.Future<bool> setPriority(
     String? messageId,
-    _i9.MessagePriority? priority,
+    _i8.MessagePriority? priority,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#setPriority, [messageId, priority]),
-            returnValue: _i5.Future<bool>.value(false),
+            returnValue: _i4.Future<bool>.value(false),
           )
-          as _i5.Future<bool>);
+          as _i4.Future<bool>);
 
   @override
-  _i5.Future<int> retryAllMessages() =>
+  _i4.Future<int> retryAllMessages() =>
       (super.noSuchMethod(
             Invocation.method(#retryAllMessages, []),
-            returnValue: _i5.Future<int>.value(0),
+            returnValue: _i4.Future<int>.value(0),
           )
-          as _i5.Future<int>);
+          as _i4.Future<int>);
 
   @override
-  List<_i9.QueuedMessage> getQueuedMessagesForChat(String? chatId) =>
+  List<_i8.QueuedMessage> getQueuedMessagesForChat(String? chatId) =>
       (super.noSuchMethod(
             Invocation.method(#getQueuedMessagesForChat, [chatId]),
-            returnValue: <_i9.QueuedMessage>[],
+            returnValue: <_i8.QueuedMessage>[],
           )
-          as List<_i9.QueuedMessage>);
+          as List<_i8.QueuedMessage>);
 
   @override
-  List<_i8.PendingBinaryTransfer> getPendingBinaryTransfers() =>
+  List<_i7.PendingBinaryTransfer> getPendingBinaryTransfers() =>
       (super.noSuchMethod(
             Invocation.method(#getPendingBinaryTransfers, []),
-            returnValue: <_i8.PendingBinaryTransfer>[],
+            returnValue: <_i7.PendingBinaryTransfer>[],
           )
-          as List<_i8.PendingBinaryTransfer>);
+          as List<_i7.PendingBinaryTransfer>);
 
   @override
   _i2.MeshNetworkStatistics getNetworkStatistics() =>
@@ -267,353 +252,6 @@ class MockIMeshNetworkingService extends _i1.Mock
   @override
   void refreshMeshStatus() => super.noSuchMethod(
     Invocation.method(#refreshMeshStatus, []),
-    returnValueForMissingStub: null,
-  );
-}
-
-/// A class which mocks [ISecurityManager].
-///
-/// See the documentation for Mockito's code generation for more information.
-class MockISecurityManager extends _i1.Mock implements _i12.ISecurityManager {
-  MockISecurityManager() {
-    _i1.throwOnMissingStub(this);
-  }
-
-  @override
-  _i5.Future<void> initialize({_i13.FlutterSecureStorage? secureStorage}) =>
-      (super.noSuchMethod(
-            Invocation.method(#initialize, [], {#secureStorage: secureStorage}),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
-          )
-          as _i5.Future<void>);
-
-  @override
-  void clearAllNoiseSessions() => super.noSuchMethod(
-    Invocation.method(#clearAllNoiseSessions, []),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  void shutdown() => super.noSuchMethod(
-    Invocation.method(#shutdown, []),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  void registerIdentityMapping({
-    required String? persistentPublicKey,
-    required String? ephemeralID,
-  }) => super.noSuchMethod(
-    Invocation.method(#registerIdentityMapping, [], {
-      #persistentPublicKey: persistentPublicKey,
-      #ephemeralID: ephemeralID,
-    }),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  void unregisterIdentityMapping(String? persistentPublicKey) =>
-      super.noSuchMethod(
-        Invocation.method(#unregisterIdentityMapping, [persistentPublicKey]),
-        returnValueForMissingStub: null,
-      );
-
-  @override
-  _i5.Future<_i3.SecurityLevel> getCurrentLevel(
-    String? publicKey,
-    _i14.IContactRepository? repo,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#getCurrentLevel, [publicKey, repo]),
-            returnValue: _i5.Future<_i3.SecurityLevel>.value(
-              _i3.SecurityLevel.low,
-            ),
-          )
-          as _i5.Future<_i3.SecurityLevel>);
-
-  @override
-  _i5.Future<(_i15.NoisePattern, _i10.Uint8List?)> selectNoisePattern(
-    String? publicKey,
-    _i14.IContactRepository? repo,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#selectNoisePattern, [publicKey, repo]),
-            returnValue: _i5.Future<(_i15.NoisePattern, _i10.Uint8List?)>.value(
-              (_i15.NoisePattern.xx, null),
-            ),
-          )
-          as _i5.Future<(_i15.NoisePattern, _i10.Uint8List?)>);
-
-  @override
-  _i5.Future<_i3.EncryptionMethod> getEncryptionMethod(
-    String? publicKey,
-    _i14.IContactRepository? repo,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#getEncryptionMethod, [publicKey, repo]),
-            returnValue: _i5.Future<_i3.EncryptionMethod>.value(
-              _FakeEncryptionMethod_2(
-                this,
-                Invocation.method(#getEncryptionMethod, [publicKey, repo]),
-              ),
-            ),
-          )
-          as _i5.Future<_i3.EncryptionMethod>);
-
-  @override
-  _i5.Future<String> encryptMessage(
-    String? message,
-    String? publicKey,
-    _i14.IContactRepository? repo,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#encryptMessage, [message, publicKey, repo]),
-            returnValue: _i5.Future<String>.value(
-              _i11.dummyValue<String>(
-                this,
-                Invocation.method(#encryptMessage, [message, publicKey, repo]),
-              ),
-            ),
-          )
-          as _i5.Future<String>);
-
-  @override
-  _i5.Future<String> decryptMessage(
-    String? encryptedMessage,
-    String? publicKey,
-    _i14.IContactRepository? repo,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#decryptMessage, [
-              encryptedMessage,
-              publicKey,
-              repo,
-            ]),
-            returnValue: _i5.Future<String>.value(
-              _i11.dummyValue<String>(
-                this,
-                Invocation.method(#decryptMessage, [
-                  encryptedMessage,
-                  publicKey,
-                  repo,
-                ]),
-              ),
-            ),
-          )
-          as _i5.Future<String>);
-
-  @override
-  _i5.Future<_i10.Uint8List> encryptBinaryPayload(
-    _i10.Uint8List? data,
-    String? publicKey,
-    _i14.IContactRepository? repo,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#encryptBinaryPayload, [data, publicKey, repo]),
-            returnValue: _i5.Future<_i10.Uint8List>.value(_i10.Uint8List(0)),
-          )
-          as _i5.Future<_i10.Uint8List>);
-
-  @override
-  _i5.Future<_i10.Uint8List> decryptBinaryPayload(
-    _i10.Uint8List? data,
-    String? publicKey,
-    _i14.IContactRepository? repo,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#decryptBinaryPayload, [data, publicKey, repo]),
-            returnValue: _i5.Future<_i10.Uint8List>.value(_i10.Uint8List(0)),
-          )
-          as _i5.Future<_i10.Uint8List>);
-}
-
-/// A class which mocks [NoiseEncryptionService].
-///
-/// See the documentation for Mockito's code generation for more information.
-class MockNoiseEncryptionService extends _i1.Mock
-    implements _i16.NoiseEncryptionService {
-  MockNoiseEncryptionService() {
-    _i1.throwOnMissingStub(this);
-  }
-
-  @override
-  set onPeerAuthenticated(void Function(String, String)? value) =>
-      super.noSuchMethod(
-        Invocation.setter(#onPeerAuthenticated, value),
-        returnValueForMissingStub: null,
-      );
-
-  @override
-  set onHandshakeRequired(void Function(String)? value) => super.noSuchMethod(
-    Invocation.setter(#onHandshakeRequired, value),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  _i5.Future<void> initialize() =>
-      (super.noSuchMethod(
-            Invocation.method(#initialize, []),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
-          )
-          as _i5.Future<void>);
-
-  @override
-  _i10.Uint8List getStaticPublicKeyData() =>
-      (super.noSuchMethod(
-            Invocation.method(#getStaticPublicKeyData, []),
-            returnValue: _i10.Uint8List(0),
-          )
-          as _i10.Uint8List);
-
-  @override
-  String getIdentityFingerprint() =>
-      (super.noSuchMethod(
-            Invocation.method(#getIdentityFingerprint, []),
-            returnValue: _i11.dummyValue<String>(
-              this,
-              Invocation.method(#getIdentityFingerprint, []),
-            ),
-          )
-          as String);
-
-  @override
-  _i10.Uint8List? getPeerPublicKeyData(String? peerID) =>
-      (super.noSuchMethod(Invocation.method(#getPeerPublicKeyData, [peerID]))
-          as _i10.Uint8List?);
-
-  @override
-  void registerIdentityMapping(
-    String? persistentPublicKey,
-    String? ephemeralID,
-  ) => super.noSuchMethod(
-    Invocation.method(#registerIdentityMapping, [
-      persistentPublicKey,
-      ephemeralID,
-    ]),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  void unregisterIdentityMapping(String? persistentPublicKey) =>
-      super.noSuchMethod(
-        Invocation.method(#unregisterIdentityMapping, [persistentPublicKey]),
-        returnValueForMissingStub: null,
-      );
-
-  @override
-  _i5.Future<_i10.Uint8List?> initiateHandshake(
-    String? peerID, {
-    _i15.NoisePattern? pattern = _i15.NoisePattern.xx,
-    _i10.Uint8List? remoteStaticPublicKey,
-  }) =>
-      (super.noSuchMethod(
-            Invocation.method(
-              #initiateHandshake,
-              [peerID],
-              {
-                #pattern: pattern,
-                #remoteStaticPublicKey: remoteStaticPublicKey,
-              },
-            ),
-            returnValue: _i5.Future<_i10.Uint8List?>.value(),
-          )
-          as _i5.Future<_i10.Uint8List?>);
-
-  @override
-  _i5.Future<_i10.Uint8List?> processHandshakeMessage(
-    _i10.Uint8List? data,
-    String? peerID,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#processHandshakeMessage, [data, peerID]),
-            returnValue: _i5.Future<_i10.Uint8List?>.value(),
-          )
-          as _i5.Future<_i10.Uint8List?>);
-
-  @override
-  bool hasEstablishedSession(String? peerID) =>
-      (super.noSuchMethod(
-            Invocation.method(#hasEstablishedSession, [peerID]),
-            returnValue: false,
-          )
-          as bool);
-
-  @override
-  String? resolveEstablishedSessionId(String? peerID) =>
-      (super.noSuchMethod(
-            Invocation.method(#resolveEstablishedSessionId, [peerID]),
-          )
-          as String?);
-
-  @override
-  _i17.NoiseSessionState getSessionState(String? peerID) =>
-      (super.noSuchMethod(
-            Invocation.method(#getSessionState, [peerID]),
-            returnValue: _i17.NoiseSessionState.uninitialized,
-          )
-          as _i17.NoiseSessionState);
-
-  @override
-  _i5.Future<_i10.Uint8List?> encrypt(_i10.Uint8List? data, String? peerID) =>
-      (super.noSuchMethod(
-            Invocation.method(#encrypt, [data, peerID]),
-            returnValue: _i5.Future<_i10.Uint8List?>.value(),
-          )
-          as _i5.Future<_i10.Uint8List?>);
-
-  @override
-  _i5.Future<_i10.Uint8List?> decrypt(
-    _i10.Uint8List? encryptedData,
-    String? peerID,
-  ) =>
-      (super.noSuchMethod(
-            Invocation.method(#decrypt, [encryptedData, peerID]),
-            returnValue: _i5.Future<_i10.Uint8List?>.value(),
-          )
-          as _i5.Future<_i10.Uint8List?>);
-
-  @override
-  List<String> checkForRekeyNeeded() =>
-      (super.noSuchMethod(
-            Invocation.method(#checkForRekeyNeeded, []),
-            returnValue: <String>[],
-          )
-          as List<String>);
-
-  @override
-  void removeSession(String? peerID) => super.noSuchMethod(
-    Invocation.method(#removeSession, [peerID]),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  void clearAllSessions() => super.noSuchMethod(
-    Invocation.method(#clearAllSessions, []),
-    returnValueForMissingStub: null,
-  );
-
-  @override
-  Map<String, Map<String, dynamic>> getAllSessionStats() =>
-      (super.noSuchMethod(
-            Invocation.method(#getAllSessionStats, []),
-            returnValue: <String, Map<String, dynamic>>{},
-          )
-          as Map<String, Map<String, dynamic>>);
-
-  @override
-  _i5.Future<void> clearPersistentIdentity() =>
-      (super.noSuchMethod(
-            Invocation.method(#clearPersistentIdentity, []),
-            returnValue: _i5.Future<void>.value(),
-            returnValueForMissingStub: _i5.Future<void>.value(),
-          )
-          as _i5.Future<void>);
-
-  @override
-  void shutdown() => super.noSuchMethod(
-    Invocation.method(#shutdown, []),
     returnValueForMissingStub: null,
   );
 }

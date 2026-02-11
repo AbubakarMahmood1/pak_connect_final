@@ -5,26 +5,29 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:pak_connect/core/interfaces/i_ble_message_handler_facade.dart';
-import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
-import 'package:pak_connect/core/interfaces/i_message_repository.dart';
-import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
-import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
-import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
-import 'package:pak_connect/core/models/connection_info.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
-import 'package:pak_connect/core/models/ble_server_connection.dart';
-import 'package:pak_connect/core/models/spy_mode_info.dart';
-import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
+import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -57,6 +60,7 @@ void main() {
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
       ReceivedBinaryEvent? event;
@@ -84,6 +88,7 @@ void main() {
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
       final transferId = await svc.sendBinaryMedia(
@@ -107,6 +112,7 @@ void main() {
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
       final transferId = await svc.sendBinaryMedia(
@@ -131,6 +137,7 @@ void main() {
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
       expect(svc.debugHasInitialSyncScheduled('peer-sync'), isFalse);
@@ -149,6 +156,7 @@ void main() {
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
       expect(svc.debugHasInitialSyncScheduled('peer-ann'), isFalse);
@@ -414,6 +422,22 @@ class _FakeConnectionService implements IConnectionService {
     retryCalls.add(transferId);
     return true;
   }
+}
+
+class _StubSharedQueueProvider implements ISharedMessageQueueProvider {
+  final InMemoryOfflineMessageQueue _queue = InMemoryOfflineMessageQueue();
+
+  @override
+  bool get isInitialized => true;
+
+  @override
+  bool get isInitializing => false;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  OfflineMessageQueueContract get messageQueue => _queue;
 }
 
 class _StubRepositoryProvider implements IRepositoryProvider {

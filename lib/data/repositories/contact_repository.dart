@@ -7,10 +7,10 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
-import '../../core/services/security_manager.dart';
+import '../../domain/models/security_level.dart';
 import '../database/database_helper.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../core/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import '../../domain/entities/contact.dart';
 import '../../domain/values/id_types.dart';
 

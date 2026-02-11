@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/interfaces/i_mesh_networking_service.dart';
+import 'package:logging/logging.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
+import '../../domain/interfaces/i_mesh_networking_service.dart';
 import '../../domain/models/mesh_network_models.dart';
-import '../../core/utils/mesh_debug_logger.dart';
-import '../../core/utils/app_logger.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/utils/mesh_debug_logger.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Widget for displaying and managing relay message queue
@@ -24,7 +24,7 @@ class RelayQueueWidget extends StatefulWidget {
 }
 
 class RelayQueueWidgetState extends State<RelayQueueWidget> {
-  static final _logger = AppLogger.getLogger(LoggerNames.ui);
+  static final _logger = Logger('RelayQueueWidget');
 
   // ✅ FIX: Track last logged status to prevent duplicate logs
   MeshNetworkStatus? _lastLoggedStatus;
@@ -663,5 +663,4 @@ class RelayQueueWidgetState extends State<RelayQueueWidget> {
     );
     MeshDebugLogger.info('UI Action', 'Clear failed messages requested');
   }
-
 }

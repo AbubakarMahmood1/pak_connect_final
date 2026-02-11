@@ -1,6 +1,6 @@
 import 'dart:math';
 import '../../domain/entities/archived_message.dart';
-import '../../core/models/archive_models.dart';
+import '../models/archive_models.dart';
 
 class SearchServiceConfig {
   final bool enableFuzzySearch;

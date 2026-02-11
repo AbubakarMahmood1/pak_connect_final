@@ -3,27 +3,21 @@ import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:mockito/mockito.dart';
-import 'package:pak_connect/core/interfaces/i_contact_repository.dart';
-import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart';
-import 'package:pak_connect/core/interfaces/i_message_repository.dart';
-import 'package:pak_connect/core/interfaces/i_mesh_routing_service.dart';
-import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
-import 'package:pak_connect/core/interfaces/i_repository_provider.dart';
-import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
-import 'package:pak_connect/core/models/connection_info.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
-import 'package:pak_connect/core/models/spy_mode_info.dart';
-import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
-import 'package:pak_connect/core/models/ble_server_connection.dart';
-import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
-import 'package:pak_connect/core/security/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import '../../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
   group('MeshRelayCoordinator', () {
@@ -249,7 +243,7 @@ void main() {
   });
 }
 
-class _RecordingOfflineQueue extends OfflineMessageQueue {
+class _RecordingOfflineQueue extends InMemoryOfflineMessageQueue {
   final List<Map<String, dynamic>> recordedMessages = [];
 
   @override
@@ -268,7 +262,22 @@ class _RecordingOfflineQueue extends OfflineMessageQueue {
     String? messageHash,
     bool persistToStorage = true,
   }) async {
-    final id = 'queued_${recordedMessages.length}';
+    final id = await super.queueMessage(
+      chatId: chatId,
+      content: content,
+      recipientPublicKey: recipientPublicKey,
+      senderPublicKey: senderPublicKey,
+      priority: priority,
+      replyToMessageId: replyToMessageId,
+      attachments: attachments,
+      isRelayMessage: isRelayMessage,
+      relayMetadata: relayMetadata,
+      originalMessageId: originalMessageId,
+      relayNodeId: relayNodeId,
+      messageHash: messageHash,
+      persistToStorage: persistToStorage,
+    );
+
     recordedMessages.add({
       'id': id,
       'chatId': chatId,
@@ -302,7 +311,22 @@ class _RecordingOfflineQueue extends OfflineMessageQueue {
     String? messageHash,
     bool persistToStorage = true,
   }) async {
-    final id = MessageId('queued_${recordedMessages.length}');
+    final id = await super.queueMessageWithIds(
+      chatId: chatId,
+      content: content,
+      recipientId: recipientId,
+      senderId: senderId,
+      priority: priority,
+      replyToMessageId: replyToMessageId,
+      attachments: attachments,
+      isRelayMessage: isRelayMessage,
+      relayMetadata: relayMetadata,
+      originalMessageId: originalMessageId,
+      relayNodeId: relayNodeId,
+      messageHash: messageHash,
+      persistToStorage: persistToStorage,
+    );
+
     recordedMessages.add({
       'id': id.value,
       'chatId': chatId.value,
@@ -374,7 +398,7 @@ class _StubSpamPreventionManager extends SpamPreventionManager {
   void dispose() {}
 }
 
-class _FakeRelayEngine extends MeshRelayEngine {
+class _FakeRelayEngine implements MeshRelayEngine {
   static const RelayStatistics _defaultStats = RelayStatistics(
     totalRelayed: 0,
     totalDropped: 0,
@@ -390,84 +414,108 @@ class _FakeRelayEngine extends MeshRelayEngine {
 
   int initializeCount = 0;
   RelayStatistics? statistics;
+  String? _currentNodeId;
+  Function(RelayDecision decision)? _onRelayDecision;
+  Function(RelayStatistics stats)? _onStatsUpdated;
+  final OfflineMessageQueueContract _queue;
 
   _FakeRelayEngine({
-    required OfflineMessageQueue queue,
-    required super.spamPrevention,
-  }) : super(
-         repositoryProvider: _StubRepositoryProvider(),
-         seenMessageStore: _StubSeenMessageStore(),
-         messageQueue: queue,
-         forceFloodMode: true,
-       );
+    required OfflineMessageQueueContract queue,
+    required SpamPreventionManager spamPrevention,
+  }) : _queue = queue;
 
   @override
   Future<void> initialize({
     required String currentNodeId,
-    IMeshRoutingService? routingService,
-    NetworkTopologyAnalyzer? topologyAnalyzer,
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
     Function(String originalMessageId, String content, String originalSender)?
     onDeliverToSelf,
-    Function(
-      MessageId originalMessageId,
-      String content,
-      String originalSender,
-    )?
-    onDeliverToSelfIds,
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,
   }) async {
     initializeCount++;
-    await super.initialize(
-      currentNodeId: currentNodeId,
-      routingService: routingService,
-      topologyAnalyzer: topologyAnalyzer,
-      onRelayMessage: onRelayMessage,
-      onDeliverToSelf: onDeliverToSelf,
-      onDeliverToSelfIds: onDeliverToSelfIds,
-      onRelayDecision: onRelayDecision,
-      onStatsUpdated: onStatsUpdated,
+    _currentNodeId = currentNodeId;
+    _onRelayDecision = onRelayDecision;
+    _onStatsUpdated = onStatsUpdated;
+  }
+
+  @override
+  Future<RelayProcessingResult> processIncomingRelay({
+    required MeshRelayMessage relayMessage,
+    required String fromNodeId,
+    List<String> availableNextHops = const [],
+    ProtocolMessageType? messageType,
+  }) async {
+    if (availableNextHops.isEmpty) {
+      return RelayProcessingResult.dropped('No next hops available');
+    }
+
+    final nextHop = availableNextHops.first;
+    final nodeId = _currentNodeId ?? fromNodeId;
+
+    await _queue.queueMessage(
+      chatId: 'broadcast_relay_$nextHop',
+      content: relayMessage.originalContent,
+      recipientPublicKey: nextHop,
+      senderPublicKey: nodeId,
+      priority: relayMessage.relayMetadata.priority,
+      isRelayMessage: true,
+      relayMetadata: relayMessage.relayMetadata,
+      originalMessageId: relayMessage.originalMessageId,
+      relayNodeId: nodeId,
+      messageHash: relayMessage.relayMetadata.messageHash,
+    );
+
+    _onRelayDecision?.call(
+      RelayDecision.relayed(
+        messageId: relayMessage.originalMessageId,
+        nextHopNodeId: nextHop,
+        hopCount: relayMessage.relayMetadata.hopCount,
+      ),
+    );
+    _onStatsUpdated?.call(getStatistics());
+
+    return RelayProcessingResult.relayed(nextHop);
+  }
+
+  @override
+  Future<MeshRelayMessage?> createOutgoingRelay({
+    required String originalMessageId,
+    required String originalContent,
+    required String finalRecipientPublicKey,
+    MessagePriority priority = MessagePriority.normal,
+    String? encryptedPayload,
+    ProtocolMessageType? originalMessageType,
+  }) async {
+    final senderNodeId = _currentNodeId ?? 'unknown-node';
+    final metadata = RelayMetadata.create(
+      originalMessageContent: originalContent,
+      priority: priority,
+      originalSender: senderNodeId,
+      finalRecipient: finalRecipientPublicKey,
+      currentNodeId: senderNodeId,
+    );
+
+    return MeshRelayMessage.createRelay(
+      originalMessageId: originalMessageId,
+      originalContent: originalContent,
+      metadata: metadata,
+      relayNodeId: senderNodeId,
+      encryptedPayload: encryptedPayload,
+      originalMessageType: originalMessageType,
     );
   }
 
   @override
+  Future<bool> shouldAttemptDecryption({
+    required String finalRecipientPublicKey,
+    required String originalSenderPublicKey,
+  }) async {
+    return false;
+  }
+
+  @override
   RelayStatistics getStatistics() => statistics ?? _defaultStats;
-}
-
-class _StubRepositoryProvider implements IRepositoryProvider {
-  _StubRepositoryProvider()
-    : contactRepository = _MockContactRepository(),
-      messageRepository = _MockMessageRepository();
-
-  @override
-  final IContactRepository contactRepository;
-
-  @override
-  final IMessageRepository messageRepository;
-}
-
-class _StubSeenMessageStore implements ISeenMessageStore {
-  @override
-  Future<void> clear() async {}
-
-  @override
-  Future<void> markDelivered(String messageId) async {}
-
-  @override
-  Future<void> markRead(String messageId) async {}
-
-  @override
-  Future<void> performMaintenance() async {}
-
-  @override
-  bool hasDelivered(String messageId) => false;
-
-  @override
-  bool hasRead(String messageId) => false;
-
-  @override
-  Map<String, dynamic> getStatistics() => const {};
 }
 
 class _FakeMeshBleService implements IConnectionService {
@@ -703,8 +751,3 @@ class _FakeMeshBleService implements IConnectionService {
   @override
   Future<void> stopScanning() async {}
 }
-
-class _MockContactRepository extends Mock implements IContactRepository {}
-
-class _MockMessageRepository extends Mock implements IMessageRepository {}
-

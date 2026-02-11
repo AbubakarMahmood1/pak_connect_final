@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/messaging/queue_sync_manager.dart'
-    show QueueSyncManagerStats;
-import 'package:pak_connect/core/messaging/mesh_relay_engine.dart'
+import 'package:pak_connect/domain/entities/queue_statistics.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart'
     show RelayStatistics;
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 

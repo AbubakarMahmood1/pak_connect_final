@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
+import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 
 /// Provider for BluetoothStateMonitor singleton
 final bluetoothStateMonitorProvider = Provider.autoDispose<BluetoothStateMonitor>((

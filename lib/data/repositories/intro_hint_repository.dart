@@ -2,9 +2,9 @@
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:logging/logging.dart';
 import '../../domain/entities/ephemeral_discovery_hint.dart';
-import '../../core/utils/app_logger.dart';
-import '../../core/interfaces/i_intro_hint_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 
 /// Repository for managing intro hints (Level 1 - QR-based discovery)
 ///
@@ -12,7 +12,7 @@ import '../../core/interfaces/i_intro_hint_repository.dart';
 /// - Our own active intro hints (from generated QR codes)
 /// - Scanned intro hints (from other people's QR codes)
 class IntroHintRepository implements IIntroHintRepository {
-  final _logger = AppLogger.getLogger(LoggerNames.hintSystem);
+  final _logger = Logger('IntroHintRepository');
 
   static const String _myActiveHintsKey = 'my_active_intro_hints';
   static const String _scannedHintsKey = 'scanned_intro_hints';

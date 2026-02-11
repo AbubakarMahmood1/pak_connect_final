@@ -8,12 +8,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/interfaces/i_chats_repository.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/models/connection_status.dart';
-import '../../core/performance/performance_monitor.dart';
-import '../../core/services/home_screen_facade.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_home_screen_facade.dart';
+import '../../domain/models/connection_info.dart';
+import '../../domain/models/connection_status.dart';
+import '../../domain/services/performance_monitor.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/values/id_types.dart';
@@ -55,7 +54,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
 
   late final IChatsRepository _chatsRepository;
   late final ChatManagementService _chatManagementService;
-  late final HomeScreenFacade _homeScreenFacade;
+  late final IHomeScreenFacade _homeScreenFacade;
   late final Logger _logger;
   final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
   late final ChatListController _listController;
@@ -375,7 +374,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
     required String contactName,
     required ConnectionInfo? currentConnectionInfo,
     required List<Peripheral> discoveredDevices,
-    required Map<String, DiscoveredDevice> discoveryData,
+    required Map<String, dynamic> discoveryData,
     required DateTime? lastSeenTime,
   }) {
     return _homeScreenFacade.determineConnectionStatus(

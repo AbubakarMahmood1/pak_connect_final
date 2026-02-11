@@ -1,7 +1,7 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import '../../core/models/ble_server_connection.dart';
-import '../../core/power/adaptive_power_manager.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
+import '../../domain/services/adaptive_power_manager.dart';
 import '../models/ble_client_connection.dart';
 import '../models/connection_limit_config.dart';
 

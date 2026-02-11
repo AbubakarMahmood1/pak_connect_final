@@ -1,9 +1,12 @@
-import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 
 /// Lightweight in-memory seen message store for test isolation.
 class TestSeenMessageStore implements ISeenMessageStore {
   final Set<String> _delivered = <String>{};
   final Set<String> _read = <String>{};
+
+  @override
+  Future<void> initialize() async {}
 
   @override
   bool hasDelivered(String messageId) => _delivered.contains(messageId);

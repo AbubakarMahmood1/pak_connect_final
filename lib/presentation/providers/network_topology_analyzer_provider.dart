@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pak_connect/core/routing/network_topology_analyzer.dart';
-import 'package:pak_connect/core/routing/routing_models.dart';
+import 'package:pak_connect/domain/routing/network_topology_analyzer.dart';
+import 'package:pak_connect/domain/routing/routing_models.dart';
 
 /// Provider for NetworkTopologyAnalyzer instance
 final networkTopologyAnalyzerProvider =

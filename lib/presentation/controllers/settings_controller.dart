@@ -2,38 +2,46 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/app_core.dart';
-import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/security/hint_cache_manager.dart';
-import '../../core/security/message_security.dart';
-import '../../core/services/simple_crypto.dart';
-import '../../core/config/kill_switches.dart';
-import '../../data/database/database_helper.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/repositories/preferences_repository.dart';
-import '../../data/repositories/user_preferences.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
+import '../../domain/services/hint_cache_manager.dart';
+import '../../domain/services/message_security.dart';
+import '../../domain/services/battery_optimizer.dart';
+import '../../domain/services/simple_crypto.dart';
+import '../../domain/config/kill_switches.dart';
+import '../../domain/entities/preference_keys.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_database_provider.dart';
+import '../../domain/interfaces/i_preferences_repository.dart';
+import '../../domain/interfaces/i_user_preferences.dart';
 import '../../domain/services/auto_archive_scheduler.dart';
 import '../../domain/services/notification_handler_factory.dart';
 import '../../domain/services/notification_service.dart';
 
 class SettingsController extends ChangeNotifier {
   SettingsController({
-    PreferencesRepository? preferencesRepository,
-    ContactRepository? contactRepository,
-    UserPreferences? userPreferences,
+    IPreferencesRepository? preferencesRepository,
+    IContactRepository? contactRepository,
+    IChatsRepository? chatsRepository,
+    IUserPreferences? userPreferences,
+    IDatabaseProvider? databaseProvider,
     Logger? logger,
   }) : _preferencesRepository =
-           preferencesRepository ?? PreferencesRepository(),
-       _contactRepository = contactRepository ?? ContactRepository(),
-       _userPreferences = userPreferences ?? UserPreferences(),
+           preferencesRepository ?? _resolvePreferencesRepository(),
+       _contactRepository = contactRepository ?? _resolveContactRepository(),
+       _chatsRepository = chatsRepository ?? _resolveChatsRepository(),
+       _userPreferences = userPreferences ?? _resolveUserPreferences(),
+       _databaseProvider = databaseProvider ?? _resolveDatabaseProvider(),
        _logger = logger ?? Logger('SettingsController');
 
-  final PreferencesRepository _preferencesRepository;
-  final ContactRepository _contactRepository;
-  final UserPreferences _userPreferences;
+  final IPreferencesRepository _preferencesRepository;
+  final IContactRepository _contactRepository;
+  final IChatsRepository _chatsRepository;
+  final IUserPreferences _userPreferences;
+  final IDatabaseProvider _databaseProvider;
   final Logger _logger;
 
   bool _isDisposed = false;
@@ -332,7 +340,7 @@ class SettingsController extends ChangeNotifier {
     if (_isDisposed) {
       return StorageInfo(exists: false, sizeMB: '0.00', sizeKB: '0.00');
     }
-    final sizeInfo = await DatabaseHelper.getDatabaseSize();
+    final sizeInfo = await _databaseProvider.getDatabaseSize();
     return StorageInfo(
       exists: sizeInfo['exists'] ?? false,
       sizeMB: sizeInfo['size_mb']?.toString() ?? '0.00',
@@ -352,11 +360,10 @@ class SettingsController extends ChangeNotifier {
       );
     }
     contactCount = await _contactRepository.getContactCount();
-    final chatsRepo = ChatsRepository();
-    chatCount = await chatsRepo.getChatCount();
-    messageCount = await chatsRepo.getTotalMessageCount();
+    chatCount = await _chatsRepository.getChatCount();
+    messageCount = await _chatsRepository.getTotalMessageCount();
 
-    final sizeInfo = await DatabaseHelper.getDatabaseSize();
+    final sizeInfo = await _databaseProvider.getDatabaseSize();
     final sizeMB = sizeInfo['size_mb'] ?? '0.00';
     final sizeKB = sizeInfo['size_kb'] ?? '0.00';
     final sizeBytes = sizeInfo['size_bytes'] ?? 0;
@@ -373,7 +380,7 @@ class SettingsController extends ChangeNotifier {
 
   Future<bool> clearAllData() async {
     if (_isDisposed) return false;
-    final db = await DatabaseHelper.database;
+    final db = await _databaseProvider.database;
 
     await db.transaction((txn) async {
       await txn.delete('archived_messages');
@@ -409,7 +416,7 @@ class SettingsController extends ChangeNotifier {
 
   Future<IntegrityResult> checkDatabaseIntegrity() async {
     if (_isDisposed) return IntegrityResult(isOk: false, raw: 'disposed');
-    final db = await DatabaseHelper.database;
+    final db = await _databaseProvider.database;
     final result = await db.rawQuery('PRAGMA integrity_check');
     final isOk = result.isNotEmpty && result.first.containsValue('ok');
     return IntegrityResult(isOk: isOk, raw: result.toString());
@@ -424,7 +431,7 @@ class SettingsController extends ChangeNotifier {
     if (_isDisposed) {
       return BatteryInfoWrapper(0, false, '', '', DateTime.now());
     }
-    final info = AppCore.instance.batteryOptimizer.getCurrentInfo();
+    final info = BatteryOptimizer().getCurrentInfo();
     return BatteryInfoWrapper(
       info.level,
       info.isCharging,
@@ -443,6 +450,29 @@ class SettingsController extends ChangeNotifier {
   void _safeNotifyListeners() {
     if (_isDisposed) return;
     notifyListeners();
+  }
+
+  static IPreferencesRepository _resolvePreferencesRepository() =>
+      _resolveOrThrow<IPreferencesRepository>('IPreferencesRepository');
+
+  static IContactRepository _resolveContactRepository() =>
+      _resolveOrThrow<IContactRepository>('IContactRepository');
+
+  static IChatsRepository _resolveChatsRepository() =>
+      _resolveOrThrow<IChatsRepository>('IChatsRepository');
+
+  static IUserPreferences _resolveUserPreferences() =>
+      _resolveOrThrow<IUserPreferences>('IUserPreferences');
+
+  static IDatabaseProvider _resolveDatabaseProvider() =>
+      _resolveOrThrow<IDatabaseProvider>('IDatabaseProvider');
+
+  static T _resolveOrThrow<T extends Object>(String typeName) {
+    final serviceLocator = GetIt.instance;
+    if (serviceLocator.isRegistered<T>()) {
+      return serviceLocator<T>();
+    }
+    throw StateError('$typeName is not registered in GetIt');
   }
 }
 

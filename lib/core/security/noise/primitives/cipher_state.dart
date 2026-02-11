@@ -11,7 +11,7 @@ library;
 
 import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
-import '../adaptive_encryption_strategy.dart';
+import 'package:pak_connect/domain/services/adaptive_encryption_strategy.dart';
 
 /// CipherState abstraction for Noise Protocol encryption operations
 ///

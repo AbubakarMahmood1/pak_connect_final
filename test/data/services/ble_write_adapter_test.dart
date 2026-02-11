@@ -1,99 +1,20 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
-import 'package:pak_connect/core/services/simple_crypto.dart';
-import 'package:pak_connect/core/services/security_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/models/encryption_method.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/data/services/ble_write_adapter.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import '../../helpers/ble/ble_fakes.dart';
 import '../../helpers/ble/mock_ble_write_client.dart';
-
-// Mock secure storage for testing
-class _MockSecureStorage implements FlutterSecureStorage {
-  final Map<String, String> _storage = {};
-
-  @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
-    if (value != null) {
-      _storage[key] = value;
-    }
-  }
-
-  @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _storage[key];
-
-  @override
-  Future<void> delete({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
-    _storage.remove(key);
-  }
-
-  @override
-  Future<Map<String, String>> readAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => Map.from(_storage);
-
-  @override
-  Future<void> deleteAll({
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
-    _storage.clear();
-  }
-
-  @override
-  Future<bool> containsKey({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async => _storage.containsKey(key);
-
-  // Handle unused FlutterSecureStorage methods/properties
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
 
 class _FakeStateManager extends BLEStateManager {
   bool peripheralMode = false;
@@ -140,11 +61,128 @@ class _FakePeripheralManager implements PeripheralManager {
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _FakeEncryptionException implements Exception {
+  _FakeEncryptionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'EncryptionException: $message';
+}
+
+class _FakeSecurityService implements ISecurityService {
+  final Set<String> _noiseSessions = <String>{};
+
+  void clearAllNoiseSessions() => _noiseSessions.clear();
+
+  @override
+  void registerIdentityMapping({
+    required String persistentPublicKey,
+    required String ephemeralID,
+  }) {
+    _noiseSessions.add(ephemeralID);
+  }
+
+  @override
+  void unregisterIdentityMapping(String persistentPublicKey) {
+    _noiseSessions.remove(persistentPublicKey);
+  }
+
+  @override
+  Future<SecurityLevel> getCurrentLevel(
+    String publicKey, [
+    IContactRepository? repo,
+  ]) async {
+    if (_noiseSessions.contains(publicKey)) {
+      return SecurityLevel.high;
+    }
+    if (SimpleCrypto.hasConversationKey(publicKey)) {
+      return SecurityLevel.medium;
+    }
+    return SecurityLevel.low;
+  }
+
+  @override
+  Future<EncryptionMethod> getEncryptionMethod(
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    if (_noiseSessions.contains(publicKey)) {
+      return EncryptionMethod.noise(publicKey);
+    }
+    if (SimpleCrypto.hasConversationKey(publicKey)) {
+      return EncryptionMethod.ecdh(publicKey);
+    }
+    return EncryptionMethod.global();
+  }
+
+  @override
+  Future<String> encryptMessage(
+    String message,
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    if (_noiseSessions.contains(publicKey)) {
+      return 'noise:$message';
+    }
+    if (SimpleCrypto.hasConversationKey(publicKey)) {
+      return SimpleCrypto.encryptForConversation(message, publicKey);
+    }
+    throw _FakeEncryptionException('no encryption context for $publicKey');
+  }
+
+  @override
+  Future<String> decryptMessage(
+    String encryptedMessage,
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    if (encryptedMessage.startsWith('noise:')) {
+      return encryptedMessage.substring('noise:'.length);
+    }
+    if (SimpleCrypto.hasConversationKey(publicKey)) {
+      return SimpleCrypto.decryptFromConversation(encryptedMessage, publicKey);
+    }
+    throw _FakeEncryptionException('no decryption context for $publicKey');
+  }
+
+  @override
+  Future<Uint8List> encryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    if (!_noiseSessions.contains(publicKey) &&
+        !SimpleCrypto.hasConversationKey(publicKey)) {
+      throw _FakeEncryptionException('no binary encryption context');
+    }
+    return data;
+  }
+
+  @override
+  Future<Uint8List> decryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    if (!_noiseSessions.contains(publicKey) &&
+        !SimpleCrypto.hasConversationKey(publicKey)) {
+      throw _FakeEncryptionException('no binary decryption context');
+    }
+    return data;
+  }
+
+  @override
+  bool hasEstablishedNoiseSession(String peerSessionId) =>
+      _noiseSessions.contains(peerSessionId);
+}
+
 void main() {
   late _FakeStateManager stateManager;
   late ContactRepository contactRepository;
   late FakeBleWriteClient writeClient;
   late BleWriteAdapter adapter;
+  late _FakeSecurityService securityService;
   late List<LogRecord> logRecords;
   late Set<Pattern> allowedSevere;
 
@@ -152,21 +190,16 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
 
-    // Initialize SimpleCrypto (needed for global AES encryption)
+    // Initialize SimpleCrypto (used by our test security service).
     SimpleCrypto.initialize();
-
-    // Initialize SecurityManager with mock storage
-    final mockStorage = _MockSecureStorage();
-    await SecurityManager.instance.initialize(secureStorage: mockStorage);
 
     // Initialize EphemeralKeyManager
     await EphemeralKeyManager.initialize(
       'test-private-key-1234567890123456789012345678901234567890',
     );
-  });
 
-  tearDownAll(() {
-    SecurityManager.instance.shutdown();
+    securityService = _FakeSecurityService();
+    SecurityServiceLocator.registerFallback(securityService);
   });
 
   setUp(() {
@@ -177,7 +210,7 @@ void main() {
 
     // Keep each test independent from previous key/session state.
     SimpleCrypto.clearAllConversationKeys();
-    SecurityManager.instance.clearAllNoiseSessions();
+    securityService.clearAllNoiseSessions();
 
     stateManager = _FakeStateManager();
     contactRepository = ContactRepository();
@@ -256,9 +289,8 @@ void main() {
         'Recipient Fail Closed',
       );
 
-      // No conversation key and no Noise session -> SecurityManager must fail
+      // No conversation key and no Noise session -> security must fail
       // closed before any transport write is attempted.
-      allowSevere(RegExp(r'ENCRYPT FAILED'));
       allowSevere(RegExp(r'Failed to send message: EncryptionException'));
       allowSevere('Stack trace');
 

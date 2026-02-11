@@ -2,8 +2,8 @@
 // Visual feedback for passphrase quality with color-coded strength meter
 
 import 'package:flutter/material.dart';
-import '../../../data/services/export_import/encryption_utils.dart';
-import '../../../data/services/export_import/export_bundle.dart';
+import '../../domain/models/export_bundle.dart';
+import '../../domain/services/encryption_utils.dart';
 
 class PassphraseStrengthIndicator extends StatelessWidget {
   final String passphrase;

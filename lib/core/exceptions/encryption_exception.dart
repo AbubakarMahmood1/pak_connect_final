@@ -1,5 +1,5 @@
 /// Exception thrown when encryption operations fail.
-/// 
+///
 /// This exception is thrown when encryption cannot be completed successfully,
 /// preventing the system from falling back to insecure plaintext transmission.
 class EncryptionException implements Exception {

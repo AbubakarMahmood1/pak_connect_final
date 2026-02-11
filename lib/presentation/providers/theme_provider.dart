@@ -3,14 +3,23 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../data/repositories/preferences_repository.dart';
+import '../../domain/entities/preference_keys.dart';
+import '../../domain/interfaces/i_preferences_repository.dart';
 
 final _logger = Logger('ThemeProvider');
 
 /// Provider for preferences repository
-final preferencesRepositoryProvider = Provider<PreferencesRepository>((ref) {
-  return PreferencesRepository();
+final preferencesRepositoryProvider = Provider<IPreferencesRepository>((ref) {
+  final di = GetIt.instance;
+  if (di.isRegistered<IPreferencesRepository>()) {
+    return di<IPreferencesRepository>();
+  }
+  throw StateError(
+    'IPreferencesRepository is not registered. '
+    'Call setupServiceLocator() before using theme providers.',
+  );
 });
 
 /// Theme mode notifier with database persistence
@@ -30,11 +39,16 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
         defaultValue: PreferenceDefaults.themeMode,
       );
 
+      if (!ref.mounted) {
+        return;
+      }
       state = _parseThemeMode(themeModeString);
       _logger.info('Loaded theme mode: $themeModeString');
     } catch (e) {
       _logger.warning('Failed to load theme mode, using default: $e');
-      state = ThemeMode.system;
+      if (ref.mounted) {
+        state = ThemeMode.system;
+      }
     }
   }
 
@@ -47,6 +61,9 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
         _themeModeToString(mode),
       );
 
+      if (!ref.mounted) {
+        return;
+      }
       state = mode;
       _logger.info('Theme mode changed to: ${_themeModeToString(mode)}');
     } catch (e) {

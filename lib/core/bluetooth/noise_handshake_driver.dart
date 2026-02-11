@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../security/noise/models/noise_models.dart';
-import '../services/security_manager.dart';
+import '../security/noise/noise_encryption_service.dart';
 import 'kk_pattern_tracker.dart';
 
 class NoiseHandshakePlan {
@@ -26,11 +26,22 @@ class NoiseHandshakeDriver {
   NoiseHandshakeDriver({
     required Logger logger,
     required KKPatternTracker kkPatternTracker,
+    required NoiseEncryptionService? noiseService,
   }) : _logger = logger,
-       _kkTracker = kkPatternTracker;
+       _kkTracker = kkPatternTracker,
+       _noiseService = noiseService;
 
   final Logger _logger;
   final KKPatternTracker _kkTracker;
+  final NoiseEncryptionService? _noiseService;
+
+  NoiseEncryptionService _requireNoiseService() {
+    final noiseService = _noiseService;
+    if (noiseService == null) {
+      throw Exception('Noise service not initialized');
+    }
+    return noiseService;
+  }
 
   /// Create Noise handshake message 1 (initiator).
   ///
@@ -40,10 +51,7 @@ class NoiseHandshakeDriver {
     required String theirEphemeralId,
     String? theirNoisePublicKey,
   }) async {
-    final noiseService = SecurityManager.instance.noiseService;
-    if (noiseService == null) {
-      throw Exception('Noise service not initialized');
-    }
+    final noiseService = _requireNoiseService();
 
     NoisePattern selectedPattern = NoisePattern.xx; // Safe default
     Uint8List? remoteStaticKey;
@@ -84,10 +92,7 @@ class NoiseHandshakeDriver {
     required Uint8List data,
     required String peerId,
   }) async {
-    final noiseService = SecurityManager.instance.noiseService;
-    if (noiseService == null) {
-      throw Exception('Noise service not initialized');
-    }
+    final noiseService = _requireNoiseService();
 
     final isKK = data.length == 96; // KK message 1 is 96 bytes (e, es, ss)
 
@@ -107,10 +112,7 @@ class NoiseHandshakeDriver {
     required Uint8List data,
     required String peerId,
   }) async {
-    final noiseService = SecurityManager.instance.noiseService;
-    if (noiseService == null) {
-      throw Exception('Noise service not initialized');
-    }
+    final noiseService = _requireNoiseService();
 
     final msg3 = await noiseService.processHandshakeMessage(data, peerId);
 
@@ -127,10 +129,7 @@ class NoiseHandshakeDriver {
     required Uint8List data,
     required String peerId,
   }) async {
-    final noiseService = SecurityManager.instance.noiseService;
-    if (noiseService == null) {
-      throw Exception('Noise service not initialized');
-    }
+    final noiseService = _requireNoiseService();
 
     final result = await noiseService.processHandshakeMessage(data, peerId);
 

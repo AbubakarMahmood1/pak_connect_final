@@ -1,13 +1,13 @@
 // Riverpod providers for contact groups and group messaging
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../core/models/contact_group.dart';
-import '../../core/interfaces/i_group_repository.dart';
-import '../../data/repositories/group_repository.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../domain/models/contact_group.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_group_repository.dart';
+import '../../domain/interfaces/i_shared_message_queue_provider.dart';
 import '../../domain/services/group_messaging_service.dart';
-import '../../core/messaging/offline_queue_facade.dart';
 import '../../domain/values/id_types.dart';
 
 final _logger = Logger('GroupProviders');
@@ -15,8 +15,8 @@ final _logger = Logger('GroupProviders');
 // ==================== REPOSITORIES ====================
 
 /// Provider for GroupRepository singleton
-final groupRepositoryProvider = Provider<GroupRepository>((ref) {
-  return GroupRepository();
+final groupRepositoryProvider = Provider<IGroupRepository>((ref) {
+  return _resolveGroupRepository();
 });
 
 // ==================== SERVICES ====================
@@ -24,12 +24,18 @@ final groupRepositoryProvider = Provider<GroupRepository>((ref) {
 /// Provider for GroupMessagingService
 final groupMessagingServiceProvider = Provider<GroupMessagingService>((ref) {
   final groupRepo = ref.watch(groupRepositoryProvider);
-  final contactRepo = ContactRepository();
-  final queueFacade = OfflineQueueFacade();
-  final messageQueue = queueFacade.queue;
+  final contactRepo = _resolveContactRepository();
+  final sharedQueueProvider = _resolveSharedQueueProvider();
+  if (!sharedQueueProvider.isInitialized) {
+    throw StateError(
+      'Shared message queue is not initialized. '
+      'Ensure app bootstrap completes before using group messaging.',
+    );
+  }
+  final messageQueue = sharedQueueProvider.messageQueue;
 
   return GroupMessagingService(
-    groupRepo: groupRepo as IGroupRepository,
+    groupRepo: groupRepo,
     contactRepo: contactRepo,
     messageQueue: messageQueue,
   );
@@ -200,6 +206,36 @@ final sendGroupMessageProvider =
         return message;
       };
     });
+
+ISharedMessageQueueProvider _resolveSharedQueueProvider() {
+  if (GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
+    return GetIt.instance<ISharedMessageQueueProvider>();
+  }
+  throw StateError(
+    'ISharedMessageQueueProvider is not registered. '
+    'Register it in DI before creating GroupMessagingService.',
+  );
+}
+
+IGroupRepository _resolveGroupRepository() {
+  if (GetIt.instance.isRegistered<IGroupRepository>()) {
+    return GetIt.instance<IGroupRepository>();
+  }
+  throw StateError(
+    'IGroupRepository is not registered. '
+    'Register it in DI before creating group providers.',
+  );
+}
+
+IContactRepository _resolveContactRepository() {
+  if (GetIt.instance.isRegistered<IContactRepository>()) {
+    return GetIt.instance<IContactRepository>();
+  }
+  throw StateError(
+    'IContactRepository is not registered. '
+    'Register it in DI before creating group providers.',
+  );
+}
 
 /// Mark a message as delivered for a member
 final markMessageDeliveredProvider =

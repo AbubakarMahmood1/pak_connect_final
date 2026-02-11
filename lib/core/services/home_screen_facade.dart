@@ -3,18 +3,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import '../interfaces/i_home_screen_facade.dart';
-import '../interfaces/i_chat_interaction_handler.dart';
-import '../../core/models/connection_status.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
-import 'chat_list_coordinator.dart';
-import 'chat_connection_manager.dart';
-import '../interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_home_screen_facade.dart';
+import '../../domain/interfaces/i_chat_interaction_handler.dart';
+import '../../domain/interfaces/i_chat_connection_manager.dart';
+import '../../domain/interfaces/i_chat_connection_manager_factory.dart';
+import '../../domain/interfaces/i_chat_list_coordinator.dart';
+import '../../domain/interfaces/i_chat_list_coordinator_factory.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_connection_service.dart';
+import '../../domain/models/connection_status.dart';
+import '../../domain/models/connection_info.dart';
 import '../../domain/entities/chat_list_item.dart';
-import '../interfaces/i_connection_service.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/values/id_types.dart';
+import 'chat_connection_manager_factory.dart';
+import 'chat_list_coordinator_factory.dart';
 
 typedef ChatInteractionHandlerBuilder =
     IChatInteractionHandler Function({
@@ -53,10 +56,12 @@ class HomeScreenFacade implements IHomeScreenFacade {
   final ChatInteractionHandlerBuilder? _interactionHandlerBuilder;
   final bool _enableListCoordinatorInitialization;
   final bool _enableInternalIntentListener;
+  final IChatConnectionManagerFactory _chatConnectionManagerFactory;
+  final IChatListCoordinatorFactory _chatListCoordinatorFactory;
 
   // Lazy-initialized services
-  late final ChatConnectionManager _connectionManager;
-  late final ChatListCoordinator _listCoordinator;
+  late final IChatConnectionManager _connectionManager;
+  late final IChatListCoordinator _listCoordinator;
   late final IChatInteractionHandler _interactionHandler;
 
   bool _initialized = false;
@@ -70,6 +75,8 @@ class HomeScreenFacade implements IHomeScreenFacade {
     BuildContext? context,
     WidgetRef? ref,
     ChatInteractionHandlerBuilder? interactionHandlerBuilder,
+    IChatConnectionManagerFactory? chatConnectionManagerFactory,
+    IChatListCoordinatorFactory? chatListCoordinatorFactory,
     bool enableListCoordinatorInitialization = true,
     bool enableInternalIntentListener = true,
   }) : _chatsRepository = chatsRepository,
@@ -78,6 +85,10 @@ class HomeScreenFacade implements IHomeScreenFacade {
        _context = context,
        _ref = ref,
        _interactionHandlerBuilder = interactionHandlerBuilder,
+       _chatConnectionManagerFactory =
+           chatConnectionManagerFactory ?? const ChatConnectionManagerFactory(),
+       _chatListCoordinatorFactory =
+           chatListCoordinatorFactory ?? const ChatListCoordinatorFactory(),
        _enableListCoordinatorInitialization =
            enableListCoordinatorInitialization,
        _enableInternalIntentListener = enableInternalIntentListener {
@@ -85,9 +96,11 @@ class HomeScreenFacade implements IHomeScreenFacade {
   }
 
   void _initializeLazyServices() {
-    _connectionManager = ChatConnectionManager(bleService: _bleService);
+    _connectionManager = _chatConnectionManagerFactory.create(
+      bleService: _bleService,
+    );
 
-    _listCoordinator = ChatListCoordinator(
+    _listCoordinator = _chatListCoordinatorFactory.create(
       chatsRepository: _chatsRepository,
       bleService: _bleService,
       connectionStatusStream: _connectionManager.connectionStatusStream,
@@ -161,7 +174,7 @@ class HomeScreenFacade implements IHomeScreenFacade {
     required String contactName,
     required ConnectionInfo? currentConnectionInfo,
     required List<Peripheral> discoveredDevices,
-    required Map<String, DiscoveredDevice> discoveryData,
+    required Map<String, dynamic> discoveryData,
     required DateTime? lastSeenTime,
   }) {
     // Diagnostic logging: log when we have no discovery signals for this contact
@@ -365,5 +378,4 @@ class _NullChatInteractionHandler implements IChatInteractionHandler {
 
   @override
   Future<void> markChatAsRead(ChatId chatId) async {}
-
 }

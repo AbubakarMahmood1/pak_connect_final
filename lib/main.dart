@@ -7,9 +7,12 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 
 import 'core/app_core.dart';
-import 'core/utils/app_logger.dart';
+import 'core/di/service_locator.dart' show configureDataLayerRegistrar;
+import 'data/di/data_layer_service_registrar.dart';
+import 'domain/utils/app_logger.dart';
 import 'core/services/navigation_service.dart';
 import 'domain/values/id_types.dart';
+import 'domain/services/notification_navigation_service.dart';
 import 'presentation/theme/app_theme.dart';
 import 'presentation/screens/permission_screen.dart';
 import 'presentation/screens/home_screen.dart';
@@ -27,6 +30,7 @@ void main() async {
 
   // Setup logging with AppLogger (handles debug/release modes automatically)
   AppLogger.initialize();
+  configureDataLayerRegistrar(registerDataLayerServices);
 
   runApp(const ProviderScope(child: PakConnectApp()));
 }
@@ -128,6 +132,9 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
 
         NavigationService.setContactsScreenBuilder(
           () => const ContactsScreen(),
+        );
+        NotificationNavigationService.setHandler(
+          NavigationServiceNotificationHandler(),
         );
         _logger.info('✅ Navigation callbacks registered');
       } catch (e) {

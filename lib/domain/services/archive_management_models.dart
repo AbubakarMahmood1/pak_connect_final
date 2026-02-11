@@ -1,4 +1,4 @@
-import '../../core/models/archive_models.dart';
+import '../models/archive_models.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/values/id_types.dart';
 

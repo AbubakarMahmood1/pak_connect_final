@@ -1,8 +1,8 @@
 // File: lib/core/security/contact_recognizer.dart
-import '../interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import '../../domain/entities/contact.dart';
 import 'package:get_it/get_it.dart';
-import 'ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 
 class ContactRecognizer {
   static Future<bool> isKnownContact(String ephemeralHint) async {

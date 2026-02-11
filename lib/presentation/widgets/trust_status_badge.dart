@@ -1,7 +1,7 @@
 // Trust status indicator with visual feedback
 
 import 'package:flutter/material.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../domain/entities/contact.dart';
 
 /// Visual badge showing contact's trust/verification status
 class TrustStatusBadge extends StatelessWidget {

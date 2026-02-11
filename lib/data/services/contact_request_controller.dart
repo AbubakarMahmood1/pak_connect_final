@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/services/simple_crypto.dart';
+import '../../domain/models/security_level.dart';
+import '../../domain/services/simple_crypto.dart';
 import '../../data/repositories/contact_repository.dart';
 
 /// Handles contact request initiation, acceptance, and finalization so

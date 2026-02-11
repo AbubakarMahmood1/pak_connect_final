@@ -3,24 +3,25 @@ import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/core/interfaces/i_ble_discovery_service.dart'
+import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart'
     show ScanningSource;
-import 'package:pak_connect/core/interfaces/i_message_repository.dart';
-import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/core/interfaces/i_ble_messaging_service.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/messaging/queue_sync_manager.dart'
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart'
     show QueueSyncManagerStats, QueueSyncResult, QueueSyncResponse;
-import 'package:pak_connect/core/models/connection_info.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
-import 'package:pak_connect/core/models/spy_mode_info.dart';
-import 'package:pak_connect/core/bluetooth/bluetooth_state_monitor.dart';
-import 'package:pak_connect/core/models/ble_server_connection.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
+import '../../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
   group('MeshQueueSyncCoordinator', () {
@@ -137,135 +138,7 @@ void main() {
   });
 }
 
-class _InMemoryQueue extends OfflineMessageQueue {
-  final Map<String, QueuedMessage> _messages = {};
-  bool _online = true;
-  int _counter = 0;
-
-  bool get isOnline => _online;
-
-  @override
-  Future<String> queueMessage({
-    required String chatId,
-    required String content,
-    required String recipientPublicKey,
-    required String senderPublicKey,
-    MessagePriority priority = MessagePriority.normal,
-    String? replyToMessageId,
-    List<String> attachments = const [],
-    bool isRelayMessage = false,
-    RelayMetadata? relayMetadata,
-    String? originalMessageId,
-    String? relayNodeId,
-    String? messageHash,
-    bool persistToStorage = true,
-  }) async {
-    final id = 'msg_${_counter++}';
-    final queued = QueuedMessage(
-      id: id,
-      chatId: chatId,
-      content: content,
-      recipientPublicKey: recipientPublicKey,
-      senderPublicKey: senderPublicKey,
-      priority: priority,
-      queuedAt: DateTime.now(),
-      maxRetries: 3,
-      replyToMessageId: replyToMessageId,
-      attachments: attachments,
-      isRelayMessage: isRelayMessage,
-      relayMetadata: relayMetadata,
-      originalMessageId: originalMessageId,
-      relayNodeId: relayNodeId,
-      messageHash: messageHash,
-    );
-    _messages[id] = queued;
-    onMessageQueued?.call(queued);
-    return id;
-  }
-
-  @override
-  QueuedMessage? getMessageById(String messageId) => _messages[messageId];
-
-  @override
-  Future<void> markMessageDelivered(String messageId) async {
-    final message = _messages[messageId];
-    if (message != null) {
-      message.status = QueuedMessageStatus.delivered;
-      onMessageDelivered?.call(message);
-    }
-  }
-
-  @override
-  Future<void> markMessageFailed(String messageId, String reason) async {
-    final message = _messages[messageId];
-    if (message != null) {
-      message
-        ..status = QueuedMessageStatus.failed
-        ..failureReason = reason;
-      onMessageFailed?.call(message, reason);
-    }
-  }
-
-  @override
-  Future<void> removeMessage(String messageId) async {
-    _messages.remove(messageId);
-    onStatsUpdated?.call(getStatistics());
-  }
-
-  @override
-  Future<bool> changePriority(
-    String messageId,
-    MessagePriority priority,
-  ) async {
-    final message = _messages[messageId];
-    if (message == null) return false;
-    message.priority = priority;
-    return true;
-  }
-
-  @override
-  Future<void> retryFailedMessages() async {
-    for (final message in _messages.values) {
-      if (message.status == QueuedMessageStatus.failed) {
-        message.status = QueuedMessageStatus.pending;
-      }
-    }
-  }
-
-  @override
-  List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) =>
-      _messages.values.where((m) => m.status == status).toList();
-
-  @override
-  QueueStatistics getStatistics() {
-    final pending = getMessagesByStatus(QueuedMessageStatus.pending).length;
-    final sending = getMessagesByStatus(QueuedMessageStatus.sending).length;
-    final retrying = getMessagesByStatus(QueuedMessageStatus.retrying).length;
-    final failed = getMessagesByStatus(QueuedMessageStatus.failed).length;
-
-    return QueueStatistics(
-      totalQueued: _messages.length,
-      totalDelivered: 0,
-      totalFailed: failed,
-      pendingMessages: pending,
-      sendingMessages: sending,
-      retryingMessages: retrying,
-      failedMessages: failed,
-      isOnline: _online,
-      averageDeliveryTime: Duration.zero,
-    );
-  }
-
-  @override
-  Future<void> setOnline() async {
-    _online = true;
-  }
-
-  @override
-  Future<void> setOffline() async {
-    _online = false;
-  }
-}
+class _InMemoryQueue extends InMemoryOfflineMessageQueue {}
 
 class _FakeQueueSyncManager implements QueueSyncManagerContract {
   final List<List<String>> forcedSyncTargets = [];
@@ -627,4 +500,3 @@ class _FakeMessageRepository implements IMessageRepository {
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
-

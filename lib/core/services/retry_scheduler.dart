@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../interfaces/i_retry_scheduler.dart';
-import '../messaging/offline_message_queue.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
+import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
 import '../../domain/values/id_types.dart';
 
 /// Retry scheduling service with exponential backoff logic

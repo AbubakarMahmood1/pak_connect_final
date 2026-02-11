@@ -1,14 +1,17 @@
 import 'dart:async';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../core/app_core.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
-import '../../data/repositories/message_repository.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/messaging/message_router.dart';
-import '../../core/messaging/offline_message_queue.dart';
+import '../../domain/interfaces/i_message_repository.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_user_preferences.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
+import '../../domain/services/message_router.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/services/chat_management_facade.dart';
+import '../../domain/interfaces/i_shared_message_queue_provider.dart';
 
 import 'package:pak_connect/domain/values/id_types.dart';
 
@@ -41,8 +44,10 @@ typedef OnGetQueuedMessagesCallback = List<QueuedMessage> Function();
 /// Extracted from ChatScreen for better testability and separation of concerns
 class ChatMessagingViewModel {
   final _logger = Logger('ChatMessagingViewModel');
-  final MessageRepository messageRepository;
-  final ContactRepository contactRepository;
+  final IMessageRepository messageRepository;
+  final IContactRepository contactRepository;
+  final IUserPreferences _userPreferences;
+  final ISharedMessageQueueProvider? _sharedQueueProvider;
   final ChatId chatId;
   String contactPublicKey;
   final ChatManagementFacade? chatManagementFacade;
@@ -55,9 +60,20 @@ class ChatMessagingViewModel {
     required this.contactPublicKey,
     required this.messageRepository,
     required this.contactRepository,
+    IUserPreferences? userPreferences,
+    ISharedMessageQueueProvider? sharedQueueProvider,
     this.chatManagementFacade,
-  }) {
+  }) : _userPreferences = userPreferences ?? _resolveUserPreferences(),
+       _sharedQueueProvider = sharedQueueProvider {
     _initialize();
+  }
+
+  static IUserPreferences _resolveUserPreferences() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IUserPreferences>()) {
+      return di<IUserPreferences>();
+    }
+    return _FallbackUserPreferences.instance;
   }
 
   /// Initialize the view model
@@ -80,7 +96,7 @@ class ChatMessagingViewModel {
   Future<String> _resolveRecipientKey() async {
     try {
       final contact = await contactRepository.getContact(contactPublicKey);
-      final level = await SecurityManager.instance.getCurrentLevel(
+      final level = await SecurityServiceLocator.instance.getCurrentLevel(
         contactPublicKey,
         contactRepository,
       );
@@ -269,8 +285,8 @@ class ChatMessagingViewModel {
       final resolvedRecipientKey = await _resolveRecipientKey();
       contactPublicKey = resolvedRecipientKey;
 
-      // Use AppCore to queue message (uses proper queue system)
-      final secureMessageId = await AppCore.instance.sendSecureMessage(
+      // Queue message via shared queue provider (no direct AppCore dependency).
+      final secureMessageId = await _queueSecureMessage(
         chatId: chatId.value,
         content: content,
         recipientPublicKey: resolvedRecipientKey,
@@ -327,11 +343,51 @@ class ChatMessagingViewModel {
     }
   }
 
+  Future<String> _queueSecureMessage({
+    required String chatId,
+    required String content,
+    required String recipientPublicKey,
+  }) async {
+    final queueProvider = _sharedQueueProvider ?? _resolveSharedQueueProvider();
+    if (queueProvider == null) {
+      throw StateError(
+        'ISharedMessageQueueProvider is not registered. '
+        'Register it in DI or inject a provider override.',
+      );
+    }
+
+    if (!queueProvider.isInitialized) {
+      await queueProvider.initialize();
+    }
+
+    final senderPublicKey = await _userPreferences.getPublicKey();
+    if (senderPublicKey.isEmpty) {
+      throw StateError(
+        'Cannot queue secure message: sender public key missing',
+      );
+    }
+
+    return queueProvider.messageQueue.queueMessage(
+      chatId: chatId,
+      content: content,
+      recipientPublicKey: recipientPublicKey,
+      senderPublicKey: senderPublicKey,
+    );
+  }
+
+  ISharedMessageQueueProvider? _resolveSharedQueueProvider() {
+    final di = GetIt.instance;
+    if (di.isRegistered<ISharedMessageQueueProvider>()) {
+      return di<ISharedMessageQueueProvider>();
+    }
+    return null;
+  }
+
   /// Log comprehensive send state (helper for sendMessage)
   Future<void> _logMessageSendState(String messageContent) async {
     try {
       final contact = await contactRepository.getContact(contactPublicKey);
-      final encryptionMethod = await SecurityManager.instance
+      final encryptionMethod = await SecurityServiceLocator.instance
           .getEncryptionMethod(contactPublicKey, contactRepository);
 
       final preview = messageContent.length > 30
@@ -492,4 +548,55 @@ class ChatMessagingViewModel {
   void dispose() {
     _logger.info('🧹 Disposing ChatMessagingViewModel');
   }
+}
+
+class _FallbackUserPreferences implements IUserPreferences {
+  static final _FallbackUserPreferences instance = _FallbackUserPreferences._();
+
+  _FallbackUserPreferences._();
+
+  String _userName = 'User';
+  String? _deviceId;
+  bool _hintBroadcastEnabled = true;
+
+  @override
+  Future<String?> getDeviceId() async => _deviceId;
+
+  @override
+  Future<bool> getHintBroadcastEnabled() async => _hintBroadcastEnabled;
+
+  @override
+  Future<String> getOrCreateDeviceId() async {
+    _deviceId ??= 'fallback-device-id';
+    return _deviceId!;
+  }
+
+  @override
+  Future<Map<String, String>> getOrCreateKeyPair() async => {
+    'public': '',
+    'private': '',
+  };
+
+  @override
+  Future<String> getPrivateKey() async => '';
+
+  @override
+  Future<String> getPublicKey() async => '';
+
+  @override
+  Future<String> getUserName() async => _userName;
+
+  @override
+  Future<void> setUserName(String name) async {
+    final trimmed = name.trim();
+    _userName = trimmed.isEmpty ? 'User' : trimmed;
+  }
+
+  @override
+  Future<void> setHintBroadcastEnabled(bool enabled) async {
+    _hintBroadcastEnabled = enabled;
+  }
+
+  @override
+  Future<void> regenerateKeyPair() async {}
 }

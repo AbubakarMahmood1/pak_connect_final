@@ -85,11 +85,7 @@ class DatabaseHelper {
           _logger.warning(
             '⚠️ Existing database is unencrypted - migrating to encrypted storage',
           );
-          await _migrateUnencryptedDatabase(
-            path,
-            encryptionKey,
-            factory,
-          );
+          await _migrateUnencryptedDatabase(path, encryptionKey, factory);
         }
       }
     } else {

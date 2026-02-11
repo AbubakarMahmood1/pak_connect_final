@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 
 void main() {
   final now = DateTime(2024, 1, 1);

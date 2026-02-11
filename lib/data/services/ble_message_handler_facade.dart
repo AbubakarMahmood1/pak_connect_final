@@ -1,23 +1,23 @@
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import '../../core/interfaces/i_ble_message_handler_facade.dart';
-import '../../core/interfaces/i_seen_message_store.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/models/mesh_relay_models.dart';
-import '../../core/constants/binary_payload_types.dart';
-import '../../core/messaging/mesh_relay_engine.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/messaging/queue_sync_manager.dart';
-import '../../core/security/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/constants/binary_payload_types.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
+import '../../domain/models/protocol_message.dart' as domain_models;
 import 'message_fragmentation_handler.dart';
-import '../../core/interfaces/i_message_fragmentation_handler.dart';
+import 'package:pak_connect/domain/interfaces/i_message_fragmentation_handler.dart';
 import 'protocol_message_handler.dart';
 import 'relay_coordinator.dart';
 import '../../domain/values/id_types.dart';
-import '../../core/services/security_manager.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../core/interfaces/i_ble_handshake_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
 
 /// Public API facade for BLE message handling
 ///
@@ -49,7 +49,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     String? messageId,
   })?
   _sendPeripheralCallback;
-  OfflineMessageQueue? _messageQueue;
+  OfflineMessageQueueContract? _messageQueue;
   SpamPreventionManager? _spamPreventionManager;
   List<String> Function()? _nextHopsProvider;
   Function(
@@ -225,7 +225,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   }
 
   @override
-  void setMessageQueue(OfflineMessageQueue queue) {
+  void setMessageQueue(OfflineMessageQueueContract queue) {
     _messageQueue = queue;
     if (_initialized) {
       _relayCoordinator.setMessageQueue(queue);
@@ -477,11 +477,12 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
             Uint8List decrypted = payload.bytes;
             if (fromNodeId.isNotEmpty) {
               try {
-                decrypted = await SecurityManager.instance.decryptBinaryPayload(
-                  payload.bytes,
-                  fromNodeId,
-                  _contactRepository,
-                );
+                decrypted = await SecurityServiceLocator.instance
+                    .decryptBinaryPayload(
+                      payload.bytes,
+                      fromNodeId,
+                      _contactRepository,
+                    );
               } catch (e) {
                 _logger.warning(
                   '⚠️ Binary payload decrypt failed from $fromNodeId: $e',
@@ -729,21 +730,26 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   }
 
   @override
-  set onSendAckMessage(Function(ProtocolMessage message)? callback) {
+  set onSendAckMessage(
+    Function(domain_models.ProtocolMessage message)? callback,
+  ) {
     _ensureInitialized();
     if (callback != null) {
-      _relayCoordinator.onSendAckMessage(callback);
-      _protocolHandler.onSendAckMessage(callback);
+      _relayCoordinator.onSendAckMessage((message) => callback(message));
+      _protocolHandler.onSendAckMessage((message) => callback(message));
     }
   }
 
   @override
   set onSendRelayMessage(
-    Function(ProtocolMessage relayMessage, String nextHopId)? callback,
+    Function(domain_models.ProtocolMessage relayMessage, String nextHopId)?
+    callback,
   ) {
     _ensureInitialized();
     if (callback != null) {
-      _relayCoordinator.onSendRelayMessage(callback);
+      _relayCoordinator.onSendRelayMessage(
+        (relayMessage, nextHopId) => callback(relayMessage, nextHopId),
+      );
     }
   }
 

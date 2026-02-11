@@ -7,31 +7,33 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import '../models/mesh_relay_models.dart';
-import '../models/protocol_message.dart';
-import '../interfaces/i_repository_provider.dart';
-import '../interfaces/i_seen_message_store.dart';
-import '../interfaces/i_identity_manager.dart';
+import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
+    as domain_messaging;
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
-import '../services/security_manager.dart';
-import 'offline_message_queue.dart';
-import '../security/spam_prevention_manager.dart';
-import '../routing/network_topology_analyzer.dart';
-import '../interfaces/i_mesh_routing_service.dart';
+import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/routing/network_topology_analyzer.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
 import 'relay_config_manager.dart';
 import 'relay_policy.dart';
 import 'relay_decision_engine.dart';
 import 'relay_send_pipeline.dart';
-import '../constants/special_recipients.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/constants/special_recipients.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 
 /// Core engine for mesh relay operations
-class MeshRelayEngine {
+class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   static final _logger = Logger('MeshRelayEngine');
 
   final IRepositoryProvider? _repositoryProvider;
   final ISeenMessageStore _seenMessageStore;
-  final OfflineMessageQueue _messageQueue;
+  final OfflineMessageQueueContract _messageQueue;
   final SpamPreventionManager _spamPrevention;
 
   // Smart routing integration (via IMeshRoutingService interface)
@@ -67,7 +69,7 @@ class MeshRelayEngine {
   MeshRelayEngine({
     IRepositoryProvider? repositoryProvider,
     ISeenMessageStore? seenMessageStore,
-    required OfflineMessageQueue messageQueue,
+    required OfflineMessageQueueContract messageQueue,
     required SpamPreventionManager spamPrevention,
     this.forceFloodMode = false,
   }) : _repositoryProvider =
@@ -110,6 +112,7 @@ class MeshRelayEngine {
   ///
   /// Phase 1 (Role Awareness): Added relay config initialization
   /// Phase 3 (Network-Size Adaptive): Added topology analyzer integration
+  @override
   Future<void> initialize({
     required String currentNodeId,
     IMeshRoutingService? routingService,
@@ -195,6 +198,7 @@ class MeshRelayEngine {
   /// Process incoming relay message and decide what to do
   ///
   /// Phase 1 (Role Awareness): Added relay config and message type filtering
+  @override
   Future<RelayProcessingResult> processIncomingRelay({
     required MeshRelayMessage relayMessage,
     required String fromNodeId,
@@ -470,6 +474,7 @@ class MeshRelayEngine {
   /// Create new relay message for outgoing message
   ///
   /// PHASE 2: Added message type parameter for relay policy filtering
+  @override
   Future<MeshRelayMessage?> createOutgoingRelay({
     required String originalMessageId,
     required String originalContent,
@@ -545,6 +550,7 @@ class MeshRelayEngine {
   }
 
   /// Check if current node should attempt to decrypt message (recipient optimization)
+  @override
   Future<bool> shouldAttemptDecryption({
     required String finalRecipientPublicKey,
     required String originalSenderPublicKey,
@@ -584,6 +590,7 @@ class MeshRelayEngine {
   }
 
   /// Get relay engine statistics
+  @override
   RelayStatistics getStatistics() {
     final spamStats = _spamPrevention.getStatistics();
     final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 0;
@@ -671,173 +678,13 @@ class MeshRelayEngine {
   }
 }
 
-/// Result of relay processing
-class RelayProcessingResult {
-  final RelayProcessingType type;
-  final String? content;
-  final String? nextHopNodeId;
-  final String? reason;
-
-  const RelayProcessingResult._(
-    this.type,
-    this.content,
-    this.nextHopNodeId,
-    this.reason,
-  );
-
-  factory RelayProcessingResult.deliveredToSelf(String content) =>
-      RelayProcessingResult._(
-        RelayProcessingType.deliveredToSelf,
-        content,
-        null,
-        null,
-      );
-
-  factory RelayProcessingResult.relayed(String nextHopNodeId) =>
-      RelayProcessingResult._(
-        RelayProcessingType.relayed,
-        null,
-        nextHopNodeId,
-        null,
-      );
-
-  factory RelayProcessingResult.dropped(String reason) =>
-      RelayProcessingResult._(RelayProcessingType.dropped, null, null, reason);
-
-  factory RelayProcessingResult.blocked(String reason) =>
-      RelayProcessingResult._(RelayProcessingType.blocked, null, null, reason);
-
-  factory RelayProcessingResult.error(String reason) =>
-      RelayProcessingResult._(RelayProcessingType.error, null, null, reason);
-
-  bool get isSuccess =>
-      type == RelayProcessingType.deliveredToSelf ||
-      type == RelayProcessingType.relayed;
-  bool get isDelivered => type == RelayProcessingType.deliveredToSelf;
-  bool get isRelayed => type == RelayProcessingType.relayed;
-  bool get isBlocked =>
-      type == RelayProcessingType.blocked ||
-      type == RelayProcessingType.dropped;
-}
-
-/// Type of relay processing result
-enum RelayProcessingType { deliveredToSelf, relayed, dropped, blocked, error }
-
-/// Relay decision information
-class RelayDecision {
-  final RelayDecisionType type;
-  final String messageId;
-  final String? nextHopNodeId;
-  final String? finalRecipient;
-  final String reason;
-  final int hopCount;
-  final double? spamScore;
-  final DateTime timestamp;
-
-  RelayDecision._({
-    required this.type,
-    required this.messageId,
-    required this.reason,
-    this.nextHopNodeId,
-    this.finalRecipient,
-    this.hopCount = 0,
-    this.spamScore,
-  }) : timestamp = DateTime.now();
-
-  factory RelayDecision.relayed({
-    required String messageId,
-    required String nextHopNodeId,
-    required int hopCount,
-  }) => RelayDecision._(
-    type: RelayDecisionType.relayed,
-    messageId: messageId,
-    nextHopNodeId: nextHopNodeId,
-    hopCount: hopCount,
-    reason: 'Message relayed to next hop',
-  );
-
-  factory RelayDecision.delivered({
-    required String messageId,
-    required String finalRecipient,
-  }) => RelayDecision._(
-    type: RelayDecisionType.delivered,
-    messageId: messageId,
-    finalRecipient: finalRecipient,
-    reason: 'Message delivered to final recipient',
-  );
-
-  factory RelayDecision.dropped({
-    required String messageId,
-    required String reason,
-  }) => RelayDecision._(
-    type: RelayDecisionType.dropped,
-    messageId: messageId,
-    reason: reason,
-  );
-
-  factory RelayDecision.blocked({
-    required String messageId,
-    required String reason,
-    double? spamScore,
-  }) => RelayDecision._(
-    type: RelayDecisionType.blocked,
-    messageId: messageId,
-    reason: reason,
-    spamScore: spamScore,
-  );
-
-  MessageId get messageIdValue => MessageId(messageId);
-}
-
-/// Type of relay decision
-enum RelayDecisionType { relayed, delivered, dropped, blocked }
-
-/// Relay engine statistics
-class RelayStatistics {
-  final int totalRelayed;
-  final int totalDropped;
-  final int totalDeliveredToSelf;
-  final int totalBlocked;
-  final int totalProbabilisticSkip; // Phase 3: Probabilistic relay skips
-  final double spamScore;
-  final double relayEfficiency;
-  final int activeRelayMessages;
-  final int networkSize; // Phase 3: Current network size
-  final double currentRelayProbability; // Phase 3: Current relay probability
-
-  const RelayStatistics({
-    required this.totalRelayed,
-    required this.totalDropped,
-    required this.totalDeliveredToSelf,
-    required this.totalBlocked,
-    required this.totalProbabilisticSkip,
-    required this.spamScore,
-    required this.relayEfficiency,
-    required this.activeRelayMessages,
-    required this.networkSize,
-    required this.currentRelayProbability,
-  });
-
-  int get totalProcessed => totalRelayed + totalDropped + totalDeliveredToSelf;
-
-  @override
-  String toString() =>
-      'RelayStatistics('
-      'relayed: $totalRelayed, '
-      'dropped: $totalDropped, '
-      'delivered: $totalDeliveredToSelf, '
-      'blocked: $totalBlocked, '
-      'probSkip: $totalProbabilisticSkip, '
-      'efficiency: ${(relayEfficiency * 100).toStringAsFixed(1)}%, '
-      'network: $networkSize nodes, '
-      'relayProb: ${(currentRelayProbability * 100).toStringAsFixed(0)}%'
-      ')';
-}
-
 /// Lightweight fallback seen-message store used when DI isn't configured (tests)
 class _InMemorySeenMessageStore implements ISeenMessageStore {
   final Set<String> _delivered = <String>{};
   final Set<String> _read = <String>{};
+
+  @override
+  Future<void> initialize() async {}
 
   @override
   bool hasDelivered(String messageId) => _delivered.contains(messageId);

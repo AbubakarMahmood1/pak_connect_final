@@ -2,7 +2,7 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
-import 'device_deduplication_manager.dart';
+import 'package:pak_connect/domain/services/device_deduplication_manager.dart';
 
 class BatchProcessor {
   static final List<DiscoveredEventArgs> _batchQueue = [];

@@ -1,19 +1,21 @@
 import 'package:logging/logging.dart';
-import '../interfaces/i_offline_message_queue.dart';
-import '../interfaces/i_message_queue_repository.dart';
-import '../interfaces/i_retry_scheduler.dart';
-import '../interfaces/i_queue_sync_coordinator.dart';
-import '../interfaces/i_queue_persistence_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
+import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
 import '../services/message_queue_repository.dart';
-import '../services/retry_scheduler.dart';
-import '../services/queue_sync_coordinator.dart';
 import '../services/queue_persistence_manager.dart';
+import '../services/queue_sync_coordinator.dart';
+import '../services/retry_scheduler.dart';
 import 'offline_message_queue.dart';
 
 /// Facade for offline message queue with lazy initialization of sub-services
 /// Provides 100% backward compatibility with existing OfflineMessageQueue API
 /// while enabling gradual migration to extracted services
-class OfflineQueueFacade implements IOfflineMessageQueue {
+class OfflineQueueFacade implements OfflineMessageQueueContract {
   static final _logger = Logger('OfflineQueueFacade');
 
   // Core queue implementation
@@ -82,6 +84,38 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
   // ===== DELEGATION: INITIALIZATION =====
 
   @override
+  set onMessageQueued(Function(QueuedMessage message)? callback) {
+    _queue.onMessageQueued = callback;
+  }
+
+  @override
+  set onMessageDelivered(Function(QueuedMessage message)? callback) {
+    _queue.onMessageDelivered = callback;
+  }
+
+  @override
+  set onMessageFailed(
+    Function(QueuedMessage message, String reason)? callback,
+  ) {
+    _queue.onMessageFailed = callback;
+  }
+
+  @override
+  set onStatsUpdated(Function(QueueStatistics stats)? callback) {
+    _queue.onStatsUpdated = callback;
+  }
+
+  @override
+  set onSendMessage(Function(String messageId)? callback) {
+    _queue.onSendMessage = callback;
+  }
+
+  @override
+  set onConnectivityCheck(Function()? callback) {
+    _queue.onConnectivityCheck = callback;
+  }
+
+  @override
   Future<void> initialize({
     Function(QueuedMessage message)? onMessageQueued,
     Function(QueuedMessage message)? onMessageDelivered,
@@ -113,6 +147,12 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
     MessagePriority priority = MessagePriority.normal,
     String? replyToMessageId,
     List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
   }) async {
     return _queue.queueMessage(
       chatId: chatId,
@@ -122,8 +162,51 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
       priority: priority,
       replyToMessageId: replyToMessageId,
       attachments: attachments,
+      isRelayMessage: isRelayMessage,
+      relayMetadata: relayMetadata,
+      originalMessageId: originalMessageId,
+      relayNodeId: relayNodeId,
+      messageHash: messageHash,
+      persistToStorage: persistToStorage,
     );
   }
+
+  @override
+  Future<MessageId> queueMessageWithIds({
+    required ChatId chatId,
+    required String content,
+    required ChatId recipientId,
+    required ChatId senderId,
+    MessagePriority priority = MessagePriority.normal,
+    MessageId? replyToMessageId,
+    List<String> attachments = const [],
+    bool isRelayMessage = false,
+    RelayMetadata? relayMetadata,
+    String? originalMessageId,
+    String? relayNodeId,
+    String? messageHash,
+    bool persistToStorage = true,
+  }) {
+    return _queue.queueMessageWithIds(
+      chatId: chatId,
+      content: content,
+      recipientId: recipientId,
+      senderId: senderId,
+      priority: priority,
+      replyToMessageId: replyToMessageId,
+      attachments: attachments,
+      isRelayMessage: isRelayMessage,
+      relayMetadata: relayMetadata,
+      originalMessageId: originalMessageId,
+      relayNodeId: relayNodeId,
+      messageHash: messageHash,
+      persistToStorage: persistToStorage,
+    );
+  }
+
+  @override
+  Future<int> removeMessagesForChat(String chatId) =>
+      _queue.removeMessagesForChat(chatId);
 
   @override
   Future<void> setOnline() => _queue.setOnline();
@@ -132,11 +215,11 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
   void setOffline() => _queue.setOffline();
 
   @override
-  void markMessageDelivered(String messageId) =>
+  Future<void> markMessageDelivered(String messageId) =>
       _queue.markMessageDelivered(messageId);
 
   @override
-  void markMessageFailed(String messageId, String reason) =>
+  Future<void> markMessageFailed(String messageId, String reason) =>
       _queue.markMessageFailed(messageId, reason);
 
   @override
@@ -144,6 +227,10 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
 
   @override
   Future<void> retryFailedMessages() => _queue.retryFailedMessages();
+
+  @override
+  Future<void> retryFailedMessagesForChat(String chatId) =>
+      _queue.retryFailedMessagesForChat(chatId);
 
   @override
   Future<void> clearQueue() => _queue.clearQueue();
@@ -164,8 +251,8 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
       _queue.removeMessage(messageId);
 
   @override
-  Future<void> flushQueueForPeer(String recipientPublicKey) =>
-      _queue.flushQueueForPeer(recipientPublicKey);
+  Future<void> flushQueueForPeer(String peerPublicKey) =>
+      _queue.flushQueueForPeer(peerPublicKey);
 
   @override
   Future<bool> changePriority(String messageId, MessagePriority newPriority) =>
@@ -182,11 +269,11 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
       _queue.createSyncMessage(nodeId);
 
   @override
-  bool needsSynchronization(String peerKey) =>
-      _queue.needsSynchronization(peerKey);
+  bool needsSynchronization(String otherQueueHash) =>
+      _queue.needsSynchronization(otherQueueHash);
 
   @override
-  void addSyncedMessage(QueuedMessage message) =>
+  Future<void> addSyncedMessage(QueuedMessage message) =>
       _queue.addSyncedMessage(message);
 
   @override
@@ -200,7 +287,7 @@ class OfflineQueueFacade implements IOfflineMessageQueue {
   // ===== DELEGATION: DELETED MESSAGE TRACKING =====
 
   @override
-  void markMessageDeleted(String messageId) =>
+  Future<void> markMessageDeleted(String messageId) =>
       _queue.markMessageDeleted(messageId);
 
   @override

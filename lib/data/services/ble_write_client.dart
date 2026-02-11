@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import '../../core/interfaces/i_ble_write_client.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_write_client.dart';
 
 /// Default implementation of IBleWriteClient that delegates to the plugin APIs.
 class BleWriteClient implements IBleWriteClient {

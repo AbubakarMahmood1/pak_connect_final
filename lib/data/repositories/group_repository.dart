@@ -3,10 +3,10 @@
 
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
-import '../../core/interfaces/i_group_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_group_repository.dart';
 import '../database/database_helper.dart';
-import '../../core/models/contact_group.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/models/contact_group.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Repository for managing contact groups in SQLite
 ///

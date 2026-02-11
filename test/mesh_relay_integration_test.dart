@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
 
 void main() {
   group('Mesh Relay Integration Tests', () {
@@ -369,4 +369,3 @@ void main() {
     });
   });
 }
-

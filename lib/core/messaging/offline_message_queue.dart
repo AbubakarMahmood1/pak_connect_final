@@ -1,3 +1,4 @@
+// ignore_for_file: annotate_overrides
 // Comprehensive offline message delivery and queue management system
 
 import 'dart:async';
@@ -6,34 +7,26 @@ import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
-import '../interfaces/i_repository_provider.dart';
-import '../security/message_security.dart';
-import '../models/mesh_relay_models.dart';
-import '../interfaces/i_database_provider.dart';
-import '../interfaces/i_message_queue_repository.dart';
-import '../interfaces/i_queue_persistence_manager.dart';
-import '../interfaces/i_retry_scheduler.dart';
-import '../interfaces/i_queue_sync_coordinator.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/services/message_security.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
+import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
 import '../services/message_queue_repository.dart';
 import '../services/queue_persistence_manager.dart';
 import '../services/retry_scheduler.dart';
 import '../services/queue_sync_coordinator.dart';
 import '../services/queue_policy_manager.dart';
 import '../services/queue_bandwidth_allocator.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../domain/entities/queued_message.dart';
-import '../../domain/entities/queue_statistics.dart';
-import '../../domain/entities/queue_enums.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
 
-// Re-export domain entities for backward compatibility with existing imports
-// These have been extracted to domain/entities for better separation
-export '../../domain/entities/queued_message.dart';
-export '../../domain/entities/queue_statistics.dart';
-export '../../domain/entities/queue_enums.dart';
-
 /// Comprehensive offline message queue with intelligent retry and delivery management
-class OfflineMessageQueue {
+class OfflineMessageQueue implements OfflineMessageQueueContract {
   static final _logger = Logger('OfflineMessageQueue');
 
   static const int _maxRetries = 5;

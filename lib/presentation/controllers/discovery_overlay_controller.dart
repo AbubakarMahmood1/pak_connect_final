@@ -3,14 +3,16 @@ import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/security/hint_cache_manager.dart';
-import '../../core/models/connection_info.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../domain/services/hint_cache_manager.dart';
+import '../../domain/models/connection_info.dart';
+import '../../domain/entities/contact.dart';
 import '../../domain/entities/enhanced_contact.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/security/security_types.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/services/device_deduplication_manager.dart';
+import '../../domain/models/security_level.dart';
 import '../providers/ble_providers.dart';
 import '../widgets/discovery/discovery_types.dart';
 
@@ -65,7 +67,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
   Future<DiscoveryOverlayState> build() async {
     ref.onDispose(_cancelResources);
 
-    final contacts = await ContactRepository().getAllContacts();
+    final contacts = await _contactRepository.getAllContacts();
     await _updateHintCache();
     _startCleanupTimer();
     _startPeripheralListener();
@@ -182,7 +184,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
 
   Future<void> _refreshContacts() async {
     try {
-      final contacts = await ContactRepository().getAllContacts();
+      final contacts = await _contactRepository.getAllContacts();
       state = state.whenData((current) => current.copyWith(contacts: contacts));
     } catch (e) {
       _logger.fine('Failed to refresh contacts for discovery overlay: $e');
@@ -206,8 +208,7 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
           connectionService.theirEphemeralId;
       if (identifier == null || identifier.isEmpty) return;
 
-      final contactRepo = ContactRepository();
-      final contact = await contactRepo.getContactByAnyId(identifier);
+      final contact = await _contactRepository.getContactByAnyId(identifier);
       final displayName = contact?.displayName ?? info.otherUserName!;
 
       final enhanced = EnhancedContact(
@@ -274,6 +275,17 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
     _peripheralSubscription?.cancel();
     _deviceCleanupTimer = null;
     _peripheralSubscription = null;
+  }
+
+  IContactRepository get _contactRepository {
+    final di = GetIt.instance;
+    if (di.isRegistered<IContactRepository>()) {
+      return di<IContactRepository>();
+    }
+    throw StateError(
+      'IContactRepository is not registered. '
+      'Call setupServiceLocator() before using DiscoveryOverlayController.',
+    );
   }
 }
 

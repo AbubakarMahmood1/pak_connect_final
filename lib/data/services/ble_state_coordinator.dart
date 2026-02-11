@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../core/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/services/simple_crypto.dart';
-import '../../core/interfaces/i_ble_state_coordinator.dart';
-import '../../core/interfaces/i_identity_manager.dart';
-import '../../core/interfaces/i_pairing_service.dart';
-import '../../core/interfaces/i_session_service.dart';
-import '../../core/security/ephemeral_key_manager.dart';
+import '../../domain/models/security_level.dart';
+import '../../domain/services/simple_crypto.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_coordinator.dart';
+import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_pairing_service.dart';
+import 'package:pak_connect/domain/interfaces/i_session_service.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
 
 /// BLE State Coordinator
 ///

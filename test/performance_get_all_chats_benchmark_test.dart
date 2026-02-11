@@ -221,8 +221,12 @@ void main() {
         debugPrint(
           '      Actual: ${elapsed}ms (${((elapsed / estimatedN1Time) * 100).toStringAsFixed(0)}% of expected)',
         );
-        debugPrint('      Impact: Linear growth (200 contacts = ${elapsed * 2}ms)');
-        debugPrint('      Recommendation: Apply FIX-006 from RECOMMENDED_FIXES.md');
+        debugPrint(
+          '      Impact: Linear growth (200 contacts = ${elapsed * 2}ms)',
+        );
+        debugPrint(
+          '      Recommendation: Apply FIX-006 from RECOMMENDED_FIXES.md',
+        );
       } else {
         debugPrint('   ❌ CRITICAL PERFORMANCE ISSUE');
         debugPrint('      Worse than N+1 pattern suggests other issues');
@@ -235,7 +239,9 @@ void main() {
       if (elapsed > 500) {
         debugPrint('   - Status: ✅ CONFIRMED (${elapsed}ms for 100 contacts)');
         debugPrint('   - Confidence: 95% → 100%');
-        debugPrint('   - Evidence: Runtime benchmark proves performance impact');
+        debugPrint(
+          '   - Evidence: Runtime benchmark proves performance impact',
+        );
       } else {
         debugPrint('   - Status: ⚠️  NOT REPRODUCED');
         debugPrint(

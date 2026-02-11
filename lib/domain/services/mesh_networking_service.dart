@@ -10,38 +10,37 @@ import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:meta/meta.dart';
 
-import '../../core/app_core.dart';
-import '../../core/interfaces/i_ble_message_handler_facade.dart';
-import '../../core/interfaces/i_message_repository.dart';
-import '../../core/interfaces/i_connection_service.dart';
-import '../../core/interfaces/i_mesh_networking_service.dart';
-import '../../core/interfaces/i_repository_provider.dart';
-import '../../core/messaging/offline_message_queue.dart' show QueuedMessage;
-import '../../core/messaging/queue_sync_manager.dart'
+import '../interfaces/i_ble_message_handler_facade.dart';
+import '../interfaces/i_mesh_networking_service.dart';
+import '../messaging/queue_sync_manager.dart'
     show QueueSyncManagerStats, QueueSyncResult;
-import '../../core/messaging/media_transfer_store.dart';
-import '../../core/constants/binary_payload_types.dart';
-import '../../core/interfaces/i_ble_messaging_service.dart' show BinaryPayload;
-import '../../core/messaging/mesh_relay_engine.dart'
-    show RelayDecision, RelayStatistics;
-import '../../core/messaging/gossip_sync_manager.dart';
-import '../../core/security/spam_prevention_manager.dart';
-import '../../core/models/connection_info.dart';
+import '../messaging/media_transfer_store.dart';
+import '../messaging/gossip_sync_manager.dart';
+import 'spam_prevention_manager.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/services/chat_management_service.dart';
-import '../../core/bluetooth/bluetooth_state_monitor.dart';
+import '../models/connection_info.dart';
 import '../models/mesh_network_models.dart';
+import '../models/bluetooth_state_models.dart';
+import '../constants/binary_payload_types.dart';
+import '../interfaces/i_shared_message_queue_provider.dart';
 import 'mesh/mesh_network_health_monitor.dart';
 import 'mesh/mesh_queue_sync_coordinator.dart';
 import 'mesh/mesh_relay_coordinator.dart';
-import '../../core/utils/chat_utils.dart';
+import '../utils/chat_utils.dart';
+import '../interfaces/i_message_repository.dart';
+import '../interfaces/i_connection_service.dart';
+import '../interfaces/i_repository_provider.dart';
+import '../models/binary_payload.dart';
+import '../models/mesh_relay_models.dart' show RelayDecision, RelayStatistics;
 
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
 
 /// Main orchestrator service for mesh networking functionality
 /// Coordinates all mesh components behind a clean application-facing API
@@ -72,6 +71,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
   // Note: _chatManagementService kept for API compatibility but not currently used
   // May be needed for future chat-related mesh operations (group chats, etc.)
   final IMessageRepository _messageRepository;
+  final ISharedMessageQueueProvider _sharedQueueProvider;
 
   // State management
   String? _currentNodeId;
@@ -300,14 +300,17 @@ class MeshNetworkingService implements IMeshNetworkingService {
     required ChatManagementService
     chatManagementService, // Kept for API compatibility
     IRepositoryProvider? repositoryProvider,
+    ISharedMessageQueueProvider? sharedQueueProvider,
     MeshRelayCoordinator? relayCoordinator,
     MeshNetworkHealthMonitor? healthMonitor,
     MeshQueueSyncCoordinator? queueCoordinator,
+    MeshRelayEngineFactory? relayEngineFactory,
   }) : _bleService = bleService,
        _messageHandler = messageHandler,
        _messageRepository =
            (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
                .messageRepository,
+       _sharedQueueProvider = _resolveSharedQueueProvider(sharedQueueProvider),
        _healthMonitor = healthMonitor ?? MeshNetworkHealthMonitor() {
     _relayCoordinator =
         relayCoordinator ??
@@ -316,6 +319,7 @@ class MeshNetworkingService implements IMeshNetworkingService {
           onRelayDecision: _handleRelayDecision,
           onRelayStatsUpdated: _handleRelayStatsUpdated,
           onDeliverToSelf: _handleDeliverToSelf,
+          relayEngineFactory: relayEngineFactory,
         );
 
     _queueCoordinator =
@@ -335,6 +339,21 @@ class MeshNetworkingService implements IMeshNetworkingService {
       queueSnapshotProvider: () => _queueCoordinator.getActiveQueueMessages(),
       statisticsProvider: () => getNetworkStatistics(),
       isConnectedProvider: () => _bleService.isConnected,
+    );
+  }
+
+  static ISharedMessageQueueProvider _resolveSharedQueueProvider(
+    ISharedMessageQueueProvider? sharedQueueProvider,
+  ) {
+    if (sharedQueueProvider != null) {
+      return sharedQueueProvider;
+    }
+    if (GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
+      return GetIt.instance<ISharedMessageQueueProvider>();
+    }
+    throw StateError(
+      'ISharedMessageQueueProvider is not registered. '
+      'Pass sharedQueueProvider explicitly or register it in DI.',
     );
   }
 
@@ -388,26 +407,26 @@ class MeshNetworkingService implements IMeshNetworkingService {
 
   /// Initialize core mesh networking components
   Future<void> _initializeCoreComponents() async {
-    // Use AppCore's shared message queue instead of creating a separate instance
-    _logger.info(
-      '🔗 Using AppCore\'s shared message queue for mesh networking',
-    );
+    // Use shared message queue provider instead of creating a separate instance.
+    _logger.info('🔗 Using shared message queue provider for mesh networking');
 
-    // Get the shared queue from AppCore - ensure AppCore is initialized first.
-    // Avoid re-entering AppCore initialization while it is already running,
-    // since AppCore->mesh initialization can otherwise deadlock.
-    if (!AppCore.instance.isInitialized) {
-      if (AppCore.instance.isInitializing) {
+    // Ensure provider app lifecycle has initialized shared queue host.
+    // Avoid re-entering initialization while already running, since
+    // AppCore->mesh initialization can otherwise deadlock.
+    if (!_sharedQueueProvider.isInitialized) {
+      if (_sharedQueueProvider.isInitializing) {
         _logger.info(
-          'AppCore initialization in progress; reusing shared queue without re-entry',
+          'Shared queue host initialization in progress; reusing queue without re-entry',
         );
       } else {
-        _logger.warning('AppCore not initialized, initializing now...');
-        await AppCore.instance.initialize();
+        _logger.warning(
+          'Shared queue host not initialized, initializing now...',
+        );
+        await _sharedQueueProvider.initialize();
       }
     }
 
-    final sharedQueue = AppCore.instance.messageQueue;
+    final sharedQueue = _sharedQueueProvider.messageQueue;
     _logger.info(
       '✅ Connected to shared message queue with ${sharedQueue.getStatistics().pendingMessages} pending messages',
     );

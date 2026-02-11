@@ -5,8 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/ephemeral_discovery_hint.dart';
-import 'package:pak_connect/core/services/hint_advertisement_service.dart';
-import 'package:pak_connect/core/utils/app_logger.dart';
+import 'package:pak_connect/domain/utils/hint_advertisement_service.dart';
+import 'package:pak_connect/domain/utils/app_logger.dart';
 
 void main() {
   late List<LogRecord> logRecords;
@@ -328,4 +328,3 @@ void main() {
     });
   });
 }
-

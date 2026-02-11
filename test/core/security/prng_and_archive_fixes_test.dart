@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/core/services/simple_crypto.dart';
-import 'package:pak_connect/core/security/archive_crypto.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/archive_crypto.dart';
 import 'package:pointycastle/export.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -70,9 +70,9 @@ void main() {
       // List of cryptographic source files that were fixed
       final criticalFiles = [
         'lib/data/repositories/user_preferences.dart',
-        'lib/core/services/simple_crypto.dart',
-        'lib/core/security/signing_manager.dart',
-        'lib/core/security/message_security.dart',
+        'lib/domain/services/simple_crypto.dart',
+        'lib/domain/services/signing_manager.dart',
+        'lib/domain/services/message_security.dart',
       ];
 
       for (final filePath in criticalFiles) {

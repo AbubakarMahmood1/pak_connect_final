@@ -2,8 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/core/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/domain/models/encryption_method.dart';
 
 // Mock secure storage for testing
 class MockSecureStorage implements FlutterSecureStorage {
@@ -239,4 +241,3 @@ void main() {
     });
   });
 }
-

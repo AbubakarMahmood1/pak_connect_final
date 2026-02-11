@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../core/models/security_state.dart';
-import '../../data/services/security_state_computer.dart';
+import '../../domain/interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/models/security_state.dart';
+import '../../domain/services/security_state_computer.dart';
 import 'ble_providers.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Static cache for security states to prevent frequent recreations
 final Map<String, SecurityState> _securityStateCache = {};
@@ -36,15 +39,17 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((
 ) async {
   final runtime = ref.watch(bleRuntimeProvider);
   final connectionInfo = runtime.asData?.value.connectionInfo;
-  final bleService = ref.watch(bleServiceProvider);
+  final connectionService = ref.watch(connectionServiceProvider);
+  final contactRepository = _resolveContactRepository();
   final connectedKeys = <String?>{
-    bleService.theirPersistentKey,
-    bleService.currentSessionId,
-    bleService.theirEphemeralId,
+    connectionService.theirPersistentKey,
+    connectionService.currentSessionId,
+    connectionService.theirEphemeralId,
   };
   final isRepositoryMode = otherPublicKey == null
       ? !(connectionInfo?.isReady ?? false)
       : !connectedKeys.contains(otherPublicKey);
+  final theyHaveUsAsContact = _resolveTheyHaveUsAsContact(connectionService);
 
   final cached = _getCached(otherPublicKey);
   if (cached != null) {
@@ -55,7 +60,7 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((
   }
 
   _logger.fine(
-    '🐛 NAV DEBUG: - bleService.theirPersistentKey: ${bleService.theirPersistentKey != null && bleService.theirPersistentKey!.length > 16 ? '${bleService.theirPersistentKey!.shortId()}...' : bleService.theirPersistentKey ?? 'null'}',
+    '🐛 NAV DEBUG: - connectionService.theirPersistentKey: ${connectionService.theirPersistentKey != null && connectionService.theirPersistentKey!.length > 16 ? '${connectionService.theirPersistentKey!.shortId()}...' : connectionService.theirPersistentKey ?? 'null'}',
   );
   _logger.fine(
     '🐛 NAV DEBUG: - connectionInfo: ${connectionInfo?.isConnected}/${connectionInfo?.isReady}',
@@ -65,7 +70,9 @@ final securityStateProvider = FutureProvider.family<SecurityState, String?>((
   final result = await SecurityStateComputer.computeState(
     isRepositoryMode: isRepositoryMode,
     connectionInfo: connectionInfo,
-    bleService: bleService,
+    connectionService: connectionService,
+    contactRepository: contactRepository,
+    theyHaveUsAsContact: theyHaveUsAsContact,
     otherPublicKey: otherPublicKey,
   );
 
@@ -127,3 +134,26 @@ final encryptionDescriptionProvider = Provider.family<String, String?>((
     orElse: () => 'Unknown',
   );
 });
+
+IContactRepository _resolveContactRepository() {
+  final serviceLocator = GetIt.instance;
+  if (serviceLocator.isRegistered<IContactRepository>()) {
+    return serviceLocator<IContactRepository>();
+  }
+  throw StateError(
+    'IContactRepository is not registered. '
+    'Call setupServiceLocator() before using security state providers.',
+  );
+}
+
+bool _resolveTheyHaveUsAsContact(IConnectionService connectionService) {
+  try {
+    final dynamic maybeWithManager = connectionService;
+    final dynamic stateManager = maybeWithManager.stateManager;
+    final dynamic value = stateManager.theyHaveUsAsContact;
+    if (value is bool) {
+      return value;
+    }
+  } catch (_) {}
+  return false;
+}

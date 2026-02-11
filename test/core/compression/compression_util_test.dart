@@ -3,9 +3,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/compression/compression_config.dart';
-import 'package:pak_connect/core/compression/compression_stats.dart';
-import 'package:pak_connect/core/compression/compression_util.dart';
+import 'package:pak_connect/domain/utils/compression_config.dart';
+import 'package:pak_connect/domain/utils/compression_stats.dart';
+import 'package:pak_connect/domain/utils/compression_util.dart';
 
 void main() {
   group('CompressionUtil', () {

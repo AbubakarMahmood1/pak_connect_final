@@ -14,7 +14,7 @@ import 'dart:collection';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'database_helper.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 final _logger = Logger('DatabaseQueryOptimizer');
 

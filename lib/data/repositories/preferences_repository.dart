@@ -3,7 +3,7 @@
 
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
-import '../../core/interfaces/i_preferences_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import '../../domain/entities/preference_keys.dart';
 import '../database/database_helper.dart';
 

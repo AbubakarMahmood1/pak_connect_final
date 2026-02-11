@@ -4,7 +4,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import '../../data/services/export_import/import_service.dart';
+import 'package:get_it/get_it.dart';
+import '../../domain/interfaces/i_import_service.dart';
 
 class ImportDialog extends StatefulWidget {
   const ImportDialog({super.key});
@@ -14,6 +15,7 @@ class ImportDialog extends StatefulWidget {
 }
 
 class _ImportDialogState extends State<ImportDialog> {
+  late final IImportService _importService = _resolveImportService();
   final _passphraseController = TextEditingController();
 
   String? _selectedFilePath;
@@ -65,7 +67,7 @@ class _ImportDialogState extends State<ImportDialog> {
     });
 
     try {
-      final validation = await ImportService.validateBundle(
+      final validation = await _importService.validateBundle(
         bundlePath: _selectedFilePath!,
         userPassphrase: _passphraseController.text,
       );
@@ -133,7 +135,7 @@ class _ImportDialogState extends State<ImportDialog> {
     });
 
     try {
-      final result = await ImportService.importBundle(
+      final result = await _importService.importBundle(
         bundlePath: _selectedFilePath!,
         userPassphrase: _passphraseController.text,
         clearExistingData: true,
@@ -554,5 +556,13 @@ class _ImportDialogState extends State<ImportDialog> {
         child: const Text('Done'),
       ),
     ];
+  }
+
+  IImportService _resolveImportService() {
+    final serviceLocator = GetIt.instance;
+    if (serviceLocator.isRegistered<IImportService>()) {
+      return serviceLocator<IImportService>();
+    }
+    throw StateError('IImportService is not registered in GetIt');
   }
 }

@@ -1,4 +1,4 @@
-import '../../core/models/archive_models.dart';
+import '../models/archive_models.dart';
 import 'archive_search_models.dart';
 
 /// Builds and parses archive search queries plus fuzzy variants

@@ -8,16 +8,16 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
 import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
-import '../../core/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
-import '../../core/models/connection_status.dart';
+import '../../domain/models/connection_status.dart';
 import '../widgets/discovery_overlay.dart';
 import '../widgets/relay_queue_widget.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../providers/home_screen_providers.dart';
 import '../models/home_screen_state.dart';
 import '../viewmodels/home_screen_view_model.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Menu actions for home screen
 enum HomeMenuAction { openProfile, openContacts, openArchives, settings }

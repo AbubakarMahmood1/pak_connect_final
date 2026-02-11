@@ -4,20 +4,20 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_archive_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/entities/message.dart';
-import '../../core/models/archive_models.dart';
+import 'package:pak_connect/domain/models/archive_models.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/database/database_helper.dart';
-import '../../core/compression/compression_config.dart';
-import '../../core/compression/compression_util.dart';
+import '../../domain/utils/compression_config.dart';
+import '../../domain/utils/compression_util.dart';
 import 'archive_data_helper.dart';
 import 'archive_storage_utils.dart';
-import '../../core/security/archive_crypto.dart';
+import '../../domain/services/archive_crypto.dart';
 
 import 'package:pak_connect/domain/values/id_types.dart';
 

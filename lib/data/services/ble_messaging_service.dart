@@ -5,25 +5,24 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:flutter/services.dart';
-
-import '../../core/interfaces/i_ble_messaging_service.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/models/mesh_relay_models.dart';
-import '../../core/utils/message_fragmenter.dart';
-import '../../core/utils/binary_fragmenter.dart';
-import '../../core/constants/binary_payload_types.dart';
-import '../../core/interfaces/i_ble_message_handler_facade.dart';
-import '../../core/interfaces/i_message_fragmentation_handler.dart';
-import '../../core/messaging/media_transfer_store.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import '../../domain/utils/message_fragmenter.dart';
+import '../../domain/utils/binary_fragmenter.dart';
+import 'package:pak_connect/domain/constants/binary_payload_types.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_message_fragmentation_handler.dart';
+import 'package:pak_connect/domain/messaging/media_transfer_store.dart';
 import 'ble_connection_manager.dart';
-import '../../core/constants/ble_constants.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
+import '../../domain/constants/ble_constants.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/message_repository.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/models/ble_server_connection.dart';
-import '../../core/utils/chat_utils.dart';
+import '../../domain/services/device_deduplication_manager.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/values/id_types.dart';
 
@@ -543,7 +542,7 @@ class BLEMessagingService implements IBLEMessagingService {
       throw Exception('Cannot send binary payload without recipient ID');
     }
 
-    final payload = await SecurityManager.instance.encryptBinaryPayload(
+    final payload = await SecurityServiceLocator.instance.encryptBinaryPayload(
       data,
       recipientId,
       _contactRepository,

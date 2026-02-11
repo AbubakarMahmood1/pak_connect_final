@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/ble_providers.dart';
-import '../../core/scanning/burst_scanning_controller.dart';
+import '../../domain/services/burst_scanning_controller.dart';
 
 /// Elegant scanning status widget for the ChatsScreen header
 /// Shows scanning state with clean countdown display

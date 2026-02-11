@@ -4,17 +4,18 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 
-import 'power/adaptive_power_manager.dart';
-import 'power/battery_optimizer.dart';
-import 'scanning/burst_scanning_controller.dart';
+import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
+import 'package:pak_connect/domain/services/battery_optimizer.dart';
+import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
 import 'messaging/offline_message_queue.dart';
 import 'messaging/offline_queue_facade.dart';
-import 'performance/performance_monitor.dart';
+import 'package:pak_connect/domain/services/performance_monitor.dart';
 import 'services/security_manager.dart';
-import 'networking/topology_manager.dart';
-import 'config/kill_switches.dart';
-import 'security/ephemeral_key_manager.dart';
-import 'security/noise/adaptive_encryption_strategy.dart';
+import '../domain/routing/topology_manager.dart';
+import '../domain/config/kill_switches.dart';
+import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/services/adaptive_encryption_strategy.dart';
+import 'services/app_core_shared_message_queue_provider.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
@@ -22,21 +23,26 @@ import '../domain/services/mesh_networking_service.dart';
 import '../domain/services/auto_archive_scheduler.dart';
 import '../domain/services/notification_service.dart';
 import '../domain/services/notification_handler_factory.dart';
-import '../data/services/ble_service.dart';
-import '../data/services/seen_message_store.dart';
-import '../data/repositories/preferences_repository.dart';
-import '../data/repositories/contact_repository.dart';
-import '../data/repositories/user_preferences.dart';
-import '../data/repositories/archive_repository.dart';
-import '../data/repositories/message_repository.dart';
-import '../data/database/database_helper.dart';
 import '../domain/entities/message.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../core/messaging/message_router.dart';
+import '../domain/entities/preference_keys.dart';
+import '../domain/interfaces/i_archive_repository.dart';
+import '../domain/interfaces/i_ble_service_facade.dart';
+import '../domain/interfaces/i_ble_service_facade_factory.dart';
+import '../domain/interfaces/i_contact_repository.dart';
+import '../domain/interfaces/i_database_provider.dart';
+import '../domain/interfaces/i_message_repository.dart';
+import '../domain/interfaces/i_mesh_relay_engine_factory.dart';
+import '../domain/interfaces/i_preferences_repository.dart';
+import '../domain/interfaces/i_seen_message_store.dart';
+import '../domain/interfaces/i_user_preferences.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/services/message_router.dart';
 import 'di/service_locator.dart';
-import 'interfaces/i_connection_service.dart';
+import '../domain/interfaces/i_connection_service.dart';
 
 import '../domain/values/id_types.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
+import 'package:pak_connect/domain/entities/queue_statistics.dart';
 
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
@@ -57,10 +63,10 @@ class AppCore {
   late final MeshNetworkingService meshNetworkingService;
 
   // Repositories
-  late final ContactRepository contactRepository;
-  late final MessageRepository messageRepository;
-  late final UserPreferences userPreferences;
-  late final ArchiveRepository archiveRepository;
+  late final IContactRepository contactRepository;
+  late final IMessageRepository messageRepository;
+  late final IUserPreferences userPreferences;
+  late final IArchiveRepository archiveRepository;
 
   // State
   bool _isInitialized = false;
@@ -132,8 +138,18 @@ class AppCore {
 
       _emitStatus(AppStatus.initializing);
 
+      // Setup logging
+      _logger.info('🗒️ Setting up logging...');
+      _setupLogging();
+      _logger.info('✅ Logging setup complete');
+
+      // Setup dependency injection container
+      _logger.info('🏗️ Setting up DI container...');
+      await setupServiceLocator();
+      _logger.info('✅ DI container setup complete');
+
       // Load kill switches before bringing up subsystems.
-      final prefsRepo = PreferencesRepository();
+      final prefsRepo = getIt<IPreferencesRepository>();
       await KillSwitches.load(
         getBool: (key, {defaultValue = false}) =>
             prefsRepo.getBool(key, defaultValue: defaultValue),
@@ -150,16 +166,6 @@ class AppCore {
         return;
       }
 
-      // Setup logging
-      _logger.info('🗒️ Setting up logging...');
-      _setupLogging();
-      _logger.info('✅ Logging setup complete');
-
-      // Setup dependency injection container
-      _logger.info('🏗️ Setting up DI container...');
-      await setupServiceLocator();
-      _logger.info('✅ DI container setup complete');
-
       // Initialize repositories first
       _logger.info('🗄️ Initializing repositories...');
       final repoStart = DateTime.now();
@@ -170,7 +176,7 @@ class AppCore {
 
       // Initialize seen message store after database setup
       _logger.info('👀 Initializing SeenMessageStore...');
-      await SeenMessageStore.instance.initialize();
+      await getIt<ISeenMessageStore>().initialize();
       _logger.info('✅ SeenMessageStore initialized');
 
       // 🔧 FIX P0: Initialize message queue FIRST before any BLE components can access it
@@ -267,14 +273,14 @@ class AppCore {
   Future<void> _initializeRepositories() async {
     // Initialize database first to ensure it's ready
     _logger.info('Initializing database...');
-    await DatabaseHelper.database;
+    await getIt<IDatabaseProvider>().database;
     _logger.info('Database initialized successfully');
 
     // Initialize repositories
-    contactRepository = getIt<ContactRepository>();
-    messageRepository = getIt<MessageRepository>();
-    userPreferences = UserPreferences();
-    archiveRepository = ArchiveRepository();
+    contactRepository = getIt<IContactRepository>();
+    messageRepository = getIt<IMessageRepository>();
+    userPreferences = getIt<IUserPreferences>();
+    archiveRepository = getIt<IArchiveRepository>();
 
     // Initialize async repository components
     await userPreferences.getOrCreateKeyPair();
@@ -309,7 +315,7 @@ class AppCore {
     // - iOS/Windows/Linux/macOS: ForegroundNotificationHandler (safe default)
 
     // Check user preference for background notifications (Android only)
-    final prefs = PreferencesRepository();
+    final prefs = getIt<IPreferencesRepository>();
     bool backgroundEnabled = PreferenceDefaults.backgroundNotifications;
 
     try {
@@ -388,32 +394,51 @@ class AppCore {
     _logger.info('📡 Initializing BLE + mesh stack via AppCore...');
 
     try {
-      final legacyBleService = getIt.isRegistered<BLEService>()
-          ? getIt<BLEService>()
-          : BLEService();
-      if (!legacyBleService.isInitialized) {
-        await legacyBleService.initialize();
-        await MessageRouter.initialize(legacyBleService);
+      final bleFacade = getIt.isRegistered<IBLEServiceFacade>()
+          ? getIt<IBLEServiceFacade>()
+          : getIt<IBLEServiceFacadeFactory>().create();
+      final connectionService = bleFacade as IConnectionService;
+      MessageRouter.configureQueueFactories(
+        standaloneQueueFactory: () => OfflineMessageQueue(),
+        initializedQueueFactory: () async {
+          final queue = OfflineMessageQueue();
+          await queue.initialize();
+          return queue;
+        },
+      );
+      if (!bleFacade.isInitialized) {
+        await bleFacade.initialize();
+        await MessageRouter.initialize(
+          connectionService,
+          offlineQueue: messageQueue,
+        );
       } else {
-        _logger.fine('ℹ️ BLEService already initialized; reusing instance');
+        _logger.fine('ℹ️ BLE facade already initialized; reusing instance');
       }
 
-      bleService = legacyBleService;
-      _logger.info('✅ BLEService initialized via AppCore');
+      bleService = connectionService;
+      _logger.info('✅ BLE facade initialized via AppCore');
 
-      final messageHandlerFacade = legacyBleService.meshMessageHandler;
+      final messageHandlerFacade = bleFacade.meshMessageHandler;
 
       meshNetworkingService = MeshNetworkingService(
         bleService: bleService,
         messageHandler: messageHandlerFacade,
         chatManagementService: chatService,
+        sharedQueueProvider: AppCoreSharedMessageQueueProvider(),
+        relayEngineFactory: (queue, spam) =>
+            getIt<IMeshRelayEngineFactory>().create(
+              messageQueue: queue,
+              spamPrevention: spam,
+              forceFloodMode: true,
+            ),
       );
       await meshNetworkingService.initialize();
       _logger.info('🌐 MeshNetworkingService initialized successfully');
 
       registerInitializedServices(
-        securityManager: SecurityManager.instance,
-        connectionService: bleService,
+        securityService: SecurityManager.instance,
+        connectionService: connectionService,
         meshNetworkingService: meshNetworkingService,
         meshRelayCoordinator: meshNetworkingService.relayCoordinator,
         meshQueueSyncCoordinator: meshNetworkingService.queueCoordinator,
