@@ -16,12 +16,12 @@ import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/utils/app_logger.dart';
-import '../services/message_queue_repository.dart';
-import '../services/queue_persistence_manager.dart';
-import '../services/retry_scheduler.dart';
 import '../services/queue_sync_coordinator.dart';
 import '../services/queue_policy_manager.dart';
 import '../services/queue_bandwidth_allocator.dart';
+import 'offline_queue_store.dart';
+import 'offline_queue_scheduler.dart';
+import 'offline_queue_sync.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
@@ -43,14 +43,37 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
       []; // Direct messages (high priority)
   final List<QueuedMessage> _relayMessageQueue =
       []; // Relay messages (controlled bandwidth)
-  IMessageQueueRepository? _queueRepository;
-  IQueuePersistenceManager? _queuePersistenceManager;
-  IRetryScheduler? _retryScheduler;
 
-  // Late final fields - initialized on first access, safe from null dereference
-  late final IQueueSyncCoordinator _sync = QueueSyncCoordinator(
+  final IMessageQueueRepository? _initialQueueRepository;
+  final IQueuePersistenceManager? _initialQueuePersistenceManager;
+  final IRetryScheduler? _initialRetryScheduler;
+
+  late final QueueStore _store = QueueStore(
+    directMessageQueue: _directMessageQueue,
+    relayMessageQueue: _relayMessageQueue,
+    deletedMessageIds: _deletedMessageIds,
+    queueRepository: _initialQueueRepository,
+    queuePersistenceManager: _initialQueuePersistenceManager,
+  );
+
+  late final QueueScheduler _queueScheduler = QueueScheduler(
+    retryScheduler: _initialRetryScheduler,
+  );
+
+  late final IQueueSyncCoordinator _syncCoordinator = QueueSyncCoordinator(
     repository: _repo,
     deletedMessageIds: _deletedMessageIds,
+  );
+
+  late final QueueSync _queueSync = QueueSync(
+    coordinator: _syncCoordinator,
+    deletedMessageIds: _deletedMessageIds,
+    getAllMessages: _getAllMessages,
+    logger: _logger,
+    onSyncedMessageAdded: () {
+      _totalQueued++;
+      _updateStatistics();
+    },
   );
 
   late final QueuePolicyManager _policy = QueuePolicyManager(
@@ -68,8 +91,6 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
   // Connection monitoring
   bool _isOnline = false;
-  Timer? _connectivityCheckTimer;
-  Timer? _periodicCleanupTimer;
 
   // Statistics
   int _totalQueued = 0;
@@ -88,37 +109,11 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
     IMessageQueueRepository? queueRepository,
     IQueuePersistenceManager? queuePersistenceManager,
     IRetryScheduler? retryScheduler,
-  }) : _queueRepository = queueRepository,
-       _queuePersistenceManager = queuePersistenceManager,
-       _retryScheduler = retryScheduler;
+  }) : _initialQueueRepository = queueRepository,
+       _initialQueuePersistenceManager = queuePersistenceManager,
+       _initialRetryScheduler = retryScheduler;
 
-  IMessageQueueRepository get _repo {
-    _queueRepository ??= MessageQueueRepository(
-      directMessageQueue: _directMessageQueue,
-      relayMessageQueue: _relayMessageQueue,
-      deletedMessageIds: _deletedMessageIds,
-      databaseProvider: _databaseProvider,
-    );
-    return _queueRepository!;
-  }
-
-  IQueuePersistenceManager get _persistenceManager {
-    if (_queuePersistenceManager != null) return _queuePersistenceManager!;
-
-    final hasDbProvider =
-        _databaseProvider != null ||
-        GetIt.instance.isRegistered<IDatabaseProvider>();
-
-    _queuePersistenceManager = hasDbProvider
-        ? QueuePersistenceManager(databaseProvider: _databaseProvider)
-        : _NoopQueuePersistenceManager();
-    return _queuePersistenceManager!;
-  }
-
-  IRetryScheduler get _scheduler {
-    _retryScheduler ??= RetryScheduler();
-    return _retryScheduler!;
-  }
+  IMessageQueueRepository get _repo => _store.repo;
 
   /// Initialize the offline message queue
   Future<void> initialize({
@@ -163,42 +158,9 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
       _databaseProvider = GetIt.instance<IDatabaseProvider>();
     }
 
-    final hasDbProvider =
-        _databaseProvider != null ||
-        GetIt.instance.isRegistered<IDatabaseProvider>();
-
-    if (!hasDbProvider) {
-      _queuePersistenceManager = _NoopQueuePersistenceManager();
-      _queueRepository = _InMemoryQueueRepository(
-        directMessageQueue: _directMessageQueue,
-        relayMessageQueue: _relayMessageQueue,
-        deletedMessageIds: _deletedMessageIds,
-      );
-      _logger.warning(
-        '⚠️ No database provider found; using in-memory queue for this run',
-      );
-    } else {
-      // Ensure persistence dependencies are ready before touching storage
-      try {
-        await _persistenceManager.createQueueTablesIfNotExist();
-        await _loadQueueFromStorage();
-        await _loadDeletedMessageIds();
-      } catch (e) {
-        _logger.warning(
-          '⚠️ Persistence unavailable, falling back to in-memory queue: $e',
-        );
-        _queuePersistenceManager = _NoopQueuePersistenceManager();
-        _queueRepository = _InMemoryQueueRepository(
-          directMessageQueue: _directMessageQueue,
-          relayMessageQueue: _relayMessageQueue,
-          deletedMessageIds: _deletedMessageIds,
-        );
-      }
-    }
-
-    await _sync.initialize(
-      deletedIds: _deletedMessageIds.map((id) => id.value).toSet(),
-    );
+    _store.setDatabaseProvider(_databaseProvider);
+    await _store.initializePersistence(logger: _logger);
+    await _queueSync.initialize();
     _startConnectivityMonitoring();
     _startPeriodicCleanup();
 
@@ -362,7 +324,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
     }
 
     for (final id in toRemove) {
-      _scheduler.cancelRetryTimer(id);
+      _queueScheduler.cancelRetryTimer(id);
       await _repo.markMessageDeleted(id);
     }
 
@@ -539,7 +501,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
     await _saveMessageToStorage(message);
 
     // Schedule retry via scheduler
-    _scheduler.registerRetryTimer(message.id, backoffDelay, () async {
+    _queueScheduler.registerRetryTimer(message.id, backoffDelay, () async {
       if (_isOnline) {
         await _tryDeliveryForMessage(message);
       } else {
@@ -660,9 +622,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   /// Clear all messages from queue
   Future<void> clearQueue() async {
     _cancelAllActiveRetries();
-    // PRIORITY 1 FIX: Clear both queues
-    _directMessageQueue.clear();
-    _relayMessageQueue.clear();
+    _store.clearInMemoryQueues();
     await _saveQueueToStorage();
 
     _logger.info('Message queues cleared (direct and relay)');
@@ -812,57 +772,58 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   /// Insert message into queue by priority
   /// PRIORITY 1 FIX: Route to appropriate queue based on message type
   void _insertMessageByPriority(QueuedMessage message) {
-    _repo.insertMessageByPriority(message);
+    _store.insertMessageByPriority(message);
   }
 
   /// Remove message from queue
   /// PRIORITY 1 FIX: Remove from both queues
   void _removeMessageFromQueue(MessageId messageId) {
-    _repo.removeMessageFromQueue(messageId.value);
+    _store.removeMessageFromQueue(messageId.value);
   }
 
   /// Get all messages from both queues (helper for dual-queue operations)
   List<QueuedMessage> _getAllMessages() {
-    return _repo.getAllMessages();
+    return _store.getAllMessages();
   }
 
   /// Calculate exponential backoff delay
   Duration _calculateBackoffDelay(int attempt) {
-    return _scheduler.calculateBackoffDelay(attempt);
+    return _queueScheduler.calculateBackoffDelay(attempt);
   }
 
   /// Get max retries based on message priority
   int _getMaxRetriesForPriority(MessagePriority priority) {
-    return _scheduler.getMaxRetriesForPriority(priority, _maxRetries);
+    return _queueScheduler.getMaxRetriesForPriority(priority, _maxRetries);
   }
 
   /// Calculate expiry time based on priority
   /// Urgent messages have longer TTL to ensure delivery even with long offline periods
   DateTime _calculateExpiryTime(DateTime queuedAt, MessagePriority priority) {
-    return _scheduler.calculateExpiryTime(queuedAt, priority);
+    return _queueScheduler.calculateExpiryTime(queuedAt, priority);
   }
 
   /// Check if message has expired
   bool _isMessageExpired(QueuedMessage message) {
-    return _scheduler.isMessageExpired(message);
+    return _queueScheduler.isMessageExpired(message);
   }
 
   /// Start connectivity monitoring
   void _startConnectivityMonitoring() {
-    _connectivityCheckTimer?.cancel();
-    _connectivityCheckTimer = Timer.periodic(Duration(seconds: 30), (timer) {
-      onConnectivityCheck?.call();
-    });
+    _queueScheduler.startConnectivityMonitoring(
+      onConnectivityCheck: () {
+        onConnectivityCheck?.call();
+      },
+    );
   }
 
   /// Cancel all active retry timers
   void _cancelAllActiveRetries() {
-    _scheduler.cancelAllRetryTimers();
+    _queueScheduler.cancelAllRetryTimers();
   }
 
   /// Cancel retry timer for specific message
   void _cancelRetryTimer(MessageId messageId) {
-    _scheduler.cancelRetryTimer(messageId.value);
+    _queueScheduler.cancelRetryTimer(messageId.value);
   }
 
   /// Calculate average delivery time
@@ -893,33 +854,23 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
     onStatsUpdated?.call(stats);
   }
 
-  /// Load queue from persistent storage
-  Future<void> _loadQueueFromStorage() async {
-    await _repo.loadQueueFromStorage();
-  }
-
   /// Save a single message to persistent storage (optimized for individual updates)
   Future<void> _saveMessageToStorage(QueuedMessage message) async {
-    await _repo.saveMessageToStorage(message);
+    await _store.saveMessageToStorage(message);
     invalidateHashCache();
   }
 
   /// Remove a single message from persistent storage
   Future<void> _deleteMessageFromStorage(String messageId) async {
-    await _repo.deleteMessageFromStorage(messageId);
+    await _store.deleteMessageFromStorage(messageId);
     invalidateHashCache();
   }
 
   /// Save entire queue to persistent storage (used for initial load and bulk operations)
   /// For individual message updates, use _saveMessageToStorage for better performance
   Future<void> _saveQueueToStorage() async {
-    await _repo.saveQueueToStorage();
+    await _store.saveQueueToStorage();
     invalidateHashCache();
-  }
-
-  /// Load deleted message IDs from persistent storage
-  Future<void> _loadDeletedMessageIds() async {
-    await _repo.loadDeletedMessageIds();
   }
 
   // ===== QUEUE HASH SYNCHRONIZATION METHODS =====
@@ -927,83 +878,61 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   /// Calculate deterministic hash of current queue state
   /// Excludes delivered/expired messages and includes deleted message tracking
   String calculateQueueHash({bool forceRecalculation = false}) {
-    return _sync.calculateQueueHash(forceRecalculation: forceRecalculation);
+    return _queueSync.calculateQueueHash(
+      forceRecalculation: forceRecalculation,
+    );
   }
 
   /// Get queue sync information for mesh networking
   QueueSyncMessage createSyncMessage(String nodeId) {
-    return _sync.createSyncMessage(nodeId);
+    return _queueSync.createSyncMessage(nodeId);
   }
 
   /// Compare queue hashes to determine if synchronization is needed
   bool needsSynchronization(String otherQueueHash) {
-    return _sync.needsSynchronization(otherQueueHash);
+    return _queueSync.needsSynchronization(otherQueueHash);
   }
 
   /// Insert a message received via queue synchronization
   Future<void> addSyncedMessage(QueuedMessage message) async {
-    // Skip if message was previously deleted (e.g., aged out)
-    if (_deletedMessageIds.contains(MessageId(message.id))) {
-      _logger.fine(
-        'Sync skip - message ${message.id.shortId(8)}... was deleted locally',
-      );
-      return;
-    }
-
-    // Skip if we already have this message
-    final exists = _getAllMessages().any((m) => m.id == message.id);
-    if (exists) {
-      _logger.fine(
-        'Sync skip - message already exists: ${message.id.shortId(8)}...',
-      );
-      return;
-    }
-
-    final added = await _sync.addSyncedMessage(message);
-    if (added) {
-      _totalQueued++;
-      _updateStatistics();
-    }
+    await _queueSync.addSyncedMessage(message);
   }
 
   /// Get missing messages compared to another queue
   List<String> getMissingMessageIds(List<String> otherMessageIds) {
-    final normalizedIds = otherMessageIds.map((id) => id.toString()).toList();
-    return _sync.getMissingMessageIds(normalizedIds);
+    return _queueSync.getMissingMessageIds(otherMessageIds);
   }
 
   /// Get excess messages that the other queue doesn't have
   List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
-    final normalizedIds = otherMessageIds.map((id) => id.toString()).toList();
-    return _sync.getExcessMessages(normalizedIds);
+    return _queueSync.getExcessMessages(otherMessageIds);
   }
 
   /// Mark message as deleted for sync purposes
   Future<void> markMessageDeleted(String messageId) async {
-    await _sync.markMessageDeleted(messageId);
+    await _queueSync.markMessageDeleted(messageId);
   }
 
   /// Check if message was deleted
   bool isMessageDeleted(String messageId) {
-    return _sync.isMessageDeleted(messageId);
+    return _queueSync.isMessageDeleted(messageId);
   }
 
   /// Clean up old deleted message IDs with improved performance
   Future<void> cleanupOldDeletedIds() async {
-    await _sync.cleanupOldDeletedIds();
+    await _queueSync.cleanupOldDeletedIds();
   }
 
   /// Invalidate hash cache (call after manual queue modifications)
   void invalidateHashCache() {
-    _sync.invalidateHashCache();
+    _queueSync.invalidateHashCache();
   }
 
   /// Start periodic cleanup for performance optimization
   void _startPeriodicCleanup() {
-    _periodicCleanupTimer?.cancel();
-    _periodicCleanupTimer = Timer.periodic(Duration(hours: 6), (timer) {
-      _performPeriodicMaintenance();
-    });
+    _queueScheduler.startPeriodicCleanup(
+      onPeriodicMaintenance: _performPeriodicMaintenance,
+    );
   }
 
   /// Perform periodic maintenance tasks
@@ -1022,7 +951,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
       await _optimizeStorage();
 
       // Invalidate old hash cache
-      final lastHashTime = _sync.getSyncStatistics().lastHashTime;
+      final lastHashTime = _queueSync.getSyncStatistics().lastHashTime;
       if (lastHashTime != null) {
         final cacheAge = DateTime.now().difference(lastHashTime);
         if (cacheAge.inHours > 1) {
@@ -1143,7 +1072,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
   /// Get performance statistics
   Map<String, dynamic> getPerformanceStats() {
-    final syncStats = _sync.getSyncStatistics();
+    final syncStats = _queueSync.getSyncStatistics();
     // PRIORITY 1 FIX: Include both queue stats
     return {
       'totalMessages': _directMessageQueue.length + _relayMessageQueue.length,
@@ -1160,158 +1089,9 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
   /// Dispose of resources
   void dispose() {
-    _connectivityCheckTimer?.cancel();
-    _connectivityCheckTimer = null;
-    _periodicCleanupTimer?.cancel();
-    _periodicCleanupTimer = null;
-    _cancelAllActiveRetries();
+    _queueScheduler.dispose();
     _logger.info('Offline message queue disposed');
   }
-}
-
-/// In-memory repository fallback for environments without SQLite (e.g., unit tests).
-class _InMemoryQueueRepository implements IMessageQueueRepository {
-  final List<QueuedMessage> directMessageQueue;
-  final List<QueuedMessage> relayMessageQueue;
-  final Set<MessageId> deletedMessageIds;
-
-  _InMemoryQueueRepository({
-    List<QueuedMessage>? directMessageQueue,
-    List<QueuedMessage>? relayMessageQueue,
-    Set<MessageId>? deletedMessageIds,
-  }) : directMessageQueue = directMessageQueue ?? [],
-       relayMessageQueue = relayMessageQueue ?? [],
-       deletedMessageIds = deletedMessageIds ?? {};
-
-  @override
-  Future<void> loadQueueFromStorage() async {}
-
-  @override
-  Future<void> saveMessageToStorage(QueuedMessage message) async {}
-
-  @override
-  Future<void> deleteMessageFromStorage(String messageId) async {}
-
-  @override
-  Future<void> saveQueueToStorage() async {}
-
-  @override
-  Future<void> loadDeletedMessageIds() async {}
-
-  @override
-  Future<void> saveDeletedMessageIds() async {}
-
-  @override
-  QueuedMessage? getMessageById(String messageId) {
-    return getAllMessages().where((m) => m.id == messageId).firstOrNull;
-  }
-
-  @override
-  List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) {
-    return getAllMessages().where((m) => m.status == status).toList();
-  }
-
-  @override
-  List<QueuedMessage> getPendingMessages() {
-    return getMessagesByStatus(QueuedMessageStatus.pending);
-  }
-
-  @override
-  Future<void> removeMessage(String messageId) async {
-    removeMessageFromQueue(messageId);
-  }
-
-  @override
-  QueuedMessage? getOldestPendingMessage() {
-    final pending = getPendingMessages();
-    pending.sort((a, b) => a.queuedAt.compareTo(b.queuedAt));
-    return pending.isEmpty ? null : pending.first;
-  }
-
-  @override
-  List<QueuedMessage> getAllMessages() {
-    return [...directMessageQueue, ...relayMessageQueue];
-  }
-
-  @override
-  void insertMessageByPriority(QueuedMessage message) {
-    final targetQueue = message.isRelayMessage
-        ? relayMessageQueue
-        : directMessageQueue;
-    int insertIndex = 0;
-    for (int i = 0; i < targetQueue.length; i++) {
-      if (targetQueue[i].priority.index <= message.priority.index) {
-        insertIndex = i;
-        break;
-      }
-      insertIndex = i + 1;
-    }
-    targetQueue.insert(insertIndex, message);
-  }
-
-  @override
-  void removeMessageFromQueue(String messageId) {
-    final id = MessageId(messageId);
-    directMessageQueue.removeWhere((m) => MessageId(m.id) == id);
-    relayMessageQueue.removeWhere((m) => MessageId(m.id) == id);
-  }
-
-  @override
-  bool isMessageDeleted(String messageId) {
-    return deletedMessageIds.contains(MessageId(messageId));
-  }
-
-  @override
-  Future<void> markMessageDeleted(String messageId) async {
-    deletedMessageIds.add(MessageId(messageId));
-    removeMessageFromQueue(messageId);
-  }
-
-  @override
-  Map<String, dynamic> queuedMessageToDb(QueuedMessage message) => {};
-
-  @override
-  QueuedMessage queuedMessageFromDb(Map<String, dynamic> row) {
-    throw UnimplementedError(
-      'In-memory repository does not deserialize DB rows',
-    );
-  }
-}
-
-/// No-op persistence manager for environments without SQLite.
-class _NoopQueuePersistenceManager implements IQueuePersistenceManager {
-  @override
-  Future<bool> createQueueTablesIfNotExist() async => true;
-
-  @override
-  Future<void> migrateQueueSchema({
-    required int oldVersion,
-    required int newVersion,
-  }) async {}
-
-  @override
-  Future<Map<String, dynamic>> getQueueTableStats() async => {
-    'tableCount': 0,
-    'rowCount': 0,
-  };
-
-  @override
-  Future<void> vacuumQueueTables() async {}
-
-  @override
-  Future<String?> backupQueueData() async => null;
-
-  @override
-  Future<bool> restoreQueueData(String backupPath) async => true;
-
-  @override
-  Future<Map<String, dynamic>> getQueueTableHealth() async => {
-    'ok': true,
-    'rowCount': 0,
-  };
-
-  @override
-  Future<int> ensureQueueConsistency() async => 0;
 }
 
 extension _FirstOrNull<T> on Iterable<T> {
