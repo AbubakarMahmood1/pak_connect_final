@@ -728,6 +728,12 @@ class AppCore {
       }
 
       try {
+        messageQueueFacade.dispose();
+      } catch (e) {
+        _logger.warning('Error disposing message queue facade: $e');
+      }
+
+      try {
         performanceMonitor.dispose();
       } catch (e) {
         _logger.warning('Error disposing performance monitor: $e');
