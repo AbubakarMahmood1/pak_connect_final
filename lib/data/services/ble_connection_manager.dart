@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import '../../domain/constants/ble_constants.dart';
@@ -17,6 +16,9 @@ import 'package:pak_connect/domain/config/kill_switches.dart';
 import 'connection_health_monitor.dart';
 import 'connection_limit_enforcer.dart';
 import 'ephemeral_contact_cleaner.dart';
+import 'ble_connection_state_machine.dart';
+import 'ble_connection_gatt_controller.dart';
+import 'ble_connection_reconnect_policy.dart';
 
 class BLEConnectionManager {
   final _logger = Logger('BLEConnectionManager');
@@ -76,9 +78,10 @@ class BLEConnectionManager {
 
   // Simplified monitoring system
   late final ConnectionHealthMonitor _healthMonitor;
+  late final BleConnectionStateMachine _stateMachine;
+  late final BleConnectionGattController _gattController;
+  late final BleConnectionReconnectPolicy _reconnectPolicy;
   bool _isReconnection = false;
-
-  ChatConnectionState _connectionState = ChatConnectionState.disconnected;
 
   // Constants
   static const int maxReconnectAttempts = 5;
@@ -108,6 +111,7 @@ class BLEConnectionManager {
     required this.peripheralManager,
     PowerMode initialPowerMode = PowerMode.balanced,
   }) {
+    _reconnectPolicy = BleConnectionReconnectPolicy(logger: _logger);
     _limitEnforcer = ConnectionLimitEnforcer(logger: _logger);
     _limitConfig = ConnectionLimitConfig.forPowerMode(initialPowerMode);
     _rssiThreshold = _limitEnforcer.rssiThresholdForPowerMode(initialPowerMode);
@@ -142,6 +146,18 @@ class BLEConnectionManager {
       isCollisionResolving: () => hasCollisionResolutionInFlight,
       hasPendingClientConnection: () => _pendingClientConnections.isNotEmpty,
     );
+
+    _stateMachine = BleConnectionStateMachine(
+      logger: _logger,
+      connectedDeviceProvider: () => _connectedDevice,
+      onStateChanged: (info) => onConnectionInfoChanged?.call(info),
+    );
+
+    _gattController = BleConnectionGattController(
+      logger: _logger,
+      centralManager: centralManager,
+      isTransientConnectError: _limitEnforcer.isTransientConnectError,
+    );
   }
 
   void setLocalHintProvider(Future<String?> Function()? provider) {
@@ -159,7 +175,7 @@ class BLEConnectionManager {
       _clientConnections.isNotEmpty || _serverConnections.isNotEmpty;
   bool get isReconnection => _isReconnection;
   bool get isMonitoring => _healthMonitor.isMonitoring;
-  ChatConnectionState get connectionState => _connectionState;
+  ChatConnectionState get connectionState => _stateMachine.state;
   bool get isActivelyReconnecting => _healthMonitor.isActivelyReconnecting;
   bool get isHealthChecking => _healthMonitor.isHealthChecking;
   bool get hasConnection => hasBleConnection;
@@ -169,7 +185,7 @@ class BLEConnectionManager {
       _deferredServerTeardown.contains(address);
   bool get hasCollisionResolutionInFlight =>
       _collisionResolutionsInFlight.isNotEmpty;
-  bool get _isReady => _connectionState == ChatConnectionState.ready;
+  bool get _isReady => _stateMachine.isReady;
   bool get isHandshakeInProgress => _healthMonitor.isHandshakeInProgress;
   bool get awaitingHandshake => _healthMonitor.awaitingHandshake;
 
@@ -393,19 +409,7 @@ class BLEConnectionManager {
   int get maxClientConnections => _limitConfig.maxClientConnections;
 
   void _updateConnectionState(ChatConnectionState newState, {String? error}) {
-    if (_connectionState != newState) {
-      _connectionState = newState;
-
-      final info = ConnectionInfo(
-        state: newState,
-        deviceId: _connectedDevice?.uuid.toString(),
-        displayName: null, // Will be filled by state manager
-        error: error,
-      );
-
-      onConnectionInfoChanged?.call(info);
-      _logger.info('Connection state: ${newState.name}');
-    }
+    _stateMachine.update(newState, error: error);
   }
 
   void startConnectionMonitoring() {
@@ -761,7 +765,7 @@ class BLEConnectionManager {
     // dial to this peer (detected via address or shared discovery hint).
     // This prevents "glare" where we accept an inbound connection while we are already
     // fully connected/ready as a client, preventing dual-role confusion.
-    if (_connectionState == ChatConnectionState.ready ||
+    if (connectionState == ChatConnectionState.ready ||
         hasServerForPeer ||
         hasClientForPeer ||
         pendingClientForPeer ||
@@ -774,7 +778,7 @@ class BLEConnectionManager {
       }
       _logger.info(
         '🚫 Hard rejecting inbound from ${_formatAddress(address)}: '
-        'Already ${_connectionState == ChatConnectionState.ready ? "READY" : "CLIENT_LINK_ACTIVE/PENDING"} '
+        'Already ${connectionState == ChatConnectionState.ready ? "READY" : "CLIENT_LINK_ACTIVE/PENDING"} '
         '(hintMatch=$hasHintCollision)',
       );
       try {
@@ -901,7 +905,7 @@ class BLEConnectionManager {
     final connection = _serverConnections[address];
     if (connection != null) {
       if (hasHintCollision &&
-          (_connectionState == ChatConnectionState.ready ||
+          (connectionState == ChatConnectionState.ready ||
               hasClientLinkForPeer(address) ||
               hasPendingClientForPeer(address))) {
         _logger.warning(
@@ -926,7 +930,7 @@ class BLEConnectionManager {
       // If we already have a ready client link for this address, treat this as a late/duplicate inbound and drop it.
       if (_connectionTracker.isConnected(address) &&
           _clientConnections.containsKey(address) &&
-          _connectionState == ChatConnectionState.ready) {
+          connectionState == ChatConnectionState.ready) {
         _logger.warning(
           '⚠️ Late inbound notify from ${_formatAddress(address)} after client link is ready — disconnecting duplicate inbound',
         );
@@ -1132,31 +1136,18 @@ class BLEConnectionManager {
   }
 
   void handleBluetoothStateChange(BluetoothLowEnergyState state) {
-    if (state == BluetoothLowEnergyState.poweredOn) {
-      if (_lastConnectedDevice != null && !hasBleConnection) {
-        _logger.info('Bluetooth powered on - starting immediate reconnection');
-
-        stopConnectionMonitoring();
-
-        // Reduce delay for first-time connections
-        Timer(Duration(milliseconds: 800), () {
-          _isReconnection = true;
-          startConnectionMonitoring();
-        });
-      } else {
-        _logger.info(
-          'Bluetooth powered on - no previous device, skipping reconnection',
-        );
-      }
-    } else if (state == BluetoothLowEnergyState.poweredOff) {
-      if (hasBleConnection) {
-        _logger.info(
-          'Bluetooth powered off - preserving device for reconnection',
-        );
-        _lastConnectedDevice = _connectedDevice;
-      }
-      clearConnectionState(keepMonitoring: false);
-    }
+    _reconnectPolicy.handleBluetoothStateChange(
+      state: state,
+      hasBleConnection: hasBleConnection,
+      connectedDevice: _connectedDevice,
+      lastConnectedDevice: _lastConnectedDevice,
+      setLastConnectedDevice: (device) => _lastConnectedDevice = device,
+      setReconnectionFlag: (value) => _isReconnection = value,
+      startConnectionMonitoring: startConnectionMonitoring,
+      stopConnectionMonitoring: stopConnectionMonitoring,
+      clearConnectionState: ({bool keepMonitoring = false}) =>
+          clearConnectionState(keepMonitoring: keepMonitoring),
+    );
   }
 
   /// Connect to a BLE peripheral device
@@ -1243,35 +1234,10 @@ class BLEConnectionManager {
       );
       await Future.delayed(Duration(milliseconds: 500));
 
-      // Robust connect: 20s timeout + one retry for transient errors (e.g., GATT 133/147)
-      for (var attempt = 1; attempt <= 2; attempt++) {
-        try {
-          _logger.info(
-            '🔌 Connecting (attempt $attempt/2) to ${_formatAddress(address)} @${DateTime.now().toIso8601String()}...',
-          );
-          await centralManager
-              .connect(device)
-              .timeout(
-                Duration(seconds: 20),
-                onTimeout: () =>
-                    throw Exception('Connection timeout after 20 seconds'),
-              );
-          break; // success
-        } catch (e) {
-          _logger.warning('❌ Connect attempt $attempt failed: $e');
-          final transient = _limitEnforcer.isTransientConnectError(e);
-          if (attempt < 2 && transient) {
-            // Best-effort cleanup before retry
-            try {
-              await centralManager.disconnect(device);
-            } catch (_) {}
-            await Future.delayed(Duration(milliseconds: 1200));
-            continue;
-          } else {
-            throw Exception(e.toString());
-          }
-        }
-      }
+      await _gattController.connectWithRetry(
+        device: device,
+        formattedAddress: _formatAddress(address),
+      );
 
       // Re-check for inbound collisions that may have happened while we were connecting.
       if (_serverConnections.containsKey(address)) {
@@ -1326,48 +1292,19 @@ class BLEConnectionManager {
       onConnectionChanged?.call(device);
 
       // Negotiate MTU before service discovery so fragmentation sizing is accurate.
-      await _detectOptimalMTU(device, address);
-
-      // Discover GATT services with retry logic
-      List<GATTService> services = [];
-      GATTService? messagingService;
-
-      for (int retry = 0; retry < 3; retry++) {
-        try {
-          _logger.info(
-            'Discovering services, attempt ${retry + 1}/3 @${DateTime.now().toIso8601String()}',
-          );
-          services = await centralManager.discoverGATT(device);
-
-          messagingService = services.firstWhere(
-            (service) => service.uuid == BLEConstants.serviceUUID,
-          );
-
-          _logger.info(
-            '✅ Messaging service found on attempt ${retry + 1} @${DateTime.now().toIso8601String()}',
-          );
-          break;
-        } catch (e) {
-          _logger.warning(
-            '❌ Service discovery failed on attempt ${retry + 1}: $e',
-          );
-
-          if (retry < 2) {
-            await Future.delayed(Duration(milliseconds: 1000));
-          } else {
-            throw Exception('Messaging service not found after 3 attempts');
-          }
-        }
+      final mtu = await _gattController.detectOptimalMtu(
+        device: device,
+        formattedAddress: _formatAddress(address),
+      );
+      final mtuConnection = _clientConnections[address];
+      if (mtuConnection != null) {
+        _clientConnections[address] = mtuConnection.copyWith(mtu: mtu);
       }
+      onMtuDetected?.call(mtu);
 
-      if (messagingService == null) {
-        throw Exception('Messaging service not found after retries');
-      }
-
-      // Find the message characteristic
-      final messageChar = messagingService.characteristics.firstWhere(
-        (char) => char.uuid == BLEConstants.messageCharacteristicUUID,
-        orElse: () => throw Exception('Message characteristic not found'),
+      final messageChar = await _gattController.discoverMessageCharacteristic(
+        device: device,
+        formattedAddress: _formatAddress(address),
       );
 
       // Update connection with discovered characteristic
@@ -1381,15 +1318,11 @@ class BLEConnectionManager {
       // Enable notifications
       if (messageChar.properties.contains(GATTCharacteristicProperty.notify)) {
         try {
-          await centralManager.setCharacteristicNotifyState(
-            device,
-            messageChar,
-            state: true,
+          await _gattController.enableNotifications(
+            device: device,
+            characteristic: messageChar,
+            formattedAddress: _formatAddress(address),
           );
-          _logger.info(
-            '✅ Notifications enabled successfully @${DateTime.now().toIso8601String()}',
-          );
-          await Future.delayed(const Duration(milliseconds: 200));
         } catch (e) {
           final hasInbound =
               _serverConnections.containsKey(address) ||
@@ -1439,54 +1372,6 @@ class BLEConnectionManager {
       } else {
         _clearPeerHintIfUnused(address);
       }
-    }
-  }
-
-  Future<void> _detectOptimalMTU(Peripheral device, String address) async {
-    try {
-      _logger.info('📏 Attempting MTU detection...');
-
-      int negotiatedMTU = 23;
-
-      if (Platform.isAndroid) {
-        try {
-          negotiatedMTU = await centralManager.requestMTU(device, mtu: 517);
-          _logger.info(
-            '✅ Successfully negotiated larger MTU: $negotiatedMTU bytes',
-          );
-        } catch (e) {
-          _logger.warning('⚠️ MTU negotiation failed, using default 23: $e');
-        }
-      }
-
-      final maxWriteLength = await centralManager.getMaximumWriteLength(
-        device,
-        type: GATTCharacteristicWriteType.withResponse,
-      );
-
-      final mtu = maxWriteLength.clamp(20, negotiatedMTU - 3);
-
-      // Update connection with MTU
-      final connection = _clientConnections[address];
-      if (connection != null) {
-        _clientConnections[address] = connection.copyWith(mtu: mtu);
-      }
-
-      _logger.info('✅ MTU detection successful: $mtu bytes');
-
-      onMtuDetected?.call(mtu);
-    } catch (e) {
-      _logger.warning('❌ MTU detection completely failed: $e');
-      const fallbackMtu = 20;
-
-      // Update connection with fallback MTU
-      final connection = _clientConnections[address];
-      if (connection != null) {
-        _clientConnections[address] = connection.copyWith(mtu: fallbackMtu);
-      }
-
-      _logger.info('⚠️ Using conservative fallback MTU: $fallbackMtu bytes');
-      onMtuDetected?.call(fallbackMtu);
     }
   }
 
