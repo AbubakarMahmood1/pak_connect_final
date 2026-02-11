@@ -1,15 +1,19 @@
+import 'dart:async';
+
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
-import 'package:pak_connect/core/interfaces/i_chats_repository.dart';
-import 'package:pak_connect/core/interfaces/i_message_repository.dart';
-import 'package:pak_connect/core/interfaces/i_archive_repository.dart';
-import 'package:pak_connect/core/interfaces/i_seen_message_store.dart';
-import 'package:pak_connect/core/services/home_screen_facade.dart';
-import 'package:pak_connect/core/models/archive_models.dart';
+import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_home_screen_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/models/archive_models.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/connection_status.dart';
 import 'package:pak_connect/domain/entities/archived_chat.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
@@ -176,6 +180,9 @@ class _InMemorySeenMessageStore implements ISeenMessageStore {
   final Set<String> _read = {};
 
   @override
+  Future<void> initialize() async {}
+
+  @override
   Future<void> clear() async {
     _delivered.clear();
     _read.clear();
@@ -205,6 +212,100 @@ class _InMemorySeenMessageStore implements ISeenMessageStore {
 
   @override
   Future<void> performMaintenance() async {}
+}
+
+class _FakeHomeScreenFacade implements IHomeScreenFacade {
+  final StreamController<int> _unreadController =
+      StreamController<int>.broadcast();
+  final StreamController<ConnectionStatus> _connectionStatusController =
+      StreamController<ConnectionStatus>.broadcast();
+  final List<ChatListItem> _chats = <ChatListItem>[];
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<List<ChatListItem>> loadChats({String? searchQuery}) async => _chats;
+
+  @override
+  List<ChatListItem> get chats => _chats;
+
+  @override
+  bool get isLoading => false;
+
+  @override
+  void refreshUnreadCount() {}
+
+  @override
+  Stream<int> get unreadCountStream => _unreadController.stream;
+
+  @override
+  Future<void> openChat(ChatListItem chat) async {}
+
+  @override
+  void toggleSearch() {}
+
+  @override
+  void showSearch() {}
+
+  @override
+  Future<void> clearSearch() async {}
+
+  @override
+  void openSettings() {}
+
+  @override
+  void openProfile() {}
+
+  @override
+  Future<String?> editDisplayName(String currentName) async => currentName;
+
+  @override
+  void openContacts() {}
+
+  @override
+  void openArchives() {}
+
+  @override
+  Future<bool> showArchiveConfirmation(ChatListItem chat) async => true;
+
+  @override
+  Future<void> archiveChat(ChatListItem chat) async {}
+
+  @override
+  Future<bool> showDeleteConfirmation(ChatListItem chat) async => true;
+
+  @override
+  Future<void> deleteChat(ChatListItem chat) async {}
+
+  @override
+  void showChatContextMenu(ChatListItem chat) {}
+
+  @override
+  Future<void> toggleChatPin(ChatListItem chat) async {}
+
+  @override
+  Future<void> markChatAsRead(ChatId chatId) async {}
+
+  @override
+  ConnectionStatus determineConnectionStatus({
+    required String? contactPublicKey,
+    required String contactName,
+    required ConnectionInfo? currentConnectionInfo,
+    required List<Peripheral> discoveredDevices,
+    required Map<String, dynamic> discoveryData,
+    required DateTime? lastSeenTime,
+  }) => ConnectionStatus.offline;
+
+  @override
+  Stream<ConnectionStatus> get connectionStatusStream =>
+      _connectionStatusController.stream;
+
+  @override
+  Future<void> dispose() async {
+    await _unreadController.close();
+    await _connectionStatusController.close();
+  }
 }
 
 class _TestHomeScreenController extends HomeScreenController {
@@ -276,14 +377,7 @@ void main() {
                         ref: ref,
                         chatsRepository: fakeRepo,
                         chatManagementService: ChatManagementService(),
-                        homeScreenFacade: HomeScreenFacade(
-                          chatsRepository: fakeRepo,
-                          bleService: null,
-                          chatManagementService: null,
-                          context: context,
-                          ref: ref,
-                          enableListCoordinatorInitialization: false,
-                        ),
+                        homeScreenFacade: _FakeHomeScreenFacade(),
                       ),
                     );
                     return const SizedBox.shrink();

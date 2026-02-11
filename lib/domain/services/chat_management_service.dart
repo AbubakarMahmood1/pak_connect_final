@@ -3,10 +3,10 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import '../../core/models/archive_models.dart';
-import '../../core/interfaces/i_archive_repository.dart';
-import '../../core/interfaces/i_chats_repository.dart';
-import '../../core/interfaces/i_message_repository.dart';
+import '../models/archive_models.dart';
+import '../interfaces/i_archive_repository.dart';
+import '../interfaces/i_chats_repository.dart';
+import '../interfaces/i_message_repository.dart';
 import '../entities/chat_list_item.dart';
 import '../entities/enhanced_message.dart';
 import 'archive_management_service.dart';

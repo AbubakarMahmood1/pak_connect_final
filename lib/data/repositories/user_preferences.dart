@@ -4,8 +4,9 @@ import 'package:pointycastle/export.dart';
 import 'package:logging/logging.dart';
 import 'dart:typed_data';
 import 'dart:math';
+import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 
-class UserPreferences {
+class UserPreferences implements IUserPreferences {
   static final _logger = Logger('UserPreferences');
   static const String _userNameKey = 'user_display_name';
   static const String _deviceIdKey = 'my_persistent_device_id';
@@ -17,6 +18,7 @@ class UserPreferences {
   // Username updates are now managed through Riverpod providers
   // See: usernameProvider in lib/presentation/providers/ble_providers.dart
 
+  @override
   Future<String> getUserName() async {
     final prefs = await SharedPreferences.getInstance();
     final name = prefs.getString(_userNameKey) ?? 'User';
@@ -24,6 +26,7 @@ class UserPreferences {
     return name;
   }
 
+  @override
   Future<void> setUserName(String name) async {
     final prefs = await SharedPreferences.getInstance();
     final trimmedName = name.trim();
@@ -35,6 +38,7 @@ class UserPreferences {
   }
 
   // Get or create persistent device ID
+  @override
   Future<String> getOrCreateDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
     String? deviceId = prefs.getString(_deviceIdKey);
@@ -49,11 +53,13 @@ class UserPreferences {
   }
 
   // Get existing device ID (returns null if not set)
+  @override
   Future<String?> getDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_deviceIdKey);
   }
 
+  @override
   Future<Map<String, String>> getOrCreateKeyPair() async {
     _logger.info('🔑 Checking for existing key pair...');
     final pubStart = DateTime.now();
@@ -78,6 +84,7 @@ class UserPreferences {
     return await _generateNewKeyPair();
   }
 
+  @override
   Future<String> getPublicKey() async {
     _logger.info('🔑 Reading public key from secure storage...');
     final start = DateTime.now();
@@ -89,6 +96,7 @@ class UserPreferences {
     return publicKey ?? '';
   }
 
+  @override
   Future<String> getPrivateKey() async {
     _logger.info('🔑 Reading private key from secure storage...');
     final start = DateTime.now();
@@ -159,6 +167,7 @@ class UserPreferences {
     return {'public': publicKeyHex, 'private': privateKeyHex};
   }
 
+  @override
   Future<void> regenerateKeyPair() async {
     final storage = FlutterSecureStorage();
     await storage.delete(key: _publicKeyKey);
@@ -170,6 +179,7 @@ class UserPreferences {
 
   /// Get hint broadcast status (default: true/enabled)
   /// When false = SPY MODE (anonymous ephemeral-only chat)
+  @override
   Future<bool> getHintBroadcastEnabled() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_hintBroadcastKey) ?? true; // Default: hints ON
@@ -177,6 +187,7 @@ class UserPreferences {
 
   /// Set hint broadcast status
   /// false = Enable SPY MODE (chat anonymously with friends)
+  @override
   Future<void> setHintBroadcastEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_hintBroadcastKey, enabled);

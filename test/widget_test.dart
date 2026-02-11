@@ -112,4 +112,3 @@ void main() {
     // Should not throw any exceptions during initialization
   });
 }
-

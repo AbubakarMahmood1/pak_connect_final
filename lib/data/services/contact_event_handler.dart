@@ -1,5 +1,5 @@
 import 'package:logging/logging.dart';
-import '../../core/models/protocol_message.dart';
+import '../../domain/models/protocol_message.dart';
 
 /// Handles contact-related protocol events (request/accept/reject and crypto
 /// verification) so BLEMessageHandler can delegate orchestration.

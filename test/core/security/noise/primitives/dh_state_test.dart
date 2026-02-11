@@ -2,7 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pinenacl/api.dart';
-import 'package:pak_connect/core/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/core/security/noise/primitives/dh_state.dart';
 
 /// Unit tests for DHState (X25519 Diffie-Hellman wrapper)

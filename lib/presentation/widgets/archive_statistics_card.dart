@@ -3,7 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/models/archive_models.dart';
+import '../../domain/models/archive_models.dart';
 import '../../presentation/providers/archive_provider.dart';
 
 /// Main archive statistics card displaying key metrics

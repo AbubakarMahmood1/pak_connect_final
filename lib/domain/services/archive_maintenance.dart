@@ -1,5 +1,5 @@
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_archive_repository.dart';
+import '../interfaces/i_archive_repository.dart';
 import 'archive_management_models.dart';
 
 /// Handles archive maintenance tasks (cleanup, compression, index rebuilds)

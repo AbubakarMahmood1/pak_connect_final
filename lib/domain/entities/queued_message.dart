@@ -3,13 +3,14 @@
 // Extracted from offline_message_queue.dart for better separation of concerns.
 // This is a domain entity used across core, data, and presentation layers.
 
-import '../../core/models/message_priority.dart';
-import '../../core/models/mesh_relay_models.dart';
+import '../models/message_priority.dart';
+import '../models/mesh_relay_models.dart';
 import 'queue_enums.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
 
 // Explicitly use MessagePriority from message_priority.dart to avoid conflicts
 // with MessagePriority from enhanced_message.dart
-export '../../core/models/message_priority.dart' show MessagePriority;
+export '../models/message_priority.dart' show MessagePriority;
 
 /// Queued message with delivery tracking
 class QueuedMessage {

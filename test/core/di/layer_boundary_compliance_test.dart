@@ -99,9 +99,13 @@ void main() {
             final content = file.readAsStringSync();
 
             // Should have IRepositoryProvider or optional contactRepository parameter
+            final isDomainShim = content.contains(
+              "export 'package:pak_connect/domain/",
+            );
             final hasRepositoryProvider =
                 content.contains('IRepositoryProvider') ||
-                content.contains('contactRepository');
+                content.contains('contactRepository') ||
+                isDomainShim;
 
             expect(
               hasRepositoryProvider,
@@ -152,11 +156,7 @@ void main() {
           fail('Core directory not found');
         }
 
-        final allowList = <String>{
-          path.join('lib', 'core', 'app_core.dart'),
-          path.join('lib', 'core', 'di', 'service_locator.dart'),
-          path.join('lib', 'core', 'interfaces', 'i_ble_service.dart'),
-        }.map(path.normalize).toSet();
+        final allowList = <String>{}.map(path.normalize).toSet();
 
         final violations = <String>[];
         final dartFiles = coreDir
@@ -198,18 +198,533 @@ void main() {
               : 'Core files importing data layer:\n${violations.join('\n')}',
         );
       });
+
+      test('✅ Core implementation files import domain interfaces directly', () {
+        final coreDir = Directory(path.join(projectRoot.path, 'lib', 'core'));
+        if (!coreDir.existsSync()) {
+          fail('Core directory not found');
+        }
+
+        final violations = <String>[];
+        final dartFiles = coreDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .where(
+              (f) =>
+                  !path.normalize(f.path).contains('core\\interfaces\\') &&
+                  !path.normalize(f.path).contains('core/interfaces/'),
+            )
+            .toList();
+
+        for (final file in dartFiles) {
+          final relativePath = path.normalize(
+            path.relative(file.path, from: projectRoot.path),
+          );
+          final lines = file.readAsLinesSync();
+
+          for (var i = 0; i < lines.length; i++) {
+            final line = lines[i].trimLeft();
+            final startsWithImport =
+                line.startsWith("import '") || line.startsWith('import "');
+            if (!startsWithImport) continue;
+
+            final referencesCoreInterfaceShim =
+                line.contains('/core/interfaces/') ||
+                line.contains('../interfaces/') ||
+                line.contains("import 'interfaces/") ||
+                line.contains('package:pak_connect/core/interfaces/');
+
+            if (!referencesCoreInterfaceShim) continue;
+
+            violations.add('$relativePath:${i + 1} -> $line');
+          }
+        }
+
+        expect(
+          violations.isEmpty,
+          isTrue,
+          reason: violations.isEmpty
+              ? 'Core implementation imports use domain interfaces'
+              : 'Core files still importing interface shims:\n${violations.join('\n')}',
+        );
+      });
+
+      test('✅ Core implementation files import domain models directly', () {
+        final coreDir = Directory(path.join(projectRoot.path, 'lib', 'core'));
+        if (!coreDir.existsSync()) {
+          fail('Core directory not found');
+        }
+
+        final violations = <String>[];
+        final dartFiles = coreDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .where(
+              (f) =>
+                  !path.normalize(f.path).contains('core\\models\\') &&
+                  !path.normalize(f.path).contains('core/models/'),
+            )
+            .toList();
+
+        for (final file in dartFiles) {
+          final relativePath = path.normalize(
+            path.relative(file.path, from: projectRoot.path),
+          );
+          final lines = file.readAsLinesSync();
+
+          for (var i = 0; i < lines.length; i++) {
+            final line = lines[i].trimLeft();
+            final startsWithImport =
+                line.startsWith("import '") || line.startsWith('import "');
+            if (!startsWithImport) continue;
+
+            final referencesCoreModelShim =
+                line.contains('package:pak_connect/core/models/') ||
+                line.contains('/core/models/') ||
+                line.contains('../models/') ||
+                line.contains('../../models/');
+
+            if (referencesCoreModelShim) {
+              violations.add('$relativePath:${i + 1} -> $line');
+            }
+          }
+        }
+
+        expect(
+          violations.isEmpty,
+          isTrue,
+          reason: violations.isEmpty
+              ? 'Core implementation imports use domain models'
+              : 'Core files still importing model shims:\n${violations.join('\n')}',
+        );
+      });
+
+      test(
+        '✅ Core implementation files do NOT import core-to-domain shim files',
+        () {
+          final coreDir = Directory(path.join(projectRoot.path, 'lib', 'core'));
+          if (!coreDir.existsSync()) {
+            fail('Core directory not found');
+          }
+
+          final coreFiles = coreDir
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))
+              .toList();
+
+          final shimFiles = <String>{};
+          final exportToDomainPattern = RegExp(
+            r'''^export\s+['"]package:pak_connect/domain/''',
+            multiLine: true,
+          );
+          for (final file in coreFiles) {
+            final content = file.readAsStringSync();
+            if (exportToDomainPattern.hasMatch(content)) {
+              shimFiles.add(path.normalize(file.path));
+            }
+          }
+
+          final violations = <String>[];
+          final importPattern = RegExp(r'''^import\s+['"]([^'"]+)['"];''');
+
+          for (final file in coreFiles) {
+            final normalizedFilePath = path.normalize(file.path);
+            if (shimFiles.contains(normalizedFilePath)) {
+              continue;
+            }
+
+            final lines = file.readAsLinesSync();
+            for (var i = 0; i < lines.length; i++) {
+              final line = lines[i].trimLeft();
+              final match = importPattern.firstMatch(line);
+              if (match == null) continue;
+
+              final importUri = match.group(1)!;
+              String? resolvedImportPath;
+              if (importUri.startsWith('package:pak_connect/core/')) {
+                final relativeCorePath = importUri.substring(
+                  'package:pak_connect/core/'.length,
+                );
+                resolvedImportPath = path.normalize(
+                  path.join(projectRoot.path, 'lib', 'core', relativeCorePath),
+                );
+              } else if (importUri.startsWith('./') ||
+                  importUri.startsWith('../')) {
+                resolvedImportPath = path.normalize(
+                  path.join(path.dirname(file.path), importUri),
+                );
+              }
+
+              if (resolvedImportPath != null &&
+                  shimFiles.contains(resolvedImportPath)) {
+                final relativePath = path.normalize(
+                  path.relative(file.path, from: projectRoot.path),
+                );
+                violations.add('$relativePath:${i + 1} -> $line');
+              }
+            }
+          }
+
+          expect(
+            violations.isEmpty,
+            isTrue,
+            reason: violations.isEmpty
+                ? 'Core implementation files avoid core-to-domain shims'
+                : 'Core files importing shim files:\n${violations.join('\n')}',
+          );
+        },
+      );
+    });
+
+    group('Domain Layer Import Violations', () {
+      test('✅ Domain layer files do NOT import core modules', () {
+        final domainDir = Directory(path.join(projectRoot.path, 'lib/domain'));
+
+        if (!domainDir.existsSync()) {
+          fail('Domain directory not found');
+        }
+
+        final violations = <String>[];
+        final dartFiles = domainDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .toList();
+
+        for (final file in dartFiles) {
+          final lines = file.readAsLinesSync();
+          final hasViolation = lines.any((line) {
+            final trimmed = line.trimLeft();
+            final startsWithImport =
+                trimmed.startsWith("import '") ||
+                trimmed.startsWith('import "');
+            if (!startsWithImport) return false;
+            return trimmed.contains('package:pak_connect/core/') ||
+                trimmed.contains('/core/');
+          });
+
+          if (hasViolation) {
+            violations.add(
+              path.normalize(path.relative(file.path, from: projectRoot.path)),
+            );
+          }
+        }
+
+        expect(
+          violations.isEmpty,
+          isTrue,
+          reason: violations.isEmpty
+              ? 'Domain layer has no core import violations'
+              : 'Domain files importing core modules:\n${violations.join('\n')}',
+        );
+      });
+
+      test(
+        '✅ Domain layer files do NOT import moved core model ownership types',
+        () {
+          final domainDir = Directory(
+            path.join(projectRoot.path, 'lib/domain'),
+          );
+
+          if (!domainDir.existsSync()) {
+            fail('Domain directory not found');
+          }
+
+          final violations = <String>[];
+          final dartFiles = domainDir
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))
+              .toList();
+
+          for (final file in dartFiles) {
+            final lines = file.readAsLinesSync();
+            final hasViolation = lines.any((line) {
+              final trimmed = line.trimLeft();
+              final startsWithImport =
+                  trimmed.startsWith("import '") ||
+                  trimmed.startsWith('import "');
+              if (!startsWithImport) return false;
+
+              return trimmed.contains('core/models/archive_models.dart') ||
+                  trimmed.contains('core/models/contact_group.dart') ||
+                  trimmed.contains('core/models/message_priority.dart') ||
+                  trimmed.contains('core/models/connection_info.dart') ||
+                  trimmed.contains('core/models/mesh_relay_models.dart') ||
+                  trimmed.contains('core/models/protocol_message.dart') ||
+                  trimmed.contains('core/models/spy_mode_info.dart') ||
+                  trimmed.contains('core/models/ble_server_connection.dart') ||
+                  trimmed.contains(
+                    'core/bluetooth/bluetooth_state_monitor.dart',
+                  ) ||
+                  trimmed.contains('core/utils/gcs_filter.dart') ||
+                  trimmed.contains('core/utils/string_extensions.dart') ||
+                  trimmed.contains('core/utils/chat_utils.dart') ||
+                  trimmed.contains('core/utils/mesh_debug_logger.dart') ||
+                  trimmed.contains(
+                    'core/constants/binary_payload_types.dart',
+                  ) ||
+                  trimmed.contains('core/config/kill_switches.dart') ||
+                  trimmed.contains(
+                    'core/security/spam_prevention_manager.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_archive_repository.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_message_repository.dart',
+                  ) ||
+                  trimmed.contains('core/interfaces/i_chats_repository.dart') ||
+                  trimmed.contains(
+                    'core/interfaces/i_contact_repository.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_preferences_repository.dart',
+                  ) ||
+                  trimmed.contains('core/interfaces/i_group_repository.dart') ||
+                  trimmed.contains(
+                    'core/interfaces/i_repository_provider.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_connection_service.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_mesh_networking_service.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_ble_message_handler_facade.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_seen_message_store.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_message_fragmentation_handler.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_shared_message_queue_provider.dart',
+                  ) ||
+                  trimmed.contains('core/messaging/message_ack_tracker.dart') ||
+                  trimmed.contains(
+                    'core/messaging/media_transfer_store.dart',
+                  ) ||
+                  trimmed.contains('core/messaging/gossip_sync_manager.dart') ||
+                  trimmed.contains('core/messaging/queue_sync_manager.dart') ||
+                  trimmed.contains(
+                    'core/messaging/offline_message_queue.dart',
+                  ) ||
+                  trimmed.contains('core/interfaces/i_mesh_ble_service.dart') ||
+                  trimmed.contains(
+                    'core/interfaces/i_ble_discovery_service.dart',
+                  ) ||
+                  trimmed.contains(
+                    'core/interfaces/i_ble_messaging_service.dart',
+                  );
+            });
+
+            if (hasViolation) {
+              violations.add(
+                path.normalize(
+                  path.relative(file.path, from: projectRoot.path),
+                ),
+              );
+            }
+          }
+
+          expect(
+            violations.isEmpty,
+            isTrue,
+            reason: violations.isEmpty
+                ? 'Domain layer has no moved-model import violations'
+                : 'Domain files importing moved core models:\n${violations.join('\n')}',
+          );
+        },
+      );
+
+      test('✅ Domain layer files do NOT import data or presentation modules', () {
+        final domainDir = Directory(path.join(projectRoot.path, 'lib/domain'));
+        if (!domainDir.existsSync()) {
+          fail('Domain directory not found');
+        }
+
+        final violations = <String>[];
+        final dartFiles = domainDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .toList();
+
+        for (final file in dartFiles) {
+          final relativePath = path.normalize(
+            path.relative(file.path, from: projectRoot.path),
+          );
+          final lines = file.readAsLinesSync();
+
+          for (var i = 0; i < lines.length; i++) {
+            final line = lines[i].trimLeft();
+            final startsWithImport =
+                line.startsWith("import '") || line.startsWith('import "');
+            if (!startsWithImport) continue;
+
+            final importsDataOrPresentation =
+                line.contains('/data/') || line.contains('/presentation/');
+            if (importsDataOrPresentation) {
+              violations.add('$relativePath:${i + 1} -> $line');
+            }
+          }
+        }
+
+        expect(
+          violations.isEmpty,
+          isTrue,
+          reason: violations.isEmpty
+              ? 'Domain layer stays independent from data/presentation'
+              : 'Domain imports data/presentation modules:\n${violations.join('\n')}',
+        );
+      });
     });
 
     group('Data Layer Abstraction Compliance', () {
-      test('✅ Core layer interfaces are in core/interfaces directory', () {
+      test(
+        '✅ Data layer files do NOT import core OfflineMessageQueue implementation',
+        () {
+          final dataDir = Directory(path.join(projectRoot.path, 'lib/data'));
+          if (!dataDir.existsSync()) {
+            fail('Data directory not found');
+          }
+
+          final violations = <String>[];
+          final dartFiles = dataDir
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))
+              .toList();
+
+          for (final file in dartFiles) {
+            final lines = file.readAsLinesSync();
+            final hasViolation = lines.any((line) {
+              final trimmed = line.trimLeft();
+              final startsWithImport =
+                  trimmed.startsWith("import '") ||
+                  trimmed.startsWith('import "');
+              if (!startsWithImport) return false;
+              return trimmed.contains(
+                'core/messaging/offline_message_queue.dart',
+              );
+            });
+
+            if (hasViolation) {
+              violations.add(
+                path.normalize(
+                  path.relative(file.path, from: projectRoot.path),
+                ),
+              );
+            }
+          }
+
+          expect(
+            violations.isEmpty,
+            isTrue,
+            reason: violations.isEmpty
+                ? 'Data layer uses queue abstractions/contracts'
+                : 'Data files importing OfflineMessageQueue concrete implementation:\n${violations.join('\n')}',
+          );
+        },
+      );
+
+      test('✅ Data layer files do NOT import presentation modules', () {
+        final dataDir = Directory(path.join(projectRoot.path, 'lib/data'));
+        if (!dataDir.existsSync()) {
+          fail('Data directory not found');
+        }
+
+        final violations = <String>[];
+        final dartFiles = dataDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .toList();
+
+        for (final file in dartFiles) {
+          final relativePath = path.normalize(
+            path.relative(file.path, from: projectRoot.path),
+          );
+          final lines = file.readAsLinesSync();
+
+          for (var i = 0; i < lines.length; i++) {
+            final line = lines[i].trimLeft();
+            final startsWithImport =
+                line.startsWith("import '") || line.startsWith('import "');
+            if (!startsWithImport) continue;
+
+            if (line.contains('/presentation/')) {
+              violations.add('$relativePath:${i + 1} -> $line');
+            }
+          }
+        }
+
+        expect(
+          violations.isEmpty,
+          isTrue,
+          reason: violations.isEmpty
+              ? 'Data layer stays independent from presentation'
+              : 'Data imports presentation modules:\n${violations.join('\n')}',
+        );
+      });
+
+      test('✅ Presentation layer files do NOT import data modules', () {
+        final presentationDir = Directory(
+          path.join(projectRoot.path, 'lib/presentation'),
+        );
+        if (!presentationDir.existsSync()) {
+          fail('Presentation directory not found');
+        }
+
+        final violations = <String>[];
+        final dartFiles = presentationDir
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart'))
+            .toList();
+
+        for (final file in dartFiles) {
+          final relativePath = path.normalize(
+            path.relative(file.path, from: projectRoot.path),
+          );
+          final lines = file.readAsLinesSync();
+
+          for (var i = 0; i < lines.length; i++) {
+            final line = lines[i].trimLeft();
+            final startsWithImport =
+                line.startsWith("import '") || line.startsWith('import "');
+            if (!startsWithImport) continue;
+
+            if (line.contains('/data/')) {
+              violations.add('$relativePath:${i + 1} -> $line');
+            }
+          }
+        }
+
+        expect(
+          violations.isEmpty,
+          isTrue,
+          reason: violations.isEmpty
+              ? 'Presentation layer stays independent from data'
+              : 'Presentation imports data modules:\n${violations.join('\n')}',
+        );
+      });
+
+      test('✅ Domain layer interfaces are in domain/interfaces directory', () {
         final interfacesDir = Directory(
-          path.join(projectRoot.path, 'lib/core/interfaces'),
+          path.join(projectRoot.path, 'lib/domain/interfaces'),
         );
 
         expect(
           interfacesDir.existsSync(),
           isTrue,
-          reason: 'Core interfaces directory should exist',
+          reason: 'Domain interfaces directory should exist',
         );
 
         // Should have the abstraction interfaces
@@ -257,55 +772,412 @@ void main() {
           reason: 'RepositoryProviderImpl should implement IRepositoryProvider',
         );
       });
-    });
 
-    group('DI Registration Compliance', () {
-      test('✅ service_locator.dart registers IRepositoryProvider', () {
-        final file = File(
-          path.join(projectRoot.path, 'lib/core/di/service_locator.dart'),
-        );
+      test('✅ Legacy core shim directories are empty (safe to delete)', () {
+        final legacyShimDirs = <String>[
+          'lib/core/interfaces',
+          'lib/core/models',
+          'lib/core/constants',
+          'lib/core/utils',
+          'lib/core/routing',
+          'lib/core/config',
+          'lib/core/compression',
+          'lib/core/monitoring',
+          'lib/core/networking',
+          'lib/core/performance',
+          'lib/core/scanning',
+        ];
+
+        final lingeringEntries = <String>[];
+
+        for (final relativeDir in legacyShimDirs) {
+          final directory = Directory(path.join(projectRoot.path, relativeDir));
+          if (!directory.existsSync()) {
+            continue;
+          }
+
+          final entries = directory.listSync(recursive: true).toList();
+          for (final entry in entries) {
+            lingeringEntries.add(
+              path.normalize(path.relative(entry.path, from: projectRoot.path)),
+            );
+          }
+        }
 
         expect(
-          file.existsSync(),
-          isTrue,
-          reason: 'service_locator.dart should exist',
-        );
-
-        final content = file.readAsStringSync();
-
-        // Should register IRepositoryProvider
-        expect(
-          content.contains('registerSingleton<IRepositoryProvider>') ||
-              content.contains('IRepositoryProvider'),
-          isTrue,
-          reason: 'service_locator should register IRepositoryProvider',
-        );
-
-        // Should register ISeenMessageStore
-        expect(
-          content.contains('ISeenMessageStore'),
-          isTrue,
-          reason: 'service_locator should register ISeenMessageStore',
+          lingeringEntries,
+          isEmpty,
+          reason: lingeringEntries.isEmpty
+              ? 'Legacy core shim directories are empty'
+              : 'Legacy shim directories should remain empty so they are safe to delete:\n${lingeringEntries.join('\n')}',
         );
       });
 
+      test(
+        '✅ Non-core layers do NOT import core model/interface/constant shims',
+        () {
+          final libDir = Directory(path.join(projectRoot.path, 'lib'));
+          if (!libDir.existsSync()) {
+            fail('lib directory not found');
+          }
+
+          final violations = <String>[];
+
+          final dartFiles = libDir
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))
+              .where((f) {
+                final normalized = path.normalize(f.path);
+                return !normalized.contains('lib\\core\\') &&
+                    !normalized.contains('lib/core/');
+              })
+              .toList();
+
+          for (final file in dartFiles) {
+            final relativePath = path.normalize(
+              path.relative(file.path, from: projectRoot.path),
+            );
+
+            // Intentional shim that re-exports the core test harness.
+            if (relativePath ==
+                path.normalize('test/test_helpers/test_setup.dart')) {
+              continue;
+            }
+            final lines = file.readAsLinesSync();
+
+            for (var i = 0; i < lines.length; i++) {
+              final line = lines[i].trimLeft();
+              final startsWithImport =
+                  line.startsWith("import '") || line.startsWith('import "');
+              if (!startsWithImport) continue;
+
+              final referencesCoreShim =
+                  line.contains('package:pak_connect/core/models/') ||
+                  line.contains('package:pak_connect/core/interfaces/') ||
+                  line.contains('package:pak_connect/core/constants/') ||
+                  line.contains('package:pak_connect/core/routing/') ||
+                  line.contains('package:pak_connect/core/config/') ||
+                  line.contains('package:pak_connect/core/utils/') ||
+                  line.contains('/core/models/') ||
+                  line.contains('/core/interfaces/') ||
+                  line.contains('/core/constants/') ||
+                  line.contains('/core/routing/') ||
+                  line.contains('/core/config/') ||
+                  line.contains('/core/utils/');
+
+              if (referencesCoreShim) {
+                violations.add('$relativePath:${i + 1} -> $line');
+              }
+            }
+          }
+
+          expect(
+            violations.isEmpty,
+            isTrue,
+            reason: violations.isEmpty
+                ? 'Non-core layers use domain-owned contracts and models'
+                : 'Found non-core imports of core shims:\n${violations.join('\n')}',
+          );
+        },
+      );
+
+      test(
+        '✅ Non-core lib folders do NOT import core modules (except app composition root)',
+        () {
+          final libDir = Directory(path.join(projectRoot.path, 'lib'));
+          if (!libDir.existsSync()) {
+            fail('lib directory not found');
+          }
+
+          final violations = <String>[];
+          final dartFiles = libDir
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))
+              .where((f) {
+                final normalized = path.normalize(f.path);
+                return !normalized.contains('lib\\core\\') &&
+                    !normalized.contains('lib/core/');
+              })
+              .toList();
+
+          for (final file in dartFiles) {
+            final relativePath = path.normalize(
+              path.relative(file.path, from: projectRoot.path),
+            );
+
+            // Composition root is allowed to wire core bootstrapping.
+            if (relativePath == path.normalize('lib/main.dart')) {
+              continue;
+            }
+
+            final lines = file.readAsLinesSync();
+            for (var i = 0; i < lines.length; i++) {
+              final line = lines[i].trimLeft();
+              final startsWithImport =
+                  line.startsWith("import '") || line.startsWith('import "');
+              if (!startsWithImport) continue;
+
+              final importsCoreModule =
+                  line.contains('package:pak_connect/core/') ||
+                  line.contains('/core/');
+              if (importsCoreModule) {
+                violations.add('$relativePath:${i + 1} -> $line');
+              }
+            }
+          }
+
+          expect(
+            violations.isEmpty,
+            isTrue,
+            reason: violations.isEmpty
+                ? 'Non-core lib folders avoid core imports'
+                : 'Found non-core lib imports of core modules:\n${violations.join('\n')}',
+          );
+        },
+      );
+
+      test(
+        '✅ Test files avoid core model/interface/constant utility shims',
+        () {
+          final testDir = Directory(path.join(projectRoot.path, 'test'));
+          if (!testDir.existsSync()) {
+            fail('test directory not found');
+          }
+
+          final violations = <String>[];
+          final dartFiles = testDir
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))
+              .toList();
+
+          for (final file in dartFiles) {
+            final relativePath = path.normalize(
+              path.relative(file.path, from: projectRoot.path),
+            );
+
+            // This file intentionally contains literal core/* strings for
+            // policy assertions.
+            if (relativePath ==
+                path.normalize(
+                  'test/core/di/layer_boundary_compliance_test.dart',
+                )) {
+              continue;
+            }
+
+            final lines = file.readAsLinesSync();
+            for (var i = 0; i < lines.length; i++) {
+              final line = lines[i].trimLeft();
+              final startsWithImport =
+                  line.startsWith("import '") || line.startsWith('import "');
+              if (!startsWithImport) continue;
+
+              final referencesCoreShim =
+                  line.contains('package:pak_connect/core/models/') ||
+                  line.contains('package:pak_connect/core/interfaces/') ||
+                  line.contains('package:pak_connect/core/constants/') ||
+                  line.contains('package:pak_connect/core/routing/') ||
+                  line.contains('package:pak_connect/core/config/') ||
+                  line.contains('package:pak_connect/core/utils/');
+
+              if (referencesCoreShim) {
+                violations.add('$relativePath:${i + 1} -> $line');
+              }
+            }
+          }
+
+          expect(
+            violations.isEmpty,
+            isTrue,
+            reason: violations.isEmpty
+                ? 'Tests import domain-owned modules directly'
+                : 'Found test imports of core shims:\n${violations.join('\n')}',
+          );
+        },
+      );
+
+      test(
+        '✅ Non-core test folders do NOT import core implementation modules',
+        () {
+          final testRoot = Directory(path.join(projectRoot.path, 'test'));
+          expect(testRoot.existsSync(), isTrue, reason: 'test/ should exist');
+
+          final violations = <String>[];
+          final dartFiles = testRoot
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.dart'))
+              .where((f) {
+                final normalized = path.normalize(f.path);
+                final inCoreFolder = normalized.contains(
+                  '${path.separator}test${path.separator}core${path.separator}',
+                );
+                return !inCoreFolder;
+              })
+              .toList();
+
+          for (final file in dartFiles) {
+            final relativePath = path.normalize(
+              path.relative(file.path, from: projectRoot.path),
+            );
+            final lines = file.readAsLinesSync();
+
+            for (var i = 0; i < lines.length; i++) {
+              final line = lines[i].trimLeft();
+              final startsWithImport =
+                  line.startsWith("import '") || line.startsWith('import "');
+              if (!startsWithImport) continue;
+
+              final importsCoreImplementation =
+                  line.contains('package:pak_connect/core/') ||
+                  line.contains('/core/');
+
+              if (importsCoreImplementation) {
+                violations.add('$relativePath:${i + 1} -> $line');
+              }
+            }
+          }
+
+          expect(
+            violations.isEmpty,
+            isTrue,
+            reason: violations.isEmpty
+                ? 'Non-core test folders avoid core implementation imports'
+                : 'Found non-core tests importing core implementation modules:\n${violations.join('\n')}',
+          );
+        },
+      );
+
+      test('✅ Legacy test/services folder is absent or empty', () {
+        final legacyServicesDir = Directory(
+          path.join(projectRoot.path, 'test', 'services'),
+        );
+
+        if (!legacyServicesDir.existsSync()) {
+          expect(
+            legacyServicesDir.existsSync(),
+            isFalse,
+            reason: 'Legacy test/services folder has been removed',
+          );
+          return;
+        }
+
+        final lingeringEntries =
+            legacyServicesDir
+                .listSync(recursive: true)
+                .map(
+                  (entry) => path.normalize(
+                    path.relative(entry.path, from: projectRoot.path),
+                  ),
+                )
+                .toList()
+              ..sort();
+
+        expect(
+          lingeringEntries,
+          isEmpty,
+          reason:
+              'Legacy test/services should remain empty; tests belong under test/core or test/data:\n${lingeringEntries.join('\n')}',
+        );
+      });
+    });
+
+    group('DI Registration Compliance', () {
+      test(
+        '✅ service_locator.dart wires IRepositoryProvider and delegates data bindings',
+        () {
+          final file = File(
+            path.join(projectRoot.path, 'lib/core/di/service_locator.dart'),
+          );
+          final dataRegistrarFile = File(
+            path.join(
+              projectRoot.path,
+              'lib/data/di/data_layer_service_registrar.dart',
+            ),
+          );
+
+          expect(
+            file.existsSync(),
+            isTrue,
+            reason: 'service_locator.dart should exist',
+          );
+          expect(
+            dataRegistrarFile.existsSync(),
+            isTrue,
+            reason: 'data_layer_service_registrar.dart should exist',
+          );
+
+          final content = file.readAsStringSync();
+          final dataRegistrarContent = dataRegistrarFile.readAsStringSync();
+
+          // Core locator should still own IRepositoryProvider wiring.
+          expect(
+            content.contains('registerSingleton<IRepositoryProvider>') ||
+                content.contains('IRepositoryProvider'),
+            isTrue,
+            reason: 'service_locator should register IRepositoryProvider',
+          );
+
+          // Core locator should use delegated data registration hook.
+          expect(
+            content.contains('configureDataLayerRegistrar') &&
+                content.contains('_dataLayerRegistrar'),
+            isTrue,
+            reason: 'service_locator should delegate concrete data bindings',
+          );
+
+          expect(
+            content.contains('ISecurityManager'),
+            isFalse,
+            reason:
+                'service_locator should register ISecurityService instead of legacy ISecurityManager',
+          );
+
+          // Data registrar should own concrete ISeenMessageStore registration.
+          expect(
+            dataRegistrarContent.contains('ISeenMessageStore'),
+            isTrue,
+            reason:
+                'data_layer_service_registrar should register ISeenMessageStore',
+          );
+        },
+      );
+
       test('✅ test_setup.dart initializes DI container', () {
-        final file = File(
+        final shimFile = File(
           path.join(projectRoot.path, 'test/test_helpers/test_setup.dart'),
+        );
+        final implFile = File(
+          path.join(projectRoot.path, 'test/core/test_helpers/test_setup.dart'),
         );
 
         expect(
-          file.existsSync(),
+          shimFile.existsSync(),
           isTrue,
           reason: 'test_setup.dart should exist',
         );
+        expect(
+          implFile.existsSync(),
+          isTrue,
+          reason: 'core test_setup implementation should exist',
+        );
 
-        final content = file.readAsStringSync();
+        final shimContent = shimFile.readAsStringSync();
+        final implContent = implFile.readAsStringSync();
+
+        expect(
+          shimContent.contains('export'),
+          isTrue,
+          reason:
+              'test/test_helpers/test_setup.dart should remain a shim export',
+        );
 
         // Should call setupServiceLocator during test initialization
         expect(
-          content.contains('setupServiceLocator') ||
-              content.contains('di_service_locator'),
+          implContent.contains('setupServiceLocator') ||
+              implContent.contains('di_service_locator'),
           isTrue,
           reason: 'test_setup.dart should initialize DI container',
         );
@@ -314,14 +1186,18 @@ void main() {
 
     group('Interface Definition Compliance', () {
       test('✅ IRepositoryProvider defines required properties', () {
-        final file = File(
+        final domainFile = File(
           path.join(
             projectRoot.path,
-            'lib/core/interfaces/i_repository_provider.dart',
+            'lib/domain/interfaces/i_repository_provider.dart',
           ),
         );
-
-        final content = file.readAsStringSync();
+        expect(
+          domainFile.existsSync(),
+          isTrue,
+          reason: 'Domain IRepositoryProvider should exist',
+        );
+        final content = domainFile.readAsStringSync();
 
         // Should define these properties
         expect(
@@ -340,14 +1216,18 @@ void main() {
       });
 
       test('✅ ISeenMessageStore defines required methods', () {
-        final file = File(
+        final domainFile = File(
           path.join(
             projectRoot.path,
-            'lib/core/interfaces/i_seen_message_store.dart',
+            'lib/domain/interfaces/i_seen_message_store.dart',
           ),
         );
-
-        final content = file.readAsStringSync();
+        expect(
+          domainFile.existsSync(),
+          isTrue,
+          reason: 'Domain ISeenMessageStore should exist',
+        );
+        final content = domainFile.readAsStringSync();
 
         // Should define these methods
         final requiredMethods = [
@@ -422,9 +1302,9 @@ void main() {
     });
 
     group('No Circular Dependencies', () {
-      test('✅ Core layer interfaces do NOT import from data layer', () {
+      test('✅ Domain layer interfaces do NOT import from data layer', () {
         final interfaceFiles =
-            Directory(path.join(projectRoot.path, 'lib/core/interfaces'))
+            Directory(path.join(projectRoot.path, 'lib/domain/interfaces'))
                 .listSync()
                 .whereType<File>()
                 .where((f) => f.path.endsWith('.dart'))

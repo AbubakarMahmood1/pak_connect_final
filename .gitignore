@@ -124,6 +124,7 @@ reference/
 
 # Local MCP workspace (do not commit)
 serena/
+.tmp_flutter_sdk_*/
 
 .analysis.machine.txt
 

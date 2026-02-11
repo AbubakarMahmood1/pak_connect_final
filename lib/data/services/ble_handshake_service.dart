@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/bluetooth/handshake_coordinator.dart';
-import '../../core/interfaces/i_ble_handshake_service.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/models/spy_mode_info.dart';
-import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/services/hint_advertisement_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
+import 'package:pak_connect/domain/interfaces/i_handshake_coordinator.dart';
+import 'package:pak_connect/domain/interfaces/i_handshake_coordinator_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
+import 'package:pak_connect/domain/models/connection_phase.dart';
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
+import '../../domain/utils/hint_advertisement_service.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import 'ble_messaging_service.dart' show HandshakeSendException;
 
@@ -65,9 +68,10 @@ class BLEHandshakeService implements IBLEHandshakeService {
   final IntroHintRepository _introHintRepo;
   final List<dynamic> _messageBuffer; // List<_BufferedMessage> from facade
   final bool Function()? _connectionStatusProvider;
+  final IHandshakeCoordinatorFactory _handshakeCoordinatorFactory;
 
   // ===== Handshake State =====
-  HandshakeCoordinator? _handshakeCoordinator;
+  IHandshakeCoordinator? _handshakeCoordinator;
   StreamSubscription<ConnectionPhase>? _handshakePhaseSubscription;
   final Set<void Function(ConnectionPhase)> _handshakePhaseListeners = {};
 
@@ -112,6 +116,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
     required IntroHintRepository introHintRepo,
     required List<dynamic> messageBuffer,
     bool Function()? connectionStatusProvider,
+    IHandshakeCoordinatorFactory? handshakeCoordinatorFactory,
   }) : _stateManager = stateManager,
        _onIdentityExchangeSent = onIdentityExchangeSent,
        _updateConnectionInfo = updateConnectionInfo,
@@ -124,7 +129,9 @@ class BLEHandshakeService implements IBLEHandshakeService {
        _onHandshakeCompleteCallback = onHandshakeCompleteCallback,
        _introHintRepo = introHintRepo,
        _messageBuffer = messageBuffer,
-       _connectionStatusProvider = connectionStatusProvider;
+       _connectionStatusProvider = connectionStatusProvider,
+       _handshakeCoordinatorFactory =
+           handshakeCoordinatorFactory ?? _resolveCoordinatorFactory();
 
   bool get _isBleConnected {
     if (_connectionStatusProvider != null) {
@@ -196,7 +203,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
         '🤝 Handshake role: ${startAsInitiator ? 'INITIATOR (central/client)' : 'RESPONDER (peripheral/server)'}${startAsInitiatorOverride != null ? ' (forced)' : ''}',
       );
 
-      _handshakeCoordinator = HandshakeCoordinator(
+      _handshakeCoordinator = _handshakeCoordinatorFactory.create(
         myEphemeralId: myEphemeralId,
         myPublicKey: myPublicKey,
         myDisplayName: myDisplayName,
@@ -668,5 +675,16 @@ class BLEHandshakeService implements IBLEHandshakeService {
         type == ProtocolMessageType.noiseHandshake3 ||
         type == ProtocolMessageType.noiseHandshakeRejected ||
         type == ProtocolMessageType.contactStatus;
+  }
+
+  static IHandshakeCoordinatorFactory _resolveCoordinatorFactory() {
+    final getIt = GetIt.instance;
+    if (getIt.isRegistered<IHandshakeCoordinatorFactory>()) {
+      return getIt<IHandshakeCoordinatorFactory>();
+    }
+    throw StateError(
+      'IHandshakeCoordinatorFactory is not registered. '
+      'Register it in DI or pass handshakeCoordinatorFactory explicitly.',
+    );
   }
 }

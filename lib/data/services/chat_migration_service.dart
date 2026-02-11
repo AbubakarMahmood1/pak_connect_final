@@ -1,9 +1,9 @@
 import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart';
-import '../../core/utils/chat_utils.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
 import '../repositories/message_repository.dart';
 import '../database/database_helper.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Service responsible for migrating chats from ephemeral IDs to persistent public keys

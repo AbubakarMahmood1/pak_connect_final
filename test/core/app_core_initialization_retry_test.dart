@@ -1,12 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/app_core.dart';
+import 'package:pak_connect/core/di/service_locator.dart'
+    show configureDataLayerRegistrar;
+import 'package:pak_connect/data/di/data_layer_service_registrar.dart';
 
 void main() {
   late List<LogRecord> logRecords;
   late Set<String> allowedSevere;
 
   setUp(() {
+    configureDataLayerRegistrar(registerDataLayerServices);
     logRecords = [];
     allowedSevere = {};
     Logger.root.level = Level.ALL;

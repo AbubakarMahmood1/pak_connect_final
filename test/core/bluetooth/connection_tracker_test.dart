@@ -1,6 +1,6 @@
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/core/bluetooth/connection_tracker.dart';
+import 'package:pak_connect/domain/services/ble_connection_tracker.dart';
 
 void main() {
   group('BleConnectionTracker', () {

@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 import '../providers/ble_providers.dart';
 import '../dialogs/spy_mode_reveal_dialog.dart';
-import '../../core/models/spy_mode_info.dart';
+import '../../domain/models/spy_mode_info.dart';
 
 final _logger = Logger('SpyModeListener');
 

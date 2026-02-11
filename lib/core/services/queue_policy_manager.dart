@@ -1,8 +1,8 @@
 import 'package:logging/logging.dart';
 import '../../domain/entities/queued_message.dart';
 import '../../domain/entities/queue_enums.dart';
-import '../interfaces/i_repository_provider.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Manages queue policy decisions including favorites-based benefits and per-peer limits
 ///

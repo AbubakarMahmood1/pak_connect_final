@@ -1,0 +1,535 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
+import 'package:pak_connect/domain/services/message_retry_coordinator.dart';
+import 'package:pak_connect/data/repositories/message_repository.dart';
+import 'package:pak_connect/data/repositories/chats_repository.dart';
+import 'package:pak_connect/data/repositories/contact_repository.dart';
+import 'package:pak_connect/core/messaging/offline_message_queue.dart';
+import 'package:pak_connect/domain/entities/message.dart';
+import 'package:pak_connect/core/di/repository_provider_impl.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/values/id_types.dart';
+import '../../test_helpers/test_setup.dart';
+import 'package:pak_connect/domain/entities/queue_enums.dart';
+import 'package:pak_connect/domain/entities/queued_message.dart';
+
+ChatId _cid(String value) => ChatId(value);
+
+/// Test to verify the message retry coordination functionality
+/// This addresses the "retry all" bug by testing coordination between persistence systems
+void main() {
+  setUpAll(() async {
+    await TestSetup.initializeTestEnvironment(
+      dbLabel: 'message_retry_coordination',
+    );
+  });
+
+  group('Message Retry Coordination Tests', () {
+    final List<LogRecord> logRecords = [];
+    final Set<String> allowedSevere = {};
+
+    late MessageRepository messageRepository;
+    late OfflineMessageQueue offlineQueue;
+    late MessageRetryCoordinator coordinator;
+    late ChatsRepository chatsRepository;
+    late IContactRepository contactRepository;
+    late IRepositoryProvider repositoryProvider;
+
+    setUp(() async {
+      logRecords.clear();
+      Logger.root.level = Level.ALL;
+      Logger.root.onRecord.listen(logRecords.add);
+      await TestSetup.fullDatabaseReset();
+      TestSetup.resetSharedPreferences();
+
+      contactRepository = ContactRepository();
+      messageRepository = MessageRepository();
+      chatsRepository = ChatsRepository();
+      offlineQueue = OfflineMessageQueue();
+      repositoryProvider = RepositoryProviderImpl(
+        contactRepository: contactRepository,
+        messageRepository: messageRepository,
+      );
+
+      // Initialize the offline queue
+      await offlineQueue.initialize();
+
+      coordinator = MessageRetryCoordinator(
+        repositoryProvider: repositoryProvider,
+        offlineQueue: offlineQueue,
+      );
+    });
+
+    tearDown(() async {
+      final severeErrors = logRecords
+          .where((log) => log.level >= Level.SEVERE)
+          .where(
+            (log) =>
+                !allowedSevere.any((pattern) => log.message.contains(pattern)),
+          )
+          .toList();
+      expect(
+        severeErrors,
+        isEmpty,
+        reason:
+            'Unexpected SEVERE errors:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}',
+      );
+      offlineQueue.dispose();
+      await TestSetup.completeCleanup();
+    });
+
+    /// Helper to create a test chat to satisfy foreign key constraints
+    Future<void> createTestChat(String chatId) async {
+      await chatsRepository.markChatAsRead(_cid(chatId));
+    }
+
+    test(
+      'should detect failed messages from both persistence systems',
+      () async {
+        const chatId = 'test_chat_123';
+
+        // Create chat to satisfy foreign key constraint
+        await createTestChat(chatId);
+
+        // Add failed messages to repository
+        final repoMessage1 = Message(
+          id: MessageId('repo_msg_1'),
+          chatId: _cid(chatId),
+          content: 'Repository failed message 1',
+          timestamp: DateTime.now().subtract(Duration(minutes: 5)),
+          isFromMe: true,
+          status: MessageStatus.failed,
+        );
+
+        final repoMessage2 = Message(
+          id: MessageId('repo_msg_2'),
+          chatId: _cid(chatId),
+          content: 'Repository failed message 2',
+          timestamp: DateTime.now().subtract(Duration(minutes: 3)),
+          isFromMe: true,
+          status: MessageStatus.failed,
+        );
+
+        await messageRepository.saveMessage(repoMessage1);
+        await messageRepository.saveMessage(repoMessage2);
+
+        // Add failed messages to queue
+        await offlineQueue.queueMessage(
+          chatId: chatId,
+          content: 'Queue failed message 1',
+          recipientPublicKey: 'test_recipient_key',
+          senderPublicKey: 'test_sender_key',
+          priority: MessagePriority.normal,
+        );
+
+        // Simulate queue message failure
+        final queueStats = offlineQueue.getStatistics();
+        expect(queueStats.pendingMessages, greaterThan(0));
+
+        // Test coordinator detection
+        final retryStatus = await coordinator.getFailedMessageStatus(
+          _cid(chatId),
+        );
+
+        expect(retryStatus.hasError, false);
+        expect(retryStatus.repositoryFailedMessages, hasLength(2));
+        expect(retryStatus.totalFailed, greaterThanOrEqualTo(2));
+        expect(retryStatus.hasFailedMessages, true);
+      },
+    );
+
+    test(
+      'retries only queue failures for the target chat and invokes callback',
+      () async {
+        const chatA = 'retry_scope_chat_a';
+        const chatB = 'retry_scope_chat_b';
+
+        await createTestChat(chatA);
+        await createTestChat(chatB);
+
+        final chatAMessageId = await offlineQueue.queueMessage(
+          chatId: chatA,
+          content: 'Queue failed message A',
+          recipientPublicKey: 'recipient_a',
+          senderPublicKey: 'sender_a',
+        );
+
+        final chatBMessageId = await offlineQueue.queueMessage(
+          chatId: chatB,
+          content: 'Queue failed message B',
+          recipientPublicKey: 'recipient_b',
+          senderPublicKey: 'sender_b',
+        );
+
+        // Force both messages into failed state
+        for (final message in offlineQueue.getMessagesByStatus(
+          QueuedMessageStatus.pending,
+        )) {
+          if (message.id == chatAMessageId || message.id == chatBMessageId) {
+            message.status = QueuedMessageStatus.failed;
+            message.failureReason = 'Simulated failure';
+            message.failedAt = DateTime.now();
+          }
+        }
+
+        final retriedIds = <String>[];
+
+        final retryResult = await coordinator.retryAllFailedMessages(
+          chatId: _cid(chatA),
+          onRepositoryMessageRetry: (_) async {},
+          onQueueMessageRetry: (queuedMessage) async {
+            retriedIds.add(queuedMessage.id);
+          },
+        );
+
+        expect(retryResult.queueAttempted, 1);
+        expect(retriedIds, [chatAMessageId]);
+
+        final remainingFailedIds = offlineQueue
+            .getMessagesByStatus(QueuedMessageStatus.failed)
+            .map((m) => m.id)
+            .toList();
+
+        final pendingIds = offlineQueue
+            .getMessagesByStatus(QueuedMessageStatus.pending)
+            .map((m) => m.id)
+            .toList();
+
+        expect(remainingFailedIds, contains(chatBMessageId));
+        expect(remainingFailedIds, isNot(contains(chatAMessageId)));
+        expect(pendingIds, contains(chatAMessageId));
+        expect(retryResult.queueSucceeded, greaterThanOrEqualTo(0));
+      },
+    );
+
+    test(
+      'skips immediate retries when offline and allowPartialConnection is false',
+      () async {
+        const chatId = 'retry_offline_guard';
+        await createTestChat(chatId);
+
+        final repoMessage = Message(
+          id: MessageId('offline_repo_msg'),
+          chatId: _cid(chatId),
+          content: 'Should not send while offline',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.failed,
+        );
+        await messageRepository.saveMessage(repoMessage);
+
+        final queueMessageId = await offlineQueue.queueMessage(
+          chatId: chatId,
+          content: 'Queue failed while offline',
+          recipientPublicKey: 'recipient_offline',
+          senderPublicKey: 'sender_offline',
+        );
+
+        // Force the queued message into failed state
+        final queued = offlineQueue.getMessagesByStatus(
+          QueuedMessageStatus.pending,
+        );
+        expect(queued, isNotEmpty);
+        queued.first
+          ..status = QueuedMessageStatus.failed
+          ..failureReason = 'Simulated failure';
+
+        bool repoRetryCalled = false;
+        bool queueRetryCalled = false;
+
+        final result = await coordinator.retryAllFailedMessages(
+          chatId: _cid(chatId),
+          allowPartialConnection: false,
+          onRepositoryMessageRetry: (message) async {
+            repoRetryCalled = true;
+          },
+          onQueueMessageRetry: (message) async {
+            queueRetryCalled = true;
+          },
+        );
+
+        expect(repoRetryCalled, isFalse);
+        expect(queueRetryCalled, isTrue);
+        expect(result.repositoryAttempted, 0);
+        expect(result.queueAttempted, 1);
+        expect(result.success, isTrue);
+        expect(result.message, contains('Queued'));
+
+        // Ensure the queued message is no longer marked failed after reset
+        final remainingFailed = offlineQueue
+            .getMessagesByStatus(QueuedMessageStatus.failed)
+            .map((m) => m.id)
+            .toList();
+        expect(remainingFailed, isNot(contains(queueMessageId)));
+      },
+    );
+
+    test('should coordinate retry across both systems', () async {
+      const chatId = 'test_chat_coordination';
+
+      // Create chat to satisfy foreign key constraint
+      await createTestChat(chatId);
+
+      // Add a failed repository message
+      final repoMessage = Message(
+        id: MessageId('coord_repo_msg'),
+        chatId: _cid(chatId),
+        content: 'Test coordination message',
+        timestamp: DateTime.now().subtract(Duration(minutes: 2)),
+        isFromMe: true,
+        status: MessageStatus.failed,
+      );
+
+      await messageRepository.saveMessage(repoMessage);
+
+      // Mock retry callbacks
+      bool repoRetryWasCalled = false;
+      bool queueRetryWasCalled = false;
+
+      // Execute coordinated retry
+      final retryResult = await coordinator.retryAllFailedMessages(
+        chatId: _cid(chatId),
+        onRepositoryMessageRetry: (Message message) async {
+          repoRetryWasCalled = true;
+          expect(message.id.value, equals('coord_repo_msg'));
+
+          // Simulate successful retry by updating the message
+          final successMessage = message.copyWith(
+            status: MessageStatus.delivered,
+          );
+          await messageRepository.updateMessage(successMessage);
+        },
+        onQueueMessageRetry: (QueuedMessage queuedMessage) async {
+          queueRetryWasCalled = true;
+        },
+      );
+
+      expect(retryResult.success, true);
+      expect(retryResult.repositoryAttempted, 1);
+      expect(retryResult.repositorySucceeded, 1);
+      expect(repoRetryWasCalled, true);
+      // Queue callback only called if there are queued messages (none in this test)
+      expect(queueRetryWasCalled, false);
+
+      // Verify message was updated in repository
+      final updatedMessages = await messageRepository.getMessages(_cid(chatId));
+      final updatedMessage = updatedMessages.firstWhere(
+        (m) => m.id.value == 'coord_repo_msg',
+      );
+      expect(updatedMessage.status, MessageStatus.delivered);
+    });
+
+    test('should handle mixed success/failure scenarios', () async {
+      const chatId = 'test_chat_mixed';
+
+      // Create chat to satisfy foreign key constraint
+      await createTestChat(chatId);
+
+      // Add multiple failed messages
+      final messages = [
+        Message(
+          id: MessageId('mixed_msg_1'),
+          chatId: _cid(chatId),
+          content: 'Will succeed',
+          timestamp: DateTime.now().subtract(Duration(minutes: 5)),
+          isFromMe: true,
+          status: MessageStatus.failed,
+        ),
+        Message(
+          id: MessageId('mixed_msg_2'),
+          chatId: _cid(chatId),
+          content: 'Will fail',
+          timestamp: DateTime.now().subtract(Duration(minutes: 3)),
+          isFromMe: true,
+          status: MessageStatus.failed,
+        ),
+      ];
+
+      for (final message in messages) {
+        await messageRepository.saveMessage(message);
+      }
+
+      // Execute retry with mixed results
+      final retryResult = await coordinator.retryAllFailedMessages(
+        chatId: _cid(chatId),
+        onRepositoryMessageRetry: (Message message) async {
+          if (message.id.value == 'mixed_msg_1') {
+            // Simulate success
+            final successMessage = message.copyWith(
+              status: MessageStatus.delivered,
+            );
+            await messageRepository.updateMessage(successMessage);
+          } else if (message.id.value == 'mixed_msg_2') {
+            // Simulate failure by throwing exception
+            throw Exception('Simulated delivery failure');
+          }
+        },
+        onQueueMessageRetry: (QueuedMessage queuedMessage) async {
+          // No queue messages in this test
+        },
+      );
+
+      expect(retryResult.repositoryAttempted, 2);
+      expect(retryResult.repositorySucceeded, 1); // Only one succeeded
+      expect(retryResult.successRate, 0.5);
+
+      // Verify only the successful message was updated
+      final finalMessages = await messageRepository.getMessages(_cid(chatId));
+      final successfulMessage = finalMessages.firstWhere(
+        (m) => m.id.value == 'mixed_msg_1',
+      );
+      final failedMessage = finalMessages.firstWhere(
+        (m) => m.id.value == 'mixed_msg_2',
+      );
+
+      expect(successfulMessage.status, MessageStatus.delivered);
+      expect(failedMessage.status, MessageStatus.failed);
+    });
+
+    test('should report system health accurately', () async {
+      const chatId = 'test_chat_health';
+
+      // Create chat to satisfy foreign key constraint
+      await createTestChat(chatId);
+
+      // Add a mix of delivered and failed messages
+      final messages = [
+        Message(
+          id: MessageId('health_delivered_1'),
+          chatId: _cid(chatId),
+          content: 'Delivered message 1',
+          timestamp: DateTime.now().subtract(Duration(minutes: 10)),
+          isFromMe: true,
+          status: MessageStatus.delivered,
+        ),
+        Message(
+          id: MessageId('health_delivered_2'),
+          chatId: _cid(chatId),
+          content: 'Delivered message 2',
+          timestamp: DateTime.now().subtract(Duration(minutes: 8)),
+          isFromMe: true,
+          status: MessageStatus.delivered,
+        ),
+        Message(
+          id: MessageId('health_failed_1'),
+          chatId: _cid(chatId),
+          content: 'Failed message 1',
+          timestamp: DateTime.now().subtract(Duration(minutes: 5)),
+          isFromMe: true,
+          status: MessageStatus.failed,
+        ),
+      ];
+
+      for (final message in messages) {
+        await messageRepository.saveMessage(message);
+      }
+
+      final health = await coordinator.getSystemHealth();
+
+      expect(health.totalRepositoryMessages, 3);
+      expect(health.failedRepositoryMessages, 1);
+      expect(
+        health.repositoryHealthScore,
+        closeTo(0.67, 0.1),
+      ); // 2/3 success rate
+
+      // Overall health should reflect both systems
+      expect(health.overallHealth, greaterThan(0.0));
+      expect(health.totalMessages, greaterThanOrEqualTo(3));
+    });
+
+    test('should handle empty retry scenarios gracefully', () async {
+      const chatId = 'test_chat_empty';
+
+      // No failed messages - should handle gracefully
+      final retryStatus = await coordinator.getFailedMessageStatus(
+        _cid(chatId),
+      );
+      expect(retryStatus.hasFailedMessages, false);
+      expect(retryStatus.totalFailed, 0);
+
+      final retryResult = await coordinator.retryAllFailedMessages(
+        chatId: _cid(chatId),
+        onRepositoryMessageRetry: (Message message) async {
+          fail('Should not be called when no failed messages exist');
+        },
+        onQueueMessageRetry: (QueuedMessage queuedMessage) async {
+          fail('Should not be called when no failed messages exist');
+        },
+      );
+
+      expect(retryResult.success, true);
+      expect(retryResult.totalAttempted, 0);
+      expect(retryResult.totalSucceeded, 0);
+      expect(retryResult.message, contains('No failed messages'));
+    });
+  });
+
+  group('Integration with Original Systems', () {
+    late ChatsRepository chatsRepository;
+
+    setUp(() async {
+      chatsRepository = ChatsRepository();
+    });
+
+    /// Helper to create a test chat to satisfy foreign key constraints
+    Future<void> createTestChat(String chatId) async {
+      await chatsRepository.markChatAsRead(_cid(chatId));
+    }
+
+    test(
+      'should maintain backward compatibility with MessageRepository',
+      () async {
+        final repository = MessageRepository();
+        const chatId = 'test_compatibility';
+
+        // Create chat to satisfy foreign key constraint
+        await createTestChat(chatId);
+
+        // Test basic repository operations still work
+        final message = Message(
+          id: MessageId('compat_test_msg'),
+          chatId: _cid(chatId),
+          content: 'Compatibility test message',
+          timestamp: DateTime.now(),
+          isFromMe: true,
+          status: MessageStatus.delivered,
+        );
+
+        await repository.saveMessage(message);
+
+        final retrievedMessages = await repository.getMessages(_cid(chatId));
+        expect(retrievedMessages, hasLength(1));
+        expect(retrievedMessages.first.id.value, equals('compat_test_msg'));
+        expect(retrievedMessages.first.status, MessageStatus.delivered);
+      },
+    );
+
+    test(
+      'should maintain backward compatibility with OfflineMessageQueue',
+      () async {
+        final queue = OfflineMessageQueue();
+        await queue.initialize();
+
+        try {
+          // Test basic queue operations still work
+          final messageId = await queue.queueMessage(
+            chatId: 'compat_chat',
+            content: 'Queue compatibility test',
+            recipientPublicKey: 'test_recipient',
+            senderPublicKey: 'test_sender',
+            priority: MessagePriority.normal,
+          );
+
+          expect(messageId, isNotEmpty);
+
+          final stats = queue.getStatistics();
+          expect(stats.totalQueued, greaterThan(0));
+        } finally {
+          queue.dispose();
+        }
+      },
+    );
+  });
+}

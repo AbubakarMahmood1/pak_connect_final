@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../core/models/protocol_message.dart';
+import '../../domain/models/protocol_message.dart';
 
 /// Small helper to keep UI-oriented pairing orchestration out of the flow controller.
 class PairingUiOrchestrator {

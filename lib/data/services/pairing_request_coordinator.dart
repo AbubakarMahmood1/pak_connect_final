@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../core/bluetooth/identity_session_state.dart';
-import '../../core/models/pairing_state.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/security/ephemeral_key_manager.dart';
+import '../../domain/models/identity_session_state.dart';
+import 'package:pak_connect/domain/models/pairing_state.dart';
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
 import 'pairing_service.dart';
 
 /// Orchestrates pairing request/accept/cancel flows and timeout handling.
@@ -191,7 +191,9 @@ class PairingRequestCoordinator {
     _pairingService.receivePairingCancel(reason: reason);
     final theirPersistent = _identityState.theirPersistentKey;
     if (theirPersistent != null) {
-      SecurityManager.instance.unregisterIdentityMapping(theirPersistent);
+      SecurityServiceLocator.instance.unregisterIdentityMapping(
+        theirPersistent,
+      );
       _unregisterIdentityMapping?.call(theirPersistent);
       _logger.info(
         '🔐 Unregistered identity mapping due to pairing cancellation',
@@ -222,7 +224,9 @@ class PairingRequestCoordinator {
 
     final theirPersistent = _identityState.theirPersistentKey;
     if (theirPersistent != null) {
-      SecurityManager.instance.unregisterIdentityMapping(theirPersistent);
+      SecurityServiceLocator.instance.unregisterIdentityMapping(
+        theirPersistent,
+      );
       _unregisterIdentityMapping?.call(theirPersistent);
       _logger.info('🔐 Unregistered identity mapping due to user cancellation');
     }

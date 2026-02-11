@@ -1,25 +1,26 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/models/pairing_state.dart';
+import 'package:pak_connect/domain/interfaces/i_pairing_state_manager.dart';
+import 'package:pak_connect/domain/models/pairing_state.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
-import '../../core/services/simple_crypto.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/interfaces/i_identity_manager.dart';
+import '../../domain/services/simple_crypto.dart';
+import '../../domain/models/protocol_message.dart';
+import '../../domain/models/security_level.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'chat_migration_service.dart';
 import 'contact_request_controller.dart';
 import 'contact_status_sync_controller.dart';
 import 'pairing_flow_controller.dart';
 import 'pairing_lifecycle_service.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../core/models/spy_mode_info.dart';
-import '../../core/bluetooth/identity_session_state.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import '../../domain/models/identity_session_state.dart';
 import '../../domain/values/id_types.dart';
 
-class BLEStateManager {
+class BLEStateManager implements IPairingStateManager {
   final _logger = Logger('BLEStateManager');
 
   // User and contact management
@@ -444,7 +445,10 @@ class BLEStateManager {
     return sameNameContacts.isNotEmpty;
   }
 
+  @override
   String generatePairingCode() => _pairingController.generatePairingCode();
+
+  @override
   Future<bool> completePairing(String theirCode) =>
       _pairingController.completePairing(theirCode);
   void handleReceivedPairingCode(String theirCode) =>
@@ -468,6 +472,7 @@ class BLEStateManager {
       _pairingController.cancelPairing(reason: reason);
   Future<void> handlePersistentKeyExchange(String theirPersistentKey) =>
       _pairingController.handlePersistentKeyExchange(theirPersistentKey);
+  @override
   Future<bool> confirmSecurityUpgrade(
     String publicKey,
     SecurityLevel newLevel,
@@ -476,6 +481,7 @@ class BLEStateManager {
       _pairingController.resetContactSecurity(publicKey, reason);
   Future<void> handleSecurityLevelSync(Map<String, dynamic> payload) =>
       _pairingController.handleSecurityLevelSync(payload);
+  @override
   void clearPairing() => _pairingController.clearPairing();
 
   /// Reveal identity to friend in spy mode
@@ -487,6 +493,7 @@ class BLEStateManager {
 
       return await _identityState.createRevealMessage(
         myPersistentKey: myPersistentKey,
+        sign: SimpleCrypto.signMessage,
         nowMillis: () => DateTime.now().millisecondsSinceEpoch,
       );
     } catch (e) {

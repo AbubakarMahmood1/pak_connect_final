@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/utils/mesh_debug_logger.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
+import '../../domain/utils/mesh_debug_logger.dart';
+import 'package:pak_connect/domain/entities/queue_statistics.dart';
 
 /// Compact status indicator for relay queue
 /// Shows pending message count and connection status

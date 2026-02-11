@@ -3,8 +3,8 @@
 // Inspired by BitChat's message type filtering
 
 import 'package:logging/logging.dart';
-import '../models/protocol_message.dart';
-import '../constants/special_recipients.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/constants/special_recipients.dart';
 
 /// Relay policy manager
 ///

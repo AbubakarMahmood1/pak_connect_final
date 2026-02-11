@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_session_service.dart';
+import 'package:pak_connect/domain/interfaces/i_session_service.dart';
 import '../repositories/contact_repository.dart';
 
 /// Session Service

@@ -5,30 +5,28 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/services/chat_management_service.dart';
-import '../../data/services/ble_message_handler.dart';
-import '../../data/services/ble_message_handler_facade_impl.dart';
-import '../../core/interfaces/i_ble_message_handler_facade.dart';
-import '../../core/interfaces/i_seen_message_store.dart';
-import '../../core/interfaces/i_mesh_networking_service.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/messaging/mesh_relay_engine.dart';
-import '../../core/messaging/queue_sync_manager.dart';
-import '../../core/interfaces/i_mesh_routing_service.dart';
-import '../../core/bluetooth/bluetooth_state_monitor.dart';
+import '../../domain/interfaces/i_ble_message_handler_facade.dart';
+import '../../domain/interfaces/i_mesh_relay_engine_factory.dart';
+import '../../domain/interfaces/i_mesh_networking_service.dart';
+import '../../domain/interfaces/i_shared_message_queue_provider.dart';
+import '../../domain/messaging/queue_sync_manager.dart';
+import '../../domain/models/mesh_relay_models.dart' show RelayStatistics;
 import '../../domain/models/mesh_network_models.dart';
+import '../../domain/models/bluetooth_state_models.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/services/mesh/mesh_relay_coordinator.dart';
 import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import '../../domain/services/mesh/mesh_network_health_monitor.dart';
 import 'ble_providers.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../core/di/service_locator.dart'; // Phase 1 Part C: DI integration
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'runtime_providers.dart';
-import '../../core/networking/topology_manager.dart';
-import '../../core/models/network_topology.dart';
+import '../../domain/routing/topology_manager.dart';
+import '../../domain/models/network_topology.dart';
+import 'package:pak_connect/domain/models/message_priority.dart';
 
 // =============================================================================
 // CORE RUNTIME NOTIFIER (MESH)
@@ -141,37 +139,37 @@ final meshRuntimeProvider =
     );
 
 /// Logger for mesh networking providers
+final GetIt getIt = GetIt.instance;
 final _logger = Logger('MeshNetworkingProvider');
 
 /// Singleton providers for service dependencies
 /// ✅ FIXED: Services now use singleton pattern to prevent re-initialization
 
 /// Provider for IBLEMessageHandlerFacade implementation
-/// ✅ Phase 3A: Wraps BLEMessageHandler with simplified facade interface
 final _messageHandlerProvider = Provider<IBLEMessageHandlerFacade>((ref) {
-  final seenMessageStore = getIt<ISeenMessageStore>();
-  return BLEMessageHandlerFacadeImpl(BLEMessageHandler(), seenMessageStore);
+  if (getIt.isRegistered<IBLEMessageHandlerFacade>()) {
+    return getIt<IBLEMessageHandlerFacade>();
+  }
+  throw StateError(
+    'IBLEMessageHandlerFacade is not registered. '
+    'Call setupServiceLocator() before creating mesh providers.',
+  );
 });
 final _chatManagementServiceProvider = Provider<ChatManagementService>(
   (ref) => ChatManagementService.instance,
 );
 
-/// Provider for Bluetooth state monitor
-final bluetoothStateMonitorProvider = Provider<BluetoothStateMonitor>((ref) {
-  return BluetoothStateMonitor.instance;
-});
-
 /// Bluetooth state stream (bridged via Riverpod for lifecycle safety)
 final bluetoothStateStreamProvider = StreamProvider<BluetoothStateInfo>((ref) {
-  final monitor = ref.watch(bluetoothStateMonitorProvider);
-  return monitor.stateStream;
+  final service = ref.watch(connectionServiceProvider);
+  return service.bluetoothStateStream;
 });
 
 /// Bluetooth status message stream (bridged via Riverpod for lifecycle safety)
 final bluetoothStatusMessageStreamProvider =
     StreamProvider<BluetoothStatusMessage>((ref) {
-      final monitor = ref.watch(bluetoothStateMonitorProvider);
-      return monitor.messageStream;
+      final service = ref.watch(connectionServiceProvider);
+      return service.bluetoothMessageStream;
     });
 
 /// Bluetooth state (driven by BleRuntimeNotifier)
@@ -188,8 +186,9 @@ final bluetoothStatusMessageProvider =
 
 /// Provider for current Bluetooth ready state
 final bluetoothReadyProvider = Provider<bool>((ref) {
+  final service = ref.watch(connectionServiceProvider);
   final state = ref.watch(bluetoothStateStreamProvider);
-  return state.asData?.value.isReady ?? false;
+  return state.asData?.value.isReady ?? service.isBluetoothReady;
 });
 
 /// Provider for MeshNetworkingService (Singleton to prevent multiple instances)
@@ -211,6 +210,12 @@ final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
     bleService: connectionService,
     messageHandler: messageHandler,
     chatManagementService: chatManagementService,
+    sharedQueueProvider: _resolveSharedMessageQueueProvider(),
+    relayEngineFactory: (queue, spam) => _resolveRelayEngineFactory().create(
+      messageQueue: queue,
+      spamPrevention: spam,
+      forceFloodMode: true,
+    ),
   );
 
   _initializeServiceAsync(service, ref);
@@ -257,6 +262,26 @@ final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
 
   return service;
 });
+
+ISharedMessageQueueProvider _resolveSharedMessageQueueProvider() {
+  if (getIt.isRegistered<ISharedMessageQueueProvider>()) {
+    return getIt<ISharedMessageQueueProvider>();
+  }
+  throw StateError(
+    'ISharedMessageQueueProvider is not registered. '
+    'Register it in DI before creating MeshNetworkingService.',
+  );
+}
+
+IMeshRelayEngineFactory _resolveRelayEngineFactory() {
+  if (getIt.isRegistered<IMeshRelayEngineFactory>()) {
+    return getIt<IMeshRelayEngineFactory>();
+  }
+  throw StateError(
+    'IMeshRelayEngineFactory is not registered. '
+    'Register it in DI before creating MeshNetworkingService.',
+  );
+}
 
 /// Binary/media payload stream for UI consumption.
 final binaryPayloadStreamProvider = StreamProvider<ReceivedBinaryEvent>((ref) {
@@ -318,7 +343,7 @@ final topologyStreamProvider = StreamProvider<NetworkTopology>((ref) {
 /// Provider for MeshRoutingService (optional, for routing-specific monitoring)
 /// This service is created and managed by MeshNetworkingService, but can be
 /// exposed here for testing or direct routing statistics access
-final meshRoutingServiceProvider = Provider<IMeshRoutingService?>((ref) {
+final meshRoutingServiceProvider = Provider<Object?>((ref) {
   _logger.fine('🧠 Mesh routing service provider accessed');
   // Note: Routing service is internally managed by MeshNetworkingService
   // This provider would return the service if it were exposed via a getter

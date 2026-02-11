@@ -1,14 +1,14 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/messaging/queue_sync_manager.dart';
-import '../../core/models/mesh_relay_models.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/utils/message_fragmenter.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import '../../domain/models/protocol_message.dart';
+import '../../domain/utils/message_fragmenter.dart';
 import '../../domain/values/id_types.dart';
-import '../../core/utils/binary_fragmenter.dart';
-import '../../core/constants/binary_payload_types.dart';
+import '../../domain/utils/binary_fragmenter.dart';
+import 'package:pak_connect/domain/constants/binary_payload_types.dart';
+import '../../domain/entities/queued_message.dart';
 
 /// Handles queue synchronization messages and callbacks so BLEMessageHandler
 /// can delegate the protocol-specific work.

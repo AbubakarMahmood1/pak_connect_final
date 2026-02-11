@@ -3,15 +3,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../domain/entities/contact.dart';
 import '../../domain/entities/enhanced_contact.dart';
-import '../../core/services/security_manager.dart';
-import '../../data/repositories/contact_repository.dart';
+import '../../domain/models/security_level.dart';
 import '../providers/contact_provider.dart';
 import '../widgets/contact_avatar.dart';
 import '../widgets/security_level_badge.dart' as security_badge;
 import '../widgets/trust_status_badge.dart' as trust_badge;
 import 'chat_screen.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 class ContactDetailScreen extends ConsumerStatefulWidget {

@@ -1,5 +1,5 @@
 import 'dart:io' show Platform;
-import 'package:pak_connect/core/power/adaptive_power_manager.dart';
+import 'package:pak_connect/domain/models/power_mode.dart';
 
 /// Platform-aware configuration for BLE connection limits.
 ///

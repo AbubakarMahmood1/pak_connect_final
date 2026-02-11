@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
 import '../../domain/entities/message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';

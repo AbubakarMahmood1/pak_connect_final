@@ -1,12 +1,12 @@
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/interfaces/i_connection_service.dart';
-import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/models/mesh_relay_models.dart';
-import 'package:pak_connect/core/security/spam_prevention_manager.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
+import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/protocol_message_type.dart';
 
 typedef RelayStatsCallback = void Function(RelayStatistics stats);
 typedef RelayDecisionCallback = void Function(RelayDecision decision);
@@ -18,7 +18,7 @@ typedef DeliverToSelfCallback =
     );
 typedef MeshRelayEngineFactory =
     MeshRelayEngine Function(
-      OfflineMessageQueue queue,
+      OfflineMessageQueueContract queue,
       SpamPreventionManager spamPrevention,
     );
 
@@ -32,10 +32,10 @@ class MeshRelayCoordinator {
   final RelayDecisionCallback _onRelayDecision;
   final RelayStatsCallback _onRelayStatsUpdated;
   final DeliverToSelfCallback _onDeliverToSelf;
-  final MeshRelayEngineFactory _relayEngineFactory;
+  final MeshRelayEngineFactory? _relayEngineFactory;
 
   MeshRelayEngine? _relayEngine;
-  OfflineMessageQueue? _messageQueue;
+  OfflineMessageQueueContract? _messageQueue;
   String? _currentNodeId;
 
   MeshRelayCoordinator({
@@ -50,24 +50,18 @@ class MeshRelayCoordinator {
        _onRelayStatsUpdated = onRelayStatsUpdated,
        _onDeliverToSelf = onDeliverToSelf,
        _logger = logger ?? Logger('MeshRelayCoordinator'),
-       _relayEngineFactory =
-           relayEngineFactory ??
-           ((queue, spam) => MeshRelayEngine(
-             messageQueue: queue,
-             spamPrevention: spam,
-             forceFloodMode: true,
-           ));
+       _relayEngineFactory = relayEngineFactory;
 
   /// Initialize relay dependencies and smart routing.
   Future<void> initialize({
     required String nodeId,
-    required OfflineMessageQueue messageQueue,
+    required OfflineMessageQueueContract messageQueue,
     required SpamPreventionManager spamPrevention,
   }) async {
     _currentNodeId = nodeId;
     _messageQueue = messageQueue;
 
-    _relayEngine ??= _relayEngineFactory(messageQueue, spamPrevention);
+    _relayEngine ??= _createRelayEngine(messageQueue, spamPrevention);
     await _relayEngine!.initialize(
       currentNodeId: nodeId,
       onRelayMessage: _handleRelayMessage,
@@ -220,5 +214,19 @@ class MeshRelayCoordinator {
     _logger.info(
       'Relay message to next hop: $truncatedMessageId... -> $truncatedNextHop...',
     );
+  }
+
+  MeshRelayEngine _createRelayEngine(
+    OfflineMessageQueueContract queue,
+    SpamPreventionManager spamPrevention,
+  ) {
+    final factory = _relayEngineFactory;
+    if (factory == null) {
+      throw StateError(
+        'MeshRelayEngineFactory is required. '
+        'Provide relayEngineFactory when constructing MeshRelayCoordinator.',
+      );
+    }
+    return factory(queue, spamPrevention);
   }
 }

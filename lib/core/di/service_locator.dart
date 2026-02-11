@@ -1,37 +1,31 @@
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../data/services/ble_service.dart';
-import '../../data/services/seen_message_store.dart';
-import '../../data/services/mesh_routing_service.dart';
-import '../../data/database/database_provider.dart';
 import '../../domain/services/mesh_networking_service.dart';
 import '../../domain/services/mesh/mesh_network_health_monitor.dart';
 import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import '../../domain/services/mesh/mesh_relay_coordinator.dart';
-import '../../core/services/security_manager.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/repositories/message_repository.dart';
-import '../../data/repositories/archive_repository.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/preferences_repository.dart';
-import '../../data/repositories/group_repository.dart';
-import '../../data/repositories/intro_hint_repository.dart';
-import '../interfaces/i_repository_provider.dart';
-import '../interfaces/i_contact_repository.dart';
-import '../interfaces/i_message_repository.dart';
-import '../interfaces/i_mesh_ble_service.dart';
-import '../interfaces/i_mesh_routing_service.dart';
-import '../interfaces/i_seen_message_store.dart';
-import '../interfaces/i_mesh_networking_service.dart';
-import '../interfaces/i_security_manager.dart';
-import '../interfaces/i_connection_service.dart';
-import '../interfaces/i_ble_service_facade.dart';
-import '../interfaces/i_archive_repository.dart';
-import '../interfaces/i_chats_repository.dart';
-import '../interfaces/i_preferences_repository.dart';
-import '../interfaces/i_group_repository.dart';
-import '../interfaces/i_intro_hint_repository.dart';
-import '../interfaces/i_database_provider.dart';
+import '../../domain/interfaces/i_handshake_coordinator_factory.dart';
+import '../../domain/interfaces/i_mesh_relay_engine_factory.dart';
+import '../../domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_ble_service.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_service_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_service_facade_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_home_screen_facade_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_chat_connection_manager_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_chat_list_coordinator_factory.dart';
+import '../bluetooth/handshake_coordinator_factory.dart';
+import '../messaging/mesh_relay_engine_factory.dart';
+import '../services/app_core_shared_message_queue_provider.dart';
+import '../services/home_screen_facade_factory.dart';
+import '../services/chat_connection_manager_factory.dart';
+import '../services/chat_list_coordinator_factory.dart';
 import 'repository_provider_impl.dart';
 
 /// GetIt service locator instance
@@ -41,6 +35,18 @@ final getIt = GetIt.instance;
 const bool useDi = true;
 
 final _logger = Logger('ServiceLocator');
+
+typedef DataLayerRegistrar = Future<void> Function(GetIt getIt, Logger logger);
+
+DataLayerRegistrar? _dataLayerRegistrar;
+
+/// Configure a callback that registers concrete data-layer services.
+///
+/// This keeps core DI wiring dependent on domain contracts while delegating
+/// concrete repository/service bindings to the data layer.
+void configureDataLayerRegistrar(DataLayerRegistrar registrar) {
+  _dataLayerRegistrar = registrar;
+}
 
 /// Sets up the dependency injection container
 ///
@@ -62,146 +68,55 @@ Future<void> setupServiceLocator() async {
   }
 
   try {
-    // If repositories are already registered, assume setup already ran.
-    if (getIt.isRegistered<ContactRepository>() &&
-        getIt.isRegistered<MessageRepository>() &&
+    // If core-facing contracts are already registered, assume setup already ran.
+    if (getIt.isRegistered<IContactRepository>() &&
+        getIt.isRegistered<IMessageRepository>() &&
         getIt.isRegistered<IRepositoryProvider>() &&
-        getIt.isRegistered<ISeenMessageStore>()) {
+        getIt.isRegistered<IBLEMessageHandlerFacade>() &&
+        getIt.isRegistered<IHandshakeCoordinatorFactory>() &&
+        getIt.isRegistered<IMeshRelayEngineFactory>() &&
+        getIt.isRegistered<IBLEServiceFacadeFactory>()) {
       _logger.info(
         'ℹ️ Service locator already initialized — skipping re-registration',
       );
       return;
     }
 
-    // ===========================
-    // REPOSITORIES
-    // ===========================
-    // Register IContactRepository singleton
-    if (!getIt.isRegistered<ContactRepository>()) {
-      getIt.registerSingleton<ContactRepository>(ContactRepository());
-      _logger.fine('✅ ContactRepository registered');
-    } else {
-      _logger.fine('ℹ️ ContactRepository already registered');
-    }
-
-    if (!getIt.isRegistered<IContactRepository>()) {
-      getIt.registerSingleton<IContactRepository>(getIt<ContactRepository>());
-      _logger.fine('✅ IContactRepository registered (Phase 3)');
-    }
-
-    // Register IMessageRepository singleton
-    if (!getIt.isRegistered<MessageRepository>()) {
-      getIt.registerSingleton<MessageRepository>(MessageRepository());
-      _logger.fine('✅ MessageRepository registered');
-    } else {
-      _logger.fine('ℹ️ MessageRepository already registered');
-    }
-
-    if (!getIt.isRegistered<IMessageRepository>()) {
-      getIt.registerSingleton<IMessageRepository>(getIt<MessageRepository>());
-      _logger.fine('✅ IMessageRepository registered (Phase 3)');
-    }
-
-    // Register ArchiveRepository singleton
-    if (!getIt.isRegistered<ArchiveRepository>()) {
-      getIt.registerSingleton<ArchiveRepository>(ArchiveRepository.instance);
-      _logger.fine('✅ ArchiveRepository registered');
-    } else {
-      _logger.fine('ℹ️ ArchiveRepository already registered');
-    }
-
-    // Register ChatsRepository singleton
-    if (!getIt.isRegistered<ChatsRepository>()) {
-      getIt.registerSingleton<ChatsRepository>(ChatsRepository());
-      _logger.fine('✅ ChatsRepository registered');
-    } else {
-      _logger.fine('ℹ️ ChatsRepository already registered');
-    }
-
-    // Register PreferencesRepository singleton
-    if (!getIt.isRegistered<PreferencesRepository>()) {
-      getIt.registerSingleton<PreferencesRepository>(PreferencesRepository());
-      _logger.fine('✅ PreferencesRepository registered');
-    } else {
-      _logger.fine('ℹ️ PreferencesRepository already registered');
-    }
-
-    // Register GroupRepository singleton
-    if (!getIt.isRegistered<GroupRepository>()) {
-      getIt.registerSingleton<GroupRepository>(GroupRepository());
-      _logger.fine('✅ GroupRepository registered');
-    } else {
-      _logger.fine('ℹ️ GroupRepository already registered');
-    }
-
-    // Register IntroHintRepository singleton
-    if (!getIt.isRegistered<IntroHintRepository>()) {
-      getIt.registerSingleton<IntroHintRepository>(IntroHintRepository());
-      _logger.fine('✅ IntroHintRepository registered');
-    } else {
-      _logger.fine('ℹ️ IntroHintRepository already registered');
-    }
-
-    if (!getIt.isRegistered<MeshRoutingService>()) {
-      getIt.registerSingleton<MeshRoutingService>(MeshRoutingService());
-      _logger.fine('✅ MeshRoutingService registered');
-    } else {
-      _logger.fine('ℹ️ MeshRoutingService already registered');
-    }
-
-    if (!getIt.isRegistered<IMeshRoutingService>()) {
-      getIt.registerSingleton<IMeshRoutingService>(getIt<MeshRoutingService>());
-      _logger.fine('✅ IMeshRoutingService registered (Phase 3)');
-    }
-
-    // ===========================
-    // REPOSITORY INTERFACES (Phase 3 abstraction)
-    // ===========================
-    // Register IArchiveRepository for dependency injection
-    if (!getIt.isRegistered<IArchiveRepository>()) {
-      getIt.registerSingleton<IArchiveRepository>(getIt<ArchiveRepository>());
-      _logger.fine('✅ IArchiveRepository registered (Phase 3)');
-    }
-
-    // Register IChatsRepository for dependency injection
-    if (!getIt.isRegistered<IChatsRepository>()) {
-      getIt.registerSingleton<IChatsRepository>(getIt<ChatsRepository>());
-      _logger.fine('✅ IChatsRepository registered (Phase 3)');
-    }
-
-    // Register IPreferencesRepository for dependency injection
-    if (!getIt.isRegistered<IPreferencesRepository>()) {
-      getIt.registerSingleton<IPreferencesRepository>(
-        getIt<PreferencesRepository>(),
+    // Register shared queue provider first (used by data-layer registrations).
+    if (!getIt.isRegistered<ISharedMessageQueueProvider>()) {
+      getIt.registerSingleton<ISharedMessageQueueProvider>(
+        AppCoreSharedMessageQueueProvider(),
       );
-      _logger.fine('✅ IPreferencesRepository registered (Phase 3)');
+      _logger.fine('✅ ISharedMessageQueueProvider registered');
+    } else {
+      _logger.fine('ℹ️ ISharedMessageQueueProvider already registered');
     }
 
-    // Register IGroupRepository for dependency injection
-    if (!getIt.isRegistered<IGroupRepository>()) {
-      getIt.registerSingleton<IGroupRepository>(getIt<GroupRepository>());
-      _logger.fine('✅ IGroupRepository registered (Phase 3)');
-    }
-
-    // Register IIntroHintRepository for dependency injection
-    if (!getIt.isRegistered<IIntroHintRepository>()) {
-      getIt.registerSingleton<IIntroHintRepository>(
-        getIt<IntroHintRepository>(),
+    final registrar = _dataLayerRegistrar;
+    if (registrar == null) {
+      throw StateError(
+        'Data layer registrar is not configured. '
+        'Call configureDataLayerRegistrar(...) before setupServiceLocator().',
       );
-      _logger.fine('✅ IIntroHintRepository registered (Phase 3)');
+    }
+
+    await registrar(getIt, _logger);
+
+    if (!getIt.isRegistered<IContactRepository>() ||
+        !getIt.isRegistered<IMessageRepository>()) {
+      throw StateError(
+        'Data layer registrar must register IContactRepository and IMessageRepository.',
+      );
     }
 
     // ===========================
-    // REPOSITORY PROVIDER (Phase 3 abstraction)
+    // REPOSITORY PROVIDER (Core abstraction)
     // ===========================
-    // Register IRepositoryProvider singleton for Core layer DI
-    // This allows Core services to depend on repositories through abstraction
-    // instead of direct imports (fixes layer violations)
     if (!getIt.isRegistered<IRepositoryProvider>()) {
       getIt.registerSingleton<IRepositoryProvider>(
         RepositoryProviderImpl(
-          contactRepository: getIt<ContactRepository>(),
-          messageRepository: getIt<MessageRepository>(),
+          contactRepository: getIt<IContactRepository>(),
+          messageRepository: getIt<IMessageRepository>(),
         ),
       );
       _logger.fine('✅ IRepositoryProvider registered (Phase 3)');
@@ -209,26 +124,49 @@ Future<void> setupServiceLocator() async {
       _logger.fine('ℹ️ IRepositoryProvider already registered');
     }
 
-    // ===========================
-    // SEEN MESSAGE STORE (Phase 3 abstraction)
-    // ===========================
-    // Register ISeenMessageStore singleton for Core layer DI
-    // SeenMessageStore.instance is already a singleton, we wrap it
-    if (!getIt.isRegistered<ISeenMessageStore>()) {
-      getIt.registerSingleton<ISeenMessageStore>(SeenMessageStore.instance);
-      _logger.fine('✅ ISeenMessageStore registered (Phase 3)');
+    if (!getIt.isRegistered<IHomeScreenFacadeFactory>()) {
+      getIt.registerLazySingleton<IHomeScreenFacadeFactory>(
+        () => const HomeScreenFacadeFactory(),
+      );
+      _logger.fine('✅ IHomeScreenFacadeFactory registered');
     } else {
-      _logger.fine('ℹ️ ISeenMessageStore already registered');
+      _logger.fine('ℹ️ IHomeScreenFacadeFactory already registered');
     }
 
-    // ===========================
-    // DATABASE PROVIDER
-    // ===========================
-    if (!getIt.isRegistered<IDatabaseProvider>()) {
-      getIt.registerSingleton<IDatabaseProvider>(DatabaseProvider());
-      _logger.fine('✅ IDatabaseProvider registered');
+    if (!getIt.isRegistered<IChatConnectionManagerFactory>()) {
+      getIt.registerLazySingleton<IChatConnectionManagerFactory>(
+        () => const ChatConnectionManagerFactory(),
+      );
+      _logger.fine('✅ IChatConnectionManagerFactory registered');
     } else {
-      _logger.fine('ℹ️ IDatabaseProvider already registered');
+      _logger.fine('ℹ️ IChatConnectionManagerFactory already registered');
+    }
+
+    if (!getIt.isRegistered<IChatListCoordinatorFactory>()) {
+      getIt.registerLazySingleton<IChatListCoordinatorFactory>(
+        () => const ChatListCoordinatorFactory(),
+      );
+      _logger.fine('✅ IChatListCoordinatorFactory registered');
+    } else {
+      _logger.fine('ℹ️ IChatListCoordinatorFactory already registered');
+    }
+
+    if (!getIt.isRegistered<IHandshakeCoordinatorFactory>()) {
+      getIt.registerLazySingleton<IHandshakeCoordinatorFactory>(
+        () => const CoreHandshakeCoordinatorFactory(),
+      );
+      _logger.fine('✅ IHandshakeCoordinatorFactory registered');
+    } else {
+      _logger.fine('ℹ️ IHandshakeCoordinatorFactory already registered');
+    }
+
+    if (!getIt.isRegistered<IMeshRelayEngineFactory>()) {
+      getIt.registerLazySingleton<IMeshRelayEngineFactory>(
+        () => const CoreMeshRelayEngineFactory(),
+      );
+      _logger.fine('✅ IMeshRelayEngineFactory registered');
+    } else {
+      _logger.fine('ℹ️ IMeshRelayEngineFactory already registered');
     }
 
     // ===========================
@@ -257,7 +195,7 @@ Future<void> setupServiceLocator() async {
 /// Register services after they're initialized by AppCore
 /// Called by AppCore during initialization sequence
 void registerInitializedServices({
-  required SecurityManager securityManager,
+  required ISecurityService securityService,
   required IConnectionService connectionService,
   required MeshNetworkingService meshNetworkingService,
   MeshRelayCoordinator? meshRelayCoordinator,
@@ -267,30 +205,13 @@ void registerInitializedServices({
   _logger.info('📋 Registering initialized services...');
 
   try {
-    // Register SecurityManager singleton + interface
-    if (!getIt.isRegistered<SecurityManager>()) {
-      getIt.registerSingleton<SecurityManager>(securityManager);
-      _logger.fine('✅ SecurityManager registered in DI container');
-    }
-    if (!getIt.isRegistered<ISecurityManager>()) {
-      getIt.registerSingleton<ISecurityManager>(securityManager);
-      _logger.fine('✅ ISecurityManager registered in DI container');
+    // Register security interface
+    if (!getIt.isRegistered<ISecurityService>()) {
+      getIt.registerSingleton<ISecurityService>(securityService);
+      _logger.fine('✅ ISecurityService registered in DI container');
     }
 
-    // Register BLE/IConnectionService singletons
-    if (connectionService is BLEService) {
-      if (!getIt.isRegistered<BLEService>()) {
-        getIt.registerSingleton<BLEService>(connectionService);
-        _logger.fine('✅ BLEService registered in DI container');
-      } else {
-        _logger.fine('ℹ️ BLEService already registered');
-      }
-    } else {
-      _logger.info(
-        'ℹ️ Connection service is ${connectionService.runtimeType}; BLEService alias not registered',
-      );
-    }
-
+    // Register BLE/IConnectionService abstractions
     if (!getIt.isRegistered<IMeshBleService>()) {
       getIt.registerSingleton<IMeshBleService>(connectionService);
       _logger.fine('✅ IMeshBleService registered in DI container');

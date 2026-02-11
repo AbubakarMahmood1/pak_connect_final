@@ -3,7 +3,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Level 2 Hint: Persistent hint for paired contact recognition
 ///

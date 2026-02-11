@@ -1,22 +1,29 @@
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../core/messaging/mesh_relay_engine.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/security/spam_prevention_manager.dart';
-import '../../core/models/mesh_relay_models.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
+import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
+    as domain_messaging;
+import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
 
 /// Encapsulates mesh relay handling (ACKs, forwarding, delivery) so
 /// BLEMessageHandler can stay as a thin orchestrator.
 class MeshRelayHandler {
-  MeshRelayHandler({Logger? logger})
-    : _logger = logger ?? Logger('MeshRelayHandler');
+  MeshRelayHandler({
+    Logger? logger,
+    IMeshRelayEngineFactory? relayEngineFactory,
+  }) : _logger = logger ?? Logger('MeshRelayHandler'),
+       _relayEngineFactory = relayEngineFactory;
 
   final Logger _logger;
-  MeshRelayEngine? _relayEngine;
+  final IMeshRelayEngineFactory? _relayEngineFactory;
+  domain_messaging.MeshRelayEngine? _relayEngine;
   SpamPreventionManager? _spamPrevention;
-  OfflineMessageQueue? _messageQueue;
+  OfflineMessageQueueContract? _messageQueue;
   String? _currentNodeId;
   bool _forceFloodRouting = true;
   List<String> Function()? _nextHopsProvider;
@@ -32,7 +39,7 @@ class MeshRelayHandler {
 
   Future<void> initializeRelaySystem({
     required String currentNodeId,
-    required OfflineMessageQueue messageQueue,
+    required OfflineMessageQueueContract messageQueue,
     bool forceFloodRouting = true,
     Function(String originalMessageId, String content, String originalSender)?
     onRelayMessageReceived,
@@ -65,7 +72,8 @@ class MeshRelayHandler {
     _spamPrevention = SpamPreventionManager();
     await _spamPrevention!.initialize();
 
-    _relayEngine = MeshRelayEngine(
+    final factory = _resolveRelayEngineFactory();
+    _relayEngine = factory.create(
       messageQueue: messageQueue,
       spamPrevention: _spamPrevention!,
       forceFloodMode: _forceFloodRouting,
@@ -439,4 +447,18 @@ class MeshRelayHandler {
 
   String _preview(String value, int maxLength) =>
       value.length <= maxLength ? value : '${value.substring(0, maxLength)}...';
+
+  IMeshRelayEngineFactory _resolveRelayEngineFactory() {
+    if (_relayEngineFactory != null) {
+      return _relayEngineFactory;
+    }
+    final getIt = GetIt.instance;
+    if (getIt.isRegistered<IMeshRelayEngineFactory>()) {
+      return getIt<IMeshRelayEngineFactory>();
+    }
+    throw StateError(
+      'IMeshRelayEngineFactory is not registered. '
+      'Register it in DI or pass relayEngineFactory explicitly.',
+    );
+  }
 }

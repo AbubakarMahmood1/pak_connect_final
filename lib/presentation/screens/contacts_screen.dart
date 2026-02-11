@@ -2,10 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../domain/entities/contact.dart';
 import '../../domain/entities/enhanced_contact.dart';
 import '../../domain/services/contact_management_service.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../core/services/security_manager.dart';
+import '../../domain/models/security_level.dart';
 import '../providers/contact_provider.dart';
 import '../widgets/contact_list_tile.dart';
 import '../widgets/empty_contacts_view.dart';

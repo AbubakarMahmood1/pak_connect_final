@@ -2,11 +2,11 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
-import '../interfaces/i_chat_list_coordinator.dart';
-import '../../core/models/connection_status.dart';
+import '../../domain/interfaces/i_chat_list_coordinator.dart';
+import '../../domain/models/connection_status.dart';
 import '../../domain/entities/chat_list_item.dart';
-import '../interfaces/i_chats_repository.dart';
-import '../interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_connection_service.dart';
 
 /// Service for managing chat list operations
 ///

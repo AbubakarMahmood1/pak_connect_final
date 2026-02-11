@@ -1,16 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
-import '../../core/interfaces/i_connection_service.dart';
-import '../../core/interfaces/i_mesh_networking_service.dart';
-import '../../core/messaging/message_router.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/security/message_security.dart';
-import '../../core/services/message_retry_coordinator.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/repositories/message_repository.dart';
+import '../../domain/interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_mesh_networking_service.dart';
+import '../../domain/services/message_router.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
+import '../../domain/models/connection_info.dart';
+import '../../domain/services/message_security.dart';
+import '../../domain/services/message_retry_coordinator.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_message_repository.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../controllers/chat_pairing_dialog_controller.dart';
 import '../controllers/chat_scrolling_controller.dart' as chat_controller;
@@ -111,9 +111,9 @@ class ChatSessionProviderArgs {
   });
 
   final ChatScreenConfig config;
-  final MessageRepository messageRepository;
-  final ContactRepository contactRepository;
-  final ChatsRepository chatsRepository;
+  final IMessageRepository messageRepository;
+  final IContactRepository contactRepository;
+  final IChatsRepository chatsRepository;
   final ChatMessagingViewModel messagingViewModel;
   final chat_controller.ChatScrollingController scrollingController;
   final ChatSearchController searchController;
@@ -139,9 +139,9 @@ class ChatSessionLifecycleArgs {
   final IMeshNetworkingService meshService;
   final MessageRouter? messageRouter;
   final MessageSecurity messageSecurity;
-  final MessageRepository messageRepository;
+  final IMessageRepository messageRepository;
   final MessageRetryCoordinator? retryCoordinator;
-  final OfflineMessageQueue? offlineQueue;
+  final OfflineMessageQueueContract? offlineQueue;
 }
 
 /// Provider family for ChatSessionViewModel scaffolding.

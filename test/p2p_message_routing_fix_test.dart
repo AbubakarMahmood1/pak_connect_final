@@ -2,9 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
 import 'package:pak_connect/data/services/ble_message_handler.dart';
-import 'package:pak_connect/core/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 
 import 'test_helpers/message_handler_test_utils.dart';
 import 'test_helpers/test_setup.dart';

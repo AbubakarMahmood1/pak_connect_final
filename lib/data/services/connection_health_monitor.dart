@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import '../../core/config/kill_switches.dart';
+import 'package:pak_connect/domain/config/kill_switches.dart';
 
 enum ConnectionMonitorState { idle, healthChecking, reconnecting }
 
@@ -218,8 +218,10 @@ class ConnectionHealthMonitor {
             return;
         }
 
-        final nextInterval =
-            (_monitoringInterval * 12 ~/ 10).clamp(minInterval, maxInterval);
+        final nextInterval = (_monitoringInterval * 12 ~/ 10).clamp(
+          minInterval,
+          maxInterval,
+        );
         _monitoringInterval = nextInterval;
 
         if (_isMonitoring) {

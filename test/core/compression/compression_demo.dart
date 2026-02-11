@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/compression/compression_util.dart';
+import 'package:pak_connect/domain/utils/compression_util.dart';
 
 /// Demo script to show compression module working
 void main() {

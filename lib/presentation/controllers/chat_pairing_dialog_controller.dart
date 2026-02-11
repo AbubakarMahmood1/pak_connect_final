@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../core/services/simple_crypto.dart';
-import '../../data/services/ble_state_manager.dart';
-import '../../core/services/security_manager.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_pairing_state_manager.dart';
+import '../../domain/services/simple_crypto.dart';
+import '../../domain/models/security_level.dart';
 import '../widgets/pairing_dialog.dart';
-import '../../core/interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Callback when pairing is requested
@@ -41,9 +41,9 @@ class ChatPairingDialogController {
   static final _logger = Logger('ChatPairingDialogController');
 
   // Dependencies
-  final BLEStateManager stateManager;
+  final IPairingStateManager stateManager;
   final IConnectionService connectionService;
-  final ContactRepository contactRepository;
+  final IContactRepository contactRepository;
   final BuildContext context;
   final NavigatorState navigator;
   final String? Function() getTheirPersistentKey;

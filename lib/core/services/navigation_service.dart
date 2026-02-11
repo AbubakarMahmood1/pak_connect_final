@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import '../../domain/values/id_types.dart';
+import '../../domain/interfaces/i_notification_navigation_handler.dart';
 
 /// Type definitions for screen builders
 /// These allow the presentation layer to register screen implementations
@@ -183,4 +184,32 @@ class NavigationService {
       context!,
     ).showSnackBar(SnackBar(content: Text(message)));
   }
+}
+
+/// Adapter used by domain notification handlers to navigate through
+/// [NavigationService] without importing it directly.
+class NavigationServiceNotificationHandler
+    implements INotificationNavigationHandler {
+  @override
+  Future<void> navigateToChat({
+    required String chatId,
+    required String contactName,
+    String? contactPublicKey,
+  }) => NavigationService.instance.navigateToChatById(
+    chatId: chatId,
+    contactName: contactName,
+    contactPublicKey: contactPublicKey,
+  );
+
+  @override
+  Future<void> navigateToContactRequest({
+    required String publicKey,
+    required String contactName,
+  }) => NavigationService.instance.navigateToContactRequest(
+    publicKey: publicKey,
+    contactName: contactName,
+  );
+
+  @override
+  Future<void> navigateToHome() => NavigationService.instance.navigateToHome();
 }

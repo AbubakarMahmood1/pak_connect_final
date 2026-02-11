@@ -4,16 +4,17 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/models/security_state.dart';
-import '../../core/interfaces/i_connection_service.dart';
-import '../../core/services/message_retry_coordinator.dart';
-import '../../core/services/media_send_handler.dart';
-import '../../core/services/security_manager.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/repositories/message_repository.dart';
+import '../../domain/models/connection_info.dart';
+import '../../domain/models/security_state.dart';
+import '../../domain/interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_message_repository.dart';
+import '../../domain/services/message_retry_coordinator.dart';
+import '../../domain/services/media_send_handler.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -34,7 +35,7 @@ import '../widgets/chat_screen_helpers.dart';
 import '../widgets/chat_search_bar.dart';
 import '../widgets/message_bubble.dart';
 import '../../domain/models/mesh_network_models.dart';
-import '../../core/utils/chat_utils.dart';
+import '../../domain/utils/chat_utils.dart';
 import '../../domain/services/mesh_networking_service.dart'
     show ReceivedBinaryEvent, PendingBinaryTransfer;
 
@@ -84,6 +85,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _messageController = TextEditingController();
+    final messageRepository = _resolveMessageRepository();
+    final contactRepository = _resolveContactRepository();
+    final chatsRepository = _resolveChatsRepository();
     _controllerArgs = ChatScreenControllerArgs(
       ref: ref,
       context: context,
@@ -94,20 +98,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         contactName: widget.contactName,
         contactPublicKey: widget.contactPublicKey,
       ),
-      messageRepository: MessageRepository(),
-      contactRepository: ContactRepository(),
-      chatsRepository: ChatsRepository(),
+      messageRepository: messageRepository,
+      contactRepository: contactRepository,
+      chatsRepository: chatsRepository,
       messagingViewModelFactory: (chatId, contactPublicKey) =>
           ChatMessagingViewModel(
             chatId: chatId,
             contactPublicKey: contactPublicKey,
-            messageRepository: MessageRepository(),
-            contactRepository: ContactRepository(),
+            messageRepository: messageRepository,
+            contactRepository: contactRepository,
           ),
       scrollingControllerFactory:
           (chatId, onScrollToBottom, onUnreadCountChanged, onStateChanged) =>
               chat_controller.ChatScrollingController(
-                chatsRepository: ChatsRepository(),
+                chatsRepository: chatsRepository,
                 chatId: chatId,
                 onScrollToBottom: onScrollToBottom,
                 onUnreadCountChanged: onUnreadCountChanged,
@@ -245,6 +249,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             .actions;
         actions.handleMeshInitializationStatusChange(previous, next);
       },
+    );
+  }
+
+  IMessageRepository _resolveMessageRepository() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IMessageRepository>()) {
+      return di<IMessageRepository>();
+    }
+    throw StateError(
+      'IMessageRepository is not registered. '
+      'Call setupServiceLocator() before opening ChatScreen.',
+    );
+  }
+
+  IContactRepository _resolveContactRepository() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IContactRepository>()) {
+      return di<IContactRepository>();
+    }
+    throw StateError(
+      'IContactRepository is not registered. '
+      'Call setupServiceLocator() before opening ChatScreen.',
+    );
+  }
+
+  IChatsRepository _resolveChatsRepository() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IChatsRepository>()) {
+      return di<IChatsRepository>();
+    }
+    throw StateError(
+      'IChatsRepository is not registered. '
+      'Call setupServiceLocator() before opening ChatScreen.',
     );
   }
 
@@ -671,7 +708,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Create handler and send (use XFile.mimeType for reliable type detection)
       final handler = MediaSendHandler(
         meshService: meshService,
-        securityManager: SecurityManager.instance,
+        hasEstablishedNoiseSession:
+            SecurityServiceLocator.instance.hasEstablishedNoiseSession,
       );
       await handler.sendImage(
         file: File(image.path),

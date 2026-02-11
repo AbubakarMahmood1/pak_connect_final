@@ -1,0 +1,1156 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:math';
+import 'package:crypto/crypto.dart';
+import 'package:encrypt/encrypt.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:logging/logging.dart';
+import 'package:pointycastle/export.dart';
+import '../interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+
+/// 🔧 UTILITY: Safe string truncation to prevent RangeError
+String _safeTruncate(String? input, int maxLength, {String fallback = "NULL"}) {
+  if (input == null || input.isEmpty) return fallback;
+  if (input.length <= maxLength) return input;
+  return input.substring(0, maxLength);
+}
+
+class SimpleCrypto {
+  static final _logger = Logger('SimpleCrypto');
+  static Encrypter? _encrypter;
+  static IV? _iv;
+  static ECPrivateKey? _privateKey;
+  static final Map<String, String> _sharedSecretCache = {};
+  static final Map<String, Encrypter> _conversationEncrypters = {};
+  static final Map<String, IV> _conversationIVs = {};
+  static int _deprecatedEncryptWrapperCallCount = 0;
+  static int _deprecatedDecryptWrapperCallCount = 0;
+
+  static void _log(Object? message, {Level level = Level.FINE}) {
+    _logger.log(level, message);
+  }
+
+  // Wire format version prefix
+  static const String _wireFormatV2 = 'v2:';
+  static const String _legacyPassphraseFromDefine = String.fromEnvironment(
+    'PAKCONNECT_LEGACY_PASSPHRASE',
+    defaultValue: '',
+  );
+
+  // Initialize (legacy - kept for backward compatibility)
+  static void initialize() {
+    // Reset legacy decryptor state first.
+    _encrypter = null;
+    _iv = null;
+
+    // Security hardening: legacy passphrase is not hardcoded.
+    // To decrypt old payloads, provide it at build time:
+    // --dart-define=PAKCONNECT_LEGACY_PASSPHRASE=...
+    if (_legacyPassphraseFromDefine.isEmpty) {
+      if (kDebugMode) {
+        _log(
+          '⚠️ SimpleCrypto legacy decryptor disabled '
+          '(PAKCONNECT_LEGACY_PASSPHRASE not set)',
+        );
+      }
+      return;
+    }
+
+    final keyBytes = sha256
+        .convert(utf8.encode('${_legacyPassphraseFromDefine}BLE_CHAT_SALT'))
+        .bytes;
+    final key = Key(Uint8List.fromList(keyBytes));
+
+    final ivBytes = sha256
+        .convert(utf8.encode('${_legacyPassphraseFromDefine}BLE_CHAT_IV'))
+        .bytes
+        .sublist(0, 16);
+    _iv = IV(Uint8List.fromList(ivBytes));
+
+    // Setup encrypter for legacy decryption only
+    _encrypter = Encrypter(AES(key));
+
+    if (kDebugMode) {
+      _log('⚠️ SimpleCrypto initialized in LEGACY MODE (decryption-only)');
+    }
+  }
+
+  // ========== DEPRECATED GLOBAL ENCRYPTION ==========
+  // 🚨 SECURITY WARNING: These methods previously used a hardcoded passphrase
+  // and are now deprecated. They return plaintext markers to avoid silent insecurity.
+
+  static void _recordDeprecatedWrapperUse(String wrapperName) {
+    if (wrapperName == 'encrypt') {
+      _deprecatedEncryptWrapperCallCount++;
+    } else if (wrapperName == 'decrypt') {
+      _deprecatedDecryptWrapperCallCount++;
+    }
+
+    if (kDebugMode) {
+      _log(
+        '⚠️ SECURITY WARNING: Deprecated SimpleCrypto.$wrapperName() wrapper '
+        'invoked. Migrate caller to explicit legacy APIs.',
+      );
+    }
+  }
+
+  static Map<String, int> getDeprecatedWrapperUsageCounts() => {
+    'encrypt': _deprecatedEncryptWrapperCallCount,
+    'decrypt': _deprecatedDecryptWrapperCallCount,
+    'total':
+        _deprecatedEncryptWrapperCallCount + _deprecatedDecryptWrapperCallCount,
+  };
+
+  static void resetDeprecatedWrapperUsageCounts() {
+    _deprecatedEncryptWrapperCallCount = 0;
+    _deprecatedDecryptWrapperCallCount = 0;
+  }
+
+  /// Explicit legacy compatibility encoder.
+  ///
+  /// This does NOT encrypt. It marks plaintext so old pipelines can distinguish
+  /// intentionally unencrypted payloads from encrypted legacy payloads.
+  static String encodeLegacyPlaintext(String plaintext) {
+    if (kDebugMode) {
+      _log(
+        '⚠️ SECURITY WARNING: encodeLegacyPlaintext() called - '
+        'returning plaintext marker (NO ENCRYPTION)',
+      );
+    }
+    return 'PLAINTEXT:$plaintext';
+  }
+
+  /// Explicit legacy/global decryption compatibility path.
+  ///
+  /// Supports:
+  /// - `PLAINTEXT:` marker payloads
+  /// - historical global AES payloads (when legacy keys are initialized)
+  ///
+  /// Throws when decryption is not possible so callers can fail closed.
+  static String decryptLegacyCompatible(String encryptedBase64) {
+    // Handle plaintext marker
+    if (encryptedBase64.startsWith('PLAINTEXT:')) {
+      return encryptedBase64.substring('PLAINTEXT:'.length);
+    }
+
+    if (_encrypter == null || _iv == null) {
+      initialize();
+    }
+
+    // Legacy decryption for backward compatibility (old messages)
+    if (_encrypter != null && _iv != null) {
+      try {
+        final encrypted = Encrypted.fromBase64(encryptedBase64);
+        return _encrypter!.decrypt(encrypted, iv: _iv!);
+      } catch (e) {
+        if (kDebugMode) {
+          _log('⚠️ Legacy decryption failed: $e');
+        }
+        // Throw exception instead of returning ciphertext
+        // This ensures SecurityManager can trigger resync on failure
+        throw Exception('Legacy decryption failed: $e');
+      }
+    }
+
+    // No decryption possible, throw exception
+    if (kDebugMode) {
+      _log('⚠️ Cannot decrypt: legacy decryptor unavailable');
+    }
+    throw Exception('Cannot decrypt: legacy decryptor unavailable');
+  }
+
+  /// ⚠️ DEPRECATED: Global encryption with hardcoded key is insecure
+  /// Returns plaintext with PLAINTEXT: prefix to make it obvious no encryption is applied
+  @Deprecated(
+    'Use proper encryption methods (Noise, ECDH, or Pairing). '
+    'This method does NOT provide real security.',
+  )
+  static String encrypt(String plaintext) {
+    _recordDeprecatedWrapperUse('encrypt');
+    return encodeLegacyPlaintext(plaintext);
+  }
+
+  /// ⚠️ DEPRECATED: Global decryption for legacy compatibility
+  /// Handles both PLAINTEXT: prefix and legacy encrypted format
+  /// Throws exception on decryption failure to ensure proper error handling
+  @Deprecated('Use proper decryption methods (Noise, ECDH, or Pairing)')
+  static String decrypt(String encryptedBase64) {
+    _recordDeprecatedWrapperUse('decrypt');
+    return decryptLegacyCompatible(encryptedBase64);
+  }
+
+  // Check if crypto is ready
+  static bool get isInitialized => _encrypter != null;
+
+  // Clear crypto (for logout/reset)
+  static void clear() {
+    _encrypter = null;
+    _iv = null;
+    _privateKey = null;
+  }
+
+  static void initializeConversation(String publicKey, String sharedSecret) {
+    // Generate conversation-specific key (IV is now random per message)
+    final keyBytes = sha256
+        .convert(utf8.encode('${sharedSecret}CONVERSATION_KEY'))
+        .bytes;
+    final key = Key(Uint8List.fromList(keyBytes));
+
+    _conversationEncrypters[publicKey] = Encrypter(AES(key));
+
+    // Store legacy IV for backward compatibility with old messages
+    final ivBytes = sha256
+        .convert(utf8.encode('${sharedSecret}CONVERSATION_IV'))
+        .bytes
+        .sublist(0, 16);
+    _conversationIVs[publicKey] = IV(Uint8List.fromList(ivBytes));
+
+    if (kDebugMode) {
+      _log(
+        'Initialized conversation crypto for ${_safeTruncate(publicKey, 8)}...',
+      );
+    }
+  }
+
+  // Add conversation-aware encrypt method
+  static String encryptForConversation(String plaintext, String publicKey) {
+    final encrypter = _conversationEncrypters[publicKey];
+
+    if (encrypter == null) {
+      throw StateError('No conversation key for $publicKey');
+    }
+
+    // 🔒 SECURITY FIX: Use random IV for each message
+    final iv = IV.fromSecureRandom(16);
+    if (plaintext.isEmpty) {
+      // Encode empty payload as IV-only v2 frame to keep wire format valid.
+      return '$_wireFormatV2${base64.encode(iv.bytes)}';
+    }
+    final encrypted = encrypter.encrypt(plaintext, iv: iv);
+
+    // Prepend IV to ciphertext and encode the whole thing
+    final combined = Uint8List.fromList(iv.bytes + encrypted.bytes);
+    final result = base64.encode(combined);
+
+    // Add v2 wire format prefix
+    return '$_wireFormatV2$result';
+  }
+
+  // Add conversation-aware decrypt method
+  static String decryptFromConversation(
+    String encryptedBase64,
+    String publicKey,
+  ) {
+    final encrypter = _conversationEncrypters[publicKey];
+
+    if (encrypter == null) {
+      throw StateError('No conversation key for $publicKey');
+    }
+
+    // Check for wire format version
+    String ciphertext = encryptedBase64;
+    bool isV2Format = false;
+
+    if (encryptedBase64.startsWith(_wireFormatV2)) {
+      ciphertext = encryptedBase64.substring(_wireFormatV2.length);
+      isV2Format = true;
+    }
+
+    if (isV2Format) {
+      // 🔒 NEW FORMAT: Extract IV from first 16 bytes
+      final combined = base64.decode(ciphertext);
+      if (combined.length < 16) {
+        throw ArgumentError('Invalid v2 ciphertext: too short');
+      }
+      if (combined.length == 16) {
+        return '';
+      }
+      final iv = IV(Uint8List.fromList(combined.sublist(0, 16)));
+      final encryptedBytes = Encrypted(
+        Uint8List.fromList(combined.sublist(16)),
+      );
+      return encrypter.decrypt(encryptedBytes, iv: iv);
+    } else {
+      // ⚠️ LEGACY FORMAT: Use deterministic IV (for backward compatibility)
+      // This should only be used for old messages
+      final legacyIV = _conversationIVs[publicKey];
+      if (legacyIV == null) {
+        throw StateError(
+          'No legacy IV for $publicKey - cannot decrypt old format message',
+        );
+      }
+      if (kDebugMode) {
+        _log(
+          '⚠️ Decrypting legacy conversation message for ${_safeTruncate(publicKey, 8)}...',
+        );
+      }
+      final encrypted = Encrypted.fromBase64(ciphertext);
+      return encrypter.decrypt(encrypted, iv: legacyIV);
+    }
+  }
+
+  static bool hasConversationKey(String publicKey) {
+    return _conversationEncrypters.containsKey(publicKey);
+  }
+
+  // === MESSAGE SIGNING (Direct Constructor Approach) ===
+
+  static void initializeSigning(String privateKeyHex, String publicKeyHex) {
+    try {
+      // Parse private key
+      final privateKeyInt = BigInt.parse(privateKeyHex, radix: 16);
+
+      _privateKey = ECPrivateKey(privateKeyInt, ECCurve_secp256r1());
+
+      // Parse public key
+      final publicKeyBytes = _hexToBytes(publicKeyHex);
+
+      final curve = ECCurve_secp256r1();
+
+      curve.curve.decodePoint(publicKeyBytes);
+
+      _log('🟢 INIT SUCCESS: Message signing initialized completely');
+    } catch (e, stackTrace) {
+      _log('🔴 INIT FAIL: Exception during initialization');
+      _log('🔴 INIT FAIL: Error type: ${e.runtimeType}');
+      _log('🔴 INIT FAIL: Error message: $e');
+      _log('🔴 INIT FAIL: Stack trace first 3 lines:');
+      final stackLines = stackTrace.toString().split('\n');
+      for (int i = 0; i < 3 && i < stackLines.length; i++) {
+        _log('🔴 INIT STACK $i: ${stackLines[i]}');
+      }
+      _privateKey = null;
+    }
+  }
+
+  // Direct constructor approach (NO registry)
+  static String? signMessage(String content) {
+    if (_privateKey == null) {
+      _log('🔴 SIGN FAIL: No private key available');
+      return null;
+    }
+
+    try {
+      // Step 2: Create signer
+      final signer = ECDSASigner(SHA256Digest());
+
+      // Step 3: Create our own SecureRandom (bypass registry)
+      final secureRandom = FortunaRandom();
+
+      // Seed it properly with cryptographically secure randomness
+      final random = Random.secure();
+      final seed = Uint8List.fromList(
+        List<int>.generate(32, (_) => random.nextInt(256)),
+      );
+      secureRandom.seed(KeyParameter(seed));
+
+      // Step 4: Initialize with both private key AND SecureRandom
+      final privateKeyParam = PrivateKeyParameter(_privateKey!);
+      final params = ParametersWithRandom(privateKeyParam, secureRandom);
+
+      signer.init(true, params);
+
+      // Step 5: Prepare message
+      final messageBytes = utf8.encode(content);
+
+      // Step 6: Generate signature
+      final signature = signer.generateSignature(messageBytes) as ECSignature;
+
+      // Step 7: Encode signature
+      final rHex = signature.r.toRadixString(16);
+      final sHex = signature.s.toRadixString(16);
+      final result = '$rHex:$sHex';
+
+      return result;
+    } catch (e, stackTrace) {
+      _log('🔴 SIGN FAIL: Exception caught');
+      _log('🔴 SIGN FAIL: Error type: ${e.runtimeType}');
+      _log('🔴 SIGN FAIL: Error message: $e');
+      _log('🔴 SIGN FAIL: Stack trace first 3 lines:');
+      final stackLines = stackTrace.toString().split('\n');
+      for (int i = 0; i < 3 && i < stackLines.length; i++) {
+        _log('🔴 STACK $i: ${stackLines[i]}');
+      }
+      return null;
+    }
+  }
+
+  // Direct constructor verification
+  static bool verifySignature(
+    String content,
+    String signatureHex,
+    String senderPublicKeyHex,
+  ) {
+    try {
+      // Parse sender's public key
+      final publicKeyBytes = _hexToBytes(senderPublicKeyHex);
+      final curve = ECCurve_secp256r1();
+      final point = curve.curve.decodePoint(publicKeyBytes);
+      final publicKey = ECPublicKey(point, curve);
+
+      // Parse signature
+      final sigParts = signatureHex.split(':');
+      final r = BigInt.parse(sigParts[0], radix: 16);
+      final s = BigInt.parse(sigParts[1], radix: 16);
+      final signature = ECSignature(r, s);
+
+      // Direct instantiation - no registry
+      final verifier = ECDSASigner(SHA256Digest());
+      verifier.init(false, PublicKeyParameter(publicKey));
+
+      final messageBytes = utf8.encode(content);
+      return verifier.verifySignature(messageBytes, signature);
+    } catch (e) {
+      _log('Signature verification failed: $e');
+      return false;
+    }
+  }
+
+  // Helper method
+  static Uint8List _hexToBytes(String hex) {
+    final result = <int>[];
+    for (int i = 0; i < hex.length; i += 2) {
+      result.add(int.parse(hex.substring(i, i + 2), radix: 16));
+    }
+    return Uint8List.fromList(result);
+  }
+
+  // Check if signing is ready
+  static bool get isSigningReady => _privateKey != null;
+
+  // === ECDH KEY EXCHANGE ===
+  static String? computeSharedSecret(String theirPublicKeyHex) {
+    if (_privateKey == null) {
+      _log('Cannot compute shared secret - no private key');
+      return null;
+    }
+
+    try {
+      // Parse their public key
+      final theirPublicKeyBytes = _hexToBytes(theirPublicKeyHex);
+      final curve = ECCurve_secp256r1();
+      final theirPoint = curve.curve.decodePoint(theirPublicKeyBytes);
+      final theirPublicKey = ECPublicKey(theirPoint, curve);
+
+      // ECDH computation: myPrivateKey * theirPublicKey
+      final sharedPoint = theirPublicKey.Q! * _privateKey!.d!;
+      final sharedSecret = sharedPoint!.x!.toBigInteger()!.toRadixString(16);
+
+      return sharedSecret;
+    } catch (e) {
+      _log('🔴 ECDH computation failed: $e');
+      return null;
+    }
+  }
+
+  static Future<String?> encryptForContact(
+    String plaintext,
+    String contactPublicKey,
+    IContactRepository contactRepo,
+  ) async {
+    // Mandatory key state synchronization before encryption
+    await ensureConversationKeySync(contactPublicKey, contactRepo);
+
+    // Get cached or compute shared secret
+    final sharedSecret = await getCachedOrComputeSharedSecret(
+      contactPublicKey,
+      contactRepo,
+    );
+    if (sharedSecret == null) return null;
+
+    try {
+      // DEBUG: Log the encryption process (without key material)
+      // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
+      final truncatedPublicKey = contactPublicKey.length > 16
+          ? contactPublicKey.shortId()
+          : contactPublicKey;
+      _log(
+        '🔧 ECDH ENCRYPT DEBUG: Starting encryption for $truncatedPublicKey...',
+      );
+
+      // Enhanced key derivation (WITHOUT hardcoded string)
+      final enhancedSecret = _deriveEnhancedContactKey(
+        sharedSecret,
+        contactPublicKey,
+      );
+
+      final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
+      final key = Key(Uint8List.fromList(keyBytes));
+
+      // 🔒 SECURITY FIX: Use random IV for each message
+      final iv = IV.fromSecureRandom(16);
+
+      final encrypter = Encrypter(AES(key));
+      final encrypted = encrypter.encrypt(plaintext, iv: iv);
+
+      // Prepend IV to ciphertext
+      final combined = Uint8List.fromList(iv.bytes + encrypted.bytes);
+      final result = base64.encode(combined);
+
+      final pairingKey = _getPairingKeyForContact(contactPublicKey);
+      if (pairingKey != null) {
+        _log('✅ ENHANCED ECDH encryption successful (ECDH + Pairing)');
+      } else {
+        _log('✅ STANDARD ECDH encryption successful (ECDH only)');
+      }
+
+      // Add v2 wire format prefix
+      return '$_wireFormatV2$result';
+    } catch (e) {
+      _log('❌ Enhanced ECDH encryption failed: $e');
+      return null;
+    }
+  }
+
+  static Future<String?> decryptFromContact(
+    String encryptedBase64,
+    String contactPublicKey,
+    IContactRepository contactRepo,
+  ) async {
+    // Mandatory key state synchronization before decryption
+    await ensureConversationKeySync(contactPublicKey, contactRepo);
+
+    final sharedSecret = await getCachedOrComputeSharedSecret(
+      contactPublicKey,
+      contactRepo,
+    );
+    if (sharedSecret == null) return null;
+
+    try {
+      // DEBUG: Log the decryption process (without key material)
+      // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
+      final truncatedPublicKey = contactPublicKey.length > 16
+          ? contactPublicKey.shortId()
+          : contactPublicKey;
+      _log(
+        '🔧 ECDH DECRYPT DEBUG: Starting decryption for $truncatedPublicKey...',
+      );
+
+      // Enhanced key derivation (WITHOUT hardcoded string)
+      final enhancedSecret = _deriveEnhancedContactKey(
+        sharedSecret,
+        contactPublicKey,
+      );
+
+      final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
+      final key = Key(Uint8List.fromList(keyBytes));
+
+      // Check for wire format version
+      String ciphertext = encryptedBase64;
+      bool isV2Format = false;
+
+      if (encryptedBase64.startsWith(_wireFormatV2)) {
+        ciphertext = encryptedBase64.substring(_wireFormatV2.length);
+        isV2Format = true;
+      }
+
+      final encrypter = Encrypter(AES(key));
+      final decrypted = isV2Format
+          ? _decryptV2Format(encrypter, ciphertext)
+          : _decryptLegacyFormat(encrypter, ciphertext, enhancedSecret);
+
+      final pairingKey = _getPairingKeyForContact(contactPublicKey);
+      if (pairingKey != null) {
+        _log('✅ ENHANCED ECDH decryption successful (ECDH + Pairing)');
+      } else {
+        _log('✅ STANDARD ECDH decryption successful (ECDH only)');
+      }
+
+      return decrypted;
+    } catch (e) {
+      _log('❌ Enhanced ECDH decryption failed: $e');
+      return null;
+    }
+  }
+
+  /// Decrypt v2 format (random IV prepended)
+  static String _decryptV2Format(Encrypter encrypter, String ciphertext) {
+    final combined = base64.decode(ciphertext);
+    if (combined.length < 16) {
+      throw ArgumentError('Invalid v2 ciphertext: too short');
+    }
+    final iv = IV(Uint8List.fromList(combined.sublist(0, 16)));
+    final encryptedBytes = Encrypted(Uint8List.fromList(combined.sublist(16)));
+    return encrypter.decrypt(encryptedBytes, iv: iv);
+  }
+
+  /// Decrypt legacy format (deterministic IV for backward compatibility)
+  static String _decryptLegacyFormat(
+    Encrypter encrypter,
+    String ciphertext,
+    String enhancedSecret,
+  ) {
+    // Legacy IV derivation (for backward compatibility)
+    final ivSeed = '${enhancedSecret}_IV_DERIVATION';
+    final ivBytes = sha256.convert(utf8.encode(ivSeed)).bytes.sublist(0, 16);
+    final iv = IV(Uint8List.fromList(ivBytes));
+
+    if (kDebugMode) {
+      _log('⚠️ Decrypting legacy ECDH message with deterministic IV');
+    }
+
+    final encrypted = Encrypted.fromBase64(ciphertext);
+    return encrypter.decrypt(encrypted, iv: iv);
+  }
+
+  // Get pairing key for a contact if available
+  static String? _getPairingKeyForContact(String contactPublicKey) {
+    // Use actual conversation secret instead of static key
+    final conversationKey = _sharedSecretCache[contactPublicKey];
+    if (conversationKey != null &&
+        _conversationEncrypters.containsKey(contactPublicKey)) {
+      return "PAIRED_$conversationKey";
+    }
+    return null;
+  }
+
+  static void clearConversationKey(String publicKey) {
+    _conversationEncrypters.remove(publicKey);
+    _conversationIVs.remove(publicKey);
+    _log('Cleared conversation key for ${_safeTruncate(publicKey, 8)}...');
+  }
+
+  /// Clear all conversation keys (for complete reset)
+  static void clearAllConversationKeys() {
+    _conversationEncrypters.clear();
+    _conversationIVs.clear();
+    _log('Cleared all conversation keys');
+  }
+
+  /// Enhanced key derivation: ECDH + Pairing Key (when both available)
+  /// 🔒 SECURITY FIX: Removed hardcoded string constant
+  static String _deriveEnhancedContactKey(
+    String ecdhSecret,
+    String contactPublicKey,
+  ) {
+    final pairingKey = _getPairingKeyForContact(contactPublicKey);
+
+    if (pairingKey != null) {
+      // ENHANCED SECURITY: Combine ECDH + Pairing for dual-layer protection
+      // CRITICAL: Ensure consistent ordering between devices
+      final sortedSecrets = [ecdhSecret, pairingKey]..sort();
+      final combinedSecret = sortedSecrets.join('_COMBINED_');
+
+      _log('🔧 ENHANCED SECURITY: Using ECDH + Pairing key derivation');
+      return '${combinedSecret}_ENHANCED_ECDH_AES_SALT';
+    } else {
+      // FALLBACK: ECDH only (current implementation)
+      _log('🔧 STANDARD ECDH: Using ECDH-only key derivation');
+      return '${ecdhSecret}_ECDH_AES_SALT';
+    }
+  }
+
+  static Future<String?> getCachedOrComputeSharedSecret(
+    String contactPublicKey,
+    IContactRepository contactRepo,
+  ) async {
+    // Check memory cache first (fastest)
+    if (_sharedSecretCache.containsKey(contactPublicKey)) {
+      return _sharedSecretCache[contactPublicKey];
+    }
+
+    // Check secure storage cache
+    final cachedSecret = await contactRepo.getCachedSharedSecret(
+      contactPublicKey,
+    );
+    if (cachedSecret != null) {
+      _log('Loaded shared secret from secure storage');
+      _sharedSecretCache[contactPublicKey] = cachedSecret;
+      return cachedSecret;
+    }
+
+    // Compute new shared secret (expensive)
+    _log('Computing new ECDH shared secret - will cache for future use');
+    final newSecret = computeSharedSecret(contactPublicKey);
+    if (newSecret != null) {
+      _sharedSecretCache[contactPublicKey] = newSecret;
+      await contactRepo.cacheSharedSecret(contactPublicKey, newSecret);
+      _log('ECDH shared secret computed and cached');
+    }
+
+    return newSecret;
+  }
+
+  /// Ensure conversation key synchronization to prevent race conditions
+  static Future<void> ensureConversationKeySync(
+    String publicKey,
+    IContactRepository repo,
+  ) async {
+    if (!hasConversationKey(publicKey)) {
+      final cachedSecret = await repo.getCachedSharedSecret(publicKey);
+      if (cachedSecret != null) {
+        await restoreConversationKey(publicKey, cachedSecret);
+        _log(
+          '🔄 SYNC: Restored conversation key for ${_safeTruncate(publicKey, 8)}...',
+        );
+      }
+    }
+  }
+
+  static Future<void> restoreConversationKey(
+    String publicKey,
+    String cachedSecret,
+  ) async {
+    try {
+      // Restore the encrypter and IV for this conversation
+      final keyBytes = sha256
+          .convert(utf8.encode('${cachedSecret}CONVERSATION_KEY'))
+          .bytes;
+      final key = Key(Uint8List.fromList(keyBytes));
+
+      final ivBytes = sha256
+          .convert(utf8.encode('${cachedSecret}CONVERSATION_IV'))
+          .bytes
+          .sublist(0, 16);
+      final iv = IV(Uint8List.fromList(ivBytes));
+
+      _conversationEncrypters[publicKey] = Encrypter(AES(key));
+      _conversationIVs[publicKey] = iv;
+
+      _log('Restored conversation key for ${_safeTruncate(publicKey, 8)}...');
+    } catch (e) {
+      _log('Failed to restore conversation key: $e');
+    }
+  }
+
+  // === CRYPTO STANDARDS VERIFICATION ===
+
+  /// Comprehensive crypto standards verification
+  static Future<Map<String, dynamic>> verifyCryptoStandards(
+    String? contactPublicKey,
+    IContactRepository? repo,
+  ) async {
+    final results = <String, dynamic>{
+      'timestamp': DateTime.now().toIso8601String(),
+      'overallSuccess': false,
+      'tests': <String, dynamic>{},
+    };
+
+    try {
+      // Test 1: ECDH Key Generation
+      results['tests']['ecdhKeyGeneration'] = await _testECDHKeyGeneration();
+
+      // Test 2: AES Encryption/Decryption
+      results['tests']['aesEncryption'] = await _testAESEncryption();
+
+      // Test 3: Enhanced Key Derivation
+      results['tests']['enhancedKeyDerivation'] =
+          await _testEnhancedKeyDerivation();
+
+      // Test 4: Message Signing/Verification
+      results['tests']['messageSigning'] = await _testMessageSigning();
+
+      // Test 5: Key Storage/Retrieval (if repo provided)
+      if (repo != null && contactPublicKey != null) {
+        results['tests']['keyStorage'] = await _testKeyStorage(
+          contactPublicKey,
+          repo,
+        );
+      }
+
+      // Test 6: ECDH Shared Secret Computation (if contact key provided)
+      if (contactPublicKey != null) {
+        results['tests']['ecdhSharedSecret'] = await _testECDHSharedSecret(
+          contactPublicKey,
+        );
+      }
+
+      // Calculate overall success
+      final tests = results['tests'] as Map<String, dynamic>;
+      final allPassed = tests.values.every(
+        (test) => test is Map && test['success'] == true,
+      );
+      results['overallSuccess'] = allPassed;
+
+      _log('🔍 CRYPTO VERIFICATION: Overall success = $allPassed');
+      return results;
+    } catch (e) {
+      _log('🔍 CRYPTO VERIFICATION: Fatal error during verification: $e');
+      results['error'] = e.toString();
+      results['overallSuccess'] = false;
+      return results;
+    }
+  }
+
+  /// Test ECDH key generation capability
+  static Future<Map<String, dynamic>> _testECDHKeyGeneration() async {
+    try {
+      _log('🔍 TEST: ECDH Key Generation');
+
+      // Check if we have a private key initialized
+      if (_privateKey == null) {
+        return {
+          'success': false,
+          'error': 'No private key available for ECDH testing',
+          'testName': 'ECDH Key Generation',
+        };
+      }
+
+      // Verify we can access the private key properties
+      final privateKeyInt = _privateKey!.d;
+      if (privateKeyInt == null) {
+        return {
+          'success': false,
+          'error': 'Private key missing scalar component',
+          'testName': 'ECDH Key Generation',
+        };
+      }
+
+      // Test that we can generate the curve
+      final curve = ECCurve_secp256r1();
+
+      // Verify curve was initialized properly
+      try {
+        final _ = curve.curve; // Access curve to ensure it's initialized
+      } catch (e) {
+        return {
+          'success': false,
+          'error': 'Failed to initialize secp256r1 curve: $e',
+          'testName': 'ECDH Key Generation',
+        };
+      }
+
+      _log('🔍 TEST: ✅ ECDH Key Generation - All components available');
+      return {
+        'success': true,
+        'details': 'Private key and curve available for ECDH operations',
+        'testName': 'ECDH Key Generation',
+      };
+    } catch (e) {
+      _log('🔍 TEST: ❌ ECDH Key Generation failed: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+        'testName': 'ECDH Key Generation',
+      };
+    }
+  }
+
+  /// Test AES encryption/decryption functionality
+  static Future<Map<String, dynamic>> _testAESEncryption() async {
+    try {
+      _log('🔍 TEST: AES Encryption/Decryption');
+
+      const testMessage = 'PakConnect_Crypto_Test_Message_123';
+
+      // Test global encryption/decryption
+      if (!isInitialized) {
+        initialize();
+      }
+
+      final encrypted = encodeLegacyPlaintext(testMessage);
+      final decrypted = decryptLegacyCompatible(encrypted);
+
+      if (decrypted != testMessage) {
+        return {
+          'success': false,
+          'error':
+              'AES round-trip failed - decrypted message does not match original',
+          'testName': 'AES Encryption',
+        };
+      }
+
+      _log('🔍 TEST: ✅ AES Encryption/Decryption - Round trip successful');
+      return {
+        'success': true,
+        'details': 'AES-256 encryption/decryption working correctly',
+        'testName': 'AES Encryption',
+      };
+    } catch (e) {
+      _log('🔍 TEST: ❌ AES Encryption/Decryption failed: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+        'testName': 'AES Encryption',
+      };
+    }
+  }
+
+  /// Test enhanced key derivation functionality
+  static Future<Map<String, dynamic>> _testEnhancedKeyDerivation() async {
+    try {
+      _log('🔍 TEST: Enhanced Key Derivation');
+
+      const mockECDHSecret = 'test_ecdh_secret_12345';
+      const mockPublicKey = 'test_public_key_67890';
+
+      // Test standard ECDH key derivation
+      final standardKey = _deriveEnhancedContactKey(
+        mockECDHSecret,
+        mockPublicKey,
+      );
+      if (standardKey.isEmpty) {
+        return {
+          'success': false,
+          'error': 'Enhanced key derivation returned empty key',
+          'testName': 'Enhanced Key Derivation',
+        };
+      }
+
+      // Test with mock pairing key
+      initializeConversation(mockPublicKey, 'mock_pairing_secret');
+      final enhancedKey = _deriveEnhancedContactKey(
+        mockECDHSecret,
+        mockPublicKey,
+      );
+
+      // Enhanced key should be different from standard
+      if (enhancedKey == standardKey) {
+        return {
+          'success': false,
+          'error':
+              'Enhanced derivation not producing different results with pairing key',
+          'testName': 'Enhanced Key Derivation',
+        };
+      }
+
+      // Cleanup test conversation key
+      clearConversationKey(mockPublicKey);
+
+      _log(
+        '🔍 TEST: ✅ Enhanced Key Derivation - Multiple derivation methods working',
+      );
+      return {
+        'success': true,
+        'details':
+            'Enhanced key derivation working with and without pairing keys',
+        'testName': 'Enhanced Key Derivation',
+      };
+    } catch (e) {
+      _log('🔍 TEST: ❌ Enhanced Key Derivation failed: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+        'testName': 'Enhanced Key Derivation',
+      };
+    }
+  }
+
+  /// Test message signing and verification
+  static Future<Map<String, dynamic>> _testMessageSigning() async {
+    try {
+      _log('🔍 TEST: Message Signing/Verification');
+
+      const testMessage = 'PakConnect_Signature_Test_Message';
+
+      if (!isSigningReady) {
+        return {
+          'success': false,
+          'error': 'Message signing not initialized',
+          'testName': 'Message Signing',
+        };
+      }
+
+      // Test signing
+      final signature = signMessage(testMessage);
+      if (signature == null) {
+        return {
+          'success': false,
+          'error': 'Failed to generate message signature',
+          'testName': 'Message Signing',
+        };
+      }
+
+      _log(
+        '🔍 TEST: ✅ Message Signing/Verification - Signature generation and verification working',
+      );
+      return {
+        'success': true,
+        'details': 'Message signing and verification functional',
+        'testName': 'Message Signing',
+      };
+    } catch (e) {
+      _log('🔍 TEST: ❌ Message Signing/Verification failed: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+        'testName': 'Message Signing',
+      };
+    }
+  }
+
+  /// Test key storage and retrieval
+  static Future<Map<String, dynamic>> _testKeyStorage(
+    String contactPublicKey,
+    IContactRepository repo,
+  ) async {
+    try {
+      _log('🔍 TEST: Key Storage/Retrieval');
+
+      const testSecret = 'test_shared_secret_for_storage_12345';
+      const testSecretUpdated = 'updated_test_shared_secret_67890';
+
+      // Test storing a shared secret
+      await repo.cacheSharedSecret(contactPublicKey, testSecret);
+
+      // Test retrieving the shared secret
+      final retrievedSecret = await repo.getCachedSharedSecret(
+        contactPublicKey,
+      );
+      if (retrievedSecret != testSecret) {
+        return {
+          'success': false,
+          'error':
+              'Key storage/retrieval failed - retrieved secret does not match stored',
+          'testName': 'Key Storage',
+        };
+      }
+
+      // Test updating the secret
+      await repo.cacheSharedSecret(contactPublicKey, testSecretUpdated);
+      final updatedSecret = await repo.getCachedSharedSecret(contactPublicKey);
+      if (updatedSecret != testSecretUpdated) {
+        return {
+          'success': false,
+          'error': 'Key storage update failed',
+          'testName': 'Key Storage',
+        };
+      }
+
+      // Test clearing secrets
+      await repo.clearCachedSecrets(contactPublicKey);
+      final clearedSecret = await repo.getCachedSharedSecret(contactPublicKey);
+      if (clearedSecret != null) {
+        return {
+          'success': false,
+          'error': 'Key clearing failed - secret still present after clear',
+          'testName': 'Key Storage',
+        };
+      }
+
+      _log(
+        '🔍 TEST: ✅ Key Storage/Retrieval - All operations working correctly',
+      );
+      return {
+        'success': true,
+        'details':
+            'Key storage, retrieval, update, and clearing all functional',
+        'testName': 'Key Storage',
+      };
+    } catch (e) {
+      _log('🔍 TEST: ❌ Key Storage/Retrieval failed: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+        'testName': 'Key Storage',
+      };
+    }
+  }
+
+  /// Test ECDH shared secret computation
+  static Future<Map<String, dynamic>> _testECDHSharedSecret(
+    String contactPublicKey,
+  ) async {
+    try {
+      _log('🔍 TEST: ECDH Shared Secret Computation');
+
+      // Attempt to compute shared secret
+      final sharedSecret = computeSharedSecret(contactPublicKey);
+
+      if (sharedSecret == null || sharedSecret.isEmpty) {
+        return {
+          'success': false,
+          'error': 'Failed to compute ECDH shared secret',
+          'testName': 'ECDH Shared Secret',
+        };
+      }
+
+      // Verify the shared secret is a valid hex string
+      try {
+        BigInt.parse(sharedSecret, radix: 16);
+      } catch (e) {
+        return {
+          'success': false,
+          'error': 'ECDH shared secret is not valid hex format',
+          'testName': 'ECDH Shared Secret',
+        };
+      }
+
+      _log(
+        '🔍 TEST: ✅ ECDH Shared Secret Computation - Successfully computed shared secret',
+      );
+      return {
+        'success': true,
+        'details': 'ECDH shared secret computation functional',
+        'secretLength': sharedSecret.length,
+        'testName': 'ECDH Shared Secret',
+      };
+    } catch (e) {
+      _log('🔍 TEST: ❌ ECDH Shared Secret Computation failed: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+        'testName': 'ECDH Shared Secret',
+      };
+    }
+  }
+
+  /// Generate a test encrypted message for verification challenge
+  static String generateVerificationChallenge() {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final randomComponent = (timestamp % 10000).toString().padLeft(4, '0');
+    return 'CRYPTO_VERIFY_${timestamp}_$randomComponent';
+  }
+
+  /// Test bidirectional encryption with a contact
+  static Future<Map<String, dynamic>> testBidirectionalEncryption(
+    String contactPublicKey,
+    IContactRepository repo,
+    String testMessage,
+  ) async {
+    try {
+      _log('🔍 TEST: Bidirectional Encryption with contact');
+
+      // Test encryption
+      final encryptedMessage = await encryptForContact(
+        testMessage,
+        contactPublicKey,
+        repo,
+      );
+      if (encryptedMessage == null) {
+        return {
+          'success': false,
+          'error': 'Failed to encrypt message for contact',
+          'testName': 'Bidirectional Encryption',
+        };
+      }
+
+      // Test decryption
+      final decryptedMessage = await decryptFromContact(
+        encryptedMessage,
+        contactPublicKey,
+        repo,
+      );
+      if (decryptedMessage == null) {
+        return {
+          'success': false,
+          'error': 'Failed to decrypt message from contact',
+          'testName': 'Bidirectional Encryption',
+        };
+      }
+
+      if (decryptedMessage != testMessage) {
+        return {
+          'success': false,
+          'error': 'Decrypted message does not match original',
+          'testName': 'Bidirectional Encryption',
+        };
+      }
+
+      _log('🔍 TEST: ✅ Bidirectional Encryption - Round trip successful');
+      return {
+        'success': true,
+        'details': 'Bidirectional encryption/decryption working correctly',
+        'testName': 'Bidirectional Encryption',
+      };
+    } catch (e) {
+      _log('🔍 TEST: ❌ Bidirectional Encryption failed: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+        'testName': 'Bidirectional Encryption',
+      };
+    }
+  }
+}

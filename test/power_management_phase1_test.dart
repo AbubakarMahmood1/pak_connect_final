@@ -14,9 +14,10 @@
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:pak_connect/core/power/adaptive_power_manager.dart';
-import 'package:pak_connect/core/messaging/gossip_sync_manager.dart';
-import 'package:pak_connect/core/messaging/offline_message_queue.dart';
+import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
+import 'package:pak_connect/domain/messaging/gossip_sync_manager.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
+import 'test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
   final List<LogRecord> logRecords = [];
@@ -180,13 +181,13 @@ void main() {
 
   group('Phase 1: Emergency Mode Sync Skipping Tests', () {
     late GossipSyncManager syncManager;
-    late OfflineMessageQueue messageQueue;
+    late OfflineMessageQueueContract messageQueue;
 
     setUp(() {
       logRecords.clear();
       Logger.root.level = Level.ALL;
       Logger.root.onRecord.listen(logRecords.add);
-      messageQueue = OfflineMessageQueue();
+      messageQueue = InMemoryOfflineMessageQueue();
       syncManager = GossipSyncManager(
         myNodeId: 'test-node-id',
         messageQueue: messageQueue,
@@ -269,7 +270,9 @@ void main() {
       final stats = syncManager.getStatistics();
       expect(stats['skippedSyncsCount'], 0); // Initially 0
 
-      debugPrint('✅ Skipped syncs counter ready: ${stats['skippedSyncsCount']}');
+      debugPrint(
+        '✅ Skipped syncs counter ready: ${stats['skippedSyncsCount']}',
+      );
     });
   });
 
@@ -377,7 +380,7 @@ void main() {
     });
 
     test('GossipSyncManager statistics include emergency mode info', () {
-      final messageQueue = OfflineMessageQueue();
+      final messageQueue = InMemoryOfflineMessageQueue();
       final syncManager = GossipSyncManager(
         myNodeId: 'test-node',
         messageQueue: messageQueue,

@@ -1,13 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 
-import '../../core/app_core.dart';
-import '../../core/services/message_retry_coordinator.dart';
-import '../../core/utils/string_extensions.dart';
+import '../../domain/services/message_retry_coordinator.dart';
+import '../../domain/utils/string_extensions.dart';
 import '../../domain/entities/message.dart';
+import '../../domain/interfaces/i_message_repository.dart';
+import '../../domain/interfaces/i_shared_message_queue_provider.dart';
 import '../../domain/values/id_types.dart';
-import '../../data/repositories/message_repository.dart';
-import '../../core/messaging/offline_message_queue.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../models/chat_screen_config.dart';
 import '../../presentation/providers/ble_providers.dart';
 import '../../presentation/providers/mesh_networking_provider.dart';
@@ -40,14 +41,14 @@ class ChatRetryHelper {
   final String Function() chatId;
   final String? Function() contactPublicKey;
   final String Function() displayContactName;
-  final MessageRepository messageRepository;
+  final IMessageRepository messageRepository;
   final Future<void> Function(Message) repositoryRetryHandler;
   final void Function(String) showSuccess;
   final void Function(String) showError;
   final void Function(String) showInfo;
   final void Function() scrollToBottom;
   final List<Message> Function() getMessages;
-  final OfflineMessageQueue? Function()? offlineQueueResolver;
+  final OfflineMessageQueueContract? Function()? offlineQueueResolver;
   final Logger _logger;
   final Duration _fallbackRetryDelay;
 
@@ -59,11 +60,14 @@ class ChatRetryHelper {
       final offlineQueue = offlineQueueResolver != null
           ? offlineQueueResolver!()
           : null;
-      final queue =
-          offlineQueue ??
-          (AppCore.instance.isInitialized
-              ? AppCore.instance.messageQueue
-              : null);
+      OfflineMessageQueueContract? queue = offlineQueue;
+      if (queue == null &&
+          GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
+        final sharedProvider = GetIt.instance<ISharedMessageQueueProvider>();
+        if (sharedProvider.isInitialized) {
+          queue = sharedProvider.messageQueue;
+        }
+      }
       if (queue == null) {
         _logger.fine(
           'Offline queue unavailable; deferring MessageRetryCoordinator setup',

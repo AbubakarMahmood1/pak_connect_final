@@ -1,14 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/di/service_locator.dart';
-import '../../core/interfaces/i_ble_connection_service.dart';
-import '../../core/interfaces/i_ble_discovery_service.dart';
-import '../../core/interfaces/i_ble_handshake_service.dart';
-import '../../core/interfaces/i_ble_messaging_service.dart';
+import '../../domain/interfaces/i_ble_connection_service.dart';
+import '../../domain/interfaces/i_ble_discovery_service.dart';
+import '../../domain/interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_ble_messaging_service.dart';
 
+final GetIt getIt = GetIt.instance;
 final _logger = Logger('BleCoreServiceProviders');
 
 /// Provides the registered BLE connection service and disposes it when no longer used.
@@ -34,12 +35,17 @@ final bleDiscoveryServiceProvider = Provider.autoDispose<IBLEDiscoveryService>((
 });
 
 /// Provides the BLE handshake service and disposes its coordinator on teardown.
-final bleHandshakeServiceProvider = Provider.autoDispose<IBLEHandshakeService>((
+final bleHandshakeServiceProvider = Provider.autoDispose<IConnectionService>((
   ref,
 ) {
-  final handshake = getIt<IBLEHandshakeService>();
+  final handshake = getIt<IConnectionService>();
   _logger.fine('BLEHandshakeService provider accessed');
-  ref.onDispose(handshake.disposeHandshakeCoordinator);
+  ref.onDispose(() {
+    try {
+      final dynamic maybeHandshake = handshake;
+      maybeHandshake.disposeHandshakeCoordinator();
+    } catch (_) {}
+  });
   return handshake;
 });
 

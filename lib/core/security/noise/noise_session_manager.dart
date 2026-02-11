@@ -11,7 +11,7 @@ import 'package:logging/logging.dart';
 import '../secure_key.dart';
 import 'models/noise_models.dart';
 import 'noise_session.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Callback when session is established
 typedef SessionEstablishedCallback =

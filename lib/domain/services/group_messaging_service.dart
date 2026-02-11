@@ -2,12 +2,13 @@
 // Uses existing Noise sessions - no shared passwords, no group keys
 
 import 'package:logging/logging.dart';
-import '../../core/models/contact_group.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
+
+import '../models/contact_group.dart';
 // For MessagePriority
-import '../../core/interfaces/i_group_repository.dart';
-import '../../core/interfaces/i_contact_repository.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../interfaces/i_contact_repository.dart';
+import '../interfaces/i_group_repository.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../values/id_types.dart';
 
 /// Service for managing group messaging via secure multi-unicast
@@ -28,12 +29,12 @@ class GroupMessagingService {
 
   final IGroupRepository _groupRepo;
   final IContactRepository _contactRepo;
-  final OfflineMessageQueue _messageQueue;
+  final OfflineMessageQueueContract _messageQueue;
 
   GroupMessagingService({
     required IGroupRepository groupRepo,
     required IContactRepository contactRepo,
-    required OfflineMessageQueue messageQueue,
+    required OfflineMessageQueueContract messageQueue,
   }) : _groupRepo = groupRepo,
        _contactRepo = contactRepo,
        _messageQueue = messageQueue;

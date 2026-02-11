@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 class ContactRequestDialog extends StatelessWidget {
   final String senderName;

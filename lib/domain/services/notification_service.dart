@@ -6,7 +6,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import '../../core/interfaces/i_preferences_repository.dart';
+import '../interfaces/i_preferences_repository.dart';
 import '../entities/preference_keys.dart' show PreferenceKeys;
 import '../../domain/entities/message.dart';
 import '../../domain/interfaces/i_notification_handler.dart';

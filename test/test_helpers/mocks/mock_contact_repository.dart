@@ -1,5 +1,5 @@
 import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'package:pak_connect/core/services/security_manager.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 
 /// Lightweight in-memory ContactRepository stub for tests.
 class MockContactRepository extends ContactRepository {

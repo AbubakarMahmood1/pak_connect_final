@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/services/simple_crypto.dart';
+import '../../domain/models/protocol_message.dart';
+import '../../domain/services/simple_crypto.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../core/utils/string_extensions.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/security/security_types.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import '../../domain/models/security_level.dart';
 
 /// Handles bilateral contact status sync, asymmetric detection, and ECDH upgrades
 /// so BLEStateManager can remain lean.

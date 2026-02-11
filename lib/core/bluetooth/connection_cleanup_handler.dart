@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 
-import '../../core/discovery/device_deduplication_manager.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/services/device_deduplication_manager.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// 🧹 REAL-TIME CONNECTION CLEANUP HANDLER
 ///

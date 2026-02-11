@@ -3,11 +3,11 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 
-import '../../../core/discovery/device_deduplication_manager.dart';
-import '../../../core/security/hint_cache_manager.dart';
-import '../../../core/services/hint_advertisement_service.dart';
-import '../../../core/security/security_types.dart';
-import '../../../core/utils/string_extensions.dart';
+import '../../../domain/services/device_deduplication_manager.dart';
+import '../../../domain/services/hint_cache_manager.dart';
+import '../../../domain/utils/hint_advertisement_service.dart';
+import '../../../domain/models/security_level.dart';
+import '../../../domain/utils/string_extensions.dart';
 import '../../../domain/entities/contact.dart';
 import 'discovery_types.dart';
 

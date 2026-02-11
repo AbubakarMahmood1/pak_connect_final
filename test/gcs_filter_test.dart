@@ -10,9 +10,14 @@ import 'package:logging/logging.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'package:pak_connect/core/utils/gcs_filter.dart';
+import 'package:pak_connect/domain/utils/gcs_filter.dart';
 
 void main() {
+  setUp(() {
+    // Keep helper-generated IDs deterministic and independent across tests.
+    _idCounter = 0;
+  });
+
   group('GCSFilter - Basic Functionality', () {
     final List<LogRecord> logRecords = [];
     final Set<String> allowedSevere = {};
@@ -242,7 +247,9 @@ void main() {
       final reduction = 1.0 - (newSize / oldSize);
       expect(reduction, greaterThan(0.90));
 
-      debugPrint('Bandwidth reduction: ${(reduction * 100).toStringAsFixed(2)}%');
+      debugPrint(
+        'Bandwidth reduction: ${(reduction * 100).toStringAsFixed(2)}%',
+      );
       debugPrint('Old size: $oldSize bytes, New size: $newSize bytes');
     });
 
@@ -392,7 +399,9 @@ void main() {
       // At least some should be found (accounting for trimming and deduplication)
       expect(foundCount, greaterThan(0));
 
-      debugPrint('Found $foundCount matches while inspecting $inspected messages');
+      debugPrint(
+        'Found $foundCount matches while inspecting $inspected messages',
+      );
       debugPrint('Filter size: ${filter.data.length} bytes (target: 512)');
       debugPrint('Encoded ${decoded.length} elements (from 1000 input)');
     });
@@ -431,7 +440,9 @@ void main() {
       debugPrint('  Per sync: ${newSyncSize / 1024} KB');
       debugPrint('  Daily: ${newDailyBandwidth / (1024 * 1024)} MB');
       debugPrint('');
-      debugPrint('Bandwidth reduction: ${(reduction * 100).toStringAsFixed(2)}%');
+      debugPrint(
+        'Bandwidth reduction: ${(reduction * 100).toStringAsFixed(2)}%',
+      );
       debugPrint('=============================');
 
       // Should achieve at least 95% reduction
@@ -447,15 +458,18 @@ int _idCounter = 0;
 
 /// Generate unique random bytes
 Uint8List _randomBytes(int length) {
-  final now = DateTime.now().microsecondsSinceEpoch;
   _idCounter++;
   final bytes = <int>[];
+  List<int> seed = utf8.encode('gcs_filter_test_seed_$_idCounter');
 
-  // Use counter + timestamp to ensure uniqueness
-  for (var i = 0; i < length; i++) {
-    bytes.add((now + _idCounter * 1000 + i * 17) & 0xFF);
+  // Expand deterministic entropy blocks until we reach requested length.
+  while (bytes.length < length) {
+    final digest = sha256.convert(seed).bytes;
+    bytes.addAll(digest);
+    seed = digest;
   }
-  return Uint8List.fromList(bytes);
+
+  return Uint8List.fromList(bytes.take(length).toList(growable: false));
 }
 
 /// Hash to 64-bit integer (same as GCSFilter._h64)

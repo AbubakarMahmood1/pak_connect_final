@@ -2,9 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import '../providers/group_providers.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../core/services/security_manager.dart';
+import '../../domain/entities/contact.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/models/security_level.dart';
 
 class CreateGroupScreen extends ConsumerStatefulWidget {
   const CreateGroupScreen({super.key});
@@ -29,7 +31,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
 
   Future<void> _loadContacts() async {
     try {
-      final repo = ContactRepository();
+      final repo = _resolveContactRepository();
       final contactsMap = await repo.getAllContacts();
       // Convert map to list and filter to only verified contacts at MEDIUM+ security
       final verified = contactsMap.values
@@ -51,6 +53,17 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         ).showSnackBar(SnackBar(content: Text('Failed to load contacts: $e')));
       }
     }
+  }
+
+  IContactRepository _resolveContactRepository() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IContactRepository>()) {
+      return di<IContactRepository>();
+    }
+    throw StateError(
+      'IContactRepository is not registered. '
+      'Call setupServiceLocator() before opening CreateGroupScreen.',
+    );
   }
 
   @override

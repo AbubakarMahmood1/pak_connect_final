@@ -4,12 +4,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import '../providers/ble_providers.dart';
-import '../../data/repositories/user_preferences.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../data/repositories/chats_repository.dart';
-import '../../data/repositories/archive_repository.dart';
-import '../../data/database/database_helper.dart';
+import '../../domain/interfaces/i_archive_repository.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_database_provider.dart';
+import '../../domain/interfaces/i_user_preferences.dart';
 import 'qr_contact_screen.dart';
 import 'network_topology_screen.dart';
 
@@ -21,10 +22,13 @@ class ProfileScreen extends ConsumerStatefulWidget {
 }
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-  final UserPreferences _userPreferences = UserPreferences();
-  final ContactRepository _contactRepository = ContactRepository();
-  final ChatsRepository _chatsRepository = ChatsRepository();
-  final ArchiveRepository _archiveRepository = ArchiveRepository();
+  late final IUserPreferences _userPreferences = _resolveUserPreferences();
+  late final IContactRepository _contactRepository =
+      _resolveContactRepository();
+  late final IChatsRepository _chatsRepository = _resolveChatsRepository();
+  late final IArchiveRepository _archiveRepository =
+      _resolveArchiveRepository();
+  late final IDatabaseProvider _databaseProvider = _resolveDatabaseProvider();
 
   String _deviceId = '';
 
@@ -66,7 +70,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final archivedCount = await _archiveRepository.getArchivedChatsCount();
 
     // Get storage size
-    final sizeInfo = await DatabaseHelper.getDatabaseSize();
+    final sizeInfo = await _databaseProvider.getDatabaseSize();
     final storageMB = sizeInfo['size_mb'] ?? '0.00';
 
     if (mounted) {
@@ -509,5 +513,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         }
       }
     }
+  }
+
+  IUserPreferences _resolveUserPreferences() =>
+      _resolveOrThrow<IUserPreferences>('IUserPreferences');
+
+  IContactRepository _resolveContactRepository() =>
+      _resolveOrThrow<IContactRepository>('IContactRepository');
+
+  IChatsRepository _resolveChatsRepository() =>
+      _resolveOrThrow<IChatsRepository>('IChatsRepository');
+
+  IArchiveRepository _resolveArchiveRepository() =>
+      _resolveOrThrow<IArchiveRepository>('IArchiveRepository');
+
+  IDatabaseProvider _resolveDatabaseProvider() =>
+      _resolveOrThrow<IDatabaseProvider>('IDatabaseProvider');
+
+  T _resolveOrThrow<T extends Object>(String typeName) {
+    final serviceLocator = GetIt.instance;
+    if (serviceLocator.isRegistered<T>()) {
+      return serviceLocator<T>();
+    }
+    throw StateError('$typeName is not registered in GetIt');
   }
 }

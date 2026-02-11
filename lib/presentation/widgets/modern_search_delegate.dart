@@ -6,7 +6,7 @@ import '../../domain/entities/enhanced_message.dart';
 import '../../domain/services/chat_management_service.dart' as chat_service;
 import '../../domain/values/id_types.dart';
 import 'modern_message_bubble.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Modern search delegate with advanced filtering and suggestions
 class ModernSearchDelegate extends SearchDelegate<String> {

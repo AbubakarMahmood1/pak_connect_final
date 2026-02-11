@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_queue_sync_coordinator.dart';
-import '../../core/interfaces/i_message_queue_repository.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
+import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
+import '../../domain/entities/queued_message.dart';
+import '../../domain/entities/queue_enums.dart';
+import '../../domain/models/mesh_relay_models.dart';
 import '../../domain/values/id_types.dart';
 
 /// Queue synchronization coordinator for peer-to-peer sync

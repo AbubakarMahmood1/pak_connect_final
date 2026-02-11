@@ -1,29 +1,35 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
-import '../../core/interfaces/i_ble_service_facade.dart';
-import '../../core/interfaces/i_connection_service.dart';
-import '../../core/interfaces/i_ble_platform_host.dart';
-import '../../core/interfaces/i_ble_connection_service.dart';
-import '../../core/interfaces/i_ble_messaging_service.dart';
-import '../../core/interfaces/i_ble_discovery_service.dart';
-import '../../core/interfaces/i_ble_advertising_service.dart';
-import '../../core/interfaces/i_ble_handshake_service.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/models/mesh_relay_models.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/models/spy_mode_info.dart';
-import '../../core/models/ble_server_connection.dart';
-import '../../core/bluetooth/handshake_coordinator.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_service_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_platform_host.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_advertising_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_handshake_coordinator_factory.dart';
+import 'package:pak_connect/domain/models/connection_phase.dart';
+import 'package:pak_connect/domain/models/connection_info.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart'
+    as domain_models;
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
 import 'ble_connection_service.dart';
 import 'ble_messaging_service.dart';
 import 'ble_message_handler_facade_impl.dart';
 import 'ble_discovery_service.dart';
 import 'ble_advertising_service.dart';
 import 'ble_handshake_service.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import 'ble_state_manager.dart';
 import 'ble_state_manager_facade.dart';
 import 'ble_connection_manager.dart';
@@ -31,18 +37,17 @@ import 'ble_message_handler.dart';
 import '../repositories/intro_hint_repository.dart';
 import '../repositories/contact_repository.dart';
 import '../services/seen_message_store.dart';
-import '../../core/bluetooth/advertising_manager.dart';
-import '../../core/bluetooth/peripheral_initializer.dart';
-import '../../core/bluetooth/bluetooth_state_monitor.dart';
-import '../../core/services/hint_scanner_service.dart';
-import '../../core/bluetooth/ble_platform_host.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/di/service_locator.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/utils/string_extensions.dart';
-import '../../core/models/connection_state.dart' show ChatConnectionState;
+import '../../domain/services/advertising_manager.dart';
+import '../../domain/services/peripheral_initializer.dart';
+import '../../domain/services/bluetooth_state_monitor.dart';
+import '../../domain/services/ble_platform_host.dart';
+import '../../domain/services/hint_scanner_service.dart';
+import '../../domain/services/device_deduplication_manager.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import '../../domain/models/connection_state.dart' show ChatConnectionState;
 import '../repositories/user_preferences.dart';
-import '../../core/security/ephemeral_key_manager.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
 
 /// Main orchestrator for the entire BLE stack.
 ///
@@ -58,6 +63,7 @@ import '../../core/security/ephemeral_key_manager.dart';
 /// - Handle graceful shutdown and resource cleanup
 class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   final _logger = Logger('BLEServiceFacade');
+  final GetIt _getIt = GetIt.instance;
   final IBLEPlatformHost _platformHost;
   final BLEStateManagerFacade _stateManager;
   final BLEMessageHandler _messageHandler;
@@ -69,6 +75,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   late final BLEConnectionManager _connectionManager;
   late final PeripheralInitializer _peripheralInitializer;
   late final AdvertisingManager _advertisingManager;
+  final IHandshakeCoordinatorFactory? _handshakeCoordinatorFactory;
 
   // Sub-services (lazy-initialized)
   BLEConnectionService? _connectionService;
@@ -94,6 +101,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   final List<dynamic> _handshakeMessageBuffer = [];
   final Set<void Function(SpyModeInfo)> _spyModeListeners = {};
   final Set<void Function(String)> _identityListeners = {};
+  bool _forwardingSpyModeEvent = false;
+  bool _forwardingIdentityEvent = false;
   StreamSubscription<ConnectionInfo>? _connectionInfoSubscription;
   StreamSubscription<CentralConnectionStateChangedEventArgs>?
   _peripheralConnectionSub;
@@ -110,6 +119,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   bool _connectionSetupComplete = false;
   bool _discoveryInitialized = false;
 
+  @override
   bool get isInitialized => _initializationCompleter.isCompleted;
 
   BLEServiceFacade({
@@ -129,7 +139,12 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     PeripheralInitializer? peripheralInitializer,
     AdvertisingManager? advertisingManager,
     ContactRepository? contactRepository,
-  }) : _platformHost = platformHost ?? BlePlatformHost(),
+    IHandshakeCoordinatorFactory? handshakeCoordinatorFactory,
+  }) : _platformHost =
+           platformHost ??
+           BlePlatformHost(
+             ephemeralIdProvider: EphemeralKeyManager.generateMyEphemeralKey,
+           ),
        _stateManager =
            stateManager ??
            BLEStateManagerFacade(legacyStateManager: legacyStateManager),
@@ -143,7 +158,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
        _messagingService = messagingService,
        _discoveryService = discoveryService,
        _advertisingService = advertisingService,
-       _handshakeService = handshakeService {
+       _handshakeService = handshakeService,
+       _handshakeCoordinatorFactory = handshakeCoordinatorFactory {
     _connectionManager =
         connectionManager ??
         BLEConnectionManager(
@@ -162,7 +178,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           peripheralInitializer: _peripheralInitializer,
           peripheralManager: _platformHost.peripheralManager,
           introHintRepo: _introHintRepository,
+          sessionKeyProvider: () => EphemeralKeyManager.currentSessionKey,
         );
+    DeviceDeduplicationManager.myEphemeralHintProvider =
+        EphemeralKeyManager.generateMyEphemeralKey;
 
     _messageHandlerFacade = BLEMessageHandlerFacadeImpl(
       _messageHandler,
@@ -301,13 +320,14 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       connectionStatusProvider: () =>
           _connectionManager.hasBleConnection ||
           _connectionManager.serverConnectionCount > 0,
+      handshakeCoordinatorFactory: _handshakeCoordinatorFactory,
     );
 
     // Make the handshake service discoverable to the message handler (fragment
     // pipeline) via DI so reassembled handshake frames route correctly.
     try {
-      if (!getIt.isRegistered<IBLEHandshakeService>()) {
-        getIt.registerSingleton<IBLEHandshakeService>(_handshakeService!);
+      if (!_getIt.isRegistered<IBLEHandshakeService>()) {
+        _getIt.registerSingleton<IBLEHandshakeService>(_handshakeService!);
       }
     } catch (_) {
       // DI is best-effort; the service still works via direct references.
@@ -469,7 +489,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   }
 
   @override
-  Future<ProtocolMessage?> revealIdentityToFriend() =>
+  Future<domain_models.ProtocolMessage?> revealIdentityToFriend() =>
       _stateManager.revealIdentityToFriend();
 
   @override
@@ -980,6 +1000,18 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   @override
   void emitSpyModeDetected(SpyModeInfo info) {
+    _notifySpyModeDetected(info);
+    if (_handshakeService != null && !_forwardingSpyModeEvent) {
+      _forwardingSpyModeEvent = true;
+      try {
+        _handshakeService!.emitSpyModeDetected(info);
+      } finally {
+        _forwardingSpyModeEvent = false;
+      }
+    }
+  }
+
+  void _notifySpyModeDetected(SpyModeInfo info) {
     _stateManager.onSpyModeDetected?.call(info);
     for (final listener in List.of(_spyModeListeners)) {
       try {
@@ -988,13 +1020,22 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
         _logger.warning('Error notifying spy mode listener: $e', e, stackTrace);
       }
     }
-    if (_handshakeService != null) {
-      _handshakeService!.emitSpyModeDetected(info);
-    }
   }
 
   @override
   void emitIdentityRevealed(String contactId) {
+    _notifyIdentityRevealed(contactId);
+    if (_handshakeService != null && !_forwardingIdentityEvent) {
+      _forwardingIdentityEvent = true;
+      try {
+        _handshakeService!.emitIdentityRevealed(contactId);
+      } finally {
+        _forwardingIdentityEvent = false;
+      }
+    }
+  }
+
+  void _notifyIdentityRevealed(String contactId) {
     _stateManager.onIdentityRevealed?.call(contactId);
     for (final listener in List.of(_identityListeners)) {
       try {
@@ -1002,9 +1043,6 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       } catch (e, stackTrace) {
         _logger.warning('Error notifying identity listener: $e', e, stackTrace);
       }
-    }
-    if (_handshakeService != null) {
-      _handshakeService!.emitIdentityRevealed(contactId);
     }
   }
 
@@ -1593,7 +1631,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
         }
         if (existingContact.persistentPublicKey != null &&
             existingContact.persistentPublicKey!.isNotEmpty) {
-          SecurityManager.instance.registerIdentityMapping(
+          SecurityServiceLocator.instance.registerIdentityMapping(
             persistentPublicKey: existingContact.persistentPublicKey!,
             ephemeralID: ephemeralId,
           );
@@ -1617,15 +1655,19 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   }
 
   void _handleSpyModeDetected(SpyModeInfo info) {
-    _logger.warning(
-      '🕵️ Spy mode detected with ${info.contactName}',
-    );
-    emitSpyModeDetected(info);
+    _logger.warning('🕵️ Spy mode detected with ${info.contactName}');
+    if (_forwardingSpyModeEvent) {
+      return;
+    }
+    _notifySpyModeDetected(info);
   }
 
   void _handleIdentityRevealed(String contactId) {
     _logger.info('🪪 Identity revealed to contact: $contactId');
-    emitIdentityRevealed(contactId);
+    if (_forwardingIdentityEvent) {
+      return;
+    }
+    _notifyIdentityRevealed(contactId);
   }
 
   // ============================================================================
@@ -1633,12 +1675,11 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   // ============================================================================
 
   @visibleForTesting
-  void debugEmitSpyModeDetected(SpyModeInfo info) =>
-      _handleSpyModeDetected(info);
+  void debugEmitSpyModeDetected(SpyModeInfo info) => emitSpyModeDetected(info);
 
   @visibleForTesting
   void debugEmitIdentityRevealed(String contactId) =>
-      _handleIdentityRevealed(contactId);
+      emitIdentityRevealed(contactId);
 
   @visibleForTesting
   void debugHandleQueueSync(QueueSyncMessage message, String fromNodeId) {
@@ -1650,7 +1691,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   /// Production accessor for the configured message handler facade used by mesh
   /// networking and queue orchestration.
-  BLEMessageHandlerFacadeImpl get meshMessageHandler => _messageHandlerFacade;
+  @override
+  IBLEMessageHandlerFacade get meshMessageHandler => _messageHandlerFacade;
 
   /// Expose underlying message handler for integration wiring (AppCore tests).
   @visibleForTesting

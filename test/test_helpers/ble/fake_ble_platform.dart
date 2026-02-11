@@ -61,7 +61,8 @@ UUID _uuidFromAddress(String address) {
 final class _FakeCentralManager implements CentralManager {
   final _stateController =
       StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
-  final _discoveredController = StreamController<DiscoveredEventArgs>.broadcast();
+  final _discoveredController =
+      StreamController<DiscoveredEventArgs>.broadcast();
   final _connectionStateController =
       StreamController<PeripheralConnectionStateChangedEventArgs>.broadcast();
   final _mtuController =
@@ -86,8 +87,8 @@ final class _FakeCentralManager implements CentralManager {
   Stream<DiscoveredEventArgs> get discovered => _discoveredController.stream;
 
   @override
-  Stream<PeripheralConnectionStateChangedEventArgs> get connectionStateChanged =>
-      _connectionStateController.stream;
+  Stream<PeripheralConnectionStateChangedEventArgs>
+  get connectionStateChanged => _connectionStateController.stream;
 
   @override
   Stream<PeripheralMTUChangedEventArgs> get mtuChanged => _mtuController.stream;
@@ -116,7 +117,8 @@ final class _FakeCentralManager implements CentralManager {
   Future<void> disconnect(Peripheral peripheral) async {}
 
   @override
-  Future<int> requestMTU(Peripheral peripheral, {required int mtu}) async => mtu;
+  Future<int> requestMTU(Peripheral peripheral, {required int mtu}) async =>
+      mtu;
 
   @override
   Future<int> getMaximumWriteLength(
@@ -128,7 +130,8 @@ final class _FakeCentralManager implements CentralManager {
   Future<int> readRSSI(Peripheral peripheral) async => -60;
 
   @override
-  Future<List<GATTService>> discoverGATT(Peripheral peripheral) async => const [];
+  Future<List<GATTService>> discoverGATT(Peripheral peripheral) async =>
+      const [];
 
   @override
   Future<Uint8List> readCharacteristic(
@@ -177,7 +180,9 @@ final class _FakePeripheralManager implements PeripheralManager {
   final _charWriteController =
       StreamController<GATTCharacteristicWriteRequestedEventArgs>.broadcast();
   final _notifyController =
-      StreamController<GATTCharacteristicNotifyStateChangedEventArgs>.broadcast();
+      StreamController<
+        GATTCharacteristicNotifyStateChangedEventArgs
+      >.broadcast();
   final _descReadController =
       StreamController<GATTDescriptorReadRequestedEventArgs>.broadcast();
   final _descWriteController =

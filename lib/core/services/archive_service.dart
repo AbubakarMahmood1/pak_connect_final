@@ -2,10 +2,10 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:get_it/get_it.dart';
-import '../interfaces/i_archive_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import '../../domain/services/archive_management_service.dart';
-import '../../core/models/archive_models.dart';
-import '../interfaces/i_archive_service.dart';
+import '../../domain/models/archive_models.dart';
+import 'package:pak_connect/domain/interfaces/i_archive_service.dart';
 import '../../domain/services/chat_management_service.dart';
 
 /// Archive service implementation for managing chat archives

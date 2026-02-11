@@ -1,7 +1,7 @@
 // Security level indicator with color coding and icons
 
 import 'package:flutter/material.dart';
-import '../../core/services/security_manager.dart';
+import '../../domain/models/security_level.dart';
 
 /// Visual badge showing contact's security level
 class SecurityLevelBadge extends StatelessWidget {

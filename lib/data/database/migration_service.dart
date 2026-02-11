@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logging/logging.dart';
 import 'package:crypto/crypto.dart';
 import 'database_helper.dart';
-import '../../core/utils/chat_utils.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
 
 /// Migration result with detailed statistics
 class MigrationResult {

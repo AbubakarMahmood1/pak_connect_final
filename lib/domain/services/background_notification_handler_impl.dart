@@ -9,8 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart' as app_entities;
 import '../../domain/interfaces/i_notification_handler.dart';
-import '../../core/services/navigation_service.dart';
-import '../../domain/values/id_types.dart';
+import 'notification_navigation_service.dart';
 
 /// Background notification handler implementation
 ///
@@ -493,12 +492,9 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
           final contactPublicKey = payloadData['contactPublicKey'] as String?;
 
           if (chatId != null && contactName != null) {
-            final typedChatId = ChatId(chatId);
-            _logger.info(
-              'Navigating to chat: ${typedChatId.value} ($contactName)',
-            );
-            NavigationService.instance.navigateToChatById(
-              chatId: typedChatId.value,
+            _logger.info('Navigating to chat: $chatId ($contactName)');
+            NotificationNavigationService.navigateToChat(
+              chatId: chatId,
               contactName: contactName,
               contactPublicKey: contactPublicKey,
             );
@@ -512,7 +508,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
 
           if (publicKey != null && contactName != null) {
             _logger.info('Navigating to contact request: $contactName');
-            NavigationService.instance.navigateToContactRequest(
+            NotificationNavigationService.navigateToContactRequest(
               publicKey: publicKey,
               contactName: contactName,
             );
@@ -522,13 +518,13 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         default:
           // System notification or unknown type - navigate to home
           _logger.info('Navigating to home screen');
-          NavigationService.instance.navigateToHome();
+          NotificationNavigationService.navigateToHome();
           break;
       }
     } catch (e, stackTrace) {
       _logger.severe('Failed to handle notification tap', e, stackTrace);
       // Fallback: navigate to home on error
-      NavigationService.instance.navigateToHome();
+      NotificationNavigationService.navigateToHome();
     }
   }
 

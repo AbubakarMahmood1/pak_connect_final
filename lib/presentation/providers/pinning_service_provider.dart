@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pak_connect/core/services/pinning_service.dart';
+import 'package:pak_connect/domain/services/pinning_service.dart';
 import 'package:pak_connect/domain/services/chat_management_models.dart';
 
 /// Provider for PinningService instance

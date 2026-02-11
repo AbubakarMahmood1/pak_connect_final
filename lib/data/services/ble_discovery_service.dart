@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_ble_discovery_service.dart';
-import '../../core/constants/ble_constants.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
-import '../../core/services/hint_scanner_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
+import '../../domain/constants/ble_constants.dart';
+import '../../domain/services/device_deduplication_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
+import '../../domain/services/hint_scanner_service.dart';
 
 /// Manages BLE device discovery and deduplication.
 ///

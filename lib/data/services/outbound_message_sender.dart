@@ -1,19 +1,20 @@
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import '../../core/security/signing_manager.dart';
-import '../../core/utils/message_fragmenter.dart';
-import '../../core/models/protocol_message.dart';
+import '../../domain/services/signing_manager.dart';
+import '../../domain/utils/message_fragmenter.dart';
+import '../../domain/models/protocol_message.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_state_manager.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/messaging/message_ack_tracker.dart';
-import '../../core/messaging/message_chunk_sender.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import 'package:pak_connect/domain/messaging/message_ack_tracker.dart';
+import '../../domain/messaging/message_chunk_sender.dart';
 import '../../data/repositories/user_preferences.dart';
-import '../../core/security/ephemeral_key_manager.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../core/utils/binary_fragmenter.dart';
-import '../../core/constants/binary_payload_types.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import '../../domain/utils/binary_fragmenter.dart';
+import 'package:pak_connect/domain/constants/binary_payload_types.dart';
+import '../../domain/models/security_level.dart';
 import '../../domain/values/id_types.dart';
 
 /// Handles outbound message preparation and sending for BLEMessageHandler.
@@ -129,7 +130,7 @@ class OutboundMessageSender {
       String encryptionMethod = 'none';
 
       if (encryptionKey.isNotEmpty) {
-        payload = await SecurityManager.instance.encryptMessage(
+        payload = await SecurityServiceLocator.instance.encryptMessage(
           message,
           encryptionKey,
           contactRepository,
@@ -150,7 +151,7 @@ class OutboundMessageSender {
 
       SecurityLevel trustLevel;
       try {
-        trustLevel = await SecurityManager.instance.getCurrentLevel(
+        trustLevel = await SecurityServiceLocator.instance.getCurrentLevel(
           encryptionKey,
           contactRepository,
         );
@@ -286,7 +287,9 @@ class OutboundMessageSender {
             );
           },
           onAfterSend: (index, _) {
-            _logger.fine('📨 SEND STEP 6.1✅: Chunk written to BLE successfully');
+            _logger.fine(
+              '📨 SEND STEP 6.1✅: Chunk written to BLE successfully',
+            );
           },
         );
       }
@@ -357,7 +360,7 @@ class OutboundMessageSender {
       String encryptionMethod = 'none';
 
       if (encryptionKey.isNotEmpty) {
-        payload = await SecurityManager.instance.encryptMessage(
+        payload = await SecurityServiceLocator.instance.encryptMessage(
           message,
           encryptionKey,
           contactRepository,
@@ -378,7 +381,7 @@ class OutboundMessageSender {
 
       SecurityLevel trustLevel;
       try {
-        trustLevel = await SecurityManager.instance.getCurrentLevel(
+        trustLevel = await SecurityServiceLocator.instance.getCurrentLevel(
           encryptionKey,
           contactRepository,
         );
@@ -584,16 +587,14 @@ class OutboundMessageSender {
 
     final contact = await contactRepository.getContactByAnyId(contactPublicKey);
     final sessionLookupKey = contact?.sessionIdForNoise ?? contactPublicKey;
-    final hasNoise =
-        SecurityManager.instance.noiseService?.hasEstablishedSession(
-          sessionLookupKey,
-        ) ==
-        true;
+    final hasNoise = SecurityServiceLocator.instance.hasEstablishedNoiseSession(
+      sessionLookupKey,
+    );
     if (hasNoise) {
       return 'noise';
     }
 
-    final level = await SecurityManager.instance.getCurrentLevel(
+    final level = await SecurityServiceLocator.instance.getCurrentLevel(
       contactPublicKey,
       contactRepository,
     );
@@ -628,17 +629,16 @@ class OutboundMessageSender {
 
     final noiseSessionExists =
         contact?.currentEphemeralId != null &&
-        SecurityManager.instance.noiseService?.hasEstablishedSession(
-              contact!.currentEphemeralId!,
-            ) ==
-            true;
+        SecurityServiceLocator.instance.hasEstablishedNoiseSession(
+          contact!.currentEphemeralId!,
+        );
 
     // Security-aware identity selection:
     // - Medium/High: use persistent keys when available
     // - Low (or no persistent): use session ephemeral keys
     SecurityLevel securityLevel = SecurityLevel.low;
     try {
-      securityLevel = await SecurityManager.instance.getCurrentLevel(
+      securityLevel = await SecurityServiceLocator.instance.getCurrentLevel(
         normalizedContactKey ?? '',
         contactRepository,
       );

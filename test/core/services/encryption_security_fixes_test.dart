@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/core/services/simple_crypto.dart';
-import 'package:pak_connect/core/security/archive_crypto.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/archive_crypto.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Comprehensive tests for encryption security vulnerability fixes

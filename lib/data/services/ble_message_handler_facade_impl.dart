@@ -3,19 +3,14 @@ import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import '../../core/interfaces/i_ble_message_handler_facade.dart';
-import '../../core/interfaces/i_seen_message_store.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/models/mesh_relay_models.dart';
-import '../../core/messaging/offline_message_queue.dart'
-    show QueuedMessage, OfflineMessageQueue;
-import '../../core/messaging/queue_sync_manager.dart';
-import '../../core/messaging/mesh_relay_engine.dart'
-    show RelayDecision, RelayStatistics;
-import '../../core/security/spam_prevention_manager.dart';
-import '../../core/app_core.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import '../../data/repositories/contact_repository.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import '../services/ble_state_manager_facade.dart';
 import '../services/ble_state_manager.dart';
 import '../../domain/values/id_types.dart';
@@ -23,8 +18,11 @@ import 'ble_message_handler.dart';
 import 'ble_message_handler_facade.dart';
 import 'ble_connection_manager.dart';
 import 'ble_write_adapter.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../../core/interfaces/i_message_fragmentation_handler.dart';
+import '../../domain/services/device_deduplication_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_message_fragmentation_handler.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart'
+    show QueuedMessage, OfflineMessageQueueContract;
+import '../../domain/models/protocol_message.dart' as domain_models;
 
 /// Concrete implementation of IBLEMessageHandlerFacade
 ///
@@ -42,7 +40,8 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   late final BLEMessageHandlerFacade _splitFacade;
   final ContactRepository _contactRepository = ContactRepository();
   late ISeenMessageStore _seenMessageStore;
-  OfflineMessageQueue? _messageQueueOverride;
+  OfflineMessageQueueContract? _messageQueueOverride;
+  final ISharedMessageQueueProvider? _sharedQueueProvider;
   final BLEConnectionManager? _connectionManager;
   final IBLEStateManagerFacade? _stateManager;
   BleWriteAdapter? _writeAdapter;
@@ -70,8 +69,10 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     bool Function()? getPeripheralMtuReady,
     int? Function()? getPeripheralNegotiatedMtu,
     void Function(bool)? onMessageOperationChanged,
+    ISharedMessageQueueProvider? sharedQueueProvider,
     bool enableFragmentCleanupTimer = false,
   }) : _connectionManager = connectionManager,
+       _sharedQueueProvider = sharedQueueProvider,
        _stateManager = stateManager,
        _getCentralManager = getCentralManager,
        _getPeripheralManager = getPeripheralManager,
@@ -94,11 +95,10 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     // Default next-hop provider from BLE connections; falls back to handler.
     _splitFacade.setNextHopsProvider(_resolveNextHops);
     _handler.setNextHopsProvider(_resolveNextHops);
-    try {
-      if (AppCore.instance.isInitialized) {
-        _splitFacade.setMessageQueue(AppCore.instance.messageQueue);
-      }
-    } catch (_) {}
+    final initialQueueProvider = _resolveSharedQueueProvider();
+    if (initialQueueProvider != null && initialQueueProvider.isInitialized) {
+      _splitFacade.setMessageQueue(initialQueueProvider.messageQueue);
+    }
     _writeAdapter = _buildWriteAdapterIfPossible();
     if (_writeAdapter == null) {
       _logger.warning(
@@ -163,7 +163,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   }
 
   @override
-  void setMessageQueue(OfflineMessageQueue queue) {
+  void setMessageQueue(OfflineMessageQueueContract queue) {
     _messageQueueOverride = queue;
     _splitFacade.setMessageQueue(queue);
   }
@@ -518,16 +518,23 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   }
 
   @override
-  set onSendAckMessage(Function(ProtocolMessage message)? callback) {
-    _handler.onSendAckMessage = callback;
+  set onSendAckMessage(
+    Function(domain_models.ProtocolMessage message)? callback,
+  ) {
+    _handler.onSendAckMessage = callback == null
+        ? null
+        : (message) => callback(message);
     _splitFacade.onSendAckMessage = callback;
   }
 
   @override
   set onSendRelayMessage(
-    Function(ProtocolMessage relayMessage, String nextHopId)? callback,
+    Function(domain_models.ProtocolMessage relayMessage, String nextHopId)?
+    callback,
   ) {
-    _handler.onSendRelayMessage = callback;
+    _handler.onSendRelayMessage = callback == null
+        ? null
+        : (relayMessage, nextHopId) => callback(relayMessage, nextHopId);
     _splitFacade.onSendRelayMessage = callback;
   }
 
@@ -611,26 +618,41 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     return 'unknown';
   }
 
-  Future<OfflineMessageQueue> _resolveMessageQueue() async {
+  Future<OfflineMessageQueueContract> _resolveMessageQueue() async {
     if (_messageQueueOverride != null) {
       return _messageQueueOverride!;
     }
 
-    final core = AppCore.instance;
-    if (core.isInitialized) {
-      return core.messageQueue;
+    final queueProvider = _resolveSharedQueueProvider();
+    if (queueProvider == null) {
+      throw StateError(
+        'OfflineMessageQueue not available. '
+        'Register ISharedMessageQueueProvider or inject a queue override.',
+      );
     }
 
-    if (core.isInitializing) {
-      _logger.fine('AppCore initialization in progress, using shared queue');
-      return core.messageQueue;
+    if (!queueProvider.isInitialized) {
+      _logger.warning(
+        'Shared queue provider not initialized, initializing now...',
+      );
+      await queueProvider.initialize();
     }
 
-    _logger.warning('AppCore not initialized, initializing now...');
-    await core.initialize();
+    _logger.fine('📦 Using shared message queue provider');
+    return queueProvider.messageQueue;
+  }
 
-    _logger.fine('📦 Using AppCore message queue');
-    return core.messageQueue;
+  ISharedMessageQueueProvider? _resolveSharedQueueProvider() {
+    if (_sharedQueueProvider != null) {
+      return _sharedQueueProvider;
+    }
+    try {
+      final di = GetIt.instance;
+      if (di.isRegistered<ISharedMessageQueueProvider>()) {
+        return di<ISharedMessageQueueProvider>();
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<bool> _sendCentralViaAdapter({

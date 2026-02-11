@@ -3,8 +3,8 @@ import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:pak_connect/core/interfaces/i_archive_repository.dart';
-import 'package:pak_connect/core/models/archive_models.dart';
+import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
+import 'package:pak_connect/domain/models/archive_models.dart';
 import 'package:pak_connect/domain/entities/archived_chat.dart';
 import 'package:pak_connect/domain/services/archive_search_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';

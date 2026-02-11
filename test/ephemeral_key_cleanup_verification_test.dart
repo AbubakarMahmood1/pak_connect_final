@@ -5,8 +5,8 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pak_connect/core/security/ephemeral_key_manager.dart';
-import 'package:pak_connect/core/utils/chat_utils.dart';
+import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
 
 /// 🧪 VERIFICATION TEST: Ephemeral Key Cleanup
 ///
@@ -64,7 +64,9 @@ void main() {
         await EphemeralKeyManager.initialize('test-private-key');
         final firstSessionKey = EphemeralKeyManager.generateMyEphemeralKey();
 
-        debugPrint('🔑 First session key: ${firstSessionKey.substring(0, 16)}...');
+        debugPrint(
+          '🔑 First session key: ${firstSessionKey.substring(0, 16)}...',
+        );
 
         // Verify session key was saved to SharedPreferences (for debugging)
         final prefs = await SharedPreferences.getInstance();
@@ -80,13 +82,17 @@ void main() {
           reason: 'Saved key should match current session',
         );
 
-        debugPrint('💾 Session key saved to SharedPreferences (for debugging only)');
+        debugPrint(
+          '💾 Session key saved to SharedPreferences (for debugging only)',
+        );
 
         // WHEN: Re-initialize EphemeralKeyManager (simulating app restart)
         await EphemeralKeyManager.initialize('test-private-key');
         final secondSessionKey = EphemeralKeyManager.generateMyEphemeralKey();
 
-        debugPrint('🔑 Second session key: ${secondSessionKey.substring(0, 16)}...');
+        debugPrint(
+          '🔑 Second session key: ${secondSessionKey.substring(0, 16)}...',
+        );
 
         // THEN: Second session key should be DIFFERENT (not restored from cache)
         expect(
@@ -156,7 +162,9 @@ void main() {
             'Phase 3 will use Noise NN session ID instead.',
       );
 
-      debugPrint('✅ PASS: Chat ID = their ephemeral ID (1:1 mapping confirmed)');
+      debugPrint(
+        '✅ PASS: Chat ID = their ephemeral ID (1:1 mapping confirmed)',
+      );
     });
 
     test('4. Same ephemeral ID creates same chat ID (current behavior)', () async {
@@ -273,7 +281,9 @@ void main() {
         await EphemeralKeyManager.initialize('test-private-key');
         final newKey = EphemeralKeyManager.generateMyEphemeralKey();
 
-        debugPrint('🔑 New key after corruption: ${newKey.substring(0, 16)}...');
+        debugPrint(
+          '🔑 New key after corruption: ${newKey.substring(0, 16)}...',
+        );
 
         // THEN: New key should be fresh (NOT the corrupted cached key)
         expect(

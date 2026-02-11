@@ -2,11 +2,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import '../providers/group_providers.dart';
-import '../../core/models/contact_group.dart';
-import '../../data/repositories/user_preferences.dart';
+import '../../domain/models/contact_group.dart';
+import '../../domain/interfaces/i_user_preferences.dart';
 import 'package:intl/intl.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 class GroupChatScreen extends ConsumerStatefulWidget {
   final String groupId;
@@ -38,7 +39,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
     try {
       // Get sender key
-      final prefs = UserPreferences();
+      final prefs = _resolveUserPreferences();
       final senderKey = await prefs.getPublicKey();
 
       // Send message
@@ -68,6 +69,17 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         setState(() => _isSending = false);
       }
     }
+  }
+
+  IUserPreferences _resolveUserPreferences() {
+    final di = GetIt.instance;
+    if (di.isRegistered<IUserPreferences>()) {
+      return di<IUserPreferences>();
+    }
+    throw StateError(
+      'IUserPreferences is not registered. '
+      'Call setupServiceLocator() before opening GroupChatScreen.',
+    );
   }
 
   @override

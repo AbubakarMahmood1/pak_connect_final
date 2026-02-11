@@ -1,9 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
 import '../../domain/services/mesh/mesh_network_health_monitor.dart';
-import '../../core/di/service_locator.dart';
 
+final GetIt getIt = GetIt.instance;
 final _logger = Logger('MeshHealthProvider');
 
 /// ✅ Phase 6D: Riverpod provider for MeshNetworkHealthMonitor

@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_ble_state_manager_facade.dart';
-import '../../core/models/pairing_state.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/models/spy_mode_info.dart';
-import '../../core/services/security_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
+import 'package:pak_connect/domain/models/pairing_state.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart'
+    as domain_models;
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import '../../domain/models/security_level.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/values/id_types.dart';
 import 'ble_state_coordinator.dart';
@@ -25,6 +26,12 @@ class BLEStateManagerFacade implements IBLEStateManagerFacade {
   late final PairingService _pairingService;
   late final SessionService _sessionService;
   late final BLEStateCoordinator _stateCoordinator;
+  void Function(domain_models.ProtocolMessage message)? _onSendContactStatus;
+  void Function(domain_models.ProtocolMessage message)? _onSendPairingRequest;
+  void Function(domain_models.ProtocolMessage message)? _onSendPairingAccept;
+  void Function(domain_models.ProtocolMessage message)? _onSendPairingCancel;
+  void Function(domain_models.ProtocolMessage message)?
+  _onSendPersistentKeyExchange;
 
   BLEStateManagerFacade({
     BLEStateManager? legacyStateManager,
@@ -206,7 +213,9 @@ class BLEStateManagerFacade implements IBLEStateManagerFacade {
   }
 
   @override
-  Future<void> handlePairingRequest(ProtocolMessage message) async {
+  Future<void> handlePairingRequest(
+    domain_models.ProtocolMessage message,
+  ) async {
     await _stateCoordinator.handlePairingRequest(message);
   }
 
@@ -221,12 +230,14 @@ class BLEStateManagerFacade implements IBLEStateManagerFacade {
   }
 
   @override
-  Future<void> handlePairingAccept(ProtocolMessage message) async {
+  Future<void> handlePairingAccept(
+    domain_models.ProtocolMessage message,
+  ) async {
     await _stateCoordinator.handlePairingAccept(message);
   }
 
   @override
-  void handlePairingCancel(ProtocolMessage message) {
+  void handlePairingCancel(domain_models.ProtocolMessage message) {
     _stateCoordinator.handlePairingCancel(message);
   }
 
@@ -321,7 +332,7 @@ class BLEStateManagerFacade implements IBLEStateManagerFacade {
   // ============================================================================
 
   @override
-  Future<ProtocolMessage?> revealIdentityToFriend() =>
+  Future<domain_models.ProtocolMessage?> revealIdentityToFriend() =>
       _legacyStateManager.revealIdentityToFriend();
 
   // ============================================================================
@@ -520,11 +531,17 @@ class BLEStateManagerFacade implements IBLEStateManagerFacade {
       _legacyStateManager.onSendContactReject = value;
 
   @override
-  void Function(ProtocolMessage message)? get onSendContactStatus =>
-      _legacyStateManager.onSendContactStatus;
+  void Function(domain_models.ProtocolMessage message)?
+  get onSendContactStatus => _onSendContactStatus;
   @override
-  set onSendContactStatus(void Function(ProtocolMessage message)? value) =>
-      _legacyStateManager.onSendContactStatus = value;
+  set onSendContactStatus(
+    void Function(domain_models.ProtocolMessage message)? value,
+  ) {
+    _onSendContactStatus = value;
+    _legacyStateManager.onSendContactStatus = value == null
+        ? null
+        : (message) => value(message);
+  }
 
   @override
   void Function(String publicKey, String displayName)?
@@ -558,25 +575,43 @@ class BLEStateManagerFacade implements IBLEStateManagerFacade {
       _legacyStateManager.onIdentityRevealed = value;
 
   @override
-  void Function(ProtocolMessage message)? get onSendPairingRequest =>
-      _pairingService.onSendPairingRequest;
+  void Function(domain_models.ProtocolMessage message)?
+  get onSendPairingRequest => _onSendPairingRequest;
   @override
-  set onSendPairingRequest(void Function(ProtocolMessage message)? value) =>
-      _pairingService.onSendPairingRequest = value;
+  set onSendPairingRequest(
+    void Function(domain_models.ProtocolMessage message)? value,
+  ) {
+    _onSendPairingRequest = value;
+    _pairingService.onSendPairingRequest = value == null
+        ? null
+        : (message) => value(message);
+  }
 
   @override
-  void Function(ProtocolMessage message)? get onSendPairingAccept =>
-      _pairingService.onSendPairingAccept;
+  void Function(domain_models.ProtocolMessage message)?
+  get onSendPairingAccept => _onSendPairingAccept;
   @override
-  set onSendPairingAccept(void Function(ProtocolMessage message)? value) =>
-      _pairingService.onSendPairingAccept = value;
+  set onSendPairingAccept(
+    void Function(domain_models.ProtocolMessage message)? value,
+  ) {
+    _onSendPairingAccept = value;
+    _pairingService.onSendPairingAccept = value == null
+        ? null
+        : (message) => value(message);
+  }
 
   @override
-  void Function(ProtocolMessage message)? get onSendPairingCancel =>
-      _pairingService.onSendPairingCancel;
+  void Function(domain_models.ProtocolMessage message)?
+  get onSendPairingCancel => _onSendPairingCancel;
   @override
-  set onSendPairingCancel(void Function(ProtocolMessage message)? value) =>
-      _pairingService.onSendPairingCancel = value;
+  set onSendPairingCancel(
+    void Function(domain_models.ProtocolMessage message)? value,
+  ) {
+    _onSendPairingCancel = value;
+    _pairingService.onSendPairingCancel = value == null
+        ? null
+        : (message) => value(message);
+  }
 
   @override
   void Function()? get onPairingCancelled => _pairingService.onPairingCancelled;
@@ -585,10 +620,15 @@ class BLEStateManagerFacade implements IBLEStateManagerFacade {
       _pairingService.onPairingCancelled = value;
 
   @override
-  void Function(ProtocolMessage message)? get onSendPersistentKeyExchange =>
-      _legacyStateManager.onSendPersistentKeyExchange;
+  void Function(domain_models.ProtocolMessage message)?
+  get onSendPersistentKeyExchange => _onSendPersistentKeyExchange;
   @override
   set onSendPersistentKeyExchange(
-    void Function(ProtocolMessage message)? value,
-  ) => _legacyStateManager.onSendPersistentKeyExchange = value;
+    void Function(domain_models.ProtocolMessage message)? value,
+  ) {
+    _onSendPersistentKeyExchange = value;
+    _legacyStateManager.onSendPersistentKeyExchange = value == null
+        ? null
+        : (message) => value(message);
+  }
 }

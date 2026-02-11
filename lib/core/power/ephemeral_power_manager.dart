@@ -4,7 +4,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../security/hint_cache_manager.dart';
+import 'package:pak_connect/domain/services/hint_cache_manager.dart';
 
 class EphemeralKeyManager {
   static const int hintLength = 8;

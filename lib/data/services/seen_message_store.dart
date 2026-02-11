@@ -8,8 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import '../database/database_helper.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
-import '../../core/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import '../../domain/values/id_types.dart';
 
 /// Persistent store for tracking seen messages (delivered and read)
@@ -37,7 +37,9 @@ class SeenMessageStore implements ISeenMessageStore {
 
   SeenMessageStore._() {
     // Keep noisy logs muted unless explicitly enabled.
-    _logger.level = Level.INFO;
+    if (hierarchicalLoggingEnabled) {
+      _logger.level = Level.INFO;
+    }
   }
 
   // In-memory cache for fast lookups (populated from DB)
@@ -48,6 +50,7 @@ class SeenMessageStore implements ISeenMessageStore {
   bool _initialized = false;
 
   /// Initialize the store (load from database)
+  @override
   Future<void> initialize() async {
     if (_initialized) return;
 

@@ -1,7 +1,7 @@
 // Enhanced contact entity with additional metadata and analytics
 
 import 'contact.dart' show Contact, TrustStatus;
-import '../../core/services/security_manager.dart';
+import '../models/security_level.dart';
 
 /// Enhanced contact with additional metadata and interaction statistics
 class EnhancedContact {

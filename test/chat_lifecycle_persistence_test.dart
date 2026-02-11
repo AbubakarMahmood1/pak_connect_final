@@ -1,10 +1,9 @@
-
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pak_connect/core/services/persistent_chat_state_manager.dart';
+import 'package:pak_connect/domain/services/persistent_chat_state_manager.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {

@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
-import '../interfaces/i_queue_persistence_manager.dart';
-import '../interfaces/i_database_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 
 /// Manages queue table persistence, migrations, and maintenance
 class QueuePersistenceManager implements IQueuePersistenceManager {

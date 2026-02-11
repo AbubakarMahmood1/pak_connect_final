@@ -3,9 +3,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
-import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'test_helpers/test_setup.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 
 void main() {
   late List<LogRecord> logRecords;

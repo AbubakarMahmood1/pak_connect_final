@@ -1,11 +1,12 @@
 import 'package:logging/logging.dart';
-import '../../core/bluetooth/identity_session_state.dart';
-import '../../core/interfaces/i_identity_manager.dart';
-import '../../core/models/spy_mode_info.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/security/ephemeral_key_manager.dart';
-import '../../core/services/simple_crypto.dart';
-import '../../core/utils/string_extensions.dart';
+import '../../domain/models/identity_session_state.dart';
+import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
+import '../../domain/services/simple_crypto.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/intro_hint_repository.dart';
 import '../../data/repositories/user_preferences.dart';
@@ -173,7 +174,7 @@ class PairingLifecycleService {
       '   persistentPublicKey (now set): ${theirPersistentKey.shortId()}...',
     );
 
-    SecurityManager.instance.registerIdentityMapping(
+    SecurityServiceLocator.instance.registerIdentityMapping(
       persistentPublicKey: theirPersistentKey,
       ephemeralID: theirEphemeralId,
     );
@@ -209,7 +210,7 @@ class PairingLifecycleService {
     );
     _identityManager?.setCurrentSessionId(theirPersistentKey);
 
-    SecurityManager.instance.registerIdentityMapping(
+    SecurityServiceLocator.instance.registerIdentityMapping(
       persistentPublicKey: theirPersistentKey,
       ephemeralID: theirEphemeralId,
     );

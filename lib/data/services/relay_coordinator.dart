@@ -1,16 +1,19 @@
 import 'dart:async';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
-import '../../core/interfaces/i_relay_coordinator.dart';
-import '../../core/interfaces/i_seen_message_store.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_relay_coordinator.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
+import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
+    as domain_messaging;
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import '../../domain/values/id_types.dart';
-import '../../core/messaging/mesh_relay_engine.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/messaging/queue_sync_manager.dart';
-import '../../core/security/spam_prevention_manager.dart';
-import '../../core/app_core.dart';
-import '../../core/utils/string_extensions.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
 
 /// Coordinates relay decisions and message routing
 ///
@@ -26,12 +29,20 @@ import '../../core/utils/string_extensions.dart';
 /// - Coordinating with MeshRelayEngine for routing decisions
 class RelayCoordinator implements IRelayCoordinator {
   final _logger = Logger('RelayCoordinator');
+  final ISharedMessageQueueProvider? _sharedQueueProvider;
+  final IMeshRelayEngineFactory? _relayEngineFactory;
+
+  RelayCoordinator({
+    ISharedMessageQueueProvider? sharedQueueProvider,
+    IMeshRelayEngineFactory? relayEngineFactory,
+  }) : _sharedQueueProvider = sharedQueueProvider,
+       _relayEngineFactory = relayEngineFactory;
 
   // Dependencies (initialized via initializeRelaySystem)
-  MeshRelayEngine? _relayEngine;
+  domain_messaging.MeshRelayEngine? _relayEngine;
   SpamPreventionManager? _spamPrevention;
   bool _spamInitialized = false;
-  OfflineMessageQueue? _messageQueue;
+  OfflineMessageQueueContract? _messageQueue;
   ISeenMessageStore? _seenMessageStore;
   List<String> Function()? _nextHopsProvider;
 
@@ -55,13 +66,13 @@ class RelayCoordinator implements IRelayCoordinator {
   @override
   Future<void> initializeRelaySystem({required String currentNodeId}) async {
     _currentNodeId = currentNodeId;
-    _messageQueue ??= _resolveMessageQueue();
+    _messageQueue ??= await _resolveMessageQueue();
     _spamPrevention ??= SpamPreventionManager();
     if (!_spamInitialized && _spamPrevention != null) {
       await _spamPrevention!.initialize();
       _spamInitialized = true;
     }
-    _relayEngine ??= MeshRelayEngine(
+    _relayEngine ??= _resolveRelayEngineFactory().create(
       messageQueue: _messageQueue!,
       spamPrevention: _spamPrevention!,
       seenMessageStore: _seenMessageStore,
@@ -480,7 +491,7 @@ class RelayCoordinator implements IRelayCoordinator {
   }
 
   /// Override the message queue (useful for tests or explicit injection).
-  void setMessageQueue(OfflineMessageQueue queue) {
+  void setMessageQueue(OfflineMessageQueueContract queue) {
     _messageQueue = queue;
   }
 
@@ -502,18 +513,53 @@ class RelayCoordinator implements IRelayCoordinator {
     _onQueueSyncReceived?.call(syncMessage, fromNodeId);
   }
 
-  OfflineMessageQueue _resolveMessageQueue() {
+  Future<OfflineMessageQueueContract> _resolveMessageQueue() async {
     if (_messageQueue != null) return _messageQueue!;
+
+    final queueProvider = _resolveSharedQueueProvider();
+    if (queueProvider == null) {
+      throw StateError(
+        'OfflineMessageQueue not available. '
+        'Register ISharedMessageQueueProvider or inject a queue provider.',
+      );
+    }
+
+    if (!queueProvider.isInitialized) {
+      _logger.warning(
+        'Shared queue provider not initialized, initializing now...',
+      );
+      await queueProvider.initialize();
+    }
+
+    return queueProvider.messageQueue;
+  }
+
+  ISharedMessageQueueProvider? _resolveSharedQueueProvider() {
+    if (_sharedQueueProvider != null) {
+      return _sharedQueueProvider;
+    }
     try {
-      final core = AppCore.instance;
-      if (core.isInitialized || core.isInitializing) {
-        return core.messageQueue;
+      final di = GetIt.instance;
+      if (di.isRegistered<ISharedMessageQueueProvider>()) {
+        return di<ISharedMessageQueueProvider>();
       }
     } catch (_) {
-      // Fall through to error below
+      // Fall through
+    }
+    return null;
+  }
+
+  IMeshRelayEngineFactory _resolveRelayEngineFactory() {
+    if (_relayEngineFactory != null) {
+      return _relayEngineFactory;
+    }
+    final di = GetIt.instance;
+    if (di.isRegistered<IMeshRelayEngineFactory>()) {
+      return di<IMeshRelayEngineFactory>();
     }
     throw StateError(
-      'OfflineMessageQueue not available. Inject a queue or initialize AppCore before relay setup.',
+      'IMeshRelayEngineFactory not available. '
+      'Register it in DI or pass relayEngineFactory explicitly.',
     );
   }
 

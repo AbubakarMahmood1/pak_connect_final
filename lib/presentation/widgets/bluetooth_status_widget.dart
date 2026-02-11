@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/bluetooth/bluetooth_state_monitor.dart';
+import '../../domain/models/bluetooth_state_models.dart';
 
 /// Widget that displays user-friendly Bluetooth status messages with action buttons
 class BluetoothStatusWidget extends StatelessWidget {

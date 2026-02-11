@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
-import '../../../core/discovery/device_deduplication_manager.dart';
-import '../../../core/interfaces/i_connection_service.dart';
+import '../../../domain/services/device_deduplication_manager.dart';
+import '../../../domain/interfaces/i_connection_service.dart';
 import '../../controllers/discovery_overlay_controller.dart';
 import '../../providers/ble_providers.dart';
 import 'discovery_device_tile.dart';

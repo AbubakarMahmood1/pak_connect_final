@@ -4,11 +4,12 @@ import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
-import '../interfaces/i_chat_connection_manager.dart';
-import '../../core/models/connection_status.dart';
-import '../../core/models/connection_info.dart';
-import '../../core/discovery/device_deduplication_manager.dart';
-import '../interfaces/i_connection_service.dart';
+import '../../domain/interfaces/i_chat_connection_manager.dart';
+import '../../domain/models/connection_status.dart';
+import '../../domain/models/connection_info.dart';
+import 'package:pak_connect/domain/services/device_deduplication_manager.dart'
+    show DiscoveredDevice;
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 
 /// Service for managing chat connection status determination
 ///
@@ -46,7 +47,7 @@ class ChatConnectionManager implements IChatConnectionManager {
     required String contactName,
     required ConnectionInfo? currentConnectionInfo,
     required List<Peripheral> discoveredDevices,
-    required Map<String, DiscoveredDevice> discoveryData,
+    required Map<String, dynamic> discoveryData,
     required DateTime? lastSeenTime,
   }) {
     final matchesActiveSession = _matchesActiveConnection(contactPublicKey);
@@ -131,11 +132,13 @@ class ChatConnectionManager implements IChatConnectionManager {
   @override
   bool isContactOnlineViaHash({
     required String contactPublicKey,
-    required Map<String, DiscoveredDevice> discoveryData,
+    required Map<String, dynamic> discoveryData,
   }) {
     if (discoveryData.isEmpty) return false;
 
-    for (final device in discoveryData.values) {
+    for (final value in discoveryData.values) {
+      if (value is! DiscoveredDevice) continue;
+      final device = value;
       if (device.isKnownContact && device.contactInfo != null) {
         final contact = device.contactInfo!.contact;
 
@@ -228,11 +231,14 @@ class ChatConnectionManager implements IChatConnectionManager {
   }
 
   @override
-  Map<String, DiscoveredDevice> getKnownContactsFromDiscovery(
-    Map<String, DiscoveredDevice> discoveryData,
+  Map<String, dynamic> getKnownContactsFromDiscovery(
+    Map<String, dynamic> discoveryData,
   ) {
     return Map.fromEntries(
-      discoveryData.entries.where((entry) => entry.value.isKnownContact),
+      discoveryData.entries.where((entry) {
+        final value = entry.value;
+        return value is DiscoveredDevice && value.isKnownContact;
+      }),
     );
   }
 

@@ -2,12 +2,14 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import '../../domain/services/contact_management_service.dart';
+import '../../domain/entities/contact.dart';
 import '../../domain/entities/enhanced_contact.dart';
-import '../../data/repositories/contact_repository.dart';
-import '../../core/services/security_manager.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/models/security_level.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 final _logger = Logger('ContactProvider');
@@ -21,8 +23,15 @@ final contactServiceProvider = Provider<ContactManagementService>((ref) {
 });
 
 /// Contact repository provider
-final contactRepositoryProvider = Provider<ContactRepository>((ref) {
-  return ContactRepository();
+final contactRepositoryProvider = Provider<IContactRepository>((ref) {
+  final di = GetIt.instance;
+  if (di.isRegistered<IContactRepository>()) {
+    return di<IContactRepository>();
+  }
+  throw StateError(
+    'IContactRepository is not registered. '
+    'Call setupServiceLocator() before using contactRepositoryProvider.',
+  );
 });
 
 /// All enhanced contacts provider

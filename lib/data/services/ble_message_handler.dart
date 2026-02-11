@@ -4,29 +4,27 @@ import 'dart:typed_data';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import '../../core/utils/message_fragmenter.dart';
-import '../../core/models/protocol_message.dart';
-import '../../core/models/mesh_relay_models.dart';
+import '../../domain/utils/message_fragmenter.dart';
+import '../../domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_state_manager.dart';
 import 'contact_event_handler.dart';
 import 'mesh_relay_handler.dart';
 import 'outbound_message_sender.dart';
 import 'queue_sync_processor.dart';
-import '../../core/services/security_manager.dart';
-import '../../core/messaging/queue_sync_manager.dart';
-import '../../core/messaging/offline_message_queue.dart';
-import '../../core/messaging/mesh_relay_engine.dart'
-    show RelayDecision, RelayStatistics;
-import '../../core/messaging/message_ack_tracker.dart';
-import '../../core/messaging/inbound_text_processor.dart';
-import '../../core/messaging/protocol_message_dispatcher.dart';
-import '../../core/messaging/message_chunk_sender.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import '../../domain/messaging/offline_message_queue_contract.dart';
+import 'package:pak_connect/domain/messaging/message_ack_tracker.dart';
+import 'inbound_text_processor.dart';
+import 'protocol_message_dispatcher.dart';
+import '../../domain/messaging/message_chunk_sender.dart';
 import '../../domain/entities/message.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../data/repositories/message_repository.dart';
-import '../../core/security/ephemeral_key_manager.dart';
-import 'package:pak_connect/core/utils/string_extensions.dart';
+import '../../domain/services/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
 
 /// BLE Message Handler for processing incoming/outgoing messages
@@ -261,7 +259,7 @@ class BLEMessageHandler {
   /// Initialize relay system for mesh networking
   Future<void> initializeRelaySystem({
     required String currentNodeId,
-    required OfflineMessageQueue messageQueue,
+    required OfflineMessageQueueContract messageQueue,
     Function(String originalMessageId, String content, String originalSender)?
     onRelayMessageReceived,
     Function(RelayDecision decision)? onRelayDecisionMade,
@@ -694,7 +692,7 @@ class BLEMessageHandler {
 
         // Register mapping for Noise session lookup
         if (senderPublicKey != null) {
-          SecurityManager.instance.registerIdentityMapping(
+          SecurityServiceLocator.instance.registerIdentityMapping(
             persistentPublicKey: theirPersistentKey,
             ephemeralID: senderPublicKey,
           );

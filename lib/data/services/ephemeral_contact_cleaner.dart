@@ -1,8 +1,9 @@
 import 'package:logging/logging.dart';
+import 'package:get_it/get_it.dart';
 import '../repositories/contact_repository.dart';
 import '../repositories/message_repository.dart';
-import '../../core/utils/chat_utils.dart';
-import '../../core/services/message_queue_repository.dart';
+import 'package:pak_connect/domain/utils/chat_utils.dart';
+import '../../domain/interfaces/i_message_queue_repository.dart';
 import '../../domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
@@ -64,7 +65,13 @@ class EphemeralContactCleaner {
     required Logger logger,
   }) async {
     try {
-      final repo = MessageQueueRepository();
+      final getIt = GetIt.instance;
+      if (!getIt.isRegistered<IMessageQueueRepository>()) {
+        logger.fine('Queue repository not registered - skipping queue check');
+        return false;
+      }
+
+      final repo = getIt<IMessageQueueRepository>();
       await repo.loadQueueFromStorage();
       final keys = <String>{
         contact.publicKey,

@@ -7,11 +7,12 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:get_it/get_it.dart';
-import '../interfaces/i_repository_provider.dart';
-import '../services/security_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 import '../security/noise/noise.dart';
 
 /// Result of handshake initiation
@@ -67,11 +68,7 @@ class SmartHandshakeManager {
   Future<HandshakeInitiationResult> initiateHandshake(String peerID) async {
     _logger.info('🤝 Initiating handshake with $peerID');
 
-    // Get pattern selection from SecurityManager
-    final securityManager = SecurityManager.instance;
-    final (pattern, remoteStaticKey) = await securityManager.selectNoisePattern(
-      peerID,
-    );
+    final (pattern, remoteStaticKey) = await _selectNoisePattern(peerID);
 
     // Check if we should skip KK due to previous failures
     if (pattern == NoisePattern.kk && _shouldSkipKK(peerID)) {
@@ -83,6 +80,29 @@ class SmartHandshakeManager {
 
     // Attempt handshake with selected pattern
     return await _initiateWithPattern(peerID, pattern, remoteStaticKey);
+  }
+
+  Future<(NoisePattern, Uint8List?)> _selectNoisePattern(String peerID) async {
+    final contact = await _repositoryProvider.contactRepository
+        .getContactByAnyId(peerID);
+
+    if (contact == null || contact.securityLevel == SecurityLevel.low) {
+      return (NoisePattern.xx, null);
+    }
+
+    final theirStaticKey = contact.noisePublicKey;
+    if (theirStaticKey != null && theirStaticKey.isNotEmpty) {
+      try {
+        final keyBytes = base64.decode(theirStaticKey);
+        if (keyBytes.length == 32) {
+          return (NoisePattern.kk, Uint8List.fromList(keyBytes));
+        }
+      } catch (_) {
+        // Fall through to XX for malformed key material.
+      }
+    }
+
+    return (NoisePattern.xx, null);
   }
 
   /// Initiate handshake with specific pattern

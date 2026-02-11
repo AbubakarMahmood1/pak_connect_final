@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'archive_search_models.dart';
-import '../../core/models/archive_models.dart';
+import '../models/archive_models.dart';
 
 /// Callback for history update events
 typedef HistoryUpdateCallback = void Function();

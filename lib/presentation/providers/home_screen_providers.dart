@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
-import '../../core/interfaces/i_chats_repository.dart';
-import '../../core/interfaces/i_chat_interaction_handler.dart';
-import '../../core/services/home_screen_facade.dart';
+import '../../domain/interfaces/i_chats_repository.dart';
+import '../../domain/interfaces/i_chat_interaction_handler.dart';
+import '../../domain/interfaces/i_home_screen_facade.dart';
+import '../../domain/interfaces/i_home_screen_facade_factory.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../controllers/chat_list_controller.dart';
 import '../services/chat_interaction_handler.dart';
@@ -26,7 +28,7 @@ class HomeScreenProviderArgs {
   final WidgetRef ref;
   final IChatsRepository chatsRepository;
   final ChatManagementService chatManagementService;
-  final HomeScreenFacade? homeScreenFacade;
+  final IHomeScreenFacade? homeScreenFacade;
   final ChatListController? chatListController;
   final Logger? logger;
 }
@@ -71,7 +73,7 @@ final chatInteractionIntentProvider = StreamProvider.autoDispose
     });
 
 final homeScreenFacadeProvider = Provider.autoDispose
-    .family<HomeScreenFacade, HomeScreenProviderArgs>((ref, args) {
+    .family<IHomeScreenFacade, HomeScreenProviderArgs>((ref, args) {
       if (args.homeScreenFacade != null) return args.homeScreenFacade!;
 
       // Use a single args instance so the handler and intent listener share the same provider instance.
@@ -86,7 +88,8 @@ final homeScreenFacadeProvider = Provider.autoDispose
         chatInteractionHandlerProvider(handlerArgs),
       );
 
-      final facade = HomeScreenFacade(
+      final facadeFactory = _resolveHomeScreenFacadeFactory();
+      final facade = facadeFactory.create(
         chatsRepository: args.chatsRepository,
         bleService: ref.read(connectionServiceProvider),
         chatManagementService: args.chatManagementService,
@@ -117,3 +120,14 @@ final homeScreenFacadeProvider = Provider.autoDispose
       });
       return facade;
     });
+
+IHomeScreenFacadeFactory _resolveHomeScreenFacadeFactory() {
+  final locator = GetIt.instance;
+  if (locator.isRegistered<IHomeScreenFacadeFactory>()) {
+    return locator<IHomeScreenFacadeFactory>();
+  }
+  throw StateError(
+    'IHomeScreenFacadeFactory is not registered. '
+    'Register it in service locator before using HomeScreen providers.',
+  );
+}
