@@ -2,7 +2,6 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
@@ -32,12 +31,12 @@ import '../providers/security_state_provider.dart';
 import '../providers/chat_session_providers.dart';
 import '../viewmodels/chat_session_view_model.dart';
 import '../widgets/chat_screen_helpers.dart';
-import '../widgets/chat_search_bar.dart';
-import '../widgets/message_bubble.dart';
+import '../widgets/chat_binary_widgets.dart';
+import '../widgets/chat_screen_sections.dart';
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/utils/chat_utils.dart';
 import '../../domain/services/mesh_networking_service.dart'
-    show ReceivedBinaryEvent, PendingBinaryTransfer;
+    show ReceivedBinaryEvent;
 
 class ChatScreen extends ConsumerStatefulWidget {
   final Peripheral? device; // For central mode (live connection)
@@ -386,7 +385,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 statusText: uiState.initializationStatus,
               ),
             if (pendingTransfers.isNotEmpty)
-              _PendingBinaryBanner(
+              PendingBinaryBanner(
                 transfers: pendingTransfers,
                 onRetryNow: () async {
                   final service = ref.read(meshNetworkingServiceProvider);
@@ -401,147 +400,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 },
               ),
             if (binaryInbox.isNotEmpty)
-              _BinaryInboxList(
+              BinaryInboxList(
                 inbox: binaryInbox,
                 onDismiss: (id) => ref
                     .read(binaryPayloadInboxProvider.notifier)
                     .clearPayload(id),
               ),
-            if (searchController.isSearchMode)
-              ChatSearchBar(
-                messages: messages,
-                onSearch: searchController.handleSearchQuery,
-                onNavigateToResult: (index) => searchController
-                    .navigateToSearchResult(index, messages.length),
-                onExitSearch: _toggleSearchMode,
-              ),
-            Expanded(
-              child: uiState.isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : messages.isEmpty
-                  ? const EmptyChatPlaceholder()
-                  : ListView.builder(
-                      controller: scrollingController.scrollController,
-                      padding: EdgeInsets.zero,
-                      itemCount: messages.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == messages.length) {
-                          final failedCount = uiState.messages
-                              .where(
-                                (m) =>
-                                    m.isFromMe &&
-                                    m.status == MessageStatus.failed,
-                              )
-                              .length;
-                          return RetryIndicator(
-                            failedCount: failedCount,
-                            onRetry: () => sessionActions.retryFailedMessages(),
-                          );
-                        }
-
-                        final message = messages[index];
-                        final retryHandler = _retryHandlerFor(message);
-                        Widget messageWidget = MessageBubble(
-                          message: message,
-                          showAvatar: true,
-                          showStatus: true,
-                          searchQuery: searchController.isSearchMode
-                              ? searchController.searchQuery
-                              : null,
-                          onRetry: retryHandler,
-                          onDelete: (messageId, deleteForEveryone) =>
-                              _deleteMessage(messageId, deleteForEveryone),
-                        );
-
-                        if (uiState.showUnreadSeparator &&
-                            index ==
-                                scrollingController.lastReadMessageIndex + 1 &&
-                            scrollingController.unreadMessageCount > 0) {
-                          return Column(
-                            children: [const UnreadSeparator(), messageWidget],
-                          );
-                        }
-
-                        return messageWidget;
-                      },
-                    ),
+            ChatMessagesSection(
+              uiState: uiState,
+              messages: messages,
+              searchController: searchController,
+              scrollingController: scrollingController,
+              onToggleSearchMode: _toggleSearchMode,
+              onRetryFailedMessages: sessionActions.retryFailedMessages,
+              retryHandlerFor: _retryHandlerFor,
+              onDeleteMessage: _deleteMessage,
             ),
-            Container(
-              padding: const EdgeInsets.all(8),
-              child: Row(
-                children: [
-                  // Image picker button
-                  IconButton(
-                    icon: const Icon(Icons.image),
-                    tooltip: 'Send image',
-                    onPressed: actuallyConnected ? _pickAndSendImage : null,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      decoration: InputDecoration(
-                        hintText: _getMessageHintText(connectionInfo),
-                        border: const OutlineInputBorder(),
-                      ),
-                      onSubmitted: (_) => _sendMessage(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.send),
-                    onPressed: _sendMessage,
-                  ),
-                ],
-              ),
+            ChatComposer(
+              messageController: _messageController,
+              hintText: _getMessageHintText(connectionInfo),
+              canSendImage: actuallyConnected,
+              onPickImage: _pickAndSendImage,
+              onSendMessage: _sendMessage,
             ),
           ],
         ),
       ),
       floatingActionButton:
           scrollingController.shouldShowScrollDownButton(messages.length)
-          ? Padding(
-              padding: const EdgeInsets.only(bottom: 80.0),
-              child: FloatingActionButton(
-                mini: true,
-                onPressed: () {
-                  sessionActions.scrollToBottom();
-                  scrollingController.scheduleMarkAsRead();
-                },
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    const Icon(Icons.arrow_downward),
-                    if (uiState.newMessagesWhileScrolledUp > 0)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: const BoxConstraints(
-                            minWidth: 16,
-                            minHeight: 16,
-                          ),
-                          child: Text(
-                            uiState.newMessagesWhileScrolledUp > 99
-                                ? '99+'
-                                : '${uiState.newMessagesWhileScrolledUp}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+          ? ChatScrollDownFab(
+              newMessagesWhileScrolledUp: uiState.newMessagesWhileScrolledUp,
+              onPressed: () {
+                sessionActions.scrollToBottom();
+                scrollingController.scheduleMarkAsRead();
+              },
             )
           : null,
     );
@@ -892,225 +784,5 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .read(chatSessionHandleProvider(_controllerArgs))
         .actions
         .manualReconnection();
-  }
-}
-
-class _BinaryInboxList extends StatelessWidget {
-  const _BinaryInboxList({required this.inbox, required this.onDismiss});
-
-  final Map<String, ReceivedBinaryEvent> inbox;
-  final void Function(String transferId) onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    final items = inbox.values.toList()
-      ..sort((a, b) => b.size.compareTo(a.size));
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'New media received',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          SizedBox(height: 6),
-          ...items.map(
-            (e) => Card(
-              child: InkWell(
-                onTap: () => _openViewer(context, e),
-                child: ListTile(
-                  dense: true,
-                  leading: Icon(
-                    _isImage(e.filePath)
-                        ? Icons.image
-                        : Icons.insert_drive_file,
-                  ),
-                  title: Text(
-                    'Media ${e.originalType} • ${_formatBytes(e.size)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    e.filePath,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Wrap(
-                    spacing: 4,
-                    children: [
-                      IconButton(
-                        icon: Icon(Icons.copy),
-                        tooltip: 'Copy path',
-                        onPressed: () =>
-                            Clipboard.setData(ClipboardData(text: e.filePath)),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.open_in_new),
-                        tooltip: 'Open',
-                        onPressed: () => _openViewer(context, e),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.check),
-                        onPressed: () => onDismiss(e.transferId),
-                        tooltip: 'Dismiss',
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes >= 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    if (bytes >= 1024) {
-      return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    }
-    return '$bytes B';
-  }
-
-  bool _isImage(String path) {
-    final lower = path.toLowerCase();
-    return lower.endsWith('.png') ||
-        lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.gif') ||
-        lower.endsWith('.webp');
-  }
-
-  void _openViewer(BuildContext context, ReceivedBinaryEvent event) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => _BinaryPayloadViewer(event: event)),
-    );
-  }
-}
-
-class _PendingBinaryBanner extends StatelessWidget {
-  const _PendingBinaryBanner({
-    required this.transfers,
-    required this.onRetryNow,
-  });
-
-  final List<PendingBinaryTransfer> transfers;
-  final Future<void> Function() onRetryNow;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            Icon(Icons.cloud_upload, size: 18),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Pending media sends: ${transfers.length}',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ),
-            TextButton(onPressed: onRetryNow, child: Text('Retry now')),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BinaryPayloadViewer extends StatelessWidget {
-  const _BinaryPayloadViewer({required this.event});
-
-  final ReceivedBinaryEvent event;
-
-  @override
-  Widget build(BuildContext context) {
-    final file = File(event.filePath);
-    final isImage = _isImage(event.filePath);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Media ${event.originalType}'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.copy),
-            tooltip: 'Copy path',
-            onPressed: () =>
-                Clipboard.setData(ClipboardData(text: event.filePath)),
-          ),
-          IconButton(
-            icon: Icon(Icons.delete_outline),
-            tooltip: 'Dismiss',
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'transferId: ${event.transferId}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            SizedBox(height: 6),
-            Text(
-              'TTL: ${event.ttl} • Recipient: ${event.recipient ?? "broadcast"}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            SizedBox(height: 12),
-            Text(
-              event.filePath,
-              style: Theme.of(context).textTheme.bodyMedium,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            SizedBox(height: 12),
-            if (isImage && file.existsSync())
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.file(file, fit: BoxFit.contain),
-                ),
-              )
-            else
-              Expanded(
-                child: Center(
-                  child: Icon(
-                    Icons.insert_drive_file,
-                    size: 48,
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  bool _isImage(String path) {
-    final lower = path.toLowerCase();
-    return lower.endsWith('.png') ||
-        lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.gif') ||
-        lower.endsWith('.webp');
   }
 }
