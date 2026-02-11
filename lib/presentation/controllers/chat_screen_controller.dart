@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -596,7 +597,6 @@ class ChatScreenController extends ChangeNotifier {
     final userId =
         _contactUserId ??
         (configKey != null && configKey.isNotEmpty ? UserId(configKey) : null);
-    final publicKey = userId?.value ?? _chatId.value;
     if (userId == null) {
       _logger.warning('Chat open with no public key available');
       return;
@@ -613,20 +613,13 @@ class ChatScreenController extends ChangeNotifier {
     _logger.info(
       'Chat open: ${config.contactName ?? "Unknown"} | Security=${securityLevel.name} | Encryption=${encryptionMethod.type.name}',
     );
-    final pkDisp = publicKey.length > 16
-        ? '${publicKey.shortId()}...'
-        : publicKey;
-    final eph = contact?.currentEphemeralId;
-    final ephDisp = eph != null
-        ? (eph.length > 16 ? '${eph.shortId()}...' : eph)
-        : 'NULL';
-    final sid = contact?.sessionIdForNoise;
-    final sidDisp = sid != null
-        ? (sid.length > 16 ? '${sid.shortId()}...' : sid)
-        : 'NULL';
-    _logger.info(
-      'Keys: PubKey=$pkDisp | CurrentEphemeralID=$ephDisp | NoiseSession=$sidDisp',
-    );
+    if (kDebugMode) {
+      final ephPresent = contact?.currentEphemeralId != null;
+      final sessionPresent = contact?.sessionIdForNoise != null;
+      _logger.info(
+        'event=chat_key_state_debug hasPublicKey=true hasCurrentEphemeralId=$ephPresent hasNoiseSessionId=$sessionPresent',
+      );
+    }
   }
 
   void _updateMessageStatus(MessageId messageId, MessageStatus newStatus) {

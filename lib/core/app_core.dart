@@ -15,6 +15,7 @@ import '../domain/routing/topology_manager.dart';
 import '../domain/config/kill_switches.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/services/adaptive_encryption_strategy.dart';
+import 'package:pak_connect/domain/utils/app_logger.dart';
 import 'services/app_core_shared_message_queue_provider.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
@@ -261,12 +262,7 @@ class AppCore {
 
   /// Setup comprehensive logging
   void _setupLogging() {
-    Logger.root.level = kDebugMode ? Level.ALL : Level.INFO;
-    Logger.root.onRecord.listen((record) {
-      if (kDebugMode) {
-        print('${record.level.name}: ${record.time}: ${record.message}');
-      }
-    });
+    AppLogger.initialize();
   }
 
   /// Initialize repositories
