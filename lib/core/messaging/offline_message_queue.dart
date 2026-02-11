@@ -68,6 +68,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   // Connection monitoring
   bool _isOnline = false;
   Timer? _connectivityCheckTimer;
+  Timer? _periodicCleanupTimer;
 
   // Statistics
   int _totalQueued = 0;
@@ -847,6 +848,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
   /// Start connectivity monitoring
   void _startConnectivityMonitoring() {
+    _connectivityCheckTimer?.cancel();
     _connectivityCheckTimer = Timer.periodic(Duration(seconds: 30), (timer) {
       onConnectivityCheck?.call();
     });
@@ -997,7 +999,8 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
   /// Start periodic cleanup for performance optimization
   void _startPeriodicCleanup() {
-    Timer.periodic(Duration(hours: 6), (timer) {
+    _periodicCleanupTimer?.cancel();
+    _periodicCleanupTimer = Timer.periodic(Duration(hours: 6), (timer) {
       _performPeriodicMaintenance();
     });
   }
@@ -1145,6 +1148,9 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   /// Dispose of resources
   void dispose() {
     _connectivityCheckTimer?.cancel();
+    _connectivityCheckTimer = null;
+    _periodicCleanupTimer?.cancel();
+    _periodicCleanupTimer = null;
     _cancelAllActiveRetries();
     _logger.info('Offline message queue disposed');
   }
