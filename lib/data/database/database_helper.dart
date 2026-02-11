@@ -4,11 +4,13 @@
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:path/path.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pak_connect/domain/utils/app_logger.dart';
 import 'database_encryption.dart';
 import 'archive_db_utilities.dart';
 
@@ -69,10 +71,13 @@ class DatabaseHelper {
     if (isMobilePlatform) {
       try {
         encryptionKey = await DatabaseEncryption.getOrCreateEncryptionKey();
-        _logger.info('🔐 Retrieved encryption key for SQLCipher');
+        _logger.info(AppLogger.event(type: 'db_encryption_key_loaded'));
       } catch (e) {
         _logger.severe(
-          '❌ Failed to retrieve encryption key on mobile platform: $e',
+          AppLogger.event(
+            type: 'db_encryption_key_load_failed',
+            fields: {'error': e},
+          ),
         );
         // On mobile, encryption is required - fail closed
         rethrow;
@@ -83,20 +88,32 @@ class DatabaseHelper {
         final isEncrypted = await _isDatabaseEncrypted(path);
         if (!isEncrypted) {
           _logger.warning(
-            '⚠️ Existing database is unencrypted - migrating to encrypted storage',
+            AppLogger.event(type: 'db_encryption_migration_required'),
           );
           await _migrateUnencryptedDatabase(path, encryptionKey, factory);
         }
       }
     } else {
-      _logger.fine(
-        'Encryption skipped (desktop/test platform - sqflite_common does not support SQLCipher)',
+      _logger.info(
+        AppLogger.event(
+          type: 'db_encryption_unavailable',
+          fields: {'mode': 'plaintext'},
+        ),
       );
     }
 
-    _logger.info(
-      'Initializing database at: $path (factory: ${factory.runtimeType}, encrypted: ${encryptionKey != null})',
-    );
+    if (kReleaseMode) {
+      _logger.info(
+        AppLogger.event(
+          type: 'db_initialize',
+          fields: {'encrypted': encryptionKey != null},
+        ),
+      );
+    } else {
+      _logger.info(
+        'Initializing database at: $path (factory: ${factory.runtimeType}, encrypted: ${encryptionKey != null})',
+      );
+    }
 
     // Use platform-specific options to avoid runtime errors
     // - Mobile: sqlcipher.OpenDatabaseOptions supports password parameter

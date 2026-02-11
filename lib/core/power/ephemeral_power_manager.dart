@@ -5,8 +5,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pak_connect/domain/services/hint_cache_manager.dart';
+import 'package:pak_connect/domain/utils/app_logger.dart';
 
 class EphemeralKeyManager {
+  static final _logger = AppLogger.getLogger(LoggerNames.keyManagement);
   static const int hintLength = 8;
 
   static String? _userSalt;
@@ -57,7 +59,7 @@ class EphemeralKeyManager {
     HintCacheManager.onSessionRotated();
 
     if (kDebugMode) {
-      print('✅ New ephemeral session: $_currentSessionKey');
+      _logger.fine(AppLogger.event(type: 'ephemeral_session_rotated_legacy'));
     }
   }
 

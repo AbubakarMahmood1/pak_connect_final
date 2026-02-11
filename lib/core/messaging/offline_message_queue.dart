@@ -15,6 +15,7 @@ import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
+import 'package:pak_connect/domain/utils/app_logger.dart';
 import '../services/message_queue_repository.dart';
 import '../services/queue_persistence_manager.dart';
 import '../services/retry_scheduler.dart';
@@ -1007,8 +1008,9 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
   /// Perform periodic maintenance tasks
   Future<void> _performPeriodicMaintenance() async {
+    final startedAt = DateTime.now();
     try {
-      _logger.info('Starting periodic queue maintenance...');
+      _logger.info(AppLogger.event(type: 'offline_queue_maintenance_started'));
 
       // Clean up old deleted IDs
       await cleanupOldDeletedIds();
@@ -1028,9 +1030,20 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
         }
       }
 
-      _logger.info('Periodic queue maintenance completed');
+      _logger.info(
+        AppLogger.event(
+          type: 'offline_queue_maintenance_completed',
+          duration: DateTime.now().difference(startedAt),
+        ),
+      );
     } catch (e) {
-      _logger.warning('Periodic maintenance failed: $e');
+      _logger.warning(
+        AppLogger.event(
+          type: 'offline_queue_maintenance_failed',
+          duration: DateTime.now().difference(startedAt),
+          fields: {'error': e},
+        ),
+      );
     }
   }
 

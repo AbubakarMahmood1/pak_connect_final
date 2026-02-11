@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:pak_connect/domain/services/hint_cache_manager.dart';
 import 'package:pak_connect/domain/utils/app_logger.dart';
-import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 class EphemeralKeyManager {
   static final _logger = AppLogger.getLogger(LoggerNames.keyManagement);
@@ -37,14 +36,11 @@ class EphemeralKeyManager {
       throw StateError('EphemeralKeyManager not initialized');
     }
 
-    final preview = _currentSessionKey!.length > 16
-        ? '${_currentSessionKey!.shortId()}...'
-        : _currentSessionKey!;
-    _logger.info(
-      '🔧 INVESTIGATION: Returning current session ephemeral key: $preview',
-    );
-    _logger.info(
-      '📋 This key is used in HandshakeCoordinator (NOT BLEStateManager pairing)',
+    _logger.fine(
+      AppLogger.event(
+        type: 'ephemeral_key_requested',
+        fields: {'initialized': true},
+      ),
     );
 
     return _currentSessionKey!;
@@ -111,7 +107,10 @@ class EphemeralKeyManager {
     );
 
     _logger.info(
-      '✅ Generated new ephemeral session: ${_currentSessionKey!.shortId()}...',
+      AppLogger.event(
+        type: 'ephemeral_session_generated',
+        fields: {'hasSigningPublicKey': _ephemeralSigningPublicKey != null},
+      ),
     );
   }
 
@@ -183,9 +182,7 @@ class EphemeralKeyManager {
     // Notify cache manager
     HintCacheManager.onSessionRotated();
 
-    _logger.info(
-      '✅ New ephemeral session with fresh signing keys: $_currentSessionKey',
-    );
+    _logger.info(AppLogger.event(type: 'ephemeral_session_rotated'));
   }
 
   // Getters for debugging and UI
