@@ -26,6 +26,8 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
 
+part 'offline_message_queue_maintenance_helper.dart';
+
 /// Comprehensive offline message queue with intelligent retry and delivery management
 class OfflineMessageQueue implements OfflineMessageQueueContract {
   static final _logger = Logger('OfflineMessageQueue');
@@ -81,6 +83,8 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   );
 
   late final QueueBandwidthAllocator _bandwidth = QueueBandwidthAllocator();
+  late final _OfflineMessageQueueMaintenanceHelper _maintenanceHelper =
+      _OfflineMessageQueueMaintenanceHelper(this);
 
   // Repository provider for favorites support
   IRepositoryProvider? _repositoryProvider;
@@ -808,70 +812,34 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Start connectivity monitoring
-  void _startConnectivityMonitoring() {
-    _queueScheduler.startConnectivityMonitoring(
-      onConnectivityCheck: () {
-        onConnectivityCheck?.call();
-      },
-    );
-  }
+  void _startConnectivityMonitoring() =>
+      _maintenanceHelper.startConnectivityMonitoring();
 
   /// Cancel all active retry timers
-  void _cancelAllActiveRetries() {
-    _queueScheduler.cancelAllRetryTimers();
-  }
+  void _cancelAllActiveRetries() => _maintenanceHelper.cancelAllActiveRetries();
 
   /// Cancel retry timer for specific message
-  void _cancelRetryTimer(MessageId messageId) {
-    _queueScheduler.cancelRetryTimer(messageId.value);
-  }
+  void _cancelRetryTimer(MessageId messageId) =>
+      _maintenanceHelper.cancelRetryTimer(messageId);
 
   /// Calculate average delivery time
-  Duration _calculateAverageDeliveryTime() {
-    // PRIORITY 1 FIX: Calculate across both queues
-    final deliveredMessages = _getAllMessages()
-        .where(
-          (m) =>
-              m.status == QueuedMessageStatus.delivered &&
-              m.deliveredAt != null,
-        )
-        .toList();
-
-    if (deliveredMessages.isEmpty) return Duration.zero;
-
-    final totalTime = deliveredMessages
-        .map((m) => m.deliveredAt!.difference(m.queuedAt))
-        .fold<Duration>(Duration.zero, (sum, duration) => sum + duration);
-
-    return Duration(
-      milliseconds: totalTime.inMilliseconds ~/ deliveredMessages.length,
-    );
-  }
+  Duration _calculateAverageDeliveryTime() =>
+      _maintenanceHelper.calculateAverageDeliveryTime();
 
   /// Update statistics and notify listeners
-  void _updateStatistics() {
-    final stats = getStatistics();
-    onStatsUpdated?.call(stats);
-  }
+  void _updateStatistics() => _maintenanceHelper.updateStatistics();
 
   /// Save a single message to persistent storage (optimized for individual updates)
-  Future<void> _saveMessageToStorage(QueuedMessage message) async {
-    await _store.saveMessageToStorage(message);
-    invalidateHashCache();
-  }
+  Future<void> _saveMessageToStorage(QueuedMessage message) =>
+      _maintenanceHelper.saveMessageToStorage(message);
 
   /// Remove a single message from persistent storage
-  Future<void> _deleteMessageFromStorage(String messageId) async {
-    await _store.deleteMessageFromStorage(messageId);
-    invalidateHashCache();
-  }
+  Future<void> _deleteMessageFromStorage(String messageId) =>
+      _maintenanceHelper.deleteMessageFromStorage(messageId);
 
   /// Save entire queue to persistent storage (used for initial load and bulk operations)
   /// For individual message updates, use _saveMessageToStorage for better performance
-  Future<void> _saveQueueToStorage() async {
-    await _store.saveQueueToStorage();
-    invalidateHashCache();
-  }
+  Future<void> _saveQueueToStorage() => _maintenanceHelper.saveQueueToStorage();
 
   // ===== QUEUE HASH SYNCHRONIZATION METHODS =====
 
@@ -929,169 +897,18 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Start periodic cleanup for performance optimization
-  void _startPeriodicCleanup() {
-    _queueScheduler.startPeriodicCleanup(
-      onPeriodicMaintenance: _performPeriodicMaintenance,
-    );
-  }
+  void _startPeriodicCleanup() => _maintenanceHelper.startPeriodicCleanup();
 
   /// Perform periodic maintenance tasks
-  Future<void> _performPeriodicMaintenance() async {
-    final startedAt = DateTime.now();
-    try {
-      _logger.info(AppLogger.event(type: 'offline_queue_maintenance_started'));
-
-      // Clean up old deleted IDs
-      await cleanupOldDeletedIds();
-
-      // Clean up expired messages (older than 30 days)
-      await _cleanupExpiredMessages();
-
-      // Optimize storage if needed
-      await _optimizeStorage();
-
-      // Invalidate old hash cache
-      final lastHashTime = _queueSync.getSyncStatistics().lastHashTime;
-      if (lastHashTime != null) {
-        final cacheAge = DateTime.now().difference(lastHashTime);
-        if (cacheAge.inHours > 1) {
-          invalidateHashCache();
-        }
-      }
-
-      _logger.info(
-        AppLogger.event(
-          type: 'offline_queue_maintenance_completed',
-          duration: DateTime.now().difference(startedAt),
-        ),
-      );
-    } catch (e) {
-      _logger.warning(
-        AppLogger.event(
-          type: 'offline_queue_maintenance_failed',
-          duration: DateTime.now().difference(startedAt),
-          fields: {'error': e},
-        ),
-      );
-    }
-  }
-
-  /// Clean up expired messages for performance
-  /// Removes both TTL-expired messages and old delivered/failed messages
-  Future<void> _cleanupExpiredMessages() async {
-    final cutoffDate = DateTime.now().subtract(Duration(days: 30));
-    int ttlExpiredCount = 0;
-    int oldMessagesCount = 0;
-
-    final expiredIds = <String>[];
-
-    // PRIORITY 1 FIX: Clean both queues
-    _directMessageQueue.removeWhere((message) {
-      // Remove messages that have exceeded their TTL
-      if (message.status == QueuedMessageStatus.pending ||
-          message.status == QueuedMessageStatus.retrying) {
-        if (_isMessageExpired(message)) {
-          ttlExpiredCount++;
-          expiredIds.add(message.id);
-          _logger.info(
-            'Message ${message.id.shortId()}... expired (TTL exceeded)',
-          );
-          return true;
-        }
-      }
-
-      // Remove old delivered or failed messages
-      if (message.status == QueuedMessageStatus.delivered ||
-          message.status == QueuedMessageStatus.failed) {
-        final messageAge =
-            message.deliveredAt ?? message.failedAt ?? message.queuedAt;
-        if (messageAge.isBefore(cutoffDate)) {
-          oldMessagesCount++;
-          expiredIds.add(message.id);
-          return true;
-        }
-      }
-      return false;
-    });
-
-    _relayMessageQueue.removeWhere((message) {
-      // Remove messages that have exceeded their TTL
-      if (message.status == QueuedMessageStatus.pending ||
-          message.status == QueuedMessageStatus.retrying) {
-        if (_isMessageExpired(message)) {
-          ttlExpiredCount++;
-          expiredIds.add(message.id);
-          _logger.info(
-            'Message ${message.id.shortId()}... expired (TTL exceeded)',
-          );
-          return true;
-        }
-      }
-
-      // Remove old delivered or failed messages
-      if (message.status == QueuedMessageStatus.delivered ||
-          message.status == QueuedMessageStatus.failed) {
-        final messageAge =
-            message.deliveredAt ?? message.failedAt ?? message.queuedAt;
-        if (messageAge.isBefore(cutoffDate)) {
-          oldMessagesCount++;
-          expiredIds.add(message.id);
-          return true;
-        }
-      }
-      return false;
-    });
-
-    // Persist removal to storage
-    if (expiredIds.isNotEmpty) {
-      await _saveQueueToStorage();
-
-      _logger.info(
-        'Cleaned up ${expiredIds.length} expired messages '
-        '(TTL: $ttlExpiredCount, Old: $oldMessagesCount)',
-      );
-    }
-  }
-
-  /// Optimize storage by defragmenting data
-  Future<void> _optimizeStorage() async {
-    try {
-      // Force a complete save to optimize storage structure
-      await _saveQueueToStorage();
-
-      // Check if we need to compact deleted IDs
-      if (_deletedMessageIds.length > _maxDeletedIdsToKeep * 2) {
-        await cleanupOldDeletedIds();
-      }
-
-      _logger.fine('Storage optimization completed');
-    } catch (e) {
-      _logger.warning('Storage optimization failed: $e');
-    }
-  }
+  Future<void> _performPeriodicMaintenance() =>
+      _maintenanceHelper.performPeriodicMaintenance();
 
   /// Get performance statistics
-  Map<String, dynamic> getPerformanceStats() {
-    final syncStats = _queueSync.getSyncStatistics();
-    // PRIORITY 1 FIX: Include both queue stats
-    return {
-      'totalMessages': _directMessageQueue.length + _relayMessageQueue.length,
-      'directMessages': _directMessageQueue.length,
-      'relayMessages': _relayMessageQueue.length,
-      'deletedIdsCount': _deletedMessageIds.length,
-      'hashCacheAge': syncStats.lastHashTime != null
-          ? DateTime.now().difference(syncStats.lastHashTime!).inSeconds
-          : null,
-      'hashCached': syncStats.isCachValid,
-      'memoryOptimized': _deletedMessageIds.length <= _maxDeletedIdsToKeep,
-    };
-  }
+  Map<String, dynamic> getPerformanceStats() =>
+      _maintenanceHelper.getPerformanceStats();
 
   /// Dispose of resources
-  void dispose() {
-    _queueScheduler.dispose();
-    _logger.info('Offline message queue disposed');
-  }
+  void dispose() => _maintenanceHelper.dispose();
 }
 
 extension _FirstOrNull<T> on Iterable<T> {

@@ -50,6 +50,8 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../repositories/user_preferences.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
 
+part 'ble_service_facade_runtime_helper.dart';
+
 /// Main orchestrator for the entire BLE stack.
 ///
 /// Phase 2A Migration: Facade pattern that coordinates 5 sub-services
@@ -78,6 +80,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   late final PeripheralInitializer _peripheralInitializer;
   late final AdvertisingManager _advertisingManager;
   final IHandshakeCoordinatorFactory? _handshakeCoordinatorFactory;
+  late final _BleServiceFacadeRuntimeHelper _runtimeHelper;
 
   // Sub-services (lazy-initialized)
   BLEConnectionService? _connectionService;
@@ -199,6 +202,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       getMessagingService: _getMessagingService,
       getHandshakeService: _getHandshakeService,
     );
+    _runtimeHelper = _BleServiceFacadeRuntimeHelper(this);
   }
 
   /// Get or create connection service (lazy singleton)
@@ -1013,11 +1017,11 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   );
 
   void _ensureConnectionServicePrepared() {
-    _lifecycleCoordinator.ensureConnectionServicePrepared();
+    _runtimeHelper.ensureConnectionServicePrepared();
   }
 
   Future<void> _ensureDiscoveryInitialized() async {
-    await _lifecycleCoordinator.ensureDiscoveryInitialized();
+    await _runtimeHelper.ensureDiscoveryInitialized();
   }
 
   // ============================================================================
@@ -1032,182 +1036,54 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     bool? isScanning,
     bool? isAdvertising,
     bool? isReconnecting,
-  }) {
-    _currentConnectionInfo = _currentConnectionInfo.copyWith(
-      isConnected: isConnected,
-      isReady: isReady,
-      otherUserName: otherUserName,
-      statusMessage: statusMessage,
-      isScanning: isScanning,
-      isAdvertising: isAdvertising,
-      isReconnecting: isReconnecting,
-    );
-    _eventBus.emitConnectionInfo(_currentConnectionInfo);
-  }
+  }) => _runtimeHelper.updateConnectionInfo(
+    isConnected: isConnected,
+    isReady: isReady,
+    otherUserName: otherUserName,
+    statusMessage: statusMessage,
+    isScanning: isScanning,
+    isAdvertising: isAdvertising,
+    isReconnecting: isReconnecting,
+  );
 
-  Future<void> _initializeNodeIdentity() async {
-    try {
-      final prefs = UserPreferences();
-      final persistent = await prefs.getPublicKey();
-      final sessionId = EphemeralKeyManager.currentSessionKey;
-      final nodeId = (sessionId != null && sessionId.isNotEmpty)
-          ? sessionId
-          : (persistent.isNotEmpty ? persistent : null);
+  Future<void> _initializeNodeIdentity() =>
+      _runtimeHelper.initializeNodeIdentity();
 
-      if (nodeId != null) {
-        _messageHandler.setCurrentNodeId(nodeId);
-        _messageHandlerFacade.setCurrentNodeId(nodeId);
-        _logger.fine(
-          '🔧 Node identity set for messaging: ${nodeId.shortId(8)}',
-        );
-      } else {
-        _logger.warning(
-          '⚠️ Unable to set node identity (no session or persistent key)',
-        );
-      }
-    } catch (e) {
-      _logger.warning('⚠️ Failed to initialize node identity: $e');
-    }
-  }
+  Future<void> _onBluetoothBecameReady() =>
+      _runtimeHelper.onBluetoothBecameReady();
 
-  Future<void> _onBluetoothBecameReady() async {
-    _logger.info('🔵 Bluetooth ready - facade notified');
-    final advertisingService = _getAdvertisingService();
-    try {
-      await _connectionManager.startMeshNetworking(
-        onStartAdvertising: () => advertisingService.startAsPeripheral(),
-      );
-      _updateConnectionInfo(
-        statusMessage: 'Bluetooth ready for dual-role operation',
-        isAdvertising: advertisingService.isAdvertising,
-      );
-    } catch (e, stack) {
-      _logger.warning(
-        '⚠️ Failed to start mesh networking after Bluetooth ready: $e',
-        e,
-        stack,
-      );
-      _updateConnectionInfo(
-        statusMessage: 'Bluetooth ready (advertising unavailable)',
-        isAdvertising: advertisingService.isAdvertising,
-      );
-    }
-  }
+  Future<void> _onBluetoothBecameUnavailable() =>
+      _runtimeHelper.onBluetoothBecameUnavailable();
 
-  Future<void> _onBluetoothBecameUnavailable() async {
-    _logger.warning('🔵 Bluetooth unavailable - facade notified');
-    _updateConnectionInfo(
-      isConnected: false,
-      isReady: false,
-      statusMessage: 'Bluetooth unavailable',
-      isScanning: false,
-      isAdvertising: false,
-    );
-  }
+  Future<void> _onBluetoothInitializationRetry() =>
+      _runtimeHelper.onBluetoothInitializationRetry();
 
-  Future<void> _onBluetoothInitializationRetry() async {
-    _logger.info('🔄 Retrying Bluetooth initialization...');
-  }
-
-  void _handleIdentityExchangeSent(String publicKey, String displayName) {
-    final truncatedKey = publicKey.length > 16
-        ? '${publicKey.substring(0, 8)}...'
-        : publicKey;
-    _logger.fine(
-      '🪪 Identity exchange sent (pubKey: $truncatedKey, displayName: $displayName)',
-    );
-  }
+  void _handleIdentityExchangeSent(String publicKey, String displayName) =>
+      _runtimeHelper.handleIdentityExchangeSent(publicKey, displayName);
 
   Future<void> _sendHandshakeProtocolMessage(ProtocolMessage message) =>
-      _getMessagingService().sendHandshakeMessage(message);
+      _runtimeHelper.sendHandshakeProtocolMessage(message);
 
-  Future<void> _processPendingHandshakeMessages() async {
-    if (_handshakeMessageBuffer.isNotEmpty) {
-      _logger.fine(
-        '📦 Flushing ${_handshakeMessageBuffer.length} buffered handshake message(s)',
-      );
-      _handshakeMessageBuffer.clear();
-    }
-  }
+  Future<void> _processPendingHandshakeMessages() =>
+      _runtimeHelper.processPendingHandshakeMessages();
 
-  Future<void> _startGossipSync() async {
-    // Placeholder hook for full gossip sync integration once wired
-    _logger.finer('🕸️ Gossip sync start hook invoked');
-  }
+  Future<void> _startGossipSync() => _runtimeHelper.startGossipSync();
 
   Future<void> _handleHandshakeComplete(
     String ephemeralId,
     String displayName,
     String? noiseKey,
-  ) async {
-    final truncatedId = ephemeralId.length > 8
-        ? '${ephemeralId.substring(0, 8)}...'
-        : ephemeralId;
-    _logger.info('🤝 Handshake complete with $displayName ($truncatedId)');
-    _stateManager.setOtherUserName(displayName);
-    _stateManager.setTheirEphemeralId(ephemeralId, displayName);
-    // Persist or create contact record using the session ephemeral as the
-    // immutable key for LOW security contacts. This prevents later sends from
-    // resolving to an empty/“NOT SPECIFIED” recipient.
-    try {
-      final existingContact = await _contactRepository.getContact(ephemeralId);
-      if (existingContact == null) {
-        await _contactRepository.saveContactWithSecurity(
-          ephemeralId,
-          displayName,
-          SecurityLevel.low,
-          currentEphemeralId: ephemeralId,
-        );
-        _logger.info(
-          '🔒 HANDSHAKE: Created LOW-security contact for $displayName ($truncatedId)',
-        );
-      } else {
-        if (existingContact.currentEphemeralId != ephemeralId) {
-          await _contactRepository.updateContactEphemeralId(
-            existingContact.publicKey,
-            ephemeralId,
-          );
-        }
-        if (existingContact.persistentPublicKey != null &&
-            existingContact.persistentPublicKey!.isNotEmpty) {
-          SecurityServiceLocator.instance.registerIdentityMapping(
-            persistentPublicKey: existingContact.persistentPublicKey!,
-            ephemeralID: ephemeralId,
-          );
-        }
-      }
-    } catch (e) {
-      _logger.warning('⚠️ Failed to persist contact after handshake: $e');
-    }
-    // Allow health checks now that handshake is done.
-    _connectionManager.markHandshakeComplete();
-    // Refresh our node identity in case session keys rotated during handshake.
-    await _initializeNodeIdentity();
-    _updateConnectionInfo(
-      isConnected: true,
-      isReady: true,
-      otherUserName: displayName,
-      statusMessage: 'Ready to chat',
-    );
-    await _processPendingHandshakeMessages();
-    await _startGossipSync();
-  }
+  ) => _runtimeHelper.handleHandshakeComplete(
+    ephemeralId: ephemeralId,
+    displayName: displayName,
+    noiseKey: noiseKey,
+  );
 
-  void _handleSpyModeDetected(SpyModeInfo info) {
-    _logger.warning('🕵️ Spy mode detected with ${info.contactName}');
-    if (_forwardingSpyModeEvent) {
-      return;
-    }
-    _notifySpyModeDetected(info);
-  }
+  void _handleSpyModeDetected(SpyModeInfo info) =>
+      _runtimeHelper.handleSpyModeDetected(info);
 
-  void _handleIdentityRevealed(String contactId) {
-    _logger.info('🪪 Identity revealed to contact: $contactId');
-    if (_forwardingIdentityEvent) {
-      return;
-    }
-    _notifyIdentityRevealed(contactId);
-  }
+  void _handleIdentityRevealed(String contactId) =>
+      _runtimeHelper.handleIdentityRevealed(contactId);
 
   // ============================================================================
   // TEST SUPPORT

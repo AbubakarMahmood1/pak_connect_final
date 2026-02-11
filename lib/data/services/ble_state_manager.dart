@@ -20,6 +20,8 @@ import 'package:pak_connect/domain/models/spy_mode_info.dart';
 import '../../domain/models/identity_session_state.dart';
 import '../../domain/values/id_types.dart';
 
+part 'ble_state_manager_session_helper.dart';
+
 class BLEStateManager implements IPairingStateManager {
   final _logger = Logger('BLEStateManager');
 
@@ -90,6 +92,8 @@ class BLEStateManager implements IPairingStateManager {
   late final ContactStatusSyncController _contactStatusSyncController;
   late final ContactRequestController _contactRequestController;
   late final PairingFlowController _pairingController;
+  late final _BleStateManagerSessionHelper _sessionHelper =
+      _BleStateManagerSessionHelper(this);
 
   ContactRepository get contactRepository => _contactRepository;
 
@@ -772,191 +776,30 @@ class BLEStateManager implements IPairingStateManager {
   }
 
   void setPeripheralMode(bool isPeripheral) {
-    // ✅ DUAL-ROLE: In dual-role architecture, this tracks active connection type
-    // (peripheral connection vs central connection), not device operating mode
-    // Device is always BOTH peripheral (advertising) and central (scanning) simultaneously
-    _isPeripheralMode = isPeripheral;
-
-    // ✅ REMOVED CONFUSING LOG: No need to log "mode switch" in dual-role architecture
-    // Ephemeral ID regeneration is handled by EphemeralKeyManager on session lifecycle
+    _sessionHelper.setPeripheralMode(isPeripheral);
   }
 
   Future<void> requestContactStatusExchange() =>
       _contactStatusSyncController.requestContactStatusExchange();
 
   /// HELPER: Safe substring for logging IDs of any length
-  String _truncateId(String? id, {int maxLength = 16}) {
-    if (id == null) return 'null';
-    if (id.length <= maxLength) return id;
-    return '${id.substring(0, maxLength)}...';
-  }
+  String _truncateId(String? id, {int maxLength = 16}) =>
+      _sessionHelper.truncateId(id, maxLength: maxLength);
 
-  void clearSessionState({bool preservePersistentId = false}) {
-    _logger.warning(
-      '🔍 [BLEStateManager] SESSION STATE CLEARING - CRITICAL NAVIGATION EVENT',
-    );
-    _logger.warning('  - BEFORE: otherUserName = "$_otherUserName"');
-    _logger.warning(
-      '  - BEFORE: otherDevicePersistentId = "${_truncateId(_currentSessionId)}"',
-    );
-    _logger.warning('  - preservePersistentId = $preservePersistentId');
-    _logger.warning(
-      '  - Called from: ${StackTrace.current.toString().split('\n').take(5).join(' -> ')}',
-    );
+  void clearSessionState({bool preservePersistentId = false}) => _sessionHelper
+      .clearSessionState(preservePersistentId: preservePersistentId);
 
-    // FIX: Preserve identity during navigation to maintain connection state
-    final previousName = _otherUserName;
-    final previousId = _currentSessionId;
+  Future<void> _initializeCrypto() => _sessionHelper.initializeCrypto();
 
-    if (!preservePersistentId) {
-      // Actual disconnection - clear everything
-      _otherUserName = null;
-      _logger.warning(
-        '  - ⚠️  CLEARED otherUserName: "$previousName" -> null (disconnection)',
-      );
-
-      _identityState.clear(preservePersistentId: false);
-      _identityState.clearMappings();
-      _logger.warning(
-        '  - ⚠️  CLEARED persistent ID: "${_truncateId(previousId)}" -> null (connection loss)',
-      );
-
-      // 🔧 FIX: Removed SecurityManager.unregisterSessionMapping() - now using database ephemeral_id column
-    } else {
-      // Navigation only - preserve identity to maintain connection state
-      _logger.warning(
-        '  - ✅ PRESERVED otherUserName: "$_otherUserName" (navigation)',
-      );
-      _logger.warning(
-        '  - ✅ PRESERVED persistent ID: "${_truncateId(_currentSessionId)}" (navigation)',
-      );
-      _identityState.clear(preservePersistentId: true);
-    }
-
-    _contactStatusSyncController.reset();
-
-    // FIX: Only broadcast null name if we're actually clearing it (disconnection)
-    if (!preservePersistentId) {
-      _logger.warning(
-        '  - 🚨 BROADCASTING NULL NAME TO UI (triggers disconnected state)',
-      );
-      onNameChanged?.call(null);
-      _logger.warning(
-        '🔍 [BLEStateManager] SESSION CLEAR COMPLETE - UI will now show DISCONNECTED',
-      );
-    } else {
-      _logger.warning(
-        '  - ✅ PRESERVING NAME BROADCAST (UI stays connected during navigation)',
-      );
-      _logger.warning(
-        '🔍 [BLEStateManager] SESSION CLEAR COMPLETE - UI connection state preserved',
-      );
-    }
-  }
-
-  Future<void> _initializeCrypto() async {
-    try {
-      SimpleCrypto.initialize();
-      _logger.info('Global baseline encryption initialized');
-    } catch (e) {
-      _logger.warning('Failed to initialize encryption: $e');
-    }
-  }
-
-  void clearOtherUserName() {
-    _logger.fine('🐛 NAV DEBUG: clearOtherUserName() called');
-    // For navigation, preserve persistent ID to maintain security state
-    clearSessionState(preservePersistentId: true);
-  }
+  void clearOtherUserName() => _sessionHelper.clearOtherUserName();
 
   /// Recover identity information from persistent storage when session state is cleared during navigation
-  Future<void> recoverIdentityFromStorage() async {
-    if (_currentSessionId == null) {
-      _logger.info(
-        '[BLEStateManager] 🔄 RECOVERY: No persistent ID available for identity recovery',
-      );
-      return;
-    }
-
-    try {
-      final displayName = await _identityState.recoverDisplayName((
-        publicKey,
-      ) async {
-        final contact = await _contactRepository.getContact(publicKey);
-        return contact?.displayName;
-      });
-
-      if (displayName != null && displayName.isNotEmpty) {
-        _logger.info(
-          '[BLEStateManager] 🔄 RECOVERY: Restored identity from contacts',
-        );
-        _logger.info('  - Public key: ${_truncateId(_currentSessionId)}');
-        _logger.info('  - Display name: $displayName');
-
-        // Restore session identity without triggering full connection flow
-        _otherUserName = displayName;
-        onNameChanged?.call(_otherUserName);
-
-        _logger.info(
-          '[BLEStateManager] ✅ RECOVERY: Identity successfully recovered from storage',
-        );
-      } else {
-        _logger.warning(
-          '[BLEStateManager] 🔄 RECOVERY: No contact found in repository for persistent ID',
-        );
-      }
-    } catch (e) {
-      _logger.warning(
-        '[BLEStateManager] 🔄 RECOVERY: Failed to recover identity from storage: $e',
-      );
-    }
-  }
+  Future<void> recoverIdentityFromStorage() =>
+      _sessionHelper.recoverIdentityFromStorage();
 
   /// Get identity information with fallback to persistent storage
-  Future<Map<String, String?>> getIdentityWithFallback() async {
-    // Primary: Use session state if available
-    if (_otherUserName != null && _otherUserName!.isNotEmpty) {
-      return {
-        'displayName': _otherUserName,
-        'publicKey': _currentSessionId ?? '',
-        'source': 'session',
-      };
-    }
-
-    // Secondary: Use last known display name tracked in identity state
-    if (_identityState.lastKnownDisplayName != null &&
-        _identityState.lastKnownDisplayName!.isNotEmpty &&
-        _currentSessionId != null) {
-      return {
-        'displayName': _identityState.lastKnownDisplayName,
-        'publicKey': _currentSessionId!,
-        'source': 'cache',
-      };
-    }
-
-    // Fallback: Try to get from persistent storage
-    if (_currentSessionId != null) {
-      try {
-        final contact = await _contactRepository.getContact(_currentSessionId!);
-        if (contact != null) {
-          return {
-            'displayName': contact.displayName,
-            'publicKey': _currentSessionId!,
-            'source': 'repository',
-          };
-        }
-      } catch (e) {
-        _logger.warning('Failed to get fallback identity: $e');
-      }
-    }
-
-    // Last resort: Return what we have
-    return {
-      'displayName': _otherUserName ?? 'Connected Device',
-      'publicKey': _currentSessionId ?? '',
-      'source': 'fallback',
-    };
-  }
+  Future<Map<String, String?>> getIdentityWithFallback() =>
+      _sessionHelper.getIdentityWithFallback();
 
   void dispose() {
     _contactStatusSyncController.dispose();
