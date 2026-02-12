@@ -58,6 +58,10 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - runtime protocol-floor tracking added for inbound text handlers.
   - once a peer is observed on v2, subsequent v1 from that peer is rejected
     (feature-gated by `PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD`, default `true`).
+- Pass B compatibility-tightening hook added:
+  - inbound v2 legacy decrypt modes (`legacy_ecdh_v1`, `legacy_pairing_v1`,
+    `legacy_global_v1`) can now be blocked by policy:
+    `PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT=false`.
 - Sender identity resolution split by purpose:
   - decrypt path can still resolve Noise session IDs where required.
   - signature path resolves stable identity keys (persistent/public), avoiding

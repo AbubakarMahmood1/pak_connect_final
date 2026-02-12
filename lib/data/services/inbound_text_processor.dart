@@ -22,23 +22,32 @@ class InboundTextResult {
 
 /// Handles routing, decryption, and signature verification for inbound text messages.
 class InboundTextProcessor {
+  static const bool _defaultAllowLegacyV2Decrypt = bool.fromEnvironment(
+    'PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT',
+    defaultValue: true,
+  );
+
   InboundTextProcessor({
     required IContactRepository contactRepository,
     required Future<bool> Function(String? intendedRecipient) isMessageForMe,
     required String? Function() currentNodeIdProvider,
     ISecurityService? securityService,
+    bool? allowLegacyV2Decrypt,
     Logger? logger,
   }) : _contactRepository = contactRepository,
        _isMessageForMe = isMessageForMe,
        _currentNodeIdProvider = currentNodeIdProvider,
        _securityService =
            securityService ?? SecurityServiceLocator.resolveService(),
+       _allowLegacyV2Decrypt =
+           allowLegacyV2Decrypt ?? _defaultAllowLegacyV2Decrypt,
        _logger = logger ?? Logger('InboundTextProcessor');
 
   final IContactRepository _contactRepository;
   final Future<bool> Function(String? intendedRecipient) _isMessageForMe;
   final String? Function() _currentNodeIdProvider;
   final ISecurityService _securityService;
+  final bool _allowLegacyV2Decrypt;
   final Logger _logger;
   static const bool _allowLegacyV1DecryptFallback = true;
   static const bool _enforceV2DowngradeGuard = bool.fromEnvironment(
@@ -173,6 +182,13 @@ class InboundTextProcessor {
               '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
             );
           } else {
+            if (!_allowLegacyV2Decrypt && _isLegacyMode(cryptoHeader.mode)) {
+              _logger.warning(
+                '🔒 v2 legacy decrypt mode blocked by policy: ${cryptoHeader.mode.wireValue} '
+                '(messageId=${_safeTruncate(messageId)})',
+              );
+              return const InboundTextResult(content: null, shouldAck: false);
+            }
             final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
             if (encryptionType == null) {
               _logger.severe(
@@ -509,6 +525,12 @@ class InboundTextProcessor {
       );
     }
     return candidateKey;
+  }
+
+  bool _isLegacyMode(CryptoMode mode) {
+    return mode == CryptoMode.legacyEcdhV1 ||
+        mode == CryptoMode.legacyPairingV1 ||
+        mode == CryptoMode.legacyGlobalV1;
   }
 
   EncryptionType? _encryptionTypeForMode(CryptoMode mode) {
