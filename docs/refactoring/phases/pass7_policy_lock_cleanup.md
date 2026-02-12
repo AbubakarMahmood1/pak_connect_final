@@ -89,6 +89,13 @@ escape hatches that can reintroduce split-brain behavior.
     - replaced repeated `SecurityServiceLocator.instance` calls in message
       encrypt/trust-level/session checks with injected service usage
 
+- Pruned repeated static security locator usage in inbound text pipeline:
+  - `lib/data/services/inbound_text_processor.dart`
+    - added injectable `ISecurityService` dependency (defaulted once during
+      processor construction)
+    - replaced repeated `SecurityServiceLocator.instance` calls in decrypt +
+      identity-mapping logic with injected service usage
+
 ---
 
 ## Verification
@@ -110,6 +117,7 @@ flutter analyze lib/domain/services/message_router.dart lib/presentation/control
 flutter analyze lib/data/services/outbound_message_sender.dart lib/data/services/ble_write_adapter.dart lib/data/services/ble_message_handler.dart
 flutter test test/data/services/ble_messaging_service_test.dart
 flutter test test/data/services/ble_write_adapter_test.dart
+flutter analyze lib/data/services/inbound_text_processor.dart lib/data/services/ble_message_handler.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -119,7 +127,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **70**
+  - `.instance` usages in `lib/**`: **68**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 
