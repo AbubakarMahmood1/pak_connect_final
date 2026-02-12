@@ -54,6 +54,11 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - v2 signatures now cover a canonicalized envelope payload (version/type/
     sender/recipient/messageId/crypto/content) instead of plaintext-only.
   - inbound signature verification for v2 now verifies that canonical envelope.
+  - adversarial regression coverage added for both inbound handlers:
+    - `test/data/services/protocol_message_handler_test.dart`
+    - `test/data/services/inbound_text_processor_test.dart`
+    - verifies valid v2 signed envelope passes and `crypto.mode` tampering with
+      reused signature fails as untrusted.
 - Pass D downgrade guard started:
   - runtime protocol-floor tracking added for inbound text handlers.
   - once a peer is observed on v2, subsequent v1 from that peer is rejected
