@@ -123,6 +123,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   bool _forwardingIdentityEvent = false;
   StreamSubscription<ConnectionInfo>? _connectionInfoSubscription;
   bool _lifecycleDisposed = false;
+  int _lifecycleEpoch = 0;
 
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
@@ -1000,6 +1001,15 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       'connectionInfo listener removed (count=$_connectionInfoListenerCount)',
     );
   }
+
+  int _beginLifecycleEpoch() => ++_lifecycleEpoch;
+
+  void _invalidateLifecycleEpoch() {
+    _lifecycleEpoch++;
+  }
+
+  bool _isLifecycleEpochCurrent(int epoch) =>
+      !_lifecycleDisposed && _lifecycleEpoch == epoch;
 
   Future<void> _initializeNodeIdentity() =>
       _runtimeHelper.initializeNodeIdentity();

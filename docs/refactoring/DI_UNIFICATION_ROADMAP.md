@@ -148,6 +148,8 @@ Pass 6 progress highlights:
   patterns and underflow issues in teardown paths.
 - Disposal flow now accounts for listener removal and owner disposal in a
   `finally` path, improving lifecycle observability without behavior changes.
+- Bluetooth monitor callbacks now run behind a lifecycle-epoch guard so stale
+  async callbacks from previous facade epochs are ignored.
 
 ---
 
