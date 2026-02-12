@@ -26,6 +26,7 @@ void main() {
       previousLevel = Logger.root.level;
       Logger.root.level = Level.ALL;
       logSub = Logger.root.onRecord.listen(logRecords.add);
+      ProtocolMessageHandler.clearPeerProtocolVersionFloorForTest();
       securityService = _FakeSecurityService();
       handler = ProtocolMessageHandler(securityService: securityService);
     });
@@ -291,6 +292,49 @@ void main() {
       expect(securityService.decryptMessageByTypeCalls, equals(0));
       expect(securityService.lastSealedSenderId, equals('sender-key'));
       expect(securityService.lastSealedRecipientId, equals('recipient-key'));
+    });
+
+    test('rejects v1 message after observing v2 from same peer', () async {
+      final v2Message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-floor',
+          'content': 'hello-v2',
+          'encrypted': false,
+          'senderId': 'peer-upgraded',
+          'crypto': {'mode': 'none', 'modeVersion': 1},
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final v1Message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 1,
+        payload: {
+          'messageId': 'msg-v1-downgrade',
+          'content': 'hello-v1',
+          'encrypted': false,
+          'senderId': 'peer-upgraded',
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final firstResult = await handler.processProtocolMessage(
+        message: v2Message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+      final secondResult = await handler.processProtocolMessage(
+        message: v1Message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(firstResult, equals('hello-v2'));
+      expect(secondResult, isNull);
+      expect(securityService.decryptMessageCalls, equals(0));
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
     });
   });
 }

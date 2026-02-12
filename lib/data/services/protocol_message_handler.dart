@@ -69,6 +69,11 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   String? _currentNodeId;
   String _encryptionMethod = 'none';
   static const bool _allowLegacyV1DecryptFallback = true;
+  static const bool _enforceV2DowngradeGuard = bool.fromEnvironment(
+    'PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD',
+    defaultValue: true,
+  );
+  static final Map<String, int> _peerProtocolVersionFloor = <String, int>{};
 
   /// Sets current node ID for routing and identity checks
   void setCurrentNodeId(String nodeId) {
@@ -76,6 +81,11 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     final previewLength = nodeId.length >= 8 ? 8 : nodeId.length;
     final preview = nodeId.substring(0, previewLength);
     _logger.fine('📍 Current node ID set: $preview...');
+  }
+
+  /// Test hook for isolating protocol-floor behavior between test cases.
+  static void clearPeerProtocolVersionFloorForTest() {
+    _peerProtocolVersionFloor.clear();
   }
 
   /// Processes a received protocol message
@@ -217,6 +227,18 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       final decryptionPeerId = (resolvedDecryptSenderId?.isNotEmpty ?? false)
           ? resolvedDecryptSenderId!
           : fromNodeId;
+      final versionPeerKey = _versionPeerKey(
+        signatureSenderKey: resolvedSignatureSenderKey,
+        declaredSenderId: declaredSenderId,
+        transportSenderId: fromNodeId,
+      );
+      if (_shouldRejectLegacyDowngrade(
+        messageVersion: message.version,
+        peerKey: versionPeerKey,
+        messageId: messageId,
+      )) {
+        return null;
+      }
 
       // Check if message is for us
       final isForMe = await isMessageForMe(intendedRecipient);
@@ -339,6 +361,11 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       }
 
       _sendAck(messageId, fromNodeId);
+      _trackPeerVersionFloor(
+        peerKey: versionPeerKey,
+        messageVersion: message.version,
+        messageId: messageId,
+      );
       final textCallback = _onTextMessageReceived;
       if (textCallback != null) {
         try {
@@ -355,6 +382,64 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     } catch (e) {
       _logger.severe('Failed to handle text message: $e');
       return null;
+    }
+  }
+
+  String _versionPeerKey({
+    required String? signatureSenderKey,
+    required String? declaredSenderId,
+    required String transportSenderId,
+  }) {
+    if (signatureSenderKey != null && signatureSenderKey.isNotEmpty) {
+      return signatureSenderKey;
+    }
+    if (declaredSenderId != null && declaredSenderId.isNotEmpty) {
+      return declaredSenderId;
+    }
+    return transportSenderId;
+  }
+
+  bool _shouldRejectLegacyDowngrade({
+    required int messageVersion,
+    required String peerKey,
+    required String messageId,
+  }) {
+    if (!_enforceV2DowngradeGuard || messageVersion >= 2 || peerKey.isEmpty) {
+      return false;
+    }
+    final floor = _peerProtocolVersionFloor[peerKey] ?? 1;
+    if (floor < 2) {
+      return false;
+    }
+    _logger.warning(
+      '🔒 Downgrade guard rejected v$messageVersion message from '
+      '${peerKey.shortId(8)}... after observing v$floor capability '
+      '(messageId=${messageId.shortId(8)})',
+    );
+    return true;
+  }
+
+  void _trackPeerVersionFloor({
+    required String peerKey,
+    required int messageVersion,
+    required String messageId,
+  }) {
+    if (!_enforceV2DowngradeGuard || messageVersion < 2 || peerKey.isEmpty) {
+      return;
+    }
+    final currentFloor = _peerProtocolVersionFloor[peerKey] ?? 1;
+    if (messageVersion > currentFloor) {
+      _peerProtocolVersionFloor[peerKey] = messageVersion;
+      _logger.fine(
+        '🔒 Protocol floor upgraded for ${peerKey.shortId(8)}... '
+        'to v$messageVersion via ${messageId.shortId(8)}',
+      );
+    }
+    if (_peerProtocolVersionFloor.length > 4096) {
+      _logger.warning(
+        '🔒 Protocol floor cache exceeded 4096 entries; clearing oldest state',
+      );
+      _peerProtocolVersionFloor.clear();
     }
   }
 

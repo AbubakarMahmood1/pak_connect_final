@@ -54,6 +54,10 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - v2 signatures now cover a canonicalized envelope payload (version/type/
     sender/recipient/messageId/crypto/content) instead of plaintext-only.
   - inbound signature verification for v2 now verifies that canonical envelope.
+- Pass D downgrade guard started:
+  - runtime protocol-floor tracking added for inbound text handlers.
+  - once a peer is observed on v2, subsequent v1 from that peer is rejected
+    (feature-gated by `PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD`, default `true`).
 - Sender identity resolution split by purpose:
   - decrypt path can still resolve Noise session IDs where required.
   - signature path resolves stable identity keys (persistent/public), avoiding

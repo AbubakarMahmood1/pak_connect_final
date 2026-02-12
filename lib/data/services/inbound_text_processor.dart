@@ -41,6 +41,16 @@ class InboundTextProcessor {
   final ISecurityService _securityService;
   final Logger _logger;
   static const bool _allowLegacyV1DecryptFallback = true;
+  static const bool _enforceV2DowngradeGuard = bool.fromEnvironment(
+    'PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD',
+    defaultValue: true,
+  );
+  static final Map<String, int> _peerProtocolVersionFloor = <String, int>{};
+
+  /// Test hook for isolating protocol-floor behavior between test cases.
+  static void clearPeerProtocolVersionFloorForTest() {
+    _peerProtocolVersionFloor.clear();
+  }
 
   Future<InboundTextResult> process({
     required ProtocolMessage protocolMessage,
@@ -98,6 +108,18 @@ class InboundTextProcessor {
         await _resolveSenderKeyForSignature(originalSender);
     final resolvedDeclaredSenderForSignature =
         await _resolveSenderKeyForSignature(declaredSenderId);
+    final versionPeerKey = _versionPeerKey(
+      signatureSenderKey: resolvedDeclaredSenderForSignature,
+      declaredSenderId: declaredSenderId,
+      transportSenderId: senderPublicKey,
+    );
+    if (_shouldRejectLegacyDowngrade(
+      messageVersion: protocolMessage.version,
+      peerKey: versionPeerKey,
+      messageId: messageId,
+    )) {
+      return const InboundTextResult(content: null, shouldAck: false);
+    }
 
     final decryptKey = resolvedDeclaredSenderForDecrypt?.isNotEmpty == true
         ? resolvedDeclaredSenderForDecrypt
@@ -333,6 +355,12 @@ class InboundTextProcessor {
       }
     }
 
+    _trackPeerVersionFloor(
+      peerKey: versionPeerKey,
+      messageVersion: protocolMessage.version,
+      messageId: messageId,
+    );
+
     return InboundTextResult(
       content: decryptedContent,
       shouldAck: true,
@@ -345,6 +373,64 @@ class InboundTextProcessor {
           declaredSenderId ??
           originalSender,
     );
+  }
+
+  String _versionPeerKey({
+    required String? signatureSenderKey,
+    required String? declaredSenderId,
+    required String? transportSenderId,
+  }) {
+    if (signatureSenderKey != null && signatureSenderKey.isNotEmpty) {
+      return signatureSenderKey;
+    }
+    if (declaredSenderId != null && declaredSenderId.isNotEmpty) {
+      return declaredSenderId;
+    }
+    return transportSenderId ?? '';
+  }
+
+  bool _shouldRejectLegacyDowngrade({
+    required int messageVersion,
+    required String peerKey,
+    required String messageId,
+  }) {
+    if (!_enforceV2DowngradeGuard || messageVersion >= 2 || peerKey.isEmpty) {
+      return false;
+    }
+    final floor = _peerProtocolVersionFloor[peerKey] ?? 1;
+    if (floor < 2) {
+      return false;
+    }
+    _logger.warning(
+      '🔒 Downgrade guard rejected v$messageVersion message from '
+      '${_safeTruncate(peerKey)} after observing v$floor '
+      '(messageId=${_safeTruncate(messageId)})',
+    );
+    return true;
+  }
+
+  void _trackPeerVersionFloor({
+    required String peerKey,
+    required int messageVersion,
+    required String messageId,
+  }) {
+    if (!_enforceV2DowngradeGuard || messageVersion < 2 || peerKey.isEmpty) {
+      return;
+    }
+    final currentFloor = _peerProtocolVersionFloor[peerKey] ?? 1;
+    if (messageVersion > currentFloor) {
+      _peerProtocolVersionFloor[peerKey] = messageVersion;
+      _logger.fine(
+        '🔒 Protocol floor upgraded for ${_safeTruncate(peerKey)} '
+        'to v$messageVersion via ${_safeTruncate(messageId)}',
+      );
+    }
+    if (_peerProtocolVersionFloor.length > 4096) {
+      _logger.warning(
+        '🔒 Protocol floor cache exceeded 4096 entries; clearing state',
+      );
+      _peerProtocolVersionFloor.clear();
+    }
   }
 
   void _logRoutingDiagnostics({
