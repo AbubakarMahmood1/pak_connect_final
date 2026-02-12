@@ -5,6 +5,7 @@ import '../../domain/services/signing_manager.dart';
 import '../../domain/utils/message_fragmenter.dart';
 import '../../domain/models/protocol_message.dart';
 import '../../domain/models/crypto_header.dart';
+import '../../domain/models/encryption_method.dart';
 import '../../domain/interfaces/i_security_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_state_manager.dart';
@@ -142,17 +143,19 @@ class OutboundMessageSender {
 
       String payload = message;
       String encryptionMethod = 'none';
+      EncryptionMethod? encryptionDecision;
 
       if (encryptionKey.isNotEmpty) {
+        encryptionDecision = await _securityService.getEncryptionMethod(
+          encryptionKey,
+          contactRepository,
+        );
         payload = await _securityService.encryptMessage(
           message,
           encryptionKey,
           contactRepository,
         );
-        encryptionMethod = await _getSimpleEncryptionMethod(
-          encryptionKey,
-          contactRepository,
-        );
+        encryptionMethod = _wireMethodForType(encryptionDecision.type);
         _logger.info(
           '🔒 MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method',
         );
@@ -191,7 +194,9 @@ class OutboundMessageSender {
           originalIntendedRecipient ?? finalRecipientId;
       final cryptoHeader = _buildCryptoHeader(
         encryptionMethod: encryptionMethod,
-        sessionId: encryptionMethod == 'noise' ? encryptionKey : null,
+        sessionId: encryptionMethod == 'noise'
+            ? (encryptionDecision.publicKey ?? encryptionKey)
+            : null,
         messageId: msgId,
         transportSide: 'central',
       );
@@ -381,17 +386,19 @@ class OutboundMessageSender {
 
       String payload = message;
       String encryptionMethod = 'none';
+      EncryptionMethod? encryptionDecision;
 
       if (encryptionKey.isNotEmpty) {
+        encryptionDecision = await _securityService.getEncryptionMethod(
+          encryptionKey,
+          contactRepository,
+        );
         payload = await _securityService.encryptMessage(
           message,
           encryptionKey,
           contactRepository,
         );
-        encryptionMethod = await _getSimpleEncryptionMethod(
-          encryptionKey,
-          contactRepository,
-        );
+        encryptionMethod = _wireMethodForType(encryptionDecision.type);
         _logger.info(
           '🔒 PERIPHERAL MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method',
         );
@@ -436,7 +443,9 @@ class OutboundMessageSender {
           originalIntendedRecipient ?? finalRecipientId;
       final cryptoHeader = _buildCryptoHeader(
         encryptionMethod: encryptionMethod,
-        sessionId: encryptionMethod == 'noise' ? encryptionKey : null,
+        sessionId: encryptionMethod == 'noise'
+            ? (encryptionDecision.publicKey ?? encryptionKey)
+            : null,
         messageId: msgId,
         transportSide: 'peripheral',
       );
@@ -609,34 +618,15 @@ class OutboundMessageSender {
     _logger.fine('🔧 SEND DEBUG: ===== END SENDING ANALYSIS =====');
   }
 
-  Future<String> _getSimpleEncryptionMethod(
-    String? contactPublicKey,
-    ContactRepository contactRepository,
-  ) async {
-    if (contactPublicKey == null || contactPublicKey.isEmpty) {
-      return 'global';
-    }
-
-    final contact = await contactRepository.getContactByAnyId(contactPublicKey);
-    final sessionLookupKey = contact?.sessionIdForNoise ?? contactPublicKey;
-    final hasNoise = _securityService.hasEstablishedNoiseSession(
-      sessionLookupKey,
-    );
-    if (hasNoise) {
-      return 'noise';
-    }
-
-    final level = await _securityService.getCurrentLevel(
-      contactPublicKey,
-      contactRepository,
-    );
-
-    switch (level) {
-      case SecurityLevel.high:
+  String _wireMethodForType(EncryptionType type) {
+    switch (type) {
+      case EncryptionType.noise:
+        return 'noise';
+      case EncryptionType.ecdh:
         return 'ecdh';
-      case SecurityLevel.medium:
+      case EncryptionType.pairing:
         return 'pairing';
-      case SecurityLevel.low:
+      case EncryptionType.global:
         return 'global';
     }
   }
