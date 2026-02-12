@@ -269,6 +269,37 @@ void main() {
     });
 
     test(
+      'ignores inbound handshake1 when initiator session is already active',
+      () async {
+        final manager = NoiseSessionManager(
+          localStaticPrivateKey: aliceStaticPrivate,
+          localStaticPublicKey: aliceStaticPublic,
+        );
+
+        await manager.initiateHandshake('Bob');
+        expect(
+          manager.getSessionState('Bob'),
+          equals(NoiseSessionState.handshaking),
+        );
+
+        // Simulate a stale/replayed handshake1 from the peer while our
+        // initiator-side handshake is already in-flight.
+        final ignored = await manager.processHandshakeMessage(
+          'Bob',
+          Uint8List(32),
+        );
+
+        expect(ignored, isNull);
+        expect(
+          manager.getSessionState('Bob'),
+          equals(NoiseSessionState.handshaking),
+        );
+
+        manager.shutdown();
+      },
+    );
+
+    test(
       'duplicate handshake1 during responder in-flight handshake does not tear down session',
       () async {
         final aliceManager = NoiseSessionManager(
@@ -314,6 +345,62 @@ void main() {
         );
         await bobManager.processHandshakeMessage('Alice', msg3!);
         expect(bobManager.hasEstablishedSession('Alice'), isTrue);
+
+        aliceManager.shutdown();
+        bobManager.shutdown();
+      },
+    );
+
+    test(
+      'reconnect flow can re-establish after clearing prior established sessions',
+      () async {
+        final aliceManager = NoiseSessionManager(
+          localStaticPrivateKey: aliceStaticPrivate,
+          localStaticPublicKey: aliceStaticPublic,
+        );
+        final bobManager = NoiseSessionManager(
+          localStaticPrivateKey: bobStaticPrivate,
+          localStaticPublicKey: bobStaticPublic,
+        );
+
+        // Initial session establishment.
+        final initialMsg1 = await aliceManager.initiateHandshake('Bob');
+        final initialMsg2 = await bobManager.processHandshakeMessage(
+          'Alice',
+          initialMsg1,
+        );
+        final initialMsg3 = await aliceManager.processHandshakeMessage(
+          'Bob',
+          initialMsg2!,
+        );
+        await bobManager.processHandshakeMessage('Alice', initialMsg3!);
+        expect(aliceManager.hasEstablishedSession('Bob'), isTrue);
+        expect(bobManager.hasEstablishedSession('Alice'), isTrue);
+
+        // Simulate reconnect cleanup.
+        // In production this is typically done by connection-layer teardown.
+        aliceManager.removeSession('Bob');
+        bobManager.removeSession('Alice');
+
+        // Start a fresh handshake from initiator after cleanup.
+        final reconnectMsg1 = await aliceManager.initiateHandshake('Bob');
+        final reconnectMsg2 = await bobManager.processHandshakeMessage(
+          'Alice',
+          reconnectMsg1,
+        );
+        final reconnectMsg3 = await aliceManager.processHandshakeMessage(
+          'Bob',
+          reconnectMsg2!,
+        );
+        await bobManager.processHandshakeMessage('Alice', reconnectMsg3!);
+
+        expect(aliceManager.hasEstablishedSession('Bob'), isTrue);
+        expect(bobManager.hasEstablishedSession('Alice'), isTrue);
+
+        final payload = Uint8List.fromList([7, 8, 9]);
+        final encrypted = await aliceManager.encrypt(payload, 'Bob');
+        final decrypted = await bobManager.decrypt(encrypted, 'Alice');
+        expect(decrypted, equals(payload));
 
         aliceManager.shutdown();
         bobManager.shutdown();
