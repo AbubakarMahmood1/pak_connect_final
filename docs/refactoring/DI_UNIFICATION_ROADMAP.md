@@ -37,7 +37,7 @@
 Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
-- `.instance` usages in `lib/**`: 81
+- `.instance` usages in `lib/**`: 77
 - `GetIt` resolutions in `lib/presentation/**`: 2
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
@@ -195,6 +195,9 @@ Pass 7 progress highlights:
   `resolveFromAppServicesOrServiceLocator(...)` (AppServices-first) instead of
   direct `SecurityServiceLocator.instance` calls in chat screen/controller/view
   model paths.
+- `MessageRouter.instance` call sites were removed from presentation paths;
+  chat lifecycle/viewmodel code now uses optional router access
+  (`MessageRouter.maybeInstance`) with existing fallback initialization logic.
 
 ---
 

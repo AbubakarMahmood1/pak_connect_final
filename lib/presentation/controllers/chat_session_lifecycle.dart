@@ -281,9 +281,12 @@ class ChatSessionLifecycle {
       return sharedQueue;
     }
 
-    try {
-      return MessageRouter.instance.offlineQueue;
-    } catch (_) {}
+    final router = MessageRouter.maybeInstance;
+    if (router != null) {
+      try {
+        return router.offlineQueue;
+      } catch (_) {}
+    }
 
     _logger.fine('Using standalone OfflineMessageQueue fallback');
     return _getFallbackQueue();
@@ -351,29 +354,30 @@ class ChatSessionLifecycle {
       _buildFallbackOfflineQueue();
 
   MessageRouter? _resolveMessageRouter(IConnectionService connectionService) {
+    final existingRouter = MessageRouter.maybeInstance;
+    if (existingRouter != null) {
+      return existingRouter;
+    }
+
+    _logger.warning(
+      'MessageRouter not initialized; attempting on-demand initialization',
+    );
     try {
-      return MessageRouter.instance;
-    } on StateError {
-      _logger.warning(
-        'MessageRouter not initialized; attempting on-demand initialization',
+      final fallbackQueue = resolveOfflineQueue();
+      unawaited(
+        MessageRouter.initialize(
+          connectionService,
+          offlineQueue: fallbackQueue,
+          fallbackQueueBuilder: _buildFallbackOfflineQueue,
+        ),
       );
-      try {
-        final fallbackQueue = resolveOfflineQueue();
-        unawaited(
-          MessageRouter.initialize(
-            connectionService,
-            offlineQueue: fallbackQueue,
-            fallbackQueueBuilder: _buildFallbackOfflineQueue,
-          ),
-        );
-        return MessageRouter.instance;
-      } catch (error, stack) {
-        _logger.warning(
-          'MessageRouter initialization failed; routing hooks disabled: $error',
-          stack,
-        );
-        return null;
-      }
+      return MessageRouter.maybeInstance;
+    } catch (error, stack) {
+      _logger.warning(
+        'MessageRouter initialization failed; routing hooks disabled: $error',
+        stack,
+      );
+      return null;
     }
   }
 
