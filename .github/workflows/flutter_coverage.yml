@@ -32,6 +32,13 @@ jobs:
             -EnforcePresentationImportGate \
             -EnforcePresentationDiMutationGate
 
+      - name: Enforce DI metric regression gates
+        run: |
+          pwsh -File scripts/di_pass0_audit.ps1 \
+            -EnforceMetricsGate \
+            -MaxGetItResolutionCount 43 \
+            -MaxInstanceUsageCount 24
+
       - name: Determine release strict mode
         id: release_mode
         run: |
