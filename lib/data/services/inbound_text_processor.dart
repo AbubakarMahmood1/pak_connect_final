@@ -29,7 +29,8 @@ class InboundTextProcessor {
   }) : _contactRepository = contactRepository,
        _isMessageForMe = isMessageForMe,
        _currentNodeIdProvider = currentNodeIdProvider,
-       _securityService = securityService ?? SecurityServiceLocator.instance,
+       _securityService =
+           securityService ?? SecurityServiceLocator.resolveService(),
        _logger = logger ?? Logger('InboundTextProcessor');
 
   final IContactRepository _contactRepository;

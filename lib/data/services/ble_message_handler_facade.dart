@@ -99,7 +99,8 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     bool enableCleanupTimer = false,
     ISecurityService? securityService,
   }) : _enableCleanupTimer = enableCleanupTimer,
-       _securityService = securityService ?? SecurityServiceLocator.instance;
+       _securityService =
+           securityService ?? SecurityServiceLocator.resolveService();
 
   /// Initializes the facade (lazy - called on first access)
   void _ensureInitialized() {

@@ -18,11 +18,8 @@ class _BleMessagingTransportHelper {
       throw Exception('Cannot send binary payload without recipient ID');
     }
 
-    final payload = await SecurityServiceLocator.instance.encryptBinaryPayload(
-      data,
-      recipientId,
-      _owner._contactRepository,
-    );
+    final payload = await SecurityServiceLocator.resolveService()
+        .encryptBinaryPayload(data, recipientId, _owner._contactRepository);
 
     final mtuSize =
         _owner._connectionManager.mtuSize ?? BLEConstants.maxMessageLength;

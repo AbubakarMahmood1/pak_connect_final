@@ -37,7 +37,7 @@
 Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
-- `.instance` usages in `lib/**`: 65
+- `.instance` usages in `lib/**`: 56
 - `GetIt` resolutions in `lib/presentation/**`: 2
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
@@ -211,6 +211,10 @@ Pass 7 progress highlights:
 - `ProtocolMessageHandler` now takes an explicit `ISecurityService`
   dependency, and `BLEMessageHandlerFacade` supplies/uses that shared service
   for protocol decrypt + binary payload decrypt paths.
+- Security locator callsites migrated from singleton-style
+  `SecurityServiceLocator.instance` to explicit
+  `SecurityServiceLocator.resolveService()` across remaining data/BLE paths,
+  preserving behavior while reducing singleton access footprint.
 
 ---
 

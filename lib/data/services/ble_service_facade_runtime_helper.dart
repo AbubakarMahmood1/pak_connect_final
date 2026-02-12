@@ -382,7 +382,7 @@ class _BleServiceFacadeRuntimeHelper {
         }
         if (existingContact.persistentPublicKey != null &&
             existingContact.persistentPublicKey!.isNotEmpty) {
-          SecurityServiceLocator.instance.registerIdentityMapping(
+          SecurityServiceLocator.resolveService().registerIdentityMapping(
             persistentPublicKey: existingContact.persistentPublicKey!,
             ephemeralID: ephemeralId,
           );

@@ -113,6 +113,14 @@ escape hatches that can reintroduce split-brain behavior.
   - `test/data/services/protocol_message_handler_test.dart`
     - now uses `_FakeSecurityService` injection for constructor-first test setup
 
+- Hardened security locator access API:
+  - `lib/domain/services/security_service_locator.dart`
+    - added explicit `resolveService()` API (getter now delegates)
+  - migrated remaining data/BLE callsites from
+    `SecurityServiceLocator.instance` to
+    `SecurityServiceLocator.resolveService()` to reduce singleton-style access
+    patterns without behavior changes
+
 ---
 
 ## Verification
@@ -139,6 +147,8 @@ flutter analyze lib/data/services/pairing_lifecycle_service.dart lib/data/servic
 flutter test test/data/services/pairing_flow_controller_test.dart
 flutter analyze lib/data/services/protocol_message_handler.dart lib/data/services/ble_message_handler_facade.dart test/data/services/protocol_message_handler_test.dart
 flutter test test/data/services/protocol_message_handler_test.dart
+flutter analyze lib/domain/services/security_service_locator.dart lib/data/services/ble_message_handler.dart lib/data/services/ble_message_handler_facade.dart lib/data/services/ble_messaging_transport_helper.dart lib/data/services/ble_service_facade_runtime_helper.dart lib/data/services/inbound_text_processor.dart lib/data/services/outbound_message_sender.dart lib/data/services/pairing_failure_handler.dart lib/data/services/pairing_lifecycle_service.dart lib/data/services/pairing_request_coordinator.dart
+flutter test test/data/services/ble_messaging_service_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -148,7 +158,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **65**
+  - `.instance` usages in `lib/**`: **56**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

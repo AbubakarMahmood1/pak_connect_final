@@ -692,7 +692,7 @@ class BLEMessageHandler {
 
         // Register mapping for Noise session lookup
         if (senderPublicKey != null) {
-          SecurityServiceLocator.instance.registerIdentityMapping(
+          SecurityServiceLocator.resolveService().registerIdentityMapping(
             persistentPublicKey: theirPersistentKey,
             ephemeralID: senderPublicKey,
           );

@@ -43,7 +43,8 @@ class OutboundMessageSender {
   }) : _logger = logger,
        _ackTracker = ackTracker,
        _chunkSender = chunkSender,
-       _securityService = securityService ?? SecurityServiceLocator.instance,
+       _securityService =
+           securityService ?? SecurityServiceLocator.resolveService(),
        _centralWrite = centralWrite,
        _peripheralWrite = peripheralWrite;
 

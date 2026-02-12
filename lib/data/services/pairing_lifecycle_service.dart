@@ -54,7 +54,7 @@ class PairingLifecycleService {
   final ISecurityService? _securityService;
 
   ISecurityService get _resolvedSecurityService =>
-      _securityService ?? SecurityServiceLocator.instance;
+      _securityService ?? SecurityServiceLocator.resolveService();
 
   Future<void> ensureContactExistsAfterHandshake(
     String publicKey,
