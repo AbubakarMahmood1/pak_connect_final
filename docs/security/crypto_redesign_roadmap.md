@@ -45,6 +45,15 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - outbound v2 send path can now fail-closed on legacy modes using
     `PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`.
   - default remains compatibility-on (`true`) for progressive rollout.
+- Pass C scaffold started:
+  - added `sealed_v1` crypto primitive service:
+    `lib/core/security/sealed/sealed_encryption_service.dart`
+  - added deterministic unit tests for:
+    - roundtrip success
+    - wrong-recipient decrypt failure
+    - ciphertext tamper failure
+    - AAD mismatch failure
+  - note: service is not yet wired into outbound/inbound message flows.
 
 ---
 
@@ -115,6 +124,18 @@ Remaining:
 - Offline recipient can decrypt without prior interactive handshake.
 - Relay path remains opaque to plaintext.
 - Replay controls and message ID semantics remain deterministic.
+
+**Status**: In progress (`2026-02-12`).
+
+Implemented now:
+- sealed/offline cryptographic primitive service and core invariants are in place
+  via `test/core/security/sealed/sealed_encryption_service_test.dart`.
+
+Remaining:
+- wire `sealed_v1` into outbound send policy when no live Noise session exists.
+- add envelope fields (`kid`, `epk`, `nonce`) from sealed service output.
+- implement deterministic `sealed_v1` decrypt routing in handlers.
+- add relay-aware integration tests (transport sender differs from crypto sender).
 
 ### Pass D (55-75%): Live Session Lifecycle Hardening
 
@@ -229,7 +250,8 @@ Below are vetted findings from an additional review, filtered for usefulness.
 ### Rejected / Deprioritized
 
 - Claim that `?optionalValue` map syntax is invalid Dart and blocks builds.
-  - Not valid for this repo/toolchain.
+  - Rejected: this syntax is valid in current Dart and is lint-preferred in this repo
+    (`use_null_aware_elements`).
   - Verified by successful analyze on:
     - `lib/domain/models/protocol_message.dart`
     - `lib/domain/services/mesh_networking_binary_helper.dart`
