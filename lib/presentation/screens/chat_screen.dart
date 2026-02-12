@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../domain/models/connection_info.dart';
 import '../../domain/models/security_state.dart';
@@ -252,35 +252,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   IMessageRepository _resolveMessageRepository() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IMessageRepository>()) {
-      return di<IMessageRepository>();
-    }
-    throw StateError(
-      'IMessageRepository is not registered. '
-      'Call setupServiceLocator() before opening ChatScreen.',
+    return resolveFromAppServicesOrServiceLocator<IMessageRepository>(
+      fromServices: (services) => services.messageRepository,
+      dependencyName: 'IMessageRepository',
     );
   }
 
   IContactRepository _resolveContactRepository() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IContactRepository>()) {
-      return di<IContactRepository>();
-    }
-    throw StateError(
-      'IContactRepository is not registered. '
-      'Call setupServiceLocator() before opening ChatScreen.',
+    return resolveFromAppServicesOrServiceLocator<IContactRepository>(
+      fromServices: (services) => services.contactRepository,
+      dependencyName: 'IContactRepository',
     );
   }
 
   IChatsRepository _resolveChatsRepository() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IChatsRepository>()) {
-      return di<IChatsRepository>();
-    }
-    throw StateError(
-      'IChatsRepository is not registered. '
-      'Call setupServiceLocator() before opening ChatScreen.',
+    return resolveFromAppServicesOrServiceLocator<IChatsRepository>(
+      fromServices: (services) => services.chatsRepository,
+      dependencyName: 'IChatsRepository',
     );
   }
 

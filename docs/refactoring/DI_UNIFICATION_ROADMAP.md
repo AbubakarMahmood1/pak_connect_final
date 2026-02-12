@@ -101,6 +101,17 @@ Pass 4 progress highlights:
   `runtime_providers.dart`, `pinning_service_provider.dart`,
   `chat_messaging_view_model.dart`, plus partial group-provider migration
   (contact/shared queue paths).
+- Screen-level DI resolution now follows the same `AppServices`-first path for
+  core chat/group/home flows (`chat_screen.dart`, `create_group_screen.dart`,
+  `group_chat_screen.dart`, `home_screen.dart`, `qr_contact_screen.dart`),
+  removing direct locator guard checks from those entry points.
+- Additional presentation resolver paths (settings/profile/discovery overlays
+  and import/export dialogs) now route through centralized DI helpers rather
+  than local `getServiceLocator()` checks, reducing ad-hoc DI access points.
+- Chat lifecycle helpers (`chat_interaction_handler.dart`,
+  `chat_retry_helper.dart`, `chat_session_lifecycle.dart`) now resolve shared
+  queue/repository-provider dependencies through AppServices-aware optional
+  resolvers instead of direct locator availability checks.
 
 ---
 

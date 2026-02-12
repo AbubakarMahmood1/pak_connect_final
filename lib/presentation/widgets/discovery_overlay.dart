@@ -3,7 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import '../../domain/config/kill_switches.dart';
 import '../../domain/entities/contact.dart';
@@ -256,13 +256,9 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   }
 
   IContactRepository _resolveContactRepository() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IContactRepository>()) {
-      return di<IContactRepository>();
-    }
-    throw StateError(
-      'IContactRepository is not registered. '
-      'Call setupServiceLocator() before using DiscoveryOverlay.',
+    return resolveFromAppServicesOrServiceLocator<IContactRepository>(
+      fromServices: (services) => services.contactRepository,
+      dependencyName: 'IContactRepository',
     );
   }
 

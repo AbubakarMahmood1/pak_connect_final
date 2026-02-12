@@ -41,6 +41,27 @@ instead of ad-hoc service-locator reads in presentation logic.
   - `lib/presentation/providers/pinning_service_provider.dart`
   - `lib/presentation/providers/chat_messaging_view_model.dart`
   - `lib/presentation/providers/group_providers.dart` (contact/shared queue)
+- Migrated screen-layer repository/preferences resolution to use
+  `AppServices`-first helpers instead of direct locator checks:
+  - `lib/presentation/screens/chat_screen.dart`
+  - `lib/presentation/screens/create_group_screen.dart`
+  - `lib/presentation/screens/group_chat_screen.dart`
+  - `lib/presentation/screens/home_screen.dart`
+  - `lib/presentation/screens/qr_contact_screen.dart`
+- Migrated controller/widget resolver helpers off direct `getServiceLocator()`
+  checks to centralized DI helper paths:
+  - `lib/presentation/controllers/settings_controller.dart`
+  - `lib/presentation/screens/profile_screen.dart`
+  - `lib/presentation/controllers/discovery_overlay_controller.dart`
+  - `lib/presentation/widgets/discovery_overlay.dart`
+  - `lib/presentation/widgets/export_dialog.dart`
+  - `lib/presentation/widgets/import_dialog.dart`
+- Migrated chat lifecycle/retry/interaction helpers to
+  `maybeResolveFromAppServicesOrServiceLocator(...)` paths for shared queue and
+  repository-provider seams:
+  - `lib/presentation/services/chat_interaction_handler.dart`
+  - `lib/presentation/controllers/chat_retry_helper.dart`
+  - `lib/presentation/controllers/chat_session_lifecycle.dart`
 
 - `AppServices` now includes additional stable app-composed seams:
   - `IChatsRepository`
@@ -64,6 +85,9 @@ Commands run:
 flutter analyze lib/core/di/app_services.dart lib/core/app_core.dart lib/presentation/providers/di_providers.dart
 flutter analyze lib/presentation/providers/di_providers.dart lib/presentation/providers/contact_provider.dart lib/presentation/providers/theme_provider.dart lib/presentation/providers/security_state_provider.dart lib/presentation/providers/ble_providers.dart lib/presentation/providers/ble_service_facade_provider.dart lib/presentation/providers/mesh_networking_provider.dart lib/presentation/providers/mesh_health_provider.dart
 flutter analyze lib/core/di/app_services.dart lib/core/app_core.dart lib/presentation/providers/di_providers.dart lib/presentation/providers/chat_connection_provider.dart lib/presentation/providers/home_screen_providers.dart lib/presentation/providers/runtime_providers.dart lib/presentation/providers/group_providers.dart lib/presentation/providers/pinning_service_provider.dart lib/presentation/providers/ble_providers.dart lib/presentation/providers/chat_messaging_view_model.dart lib/presentation/providers/ble_core_service_providers.dart lib/presentation/providers/mesh_health_provider.dart
+flutter analyze lib/presentation/screens/chat_screen.dart lib/presentation/screens/create_group_screen.dart lib/presentation/screens/group_chat_screen.dart lib/presentation/screens/qr_contact_screen.dart lib/presentation/screens/home_screen.dart
+flutter analyze lib/presentation/controllers/settings_controller.dart lib/presentation/screens/profile_screen.dart lib/presentation/controllers/discovery_overlay_controller.dart lib/presentation/widgets/discovery_overlay.dart lib/presentation/widgets/export_dialog.dart lib/presentation/widgets/import_dialog.dart
+flutter analyze lib/presentation/services/chat_interaction_handler.dart lib/presentation/controllers/chat_retry_helper.dart lib/presentation/controllers/chat_session_lifecycle.dart
 flutter test test/widget_test.dart test/presentation/chat_screen_controller_test.dart test/presentation/controllers/home_screen_controller_test.dart
 flutter test test/widget_test.dart test/presentation/chat_screen_controller_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass4_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate

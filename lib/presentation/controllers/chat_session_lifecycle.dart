@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 
 import '../../domain/interfaces/i_connection_service.dart';
 import '../../domain/interfaces/i_mesh_networking_service.dart';
@@ -290,12 +290,14 @@ class ChatSessionLifecycle {
   }
 
   OfflineMessageQueueContract? _tryResolveSharedQueue() {
-    if (!GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
+    final provider =
+        maybeResolveFromAppServicesOrServiceLocator<
+          ISharedMessageQueueProvider
+        >(fromServices: (services) => services.sharedMessageQueueProvider);
+    if (provider == null) {
       _logger.fine('Shared queue provider not registered');
       return null;
     }
-
-    final provider = GetIt.instance<ISharedMessageQueueProvider>();
     if (!provider.isInitialized && !provider.isInitializing) {
       _logger.fine('Shared queue host not initialized; queue unavailable');
       return null;

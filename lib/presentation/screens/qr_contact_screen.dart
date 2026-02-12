@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:qr_barcode_dialog_scanner/qr_barcode_dialog_scanner.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,24 +52,15 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
   }
 
   IUserPreferences _resolveUserPreferences() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IUserPreferences>()) {
-      return di<IUserPreferences>();
-    }
-    throw StateError(
-      'IUserPreferences is not registered. '
-      'Call setupServiceLocator() before opening QRContactScreen.',
+    return resolveFromAppServicesOrServiceLocator<IUserPreferences>(
+      fromServices: (services) => services.userPreferences,
+      dependencyName: 'IUserPreferences',
     );
   }
 
   IIntroHintRepository _resolveIntroHintRepository() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IIntroHintRepository>()) {
-      return di<IIntroHintRepository>();
-    }
-    throw StateError(
-      'IIntroHintRepository is not registered. '
-      'Call setupServiceLocator() before opening QRContactScreen.',
+    return resolveFromServiceLocator<IIntroHintRepository>(
+      dependencyName: 'IIntroHintRepository',
     );
   }
 
