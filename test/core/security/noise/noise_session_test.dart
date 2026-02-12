@@ -427,6 +427,55 @@ void main() {
       bob.destroy();
     });
 
+    test('enforces time-based rekey requirement after one hour', () async {
+      var now = DateTime.utc(2026, 1, 1, 0, 0, 0);
+      DateTime nowProvider() => now;
+
+      final alice = NoiseSession(
+        peerID: 'Bob',
+        isInitiator: true,
+        localStaticPrivateKey: aliceStaticPrivate,
+        localStaticPublicKey: aliceStaticPublic,
+        nowProvider: nowProvider,
+      );
+      final bob = NoiseSession(
+        peerID: 'Alice',
+        isInitiator: false,
+        localStaticPrivateKey: bobStaticPrivate,
+        localStaticPublicKey: bobStaticPublic,
+        nowProvider: nowProvider,
+      );
+
+      final msgA = await alice.startHandshake();
+      final msgB = await bob.processHandshakeMessage(msgA);
+      final msgC = await alice.processHandshakeMessage(msgB!);
+      await bob.processHandshakeMessage(msgC!);
+
+      expect(alice.needsRekey(), isFalse);
+
+      now = now.add(const Duration(hours: 1, milliseconds: 1));
+
+      expect(alice.needsRekey(), isTrue);
+      final stats = alice.getStats();
+      expect(stats['needsRekey'], isTrue);
+      expect(stats['sessionAge'], greaterThanOrEqualTo(3600));
+
+      final payload = Uint8List.fromList([9, 9, 9]);
+      await expectLater(
+        () => alice.encrypt(payload),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('requires rekeying'),
+          ),
+        ),
+      );
+
+      alice.destroy();
+      bob.destroy();
+    });
+
     test('cannot encrypt before handshake', () {
       final alice = NoiseSession(
         peerID: 'Bob',

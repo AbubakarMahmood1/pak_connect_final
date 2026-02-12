@@ -37,6 +37,9 @@ class NoiseSession {
   /// Remote peer's static public key (required for KK pattern)
   final Uint8List? _remoteStaticPublicKeyForKK;
 
+  /// Clock source (injectable for deterministic tests).
+  final DateTime Function() _clockNow;
+
   /// Our static private key (32 bytes) - stored securely with auto-zeroing
   /// FIX-001: Using SecureKey to prevent memory leak (zeros original on construction)
   late final SecureKey _localStaticPrivateKey;
@@ -109,9 +112,11 @@ class NoiseSession {
     required Uint8List
     localStaticPublicKey, // Parameter kept for API compatibility
     Uint8List? remoteStaticPublicKey,
+    DateTime Function()? nowProvider,
   }) : _remoteStaticPublicKeyForKK = remoteStaticPublicKey != null
            ? Uint8List.fromList(remoteStaticPublicKey)
-           : null {
+           : null,
+       _clockNow = nowProvider ?? DateTime.now {
     // FIX-001: SecureKey zeros the original localStaticPrivateKey immediately
     _localStaticPrivateKey = SecureKey(localStaticPrivateKey);
     // Validate KK pattern requirements
@@ -374,7 +379,7 @@ class NoiseSession {
 
     // Update state (common for both patterns)
     _state = NoiseSessionState.established;
-    _sessionEstablishedTime = DateTime.now();
+    _sessionEstablishedTime = _clockNow();
     _messagesSent = 0;
     _messagesReceived = 0;
 
@@ -624,7 +629,7 @@ class NoiseSession {
     }
 
     // Time-based rekey
-    final elapsed = DateTime.now()
+    final elapsed = _clockNow()
         .difference(_sessionEstablishedTime!)
         .inMilliseconds;
     if (elapsed >= _rekeyTimeLimit) {
@@ -646,7 +651,7 @@ class NoiseSession {
     if (_sessionEstablishedTime == null) {
       return 0;
     }
-    return DateTime.now().difference(_sessionEstablishedTime!).inSeconds;
+    return _clockNow().difference(_sessionEstablishedTime!).inSeconds;
   }
 
   /// Get session statistics
@@ -659,7 +664,7 @@ class NoiseSession {
       'messagesReceived': _messagesReceived,
       'needsRekey': needsRekey(),
       'sessionAge': _sessionEstablishedTime != null
-          ? DateTime.now().difference(_sessionEstablishedTime!).inSeconds
+          ? _clockNow().difference(_sessionEstablishedTime!).inSeconds
           : 0,
     };
   }
