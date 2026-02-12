@@ -28,7 +28,7 @@ class PairingFailureHandler {
   final ISecurityService? _securityService;
 
   ISecurityService get _resolvedSecurityService =>
-      _securityService ?? SecurityServiceLocator.instance;
+      _securityService ?? SecurityServiceLocator.resolveService();
 
   Future<void> handleVerificationFailure({
     required PairingInfo? previousPairing,

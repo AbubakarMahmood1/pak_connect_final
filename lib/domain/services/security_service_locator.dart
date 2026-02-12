@@ -13,7 +13,7 @@ class SecurityServiceLocator {
     _serviceResolver = null;
   }
 
-  static ISecurityService get instance {
+  static ISecurityService resolveService() {
     final resolver = _serviceResolver;
     if (resolver != null) {
       return resolver();
@@ -24,4 +24,6 @@ class SecurityServiceLocator {
       'composition root setup.',
     );
   }
+
+  static ISecurityService get instance => resolveService();
 }
