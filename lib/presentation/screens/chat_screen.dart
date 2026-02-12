@@ -11,9 +11,9 @@ import '../../domain/interfaces/i_connection_service.dart';
 import '../../domain/interfaces/i_chats_repository.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
 import '../../domain/interfaces/i_message_repository.dart';
+import '../../domain/interfaces/i_security_service.dart';
 import '../../domain/services/message_retry_coordinator.dart';
 import '../../domain/services/media_send_handler.dart';
-import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -269,6 +269,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return resolveFromAppServicesOrServiceLocator<IChatsRepository>(
       fromServices: (services) => services.chatsRepository,
       dependencyName: 'IChatsRepository',
+    );
+  }
+
+  ISecurityService _resolveSecurityService() {
+    return resolveFromAppServicesOrServiceLocator<ISecurityService>(
+      fromServices: (services) => services.securityService,
+      dependencyName: 'ISecurityService',
     );
   }
 
@@ -589,7 +596,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final handler = MediaSendHandler(
         meshService: meshService,
         hasEstablishedNoiseSession:
-            SecurityServiceLocator.instance.hasEstablishedNoiseSession,
+            _resolveSecurityService().hasEstablishedNoiseSession,
       );
       await handler.sendImage(
         file: File(image.path),
