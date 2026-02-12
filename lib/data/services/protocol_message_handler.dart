@@ -25,6 +25,10 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 /// - Contact request/accept/reject lifecycle
 /// - Crypto verification request/response handling
 class ProtocolMessageHandler implements IProtocolMessageHandler {
+  static const bool _defaultAllowLegacyV2Decrypt = bool.fromEnvironment(
+    'PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT',
+    defaultValue: true,
+  );
   static IIdentityManager? Function()? _identityManagerResolver;
 
   static void configureIdentityManagerResolver(
@@ -40,12 +44,16 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   final _logger = Logger('ProtocolMessageHandler');
   final ContactRepository _contactRepository;
   final ISecurityService _securityService;
+  final bool _allowLegacyV2Decrypt;
 
   ProtocolMessageHandler({
     required ISecurityService securityService,
     ContactRepository? contactRepository,
+    bool? allowLegacyV2Decrypt,
   }) : _securityService = securityService,
-       _contactRepository = contactRepository ?? ContactRepository();
+       _contactRepository = contactRepository ?? ContactRepository(),
+       _allowLegacyV2Decrypt =
+           allowLegacyV2Decrypt ?? _defaultAllowLegacyV2Decrypt;
 
   // Callbacks
   Function(String, String)? _onContactRequestReceived;
@@ -276,6 +284,13 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
                 recipientId: recipientForSealed,
               );
             } else {
+              if (!_allowLegacyV2Decrypt && _isLegacyMode(cryptoHeader.mode)) {
+                _logger.warning(
+                  '🔒 v2 legacy decrypt mode blocked by policy: ${cryptoHeader.mode.wireValue} '
+                  '(messageId=${messageId.shortId(8)})',
+                );
+                return null;
+              }
               final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
               if (encryptionType == null) {
                 _logger.severe(
@@ -710,6 +725,12 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       );
     }
     return candidateKey;
+  }
+
+  bool _isLegacyMode(CryptoMode mode) {
+    return mode == CryptoMode.legacyEcdhV1 ||
+        mode == CryptoMode.legacyPairingV1 ||
+        mode == CryptoMode.legacyGlobalV1;
   }
 
   EncryptionType? _encryptionTypeForMode(CryptoMode mode) {

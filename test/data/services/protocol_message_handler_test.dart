@@ -294,6 +294,35 @@ void main() {
       expect(securityService.lastSealedRecipientId, equals('recipient-key'));
     });
 
+    test('blocks legacy v2 decrypt modes when policy disables them', () async {
+      final strictHandler = ProtocolMessageHandler(
+        securityService: securityService,
+        allowLegacyV2Decrypt: false,
+      );
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-legacy-block',
+          'content': 'ciphertext',
+          'encrypted': true,
+          'senderId': 'sender-key',
+          'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await strictHandler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, isNull);
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
+      expect(securityService.decryptMessageCalls, equals(0));
+    });
+
     test('rejects v1 message after observing v2 from same peer', () async {
       final v2Message = ProtocolMessage(
         type: ProtocolMessageType.textMessage,
