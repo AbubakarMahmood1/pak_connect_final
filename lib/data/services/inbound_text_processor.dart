@@ -1,6 +1,7 @@
 import 'package:logging/logging.dart';
 
 import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/services/signing_manager.dart';
 import '../../domain/models/protocol_message.dart';
@@ -23,15 +24,18 @@ class InboundTextProcessor {
     required IContactRepository contactRepository,
     required Future<bool> Function(String? intendedRecipient) isMessageForMe,
     required String? Function() currentNodeIdProvider,
+    ISecurityService? securityService,
     Logger? logger,
   }) : _contactRepository = contactRepository,
        _isMessageForMe = isMessageForMe,
        _currentNodeIdProvider = currentNodeIdProvider,
+       _securityService = securityService ?? SecurityServiceLocator.instance,
        _logger = logger ?? Logger('InboundTextProcessor');
 
   final IContactRepository _contactRepository;
   final Future<bool> Function(String? intendedRecipient) _isMessageForMe;
   final String? Function() _currentNodeIdProvider;
+  final ISecurityService _securityService;
   final Logger _logger;
 
   Future<InboundTextResult> process({
@@ -91,7 +95,7 @@ class InboundTextProcessor {
       }
 
       try {
-        decryptedContent = await SecurityServiceLocator.instance.decryptMessage(
+        decryptedContent = await _securityService.decryptMessage(
           content,
           decryptKey,
           _contactRepository,
@@ -119,8 +123,11 @@ class InboundTextProcessor {
             originalSender.isNotEmpty &&
             originalSender != decryptKey) {
           try {
-            decryptedContent = await SecurityServiceLocator.instance
-                .decryptMessage(content, originalSender, _contactRepository);
+            decryptedContent = await _securityService.decryptMessage(
+              content,
+              originalSender,
+              _contactRepository,
+            );
             decryptKeyUsed = originalSender;
             _logger.info(
               '🔒 MESSAGE: Decrypted successfully using originalSender fallback',
@@ -255,7 +262,7 @@ class InboundTextProcessor {
             persistentKey.isNotEmpty &&
             sessionId != null &&
             sessionId.isNotEmpty) {
-          SecurityServiceLocator.instance.registerIdentityMapping(
+          _securityService.registerIdentityMapping(
             persistentPublicKey: persistentKey,
             ephemeralID: sessionId,
           );

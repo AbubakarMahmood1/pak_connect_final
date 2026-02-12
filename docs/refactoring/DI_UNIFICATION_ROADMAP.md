@@ -37,7 +37,7 @@
 Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
-- `.instance` usages in `lib/**`: 70
+- `.instance` usages in `lib/**`: 68
 - `GetIt` resolutions in `lib/presentation/**`: 2
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
@@ -201,6 +201,9 @@ Pass 7 progress highlights:
 - `OutboundMessageSender` now resolves security operations through an injected
   `ISecurityService` dependency (defaulted once at construction), replacing
   repeated static security locator calls across outbound send paths.
+- `InboundTextProcessor` now also uses an injected `ISecurityService`
+  dependency (defaulted once during construction), replacing repeated static
+  security locator usage in inbound decrypt + identity-mapping paths.
 
 ---
 
