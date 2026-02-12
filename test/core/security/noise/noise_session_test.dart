@@ -384,6 +384,49 @@ void main() {
       bob.destroy();
     });
 
+    test('enforces rekey requirement after 10k sent messages', () async {
+      final alice = NoiseSession(
+        peerID: 'Bob',
+        isInitiator: true,
+        localStaticPrivateKey: aliceStaticPrivate,
+        localStaticPublicKey: aliceStaticPublic,
+      );
+      final bob = NoiseSession(
+        peerID: 'Alice',
+        isInitiator: false,
+        localStaticPrivateKey: bobStaticPrivate,
+        localStaticPublicKey: bobStaticPublic,
+      );
+
+      final msgA = await alice.startHandshake();
+      final msgB = await bob.processHandshakeMessage(msgA);
+      final msgC = await alice.processHandshakeMessage(msgB!);
+      await bob.processHandshakeMessage(msgC!);
+
+      final payload = Uint8List.fromList([1]);
+      for (var i = 0; i < 10000; i++) {
+        await alice.encrypt(payload);
+      }
+
+      final stats = alice.getStats();
+      expect(stats['messagesSent'], equals(10000));
+      expect(stats['needsRekey'], isTrue);
+
+      await expectLater(
+        () => alice.encrypt(payload),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('requires rekeying'),
+          ),
+        ),
+      );
+
+      alice.destroy();
+      bob.destroy();
+    });
+
     test('cannot encrypt before handshake', () {
       final alice = NoiseSession(
         peerID: 'Bob',
