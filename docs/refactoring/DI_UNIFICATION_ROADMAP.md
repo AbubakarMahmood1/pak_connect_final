@@ -150,6 +150,14 @@ Pass 6 progress highlights:
   `finally` path, improving lifecycle observability without behavior changes.
 - Bluetooth monitor callbacks now run behind a lifecycle-epoch guard so stale
   async callbacks from previous facade epochs are ignored.
+- Connection operations (`connectToDevice`/`disconnect`) now execute through a
+  facade-level serialized queue so overlapping connect attempts cannot run
+  concurrently.
+- Duplicate in-flight connect calls for the same target address now join the
+  active operation, reducing duplicate dial races.
+- Added explicit overlapping-connect regression coverage in
+  `test/data/services/ble_service_facade_test.dart` with central manager
+  concurrency tracking to enforce one-at-a-time connect execution.
 
 ---
 

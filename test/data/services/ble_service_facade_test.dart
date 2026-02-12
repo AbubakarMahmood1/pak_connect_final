@@ -345,6 +345,43 @@ void main() {
         expect(facade.connectToDevice, isNotNull);
       });
 
+      test(
+        'connectToDevice() serializes overlapping connect attempts',
+        () async {
+          final centralManager =
+              platformHost.centralManager as _FakeCentralManager;
+          centralManager.resetConnectTracking();
+          centralManager.connectGate = Completer<void>();
+          allowedSevere.add('Messaging service not found after 3 attempts');
+
+          final deviceA = _FakePeripheral(
+            UUID.fromString('00000000-0000-0000-0000-0000000000a1'),
+          );
+          final deviceB = _FakePeripheral(
+            UUID.fromString('00000000-0000-0000-0000-0000000000b2'),
+          );
+
+          final firstConnect = facade.connectToDevice(deviceA);
+          await Future<void>.delayed(const Duration(milliseconds: 700));
+          final secondConnect = facade.connectToDevice(deviceB);
+
+          try {
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+            expect(centralManager.connectCallCount, equals(1));
+            expect(centralManager.maxConcurrentConnects, equals(1));
+          } finally {
+            centralManager.releaseConnectGate();
+          }
+
+          await Future.wait<void>([
+            firstConnect.catchError((_) {}),
+            secondConnect.catchError((_) {}),
+          ]);
+          expect(centralManager.connectCallCount, equals(2));
+          expect(centralManager.maxConcurrentConnects, equals(1));
+        },
+      );
+
       test('disconnect() is delegated', () {
         // Arrange & Act
         final result = facade.disconnect();
@@ -1310,6 +1347,25 @@ final class _FakeCentralManager implements CentralManager {
       StreamController<BluetoothLowEnergyStateChangedEventArgs>.broadcast();
 
   final BluetoothLowEnergyState _state = BluetoothLowEnergyState.poweredOn;
+  int connectCallCount = 0;
+  int maxConcurrentConnects = 0;
+  int _activeConnectCalls = 0;
+  Completer<void>? connectGate;
+
+  void resetConnectTracking() {
+    connectCallCount = 0;
+    maxConcurrentConnects = 0;
+    _activeConnectCalls = 0;
+    connectGate = null;
+  }
+
+  void releaseConnectGate() {
+    final gate = connectGate;
+    connectGate = null;
+    if (gate != null && !gate.isCompleted) {
+      gate.complete();
+    }
+  }
 
   Future<void> dispose() async {
     await _discovered.close();
@@ -1360,7 +1416,22 @@ final class _FakeCentralManager implements CentralManager {
   Future<List<Peripheral>> retrieveConnectedPeripherals() async => [];
 
   @override
-  Future<void> connect(Peripheral peripheral) async {}
+  Future<void> connect(Peripheral peripheral) async {
+    connectCallCount++;
+    _activeConnectCalls++;
+    if (_activeConnectCalls > maxConcurrentConnects) {
+      maxConcurrentConnects = _activeConnectCalls;
+    }
+
+    try {
+      final gate = connectGate;
+      if (gate != null) {
+        await gate.future;
+      }
+    } finally {
+      _activeConnectCalls--;
+    }
+  }
 
   @override
   Future<void> disconnect(Peripheral peripheral) async {}
