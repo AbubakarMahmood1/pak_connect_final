@@ -112,6 +112,9 @@ Pass 4 progress highlights:
   `chat_retry_helper.dart`, `chat_session_lifecycle.dart`) now resolve shared
   queue/repository-provider dependencies through AppServices-aware optional
   resolvers instead of direct locator availability checks.
+- Presentation direct `getServiceLocator()` usage is now isolated to
+  `di_providers.dart`; all other presentation paths consume the centralized DI
+  helper APIs.
 
 ---
 
