@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-02-12 (Pass 4 in progress)
+**Last Updated**: 2026-02-12 (Pass 5 in progress)
 
 ---
 
@@ -25,16 +25,16 @@
 | Pass 1 | 5-15% | Complete | No direct `GetIt` usage in presentation code paths |
 | Pass 2 | 15-30% | Complete | Remove provider-driven global register/unregister patterns |
 | Pass 3 | 30-45% | Complete | Constructor-first dependency flow in core/domain |
-| Pass 4 | 45-60% | In Progress | `AppServices` composition root + provider wiring |
-| Pass 5 | 60-75% | Pending | Test strategy convergence (provider overrides first) |
+| Pass 4 | 45-60% | Complete | `AppServices` composition root + provider wiring |
+| Pass 5 | 60-75% | In Progress | Test strategy convergence (provider overrides first) |
 | Pass 6 | 75-90% | Pending | Connection runtime serialization hardening |
 | Pass 7 | 90-100% | Pending | Remove legacy fallbacks, enable strict guardrails |
 
 ---
 
-## Latest Snapshot (Pass 4 Current)
+## Latest Snapshot (Pass 5 Current)
 
-Source: `validation_outputs/di_pass4_snapshot.json`
+Source: `validation_outputs/di_pass5_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
 - `.instance` usages in `lib/**`: 92
@@ -115,6 +115,22 @@ Pass 4 progress highlights:
 - Presentation direct `getServiceLocator()` usage is now isolated to
   `di_providers.dart`; all other presentation paths consume the centralized DI
   helper APIs.
+
+Pass 5 progress highlights:
+
+- Test harness now registers an `AppServices` snapshot after DI bootstrap and
+  after test DI overrides (`TestSetup.initializeTestEnvironment` and
+  `TestSetup.configureTestDI`), so provider tests read the same composition seam
+  used by runtime code.
+- `AppServices` mesh seam moved to the interface contract
+  (`IMeshNetworkingService`) with an explicit `MeshNetworkHealthMonitor`
+  field, reducing test coupling to concrete mesh runtime types.
+- Added harness-safe fallback doubles for missing runtime-only services
+  (`_NoopMeshNetworkingService`, `_NoopSecurityService`, `MockConnectionService`)
+  so tests can progressively override only what they need.
+- Presentation mesh health provider now resolves directly from
+  `AppServices.meshNetworkHealthMonitor`, removing a concrete-type dependency
+  chain from provider DI resolution.
 
 ---
 

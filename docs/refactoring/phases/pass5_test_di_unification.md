@@ -1,0 +1,72 @@
+# Pass 5: Test DI Unification (In Progress)
+
+**Status**: In Progress  
+**Date**: 2026-02-12  
+**Owner**: Architecture Refactor Track
+
+---
+
+## Objective
+
+Converge test harness DI onto the same composition seam used in runtime/provider
+paths so tests can override dependencies progressively without relying on
+accidental global fallback behavior.
+
+---
+
+## Completed In This Slice
+
+- `AppServices` mesh seam is now interface-first plus explicit health monitor:
+  - `lib/core/di/app_services.dart`
+  - `meshNetworkingService`: `IMeshNetworkingService`
+  - `meshNetworkHealthMonitor`: `MeshNetworkHealthMonitor`
+
+- AppCore now publishes the explicit mesh health monitor into `AppServices`:
+  - `lib/core/app_core.dart`
+
+- Mesh health provider now resolves directly from `AppServices` health monitor
+  field instead of chaining through a concrete mesh service type:
+  - `lib/presentation/providers/mesh_health_provider.dart`
+
+- Test harness now registers and refreshes an `AppServices` snapshot after
+  bootstrap and after DI overrides:
+  - `test/core/test_helpers/test_setup.dart`
+  - `_registerAppServicesSnapshot(...)`
+  - `_resolveMeshHealthMonitor(...)`
+
+- Added harness-safe fallback doubles so tests can migrate incrementally:
+  - `_NoopMeshNetworkingService` (`IMeshNetworkingService`)
+  - `_NoopSecurityService` (`ISecurityService`)
+  - `MockConnectionService` fallback when no connection service is registered
+
+---
+
+## Verification
+
+Commands run:
+
+```powershell
+flutter analyze lib/core/di/app_services.dart lib/core/app_core.dart lib/presentation/providers/mesh_health_provider.dart test/core/test_helpers/test_setup.dart
+flutter test test/widget_test.dart test/presentation/chat_screen_controller_test.dart test/presentation/controllers/home_screen_controller_test.dart
+pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass5_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
+```
+
+Results:
+
+- Targeted analyze: **No issues found**
+- Targeted tests: **All passed**
+- Snapshot (`validation_outputs/di_pass5_snapshot.json`):
+  - `GetIt` resolutions in `lib/**`: **43**
+  - `.instance` usages in `lib/**`: **92**
+  - Presentation import guard violations: **0**
+  - Presentation DI mutation violations: **0**
+
+---
+
+## Next Slice
+
+- Add test helper APIs for provider-container overrides that consume
+  `AppServices` directly.
+- Migrate a first batch of provider/controller tests to explicit `ProviderScope`
+  overrides over global locator mutation where practical.
+- Keep guardrails and targeted test subsets green after each migration batch.

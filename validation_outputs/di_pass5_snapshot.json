@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 2,
+  "generatedAtUtc": "2026-02-12T13:08:00.5585684Z",
+  "scope": "lib/**/*.dart",
+  "metrics": {
+    "getItResolutionCount": 43,
+    "instanceUsageCount": 92,
+    "presentationGetItResolutionCount": 2,
+    "presentationGetItImportCount": 1,
+    "presentationGetItImportFileCount": 1,
+    "presentationDiMutationCount": 0
+  },
+  "breakdown": {
+    "getItResolutionsByLayer": [
+      {
+        "layer": "data",
+        "count": 22
+      },
+      {
+        "layer": "core",
+        "count": 17
+      },
+      {
+        "layer": "domain",
+        "count": 2
+      },
+      {
+        "layer": "presentation",
+        "count": 2
+      }
+    ],
+    "topGetItResolutionFiles": [
+      {
+        "path": "lib/data/di/data_layer_service_registrar.dart",
+        "count": 22
+      },
+      {
+        "path": "lib/core/app_core.dart",
+        "count": 14
+      },
+      {
+        "path": "lib/core/di/service_locator.dart",
+        "count": 3
+      },
+      {
+        "path": "lib/domain/interfaces/i_repository_provider.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/presentation/providers/di_providers.dart",
+        "count": 2
+      }
+    ]
+  },
+  "guardrails": {
+    "mode": "enforced",
+    "allowedPresentationGetItImportFiles": [
+      "lib/presentation/providers/di_providers.dart"
+    ],
+    "presentationGetItImportViolationCount": 0,
+    "presentationGetItImportViolations": [],
+    "presentationDiMutationViolationCount": 0,
+    "presentationDiMutationViolations": []
+  }
+}

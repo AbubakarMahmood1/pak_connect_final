@@ -11,8 +11,7 @@ final _logger = Logger('MeshHealthProvider');
 final meshHealthMonitorProvider = Provider<MeshNetworkHealthMonitor>((ref) {
   final monitor =
       resolveFromAppServicesOrServiceLocator<MeshNetworkHealthMonitor>(
-        fromServices: (services) =>
-            services.meshNetworkingService.healthMonitor,
+        fromServices: (services) => services.meshNetworkHealthMonitor,
         dependencyName: 'MeshNetworkHealthMonitor',
       );
   _logger.fine('✅ MeshNetworkHealthMonitor provider accessed');
