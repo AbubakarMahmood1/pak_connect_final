@@ -158,6 +158,10 @@ Pass 6 progress highlights:
 - Added explicit overlapping-connect regression coverage in
   `test/data/services/ble_service_facade_test.dart` with central manager
   concurrency tracking to enforce one-at-a-time connect execution.
+- `BleConnectionTracker` now exposes read-only cooldown introspection
+  (`retryBackoffRemaining`, `nextAllowedAttemptAt`, `pendingAttemptCount`),
+  and reconnect/tie-break code paths log deterministic cooldown + token
+  comparison context for runtime verification.
 
 ---
 
