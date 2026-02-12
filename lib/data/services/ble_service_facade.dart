@@ -124,6 +124,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   StreamSubscription<ConnectionInfo>? _connectionInfoSubscription;
   bool _lifecycleDisposed = false;
   int _lifecycleEpoch = 0;
+  Future<void> _serializedConnectionOperationTail = Future<void>.value();
+  Future<void>? _activeConnectOperation;
+  String? _activeConnectAddress;
+  int _connectionOperationSequence = 0;
 
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
@@ -461,11 +465,37 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   // ============================================================================
 
   @override
-  Future<void> connectToDevice(Peripheral device) =>
-      _getConnectionService().connectToDevice(device);
+  Future<void> connectToDevice(Peripheral device) {
+    final address = device.uuid.toString();
+    final activeConnectOperation = _activeConnectOperation;
+    if (activeConnectOperation != null && _activeConnectAddress == address) {
+      _logger.fine(
+        'Joining in-flight connect request for ${address.shortId(8)}...',
+      );
+      return activeConnectOperation;
+    }
+
+    final operation = _enqueueSerializedConnectionOperation(
+      operationName: 'connectToDevice',
+      targetAddress: address,
+      action: () => _getConnectionService().connectToDevice(device),
+    );
+
+    _activeConnectOperation = operation;
+    _activeConnectAddress = address;
+    return operation.whenComplete(() {
+      if (identical(_activeConnectOperation, operation)) {
+        _activeConnectOperation = null;
+        _activeConnectAddress = null;
+      }
+    });
+  }
 
   @override
-  Future<void> disconnect() => _getConnectionService().disconnect();
+  Future<void> disconnect() => _enqueueSerializedConnectionOperation(
+    operationName: 'disconnect',
+    action: _getConnectionService().disconnect,
+  );
 
   @override
   void startConnectionMonitoring() =>
@@ -1010,6 +1040,40 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   bool _isLifecycleEpochCurrent(int epoch) =>
       !_lifecycleDisposed && _lifecycleEpoch == epoch;
+
+  Future<void> _enqueueSerializedConnectionOperation({
+    required String operationName,
+    String? targetAddress,
+    required Future<void> Function() action,
+  }) {
+    final scheduledEpoch = _lifecycleEpoch;
+    final operationId = ++_connectionOperationSequence;
+    final queuedOperation = _serializedConnectionOperationTail
+        .catchError((_) {})
+        .then((_) async {
+          if (!_isLifecycleEpochCurrent(scheduledEpoch)) {
+            _logger.fine(
+              'Skipping stale $operationName#$operationId '
+              '(epoch=$scheduledEpoch, current=$_lifecycleEpoch)',
+            );
+            return;
+          }
+
+          if (targetAddress != null && targetAddress.isNotEmpty) {
+            _logger.fine(
+              'Running serialized $operationName#$operationId '
+              'for ${targetAddress.shortId(8)}...',
+            );
+          } else {
+            _logger.fine('Running serialized $operationName#$operationId...');
+          }
+
+          await action();
+        });
+
+    _serializedConnectionOperationTail = queuedOperation.catchError((_) {});
+    return queuedOperation;
+  }
 
   Future<void> _initializeNodeIdentity() =>
       _runtimeHelper.initializeNodeIdentity();

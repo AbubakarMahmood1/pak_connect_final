@@ -40,6 +40,21 @@ before introducing behavior-changing coordination logic.
   - monitor callbacks (`ready`/`unavailable`/`retry`) are ignored when stale
   - dispose invalidates the active epoch before teardown
 
+- Added one-at-a-time serialized connection operation gate in facade runtime:
+  - `lib/data/services/ble_service_facade.dart`
+  - `connectToDevice(...)` now runs through a serialized operation tail
+  - duplicate in-flight connect calls for the same address join the active
+    operation
+  - `disconnect()` now executes through the same serialized operation path
+  - stale queued connection operations are skipped after lifecycle epoch
+    invalidation/dispose
+
+- Added targeted regression coverage for overlapping connect attempts:
+  - `test/data/services/ble_service_facade_test.dart`
+  - fake central manager now tracks concurrent connect call depth
+  - new test asserts overlapping connect calls never execute central connect
+    concurrently (`maxConcurrentConnects == 1`)
+
 ---
 
 ## Verification
@@ -48,6 +63,9 @@ Commands run:
 
 ```powershell
 flutter analyze lib/data/services/ble_service_facade.dart lib/data/services/ble_service_facade_runtime_helper.dart
+flutter analyze test/data/services/ble_service_facade_test.dart
+flutter test test/data/services/ble_service_facade_test.dart --plain-name \"connectToDevice() serializes overlapping connect attempts\"
+flutter test test/data/services/ble_service_facade_test.dart
 flutter test test/data/services/ble_service_facade_test.dart --plain-name \"initialize() completes successfully\"
 flutter test test/data/services/ble_service_facade_test.dart test/domain/services/mesh/mesh_networking_service_binary_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass6_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
@@ -67,7 +85,5 @@ Results:
 
 ## Next Slice
 
-- Add one-at-a-time connect attempt gate in runtime coordination path (lock/
-  queue) without changing public APIs.
 - Add deterministic cooldown/tie-break logging hooks to verify behavior before
   enforcing stricter runtime transitions.
