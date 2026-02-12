@@ -12,6 +12,7 @@ import 'package:pak_connect/domain/models/protocol_message.dart'
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
 import '../../domain/services/signing_manager.dart';
+import 'package:pak_connect/core/security/peer_protocol_version_guard.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
@@ -77,11 +78,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   String? _currentNodeId;
   String _encryptionMethod = 'none';
   static const bool _allowLegacyV1DecryptFallback = true;
-  static const bool _enforceV2DowngradeGuard = bool.fromEnvironment(
-    'PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD',
-    defaultValue: true,
-  );
-  static final Map<String, int> _peerProtocolVersionFloor = <String, int>{};
 
   /// Sets current node ID for routing and identity checks
   void setCurrentNodeId(String nodeId) {
@@ -93,7 +89,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   /// Test hook for isolating protocol-floor behavior between test cases.
   static void clearPeerProtocolVersionFloorForTest() {
-    _peerProtocolVersionFloor.clear();
+    PeerProtocolVersionGuard.clearForTest();
   }
 
   /// Processes a received protocol message
@@ -419,13 +415,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     required String peerKey,
     required String messageId,
   }) {
-    if (!_enforceV2DowngradeGuard || messageVersion >= 2 || peerKey.isEmpty) {
+    final shouldReject = PeerProtocolVersionGuard.shouldRejectLegacyMessage(
+      messageVersion: messageVersion,
+      peerKey: peerKey,
+    );
+    if (!shouldReject) {
       return false;
     }
-    final floor = _peerProtocolVersionFloor[peerKey] ?? 1;
-    if (floor < 2) {
-      return false;
-    }
+    final floor = PeerProtocolVersionGuard.floorForPeer(peerKey);
     _logger.warning(
       '🔒 Downgrade guard rejected v$messageVersion message from '
       '${peerKey.shortId(8)}... after observing v$floor capability '
@@ -439,22 +436,20 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     required int messageVersion,
     required String messageId,
   }) {
-    if (!_enforceV2DowngradeGuard || messageVersion < 2 || peerKey.isEmpty) {
-      return;
-    }
-    final currentFloor = _peerProtocolVersionFloor[peerKey] ?? 1;
-    if (messageVersion > currentFloor) {
-      _peerProtocolVersionFloor[peerKey] = messageVersion;
+    final result = PeerProtocolVersionGuard.trackObservedVersion(
+      messageVersion: messageVersion,
+      peerKey: peerKey,
+    );
+    if (result.upgraded) {
       _logger.fine(
         '🔒 Protocol floor upgraded for ${peerKey.shortId(8)}... '
-        'to v$messageVersion via ${messageId.shortId(8)}',
+        'to v${result.floor} via ${messageId.shortId(8)}',
       );
     }
-    if (_peerProtocolVersionFloor.length > 4096) {
+    if (result.cacheCleared) {
       _logger.warning(
         '🔒 Protocol floor cache exceeded 4096 entries; clearing oldest state',
       );
-      _peerProtocolVersionFloor.clear();
     }
   }
 

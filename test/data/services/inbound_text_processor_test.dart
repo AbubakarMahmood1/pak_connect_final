@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/data/services/inbound_text_processor.dart';
+import 'package:pak_connect/data/services/protocol_message_handler.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
@@ -165,6 +166,52 @@ void main() {
       expect(securityService.decryptMessageCalls, equals(0));
       expect(securityService.decryptMessageByTypeCalls, equals(0));
     });
+
+    test(
+      'shares downgrade floor with ProtocolMessageHandler across inbound paths',
+      () async {
+        final protocolHandler = ProtocolMessageHandler(
+          securityService: securityService,
+        );
+        final v2Message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-cross-handler',
+            'content': 'hello-v2',
+            'encrypted': false,
+            'senderId': 'peer-shared',
+            'crypto': {'mode': 'none', 'modeVersion': 1},
+          },
+          timestamp: DateTime.now(),
+        );
+        final v1Message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 1,
+          payload: {
+            'messageId': 'msg-v1-cross-handler',
+            'content': 'hello-v1',
+            'encrypted': false,
+            'senderId': 'peer-shared',
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final protocolResult = await protocolHandler.processProtocolMessage(
+          message: v2Message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+        final inboundResult = await processor.process(
+          protocolMessage: v1Message,
+          senderPublicKey: 'relay-node',
+        );
+
+        expect(protocolResult, equals('hello-v2'));
+        expect(inboundResult.content, isNull);
+        expect(inboundResult.shouldAck, isFalse);
+      },
+    );
   });
 }
 

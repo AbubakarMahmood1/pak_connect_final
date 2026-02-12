@@ -4,6 +4,7 @@ import '../../domain/interfaces/i_contact_repository.dart';
 import '../../domain/interfaces/i_security_service.dart';
 import '../../domain/models/crypto_header.dart';
 import '../../domain/models/encryption_method.dart';
+import 'package:pak_connect/core/security/peer_protocol_version_guard.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/services/signing_manager.dart';
 import '../../domain/models/protocol_message.dart';
@@ -50,15 +51,10 @@ class InboundTextProcessor {
   final bool _allowLegacyV2Decrypt;
   final Logger _logger;
   static const bool _allowLegacyV1DecryptFallback = true;
-  static const bool _enforceV2DowngradeGuard = bool.fromEnvironment(
-    'PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD',
-    defaultValue: true,
-  );
-  static final Map<String, int> _peerProtocolVersionFloor = <String, int>{};
 
   /// Test hook for isolating protocol-floor behavior between test cases.
   static void clearPeerProtocolVersionFloorForTest() {
-    _peerProtocolVersionFloor.clear();
+    PeerProtocolVersionGuard.clearForTest();
   }
 
   Future<InboundTextResult> process({
@@ -410,13 +406,14 @@ class InboundTextProcessor {
     required String peerKey,
     required String messageId,
   }) {
-    if (!_enforceV2DowngradeGuard || messageVersion >= 2 || peerKey.isEmpty) {
+    final shouldReject = PeerProtocolVersionGuard.shouldRejectLegacyMessage(
+      messageVersion: messageVersion,
+      peerKey: peerKey,
+    );
+    if (!shouldReject) {
       return false;
     }
-    final floor = _peerProtocolVersionFloor[peerKey] ?? 1;
-    if (floor < 2) {
-      return false;
-    }
+    final floor = PeerProtocolVersionGuard.floorForPeer(peerKey);
     _logger.warning(
       '🔒 Downgrade guard rejected v$messageVersion message from '
       '${_safeTruncate(peerKey)} after observing v$floor '
@@ -430,22 +427,20 @@ class InboundTextProcessor {
     required int messageVersion,
     required String messageId,
   }) {
-    if (!_enforceV2DowngradeGuard || messageVersion < 2 || peerKey.isEmpty) {
-      return;
-    }
-    final currentFloor = _peerProtocolVersionFloor[peerKey] ?? 1;
-    if (messageVersion > currentFloor) {
-      _peerProtocolVersionFloor[peerKey] = messageVersion;
+    final result = PeerProtocolVersionGuard.trackObservedVersion(
+      messageVersion: messageVersion,
+      peerKey: peerKey,
+    );
+    if (result.upgraded) {
       _logger.fine(
         '🔒 Protocol floor upgraded for ${_safeTruncate(peerKey)} '
-        'to v$messageVersion via ${_safeTruncate(messageId)}',
+        'to v${result.floor} via ${_safeTruncate(messageId)}',
       );
     }
-    if (_peerProtocolVersionFloor.length > 4096) {
+    if (result.cacheCleared) {
       _logger.warning(
         '🔒 Protocol floor cache exceeded 4096 entries; clearing state',
       );
-      _peerProtocolVersionFloor.clear();
     }
   }
 
