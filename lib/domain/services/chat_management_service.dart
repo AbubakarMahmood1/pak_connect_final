@@ -2,7 +2,6 @@
 
 import 'dart:async';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import '../models/archive_models.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../interfaces/i_chats_repository.dart';
@@ -25,10 +24,41 @@ class ChatManagementService {
   static final _logger = Logger('ChatManagementService');
 
   static ChatManagementService? _instance;
+  static IChatsRepository Function()? _chatsRepositoryResolver;
+  static IMessageRepository Function()? _messageRepositoryResolver;
+  static IArchiveRepository Function()? _archiveRepositoryResolver;
 
   static ChatManagementService get instance {
-    _instance ??= ChatManagementService._internal();
+    _instance ??= ChatManagementService.fromServiceLocator();
     return _instance!;
+  }
+
+  static void setInstance(ChatManagementService service) {
+    _instance = service;
+  }
+
+  /// Configure fallback dependency resolvers for legacy singleton access.
+  static void configureDependencyResolvers({
+    IChatsRepository Function()? chatsRepositoryResolver,
+    IMessageRepository Function()? messageRepositoryResolver,
+    IArchiveRepository Function()? archiveRepositoryResolver,
+  }) {
+    if (chatsRepositoryResolver != null) {
+      _chatsRepositoryResolver = chatsRepositoryResolver;
+    }
+    if (messageRepositoryResolver != null) {
+      _messageRepositoryResolver = messageRepositoryResolver;
+    }
+    if (archiveRepositoryResolver != null) {
+      _archiveRepositoryResolver = archiveRepositoryResolver;
+    }
+  }
+
+  /// Clear fallback dependency resolvers.
+  static void clearDependencyResolvers() {
+    _chatsRepositoryResolver = null;
+    _messageRepositoryResolver = null;
+    _archiveRepositoryResolver = null;
   }
 
   final IChatsRepository _chatsRepository;
@@ -44,13 +74,19 @@ class ChatManagementService {
 
   Completer<void>? _initCompleter;
 
-  ChatManagementService._internal()
-    : _chatsRepository = GetIt.instance<IChatsRepository>(),
-      _messageRepository = GetIt.instance<IMessageRepository>(),
-      _archiveRepository = GetIt.instance<IArchiveRepository>(),
-      _archiveManagementService = ArchiveManagementService.instance,
-      _archiveSearchService = ArchiveSearchService.instance {
-    _notificationService = ChatNotificationService();
+  ChatManagementService._internal({
+    required IChatsRepository chatsRepository,
+    required IMessageRepository messageRepository,
+    required IArchiveRepository archiveRepository,
+    required ArchiveManagementService archiveManagementService,
+    required ArchiveSearchService archiveSearchService,
+    ChatNotificationService? notificationService,
+  }) : _chatsRepository = chatsRepository,
+       _messageRepository = messageRepository,
+       _archiveRepository = archiveRepository,
+       _archiveManagementService = archiveManagementService,
+       _archiveSearchService = archiveSearchService {
+    _notificationService = notificationService ?? ChatNotificationService();
     _syncService = ChatSyncService(
       chatsRepository: _chatsRepository,
       messageRepository: _messageRepository,
@@ -71,6 +107,46 @@ class ChatManagementService {
 
   /// Factory constructor (redirects to instance getter)
   factory ChatManagementService() => instance;
+
+  /// Constructor-first creation path for app composition.
+  factory ChatManagementService.withDependencies({
+    required IChatsRepository chatsRepository,
+    required IMessageRepository messageRepository,
+    required IArchiveRepository archiveRepository,
+    required ArchiveManagementService archiveManagementService,
+    required ArchiveSearchService archiveSearchService,
+    ChatNotificationService? notificationService,
+  }) => ChatManagementService._internal(
+    chatsRepository: chatsRepository,
+    messageRepository: messageRepository,
+    archiveRepository: archiveRepository,
+    archiveManagementService: archiveManagementService,
+    archiveSearchService: archiveSearchService,
+    notificationService: notificationService,
+  );
+
+  /// Legacy fallback for contexts still relying on global DI.
+  factory ChatManagementService.fromServiceLocator() {
+    final chatsResolver = _chatsRepositoryResolver;
+    final messageResolver = _messageRepositoryResolver;
+    final archiveResolver = _archiveRepositoryResolver;
+    if (chatsResolver == null ||
+        messageResolver == null ||
+        archiveResolver == null) {
+      throw StateError(
+        'ChatManagementService fallback dependencies are not configured. '
+        'Call ChatManagementService.configureDependencyResolvers(...), '
+        'or install an app-composed singleton via setInstance().',
+      );
+    }
+    return ChatManagementService._internal(
+      chatsRepository: chatsResolver(),
+      messageRepository: messageResolver(),
+      archiveRepository: archiveResolver(),
+      archiveManagementService: ArchiveManagementService.fromServiceLocator(),
+      archiveSearchService: ArchiveSearchService.fromServiceLocator(),
+    );
+  }
 
   /// Stream of chat updates
   Stream<ChatUpdateEvent> get chatUpdates => _notificationService.chatUpdates;

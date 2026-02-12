@@ -121,6 +121,13 @@ escape hatches that can reintroduce split-brain behavior.
     `SecurityServiceLocator.resolveService()` to reduce singleton-style access
     patterns without behavior changes
 
+- Pruned archive service singleton fallback chaining in chat management:
+  - `lib/domain/services/chat_management_service.dart`
+    - `fromServiceLocator()` now composes archive collaborators via
+      `ArchiveManagementService.fromServiceLocator()` and
+      `ArchiveSearchService.fromServiceLocator()` instead of `.instance`
+      access, reducing implicit singleton reach-through in fallback paths
+
 ---
 
 ## Verification
@@ -158,7 +165,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **56**
+  - `.instance` usages in `lib/**`: **54**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 
