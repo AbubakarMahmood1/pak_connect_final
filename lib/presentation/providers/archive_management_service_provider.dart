@@ -1,10 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/domain/services/archive_management_service.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 
 /// Provider for ArchiveManagementService singleton
 final archiveManagementServiceProvider =
     Provider.autoDispose<ArchiveManagementService>((ref) {
-      final service = ArchiveManagementService.instance;
+      final service =
+          resolveFromAppServicesOrServiceLocator<ArchiveManagementService>(
+            fromServices: (services) => services.archiveManagementService,
+            dependencyName: 'ArchiveManagementService',
+          );
       ref.onDispose(() {
         // Note: ArchiveManagementService is a singleton, managed at app lifecycle level
       });

@@ -1,11 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/domain/services/archive_search_service.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 
 /// Provider for ArchiveSearchService singleton
 final archiveSearchServiceProvider = Provider.autoDispose<ArchiveSearchService>((
   ref,
 ) {
-  final service = ArchiveSearchService.instance;
+  final service = resolveFromAppServicesOrServiceLocator<ArchiveSearchService>(
+    fromServices: (services) => services.archiveSearchService,
+    dependencyName: 'ArchiveSearchService',
+  );
   ref.onDispose(() {
     // Note: ArchiveSearchService is a singleton, managed at app lifecycle level
   });

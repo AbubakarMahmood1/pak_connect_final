@@ -9,6 +9,7 @@ import '../../domain/services/archive_search_service.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/values/id_types.dart';
 import '../../domain/models/archive_models.dart';
+import 'di_providers.dart';
 
 /// Logger for archive provider
 final _logger = Logger('ArchiveProvider');
@@ -18,7 +19,11 @@ final _logger = Logger('ArchiveProvider');
 final archiveManagementServiceProvider = Provider<ArchiveManagementService>((
   ref,
 ) {
-  final service = ArchiveManagementService.instance;
+  final service =
+      resolveFromAppServicesOrServiceLocator<ArchiveManagementService>(
+        fromServices: (services) => services.archiveManagementService,
+        dependencyName: 'ArchiveManagementService',
+      );
 
   // Initialize service when first accessed (idempotent - safe to call multiple times)
   service.initialize().catchError((error) {
@@ -34,7 +39,10 @@ final archiveManagementServiceProvider = Provider<ArchiveManagementService>((
 /// Archive search service provider (singleton)
 /// ✅ FIXED: Uses singleton instance instead of creating new instances
 final archiveSearchServiceProvider = Provider<ArchiveSearchService>((ref) {
-  final service = ArchiveSearchService.instance;
+  final service = resolveFromAppServicesOrServiceLocator<ArchiveSearchService>(
+    fromServices: (services) => services.archiveSearchService,
+    dependencyName: 'ArchiveSearchService',
+  );
 
   // Initialize service when first accessed (idempotent - safe to call multiple times)
   service.initialize().catchError((error) {

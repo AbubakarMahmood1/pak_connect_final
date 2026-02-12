@@ -70,6 +70,8 @@ class AppCore {
   late final OfflineMessageQueue messageQueue;
   late final ContactManagementService contactService;
   late final ChatManagementService chatService;
+  late final ArchiveManagementService archiveManagementService;
+  late final ArchiveSearchService archiveSearchService;
   late final PerformanceMonitor performanceMonitor;
   // 🔧 REMOVED: BLEStateManager - BLEService creates its own instance
   // late final BLEStateManager bleStateManager;
@@ -470,12 +472,12 @@ class AppCore {
     _logger.info('Contact management service initialized');
 
     // Initialize archive services (constructor-first composition)
-    final archiveManagementService = ArchiveManagementService.withDependencies(
+    archiveManagementService = ArchiveManagementService.withDependencies(
       archiveRepository: archiveRepository,
     );
     ArchiveManagementService.setInstance(archiveManagementService);
 
-    final archiveSearchService = ArchiveSearchService.withDependencies(
+    archiveSearchService = ArchiveSearchService.withDependencies(
       archiveRepository: archiveRepository,
     );
     ArchiveSearchService.setInstance(archiveSearchService);
@@ -678,6 +680,10 @@ class AppCore {
       meshNetworkingService: meshNetworkingService,
       meshNetworkHealthMonitor: meshNetworkingService.healthMonitor,
       securityService: securityService,
+      contactManagementService: contactService,
+      chatManagementService: chatService,
+      archiveManagementService: archiveManagementService,
+      archiveSearchService: archiveSearchService,
     );
   }
 

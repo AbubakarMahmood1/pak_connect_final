@@ -6,7 +6,8 @@ import 'package:logging/logging.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../../domain/routing/network_topology_analyzer.dart';
 import '../../domain/routing/routing_models.dart';
-import '../../domain/services/pinning_service.dart';
+import 'di_providers.dart';
+import 'pinning_service_provider.dart' as pinning;
 
 /// Shared logger for chat notification bridging.
 final _logger = Logger('ChatNotificationProviders');
@@ -14,7 +15,10 @@ final _logger = Logger('ChatNotificationProviders');
 /// Provides the shared ChatManagementService singleton.
 /// Initialization is triggered lazily to ensure streams are ready when listened to.
 final chatManagementServiceProvider = Provider<ChatManagementService>((ref) {
-  final service = ChatManagementService.instance;
+  final service = resolveFromAppServicesOrServiceLocator<ChatManagementService>(
+    fromServices: (services) => services.chatManagementService,
+    dependencyName: 'ChatManagementService',
+  );
 
   // Fire-and-forget initialization; errors are logged but not rethrown to avoid
   // breaking provider resolution in UI layers.
@@ -54,8 +58,8 @@ final networkTopologyAnalyzerUpdatesProvider =
 
 // Phase 6D: PinningService provider wrapper (M4)
 /// Provides access to pinning service message updates for Riverpod lifecycle management
-final pinningServiceUpdatesProvider = StreamProvider.autoDispose<void>((ref) {
-  final service = PinningService();
-  ref.onDispose(() => unawaited(service.dispose()));
-  return service.messageUpdates;
-});
+final pinningServiceUpdatesProvider =
+    StreamProvider.autoDispose<MessageUpdateEvent>((ref) {
+      final service = ref.watch(pinning.pinningServiceProvider);
+      return service.messageUpdates;
+    });
