@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -5,11 +6,14 @@ import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
+import 'package:pak_connect/domain/utils/message_fragmenter.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/data/services/ble_write_adapter.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
@@ -72,28 +76,37 @@ class _FakeEncryptionException implements Exception {
 
 class _FakeSecurityService implements ISecurityService {
   final Set<String> _noiseSessions = <String>{};
+  final Map<String, String> _identityMappings = <String, String>{};
 
-  void clearAllNoiseSessions() => _noiseSessions.clear();
+  void clearAllNoiseSessions() {
+    _noiseSessions.clear();
+    _identityMappings.clear();
+  }
 
   @override
   void registerIdentityMapping({
     required String persistentPublicKey,
     required String ephemeralID,
   }) {
+    _identityMappings[persistentPublicKey] = ephemeralID;
     _noiseSessions.add(ephemeralID);
   }
 
   @override
   void unregisterIdentityMapping(String persistentPublicKey) {
+    _identityMappings.remove(persistentPublicKey);
     _noiseSessions.remove(persistentPublicKey);
   }
+
+  String _resolveSessionKey(String publicKey) =>
+      _identityMappings[publicKey] ?? publicKey;
 
   @override
   Future<SecurityLevel> getCurrentLevel(
     String publicKey, [
     IContactRepository? repo,
   ]) async {
-    if (_noiseSessions.contains(publicKey)) {
+    if (_noiseSessions.contains(_resolveSessionKey(publicKey))) {
       return SecurityLevel.high;
     }
     if (SimpleCrypto.hasConversationKey(publicKey)) {
@@ -107,8 +120,9 @@ class _FakeSecurityService implements ISecurityService {
     String publicKey,
     IContactRepository repo,
   ) async {
-    if (_noiseSessions.contains(publicKey)) {
-      return EncryptionMethod.noise(publicKey);
+    final sessionKey = _resolveSessionKey(publicKey);
+    if (_noiseSessions.contains(sessionKey)) {
+      return EncryptionMethod.noise(sessionKey);
     }
     if (SimpleCrypto.hasConversationKey(publicKey)) {
       return EncryptionMethod.ecdh(publicKey);
@@ -122,7 +136,7 @@ class _FakeSecurityService implements ISecurityService {
     String publicKey,
     IContactRepository repo,
   ) async {
-    if (_noiseSessions.contains(publicKey)) {
+    if (_noiseSessions.contains(_resolveSessionKey(publicKey))) {
       return 'noise:$message';
     }
     if (SimpleCrypto.hasConversationKey(publicKey)) {
@@ -162,7 +176,7 @@ class _FakeSecurityService implements ISecurityService {
     String publicKey,
     IContactRepository repo,
   ) async {
-    if (!_noiseSessions.contains(publicKey) &&
+    if (!_noiseSessions.contains(_resolveSessionKey(publicKey)) &&
         !SimpleCrypto.hasConversationKey(publicKey)) {
       throw _FakeEncryptionException('no binary encryption context');
     }
@@ -175,7 +189,7 @@ class _FakeSecurityService implements ISecurityService {
     String publicKey,
     IContactRepository repo,
   ) async {
-    if (!_noiseSessions.contains(publicKey) &&
+    if (!_noiseSessions.contains(_resolveSessionKey(publicKey)) &&
         !SimpleCrypto.hasConversationKey(publicKey)) {
       throw _FakeEncryptionException('no binary decryption context');
     }
@@ -185,6 +199,22 @@ class _FakeSecurityService implements ISecurityService {
   @override
   bool hasEstablishedNoiseSession(String peerSessionId) =>
       _noiseSessions.contains(peerSessionId);
+}
+
+class _CaptureThenThrowCentralWriteClient extends FakeBleWriteClient {
+  @override
+  Future<void> writeCentral({
+    required CentralManager centralManager,
+    required Peripheral device,
+    required GATTCharacteristic characteristic,
+    required List<int> value,
+  }) async {
+    lastCentralManager = centralManager;
+    lastPeripheral = device;
+    lastCentralCharacteristic = characteristic;
+    lastCentralValue = Uint8List.fromList(value);
+    throw Exception('central boom after capture');
+  }
 }
 
 void main() {
@@ -364,6 +394,52 @@ void main() {
         writeClient.lastCentralValue,
         isNull,
         reason: 'Strict mode must block transport writes for legacy v2 modes',
+      );
+    },
+  );
+
+  test(
+    'v2 header mode/sessionId follows selected Noise method from security service',
+    () async {
+      await contactRepository.saveContact('recipient_noise', 'Recipient Noise');
+      securityService.registerIdentityMapping(
+        persistentPublicKey: 'recipient_noise',
+        ephemeralID: 'noise-session-abc',
+      );
+
+      final captureWriteClient = _CaptureThenThrowCentralWriteClient();
+      adapter = BleWriteAdapter(
+        contactRepository: contactRepository,
+        stateManagerProvider: () => stateManager,
+        writeClient: captureWriteClient,
+      );
+
+      allowSevere('Failed to send message: Exception: central boom after capture');
+      allowSevere('Stack trace');
+
+      final result = await adapter.sendCentralMessage(
+        centralManager: _FakeCentralManager(),
+        connectedDevice: FakePeripheral(uuid: makeUuid(31)),
+        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(32)),
+        recipientKey: 'recipient_noise',
+        content: 'noise header check',
+        mtuSize: 1024,
+      );
+
+      expect(result, isFalse);
+      expect(captureWriteClient.lastCentralValue, isNotNull);
+
+      final chunk = MessageChunk.fromBytes(captureWriteClient.lastCentralValue!);
+      final protocolBytes = base64.decode(chunk.content);
+      final protocolMessage = ProtocolMessage.fromBytes(
+        Uint8List.fromList(protocolBytes),
+      );
+
+      expect(protocolMessage.version, equals(2));
+      expect(protocolMessage.cryptoHeader?.mode, equals(CryptoMode.noiseV1));
+      expect(
+        protocolMessage.cryptoHeader?.sessionId,
+        equals('noise-session-abc'),
       );
     },
   );
