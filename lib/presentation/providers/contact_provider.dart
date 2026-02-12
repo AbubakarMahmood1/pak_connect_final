@@ -2,7 +2,7 @@
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import '../../domain/services/contact_management_service.dart';
 import '../../domain/entities/contact.dart';
@@ -17,20 +17,20 @@ final _logger = Logger('ContactProvider');
 /// Contact service singleton provider
 /// ✅ FIXED: Uses singleton instance instead of creating new instances
 final contactServiceProvider = Provider<ContactManagementService>((ref) {
-  final service = ContactManagementService.instance;
+  final service =
+      resolveFromAppServicesOrServiceLocator<ContactManagementService>(
+        fromServices: (services) => services.contactManagementService,
+        dependencyName: 'ContactManagementService',
+      );
   service.initialize();
   return service;
 });
 
 /// Contact repository provider
 final contactRepositoryProvider = Provider<IContactRepository>((ref) {
-  final di = GetIt.instance;
-  if (di.isRegistered<IContactRepository>()) {
-    return di<IContactRepository>();
-  }
-  throw StateError(
-    'IContactRepository is not registered. '
-    'Call setupServiceLocator() before using contactRepositoryProvider.',
+  return resolveFromAppServicesOrServiceLocator<IContactRepository>(
+    fromServices: (services) => services.contactRepository,
+    dependencyName: 'IContactRepository',
   );
 });
 

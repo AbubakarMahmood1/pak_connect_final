@@ -41,6 +41,26 @@ escape hatches that can reintroduce split-brain behavior.
   - `test/data/services/ble_write_adapter_test.dart`
     - migrated to explicit `configureServiceResolver(...)` + teardown cleanup
 
+- Pruned presentation singleton usage for app-composed management services:
+  - `lib/core/di/app_services.dart`
+    - expanded typed composition snapshot to include
+      `ContactManagementService`, `ChatManagementService`,
+      `ArchiveManagementService`, and `ArchiveSearchService`
+  - `lib/core/app_core.dart`
+    - persisted archive management/search services as app-composed fields and
+      exposed all four management services through `_buildAppServices()`
+  - `lib/presentation/providers/archive_provider.dart`
+  - `lib/presentation/providers/archive_management_service_provider.dart`
+  - `lib/presentation/providers/archive_search_service_provider.dart`
+  - `lib/presentation/providers/chat_notification_providers.dart`
+  - `lib/presentation/providers/contact_provider.dart`
+    - all now resolve management services through
+      `resolveFromAppServicesOrServiceLocator(...)` with AppServices-first
+      behavior
+  - `test/core/test_helpers/test_setup.dart`
+    - test harness now composes and snapshots these same management services in
+      `AppServices`, keeping provider/runtime seams consistent in tests
+
 ---
 
 ## Verification
@@ -53,6 +73,8 @@ flutter test test/data/services/ble_service_facade_test.dart
 flutter test test/data/services/ble_service_facade_test.dart --dart-define=PAKCONNECT_BLE_STRICT_SINGLETON_GUARD=true
 flutter analyze lib/domain/services/security_service_locator.dart lib/core/services/security_manager.dart test/data/services/ble_write_adapter_test.dart
 flutter test test/data/services/ble_write_adapter_test.dart
+flutter analyze lib/core/di/app_services.dart lib/core/app_core.dart lib/presentation/providers/archive_provider.dart lib/presentation/providers/archive_management_service_provider.dart lib/presentation/providers/archive_search_service_provider.dart lib/presentation/providers/chat_notification_providers.dart lib/presentation/providers/contact_provider.dart test/core/test_helpers/test_setup.dart
+flutter test test/domain/services/archive_search_service_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -62,7 +84,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **92**
+  - `.instance` usages in `lib/**`: **86**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

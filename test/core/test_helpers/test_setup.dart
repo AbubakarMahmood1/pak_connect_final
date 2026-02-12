@@ -462,6 +462,31 @@ class TestSetup {
       locator.registerSingleton<MeshNetworkHealthMonitor>(meshHealthMonitor);
     }
 
+    final archiveManagementService = ArchiveManagementService.withDependencies(
+      archiveRepository: locator<IArchiveRepository>(),
+    );
+    ArchiveManagementService.setInstance(archiveManagementService);
+
+    final archiveSearchService = ArchiveSearchService.withDependencies(
+      archiveRepository: locator<IArchiveRepository>(),
+    );
+    ArchiveSearchService.setInstance(archiveSearchService);
+
+    final contactManagementService = ContactManagementService.withDependencies(
+      contactRepository: locator<IContactRepository>(),
+      messageRepository: locator<IMessageRepository>(),
+    );
+    ContactManagementService.setInstance(contactManagementService);
+
+    final chatManagementService = ChatManagementService.withDependencies(
+      chatsRepository: locator<IChatsRepository>(),
+      messageRepository: locator<IMessageRepository>(),
+      archiveRepository: locator<IArchiveRepository>(),
+      archiveManagementService: archiveManagementService,
+      archiveSearchService: archiveSearchService,
+    );
+    ChatManagementService.setInstance(chatManagementService);
+
     final snapshot = AppServices(
       contactRepository: locator<IContactRepository>(),
       messageRepository: locator<IMessageRepository>(),
@@ -475,6 +500,10 @@ class TestSetup {
       meshNetworkingService: meshNetworkingService,
       meshNetworkHealthMonitor: meshHealthMonitor,
       securityService: securityService,
+      contactManagementService: contactManagementService,
+      chatManagementService: chatManagementService,
+      archiveManagementService: archiveManagementService,
+      archiveSearchService: archiveSearchService,
     );
 
     if (locator.isRegistered<AppServices>()) {

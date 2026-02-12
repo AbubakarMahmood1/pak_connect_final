@@ -9,6 +9,10 @@ import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
+import 'package:pak_connect/domain/services/archive_management_service.dart';
+import 'package:pak_connect/domain/services/archive_search_service.dart';
+import 'package:pak_connect/domain/services/chat_management_service.dart';
+import 'package:pak_connect/domain/services/contact_management_service.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 
 /// Typed composition-root snapshot exposed by [AppCore].
@@ -29,6 +33,10 @@ class AppServices {
     required this.meshNetworkingService,
     required this.meshNetworkHealthMonitor,
     required this.securityService,
+    required this.contactManagementService,
+    required this.chatManagementService,
+    required this.archiveManagementService,
+    required this.archiveSearchService,
   });
 
   final IContactRepository contactRepository;
@@ -43,4 +51,8 @@ class AppServices {
   final IMeshNetworkingService meshNetworkingService;
   final MeshNetworkHealthMonitor meshNetworkHealthMonitor;
   final ISecurityService securityService;
+  final ContactManagementService contactManagementService;
+  final ChatManagementService chatManagementService;
+  final ArchiveManagementService archiveManagementService;
+  final ArchiveSearchService archiveSearchService;
 }
