@@ -41,6 +41,13 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - Runtime hygiene gates added to CI:
   - no non-comment `print(...)` in `lib/**`.
   - `Timer.periodic(...)` count regression gate capped at current baseline.
+- Strict crypto policy gate added to CI:
+  - targeted strict-path tests now run under release-like policy flags via
+    `scripts/crypto_policy_gate.ps1`.
+  - gate currently enforces:
+    - outbound block of legacy v2 send modes in strict policy mode.
+    - sealed v1 strict fallback emission when recipient static Noise key exists.
+    - inbound encrypted v2 signature requirement in both text handler paths.
 - Pass B migration scaffold added:
   - outbound v2 send path can now fail-closed on legacy modes using
     `PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`.
