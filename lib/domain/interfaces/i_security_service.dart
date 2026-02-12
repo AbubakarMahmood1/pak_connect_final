@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
@@ -41,6 +42,14 @@ abstract class ISecurityService {
     IContactRepository repo,
     EncryptionType type,
   );
+
+  Future<String> decryptSealedMessage({
+    required String encryptedMessage,
+    required CryptoHeader cryptoHeader,
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+  });
 
   Future<Uint8List> encryptBinaryPayload(
     Uint8List data,

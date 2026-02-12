@@ -94,7 +94,11 @@ class InboundTextProcessor {
     String? decryptKeyUsed = decryptKey;
 
     if (protocolMessage.isEncrypted) {
-      if (decryptKey == null) {
+      final cryptoHeader =
+          protocolMessage.version >= 2 ? protocolMessage.cryptoHeader : null;
+      final isSealedV2 = cryptoHeader?.mode == CryptoMode.sealedV1;
+
+      if (decryptKey == null && !isSealedV2) {
         _logger.warning('🔒 MESSAGE: Encrypted but no sender key available');
         return const InboundTextResult(
           content: '[❌ Encrypted message but no sender identity]',
@@ -104,29 +108,52 @@ class InboundTextProcessor {
 
       try {
         if (protocolMessage.version >= 2) {
-          final cryptoHeader = protocolMessage.cryptoHeader;
           if (cryptoHeader == null) {
             _logger.severe(
               '🔒 v2 encrypted message missing crypto header: $messageId',
             );
             return const InboundTextResult(content: null, shouldAck: false);
           }
-          final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
-          if (encryptionType == null) {
-            _logger.severe(
-              '🔒 v2 encrypted message has unsupported crypto mode: ${cryptoHeader.mode.wireValue}',
+          if (cryptoHeader.mode == CryptoMode.sealedV1) {
+            final sealedSenderId = declaredSenderId ?? senderPublicKey;
+            final sealedRecipientId = protocolMessage.recipientId;
+            if (sealedSenderId == null ||
+                sealedSenderId.isEmpty ||
+                sealedRecipientId == null ||
+                sealedRecipientId.isEmpty) {
+              _logger.severe(
+                '🔒 v2 sealed message missing sender/recipient binding: $messageId',
+              );
+              return const InboundTextResult(content: null, shouldAck: false);
+            }
+            decryptedContent = await _securityService.decryptSealedMessage(
+              encryptedMessage: content,
+              cryptoHeader: cryptoHeader,
+              messageId: messageId,
+              senderId: sealedSenderId,
+              recipientId: sealedRecipientId,
             );
-            return const InboundTextResult(content: null, shouldAck: false);
+            _logger.info(
+              '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
+            );
+          } else {
+            final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
+            if (encryptionType == null) {
+              _logger.severe(
+                '🔒 v2 encrypted message has unsupported crypto mode: ${cryptoHeader.mode.wireValue}',
+              );
+              return const InboundTextResult(content: null, shouldAck: false);
+            }
+            decryptedContent = await _securityService.decryptMessageByType(
+              content,
+              decryptKey!,
+              _contactRepository,
+              encryptionType,
+            );
+            _logger.info(
+              '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
+            );
           }
-          decryptedContent = await _securityService.decryptMessageByType(
-            content,
-            decryptKey,
-            _contactRepository,
-            encryptionType,
-          );
-          _logger.info(
-            '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
-          );
         } else {
           if (!_allowLegacyV1DecryptFallback) {
             _logger.warning(
@@ -136,7 +163,7 @@ class InboundTextProcessor {
           }
           decryptedContent = await _securityService.decryptMessage(
             content,
-            decryptKey,
+            decryptKey!,
             _contactRepository,
           );
           _logger.info('🔒 MESSAGE: Decrypted successfully');

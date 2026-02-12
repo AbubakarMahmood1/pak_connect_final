@@ -31,6 +31,7 @@ import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
@@ -579,6 +580,15 @@ class _NoopSecurityService implements ISecurityService {
     IContactRepository repo,
     EncryptionType type,
   ) async => encryptedMessage;
+
+  @override
+  Future<String> decryptSealedMessage({
+    required String encryptedMessage,
+    required CryptoHeader cryptoHeader,
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+  }) async => encryptedMessage;
 
   @override
   Future<Uint8List> encryptBinaryPayload(

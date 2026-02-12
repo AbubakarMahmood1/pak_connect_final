@@ -4,11 +4,13 @@ import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import '../../domain/entities/contact.dart';
 import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
+import '../security/sealed/sealed_encryption_service.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
@@ -24,6 +26,8 @@ class SecurityManager implements ISecurityService {
 
   static final _logger = Logger('SecurityManager');
   NoiseEncryptionService? _noiseService;
+  final SealedEncryptionService _sealedEncryptionService =
+      SealedEncryptionService();
 
   NoiseEncryptionService? get noiseService => _noiseService;
 
@@ -495,6 +499,66 @@ class SecurityManager implements ISecurityService {
     }
   }
 
+  @override
+  Future<String> decryptSealedMessage({
+    required String encryptedMessage,
+    required CryptoHeader cryptoHeader,
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+  }) async {
+    if (cryptoHeader.mode != CryptoMode.sealedV1) {
+      throw ArgumentError(
+        'decryptSealedMessage requires sealed_v1 mode, got ${cryptoHeader.mode.wireValue}',
+      );
+    }
+    if (_noiseService == null) {
+      throw StateError('Noise service not initialized');
+    }
+
+    final ephemeralPublicKeyB64 = cryptoHeader.ephemeralPublicKey;
+    final nonceB64 = cryptoHeader.nonce;
+    if (ephemeralPublicKeyB64 == null || ephemeralPublicKeyB64.isEmpty) {
+      throw ArgumentError('sealed_v1 header missing ephemeral public key');
+    }
+    if (nonceB64 == null || nonceB64.isEmpty) {
+      throw ArgumentError('sealed_v1 header missing nonce');
+    }
+
+    Uint8List? recipientPrivateKey;
+    try {
+      final ciphertext = Uint8List.fromList(base64.decode(encryptedMessage));
+      final ephemeralPublicKey = Uint8List.fromList(
+        base64.decode(ephemeralPublicKeyB64),
+      );
+      final nonce = Uint8List.fromList(base64.decode(nonceB64));
+      final aad = _buildSealedV1Aad(
+        messageId: messageId,
+        senderId: senderId,
+        recipientId: recipientId,
+      );
+      final localPrivateKey = _noiseService!.getStaticPrivateKeyData();
+      recipientPrivateKey = localPrivateKey;
+
+      final plaintextBytes = await _sealedEncryptionService.decrypt(
+        ciphertext: ciphertext,
+        recipientPrivateKey: localPrivateKey,
+        ephemeralPublicKey: ephemeralPublicKey,
+        nonce: nonce,
+        aad: aad,
+      );
+      _logger.info('🔒 DECRYPT: SEALED_V1 ✅');
+      return utf8.decode(plaintextBytes);
+    } catch (error) {
+      _logger.warning(
+        '🔒 DECRYPT: SEALED_V1 ❌ (${senderId.shortId(8)} -> ${recipientId.shortId(8)}): $error',
+      );
+      rethrow;
+    } finally {
+      recipientPrivateKey?.fillRange(0, recipientPrivateKey.length, 0);
+    }
+  }
+
   /// Resolve the correct Noise session identifier for decryption.
   ///
   /// - Prefers the contact's currentEphemeralId when available.
@@ -837,5 +901,14 @@ class SecurityManager implements ISecurityService {
       'Call SecurityManager.configureContactRepositoryResolver(...) from '
       'your composition root, or pass IContactRepository explicitly.',
     );
+  }
+
+  Uint8List _buildSealedV1Aad({
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+  }) {
+    final context = 'v2|$messageId|$senderId|$recipientId|sealed_v1';
+    return Uint8List.fromList(utf8.encode(context));
   }
 }

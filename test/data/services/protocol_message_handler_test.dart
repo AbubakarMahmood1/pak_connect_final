@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/protocol_message_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
@@ -257,14 +258,51 @@ void main() {
       expect(securityService.lastDecryptType, equals(EncryptionType.noise));
       expect(securityService.lastDecryptPublicKey, equals('sender-key'));
     });
+
+    test('routes v2 sealed decrypt via dedicated sealed path', () async {
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-sealed',
+          'content': 'ciphertext-base64',
+          'encrypted': true,
+          'senderId': 'sender-key',
+          'recipientId': 'recipient-key',
+          'crypto': {
+            'mode': 'sealed_v1',
+            'modeVersion': 1,
+            'kid': 'kid-1',
+            'epk': 'ZWJjZGVmZw==',
+            'nonce': 'bm9uY2UxMjM=',
+          },
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await handler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, equals('sealed:ciphertext-base64'));
+      expect(securityService.decryptSealedCalls, equals(1));
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
+      expect(securityService.lastSealedSenderId, equals('sender-key'));
+      expect(securityService.lastSealedRecipientId, equals('recipient-key'));
+    });
   });
 }
 
 class _FakeSecurityService implements ISecurityService {
   int decryptMessageCalls = 0;
   int decryptMessageByTypeCalls = 0;
+  int decryptSealedCalls = 0;
   EncryptionType? lastDecryptType;
   String? lastDecryptPublicKey;
+  String? lastSealedSenderId;
+  String? lastSealedRecipientId;
 
   @override
   void registerIdentityMapping({
@@ -316,6 +354,20 @@ class _FakeSecurityService implements ISecurityService {
     lastDecryptType = type;
     lastDecryptPublicKey = publicKey;
     return 'typed:$encryptedMessage';
+  }
+
+  @override
+  Future<String> decryptSealedMessage({
+    required String encryptedMessage,
+    required CryptoHeader cryptoHeader,
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+  }) async {
+    decryptSealedCalls++;
+    lastSealedSenderId = senderId;
+    lastSealedRecipientId = recipientId;
+    return 'sealed:$encryptedMessage';
   }
 
   @override

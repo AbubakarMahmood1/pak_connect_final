@@ -232,19 +232,36 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
               );
               return null;
             }
-            final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
-            if (encryptionType == null) {
-              _logger.severe(
-                '🔒 v2 encrypted message has unsupported crypto mode: ${cryptoHeader.mode.wireValue}',
+            if (cryptoHeader.mode == CryptoMode.sealedV1) {
+              final recipientForSealed = message.recipientId ?? intendedRecipient;
+              if (recipientForSealed == null || recipientForSealed.isEmpty) {
+                _logger.severe(
+                  '🔒 v2 sealed message missing recipient binding: $messageId',
+                );
+                return null;
+              }
+              decryptedContent = await _securityService.decryptSealedMessage(
+                encryptedMessage: content,
+                cryptoHeader: cryptoHeader,
+                messageId: messageId,
+                senderId: declaredSenderId,
+                recipientId: recipientForSealed,
               );
-              return null;
+            } else {
+              final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
+              if (encryptionType == null) {
+                _logger.severe(
+                  '🔒 v2 encrypted message has unsupported crypto mode: ${cryptoHeader.mode.wireValue}',
+                );
+                return null;
+              }
+              decryptedContent = await _securityService.decryptMessageByType(
+                content,
+                decryptionPeerId,
+                _contactRepository,
+                encryptionType,
+              );
             }
-            decryptedContent = await _securityService.decryptMessageByType(
-              content,
-              decryptionPeerId,
-              _contactRepository,
-              encryptionType,
-            );
           } else {
             if (!_allowLegacyV1DecryptFallback) {
               _logger.warning(
