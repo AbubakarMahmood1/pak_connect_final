@@ -53,10 +53,13 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     - wrong-recipient decrypt failure
     - ciphertext tamper failure
     - AAD mismatch failure
-  - outbound strict-mode fallback now supports sealed send when explicitly enabled:
-    - `PAKCONNECT_ENABLE_SEALED_V1_SEND=true`
-    - requires recipient Noise static key in contact record
-    - covered by `test/data/services/ble_write_adapter_test.dart`
+- outbound strict-mode fallback now supports sealed send when explicitly enabled:
+  - `PAKCONNECT_ENABLE_SEALED_V1_SEND=true`
+  - requires recipient Noise static key in contact record
+  - covered by `test/data/services/ble_write_adapter_test.dart`
+- when sealed send is enabled, outbound now prefers `sealed_v1` over legacy
+  methods for offline-eligible sends (with legacy fallback only if sealed
+  prerequisites are missing).
   - inbound sealed decrypt path is now wired for v2 handlers via
     `ISecurityService.decryptSealedMessage(...)`.
 
@@ -140,11 +143,13 @@ Implemented now:
   - legacy v2 send is blocked (`PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`)
   - sealed fallback is enabled (`PAKCONNECT_ENABLE_SEALED_V1_SEND=true`)
   - recipient static Noise key is available.
+- outbound can also prefer `sealed_v1` before legacy methods whenever
+  `PAKCONNECT_ENABLE_SEALED_V1_SEND=true`, enabling progressive rollout of the
+  offline lane without forcing strict mode first.
 - inbound v2 handlers route `sealed_v1` to dedicated sealed decrypt logic
   (no legacy fallback guessing for sealed mode).
 
 Remaining:
-- expand sealed send from strict fallback to primary offline lane policy.
 - add envelope fields (`kid`, `epk`, `nonce`) from sealed service output.
 - add relay-aware integration tests (transport sender differs from crypto sender).
 

@@ -519,6 +519,58 @@ void main() {
     },
   );
 
+  test(
+    'sealed_v1 is preferred over legacy mode when offline lane flag is enabled',
+    () async {
+      await contactRepository.saveContact('recipient_sealed_pref', 'Recipient Sealed Pref');
+      await contactRepository.updateNoiseSession(
+        publicKey: 'recipient_sealed_pref',
+        noisePublicKey: _generateNoiseStaticPublicKeyBase64(),
+        sessionState: 'established',
+      );
+
+      // Fake security picks ECDH here, but outbound sender should upgrade to
+      // sealed_v1 when the offline lane flag is enabled.
+      SimpleCrypto.initializeConversation(
+        'recipient_sealed_pref',
+        'ble-write-test-sealed-pref-secret',
+      );
+
+      final captureWriteClient = _CaptureThenThrowCentralWriteClient();
+      adapter = BleWriteAdapter(
+        contactRepository: contactRepository,
+        stateManagerProvider: () => stateManager,
+        writeClient: captureWriteClient,
+        enableSealedV1Send: true,
+      );
+
+      allowSevere('Failed to send message: Exception: central boom after capture');
+      allowSevere('Stack trace');
+
+      final result = await adapter.sendCentralMessage(
+        centralManager: _FakeCentralManager(),
+        connectedDevice: FakePeripheral(uuid: makeUuid(51)),
+        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(52)),
+        recipientKey: 'recipient_sealed_pref',
+        content: 'sealed preferred path',
+        mtuSize: 1024,
+      );
+
+      expect(result, isFalse);
+      expect(captureWriteClient.lastCentralValue, isNotNull);
+
+      final chunk = MessageChunk.fromBytes(captureWriteClient.lastCentralValue!);
+      final protocolBytes = base64.decode(chunk.content);
+      final protocolMessage = ProtocolMessage.fromBytes(
+        Uint8List.fromList(protocolBytes),
+      );
+
+      expect(protocolMessage.version, equals(2));
+      expect(protocolMessage.payload['encryptionMethod'], equals('sealed'));
+      expect(protocolMessage.cryptoHeader?.mode, equals(CryptoMode.sealedV1));
+    },
+  );
+
   test('peripheral send short-circuits when not in peripheral mode', () async {
     stateManager.peripheralMode = false;
 
