@@ -323,63 +323,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   // ============================================================================
 
   @override
-  Future<void> initialize() async {
-    _logger.info('🏗️ Initializing BLEServiceFacade (lazy initialization)...');
-    try {
-      await _platformHost.ensureEphemeralKeysInitialized();
-      await _stateManager.initialize();
-      await _initializeNodeIdentity();
-      await _bluetoothStateMonitor.initialize(
-        onBluetoothReady: () => unawaited(_onBluetoothBecameReady()),
-        onBluetoothUnavailable: () =>
-            unawaited(_onBluetoothBecameUnavailable()),
-        onInitializationRetry: () =>
-            unawaited(_onBluetoothInitializationRetry()),
-      );
-      _ensureConnectionServicePrepared();
-      await _ensureDiscoveryInitialized();
-    } catch (e, stack) {
-      _logger.severe('❌ Failed to initialize BLEServiceFacade', e, stack);
-      if (!_initializationCompleter.isCompleted) {
-        _initializationCompleter.completeError(e, stack);
-      }
-      rethrow;
-    }
-    _logger.info('✅ BLEServiceFacade ready');
-    if (!_initializationCompleter.isCompleted) {
-      _initializationCompleter.complete();
-    }
-  }
+  Future<void> initialize() => _runtimeHelper.initializeFacade();
 
   @override
-  Future<void> dispose() async {
-    _logger.info('🧹 Disposing BLEServiceFacade...');
-
-    try {
-      // Stop all active operations (only if services were created)
-      if (_discoveryService != null) {
-        await _discoveryService!.dispose().catchError((_) {});
-      }
-      if (_connectionService != null) {
-        _connectionService!.stopConnectionMonitoring();
-        await _connectionService!.disconnect().catchError((_) {});
-        _connectionService!.disposeConnection();
-      }
-      if (_handshakeService != null) {
-        _handshakeService!.disposeHandshakeCoordinator();
-      }
-      _messageHandlerFacade.dispose();
-      _messageHandler.dispose();
-      _logger.info('✅ BLEServiceFacade disposed');
-    } catch (e, stack) {
-      _logger.severe('❌ Disposal error', e, stack);
-    } finally {
-      _eventBus.clear();
-      await _connectionInfoSubscription?.cancel();
-      _connectionInfoSubscription = null;
-      await _lifecycleCoordinator.dispose();
-    }
-  }
+  Future<void> dispose() => _runtimeHelper.disposeFacade();
 
   @override
   Future<void> get initializationComplete => _initializationCompleter.future;
@@ -389,52 +336,14 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   // ============================================================================
 
   @override
-  Future<String> getMyPublicKey() async {
-    _logger.fine('Getting public key from BLEStateManager...');
-    try {
-      return await _stateManager.getMyPersistentId();
-    } catch (e, stack) {
-      _logger.warning('Failed to read persistent key', e, stack);
-      return '';
-    }
-  }
+  Future<String> getMyPublicKey() => _runtimeHelper.getMyPublicKey();
 
   @override
-  Future<String> getMyEphemeralId() async {
-    String? ephemeralId;
-    try {
-      ephemeralId = _stateManager.myEphemeralId;
-    } on StateError catch (e, stack) {
-      _logger.warning(
-        'EphemeralKeyManager not initialized via BLEStateManager',
-        e,
-        stack,
-      );
-      await _platformHost.ensureEphemeralKeysInitialized();
-      try {
-        ephemeralId = _stateManager.myEphemeralId;
-      } catch (_) {
-        // Fallback handled below
-      }
-    }
-    if (ephemeralId != null && ephemeralId.isNotEmpty) {
-      return ephemeralId;
-    }
-    try {
-      _logger.fine('State manager missing ephemeral ID - querying platform');
-      return _platformHost.getCurrentEphemeralId();
-    } catch (e, stack) {
-      _logger.warning('Ephemeral key provider not available', e, stack);
-      return '';
-    }
-  }
+  Future<String> getMyEphemeralId() => _runtimeHelper.getMyEphemeralId();
 
   @override
   @override
-  Future<void> setMyUserName(String name) async {
-    _logger.fine('Setting username to: $name');
-    await _stateManager.setMyUserName(name);
-  }
+  Future<void> setMyUserName(String name) => _runtimeHelper.setMyUserName(name);
 
   // ============================================================================
   // MESH NETWORKING INTEGRATION
@@ -443,17 +352,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   @override
   void registerQueueSyncHandler(
     Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
-  ) {
-    _logger.info('📡 Registering queue sync handler for mesh networking');
-    _queueSyncHandler = handler;
-    _messageHandlerFacade.onQueueSyncReceived = (message, fromNodeId) {
-      final registeredHandler = _queueSyncHandler;
-      if (registeredHandler != null) {
-        unawaited(registeredHandler(message, fromNodeId));
-      }
-    };
-    _getMessagingService().registerQueueSyncMessageHandler(handler);
-  }
+  ) => _runtimeHelper.registerQueueSyncHandler(handler);
 
   @override
   Future<domain_models.ProtocolMessage?> revealIdentityToFriend() =>
@@ -793,22 +692,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   @override
   Stream<List<Peripheral>> get discoveredDevicesStream =>
-      Stream<List<Peripheral>>.multi((controller) {
-        controller.add(_connectionManager.activeConnections);
-
-        final subscription = _getDiscoveryService().discoveredDevices.listen(
-          (devices) {
-            controller.add(devices);
-          },
-          onError: (error, stackTrace) {
-            controller.addError(error, stackTrace);
-          },
-        );
-
-        controller.onCancel = () {
-          subscription.cancel();
-        };
-      }, isBroadcast: true);
+      _runtimeHelper.discoveredDevicesStream;
 
   @override
   List<Peripheral> get currentDiscoveredDevices =>
@@ -936,40 +820,18 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   Stream<String> get identityRevealed => identityRevealedStream;
 
   @override
-  void emitSpyModeDetected(SpyModeInfo info) {
-    _notifySpyModeDetected(info);
-    if (_handshakeService != null && !_forwardingSpyModeEvent) {
-      _forwardingSpyModeEvent = true;
-      try {
-        _handshakeService!.emitSpyModeDetected(info);
-      } finally {
-        _forwardingSpyModeEvent = false;
-      }
-    }
-  }
+  void emitSpyModeDetected(SpyModeInfo info) =>
+      _runtimeHelper.emitSpyModeDetected(info);
 
-  void _notifySpyModeDetected(SpyModeInfo info) {
-    _stateManager.onSpyModeDetected?.call(info);
-    _eventBus.emitSpyMode(info);
-  }
+  void _notifySpyModeDetected(SpyModeInfo info) =>
+      _runtimeHelper.notifySpyModeDetected(info);
 
   @override
-  void emitIdentityRevealed(String contactId) {
-    _notifyIdentityRevealed(contactId);
-    if (_handshakeService != null && !_forwardingIdentityEvent) {
-      _forwardingIdentityEvent = true;
-      try {
-        _handshakeService!.emitIdentityRevealed(contactId);
-      } finally {
-        _forwardingIdentityEvent = false;
-      }
-    }
-  }
+  void emitIdentityRevealed(String contactId) =>
+      _runtimeHelper.emitIdentityRevealed(contactId);
 
-  void _notifyIdentityRevealed(String contactId) {
-    _stateManager.onIdentityRevealed?.call(contactId);
-    _eventBus.emitIdentityRevealed(contactId);
-  }
+  void _notifyIdentityRevealed(String contactId) =>
+      _runtimeHelper.notifyIdentityRevealed(contactId);
 
   @override
   Future<String?> buildLocalCollisionHint() =>

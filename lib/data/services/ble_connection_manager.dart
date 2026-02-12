@@ -20,6 +20,8 @@ import 'ble_connection_state_machine.dart';
 import 'ble_connection_gatt_controller.dart';
 import 'ble_connection_reconnect_policy.dart';
 
+part 'ble_connection_manager_runtime_helper.dart';
+
 class BLEConnectionManager {
   final _logger = Logger('BLEConnectionManager');
   final CentralManager centralManager;
@@ -453,95 +455,15 @@ class BLEConnectionManager {
   Future<void> _removeServerConnection(
     String address, {
     String reasonLog = 'client wins',
-  }) async {
-    final server = _serverConnections.remove(address);
-    _peerHintsByAddress.remove(address);
-    _blockedResponderHandshakes.remove(address);
-    if (server != null) {
-      try {
-        await peripheralManager.disconnect(server.central);
-        _logger.info('🔌 Force disconnected inbound central: $address');
-      } catch (e) {
-        _logger.warning(
-          '⚠️ Failed to force disconnect central (might be unsupported): $e — retrying once',
-        );
-        try {
-          await Future.delayed(const Duration(milliseconds: 200));
-          await peripheralManager.disconnect(server.central);
-          _logger.info('🔌 Retry disconnect succeeded for inbound $address');
-        } catch (secondError) {
-          _logger.warning(
-            '⚠️ Second disconnect attempt failed for inbound $address: $secondError',
-          );
-        }
-      }
-
-      _logger.info('🧹 Removed inbound server connection ($reasonLog)');
-    }
-
-    // Ensure tracker does not retain stale server-side entries
-    _connectionTracker.removeConnection(address);
-
-    _serverConnectionsController.add(serverConnections);
-    _healthMonitor.setAwaitingHandshake(false);
-    _updateAdvertisingState();
-  }
+  }) => _runtimeRemoveServerConnection(address, reasonLog: reasonLog);
 
   Future<void> _completeDeferredServerTeardown(
     String address, {
     required String reason,
-  }) async {
-    _blockedResponderHandshakes.remove(address);
-    _deferredServerTeardown.remove(address);
-    _deferredServerTeardownTimers.remove(address)?.cancel();
-    await _removeServerConnection(address, reasonLog: reason);
+  }) => _runtimeCompleteDeferredServerTeardown(address, reason: reason);
 
-    // Tracker should reflect the surviving client link so reconnect suppression stays active.
-    _connectionTracker.removeConnection(
-      address,
-    ); // remove stale server-side entry
-    final clientKey = _matchClientAddressByPeer(address);
-    if (clientKey != null) {
-      final client = _clientConnections[clientKey];
-      _connectionTracker.addConnection(
-        address: clientKey,
-        isClient: true,
-        rssi: client?.rssi,
-      );
-    }
-  }
-
-  void _scheduleDeferredServerTeardownCheck(String address) {
-    _deferredServerTeardownTimers[address]?.cancel();
-    // Short window: allow notify subscription or handshake kick-off to arrive.
-    _deferredServerTeardownTimers[address] = Timer(
-      const Duration(milliseconds: 1500),
-      () async {
-        if (!_deferredServerTeardown.contains(address)) return;
-
-        final serverConn = _serverConnections[address];
-        final hasSubscription = serverConn?.subscribedCharacteristic != null;
-        if (hasSubscription || _healthMonitor.isHandshakeInProgress) {
-          await _completeDeferredServerTeardown(
-            address,
-            reason: hasSubscription
-                ? 'notify subscription observed'
-                : 'handshake started during deferral',
-          );
-          return;
-        }
-
-        _logger.warning(
-          '⚠️ Inbound link never became viable for ${_formatAddress(address)} — closing deferred server side',
-        );
-
-        await _completeDeferredServerTeardown(
-          address,
-          reason: 'non-viable inbound after deferral',
-        );
-      },
-    );
-  }
+  void _scheduleDeferredServerTeardownCheck(String address) =>
+      _runtimeScheduleDeferredServerTeardownCheck(address);
 
   // 🚀 ========== PHASE 2B: SIMULTANEOUS OPERATION ========== 🚀
 
@@ -556,57 +478,10 @@ class BLEConnectionManager {
   /// ✅ NEW: Advertising is now handled by AdvertisingManager via callback
   Future<void> startMeshNetworking({
     Future<void> Function()? onStartAdvertising,
-  }) async {
-    _logger.info(
-      '🚀 Starting mesh networking (simultaneous central + peripheral)',
-    );
-
-    try {
-      // Start advertising FIRST (like BitChat)
-      // ✅ NEW: Use callback to BLEService.startAsPeripheral() → AdvertisingManager
-      if (onStartAdvertising != null) {
-        _logger.info(
-          '📡 Calling advertising callback (BLEService.startAsPeripheral)...',
-        );
-        await onStartAdvertising();
-        _isAdvertising = true; // Assume success if no exception
-        _logger.info(
-          '✅ Peripheral role active (advertising via AdvertisingManager)',
-        );
-      } else {
-        _logger.severe(
-          '❌ No advertising callback provided - advertising will NOT start!',
-        );
-        throw Exception(
-          'startMeshNetworking requires onStartAdvertising callback',
-        );
-      }
-
-      // Central role is always ready (discovery initiated by BurstScanController)
-      _logger.info('✅ Central role active (ready to scan)');
-      _shouldBeAdvertising = true;
-
-      _logger.info('🎉 Mesh networking started successfully');
-      _logger.info('📊 Connection limits: $_limitConfig');
-    } catch (e) {
-      _logger.severe('❌ Failed to start mesh networking: $e');
-      rethrow;
-    }
-  }
+  }) => _runtimeStartMeshNetworking(onStartAdvertising: onStartAdvertising);
 
   /// 🛑 Stop mesh networking: Stop both central and peripheral operations
-  Future<void> stopMeshNetworking() async {
-    _logger.info('🛑 Stopping mesh networking');
-
-    _shouldBeAdvertising = false;
-
-    try {
-      await _stopAdvertising();
-      _logger.info('✅ Mesh networking stopped');
-    } catch (e) {
-      _logger.warning('⚠️ Error stopping mesh networking: $e');
-    }
-  }
+  Future<void> stopMeshNetworking() => _runtimeStopMeshNetworking();
 
   /// 🎛️ Hybrid advertising control: Stop at connection limit, resume when below
   ///
@@ -618,32 +493,7 @@ class BLEConnectionManager {
   /// ⚠️ NOTE: This method only handles STOPPING advertising.
   /// Starting advertising is handled by BLEService.startAsPeripheral() → AdvertisingManager.
   /// This is because advertising requires business logic (settings, hints) that belongs in BLEService.
-  Future<void> _updateAdvertisingState() async {
-    try {
-      final shouldAdvertise = _shouldBeAdvertising && canAcceptServerConnection;
-
-      if (shouldAdvertise && !_isAdvertising) {
-        // ⚠️ CANNOT start advertising here - requires BLEService callback
-        // Advertising is managed by AdvertisingManager in BLEService
-        _logger.info(
-          '📡 Should start advertising (server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})',
-        );
-        _logger.info(
-          '⚠️ Advertising start requires BLEService.startAsPeripheral() - skipping',
-        );
-        // TODO: Consider adding a callback to BLEService for dynamic advertising control
-      } else if (!shouldAdvertise && _isAdvertising) {
-        // Stop advertising (at limit or user requested stop)
-        final reason = !_shouldBeAdvertising
-            ? 'user requested'
-            : 'reached limit: $serverConnectionCount/${_limitConfig.maxServerConnections}';
-        _logger.info('🛑 Stopping advertising ($reason)');
-        await _stopAdvertising();
-      }
-    } catch (e) {
-      _logger.warning('⚠️ Advertising state update failed: $e');
-    }
-  }
+  Future<void> _updateAdvertisingState() => _runtimeUpdateAdvertisingState();
 
   // ❌ REMOVED: _startAdvertising() method
   // Advertising is now exclusively handled by:
@@ -655,95 +505,11 @@ class BLEConnectionManager {
   // 3. Consistent advertisement structure (no hint inconsistency bug)
 
   /// ⚖️ Resolve collision when a central connects to us while we have a client link
-  Future<void> _resolveInboundCollision(String address) async {
-    _collisionResolutionsInFlight.add(address);
-    final clientAddress = _matchClientAddressByPeer(address);
-    try {
-      // Use the tie-breaker logic
-      final yieldToInbound = await _shouldYieldToInboundLink(address);
-
-      if (yieldToInbound) {
-        _logger.info(
-          '⚖️ Collision: Yielding to inbound server link. Disconnecting client.',
-        );
-        final clientKey = clientAddress ?? address;
-        final client = _clientConnections[clientKey];
-        if (client != null) {
-          try {
-            await centralManager.disconnect(client.peripheral);
-          } catch (e) {
-            _logger.warning('⚠️ Failed to disconnect stale client link: $e');
-          }
-          // Remove client after physical disconnect initiated
-          _clientConnections.remove(clientKey);
-        }
-        // Ensure tracker reflects the surviving inbound link if present
-        if (_serverConnections.containsKey(address)) {
-          _connectionTracker.addConnection(
-            address: address,
-            isClient: false,
-            rssi: null,
-          );
-          _connectionTracker.removeConnection(clientKey);
-        } else {
-          _connectionTracker.removeConnection(clientKey);
-          _connectionTracker.removeConnection(address);
-        }
-      } else {
-        _logger.info(
-          '⚖️ Collision: Keeping client link. Closing inbound server side.',
-        );
-        _logger.fine(
-          '⏸️ Deferring inbound teardown for ${_formatAddress(address)} until notify/handshake start',
-        );
-        _deferredServerTeardown.add(address);
-        _scheduleDeferredServerTeardownCheck(address);
-        _pendingClientConnections.remove(address);
-        if (clientAddress != null) {
-          _pendingClientConnections.remove(clientAddress);
-        }
-        _connectionTracker.clearAttempt(address);
-
-        // Tracker should reflect the surviving client link so reconnect suppression stays active.
-        final trackedClientKey = clientAddress ?? address;
-        final client = _clientConnections[trackedClientKey];
-        if (client != null) {
-          _connectionTracker.addConnection(
-            address: trackedClientKey,
-            isClient: true,
-            rssi: client.rssi,
-          );
-        } else {
-          _connectionTracker.removeConnection(trackedClientKey);
-        }
-        // Removing the inbound link may free an advertising slot.
-        _healthMonitor.setAwaitingHandshake(false);
-        _serverConnectionsController.add(serverConnections);
-        _updateAdvertisingState();
-      }
-    } catch (e) {
-      _logger.warning('⚠️ Collision resolution failed: $e');
-    } finally {
-      _collisionResolutionsInFlight.remove(address);
-    }
-  }
+  Future<void> _resolveInboundCollision(String address) =>
+      _runtimeResolveInboundCollision(address);
 
   /// 🛑 Stop BLE advertising
-  Future<void> _stopAdvertising() async {
-    if (!_isAdvertising) {
-      _logger.fine('🛑 Not advertising, skipping');
-      return;
-    }
-
-    try {
-      await peripheralManager.stopAdvertising();
-      _isAdvertising = false;
-      _logger.info('✅ Advertising stopped');
-    } catch (e) {
-      _logger.warning('⚠️ Failed to stop advertising: $e');
-      // Non-critical - don't throw
-    }
-  }
+  Future<void> _stopAdvertising() => _runtimeStopAdvertising();
 
   // 🔌 ========== PHASE 2B: CONNECTION HANDLERS ========== 🔌
 
@@ -751,145 +517,14 @@ class BLEConnectionManager {
   ///
   /// Called when a remote central connects to our advertising peripheral
   void handleCentralConnected(Central central) async {
-    final address = central.uuid.toString();
-    _trackPeerHintForAddress(address);
-    final peerHint = _peerHintForAddress(address);
-    final hasClientForPeer = hasClientLinkForPeer(address);
-    final pendingClientForPeer = hasPendingClientForPeer(address);
-    final hasServerForPeer = hasServerLinkForPeer(address);
-    final hasHintCollision = hasAnyLinkForPeerHint(peerHint);
-
-    // If we already have a client link to this peer, reject inbound duplicates
-    // immediately to avoid dual handshakes/glare.
-    // 🚀 NEW: Hard reject if we are already READY or have a client link/pending
-    // dial to this peer (detected via address or shared discovery hint).
-    // This prevents "glare" where we accept an inbound connection while we are already
-    // fully connected/ready as a client, preventing dual-role confusion.
-    if (connectionState == ChatConnectionState.ready ||
-        hasServerForPeer ||
-        hasClientForPeer ||
-        pendingClientForPeer ||
-        hasHintCollision) {
-      if (hasHintCollision || pendingClientForPeer) {
-        _cancelPendingClientForPeer(
-          address,
-          reason: 'inbound duplicate detected',
-        );
-      }
-      _logger.info(
-        '🚫 Hard rejecting inbound from ${_formatAddress(address)}: '
-        'Already ${connectionState == ChatConnectionState.ready ? "READY" : "CLIENT_LINK_ACTIVE/PENDING"} '
-        '(hintMatch=$hasHintCollision)',
-      );
-      try {
-        _blockedResponderHandshakes.add(address);
-        await peripheralManager.disconnect(central);
-        // Keep tracker aligned with the surviving client link if present.
-        _ensureTrackerForClientPeer(address);
-        _notifyInboundRejected(address);
-      } catch (e) {
-        _logger.warning(
-          '⚠️ Failed to reject duplicate inbound for ${_formatAddress(address)}: $e',
-        );
-      }
-      return;
-    }
-
-    if (_serverConnections.containsKey(address)) {
-      _logger.warning(
-        '⚠️ Central already connected: ${_formatAddress(address)} — rejecting duplicate inbound',
-      );
-      try {
-        await peripheralManager.disconnect(central);
-      } catch (e) {
-        _logger.warning(
-          '⚠️ Failed to disconnect duplicate inbound central: $e',
-        );
-      }
-      return;
-    }
-
-    final collisionWithClient = _clientConnections.containsKey(address);
-
-    _logger.info(
-      '📥 Central connected: ${_formatAddress(address)} (server connections: ${serverConnectionCount + 1}/${_limitConfig.maxServerConnections})',
-    );
-    _healthMonitor.setAwaitingHandshake(true);
-
-    final connection = BLEServerConnection(
-      address: address,
-      central: central,
-      connectedAt: DateTime.now(),
-    );
-
-    _serverConnections[address] = connection;
-    _connectionTracker.addConnection(
-      address: address,
-      isClient: false,
-      rssi: null,
-    );
-    _logger.info(
-      '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
-    );
-
-    // Notify UI of server connection change
-    _serverConnectionsController.add(serverConnections);
-
-    // Update advertising state (may need to stop if at limit)
-    _updateAdvertisingState();
-
-    if (collisionWithClient) {
-      _logger.info(
-        '🔀 Collision detected with ${_formatAddress(address)} - resolving after server registration',
-      );
-      await _resolveInboundCollision(address);
-      // Refresh stream in case the resolution removed/kept the server entry
-      _serverConnectionsController.add(serverConnections);
-    }
+    await _runtimeHandleCentralConnected(central);
   }
 
   /// 📤 Handle incoming disconnection (central disconnected from us)
   ///
   /// Called when a remote central disconnects from our peripheral
-  void handleCentralDisconnected(Central central) {
-    final address = central.uuid.toString();
-    _peerHintsByAddress.remove(address);
-    _blockedResponderHandshakes.remove(address);
-
-    final connection = _serverConnections.remove(address);
-    if (connection != null) {
-      _deferredServerTeardown.remove(address);
-      _deferredServerTeardownTimers.remove(address)?.cancel();
-      final duration = connection.connectedDuration;
-      _logger.info(
-        '📤 Central disconnected: ${_formatAddress(address)} (connected for: ${duration.inSeconds}s, server connections: $serverConnectionCount/${_limitConfig.maxServerConnections})',
-      );
-      _connectionTracker.removeConnection(address);
-
-      // 🧹 REAL-TIME CLEANUP: Trigger immediate cleanup via BLEService
-      // This will remove from deduplication manager and notify UI
-      onCentralDisconnected?.call(address);
-      if (_serverConnections.isEmpty) {
-        _healthMonitor.setAwaitingHandshake(false);
-        onCharacteristicFound?.call(null);
-        onMtuDetected?.call(null);
-      }
-    } else {
-      _logger.warning(
-        '⚠️ Unknown central disconnected: ${_formatAddress(address)}',
-      );
-    }
-
-    _logger.info(
-      '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
-    );
-
-    // Notify UI of server connection change
-    _serverConnectionsController.add(serverConnections);
-
-    // Update advertising state (may need to resume if below limit)
-    _updateAdvertisingState();
-  }
+  void handleCentralDisconnected(Central central) =>
+      _runtimeHandleCentralDisconnected(central);
 
   /// 📝 Handle characteristic subscription (central subscribed to our notifications)
   ///
@@ -897,200 +532,13 @@ class BLEConnectionManager {
   void handleCharacteristicSubscribed(
     Central central,
     GATTCharacteristic characteristic,
-  ) {
-    final address = central.uuid.toString();
-    final peerHint = _peerHintForAddress(address);
-    final hasHintCollision = hasAnyLinkForPeerHint(peerHint);
+  ) => _runtimeHandleCharacteristicSubscribed(central, characteristic);
 
-    final connection = _serverConnections[address];
-    if (connection != null) {
-      if (hasHintCollision &&
-          (connectionState == ChatConnectionState.ready ||
-              hasClientLinkForPeer(address) ||
-              hasPendingClientForPeer(address))) {
-        _logger.warning(
-          '🚫 Duplicate inbound notify from ${_formatAddress(address)} (hint match) '
-          'while client/ready link exists — dropping before subscription handling',
-        );
-        _cancelPendingClientForPeer(
-          address,
-          reason: 'duplicate inbound notify',
-        );
-        _blockedResponderHandshakes.add(address);
-        unawaited(
-          _completeDeferredServerTeardown(
-            address,
-            reason: 'duplicate inbound notify (hint match)',
-          ),
-        );
-        _notifyInboundRejected(address);
-        return;
-      }
+  void updateServerMtu(String address, int mtu) =>
+      _runtimeUpdateServerMtu(address, mtu);
 
-      // If we already have a ready client link for this address, treat this as a late/duplicate inbound and drop it.
-      if (_connectionTracker.isConnected(address) &&
-          _clientConnections.containsKey(address) &&
-          connectionState == ChatConnectionState.ready) {
-        _logger.warning(
-          '⚠️ Late inbound notify from ${_formatAddress(address)} after client link is ready — disconnecting duplicate inbound',
-        );
-        _blockedResponderHandshakes.add(address);
-        unawaited(
-          _completeDeferredServerTeardown(
-            address,
-            reason: 'late inbound after client ready',
-          ),
-        );
-        _notifyInboundRejected(address);
-        return;
-      }
-
-      _serverConnections[address] = connection.copyWith(
-        subscribedCharacteristic: characteristic,
-      );
-      _logger.info(
-        '📝 Central subscribed to notifications: ${_formatAddress(address)}',
-      );
-      if (_deferredServerTeardown.contains(address)) {
-        _logger.fine(
-          '⏸️ Deferred inbound teardown resolved by notify for ${_formatAddress(address)}',
-        );
-        unawaited(
-          _completeDeferredServerTeardown(
-            address,
-            reason: 'notify subscription arrived',
-          ),
-        );
-      }
-    } else {
-      _logger.warning(
-        '⚠️ Subscription from unknown central: ${_formatAddress(address)}',
-      );
-    }
-  }
-
-  void updateServerMtu(String address, int mtu) {
-    final connection = _serverConnections[address];
-    if (connection != null) {
-      _serverConnections[address] = connection.copyWith(mtu: mtu);
-      _logger.fine(
-        '📏 Updated server MTU for ${_formatAddress(address)}: $mtu bytes',
-      );
-      if (_deferredServerTeardown.contains(address)) {
-        _logger.fine(
-          '⏸️ Deferred inbound teardown resolved by MTU negotiation for ${_formatAddress(address)}',
-        );
-        unawaited(
-          _completeDeferredServerTeardown(
-            address,
-            reason: 'mtu observed during deferral',
-          ),
-        );
-      }
-    }
-  }
-
-  Future<bool> _shouldYieldToInboundLink(String address) async {
-    if (_pendingClientConnections.contains(address)) {
-      _logger.fine(
-        '⏭️ Skipping inbound viability wait for ${_formatAddress(address)} because outbound dial is pending (favoring client link)',
-      );
-      return false;
-    }
-
-    if (_deferredServerTeardown.contains(address)) {
-      _logger.fine(
-        '⏭️ Skipping inbound viability wait for ${_formatAddress(address)} because deferral is active (keeping client link)',
-      );
-      return false;
-    }
-
-    bool inboundViable(BLEServerConnection? conn) {
-      if (conn == null) return false;
-      final hasSubscription = conn.subscribedCharacteristic != null;
-      final hasMtu = conn.mtu != null && conn.mtu! > 0;
-      return hasSubscription || hasMtu;
-    }
-
-    Future<bool> waitForInboundViable(Duration timeout) async {
-      final deadline = DateTime.now().add(timeout);
-      while (DateTime.now().isBefore(deadline)) {
-        final conn = _serverConnections[address];
-        if (inboundViable(conn)) return true;
-        await Future.delayed(Duration(milliseconds: 50));
-      }
-      return inboundViable(_serverConnections[address]);
-    }
-
-    try {
-      final now = DateTime.now();
-      final initialServerConn = _serverConnections[address];
-      _logger.fine(
-        '⏱️ Collision check @${now.toIso8601String()} for ${_formatAddress(address)} '
-        '(pendingClient=${_pendingClientConnections.contains(address)}, '
-        'handshakeInProgress=${_healthMonitor.isHandshakeInProgress}, '
-        'awaitingHandshake=${_healthMonitor.awaitingHandshake})',
-      );
-      final serverConn = _serverConnections[address];
-      final inboundWaitDuration = const Duration(milliseconds: 2500);
-      final inboundViable = await waitForInboundViable(inboundWaitDuration);
-      _logger.fine(
-        '📡 Inbound viability after $inboundWaitDuration '
-        '(hadEntry=${initialServerConn != null}) -> $inboundViable',
-      );
-
-      if (inboundViable && serverConn != null) {
-        _logger.info(
-          '⚖️ Collision tie-breaker: inbound link is viable (subscribed/MTU) — yielding to inbound',
-        );
-        return true;
-      }
-
-      final remoteDevice = DeviceDeduplicationManager.getDevice(address);
-      final remoteHint = remoteDevice?.ephemeralHint;
-      final localHint = _localHintProvider != null
-          ? await _localHintProvider!.call()
-          : null;
-
-      final localToken = (localHint != null && localHint.isNotEmpty)
-          ? localHint
-          : EphemeralKeyManager.generateMyEphemeralKey();
-      final remoteToken =
-          (remoteHint != null &&
-              remoteHint.isNotEmpty &&
-              remoteHint != DeviceDeduplicationManager.noHintValue)
-          ? remoteHint
-          : address;
-      final comparison = localToken.compareTo(remoteToken);
-      final preferInbound = comparison > 0;
-
-      if (preferInbound && serverConn != null) {
-        _logger.info(
-          '⚖️ Collision tie-breaker: tokens local=$localToken remote=$remoteToken — inbound preferred by token',
-        );
-        if (!inboundViable) {
-          _logger.info(
-            '⚠️ Inbound not viable after wait for ${_formatAddress(address)} — keeping outbound link to preserve symmetry',
-          );
-          return false;
-        }
-        _logger.info(
-          '⚖️ Collision tie-breaker: inbound viable and token-preferred — yielding to inbound',
-        );
-        return true;
-      }
-
-      _logger.info(
-        '⚖️ Collision tie-breaker: tokens local=$localToken remote=$remoteToken — keeping client link',
-      );
-      return false;
-    } catch (e) {
-      _logger.warning(
-        '⚖️ Collision tie-breaker failed ($address): $e — keeping client link',
-      );
-      return false;
-    }
-  }
+  Future<bool> _shouldYieldToInboundLink(String address) =>
+      _runtimeShouldYieldToInboundLink(address);
 
   /// Allow responder to continue if client disconnects after yielding.
   bool hasServerConnection(String address) =>
@@ -1107,273 +555,19 @@ class BLEConnectionManager {
   ///
   /// Called when user changes power mode or battery level triggers auto-change
   /// Enforces new connection limits by disconnecting oldest connections
-  Future<void> handlePowerModeChange(PowerMode newMode) async {
-    _logger.info('⚡ Power mode changed to: ${newMode.name}');
+  Future<void> handlePowerModeChange(PowerMode newMode) =>
+      _runtimeHandlePowerModeChange(newMode);
 
-    final oldConfig = _limitConfig;
-    final oldRssiThreshold = _rssiThreshold;
-
-    _limitConfig = ConnectionLimitConfig.forPowerMode(newMode);
-    _rssiThreshold = _limitEnforcer.rssiThresholdForPowerMode(newMode);
-
-    _logger.info('🎯 Connection limits updated: $oldConfig → $_limitConfig');
-    _logger.info(
-      '📡 RSSI threshold updated: $oldRssiThreshold dBm → $_rssiThreshold dBm',
-    );
-
-    // Enforce new limits
-    await _limitEnforcer.enforceConnectionLimits(
-      limitConfig: _limitConfig,
-      clientConnections: _clientConnections,
-      serverConnections: _serverConnections,
-      centralManager: centralManager,
-      updateAdvertisingState: _updateAdvertisingState,
-      formatAddress: _formatAddress,
-    );
-
-    // Update advertising based on new limits
-    await _updateAdvertisingState();
-  }
-
-  void handleBluetoothStateChange(BluetoothLowEnergyState state) {
-    _reconnectPolicy.handleBluetoothStateChange(
-      state: state,
-      hasBleConnection: hasBleConnection,
-      connectedDevice: _connectedDevice,
-      lastConnectedDevice: _lastConnectedDevice,
-      setLastConnectedDevice: (device) => _lastConnectedDevice = device,
-      setReconnectionFlag: (value) => _isReconnection = value,
-      startConnectionMonitoring: startConnectionMonitoring,
-      stopConnectionMonitoring: stopConnectionMonitoring,
-      clearConnectionState: ({bool keepMonitoring = false}) =>
-          clearConnectionState(keepMonitoring: keepMonitoring),
-    );
-  }
+  void handleBluetoothStateChange(BluetoothLowEnergyState state) =>
+      _runtimeHandleBluetoothStateChange(state);
 
   /// Connect to a BLE peripheral device
   ///
   /// Phase 4: RSSI-based connection filtering
   /// - Optional [rssi] parameter allows filtering weak signals in low power modes
   /// - Threshold varies by power mode: -95 (performance) to -65 (ultra low)
-  Future<void> connectToDevice(Peripheral device, {int? rssi}) async {
-    final address = device.uuid.toString();
-    _trackPeerHintForAddress(address);
-
-    // Unified guard: if we already have ANY connection to this address, skip
-    if (_connectionTracker.isConnected(address)) {
-      _logger.fine(
-        '↔️ Unified tracker: already connected to ${_formatAddress(address)} — skipping outbound connect',
-      );
-      return;
-    }
-    if (_clientConnections.containsKey(address) ||
-        _serverConnections.containsKey(address)) {
-      _logger.fine(
-        '↔️ Existing link (client/server) to ${_formatAddress(address)} — skipping outbound connect',
-      );
-      return;
-    }
-
-    // Backoff guard: avoid rapid retries
-    if (!_connectionTracker.canAttempt(address)) {
-      _logger.fine(
-        '⏳ Backing off reconnect to ${_formatAddress(address)} (pending attempt window)',
-      );
-      return;
-    }
-    _connectionTracker.markAttempt(address);
-
-    if (_pendingClientConnections.contains(address)) {
-      _logger.fine(
-        '↻ Already connecting to ${_formatAddress(address)} - ignoring duplicate request',
-      );
-      return;
-    }
-
-    try {
-      _pendingClientConnections.add(address);
-
-      // Single-link policy: if inbound (server) link already exists to this address, adopt it and skip client connect
-      if (_serverConnections.containsKey(address)) {
-        _logger.info(
-          '↔️ Single-link: inbound link already active for ${_formatAddress(address)} — skipping outbound connect',
-        );
-        return;
-      }
-
-      // Phase 4: RSSI-based connection filtering
-      if (rssi != null && rssi < _rssiThreshold) {
-        _logger.info(
-          '📡 Skipping weak device: RSSI $rssi dBm < threshold $_rssiThreshold dBm '
-          '(${_formatAddress(address)})',
-        );
-        return; // Silently skip weak signals
-      }
-
-      // Log RSSI if available
-      if (rssi != null) {
-        _logger.fine(
-          '📡 Device RSSI: $rssi dBm (threshold: $_rssiThreshold dBm)',
-        );
-      }
-
-      // Check connection limits
-      if (!canAcceptClientConnection) {
-        _logger.warning(
-          '⚠️ Cannot accept client connection (limit: ${_limitConfig.maxClientConnections}, current: $clientConnectionCount, total: $totalConnectionCount)',
-        );
-        throw ConnectionLimitException(
-          'Client connection limit reached',
-          currentCount: clientConnectionCount,
-          maxCount: _limitConfig.maxClientConnections,
-        );
-      }
-
-      _logger.info(
-        '🔌 Connecting to ${_formatAddress(address)} @${DateTime.now().toIso8601String()}...',
-      );
-      await Future.delayed(Duration(milliseconds: 500));
-
-      await _gattController.connectWithRetry(
-        device: device,
-        formattedAddress: _formatAddress(address),
-      );
-
-      // Re-check for inbound collisions that may have happened while we were connecting.
-      if (_serverConnections.containsKey(address)) {
-        final yieldToInbound = await _shouldYieldToInboundLink(address);
-        if (yieldToInbound) {
-          _logger.info(
-            '↔️ Collision policy yielded to inbound link for ${_formatAddress(address)} — abandoning client link',
-          );
-          // 🔌 CRITICAL FIX: Ensure we disconnect if we managed to connect before yielding
-          try {
-            await centralManager.disconnect(device);
-          } catch (e) {
-            _logger.warning('⚠️ Failed to disconnect yielded client link: $e');
-          }
-          _connectionTracker.clearAttempt(address);
-          return;
-        } else {
-          _logger.info(
-            '↔️ Collision policy prefers our client link for ${_formatAddress(address)} — keeping outbound connection',
-          );
-          // 🔧 FIX: Remove the redundant server connection and actively tear
-          // down the inbound central so we avoid dual links.
-          await _completeDeferredServerTeardown(
-            address,
-            reason: 'collision cleanup after outbound connect',
-          );
-        }
-      }
-
-      // Create client connection object
-      var connection = BLEClientConnection(
-        address: address,
-        peripheral: device,
-        connectedAt: DateTime.now(),
-      );
-
-      _clientConnections[address] = connection;
-      _lastConnectedDevice = device;
-      _connectionTracker.addConnection(
-        address: address,
-        isClient: true,
-        rssi: rssi,
-      );
-
-      _logger.info(
-        '✅ Connected to ${_formatAddress(address)} @${DateTime.now().toIso8601String()} (client connections: $clientConnectionCount/${_limitConfig.maxClientConnections})',
-      );
-      _logger.info(
-        '📊 Total connections: $totalConnectionCount (client: $clientConnectionCount, server: $serverConnectionCount)',
-      );
-
-      onConnectionChanged?.call(device);
-
-      // Negotiate MTU before service discovery so fragmentation sizing is accurate.
-      final mtu = await _gattController.detectOptimalMtu(
-        device: device,
-        formattedAddress: _formatAddress(address),
-      );
-      final mtuConnection = _clientConnections[address];
-      if (mtuConnection != null) {
-        _clientConnections[address] = mtuConnection.copyWith(mtu: mtu);
-      }
-      onMtuDetected?.call(mtu);
-
-      final messageChar = await _gattController.discoverMessageCharacteristic(
-        device: device,
-        formattedAddress: _formatAddress(address),
-      );
-
-      // Update connection with discovered characteristic
-      connection = _clientConnections[address]!.copyWith(
-        messageCharacteristic: messageChar,
-      );
-      _clientConnections[address] = connection;
-
-      onCharacteristicFound?.call(messageChar);
-
-      // Enable notifications
-      if (messageChar.properties.contains(GATTCharacteristicProperty.notify)) {
-        try {
-          await _gattController.enableNotifications(
-            device: device,
-            characteristic: messageChar,
-            formattedAddress: _formatAddress(address),
-          );
-        } catch (e) {
-          final hasInbound =
-              _serverConnections.containsKey(address) ||
-              _deferredServerTeardown.contains(address);
-          _logger.severe('CRITICAL: Failed to enable notifications: $e');
-          if (hasInbound) {
-            _logger.warning(
-              '⏸️ Notify setup failed but inbound/deferral exists for ${_formatAddress(address)} — deferring to responder link instead of redialing',
-            );
-            _clientConnections.remove(address);
-            _connectionTracker.removeConnection(address);
-            try {
-              await centralManager.disconnect(device);
-            } catch (disconnectError) {
-              _logger.warning(
-                '⚠️ Failed to disconnect client after notify failure: $disconnectError',
-              );
-            }
-            return;
-          }
-          throw Exception('Cannot enable notifications - connection unusable');
-        }
-      }
-
-      _logger.info('🔐 BLE Connected - starting protocol setup');
-      _updateConnectionState(ChatConnectionState.connecting);
-
-      _logger.info('🔑 Triggering identity exchange');
-      onConnectionComplete?.call();
-
-      _isReconnection = false;
-    } catch (e) {
-      _logger.severe('❌ Connection failed: $e');
-      _isReconnection = false;
-
-      // Remove failed connection from map
-      _clientConnections.remove(address);
-      _connectionTracker.removeConnection(address);
-
-      clearConnectionState(keepMonitoring: _serverConnections.isNotEmpty);
-      rethrow;
-    } finally {
-      _pendingClientConnections.remove(address);
-      // Keep pending attempt entry for backoff unless we succeeded
-      if (_connectionTracker.isConnected(address)) {
-        _connectionTracker.clearAttempt(address);
-      } else {
-        _clearPeerHintIfUnused(address);
-      }
-    }
-  }
+  Future<void> connectToDevice(Peripheral device, {int? rssi}) =>
+      _runtimeConnectToDevice(device, rssi: rssi);
 
   void setMessageOperationInProgress(bool inProgress) {
     _healthMonitor.setMessageOperationInProgress(inProgress);
@@ -1381,223 +575,33 @@ class BLEConnectionManager {
 
   Future<Peripheral?> scanForSpecificDevice({
     Duration timeout = const Duration(seconds: 10),
-  }) async {
-    if (centralManager.state != BluetoothLowEnergyState.poweredOn) {
-      return null;
-    }
-
-    _logger.info('🔍 Scanning for service-advertising devices only');
-
-    final completer = Completer<Peripheral?>();
-    StreamSubscription? discoverySubscription;
-    Timer? timeoutTimer;
-
-    try {
-      discoverySubscription = centralManager.discovered.listen((event) {
-        _logger.info(
-          '✅ Found device advertising our service: ${event.peripheral.uuid}',
-        );
-        if (!completer.isCompleted) {
-          completer.complete(event.peripheral);
-        }
-      });
-
-      timeoutTimer = Timer(timeout, () {
-        if (!completer.isCompleted) {
-          _logger.info('⏰ Service scan timeout');
-          completer.complete(null);
-        }
-      });
-
-      await Future.delayed(Duration(milliseconds: 500));
-
-      await centralManager.startDiscovery(
-        serviceUUIDs: [BLEConstants.serviceUUID],
-      );
-
-      return await completer.future;
-    } finally {
-      await centralManager.stopDiscovery();
-      discoverySubscription?.cancel();
-      timeoutTimer?.cancel();
-    }
-  }
+  }) => _runtimeScanForSpecificDevice(timeout: timeout);
 
   /// 🔌 Disconnect all client connections
-  Future<void> disconnectAll() async {
-    _logger.info('🔌 Disconnecting all connections');
-
-    stopConnectionMonitoring();
-
-    // Disconnect all clients
-    for (final conn in _clientConnections.values.toList()) {
-      try {
-        _logger.info(
-          '🔌 Disconnecting client: ${_formatAddress(conn.address)}',
-        );
-        await centralManager.disconnect(conn.peripheral);
-      } catch (e) {
-        _logger.warning(
-          '⚠️ Failed to disconnect ${_formatAddress(conn.address)}: $e',
-        );
-      }
-    }
-
-    // Stop advertising to clear server connections
-    await _stopAdvertising();
-
-    clearConnectionState();
-  }
+  Future<void> disconnectAll() => _runtimeDisconnectAll();
 
   /// 🔌 Disconnect specific client connection by address
-  Future<void> disconnectClient(String address) async {
-    final connection = _clientConnections[address];
-    if (connection == null) {
-      _logger.warning(
-        '⚠️ Cannot disconnect: client not found ${_formatAddress(address)}',
-      );
-      return;
-    }
-
-    try {
-      _logger.info('🔌 Disconnecting client: ${_formatAddress(address)}');
-      await centralManager.disconnect(connection.peripheral);
-      _clientConnections.remove(address);
-      _connectionTracker.removeConnection(address);
-      _peerHintsByAddress.remove(address);
-      _logger.info('✅ Client disconnected: ${_formatAddress(address)}');
-    } catch (e) {
-      _logger.warning('⚠️ Failed to disconnect ${_formatAddress(address)}: $e');
-      // Remove from map anyway
-      _clientConnections.remove(address);
-      _connectionTracker.removeConnection(address);
-      _peerHintsByAddress.remove(address);
-    }
-  }
+  Future<void> disconnectClient(String address) =>
+      _runtimeDisconnectClient(address);
 
   /// 🔌 Legacy disconnect method (disconnects first client for backward compatibility)
-  Future<void> disconnect() async {
-    if (_clientConnections.isEmpty) {
-      _logger.info('🔌 No connections to disconnect');
-      clearConnectionState();
-      return;
-    }
+  Future<void> disconnect() => _runtimeDisconnect();
 
-    final firstConnection = _clientConnections.values.first;
-    await disconnectClient(firstConnection.address);
-  }
+  void triggerReconnection() => _runtimeTriggerReconnection();
 
-  void triggerReconnection() {
-    if (!_healthMonitor.isMonitoring) {
-      startConnectionMonitoring();
-    } else {
-      _healthMonitor.triggerImmediateReconnection();
-    }
-    _logger.info('Triggering immediate reconnection...');
-  }
-
-  void clearConnectionState({bool keepMonitoring = false, String? contactId}) {
-    _logger.info('🧹 Clearing connection state');
-
-    for (final timer in _deferredServerTeardownTimers.values) {
-      timer.cancel();
-    }
-    _deferredServerTeardownTimers.clear();
-    _deferredServerTeardown.clear();
-
-    // Invalidate characteristic/MTU state eagerly to avoid stale handles on
-    // subsequent reconnects or role flips.
-    onCharacteristicFound?.call(null);
-    onMtuDetected?.call(null);
-    _healthMonitor.resetHandshakeFlags();
-
-    // 🧹 CLEANUP: Remove orphaned ephemeral contacts immediately on disconnect
-    // No need to wait for app restart - clean as we go!
-    if (contactId != null) {
-      _cleanupEphemeralContactIfOrphaned(contactId);
-    } else {
-      // Cleanup all client connections if no specific contactId
-      for (final conn in _clientConnections.values) {
-        _cleanupEphemeralContactIfOrphaned(conn.address);
-      }
-    }
-
-    _clientConnections.clear();
-    // Preserve server connections if we are still acting as responder.
-    if (!keepMonitoring) {
-      _serverConnections.clear();
-      _connectionTracker.clear();
-    } else {
-      _connectionTracker.clear();
-      for (final entry in _serverConnections.entries) {
-        _connectionTracker.addConnection(address: entry.key, isClient: false);
-      }
-    }
-    _peerHintsByAddress.clear();
-    _blockedResponderHandshakes.clear();
-    _noHintInboundDebounceUntil = null;
-    _lastConnectedDevice = null;
-
-    _isReconnection = false;
-
-    _logger.info('📊 Connections cleared (client: 0, server: 0)');
-    _updateConnectionState(ChatConnectionState.disconnected);
-
-    if (!keepMonitoring) {
-      stopConnectionMonitoring();
-    }
-
-    onConnectionChanged?.call(null);
-  }
+  void clearConnectionState({bool keepMonitoring = false, String? contactId}) =>
+      _runtimeClearConnectionState(
+        keepMonitoring: keepMonitoring,
+        contactId: contactId,
+      );
 
   /// 🧹 Clean up ephemeral contact immediately if they have no chat history
   /// Called on disconnect to keep database clean without waiting for app restart
-  void _cleanupEphemeralContactIfOrphaned(String contactId) async {
-    await EphemeralContactCleaner.cleanup(
-      contactId: contactId,
-      logger: _logger,
-    );
-  }
+  void _cleanupEphemeralContactIfOrphaned(String contactId) =>
+      _runtimeCleanupEphemeralContactIfOrphaned(contactId);
 
   /// 🎯 NEW: Check if current connection can serve as relay for pending messages
-  bool _hasViableRelayConnection() {
-    try {
-      // Must have active connection
-      if (!hasConnection || _connectedDevice == null) {
-        return false;
-      }
+  bool _hasViableRelayConnection() => _runtimeHasViableRelayConnection();
 
-      if (_clientConnections.isNotEmpty &&
-          (_healthMonitor.isHandshakeInProgress ||
-              _healthMonitor.awaitingHandshake)) {
-        _logger.fine(
-          '⏸️ Treating client link as viable while handshake is in flight to avoid reconnection churn',
-        );
-        return true;
-      }
-
-      // Must have message characteristic to relay messages
-      if (_messageCharacteristic == null) {
-        return false;
-      }
-
-      // Connection must be ready (completed identity exchange)
-      if (!_isReady) {
-        return false;
-      }
-
-      _logger.info(
-        '🔄 Viable relay connection detected: ${_connectedDevice?.uuid}',
-      );
-      return true;
-    } catch (e) {
-      _logger.warning('Error checking relay viability: $e');
-      return false;
-    }
-  }
-
-  void dispose() {
-    stopConnectionMonitoring();
-    _serverConnectionsController.close();
-  }
+  void dispose() => _runtimeDispose();
 }
