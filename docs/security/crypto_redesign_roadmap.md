@@ -45,6 +45,19 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - outbound v2 send path can now fail-closed on legacy modes using
     `PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`.
   - default remains compatibility-on (`true`) for progressive rollout.
+- Pass B correctness hardening added:
+  - outbound encryption now executes by the preselected method type via
+    `ISecurityService.encryptMessageByType(...)`.
+  - v2 header mode and actual encryption path are now coupled by a single
+    decision source.
+- Pass A authenticity hardening added:
+  - v2 signatures now cover a canonicalized envelope payload (version/type/
+    sender/recipient/messageId/crypto/content) instead of plaintext-only.
+  - inbound signature verification for v2 now verifies that canonical envelope.
+- Sender identity resolution split by purpose:
+  - decrypt path can still resolve Noise session IDs where required.
+  - signature path resolves stable identity keys (persistent/public), avoiding
+    session-id misuse as a verification key.
 - Pass C scaffold started:
   - added `sealed_v1` crypto primitive service:
     `lib/core/security/sealed/sealed_encryption_service.dart`
@@ -62,6 +75,8 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   prerequisites are missing).
   - inbound sealed decrypt path is now wired for v2 handlers via
     `ISecurityService.decryptSealedMessage(...)`.
+- binary payload handling now fails closed on decrypt failure (drop instead of
+  forwarding undecrypted bytes to downstream callbacks).
 
 ---
 
@@ -117,6 +132,8 @@ Implemented now:
 - outbound v2 `crypto.mode`/`sessionId` metadata now derives from
   `ISecurityService.getEncryptionMethod(...)` (not local heuristics),
   reducing header/method mismatch risk.
+- outbound encryption now uses `ISecurityService.encryptMessageByType(...)`
+  with the same resolved method used for metadata, removing dual-path drift.
 
 Remaining:
 - make strict mode default in controlled stages.
@@ -148,9 +165,9 @@ Implemented now:
   offline lane without forcing strict mode first.
 - inbound v2 handlers route `sealed_v1` to dedicated sealed decrypt logic
   (no legacy fallback guessing for sealed mode).
+- binary payload processing is now fail-closed when decrypt fails.
 
 Remaining:
-- add envelope fields (`kid`, `epk`, `nonce`) from sealed service output.
 - add relay-aware integration tests (transport sender differs from crypto sender).
 
 ### Pass D (55-75%): Live Session Lifecycle Hardening
@@ -255,11 +272,13 @@ Below are vetted findings from an additional review, filtered for usefulness.
   - Multiple `Timer.periodic(...)` usages still exist across mesh/monitoring services.
   - Not automatically a bug, but requires strict lifecycle ownership.
 - Logging hygiene still needs hardening.
-  - `print(...)` calls remain in `lib/**` (non-test code) and should be removed or gated.
+  - Runtime code no longer allows direct `print(...)` in `lib/**` via CI gate.
+  - Ongoing hygiene still requires keeping logs secret-safe.
 - Transport sender vs cryptographic sender separation is still a real protocol concern.
   - **Partially addressed**:
     - text message decrypt/verify now resolve declared sender identity (`senderId`/`originalSender`) instead of anchoring only on `fromNodeId`.
     - binary payload decrypt now resolves sender key through contact identity mapping before decrypt, with explicit fallback.
+    - binary payload decrypt now fails closed if decryption does not succeed.
   - Remaining scope:
     - binary envelope itself does not yet carry a cryptographic sender field, so fully relay-safe sender attribution for multi-hop binary payloads remains pending protocol work.
 

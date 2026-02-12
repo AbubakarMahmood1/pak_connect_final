@@ -567,6 +567,14 @@ class _NoopSecurityService implements ISecurityService {
   ) async => message;
 
   @override
+  Future<String> encryptMessageByType(
+    String message,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
+  ) async => message;
+
+  @override
   Future<String> decryptMessage(
     String encryptedMessage,
     String publicKey,

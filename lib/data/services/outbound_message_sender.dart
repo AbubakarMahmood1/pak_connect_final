@@ -64,8 +64,7 @@ class OutboundMessageSender {
        _sealedEncryptionService =
            sealedEncryptionService ?? SealedEncryptionService(),
        _allowLegacyV2Send = allowLegacyV2Send ?? _defaultAllowLegacyV2Send,
-       _enableSealedV1Send =
-           enableSealedV1Send ?? _defaultEnableSealedV1Send,
+       _enableSealedV1Send = enableSealedV1Send ?? _defaultEnableSealedV1Send,
        _centralWrite = centralWrite,
        _peripheralWrite = peripheralWrite;
 
@@ -165,10 +164,11 @@ class OutboundMessageSender {
           encryptionKey,
           contactRepository,
         );
-        payload = await _securityService.encryptMessage(
+        payload = await _securityService.encryptMessageByType(
           message,
           encryptionKey,
           contactRepository,
+          encryptionDecision.type,
         );
         encryptionMethod = _wireMethodForType(encryptionDecision.type);
         _logger.info(
@@ -215,7 +215,6 @@ class OutboundMessageSender {
       }
 
       final signingInfo = SigningManager.getSigningInfo(trustLevel);
-      final signature = SigningManager.signMessage(message, trustLevel);
 
       final protocolMessage = ProtocolMessage.textMessage(
         messageId: msgId,
@@ -247,14 +246,30 @@ class OutboundMessageSender {
         if (cryptoHeader != null) 'crypto': cryptoHeader.toJson(),
       };
 
-      final finalMessage = ProtocolMessage(
+      final unsignedMessage = ProtocolMessage(
         type: protocolMessage.type,
         version: 2,
         payload: legacyPayload,
         timestamp: protocolMessage.timestamp,
-        signature: signature,
         useEphemeralSigning: signingInfo.useEphemeralSigning,
         ephemeralSigningKey: signingInfo.signingKey,
+      );
+      final signaturePayload = SigningManager.signaturePayloadForMessage(
+        unsignedMessage,
+        fallbackContent: message,
+      );
+      final signature = SigningManager.signMessage(
+        signaturePayload,
+        trustLevel,
+      );
+      final finalMessage = ProtocolMessage(
+        type: unsignedMessage.type,
+        version: unsignedMessage.version,
+        payload: unsignedMessage.payload,
+        timestamp: unsignedMessage.timestamp,
+        signature: signature,
+        useEphemeralSigning: unsignedMessage.useEphemeralSigning,
+        ephemeralSigningKey: unsignedMessage.ephemeralSigningKey,
       );
 
       _logOutboundDiagnostics(
@@ -431,10 +446,11 @@ class OutboundMessageSender {
           encryptionKey,
           contactRepository,
         );
-        payload = await _securityService.encryptMessage(
+        payload = await _securityService.encryptMessageByType(
           message,
           encryptionKey,
           contactRepository,
+          encryptionDecision.type,
         );
         encryptionMethod = _wireMethodForType(encryptionDecision.type);
         _logger.info(
@@ -481,7 +497,6 @@ class OutboundMessageSender {
       }
 
       final signingInfo = SigningManager.getSigningInfo(trustLevel);
-      final signature = SigningManager.signMessage(message, trustLevel);
 
       if (signingInfo.useEphemeralSigning && signingInfo.signingKey == null) {
         _logger.warning(
@@ -519,14 +534,30 @@ class OutboundMessageSender {
         if (cryptoHeader != null) 'crypto': cryptoHeader.toJson(),
       };
 
-      final finalMessage = ProtocolMessage(
+      final unsignedMessage = ProtocolMessage(
         type: protocolMessage.type,
         version: 2,
         payload: legacyPayload,
         timestamp: protocolMessage.timestamp,
-        signature: signature,
         useEphemeralSigning: signingInfo.useEphemeralSigning,
         ephemeralSigningKey: signingInfo.signingKey,
+      );
+      final signaturePayload = SigningManager.signaturePayloadForMessage(
+        unsignedMessage,
+        fallbackContent: message,
+      );
+      final signature = SigningManager.signMessage(
+        signaturePayload,
+        trustLevel,
+      );
+      final finalMessage = ProtocolMessage(
+        type: unsignedMessage.type,
+        version: unsignedMessage.version,
+        payload: unsignedMessage.payload,
+        timestamp: unsignedMessage.timestamp,
+        signature: signature,
+        useEphemeralSigning: unsignedMessage.useEphemeralSigning,
+        ephemeralSigningKey: unsignedMessage.ephemeralSigningKey,
       );
 
       _logger.info(
@@ -800,11 +831,7 @@ class OutboundMessageSender {
         '(compatibility mode enabled)',
       );
     }
-    return CryptoHeader(
-      mode: mode,
-      modeVersion: 1,
-      sessionId: sessionId,
-    );
+    return CryptoHeader(mode: mode, modeVersion: 1, sessionId: sessionId);
   }
 
   bool _isLegacyMode(CryptoMode mode) {

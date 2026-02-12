@@ -229,35 +229,35 @@ void main() {
       expect(securityService.decryptMessageCalls, equals(0));
     });
 
-    test('routes v2 decrypt by declared mode without fallback guessing', () async {
-      final message = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        version: 2,
-        payload: {
-          'messageId': 'msg-v2-mode',
-          'content': 'ciphertext',
-          'encrypted': true,
-          'senderId': 'sender-key',
-          'crypto': {
-            'mode': 'noise_v1',
-            'modeVersion': 1,
+    test(
+      'routes v2 decrypt by declared mode without fallback guessing',
+      () async {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-mode',
+            'content': 'ciphertext',
+            'encrypted': true,
+            'senderId': 'sender-key',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
           },
-        },
-        timestamp: DateTime.now(),
-      );
+          timestamp: DateTime.now(),
+        );
 
-      final result = await handler.processProtocolMessage(
-        message: message,
-        fromDeviceId: 'device-1',
-        fromNodeId: 'relay-node',
-      );
+        final result = await handler.processProtocolMessage(
+          message: message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
 
-      expect(result, equals('typed:ciphertext'));
-      expect(securityService.decryptMessageByTypeCalls, equals(1));
-      expect(securityService.decryptMessageCalls, equals(0));
-      expect(securityService.lastDecryptType, equals(EncryptionType.noise));
-      expect(securityService.lastDecryptPublicKey, equals('sender-key'));
-    });
+        expect(result, equals('typed:ciphertext'));
+        expect(securityService.decryptMessageByTypeCalls, equals(1));
+        expect(securityService.decryptMessageCalls, equals(0));
+        expect(securityService.lastDecryptType, equals(EncryptionType.noise));
+        expect(securityService.lastDecryptPublicKey, equals('sender-key'));
+      },
+    );
 
     test('routes v2 sealed decrypt via dedicated sealed path', () async {
       final message = ProtocolMessage(
@@ -330,6 +330,14 @@ class _FakeSecurityService implements ISecurityService {
     String message,
     String publicKey,
     IContactRepository repo,
+  ) async => message;
+
+  @override
+  Future<String> encryptMessageByType(
+    String message,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
   ) async => message;
 
   @override

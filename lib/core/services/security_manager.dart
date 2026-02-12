@@ -323,9 +323,18 @@ class SecurityManager implements ISecurityService {
     IContactRepository repo,
   ) async {
     final method = await getEncryptionMethod(publicKey, repo);
+    return encryptMessageByType(message, publicKey, repo, method.type);
+  }
 
+  @override
+  Future<String> encryptMessageByType(
+    String message,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
+  ) async {
     try {
-      switch (method.type) {
+      switch (type) {
         case EncryptionType.ecdh:
           final encrypted = await SimpleCrypto.encryptForContact(
             message,
@@ -350,10 +359,11 @@ class SecurityManager implements ISecurityService {
               encryptionMethod: 'Noise',
             );
           }
+          final resolvedPeerId = await _resolveNoisePeerId(publicKey, repo);
           final messageBytes = utf8.encode(message);
           final encrypted = await _noiseService!.encrypt(
             Uint8List.fromList(messageBytes),
-            publicKey,
+            resolvedPeerId,
           );
           if (encrypted != null) {
             final encryptedBase64 = base64.encode(encrypted);
@@ -386,15 +396,15 @@ class SecurityManager implements ISecurityService {
     } catch (e) {
       if (e is EncryptionException) {
         _logger.severe(
-          '🔒 ENCRYPT FAILED: ${e.encryptionMethod ?? method.type.name} → $e',
+          '🔒 ENCRYPT FAILED: ${e.encryptionMethod ?? type.name} → $e',
         );
         rethrow;
       }
-      _logger.severe('🔒 ENCRYPT FAILED: ${method.type.name} → $e');
+      _logger.severe('🔒 ENCRYPT FAILED: ${type.name} → $e');
       throw EncryptionException(
         'Encryption failed',
         publicKey: publicKey,
-        encryptionMethod: method.type.name,
+        encryptionMethod: type.name,
         cause: e,
       );
     }
@@ -493,7 +503,9 @@ class SecurityManager implements ISecurityService {
 
       case EncryptionType.global:
         // Try legacy decryption for backward compatibility.
-        final decrypted = SimpleCrypto.decryptLegacyCompatible(encryptedMessage);
+        final decrypted = SimpleCrypto.decryptLegacyCompatible(
+          encryptedMessage,
+        );
         _logger.info('🔒 DECRYPT: GLOBAL (legacy) ✅');
         return decrypted;
     }

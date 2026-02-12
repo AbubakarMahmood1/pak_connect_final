@@ -30,6 +30,13 @@ abstract class ISecurityService {
     IContactRepository repo,
   );
 
+  Future<String> encryptMessageByType(
+    String message,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
+  );
+
   Future<String> decryptMessage(
     String encryptedMessage,
     String publicKey,

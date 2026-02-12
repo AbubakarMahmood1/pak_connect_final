@@ -504,7 +504,8 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
 
           if (_onBinaryPayloadReceived != null &&
               payload.originalType != null) {
-            Uint8List decrypted = payload.bytes;
+            Uint8List? decrypted;
+            var decryptSucceeded = false;
             String? decryptKeyUsed = await _resolveBinarySenderKey(fromNodeId);
             if ((decryptKeyUsed == null || decryptKeyUsed.isEmpty) &&
                 fromNodeId.isNotEmpty) {
@@ -518,6 +519,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
                   decryptKeyUsed,
                   _contactRepository,
                 );
+                decryptSucceeded = true;
               } catch (e) {
                 final canFallbackToTransportSender =
                     fromNodeId.isNotEmpty && fromNodeId != decryptKeyUsed;
@@ -529,6 +531,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
                       _contactRepository,
                     );
                     decryptKeyUsed = fromNodeId;
+                    decryptSucceeded = true;
                     _logger.fine(
                       '🔒 Binary decrypt fallback succeeded using transport sender',
                     );
@@ -537,29 +540,30 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
                       '⚠️ Binary payload decrypt failed for resolved sender ($decryptKeyUsed) '
                       'and transport sender ($fromNodeId): $fallbackError',
                     );
-                    decrypted = payload.bytes;
                   }
                 } else {
                   _logger.warning(
                     '⚠️ Binary payload decrypt failed for $decryptKeyUsed: $e',
                   );
-                  decrypted = payload.bytes;
                 }
               }
             } else if (fromNodeId.isNotEmpty) {
-              _logger.fine(
-                'ℹ️ Binary payload decrypt skipped: sender key could not be resolved from transport node id',
+              _logger.warning(
+                '⚠️ Binary payload dropped: sender key could not be resolved from transport node id',
               );
+              return null;
             } else {
-              _logger.fine(
-                'ℹ️ Binary payload decrypt skipped: missing sender identity',
+              _logger.warning(
+                '⚠️ Binary payload dropped: missing sender identity',
               );
+              return null;
             }
 
-            if (decrypted == payload.bytes) {
-              _logger.fine(
-                'ℹ️ Binary payload delivered without successful decrypt; downstream handlers may retry/inspect metadata',
+            if (!decryptSucceeded || decrypted == null) {
+              _logger.warning(
+                '⚠️ Binary payload dropped after decryption failure (fail-closed policy)',
               );
+              return null;
             }
 
             _onBinaryPayloadReceived!(

@@ -78,6 +78,8 @@ class _FakeEncryptionException implements Exception {
 class _FakeSecurityService implements ISecurityService {
   final Set<String> _noiseSessions = <String>{};
   final Map<String, String> _identityMappings = <String, String>{};
+  int encryptByTypeCalls = 0;
+  EncryptionType? lastEncryptType;
 
   void clearAllNoiseSessions() {
     _noiseSessions.clear();
@@ -144,6 +146,18 @@ class _FakeSecurityService implements ISecurityService {
       return SimpleCrypto.encryptForConversation(message, publicKey);
     }
     throw _FakeEncryptionException('no encryption context for $publicKey');
+  }
+
+  @override
+  Future<String> encryptMessageByType(
+    String message,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
+  ) async {
+    encryptByTypeCalls++;
+    lastEncryptType = type;
+    return encryptMessage(message, publicKey, repo);
   }
 
   @override
@@ -426,7 +440,9 @@ void main() {
         writeClient: captureWriteClient,
       );
 
-      allowSevere('Failed to send message: Exception: central boom after capture');
+      allowSevere(
+        'Failed to send message: Exception: central boom after capture',
+      );
       allowSevere('Stack trace');
 
       final result = await adapter.sendCentralMessage(
@@ -441,7 +457,9 @@ void main() {
       expect(result, isFalse);
       expect(captureWriteClient.lastCentralValue, isNotNull);
 
-      final chunk = MessageChunk.fromBytes(captureWriteClient.lastCentralValue!);
+      final chunk = MessageChunk.fromBytes(
+        captureWriteClient.lastCentralValue!,
+      );
       final protocolBytes = base64.decode(chunk.content);
       final protocolMessage = ProtocolMessage.fromBytes(
         Uint8List.fromList(protocolBytes),
@@ -453,13 +471,18 @@ void main() {
         protocolMessage.cryptoHeader?.sessionId,
         equals('noise-session-abc'),
       );
+      expect(securityService.encryptByTypeCalls, greaterThan(0));
+      expect(securityService.lastEncryptType, equals(EncryptionType.noise));
     },
   );
 
   test(
     'strict mode can emit sealed_v1 when recipient Noise static key is known',
     () async {
-      await contactRepository.saveContact('recipient_sealed', 'Recipient Sealed');
+      await contactRepository.saveContact(
+        'recipient_sealed',
+        'Recipient Sealed',
+      );
       await contactRepository.updateNoiseSession(
         publicKey: 'recipient_sealed',
         noisePublicKey: _generateNoiseStaticPublicKeyBase64(),
@@ -482,7 +505,9 @@ void main() {
         enableSealedV1Send: true,
       );
 
-      allowSevere('Failed to send message: Exception: central boom after capture');
+      allowSevere(
+        'Failed to send message: Exception: central boom after capture',
+      );
       allowSevere('Stack trace');
 
       final result = await adapter.sendCentralMessage(
@@ -497,7 +522,9 @@ void main() {
       expect(result, isFalse);
       expect(captureWriteClient.lastCentralValue, isNotNull);
 
-      final chunk = MessageChunk.fromBytes(captureWriteClient.lastCentralValue!);
+      final chunk = MessageChunk.fromBytes(
+        captureWriteClient.lastCentralValue!,
+      );
       final protocolBytes = base64.decode(chunk.content);
       final protocolMessage = ProtocolMessage.fromBytes(
         Uint8List.fromList(protocolBytes),
@@ -522,7 +549,10 @@ void main() {
   test(
     'sealed_v1 is preferred over legacy mode when offline lane flag is enabled',
     () async {
-      await contactRepository.saveContact('recipient_sealed_pref', 'Recipient Sealed Pref');
+      await contactRepository.saveContact(
+        'recipient_sealed_pref',
+        'Recipient Sealed Pref',
+      );
       await contactRepository.updateNoiseSession(
         publicKey: 'recipient_sealed_pref',
         noisePublicKey: _generateNoiseStaticPublicKeyBase64(),
@@ -544,7 +574,9 @@ void main() {
         enableSealedV1Send: true,
       );
 
-      allowSevere('Failed to send message: Exception: central boom after capture');
+      allowSevere(
+        'Failed to send message: Exception: central boom after capture',
+      );
       allowSevere('Stack trace');
 
       final result = await adapter.sendCentralMessage(
@@ -559,7 +591,9 @@ void main() {
       expect(result, isFalse);
       expect(captureWriteClient.lastCentralValue, isNotNull);
 
-      final chunk = MessageChunk.fromBytes(captureWriteClient.lastCentralValue!);
+      final chunk = MessageChunk.fromBytes(
+        captureWriteClient.lastCentralValue!,
+      );
       final protocolBytes = base64.decode(chunk.content);
       final protocolMessage = ProtocolMessage.fromBytes(
         Uint8List.fromList(protocolBytes),
