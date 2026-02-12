@@ -20,18 +20,30 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
     }
 
     if (!_connectionTracker.canAttempt(address)) {
-      final cooldownRemaining = _connectionTracker.retryBackoffRemaining(
+      final retryBackoffRemaining = _connectionTracker.retryBackoffRemaining(
         address,
       );
-      final nextAllowedAttemptAt = _connectionTracker.nextAllowedAttemptAt(
+      final retryBackoffNextAllowed = _connectionTracker.nextAllowedAttemptAt(
         address,
       );
+      final disconnectCooldownRemaining = _connectionTracker
+          .disconnectCooldownRemaining(address);
+      final disconnectCooldownUntil = _connectionTracker
+          .disconnectCooldownUntil(address);
       final attemptsInWindow = _connectionTracker.pendingAttemptCount(address);
+      final blockingReason =
+          disconnectCooldownRemaining != null &&
+              disconnectCooldownRemaining > Duration.zero
+          ? 'post-disconnect-cooldown'
+          : 'attempt-backoff';
       _logger.fine(
         '⏳ Backing off reconnect to ${_formatAddress(address)} '
-        '(remaining=${cooldownRemaining?.inMilliseconds ?? 0}ms, '
+        '(reason=$blockingReason, '
+        'retryRemaining=${retryBackoffRemaining?.inMilliseconds ?? 0}ms, '
         'attempts=$attemptsInWindow, '
-        'nextAllowed=${nextAllowedAttemptAt?.toIso8601String() ?? "n/a"})',
+        'retryNextAllowed=${retryBackoffNextAllowed?.toIso8601String() ?? "n/a"}, '
+        'disconnectRemaining=${disconnectCooldownRemaining?.inMilliseconds ?? 0}ms, '
+        'disconnectUntil=${disconnectCooldownUntil?.toIso8601String() ?? "n/a"})',
       );
       return;
     }

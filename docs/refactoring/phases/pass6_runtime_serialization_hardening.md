@@ -70,6 +70,19 @@ before introducing behavior-changing coordination logic.
   - `test/core/bluetooth/connection_tracker_test.dart` extended to verify
     cooldown introspection semantics
 
+- Enforced minimal post-disconnect reconnect cooldown (feature-flagged):
+  - `lib/domain/services/ble_connection_tracker.dart`
+    - new compile-time flag:
+      `PAKCONNECT_BLE_ENFORCE_POST_DISCONNECT_COOLDOWN` (default: `true`)
+    - tracks disconnect cooldown windows per address
+    - blocks `canAttempt(address)` while active cooldown remains
+    - exposes enablement + cooldown constants for diagnostics/testing
+  - `lib/data/services/ble_connection_manager_runtime_cleanup.dart`
+    - preserves disconnect cooldown windows across connection-state resets
+      so enforced cooldown survives cleanup transitions
+  - `test/core/bluetooth/connection_tracker_test.dart`
+    - added cooldown enforcement test covering blocked/released retry windows
+
 ---
 
 ## Verification
@@ -80,6 +93,7 @@ Commands run:
 flutter analyze lib/data/services/ble_service_facade.dart lib/data/services/ble_service_facade_runtime_helper.dart
 flutter analyze test/data/services/ble_service_facade_test.dart
 flutter analyze lib/domain/services/ble_connection_tracker.dart lib/data/services/ble_connection_manager_runtime_client_links.dart lib/data/services/ble_connection_manager_runtime_collision_policy.dart test/core/bluetooth/connection_tracker_test.dart
+flutter analyze lib/data/services/ble_connection_manager_runtime_cleanup.dart
 flutter test test/data/services/ble_service_facade_test.dart --plain-name \"connectToDevice() serializes overlapping connect attempts\"
 flutter test test/core/bluetooth/connection_tracker_test.dart
 flutter test test/data/services/ble_service_facade_test.dart
@@ -102,5 +116,5 @@ Results:
 
 ## Next Slice
 
-- Enforce a minimal post-disconnect reconnect cooldown (feature-flagged) using
-  the new observability signals to prevent connect/disconnect thrash.
+- Add attempt-scoped stale-result guards for connect/disconnect completion paths
+  so delayed async completion from old attempts cannot mutate newer sessions.
