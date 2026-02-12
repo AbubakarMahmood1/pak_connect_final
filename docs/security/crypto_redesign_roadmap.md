@@ -58,6 +58,8 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - runtime protocol-floor tracking added for inbound text handlers.
   - once a peer is observed on v2, subsequent v1 from that peer is rejected
     (feature-gated by `PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD`, default `true`).
+  - guard state is now centralized in a shared runtime component
+    (`PeerProtocolVersionGuard`) so all inbound handlers enforce the same floor.
 - Pass B compatibility-tightening hook added:
   - inbound v2 legacy decrypt modes (`legacy_ecdh_v1`, `legacy_pairing_v1`,
     `legacy_global_v1`) can now be blocked by policy:
@@ -191,6 +193,16 @@ Remaining:
 
 - Session transitions deterministic under reconnect/drop/out-of-order conditions.
 - Rekey behavior tested in long-running session simulations.
+
+**Status**: In progress (`2026-02-12`).
+
+Implemented now:
+- downgrade protocol floor policy centralized and shared across inbound handlers.
+- cross-handler coverage added proving a v2 observation in
+  `ProtocolMessageHandler` blocks later v1 downgrade in `InboundTextProcessor`.
+
+Remaining:
+- session attempt stale-event suppression and reconnect simulation tests.
 
 ### Pass E (75-90%): Optional Double Ratchet
 
