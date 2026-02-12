@@ -7,37 +7,51 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
 import 'package:pak_connect/domain/services/battery_optimizer.dart';
 import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
+import 'bluetooth/handshake_coordinator.dart';
+import 'bluetooth/smart_handshake_manager.dart';
 import 'messaging/offline_message_queue.dart';
 import 'messaging/offline_queue_facade.dart';
+import 'messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/domain/services/performance_monitor.dart';
+import 'security/contact_recognizer.dart';
+import 'services/message_queue_repository.dart';
+import 'services/queue_persistence_manager.dart';
 import 'services/security_manager.dart';
 import '../domain/routing/topology_manager.dart';
 import '../domain/config/kill_switches.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/services/adaptive_encryption_strategy.dart';
 import 'package:pak_connect/domain/utils/app_logger.dart';
-import 'services/app_core_shared_message_queue_provider.dart';
 import '../domain/entities/enhanced_message.dart';
 import '../domain/services/contact_management_service.dart';
 import '../domain/services/chat_management_service.dart';
+import '../domain/services/archive_management_service.dart';
+import '../domain/services/archive_search_service.dart';
 import '../domain/services/mesh_networking_service.dart';
 import '../domain/services/auto_archive_scheduler.dart';
 import '../domain/services/notification_service.dart';
 import '../domain/services/notification_handler_factory.dart';
+import '../domain/services/hint_cache_manager.dart';
+import '../domain/services/hint_scanner_service.dart';
 import '../domain/entities/message.dart';
 import '../domain/entities/preference_keys.dart';
 import '../domain/interfaces/i_archive_repository.dart';
 import '../domain/interfaces/i_ble_service_facade.dart';
 import '../domain/interfaces/i_ble_service_facade_factory.dart';
+import '../domain/interfaces/i_chats_repository.dart';
 import '../domain/interfaces/i_contact_repository.dart';
 import '../domain/interfaces/i_database_provider.dart';
 import '../domain/interfaces/i_message_repository.dart';
 import '../domain/interfaces/i_mesh_relay_engine_factory.dart';
 import '../domain/interfaces/i_preferences_repository.dart';
+import '../domain/interfaces/i_repository_provider.dart';
+import '../domain/interfaces/i_security_service.dart';
 import '../domain/interfaces/i_seen_message_store.dart';
+import '../domain/interfaces/i_shared_message_queue_provider.dart';
 import '../domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/services/message_router.dart';
+import 'di/app_services.dart';
 import 'di/service_locator.dart';
 import '../domain/interfaces/i_connection_service.dart';
 
@@ -68,6 +82,11 @@ class AppCore {
   late final IMessageRepository messageRepository;
   late final IUserPreferences userPreferences;
   late final IArchiveRepository archiveRepository;
+  late final IChatsRepository chatsRepository;
+  late final IPreferencesRepository preferencesRepository;
+  late final IRepositoryProvider repositoryProvider;
+  late final ISharedMessageQueueProvider sharedMessageQueueProvider;
+  late final ISecurityService securityService;
 
   // State
   bool _isInitialized = false;
@@ -76,6 +95,7 @@ class AppCore {
   AppStatus _currentStatus = AppStatus.initializing;
   Stream<AppStatus>? _statusStream;
   final Set<void Function(AppStatus)> _statusListeners = {};
+  AppServices? _services;
   @visibleForTesting
   static Future<void> Function()? initializationOverride;
   AppCore._();
@@ -88,6 +108,18 @@ class AppCore {
 
   /// Get initialization status
   bool get isInitialized => _isInitialized;
+
+  /// Typed composition root snapshot for consumers moving off service locators.
+  AppServices get services {
+    final services = _services;
+    if (services == null) {
+      throw StateError(
+        'AppServices not available. '
+        'Ensure AppCore.initialize() has completed successfully.',
+      );
+    }
+    return services;
+  }
 
   /// True while initialization is in progress (before [isInitialized] is set).
   bool get isInitializing =>
@@ -177,7 +209,11 @@ class AppCore {
 
       // Initialize seen message store after database setup
       _logger.info('👀 Initializing SeenMessageStore...');
-      await getIt<ISeenMessageStore>().initialize();
+      final seenMessageStore = getIt<ISeenMessageStore>();
+      await seenMessageStore.initialize();
+      MeshRelayEngine.configureDependencyResolvers(
+        seenMessageStoreResolver: () => seenMessageStore,
+      );
       _logger.info('✅ SeenMessageStore initialized');
 
       // 🔧 FIX P0: Initialize message queue FIRST before any BLE components can access it
@@ -230,6 +266,12 @@ class AppCore {
         '✅ Integrated systems started in ${DateTime.now().difference(systemsStart).inMilliseconds}ms',
       );
 
+      _services = _buildAppServices();
+      if (getIt.isRegistered<AppServices>()) {
+        getIt.unregister<AppServices>();
+      }
+      getIt.registerSingleton<AppServices>(_services!);
+
       _isInitialized = true;
       _initializationTime = DateTime.now();
 
@@ -269,14 +311,53 @@ class AppCore {
   Future<void> _initializeRepositories() async {
     // Initialize database first to ensure it's ready
     _logger.info('Initializing database...');
-    await getIt<IDatabaseProvider>().database;
+    final databaseProvider = getIt<IDatabaseProvider>();
+    await databaseProvider.database;
     _logger.info('Database initialized successfully');
+
+    // Configure queue persistence defaults once at composition root.
+    MessageQueueRepository.configureDefaultDatabaseProvider(databaseProvider);
+    QueuePersistenceManager.configureDefaultDatabaseProvider(databaseProvider);
 
     // Initialize repositories
     contactRepository = getIt<IContactRepository>();
     messageRepository = getIt<IMessageRepository>();
     userPreferences = getIt<IUserPreferences>();
     archiveRepository = getIt<IArchiveRepository>();
+    chatsRepository = getIt<IChatsRepository>();
+    preferencesRepository = getIt<IPreferencesRepository>();
+    MessageRouter.configureDependencyResolvers(
+      preferencesRepositoryResolver: () => preferencesRepository,
+    );
+    ContactManagementService.configureDependencyResolvers(
+      contactRepositoryResolver: () => contactRepository,
+      messageRepositoryResolver: () => messageRepository,
+    );
+    SecurityManager.configureContactRepositoryResolver(() => contactRepository);
+    ArchiveManagementService.configureArchiveRepositoryResolver(
+      () => archiveRepository,
+    );
+    ArchiveSearchService.configureArchiveRepositoryResolver(
+      () => archiveRepository,
+    );
+    ChatManagementService.configureDependencyResolvers(
+      chatsRepositoryResolver: () => chatsRepository,
+      messageRepositoryResolver: () => messageRepository,
+      archiveRepositoryResolver: () => archiveRepository,
+    );
+
+    repositoryProvider = getIt<IRepositoryProvider>();
+    OfflineMessageQueue.configureDefaultRepositoryProvider(repositoryProvider);
+    HintScannerService.configureRepositoryProvider(repositoryProvider);
+    HandshakeCoordinator.configureRepositoryProviderResolver(
+      () => repositoryProvider,
+    );
+    SmartHandshakeManager.configureRepositoryProviderResolver(
+      () => repositoryProvider,
+    );
+    MeshRelayEngine.configureDependencyResolvers(
+      repositoryProviderResolver: () => repositoryProvider,
+    );
 
     // Initialize async repository components
     await userPreferences.getOrCreateKeyPair();
@@ -311,7 +392,7 @@ class AppCore {
     // - iOS/Windows/Linux/macOS: ForegroundNotificationHandler (safe default)
 
     // Check user preference for background notifications (Android only)
-    final prefs = getIt<IPreferencesRepository>();
+    final prefs = preferencesRepository;
     bool backgroundEnabled = PreferenceDefaults.backgroundNotifications;
 
     try {
@@ -329,8 +410,12 @@ class AppCore {
     final notificationHandler =
         (backgroundEnabled &&
             NotificationHandlerFactory.isBackgroundNotificationSupported())
-        ? NotificationHandlerFactory.createBackgroundHandler()
-        : NotificationHandlerFactory.createDefault();
+        ? NotificationHandlerFactory.createBackgroundHandler(
+            preferencesRepository: prefs,
+          )
+        : NotificationHandlerFactory.createDefault(
+            preferencesRepository: prefs,
+          );
 
     await NotificationService.initialize(handler: notificationHandler);
     _logger.info(
@@ -341,6 +426,7 @@ class AppCore {
     _logger.info('🔒 Initializing SecurityManager with Noise Protocol...');
     final securityManager = SecurityManager.instance;
     await securityManager.initialize();
+    securityService = securityManager;
     _logger.info('✅ SecurityManager initialized successfully');
 
     // 🔧 FIX P1: Initialize EphemeralKeyManager ONCE here before any component uses it
@@ -370,15 +456,47 @@ class AppCore {
       rethrow;
     }
 
-    // Initialize contact management
-    contactService = ContactManagementService();
+    // Initialize contact management (constructor-first composition)
+    contactService = ContactManagementService.withDependencies(
+      contactRepository: contactRepository,
+      messageRepository: messageRepository,
+    );
+    ContactManagementService.setInstance(contactService);
     await contactService.initialize();
+    HintCacheManager.configureContactRepository(
+      contactRepository: contactRepository,
+    );
+    ContactRecognizer.configureContactRepository(contactRepository);
     _logger.info('Contact management service initialized');
 
-    // Initialize chat management
-    chatService = ChatManagementService();
+    // Initialize archive services (constructor-first composition)
+    final archiveManagementService = ArchiveManagementService.withDependencies(
+      archiveRepository: archiveRepository,
+    );
+    ArchiveManagementService.setInstance(archiveManagementService);
+
+    final archiveSearchService = ArchiveSearchService.withDependencies(
+      archiveRepository: archiveRepository,
+    );
+    ArchiveSearchService.setInstance(archiveSearchService);
+
+    // Initialize chat management (constructor-first composition)
+    chatService = ChatManagementService.withDependencies(
+      chatsRepository: chatsRepository,
+      messageRepository: messageRepository,
+      archiveRepository: archiveRepository,
+      archiveManagementService: archiveManagementService,
+      archiveSearchService: archiveSearchService,
+    );
+    ChatManagementService.setInstance(chatService);
     await chatService.initialize();
     _logger.info('Chat management service initialized');
+
+    AutoArchiveScheduler.configure(
+      preferencesRepository: prefs,
+      chatsRepository: chatsRepository,
+      archiveManagementService: archiveManagementService,
+    );
 
     _logger.info('Core services initialized');
   }
@@ -394,6 +512,11 @@ class AppCore {
           ? getIt<IBLEServiceFacade>()
           : getIt<IBLEServiceFacadeFactory>().create();
       final connectionService = bleFacade as IConnectionService;
+      MeshRelayEngine.configureDependencyResolvers(
+        persistentIdResolver: () => connectionService.myPersistentId,
+      );
+      sharedMessageQueueProvider = getIt<ISharedMessageQueueProvider>();
+      final sharedQueueProvider = sharedMessageQueueProvider;
       MessageRouter.configureQueueFactories(
         standaloneQueueFactory: () => OfflineMessageQueue(),
         initializedQueueFactory: () async {
@@ -402,11 +525,17 @@ class AppCore {
           return queue;
         },
       );
+      MessageRouter.configureDependencyResolvers(
+        preferencesRepositoryResolver: () => preferencesRepository,
+        sharedQueueProviderResolver: () => sharedQueueProvider,
+      );
       if (!bleFacade.isInitialized) {
         await bleFacade.initialize();
         await MessageRouter.initialize(
           connectionService,
           offlineQueue: messageQueue,
+          preferencesRepository: preferencesRepository,
+          sharedQueueProvider: sharedQueueProvider,
         );
       } else {
         _logger.fine('ℹ️ BLE facade already initialized; reusing instance');
@@ -421,7 +550,8 @@ class AppCore {
         bleService: bleService,
         messageHandler: messageHandlerFacade,
         chatManagementService: chatService,
-        sharedQueueProvider: AppCoreSharedMessageQueueProvider(),
+        repositoryProvider: repositoryProvider,
+        sharedQueueProvider: sharedQueueProvider,
         relayEngineFactory: (queue, spam) =>
             getIt<IMeshRelayEngineFactory>().create(
               messageQueue: queue,
@@ -433,7 +563,7 @@ class AppCore {
       _logger.info('🌐 MeshNetworkingService initialized successfully');
 
       registerInitializedServices(
-        securityService: SecurityManager.instance,
+        securityService: securityService,
         connectionService: connectionService,
         meshNetworkingService: meshNetworkingService,
         meshRelayCoordinator: meshNetworkingService.relayCoordinator,
@@ -532,6 +662,22 @@ class AppCore {
     }
 
     _logger.info('Integrated systems started');
+  }
+
+  AppServices _buildAppServices() {
+    return AppServices(
+      contactRepository: contactRepository,
+      messageRepository: messageRepository,
+      archiveRepository: archiveRepository,
+      chatsRepository: chatsRepository,
+      userPreferences: userPreferences,
+      preferencesRepository: preferencesRepository,
+      repositoryProvider: repositoryProvider,
+      sharedMessageQueueProvider: sharedMessageQueueProvider,
+      connectionService: bleService,
+      meshNetworkingService: meshNetworkingService,
+      securityService: securityService,
+    );
   }
 
   /// Handle message send callback
@@ -737,10 +883,31 @@ class AppCore {
 
       try {
         AutoArchiveScheduler.stop();
+        AutoArchiveScheduler.clearConfiguration();
         _logger.info('Auto-archive scheduler stopped');
       } catch (e) {
         _logger.warning('Error stopping auto-archive scheduler: $e');
       }
+
+      HintCacheManager.clearContactRepository();
+      ContactRecognizer.clearContactRepository();
+      HintScannerService.clearRepositoryProvider();
+      OfflineMessageQueue.clearDefaultRepositoryProvider();
+      MessageQueueRepository.clearDefaultDatabaseProvider();
+      QueuePersistenceManager.clearDefaultDatabaseProvider();
+      MessageRouter.clearDependencyResolvers();
+      HandshakeCoordinator.clearRepositoryProviderResolver();
+      SmartHandshakeManager.clearRepositoryProviderResolver();
+      MeshRelayEngine.clearDependencyResolvers();
+      SecurityManager.clearContactRepositoryResolver();
+      ContactManagementService.clearDependencyResolvers();
+      ArchiveManagementService.clearArchiveRepositoryResolver();
+      ArchiveSearchService.clearArchiveRepositoryResolver();
+      ChatManagementService.clearDependencyResolvers();
+      if (getIt.isRegistered<AppServices>()) {
+        getIt.unregister<AppServices>();
+      }
+      _services = null;
 
       try {
         NotificationService.dispose();

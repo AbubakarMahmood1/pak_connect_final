@@ -1,7 +1,7 @@
 // Riverpod providers for contact groups and group messaging
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import '../../domain/models/contact_group.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
@@ -208,32 +208,22 @@ final sendGroupMessageProvider =
     });
 
 ISharedMessageQueueProvider _resolveSharedQueueProvider() {
-  if (GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
-    return GetIt.instance<ISharedMessageQueueProvider>();
-  }
-  throw StateError(
-    'ISharedMessageQueueProvider is not registered. '
-    'Register it in DI before creating GroupMessagingService.',
+  return resolveFromAppServicesOrServiceLocator<ISharedMessageQueueProvider>(
+    fromServices: (services) => services.sharedMessageQueueProvider,
+    dependencyName: 'ISharedMessageQueueProvider',
   );
 }
 
 IGroupRepository _resolveGroupRepository() {
-  if (GetIt.instance.isRegistered<IGroupRepository>()) {
-    return GetIt.instance<IGroupRepository>();
-  }
-  throw StateError(
-    'IGroupRepository is not registered. '
-    'Register it in DI before creating group providers.',
+  return resolveFromServiceLocator<IGroupRepository>(
+    dependencyName: 'IGroupRepository',
   );
 }
 
 IContactRepository _resolveContactRepository() {
-  if (GetIt.instance.isRegistered<IContactRepository>()) {
-    return GetIt.instance<IContactRepository>();
-  }
-  throw StateError(
-    'IContactRepository is not registered. '
-    'Register it in DI before creating group providers.',
+  return resolveFromAppServicesOrServiceLocator<IContactRepository>(
+    fromServices: (services) => services.contactRepository,
+    dependencyName: 'IContactRepository',
   );
 }
 

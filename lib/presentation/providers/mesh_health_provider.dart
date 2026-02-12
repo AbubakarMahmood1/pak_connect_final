@@ -1,21 +1,23 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 
 import '../../domain/services/mesh/mesh_network_health_monitor.dart';
 
-final GetIt getIt = GetIt.instance;
 final _logger = Logger('MeshHealthProvider');
 
 /// ✅ Phase 6D: Riverpod provider for MeshNetworkHealthMonitor
-/// Manages lifecycle and provides Riverpod access to mesh health monitoring
-final meshHealthMonitorProvider =
-    Provider.autoDispose<MeshNetworkHealthMonitor>((ref) {
-      final monitor = getIt<MeshNetworkHealthMonitor>();
-      _logger.fine('✅ MeshNetworkHealthMonitor provider accessed');
-      ref.onDispose(monitor.dispose);
-      return monitor;
-    });
+/// Provides Riverpod access to the AppCore-owned mesh health monitor.
+final meshHealthMonitorProvider = Provider<MeshNetworkHealthMonitor>((ref) {
+  final monitor =
+      resolveFromAppServicesOrServiceLocator<MeshNetworkHealthMonitor>(
+        fromServices: (services) =>
+            services.meshNetworkingService.healthMonitor,
+        dependencyName: 'MeshNetworkHealthMonitor',
+      );
+  _logger.fine('✅ MeshNetworkHealthMonitor provider accessed');
+  return monitor;
+});
 
 /// ✅ Phase 6D: StreamProvider for mesh network status
 /// Emits mesh connectivity and relay status changes

@@ -1,59 +1,66 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 
 import '../../domain/interfaces/i_ble_connection_service.dart';
 import '../../domain/interfaces/i_ble_discovery_service.dart';
 import '../../domain/interfaces/i_connection_service.dart';
 import '../../domain/interfaces/i_ble_messaging_service.dart';
+import 'ble_providers.dart';
 
-final GetIt getIt = GetIt.instance;
 final _logger = Logger('BleCoreServiceProviders');
 
 /// Provides the registered BLE connection service and disposes it when no longer used.
-final bleConnectionServiceProvider =
-    Provider.autoDispose<IBLEConnectionService>((ref) {
-      final service = getIt<IBLEConnectionService>();
-      _logger.fine('BLEConnectionService provider accessed');
-      ref.onDispose(() {
-        // Avoid leaking connection-level controllers.
-        service.disposeConnection();
-      });
-      return service;
-    });
+final bleConnectionServiceProvider = Provider<IBLEConnectionService>((ref) {
+  final service = ref.watch(connectionServiceProvider);
+  if (service is IBLEConnectionService) {
+    _logger.fine(
+      'BLEConnectionService provider accessed via IConnectionService bridge',
+    );
+    return service as IBLEConnectionService;
+  }
+  final fallback = resolveFromServiceLocator<IBLEConnectionService>(
+    dependencyName: 'IBLEConnectionService',
+  );
+  _logger.fine('BLEConnectionService provider accessed');
+  return fallback;
+});
 
-/// Provides the BLE discovery service and ensures listeners are cleaned up.
-final bleDiscoveryServiceProvider = Provider.autoDispose<IBLEDiscoveryService>((
-  ref,
-) {
-  final discovery = getIt<IBLEDiscoveryService>();
+/// Provides the BLE discovery service singleton.
+final bleDiscoveryServiceProvider = Provider<IBLEDiscoveryService>((ref) {
+  final service = ref.watch(connectionServiceProvider);
+  if (service is IBLEDiscoveryService) {
+    _logger.fine(
+      'BLEDiscoveryService provider accessed via IConnectionService bridge',
+    );
+    return service as IBLEDiscoveryService;
+  }
+  final discovery = resolveFromServiceLocator<IBLEDiscoveryService>(
+    dependencyName: 'IBLEDiscoveryService',
+  );
   _logger.fine('BLEDiscoveryService provider accessed');
-  ref.onDispose(() => unawaited(discovery.dispose()));
   return discovery;
 });
 
-/// Provides the BLE handshake service and disposes its coordinator on teardown.
-final bleHandshakeServiceProvider = Provider.autoDispose<IConnectionService>((
-  ref,
-) {
-  final handshake = getIt<IConnectionService>();
+/// Provides the BLE handshake service singleton.
+final bleHandshakeServiceProvider = Provider<IConnectionService>((ref) {
+  final handshake = ref.watch(connectionServiceProvider);
   _logger.fine('BLEHandshakeService provider accessed');
-  ref.onDispose(() {
-    try {
-      final dynamic maybeHandshake = handshake;
-      maybeHandshake.disposeHandshakeCoordinator();
-    } catch (_) {}
-  });
   return handshake;
 });
 
 /// Provides the BLE messaging service. No explicit dispose hook exposed.
-final bleMessagingServiceProvider = Provider.autoDispose<IBLEMessagingService>((
-  ref,
-) {
-  final messaging = getIt<IBLEMessagingService>();
+final bleMessagingServiceProvider = Provider<IBLEMessagingService>((ref) {
+  final service = ref.watch(connectionServiceProvider);
+  if (service is IBLEMessagingService) {
+    _logger.fine(
+      'BLEMessagingService provider accessed via IConnectionService bridge',
+    );
+    return service as IBLEMessagingService;
+  }
+  final messaging = resolveFromServiceLocator<IBLEMessagingService>(
+    dependencyName: 'IBLEMessagingService',
+  );
   _logger.fine('BLEMessagingService provider accessed');
   return messaging;
 });

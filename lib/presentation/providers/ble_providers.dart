@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'dart:async';
 import '../../domain/models/connection_info.dart';
 import '../../domain/models/spy_mode_info.dart';
@@ -25,8 +25,6 @@ import 'runtime_providers.dart';
 import '../../domain/utils/string_extensions.dart';
 
 export 'ble_provider_models.dart';
-
-final GetIt getIt = GetIt.instance;
 
 // =============================================================================
 // CORE RUNTIME NOTIFIER (BLE)
@@ -224,8 +222,11 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
           connectionService.currentSessionId;
       if (persistentKey == null || persistentKey.isEmpty) return;
 
-      if (!getIt.isRegistered<IContactRepository>()) return;
-      final contactRepo = getIt<IContactRepository>();
+      final contactRepo =
+          maybeResolveFromAppServicesOrServiceLocator<IContactRepository>(
+            fromServices: (services) => services.contactRepository,
+          );
+      if (contactRepo == null) return;
       final contact = await contactRepo.getContactByAnyId(persistentKey);
 
       final displayName =
@@ -398,10 +399,10 @@ class UsernameNotifier extends AsyncNotifier<String> {
   }
 
   IUserPreferences _resolveUserPreferences() {
-    if (getIt.isRegistered<IUserPreferences>()) {
-      return getIt<IUserPreferences>();
-    }
-    return _FallbackUserPreferences.instance;
+    return maybeResolveFromAppServicesOrServiceLocator<IUserPreferences>(
+          fromServices: (services) => services.userPreferences,
+        ) ??
+        _FallbackUserPreferences.instance;
   }
 }
 
@@ -457,12 +458,9 @@ class UsernameOperations {
 // Legacy compatibility provider name retained for tests/overrides.
 // Source of truth is now the domain-facing IConnectionService contract.
 final bleServiceProvider = Provider<IConnectionService>((ref) {
-  if (getIt.isRegistered<IConnectionService>()) {
-    return getIt<IConnectionService>();
-  }
-  throw StateError(
-    'IConnectionService is not registered. '
-    'Call setupServiceLocator() before using BLE providers.',
+  return resolveFromAppServicesOrServiceLocator<IConnectionService>(
+    fromServices: (services) => services.connectionService,
+    dependencyName: 'IConnectionService',
   );
 });
 
@@ -617,12 +615,9 @@ final identityRevealedProvider = Provider.autoDispose<AsyncValue<String>>((
 });
 
 final chatsRepositoryProvider = Provider<IChatsRepository>((ref) {
-  if (getIt.isRegistered<IChatsRepository>()) {
-    return getIt<IChatsRepository>();
-  }
-  throw StateError(
-    'IChatsRepository is not registered. '
-    'Call setupServiceLocator() before using chatsRepositoryProvider.',
+  return resolveFromAppServicesOrServiceLocator<IChatsRepository>(
+    fromServices: (services) => services.chatsRepository,
+    dependencyName: 'IChatsRepository',
   );
 });
 
