@@ -6,6 +6,8 @@ class _BleServiceFacadeRuntimeHelper {
   final BLEServiceFacade _owner;
 
   Future<void> initializeFacade() async {
+    _owner._lifecycleDisposed = false;
+    final lifecycleEpoch = _owner._beginLifecycleEpoch();
     _owner._logger.info(
       '🏗️ Initializing BLEServiceFacade (lazy initialization)...',
     );
@@ -14,11 +16,27 @@ class _BleServiceFacadeRuntimeHelper {
       await _owner._stateManager.initialize();
       await _owner._initializeNodeIdentity();
       await _owner._bluetoothStateMonitor.initialize(
-        onBluetoothReady: () => unawaited(_owner._onBluetoothBecameReady()),
-        onBluetoothUnavailable: () =>
-            unawaited(_owner._onBluetoothBecameUnavailable()),
-        onInitializationRetry: () =>
-            unawaited(_owner._onBluetoothInitializationRetry()),
+        onBluetoothReady: () => unawaited(
+          _runIfLifecycleCurrent(
+            lifecycleEpoch,
+            callbackName: 'onBluetoothReady',
+            callback: _owner._onBluetoothBecameReady,
+          ),
+        ),
+        onBluetoothUnavailable: () => unawaited(
+          _runIfLifecycleCurrent(
+            lifecycleEpoch,
+            callbackName: 'onBluetoothUnavailable',
+            callback: _owner._onBluetoothBecameUnavailable,
+          ),
+        ),
+        onInitializationRetry: () => unawaited(
+          _runIfLifecycleCurrent(
+            lifecycleEpoch,
+            callbackName: 'onInitializationRetry',
+            callback: _owner._onBluetoothInitializationRetry,
+          ),
+        ),
       );
       _owner._ensureConnectionServicePrepared();
       await _owner._ensureDiscoveryInitialized();
@@ -41,6 +59,7 @@ class _BleServiceFacadeRuntimeHelper {
 
   Future<void> disposeFacade() async {
     _owner._logger.info('🧹 Disposing BLEServiceFacade...');
+    _owner._invalidateLifecycleEpoch();
 
     try {
       if (_owner._discoveryService != null) {
@@ -71,6 +90,21 @@ class _BleServiceFacadeRuntimeHelper {
       DeviceDeduplicationManager.clearIntroHintRepository();
       _owner._recordInstanceDisposed();
     }
+  }
+
+  Future<void> _runIfLifecycleCurrent(
+    int lifecycleEpoch, {
+    required String callbackName,
+    required Future<void> Function() callback,
+  }) async {
+    if (!_owner._isLifecycleEpochCurrent(lifecycleEpoch)) {
+      _owner._logger.fine(
+        'Ignoring stale BLE callback $callbackName '
+        '(epoch=$lifecycleEpoch, current=${_owner._lifecycleEpoch})',
+      );
+      return;
+    }
+    await callback();
   }
 
   Future<String> getMyPublicKey() async {

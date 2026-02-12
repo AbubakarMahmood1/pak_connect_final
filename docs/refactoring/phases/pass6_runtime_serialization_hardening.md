@@ -35,6 +35,11 @@ before introducing behavior-changing coordination logic.
   - `lib/data/services/ble_service_facade_runtime_helper.dart`
   - listener removal and instance disposal accounting now happen in `finally`
 
+- Added lifecycle epoch guard for async Bluetooth callbacks:
+  - initialization now captures an epoch token
+  - monitor callbacks (`ready`/`unavailable`/`retry`) are ignored when stale
+  - dispose invalidates the active epoch before teardown
+
 ---
 
 ## Verification
@@ -43,6 +48,7 @@ Commands run:
 
 ```powershell
 flutter analyze lib/data/services/ble_service_facade.dart lib/data/services/ble_service_facade_runtime_helper.dart
+flutter test test/data/services/ble_service_facade_test.dart --plain-name \"initialize() completes successfully\"
 flutter test test/data/services/ble_service_facade_test.dart test/domain/services/mesh/mesh_networking_service_binary_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass6_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
@@ -61,8 +67,6 @@ Results:
 
 ## Next Slice
 
-- Add attempt/session IDs at key BLE transition boundaries (scan/connect/
-  handshake) to quarantine stale callbacks.
 - Add one-at-a-time connect attempt gate in runtime coordination path (lock/
   queue) without changing public APIs.
 - Add deterministic cooldown/tie-break logging hooks to verify behavior before
