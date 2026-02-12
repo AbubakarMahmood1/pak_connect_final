@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import '../../domain/services/signing_manager.dart';
 import '../../domain/utils/message_fragmenter.dart';
 import '../../domain/models/protocol_message.dart';
+import '../../domain/models/crypto_header.dart';
 import '../../domain/interfaces/i_security_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_state_manager.dart';
@@ -180,16 +181,23 @@ class OutboundMessageSender {
 
       final intendedRecipientPayload =
           originalIntendedRecipient ?? finalRecipientId;
+      final cryptoHeader = _buildCryptoHeader(
+        encryptionMethod: encryptionMethod,
+        sessionId: encryptionMethod == 'noise' ? encryptionKey : null,
+      );
 
       final legacyPayload = {
         ...protocolMessage.payload,
         'encryptionMethod': encryptionMethod,
         'intendedRecipient': intendedRecipientPayload,
         'originalSender': finalSenderIf,
+        'senderId': finalSenderIf,
+        if (cryptoHeader != null) 'crypto': cryptoHeader.toJson(),
       };
 
       final finalMessage = ProtocolMessage(
         type: protocolMessage.type,
+        version: 2,
         payload: legacyPayload,
         timestamp: protocolMessage.timestamp,
         signature: signature,
@@ -416,16 +424,23 @@ class OutboundMessageSender {
 
       final intendedRecipientPayload =
           originalIntendedRecipient ?? finalRecipientId;
+      final cryptoHeader = _buildCryptoHeader(
+        encryptionMethod: encryptionMethod,
+        sessionId: encryptionMethod == 'noise' ? encryptionKey : null,
+      );
 
       final legacyPayload = {
         ...protocolMessage.payload,
         'encryptionMethod': encryptionMethod,
         'intendedRecipient': intendedRecipientPayload,
         'originalSender': finalSenderIf,
+        'senderId': finalSenderIf,
+        if (cryptoHeader != null) 'crypto': cryptoHeader.toJson(),
       };
 
       final finalMessage = ProtocolMessage(
         type: protocolMessage.type,
+        version: 2,
         payload: legacyPayload,
         timestamp: protocolMessage.timestamp,
         signature: signature,
@@ -611,6 +626,38 @@ class OutboundMessageSender {
         return 'pairing';
       case SecurityLevel.low:
         return 'global';
+    }
+  }
+
+  CryptoHeader? _buildCryptoHeader({
+    required String encryptionMethod,
+    required String? sessionId,
+  }) {
+    final mode = _mapEncryptionMethodToMode(encryptionMethod);
+    if (mode == null) {
+      return null;
+    }
+    return CryptoHeader(
+      mode: mode,
+      modeVersion: 1,
+      sessionId: sessionId,
+    );
+  }
+
+  CryptoMode? _mapEncryptionMethodToMode(String encryptionMethod) {
+    switch (encryptionMethod) {
+      case 'noise':
+        return CryptoMode.noiseV1;
+      case 'ecdh':
+        return CryptoMode.legacyEcdhV1;
+      case 'pairing':
+        return CryptoMode.legacyPairingV1;
+      case 'global':
+        return CryptoMode.legacyGlobalV1;
+      case 'none':
+        return CryptoMode.none;
+      default:
+        return null;
     }
   }
 

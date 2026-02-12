@@ -35,6 +35,13 @@ abstract class ISecurityService {
     IContactRepository repo,
   );
 
+  Future<String> decryptMessageByType(
+    String encryptedMessage,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
+  );
+
   Future<Uint8List> encryptBinaryPayload(
     Uint8List data,
     String publicKey,

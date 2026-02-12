@@ -5,6 +5,8 @@ import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_protocol_message_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/crypto_header.dart';
+import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart'
     as domain_models;
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
@@ -66,6 +68,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   String? _currentNodeId;
   String _encryptionMethod = 'none';
+  static const bool _allowLegacyV1DecryptFallback = true;
 
   /// Sets current node ID for routing and identity checks
   void setCurrentNodeId(String nodeId) {
@@ -201,6 +204,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       final messageId = message.textMessageId!;
       final content = message.textContent!;
       final intendedRecipient = message.payload['intendedRecipient'] as String?;
+      final declaredSenderId =
+          message.senderId ??
+          (message.payload['originalSender'] as String?) ??
+          fromNodeId;
+      final resolvedSenderId = await _resolveSenderKey(declaredSenderId);
+      final decryptionPeerId = (resolvedSenderId?.isNotEmpty ?? false)
+          ? resolvedSenderId!
+          : fromNodeId;
 
       // Check if message is for us
       final isForMe = await isMessageForMe(intendedRecipient);
@@ -211,17 +222,46 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
       // Decrypt if needed
       String decryptedContent = content;
-      if (message.isEncrypted && fromNodeId.isNotEmpty) {
+      if (message.isEncrypted && decryptionPeerId.isNotEmpty) {
         try {
-          decryptedContent = await _securityService.decryptMessage(
-            content,
-            fromNodeId,
-            _contactRepository,
-          );
+          if (message.version >= 2) {
+            final cryptoHeader = message.cryptoHeader;
+            if (cryptoHeader == null) {
+              _logger.severe(
+                '🔒 v2 encrypted message missing crypto header: $messageId',
+              );
+              return null;
+            }
+            final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
+            if (encryptionType == null) {
+              _logger.severe(
+                '🔒 v2 encrypted message has unsupported crypto mode: ${cryptoHeader.mode.wireValue}',
+              );
+              return null;
+            }
+            decryptedContent = await _securityService.decryptMessageByType(
+              content,
+              decryptionPeerId,
+              _contactRepository,
+              encryptionType,
+            );
+          } else {
+            if (!_allowLegacyV1DecryptFallback) {
+              _logger.warning(
+                '🔒 Legacy v1 decrypt fallback disabled. Rejecting message: $messageId',
+              );
+              return null;
+            }
+            decryptedContent = await _securityService.decryptMessage(
+              content,
+              decryptionPeerId,
+              _contactRepository,
+            );
+          }
           _logger.fine('🔒 Message decrypted successfully');
         } catch (e) {
           _logger.warning(
-            '🔒 Decryption failed for ${fromNodeId.shortId(8)}: $e',
+            '🔒 Decryption failed for ${decryptionPeerId.shortId(8)} (v${message.version}): $e',
           );
           return null;
         }
@@ -229,9 +269,23 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
       // Verify signature
       if (message.signature != null) {
-        final verifyingKey = message.useEphemeralSigning
-            ? message.ephemeralSigningKey ?? fromNodeId
-            : fromNodeId;
+        String verifyingKey;
+        if (message.useEphemeralSigning) {
+          if (message.ephemeralSigningKey == null ||
+              message.ephemeralSigningKey!.isEmpty) {
+            if (message.version >= 2) {
+              _logger.severe(
+                '❌ v2 ephemeral signature missing signing key for message $messageId',
+              );
+              return '[❌ UNTRUSTED MESSAGE - Missing ephemeral signing key]';
+            }
+            verifyingKey = decryptionPeerId;
+          } else {
+            verifyingKey = message.ephemeralSigningKey!;
+          }
+        } else {
+          verifyingKey = decryptionPeerId;
+        }
 
         final isValid = SigningManager.verifySignature(
           decryptedContent,
@@ -257,7 +311,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
           await textCallback(
             decryptedContent,
             messageId,
-            fromNodeId.isNotEmpty ? fromNodeId : null,
+            decryptionPeerId.isNotEmpty ? decryptionPeerId : null,
           );
         } catch (e, stack) {
           _logger.warning('⚠️ Inbound text callback failed: $e', e, stack);
@@ -469,6 +523,56 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       return resolver();
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<String?> _resolveSenderKey(String? candidateKey) async {
+    if (candidateKey == null || candidateKey.isEmpty) {
+      return candidateKey;
+    }
+    try {
+      final contact = await _contactRepository.getContactByAnyId(candidateKey);
+      if (contact != null) {
+        final sessionId = contact.currentEphemeralId;
+        final persistentKey = contact.persistentPublicKey;
+        if (persistentKey != null &&
+            persistentKey.isNotEmpty &&
+            sessionId != null &&
+            sessionId.isNotEmpty) {
+          _securityService.registerIdentityMapping(
+            persistentPublicKey: persistentKey,
+            ephemeralID: sessionId,
+          );
+        }
+        if (sessionId != null && sessionId.isNotEmpty) {
+          return sessionId;
+        }
+        if (persistentKey != null && persistentKey.isNotEmpty) {
+          return persistentKey;
+        }
+        return contact.publicKey;
+      }
+    } catch (e) {
+      _logger.fine(
+        'Sender resolution failed for ${candidateKey.shortId(8)}: $e',
+      );
+    }
+    return candidateKey;
+  }
+
+  EncryptionType? _encryptionTypeForMode(CryptoMode mode) {
+    switch (mode) {
+      case CryptoMode.noiseV1:
+        return EncryptionType.noise;
+      case CryptoMode.legacyEcdhV1:
+        return EncryptionType.ecdh;
+      case CryptoMode.legacyPairingV1:
+        return EncryptionType.pairing;
+      case CryptoMode.legacyGlobalV1:
+        return EncryptionType.global;
+      case CryptoMode.none:
+      case CryptoMode.sealedV1:
+        return null;
     }
   }
 

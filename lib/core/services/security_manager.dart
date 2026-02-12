@@ -416,63 +416,12 @@ class SecurityManager implements ISecurityService {
 
     for (final method in methods) {
       try {
-        switch (method) {
-          case EncryptionType.ecdh:
-            final decrypted = await SimpleCrypto.decryptFromContact(
-              encryptedMessage,
-              publicKey,
-              repo,
-            );
-            if (decrypted != null) {
-              _logger.info('🔒 DECRYPT: ECDH ✅');
-              return decrypted;
-            }
-            break;
-
-          case EncryptionType.noise:
-            if (_noiseService != null) {
-              try {
-                final resolvedPeerId = await _resolveNoisePeerId(
-                  publicKey,
-                  repo,
-                );
-                final encryptedBytes = base64.decode(encryptedMessage);
-                final decryptedBytes = await _noiseService!.decrypt(
-                  Uint8List.fromList(encryptedBytes),
-                  resolvedPeerId,
-                );
-                if (decryptedBytes != null) {
-                  final decrypted = utf8.decode(decryptedBytes);
-                  _logger.info('🔒 DECRYPT: NOISE ✅');
-                  return decrypted;
-                }
-              } catch (e) {
-                _logger.warning(
-                  '🔒 DECRYPT: NOISE ❌ (not base64 or invalid) → $e',
-                );
-              }
-            }
-            break;
-
-          case EncryptionType.pairing:
-            if (SimpleCrypto.hasConversationKey(publicKey)) {
-              final decrypted = SimpleCrypto.decryptFromConversation(
-                encryptedMessage,
-                publicKey,
-              );
-              _logger.info('🔒 DECRYPT: PAIRING ✅');
-              return decrypted;
-            }
-            break;
-
-          case EncryptionType.global:
-            // Try legacy decryption for backward compatibility
-            final decrypted = SimpleCrypto.decryptLegacyCompatible(
-              encryptedMessage,
-            );
-            _logger.info('🔒 DECRYPT: GLOBAL (legacy) ✅');
-            return decrypted;
-        }
+        return await decryptMessageByType(
+          encryptedMessage,
+          publicKey,
+          repo,
+          method,
+        );
       } catch (e) {
         _logger.warning('🔒 DECRYPT: ${method.name} ❌ → $e');
         continue;
@@ -488,6 +437,62 @@ class SecurityManager implements ISecurityService {
     throw Exception(
       'All decryption methods failed - security resync requested',
     );
+  }
+
+  @override
+  Future<String> decryptMessageByType(
+    String encryptedMessage,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
+  ) async {
+    switch (type) {
+      case EncryptionType.ecdh:
+        final decrypted = await SimpleCrypto.decryptFromContact(
+          encryptedMessage,
+          publicKey,
+          repo,
+        );
+        if (decrypted == null) {
+          throw Exception('ECDH decryption returned null');
+        }
+        _logger.info('🔒 DECRYPT: ECDH ✅');
+        return decrypted;
+
+      case EncryptionType.noise:
+        if (_noiseService == null) {
+          throw Exception('Noise service not initialized');
+        }
+        final resolvedPeerId = await _resolveNoisePeerId(publicKey, repo);
+        final encryptedBytes = base64.decode(encryptedMessage);
+        final decryptedBytes = await _noiseService!.decrypt(
+          Uint8List.fromList(encryptedBytes),
+          resolvedPeerId,
+        );
+        if (decryptedBytes == null) {
+          throw Exception('Noise decryption returned null');
+        }
+        final decrypted = utf8.decode(decryptedBytes);
+        _logger.info('🔒 DECRYPT: NOISE ✅');
+        return decrypted;
+
+      case EncryptionType.pairing:
+        if (!SimpleCrypto.hasConversationKey(publicKey)) {
+          throw Exception('No pairing/conversation key available');
+        }
+        final decrypted = SimpleCrypto.decryptFromConversation(
+          encryptedMessage,
+          publicKey,
+        );
+        _logger.info('🔒 DECRYPT: PAIRING ✅');
+        return decrypted;
+
+      case EncryptionType.global:
+        // Try legacy decryption for backward compatibility.
+        final decrypted = SimpleCrypto.decryptLegacyCompatible(encryptedMessage);
+        _logger.info('🔒 DECRYPT: GLOBAL (legacy) ✅');
+        return decrypted;
+    }
   }
 
   /// Resolve the correct Noise session identifier for decryption.

@@ -147,6 +147,16 @@ class _FakeSecurityService implements ISecurityService {
   }
 
   @override
+  Future<String> decryptMessageByType(
+    String encryptedMessage,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
+  ) async {
+    return decryptMessage(encryptedMessage, publicKey, repo);
+  }
+
+  @override
   Future<Uint8List> encryptBinaryPayload(
     Uint8List data,
     String publicKey,
