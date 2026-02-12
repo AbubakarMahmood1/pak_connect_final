@@ -17,6 +17,7 @@ Validate Pass A envelope/mode decisions before implementing Pass B/C.
 7. `lib/data/services/inbound_text_processor.dart`
 8. `lib/data/services/outbound_message_sender.dart`
 9. `test/data/services/protocol_message_handler_test.dart`
+10. `test/data/services/ble_write_adapter_test.dart`
 
 ## Batch 2 (Follow-up, if token budget allows)
 
@@ -32,3 +33,4 @@ Validate Pass A envelope/mode decisions before implementing Pass B/C.
 3. Are sender identity and transport identity cleanly separated for decrypt and signature checks?
 4. What concrete attack scenarios still remain in current Pass A code?
 5. What is the minimum safe spec for Pass B (noise/sealed send policy) to avoid regressions?
+6. Is `PAKCONNECT_ALLOW_LEGACY_V2_SEND` an acceptable temporary migration gate, and what criteria should flip default to `false`?

@@ -18,6 +18,7 @@ class BleWriteAdapter {
     Function(bool)? onMessageOperationChanged,
     Logger? logger,
     IBleWriteClient? writeClient,
+    bool? allowLegacyV2Send,
   }) : _contactRepository = contactRepository,
        _stateManagerProvider = stateManagerProvider,
        _onMessageOperationChanged = onMessageOperationChanged,
@@ -29,6 +30,7 @@ class BleWriteAdapter {
       logger: _logger,
       ackTracker: _ackTracker,
       chunkSender: _chunkSender,
+      allowLegacyV2Send: allowLegacyV2Send,
       centralWrite:
           ({
             required CentralManager centralManager,

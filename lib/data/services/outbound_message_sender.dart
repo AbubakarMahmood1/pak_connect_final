@@ -21,11 +21,17 @@ import '../../domain/values/id_types.dart';
 
 /// Handles outbound message preparation and sending for BLEMessageHandler.
 class OutboundMessageSender {
+  static const bool _defaultAllowLegacyV2Send = bool.fromEnvironment(
+    'PAKCONNECT_ALLOW_LEGACY_V2_SEND',
+    defaultValue: true,
+  );
+
   OutboundMessageSender({
     required Logger logger,
     required MessageAckTracker ackTracker,
     required MessageChunkSender chunkSender,
     ISecurityService? securityService,
+    bool? allowLegacyV2Send,
     Future<void> Function({
       required CentralManager centralManager,
       required Peripheral peripheral,
@@ -46,6 +52,7 @@ class OutboundMessageSender {
        _chunkSender = chunkSender,
        _securityService =
            securityService ?? SecurityServiceLocator.resolveService(),
+       _allowLegacyV2Send = allowLegacyV2Send ?? _defaultAllowLegacyV2Send,
        _centralWrite = centralWrite,
        _peripheralWrite = peripheralWrite;
 
@@ -53,6 +60,7 @@ class OutboundMessageSender {
   final MessageAckTracker _ackTracker;
   final MessageChunkSender _chunkSender;
   final ISecurityService _securityService;
+  final bool _allowLegacyV2Send;
   final Future<void> Function({
     required CentralManager centralManager,
     required Peripheral peripheral,
@@ -184,6 +192,8 @@ class OutboundMessageSender {
       final cryptoHeader = _buildCryptoHeader(
         encryptionMethod: encryptionMethod,
         sessionId: encryptionMethod == 'noise' ? encryptionKey : null,
+        messageId: msgId,
+        transportSide: 'central',
       );
 
       final legacyPayload = {
@@ -427,6 +437,8 @@ class OutboundMessageSender {
       final cryptoHeader = _buildCryptoHeader(
         encryptionMethod: encryptionMethod,
         sessionId: encryptionMethod == 'noise' ? encryptionKey : null,
+        messageId: msgId,
+        transportSide: 'peripheral',
       );
 
       final legacyPayload = {
@@ -632,16 +644,38 @@ class OutboundMessageSender {
   CryptoHeader? _buildCryptoHeader({
     required String encryptionMethod,
     required String? sessionId,
+    required String messageId,
+    required String transportSide,
   }) {
     final mode = _mapEncryptionMethodToMode(encryptionMethod);
     if (mode == null) {
       return null;
+    }
+    if (_isLegacyMode(mode)) {
+      if (!_allowLegacyV2Send) {
+        throw StateError(
+          'Legacy v2 send mode blocked by policy: $encryptionMethod '
+          '(messageId=$messageId). Enable PAKCONNECT_ALLOW_LEGACY_V2_SEND=true '
+          'temporarily during migration.',
+        );
+      }
+      _logger.warning(
+        '🔒 POLICY: Emitting legacy v2 mode ${mode.wireValue} for '
+        '$transportSide message ${_safeTruncate(messageId, 16)} '
+        '(compatibility mode enabled)',
+      );
     }
     return CryptoHeader(
       mode: mode,
       modeVersion: 1,
       sessionId: sessionId,
     );
+  }
+
+  bool _isLegacyMode(CryptoMode mode) {
+    return mode == CryptoMode.legacyEcdhV1 ||
+        mode == CryptoMode.legacyPairingV1 ||
+        mode == CryptoMode.legacyGlobalV1;
   }
 
   CryptoMode? _mapEncryptionMethodToMode(String encryptionMethod) {
