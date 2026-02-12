@@ -260,7 +260,7 @@ class DeviceDeduplicationManager {
       device.contactInfo = contactHint.contact;
 
       if (kDebugMode) {
-        print(
+        _logger.info(
           '✅ RECOGNIZED CONTACT (PERSISTENT HINT): $contactName ($deviceId...)',
         );
       }
@@ -293,7 +293,7 @@ class DeviceDeduplicationManager {
           device.isKnownContact = true;
 
           if (kDebugMode) {
-            print(
+            _logger.info(
               '✅ RECOGNIZED CONTACT (INTRO HINT): $contactName ($deviceId...)',
             );
           }

@@ -1,10 +1,11 @@
 // File: lib/core/discovery/batch_processor.dart
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/services/device_deduplication_manager.dart';
 
 class BatchProcessor {
+  static final _logger = Logger('BatchProcessor');
   static final List<DiscoveredEventArgs> _batchQueue = [];
   static Timer? _batchTimer;
   static const int batchsize = 10;
@@ -31,9 +32,7 @@ class BatchProcessor {
   static void _processBatch() {
     if (_batchQueue.isEmpty) return;
 
-    if (kDebugMode) {
-      print('📦 Processing batch of ${_batchQueue.length} devices');
-    }
+    _logger.fine('📦 Processing batch of ${_batchQueue.length} devices');
 
     for (final event in _batchQueue) {
       DeviceDeduplicationManager.processDiscoveredDevice(event);

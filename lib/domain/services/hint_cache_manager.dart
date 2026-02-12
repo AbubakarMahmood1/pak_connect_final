@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/entities/enhanced_contact.dart';
 import 'package:pak_connect/domain/utils/hint_advertisement_service.dart';
 
 class HintCacheManager {
+  static final _logger = Logger('HintCacheManager');
   static final Map<String, ContactHint> _contactCache = {};
   static DateTime? _lastCacheUpdate;
   static int _cacheValidityMinutes = 30;
@@ -33,7 +35,9 @@ class HintCacheManager {
     final contactRepo = _contactRepository;
     if (contactRepo == null) {
       if (kDebugMode) {
-        print('⚠️ Hint cache skipped: contact repository is not configured');
+        _logger.warning(
+          '⚠️ Hint cache skipped: contact repository is not configured',
+        );
       }
       return;
     }
@@ -54,7 +58,9 @@ class HintCacheManager {
 
     _lastCacheUpdate = now;
     if (kDebugMode) {
-      print('✅ Hint contact cache refreshed: ${_contactCache.length} entries');
+      _logger.info(
+        '✅ Hint contact cache refreshed: ${_contactCache.length} entries',
+      );
     }
   }
 
@@ -104,7 +110,7 @@ class HintCacheManager {
   static void onSessionRotated() {
     clearCache();
     if (kDebugMode) {
-      print('♻️ Hint cache invalidated after session rotation');
+      _logger.info('♻️ Hint cache invalidated after session rotation');
     }
   }
 
