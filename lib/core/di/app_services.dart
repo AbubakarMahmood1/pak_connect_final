@@ -3,12 +3,13 @@ import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
-import 'package:pak_connect/domain/services/mesh_networking_service.dart';
+import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 
 /// Typed composition-root snapshot exposed by [AppCore].
 ///
@@ -26,6 +27,7 @@ class AppServices {
     required this.sharedMessageQueueProvider,
     required this.connectionService,
     required this.meshNetworkingService,
+    required this.meshNetworkHealthMonitor,
     required this.securityService,
   });
 
@@ -38,6 +40,7 @@ class AppServices {
   final IRepositoryProvider repositoryProvider;
   final ISharedMessageQueueProvider sharedMessageQueueProvider;
   final IConnectionService connectionService;
-  final MeshNetworkingService meshNetworkingService;
+  final IMeshNetworkingService meshNetworkingService;
+  final MeshNetworkHealthMonitor meshNetworkHealthMonitor;
   final ISecurityService securityService;
 }

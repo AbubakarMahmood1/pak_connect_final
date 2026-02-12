@@ -1,6 +1,6 @@
-# Pass 4: Composition Root + Provider Wiring (In Progress)
+# Pass 4: Composition Root + Provider Wiring (Complete)
 
-**Status**: In Progress  
+**Status**: Complete  
 **Date**: 2026-02-12  
 **Owner**: Architecture Refactor Track
 
@@ -108,10 +108,12 @@ Results:
 
 ---
 
-## Remaining Pass 4 Work
+## Exit Check
 
-- Continue provider wiring migration for remaining presentation modules that
-  still resolve services directly from locator helpers.
-- Introduce typed provider accessors for additional `AppServices` fields where
-  it reduces locator coupling without forcing lifecycle regressions.
-- Keep Pass 0 guardrails and targeted provider tests green after each slice.
+- Presentation direct locator usage is isolated to
+  `lib/presentation/providers/di_providers.dart`.
+- `AppServices` is the primary composition seam for provider/screen/controller
+  resolution paths.
+- Guardrails remain clean (`Import guard violations: 0`, presentation DI
+  mutation violations: `0`).
+- Remaining migration work has moved to Pass 5 (`test DI unification`).

@@ -676,6 +676,7 @@ class AppCore {
       sharedMessageQueueProvider: sharedMessageQueueProvider,
       connectionService: bleService,
       meshNetworkingService: meshNetworkingService,
+      meshNetworkHealthMonitor: meshNetworkingService.healthMonitor,
       securityService: securityService,
     );
   }
