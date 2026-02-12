@@ -23,6 +23,15 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Install ripgrep for DI audit
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Enforce presentation DI guardrails
+        run: |
+          pwsh -File scripts/di_pass0_audit.ps1 \
+            -EnforcePresentationImportGate \
+            -EnforcePresentationDiMutationGate
+
       - name: Determine release strict mode
         id: release_mode
         run: |
@@ -81,6 +90,13 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce BLE strict singleton guard suite
+        run: |
+          set -o pipefail
+          flutter test test/data/services/ble_service_facade_test.dart \
+            --dart-define=PAKCONNECT_BLE_STRICT_SINGLETON_GUARD=true \
+            | tee ble_strict_singleton_latest.log
+
       - name: Run flutter test --coverage
         run: |
           set -o pipefail
@@ -93,4 +109,5 @@ jobs:
           path: |
             coverage/lcov.info
             flutter_analyze_latest.log
+            ble_strict_singleton_latest.log
             flutter_test_latest.log

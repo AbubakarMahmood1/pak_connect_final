@@ -178,6 +178,9 @@ Pass 7 progress highlights:
 - Strict singleton guard mode (`PAKCONNECT_BLE_STRICT_SINGLETON_GUARD=true`)
   now passes for the full `ble_service_facade_test.dart` suite, establishing a
   stable policy lock baseline before CI wiring.
+- CI now enforces the strict singleton guard suite via
+  `.github/workflows/flutter_coverage.yml` and publishes
+  `ble_strict_singleton_latest.log` as an artifact for regression triage.
 
 ---
 
