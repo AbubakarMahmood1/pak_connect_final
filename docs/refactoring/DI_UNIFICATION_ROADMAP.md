@@ -37,7 +37,7 @@
 Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
-- `.instance` usages in `lib/**`: 77
+- `.instance` usages in `lib/**`: 70
 - `GetIt` resolutions in `lib/presentation/**`: 2
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
@@ -198,6 +198,9 @@ Pass 7 progress highlights:
 - `MessageRouter.instance` call sites were removed from presentation paths;
   chat lifecycle/viewmodel code now uses optional router access
   (`MessageRouter.maybeInstance`) with existing fallback initialization logic.
+- `OutboundMessageSender` now resolves security operations through an injected
+  `ISecurityService` dependency (defaulted once at construction), replacing
+  repeated static security locator calls across outbound send paths.
 
 ---
 

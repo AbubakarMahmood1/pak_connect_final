@@ -82,6 +82,13 @@ escape hatches that can reintroduce split-brain behavior.
     - delete-for-everyone path now uses optional router access with explicit
       uninitialized guard handling
 
+- Pruned repeated static security locator usage in outbound send pipeline:
+  - `lib/data/services/outbound_message_sender.dart`
+    - added injectable `ISecurityService` dependency (defaulted once during
+      sender construction)
+    - replaced repeated `SecurityServiceLocator.instance` calls in message
+      encrypt/trust-level/session checks with injected service usage
+
 ---
 
 ## Verification
@@ -100,6 +107,9 @@ flutter analyze lib/presentation/providers/chat_messaging_view_model.dart lib/pr
 flutter test test/presentation/chat_screen_controller_test.dart
 flutter test test/presentation/chat_session_view_model_test.dart
 flutter analyze lib/domain/services/message_router.dart lib/presentation/controllers/chat_session_lifecycle.dart lib/presentation/providers/chat_messaging_view_model.dart
+flutter analyze lib/data/services/outbound_message_sender.dart lib/data/services/ble_write_adapter.dart lib/data/services/ble_message_handler.dart
+flutter test test/data/services/ble_messaging_service_test.dart
+flutter test test/data/services/ble_write_adapter_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -109,7 +119,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **77**
+  - `.instance` usages in `lib/**`: **70**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

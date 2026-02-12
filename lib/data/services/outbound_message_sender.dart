@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import '../../domain/services/signing_manager.dart';
 import '../../domain/utils/message_fragmenter.dart';
 import '../../domain/models/protocol_message.dart';
+import '../../domain/interfaces/i_security_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_state_manager.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
@@ -23,6 +24,7 @@ class OutboundMessageSender {
     required Logger logger,
     required MessageAckTracker ackTracker,
     required MessageChunkSender chunkSender,
+    ISecurityService? securityService,
     Future<void> Function({
       required CentralManager centralManager,
       required Peripheral peripheral,
@@ -41,12 +43,14 @@ class OutboundMessageSender {
   }) : _logger = logger,
        _ackTracker = ackTracker,
        _chunkSender = chunkSender,
+       _securityService = securityService ?? SecurityServiceLocator.instance,
        _centralWrite = centralWrite,
        _peripheralWrite = peripheralWrite;
 
   final Logger _logger;
   final MessageAckTracker _ackTracker;
   final MessageChunkSender _chunkSender;
+  final ISecurityService _securityService;
   final Future<void> Function({
     required CentralManager centralManager,
     required Peripheral peripheral,
@@ -130,7 +134,7 @@ class OutboundMessageSender {
       String encryptionMethod = 'none';
 
       if (encryptionKey.isNotEmpty) {
-        payload = await SecurityServiceLocator.instance.encryptMessage(
+        payload = await _securityService.encryptMessage(
           message,
           encryptionKey,
           contactRepository,
@@ -151,7 +155,7 @@ class OutboundMessageSender {
 
       SecurityLevel trustLevel;
       try {
-        trustLevel = await SecurityServiceLocator.instance.getCurrentLevel(
+        trustLevel = await _securityService.getCurrentLevel(
           encryptionKey,
           contactRepository,
         );
@@ -360,7 +364,7 @@ class OutboundMessageSender {
       String encryptionMethod = 'none';
 
       if (encryptionKey.isNotEmpty) {
-        payload = await SecurityServiceLocator.instance.encryptMessage(
+        payload = await _securityService.encryptMessage(
           message,
           encryptionKey,
           contactRepository,
@@ -381,7 +385,7 @@ class OutboundMessageSender {
 
       SecurityLevel trustLevel;
       try {
-        trustLevel = await SecurityServiceLocator.instance.getCurrentLevel(
+        trustLevel = await _securityService.getCurrentLevel(
           encryptionKey,
           contactRepository,
         );
@@ -587,14 +591,14 @@ class OutboundMessageSender {
 
     final contact = await contactRepository.getContactByAnyId(contactPublicKey);
     final sessionLookupKey = contact?.sessionIdForNoise ?? contactPublicKey;
-    final hasNoise = SecurityServiceLocator.instance.hasEstablishedNoiseSession(
+    final hasNoise = _securityService.hasEstablishedNoiseSession(
       sessionLookupKey,
     );
     if (hasNoise) {
       return 'noise';
     }
 
-    final level = await SecurityServiceLocator.instance.getCurrentLevel(
+    final level = await _securityService.getCurrentLevel(
       contactPublicKey,
       contactRepository,
     );
@@ -629,7 +633,7 @@ class OutboundMessageSender {
 
     final noiseSessionExists =
         contact?.currentEphemeralId != null &&
-        SecurityServiceLocator.instance.hasEstablishedNoiseSession(
+        _securityService.hasEstablishedNoiseSession(
           contact!.currentEphemeralId!,
         );
 
@@ -638,7 +642,7 @@ class OutboundMessageSender {
     // - Low (or no persistent): use session ephemeral keys
     SecurityLevel securityLevel = SecurityLevel.low;
     try {
-      securityLevel = await SecurityServiceLocator.instance.getCurrentLevel(
+      securityLevel = await _securityService.getCurrentLevel(
         normalizedContactKey ?? '',
         contactRepository,
       );
