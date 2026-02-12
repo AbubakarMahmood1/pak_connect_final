@@ -65,6 +65,8 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     handshake-1 packets instead of tearing down the session as a hard failure.
   - covered by
     `test/core/security/noise/noise_session_manager_test.dart`.
+  - established sessions explicitly ignore stale/replayed handshake-1 packets
+    (now regression-tested).
 - Pass B compatibility-tightening hook added:
   - inbound v2 legacy decrypt modes (`legacy_ecdh_v1`, `legacy_pairing_v1`,
     `legacy_global_v1`) can now be blocked by policy:
