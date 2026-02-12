@@ -62,6 +62,9 @@ instead of ad-hoc service-locator reads in presentation logic.
   - `lib/presentation/services/chat_interaction_handler.dart`
   - `lib/presentation/controllers/chat_retry_helper.dart`
   - `lib/presentation/controllers/chat_session_lifecycle.dart`
+- `getServiceLocator()` direct usage in presentation has been reduced to the DI
+  boundary helper file only (`lib/presentation/providers/di_providers.dart`);
+  presentation consumers now resolve through centralized helpers.
 
 - `AppServices` now includes additional stable app-composed seams:
   - `IChatsRepository`
