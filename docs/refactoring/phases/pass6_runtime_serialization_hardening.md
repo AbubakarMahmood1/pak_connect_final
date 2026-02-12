@@ -55,6 +55,21 @@ before introducing behavior-changing coordination logic.
   - new test asserts overlapping connect calls never execute central connect
     concurrently (`maxConcurrentConnects == 1`)
 
+- Added deterministic cooldown/tie-break observability hooks:
+  - `lib/domain/services/ble_connection_tracker.dart`
+  - new read-only cooldown introspection APIs:
+    - `retryBackoffRemaining(address)`
+    - `nextAllowedAttemptAt(address)`
+    - `pendingAttemptCount(address)`
+  - `lib/data/services/ble_connection_manager_runtime_client_links.dart`
+    now logs cooldown remaining/attempt count/next-allowed timestamp when
+    reconnect is throttled
+  - `lib/data/services/ble_connection_manager_runtime_collision_policy.dart`
+    now logs normalized tie-break comparison context (token summaries,
+    comparison result, inbound-viability) and suggested cooldown timing
+  - `test/core/bluetooth/connection_tracker_test.dart` extended to verify
+    cooldown introspection semantics
+
 ---
 
 ## Verification
@@ -64,7 +79,9 @@ Commands run:
 ```powershell
 flutter analyze lib/data/services/ble_service_facade.dart lib/data/services/ble_service_facade_runtime_helper.dart
 flutter analyze test/data/services/ble_service_facade_test.dart
+flutter analyze lib/domain/services/ble_connection_tracker.dart lib/data/services/ble_connection_manager_runtime_client_links.dart lib/data/services/ble_connection_manager_runtime_collision_policy.dart test/core/bluetooth/connection_tracker_test.dart
 flutter test test/data/services/ble_service_facade_test.dart --plain-name \"connectToDevice() serializes overlapping connect attempts\"
+flutter test test/core/bluetooth/connection_tracker_test.dart
 flutter test test/data/services/ble_service_facade_test.dart
 flutter test test/data/services/ble_service_facade_test.dart --plain-name \"initialize() completes successfully\"
 flutter test test/data/services/ble_service_facade_test.dart test/domain/services/mesh/mesh_networking_service_binary_test.dart
@@ -85,5 +102,5 @@ Results:
 
 ## Next Slice
 
-- Add deterministic cooldown/tie-break logging hooks to verify behavior before
-  enforcing stricter runtime transitions.
+- Enforce a minimal post-disconnect reconnect cooldown (feature-flagged) using
+  the new observability signals to prevent connect/disconnect thrash.

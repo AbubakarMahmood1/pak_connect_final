@@ -20,8 +20,18 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
     }
 
     if (!_connectionTracker.canAttempt(address)) {
+      final cooldownRemaining = _connectionTracker.retryBackoffRemaining(
+        address,
+      );
+      final nextAllowedAttemptAt = _connectionTracker.nextAllowedAttemptAt(
+        address,
+      );
+      final attemptsInWindow = _connectionTracker.pendingAttemptCount(address);
       _logger.fine(
-        '⏳ Backing off reconnect to ${_formatAddress(address)} (pending attempt window)',
+        '⏳ Backing off reconnect to ${_formatAddress(address)} '
+        '(remaining=${cooldownRemaining?.inMilliseconds ?? 0}ms, '
+        'attempts=$attemptsInWindow, '
+        'nextAllowed=${nextAllowedAttemptAt?.toIso8601String() ?? "n/a"})',
       );
       return;
     }

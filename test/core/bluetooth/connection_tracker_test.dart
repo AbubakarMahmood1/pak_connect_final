@@ -29,17 +29,30 @@ void main() {
       final tracker = BleConnectionTracker(now: () => now);
 
       tracker.markAttempt('cc:dd');
+      expect(tracker.pendingAttemptCount('cc:dd'), equals(1));
+      expect(tracker.retryBackoffRemaining('cc:dd'), Duration(seconds: 5));
+      expect(
+        tracker.nextAllowedAttemptAt('cc:dd'),
+        DateTime(2025, 1, 1, 0, 0, 5),
+      );
       expect(tracker.canAttempt('cc:dd'), isFalse);
 
       now = now.add(Duration(seconds: 4));
       expect(tracker.canAttempt('cc:dd'), isFalse); // still backing off
+      expect(tracker.retryBackoffRemaining('cc:dd'), Duration(seconds: 1));
+      expect(tracker.pendingAttemptCount('cc:dd'), equals(1));
 
       now = now.add(Duration(seconds: 2));
       expect(tracker.canAttempt('cc:dd'), isTrue); // retry window opened
+      expect(tracker.retryBackoffRemaining('cc:dd'), Duration.zero);
 
       tracker.markAttempt('cc:dd');
+      expect(tracker.pendingAttemptCount('cc:dd'), equals(2));
       now = now.add(Duration(seconds: 13)); // beyond expiry window
       expect(tracker.canAttempt('cc:dd'), isTrue);
+      expect(tracker.retryBackoffRemaining('cc:dd'), isNull);
+      expect(tracker.nextAllowedAttemptAt('cc:dd'), isNull);
+      expect(tracker.pendingAttemptCount('cc:dd'), equals(0));
     });
   });
 }

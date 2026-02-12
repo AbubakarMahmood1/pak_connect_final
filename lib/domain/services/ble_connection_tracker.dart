@@ -17,6 +17,8 @@ class BleConnectionTracker {
   // Backoff timing (matches BitChat-style light throttling)
   static const Duration _retryDelay = Duration(seconds: 5);
   static const Duration _attemptExpiry = Duration(seconds: 12);
+  static Duration get retryDelay => _retryDelay;
+  static Duration get attemptExpiry => _attemptExpiry;
 
   bool isConnected(String address) => _connections.containsKey(address);
 
@@ -49,6 +51,41 @@ class BleConnectionTracker {
       lastAttempt: now,
     );
     _logger.fine('⏳ Attempt $attempts for ${_format(address)}');
+  }
+
+  /// Remaining cooldown before the next allowed retry for [address].
+  ///
+  /// Returns:
+  /// - `null` when there is no pending attempt window for the address.
+  /// - `Duration.zero` when retry is currently allowed.
+  Duration? retryBackoffRemaining(String address) {
+    _pruneExpiredAttempts();
+    final pending = _pendingAttempts[address];
+    if (pending == null) return null;
+
+    final age = _now().difference(pending.lastAttempt);
+    if (age > _attemptExpiry) {
+      _pendingAttempts.remove(address);
+      return null;
+    }
+    if (age >= _retryDelay) return Duration.zero;
+    return _retryDelay - age;
+  }
+
+  /// Next timestamp when retry is allowed for [address], if currently tracked.
+  DateTime? nextAllowedAttemptAt(String address) {
+    _pruneExpiredAttempts();
+    final pending = _pendingAttempts[address];
+    if (pending == null) return null;
+    return pending.lastAttempt.add(_retryDelay);
+  }
+
+  /// Number of pending attempts in the current retry window for [address].
+  int pendingAttemptCount(String address) {
+    _pruneExpiredAttempts();
+    final pending = _pendingAttempts[address];
+    if (pending == null) return 0;
+    return pending.attempts;
   }
 
   /// Clear pending entry (call on success or deliberate abandon).

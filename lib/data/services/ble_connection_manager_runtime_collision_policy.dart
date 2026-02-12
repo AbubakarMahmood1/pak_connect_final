@@ -74,14 +74,27 @@ extension _BleConnectionManagerRuntimeCollisionPolicy on BLEConnectionManager {
           : address;
       final comparison = localToken.compareTo(remoteToken);
       final preferInbound = comparison > 0;
+      final localSummary = _summarizeCollisionToken(localToken);
+      final remoteSummary = _summarizeCollisionToken(remoteToken);
+
+      _logger.info(
+        '⚖️ Collision tie-break token compare for ${_formatAddress(address)} '
+        '(local=$localSummary, remote=$remoteSummary, '
+        'comparison=$comparison, preferInbound=$preferInbound, '
+        'inboundViable=$inboundViable)',
+      );
 
       if (preferInbound && serverConn != null) {
         _logger.info(
-          '⚖️ Collision tie-breaker: tokens local=$localToken remote=$remoteToken — inbound preferred by token',
+          '⚖️ Collision tie-breaker: inbound preferred by token comparison',
         );
         if (!inboundViable) {
           _logger.info(
             '⚠️ Inbound not viable after wait for ${_formatAddress(address)} — keeping outbound link to preserve symmetry',
+          );
+          _logger.fine(
+            '⏳ Inbound-preferred tie-break fallback keeps outbound link '
+            '(suggested reconnect cooldown=${BleConnectionTracker.retryDelay.inSeconds}s)',
           );
           return false;
         }
@@ -92,7 +105,8 @@ extension _BleConnectionManagerRuntimeCollisionPolicy on BLEConnectionManager {
       }
 
       _logger.info(
-        '⚖️ Collision tie-breaker: tokens local=$localToken remote=$remoteToken — keeping client link',
+        '⚖️ Collision tie-breaker: keeping client link '
+        '(local=$localSummary, remote=$remoteSummary)',
       );
       return false;
     } catch (e) {
@@ -102,4 +116,7 @@ extension _BleConnectionManagerRuntimeCollisionPolicy on BLEConnectionManager {
       return false;
     }
   }
+
+  String _summarizeCollisionToken(String token) =>
+      token.length <= 12 ? token : '${token.substring(0, 8)}...';
 }
