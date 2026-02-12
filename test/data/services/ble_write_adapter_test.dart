@@ -14,6 +14,7 @@ import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/utils/message_fragmenter.dart';
+import 'package:pak_connect/core/security/noise/primitives/dh_state.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/data/services/ble_write_adapter.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
@@ -444,6 +445,69 @@ void main() {
     },
   );
 
+  test(
+    'strict mode can emit sealed_v1 when recipient Noise static key is known',
+    () async {
+      await contactRepository.saveContact('recipient_sealed', 'Recipient Sealed');
+      await contactRepository.updateNoiseSession(
+        publicKey: 'recipient_sealed',
+        noisePublicKey: _generateNoiseStaticPublicKeyBase64(),
+        sessionState: 'established',
+      );
+
+      // With no active Noise session, fake security chooses ECDH (legacy).
+      // Strict mode blocks legacy modes unless sealed_v1 fallback is enabled.
+      SimpleCrypto.initializeConversation(
+        'recipient_sealed',
+        'ble-write-test-sealed-secret',
+      );
+
+      final captureWriteClient = _CaptureThenThrowCentralWriteClient();
+      adapter = BleWriteAdapter(
+        contactRepository: contactRepository,
+        stateManagerProvider: () => stateManager,
+        writeClient: captureWriteClient,
+        allowLegacyV2Send: false,
+        enableSealedV1Send: true,
+      );
+
+      allowSevere('Failed to send message: Exception: central boom after capture');
+      allowSevere('Stack trace');
+
+      final result = await adapter.sendCentralMessage(
+        centralManager: _FakeCentralManager(),
+        connectedDevice: FakePeripheral(uuid: makeUuid(41)),
+        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(42)),
+        recipientKey: 'recipient_sealed',
+        content: 'sealed strict fallback',
+        mtuSize: 1024,
+      );
+
+      expect(result, isFalse);
+      expect(captureWriteClient.lastCentralValue, isNotNull);
+
+      final chunk = MessageChunk.fromBytes(captureWriteClient.lastCentralValue!);
+      final protocolBytes = base64.decode(chunk.content);
+      final protocolMessage = ProtocolMessage.fromBytes(
+        Uint8List.fromList(protocolBytes),
+      );
+
+      expect(protocolMessage.version, equals(2));
+      expect(protocolMessage.payload['encryptionMethod'], equals('sealed'));
+      final header = protocolMessage.cryptoHeader;
+      expect(header, isNotNull);
+      expect(header!.mode, equals(CryptoMode.sealedV1));
+      expect(header.sessionId, isNull);
+      expect(header.keyId, isNotEmpty);
+      expect(header.ephemeralPublicKey, isNotEmpty);
+      expect(header.nonce, isNotEmpty);
+      expect(
+        protocolMessage.textContent,
+        isNot(equals('sealed strict fallback')),
+      );
+    },
+  );
+
   test('peripheral send short-circuits when not in peripheral mode', () async {
     stateManager.peripheralMode = false;
 
@@ -459,4 +523,14 @@ void main() {
     expect(result, isFalse);
     expect(writeClient.lastPeripheralValue, isNull);
   });
+}
+
+String _generateNoiseStaticPublicKeyBase64() {
+  final dh = DHState()..generateKeyPair();
+  final publicKey = dh.getPublicKey();
+  dh.destroy();
+  if (publicKey == null) {
+    throw StateError('Failed to generate Noise static test key');
+  }
+  return base64.encode(publicKey);
 }
