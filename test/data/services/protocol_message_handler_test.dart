@@ -6,6 +6,7 @@ import 'package:pak_connect/data/services/protocol_message_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
 void main() {
@@ -16,13 +17,16 @@ void main() {
 
   group('ProtocolMessageHandler', () {
     late ProtocolMessageHandler handler;
+    late _FakeSecurityService securityService;
 
     setUp(() {
       logRecords.clear();
+      allowedSevere.clear();
       previousLevel = Logger.root.level;
       Logger.root.level = Level.ALL;
       logSub = Logger.root.onRecord.listen(logRecords.add);
-      handler = ProtocolMessageHandler(securityService: _FakeSecurityService());
+      securityService = _FakeSecurityService();
+      handler = ProtocolMessageHandler(securityService: securityService);
     });
 
     tearDown(() {
@@ -198,10 +202,70 @@ void main() {
       );
       expect(method, isA<String>());
     });
+
+    test('rejects v2 encrypted message without crypto header', () async {
+      allowedSevere.add('v2 encrypted message missing crypto header');
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-no-header',
+          'content': 'ciphertext',
+          'encrypted': true,
+          'senderId': 'sender-key',
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await handler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, isNull);
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
+      expect(securityService.decryptMessageCalls, equals(0));
+    });
+
+    test('routes v2 decrypt by declared mode without fallback guessing', () async {
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-mode',
+          'content': 'ciphertext',
+          'encrypted': true,
+          'senderId': 'sender-key',
+          'crypto': {
+            'mode': 'noise_v1',
+            'modeVersion': 1,
+          },
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await handler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, equals('typed:ciphertext'));
+      expect(securityService.decryptMessageByTypeCalls, equals(1));
+      expect(securityService.decryptMessageCalls, equals(0));
+      expect(securityService.lastDecryptType, equals(EncryptionType.noise));
+      expect(securityService.lastDecryptPublicKey, equals('sender-key'));
+    });
   });
 }
 
 class _FakeSecurityService implements ISecurityService {
+  int decryptMessageCalls = 0;
+  int decryptMessageByTypeCalls = 0;
+  EncryptionType? lastDecryptType;
+  String? lastDecryptPublicKey;
+
   @override
   void registerIdentityMapping({
     required String persistentPublicKey,
@@ -235,7 +299,24 @@ class _FakeSecurityService implements ISecurityService {
     String encryptedMessage,
     String publicKey,
     IContactRepository repo,
-  ) async => encryptedMessage;
+  ) async {
+    decryptMessageCalls++;
+    lastDecryptPublicKey = publicKey;
+    return 'legacy:$encryptedMessage';
+  }
+
+  @override
+  Future<String> decryptMessageByType(
+    String encryptedMessage,
+    String publicKey,
+    IContactRepository repo,
+    EncryptionType type,
+  ) async {
+    decryptMessageByTypeCalls++;
+    lastDecryptType = type;
+    lastDecryptPublicKey = publicKey;
+    return 'typed:$encryptedMessage';
+  }
 
   @override
   Future<Uint8List> encryptBinaryPayload(

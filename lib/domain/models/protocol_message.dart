@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:pak_connect/domain/utils/compression_util.dart';
 import 'package:pak_connect/domain/utils/compression_config.dart';
+import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import '../constants/special_recipients.dart';
@@ -470,6 +471,12 @@ class ProtocolMessage {
   bool get isEncrypted => type == ProtocolMessageType.textMessage
       ? (payload['encrypted'] as bool? ?? false)
       : false;
+  String? get senderId => type == ProtocolMessageType.textMessage
+      ? payload['senderId'] as String?
+      : null;
+  CryptoHeader? get cryptoHeader => type == ProtocolMessageType.textMessage
+      ? CryptoHeader.fromJson(payload['crypto'])
+      : null;
 
   // STEP 7: Message addressing helpers
   String? get recipientId => type == ProtocolMessageType.textMessage

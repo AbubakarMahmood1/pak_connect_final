@@ -2,6 +2,8 @@ import 'package:logging/logging.dart';
 
 import '../../domain/interfaces/i_contact_repository.dart';
 import '../../domain/interfaces/i_security_service.dart';
+import '../../domain/models/crypto_header.dart';
+import '../../domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/services/signing_manager.dart';
 import '../../domain/models/protocol_message.dart';
@@ -38,6 +40,7 @@ class InboundTextProcessor {
   final String? Function() _currentNodeIdProvider;
   final ISecurityService _securityService;
   final Logger _logger;
+  static const bool _allowLegacyV1DecryptFallback = true;
 
   Future<InboundTextResult> process({
     required ProtocolMessage protocolMessage,
@@ -78,12 +81,16 @@ class InboundTextProcessor {
 
     String decryptedContent = content;
     final originalSender = protocolMessage.payload['originalSender'] as String?;
+    final declaredSenderId = protocolMessage.senderId ?? originalSender;
     final resolvedSender = await _resolveSenderKey(senderPublicKey);
     final resolvedOriginalSender = await _resolveSenderKey(originalSender);
+    final resolvedDeclaredSender = await _resolveSenderKey(declaredSenderId);
 
-    final decryptKey = resolvedSender?.isNotEmpty == true
-        ? resolvedSender
-        : resolvedOriginalSender;
+    final decryptKey = resolvedDeclaredSender?.isNotEmpty == true
+        ? resolvedDeclaredSender
+        : (resolvedSender?.isNotEmpty == true
+              ? resolvedSender
+              : resolvedOriginalSender);
     String? decryptKeyUsed = decryptKey;
 
     if (protocolMessage.isEncrypted) {
@@ -96,16 +103,57 @@ class InboundTextProcessor {
       }
 
       try {
-        decryptedContent = await _securityService.decryptMessage(
-          content,
-          decryptKey,
-          _contactRepository,
-        );
-        _logger.info('🔒 MESSAGE: Decrypted successfully');
+        if (protocolMessage.version >= 2) {
+          final cryptoHeader = protocolMessage.cryptoHeader;
+          if (cryptoHeader == null) {
+            _logger.severe(
+              '🔒 v2 encrypted message missing crypto header: $messageId',
+            );
+            return const InboundTextResult(content: null, shouldAck: false);
+          }
+          final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
+          if (encryptionType == null) {
+            _logger.severe(
+              '🔒 v2 encrypted message has unsupported crypto mode: ${cryptoHeader.mode.wireValue}',
+            );
+            return const InboundTextResult(content: null, shouldAck: false);
+          }
+          decryptedContent = await _securityService.decryptMessageByType(
+            content,
+            decryptKey,
+            _contactRepository,
+            encryptionType,
+          );
+          _logger.info(
+            '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
+          );
+        } else {
+          if (!_allowLegacyV1DecryptFallback) {
+            _logger.warning(
+              '🔒 Legacy v1 decrypt fallback disabled. Rejecting message: $messageId',
+            );
+            return const InboundTextResult(content: null, shouldAck: false);
+          }
+          decryptedContent = await _securityService.decryptMessage(
+            content,
+            decryptKey,
+            _contactRepository,
+          );
+          _logger.info('🔒 MESSAGE: Decrypted successfully');
+        }
       } catch (e) {
         final errorText = e.toString();
         final truncatedKey = _safeTruncate(decryptKey);
         _logger.warning('🔒 MESSAGE: Decryption failed with $truncatedKey: $e');
+
+        if (protocolMessage.version >= 2) {
+          return InboundTextResult(
+            content:
+                '[❌ Could not decrypt v2 message - verify crypto mode/session state]',
+            shouldAck: false,
+            resolvedSenderKey: decryptKey,
+          );
+        }
 
         if (errorText.contains('No session found') ||
             errorText.contains('Session not established')) {
@@ -179,20 +227,35 @@ class InboundTextProcessor {
 
       if (protocolMessage.useEphemeralSigning) {
         if (protocolMessage.ephemeralSigningKey == null) {
+          if (protocolMessage.version >= 2) {
+            _logger.severe(
+              '❌ v2 ephemeral signature missing signing key for message $messageId',
+            );
+            return const InboundTextResult(
+              content: '[❌ UNTRUSTED MESSAGE - Missing ephemeral signing key]',
+              shouldAck: false,
+            );
+          }
           _logger.warning(
-            '⚠️ Ephemeral message missing signing key - accepting unsigned',
+            '⚠️ Ephemeral message missing signing key - accepting unsigned (legacy v1)',
           );
           return InboundTextResult(
             content: decryptedContent,
             shouldAck: true,
             resolvedSenderKey:
-                decryptKeyUsed ?? resolvedSender ?? resolvedOriginalSender,
+                decryptKeyUsed ??
+                resolvedDeclaredSender ??
+                resolvedSender ??
+                resolvedOriginalSender,
           );
         }
         verifyingKey = protocolMessage.ephemeralSigningKey!;
       } else {
         final resolvedForSignature =
-            resolvedSender ?? senderPublicKey ?? resolvedOriginalSender;
+            resolvedDeclaredSender ??
+            resolvedSender ??
+            senderPublicKey ??
+            resolvedOriginalSender;
         if (resolvedForSignature == null) {
           _logger.severe('❌ Trusted message but no sender identity');
           return const InboundTextResult(
@@ -230,9 +293,11 @@ class InboundTextProcessor {
       shouldAck: true,
       resolvedSenderKey:
           decryptKeyUsed ??
+          resolvedDeclaredSender ??
           resolvedSender ??
           resolvedOriginalSender ??
           senderPublicKey ??
+          declaredSenderId ??
           originalSender,
     );
   }
@@ -282,6 +347,22 @@ class InboundTextProcessor {
       );
     }
     return candidateKey;
+  }
+
+  EncryptionType? _encryptionTypeForMode(CryptoMode mode) {
+    switch (mode) {
+      case CryptoMode.noiseV1:
+        return EncryptionType.noise;
+      case CryptoMode.legacyEcdhV1:
+        return EncryptionType.ecdh;
+      case CryptoMode.legacyPairingV1:
+        return EncryptionType.pairing;
+      case CryptoMode.legacyGlobalV1:
+        return EncryptionType.global;
+      case CryptoMode.none:
+      case CryptoMode.sealedV1:
+        return null;
+    }
   }
 
   String _safeTruncate(String? input, {int maxLength = 16, String? fallback}) {
