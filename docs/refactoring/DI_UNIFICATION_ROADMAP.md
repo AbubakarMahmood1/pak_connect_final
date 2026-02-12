@@ -131,6 +131,9 @@ Pass 5 progress highlights:
 - Presentation mesh health provider now resolves directly from
   `AppServices.meshNetworkHealthMonitor`, removing a concrete-type dependency
   chain from provider DI resolution.
+- `test/presentation/controllers/home_screen_controller_test.dart` no longer
+  mutates global locator state via `configureTestDI`; dependencies are injected
+  locally through constructor/provider wiring.
 
 ---
 
