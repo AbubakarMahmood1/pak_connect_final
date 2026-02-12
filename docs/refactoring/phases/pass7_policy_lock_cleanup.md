@@ -228,7 +228,7 @@ flutter analyze lib/core/services/navigation_service.dart lib/domain/services/bl
 flutter test test/data/services/ble_service_facade_test.dart
 flutter test test/database_query_optimizer_test.dart
 flutter test test/core/messaging/relay_phase1_test.dart
-pwsh -File scripts/di_pass0_audit.ps1 -EnforceMetricsGate -MaxGetItResolutionCount 43 -MaxInstanceUsageCount 24 -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
+pwsh -File scripts/di_pass0_audit.ps1 -EnforceMetricsGate -MaxGetItResolutionCount 5 -MaxInstanceUsageCount 17 -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 flutter analyze lib/core/app_core.dart lib/core/di/service_locator.dart lib/core/messaging/mesh_relay_engine.dart lib/data/di/data_layer_service_registrar.dart lib/presentation/providers/ble_providers.dart lib/presentation/providers/chat_messaging_view_model.dart lib/presentation/providers/mesh_networking_provider.dart
 flutter test test/core/app_core_initialization_retry_test.dart test/core/di/phase3_integration_flows_test.dart test/core/messaging/relay_phase2_test.dart test/core/messaging/relay_phase3_test.dart
 flutter test test/domain/services/archive_search_service_test.dart test/domain/services/mesh/mesh_networking_service_binary_test.dart
