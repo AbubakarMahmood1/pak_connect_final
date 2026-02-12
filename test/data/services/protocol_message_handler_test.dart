@@ -1,7 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/protocol_message_handler.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/models/encryption_method.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 
 void main() {
   final List<LogRecord> logRecords = [];
@@ -17,7 +22,7 @@ void main() {
       previousLevel = Logger.root.level;
       Logger.root.level = Level.ALL;
       logSub = Logger.root.onRecord.listen(logRecords.add);
-      handler = ProtocolMessageHandler();
+      handler = ProtocolMessageHandler(securityService: _FakeSecurityService());
     });
 
     tearDown(() {
@@ -194,4 +199,58 @@ void main() {
       expect(method, isA<String>());
     });
   });
+}
+
+class _FakeSecurityService implements ISecurityService {
+  @override
+  void registerIdentityMapping({
+    required String persistentPublicKey,
+    required String ephemeralID,
+  }) {}
+
+  @override
+  void unregisterIdentityMapping(String persistentPublicKey) {}
+
+  @override
+  Future<SecurityLevel> getCurrentLevel(
+    String publicKey, [
+    IContactRepository? repo,
+  ]) async => SecurityLevel.low;
+
+  @override
+  Future<EncryptionMethod> getEncryptionMethod(
+    String publicKey,
+    IContactRepository repo,
+  ) async => EncryptionMethod.global();
+
+  @override
+  Future<String> encryptMessage(
+    String message,
+    String publicKey,
+    IContactRepository repo,
+  ) async => message;
+
+  @override
+  Future<String> decryptMessage(
+    String encryptedMessage,
+    String publicKey,
+    IContactRepository repo,
+  ) async => encryptedMessage;
+
+  @override
+  Future<Uint8List> encryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  ) async => data;
+
+  @override
+  Future<Uint8List> decryptBinaryPayload(
+    Uint8List data,
+    String publicKey,
+    IContactRepository repo,
+  ) async => data;
+
+  @override
+  bool hasEstablishedNoiseSession(String peerSessionId) => false;
 }

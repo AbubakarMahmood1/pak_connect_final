@@ -37,7 +37,7 @@
 Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
-- `.instance` usages in `lib/**`: 66
+- `.instance` usages in `lib/**`: 65
 - `GetIt` resolutions in `lib/presentation/**`: 2
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
@@ -208,6 +208,9 @@ Pass 7 progress highlights:
   and resolve it lazily at use-sites (`PairingLifecycleService`,
   `PairingFailureHandler`, `PairingRequestCoordinator`), reducing repeated
   static security locator access while preserving test harness behavior.
+- `ProtocolMessageHandler` now takes an explicit `ISecurityService`
+  dependency, and `BLEMessageHandlerFacade` supplies/uses that shared service
+  for protocol decrypt + binary payload decrypt paths.
 
 ---
 
