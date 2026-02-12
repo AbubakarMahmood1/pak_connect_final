@@ -20,7 +20,11 @@ import 'ble_connection_state_machine.dart';
 import 'ble_connection_gatt_controller.dart';
 import 'ble_connection_reconnect_policy.dart';
 
-part 'ble_connection_manager_runtime_helper.dart';
+part 'ble_connection_manager_runtime_server_links.dart';
+part 'ble_connection_manager_runtime_collision_policy.dart';
+part 'ble_connection_manager_runtime_mesh_power.dart';
+part 'ble_connection_manager_runtime_client_links.dart';
+part 'ble_connection_manager_runtime_cleanup.dart';
 
 class BLEConnectionManager {
   final _logger = Logger('BLEConnectionManager');
