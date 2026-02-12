@@ -182,7 +182,6 @@ class OutboundMessageSender {
       }
 
       if (_enableSealedV1Send &&
-          !_allowLegacyV2Send &&
           _isLegacyEncryptionType(encryptionDecision.type)) {
         final sealedResult = await _tryEncryptWithSealedV1(
           plaintext: message,
@@ -197,7 +196,7 @@ class OutboundMessageSender {
           encryptionMethod = 'sealed';
           explicitCryptoHeader = sealedResult.header;
           _logger.info(
-            '🔒 MESSAGE: Switched to SEALED_V1 for strict-mode send (${_safeTruncate(msgId, 16)})',
+            '🔒 MESSAGE: Switched to SEALED_V1 offline lane (${_safeTruncate(msgId, 16)})',
           );
         }
       }
@@ -449,7 +448,6 @@ class OutboundMessageSender {
       }
 
       if (_enableSealedV1Send &&
-          !_allowLegacyV2Send &&
           _isLegacyEncryptionType(encryptionDecision.type)) {
         final sealedResult = await _tryEncryptWithSealedV1(
           plaintext: message,
@@ -464,7 +462,7 @@ class OutboundMessageSender {
           encryptionMethod = 'sealed';
           explicitCryptoHeader = sealedResult.header;
           _logger.info(
-            '🔒 PERIPHERAL MESSAGE: Switched to SEALED_V1 for strict-mode send (${_safeTruncate(msgId, 16)})',
+            '🔒 PERIPHERAL MESSAGE: Switched to SEALED_V1 offline lane (${_safeTruncate(msgId, 16)})',
           );
         }
       }
