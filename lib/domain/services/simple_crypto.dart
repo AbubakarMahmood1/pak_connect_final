@@ -9,6 +9,9 @@ import 'package:pointycastle/export.dart';
 import '../interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
+part 'simple_crypto_contact_helper.dart';
+part 'simple_crypto_verification_helper.dart';
+
 /// 🔧 UTILITY: Safe string truncation to prevent RangeError
 String _safeTruncate(String? input, int maxLength, {String fallback = "NULL"}) {
   if (input == null || input.isEmpty) return fallback;
@@ -448,151 +451,36 @@ class SimpleCrypto {
     String plaintext,
     String contactPublicKey,
     IContactRepository contactRepo,
-  ) async {
-    // Mandatory key state synchronization before encryption
-    await ensureConversationKeySync(contactPublicKey, contactRepo);
-
-    // Get cached or compute shared secret
-    final sharedSecret = await getCachedOrComputeSharedSecret(
-      contactPublicKey,
-      contactRepo,
-    );
-    if (sharedSecret == null) return null;
-
-    try {
-      // DEBUG: Log the encryption process (without key material)
-      // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
-      final truncatedPublicKey = contactPublicKey.length > 16
-          ? contactPublicKey.shortId()
-          : contactPublicKey;
-      _log(
-        '🔧 ECDH ENCRYPT DEBUG: Starting encryption for $truncatedPublicKey...',
-      );
-
-      // Enhanced key derivation (WITHOUT hardcoded string)
-      final enhancedSecret = _deriveEnhancedContactKey(
-        sharedSecret,
-        contactPublicKey,
-      );
-
-      final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
-      final key = Key(Uint8List.fromList(keyBytes));
-
-      // 🔒 SECURITY FIX: Use random IV for each message
-      final iv = IV.fromSecureRandom(16);
-
-      final encrypter = Encrypter(AES(key));
-      final encrypted = encrypter.encrypt(plaintext, iv: iv);
-
-      // Prepend IV to ciphertext
-      final combined = Uint8List.fromList(iv.bytes + encrypted.bytes);
-      final result = base64.encode(combined);
-
-      final pairingKey = _getPairingKeyForContact(contactPublicKey);
-      if (pairingKey != null) {
-        _log('✅ ENHANCED ECDH encryption successful (ECDH + Pairing)');
-      } else {
-        _log('✅ STANDARD ECDH encryption successful (ECDH only)');
-      }
-
-      // Add v2 wire format prefix
-      return '$_wireFormatV2$result';
-    } catch (e) {
-      _log('❌ Enhanced ECDH encryption failed: $e');
-      return null;
-    }
-  }
+  ) => _SimpleCryptoContactHelper.encryptForContact(
+    plaintext,
+    contactPublicKey,
+    contactRepo,
+  );
 
   static Future<String?> decryptFromContact(
     String encryptedBase64,
     String contactPublicKey,
     IContactRepository contactRepo,
-  ) async {
-    // Mandatory key state synchronization before decryption
-    await ensureConversationKeySync(contactPublicKey, contactRepo);
-
-    final sharedSecret = await getCachedOrComputeSharedSecret(
-      contactPublicKey,
-      contactRepo,
-    );
-    if (sharedSecret == null) return null;
-
-    try {
-      // DEBUG: Log the decryption process (without key material)
-      // FIX: Handle short ephemeral keys (8 chars) and long persistent keys (64+ chars)
-      final truncatedPublicKey = contactPublicKey.length > 16
-          ? contactPublicKey.shortId()
-          : contactPublicKey;
-      _log(
-        '🔧 ECDH DECRYPT DEBUG: Starting decryption for $truncatedPublicKey...',
-      );
-
-      // Enhanced key derivation (WITHOUT hardcoded string)
-      final enhancedSecret = _deriveEnhancedContactKey(
-        sharedSecret,
-        contactPublicKey,
-      );
-
-      final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
-      final key = Key(Uint8List.fromList(keyBytes));
-
-      // Check for wire format version
-      String ciphertext = encryptedBase64;
-      bool isV2Format = false;
-
-      if (encryptedBase64.startsWith(_wireFormatV2)) {
-        ciphertext = encryptedBase64.substring(_wireFormatV2.length);
-        isV2Format = true;
-      }
-
-      final encrypter = Encrypter(AES(key));
-      final decrypted = isV2Format
-          ? _decryptV2Format(encrypter, ciphertext)
-          : _decryptLegacyFormat(encrypter, ciphertext, enhancedSecret);
-
-      final pairingKey = _getPairingKeyForContact(contactPublicKey);
-      if (pairingKey != null) {
-        _log('✅ ENHANCED ECDH decryption successful (ECDH + Pairing)');
-      } else {
-        _log('✅ STANDARD ECDH decryption successful (ECDH only)');
-      }
-
-      return decrypted;
-    } catch (e) {
-      _log('❌ Enhanced ECDH decryption failed: $e');
-      return null;
-    }
-  }
+  ) => _SimpleCryptoContactHelper.decryptFromContact(
+    encryptedBase64,
+    contactPublicKey,
+    contactRepo,
+  );
 
   /// Decrypt v2 format (random IV prepended)
-  static String _decryptV2Format(Encrypter encrypter, String ciphertext) {
-    final combined = base64.decode(ciphertext);
-    if (combined.length < 16) {
-      throw ArgumentError('Invalid v2 ciphertext: too short');
-    }
-    final iv = IV(Uint8List.fromList(combined.sublist(0, 16)));
-    final encryptedBytes = Encrypted(Uint8List.fromList(combined.sublist(16)));
-    return encrypter.decrypt(encryptedBytes, iv: iv);
-  }
+  static String _decryptV2Format(Encrypter encrypter, String ciphertext) =>
+      _SimpleCryptoContactHelper.decryptV2Format(encrypter, ciphertext);
 
   /// Decrypt legacy format (deterministic IV for backward compatibility)
   static String _decryptLegacyFormat(
     Encrypter encrypter,
     String ciphertext,
     String enhancedSecret,
-  ) {
-    // Legacy IV derivation (for backward compatibility)
-    final ivSeed = '${enhancedSecret}_IV_DERIVATION';
-    final ivBytes = sha256.convert(utf8.encode(ivSeed)).bytes.sublist(0, 16);
-    final iv = IV(Uint8List.fromList(ivBytes));
-
-    if (kDebugMode) {
-      _log('⚠️ Decrypting legacy ECDH message with deterministic IV');
-    }
-
-    final encrypted = Encrypted.fromBase64(ciphertext);
-    return encrypter.decrypt(encrypted, iv: iv);
-  }
+  ) => _SimpleCryptoContactHelper.decryptLegacyFormat(
+    encrypter,
+    ciphertext,
+    enhancedSecret,
+  );
 
   // Get pairing key for a contact if available
   static String? _getPairingKeyForContact(String contactPublicKey) {
@@ -623,96 +511,32 @@ class SimpleCrypto {
   static String _deriveEnhancedContactKey(
     String ecdhSecret,
     String contactPublicKey,
-  ) {
-    final pairingKey = _getPairingKeyForContact(contactPublicKey);
-
-    if (pairingKey != null) {
-      // ENHANCED SECURITY: Combine ECDH + Pairing for dual-layer protection
-      // CRITICAL: Ensure consistent ordering between devices
-      final sortedSecrets = [ecdhSecret, pairingKey]..sort();
-      final combinedSecret = sortedSecrets.join('_COMBINED_');
-
-      _log('🔧 ENHANCED SECURITY: Using ECDH + Pairing key derivation');
-      return '${combinedSecret}_ENHANCED_ECDH_AES_SALT';
-    } else {
-      // FALLBACK: ECDH only (current implementation)
-      _log('🔧 STANDARD ECDH: Using ECDH-only key derivation');
-      return '${ecdhSecret}_ECDH_AES_SALT';
-    }
-  }
+  ) => _SimpleCryptoContactHelper.deriveEnhancedContactKey(
+    ecdhSecret,
+    contactPublicKey,
+  );
 
   static Future<String?> getCachedOrComputeSharedSecret(
     String contactPublicKey,
     IContactRepository contactRepo,
-  ) async {
-    // Check memory cache first (fastest)
-    if (_sharedSecretCache.containsKey(contactPublicKey)) {
-      return _sharedSecretCache[contactPublicKey];
-    }
-
-    // Check secure storage cache
-    final cachedSecret = await contactRepo.getCachedSharedSecret(
-      contactPublicKey,
-    );
-    if (cachedSecret != null) {
-      _log('Loaded shared secret from secure storage');
-      _sharedSecretCache[contactPublicKey] = cachedSecret;
-      return cachedSecret;
-    }
-
-    // Compute new shared secret (expensive)
-    _log('Computing new ECDH shared secret - will cache for future use');
-    final newSecret = computeSharedSecret(contactPublicKey);
-    if (newSecret != null) {
-      _sharedSecretCache[contactPublicKey] = newSecret;
-      await contactRepo.cacheSharedSecret(contactPublicKey, newSecret);
-      _log('ECDH shared secret computed and cached');
-    }
-
-    return newSecret;
-  }
+  ) => _SimpleCryptoContactHelper.getCachedOrComputeSharedSecret(
+    contactPublicKey,
+    contactRepo,
+  );
 
   /// Ensure conversation key synchronization to prevent race conditions
   static Future<void> ensureConversationKeySync(
     String publicKey,
     IContactRepository repo,
-  ) async {
-    if (!hasConversationKey(publicKey)) {
-      final cachedSecret = await repo.getCachedSharedSecret(publicKey);
-      if (cachedSecret != null) {
-        await restoreConversationKey(publicKey, cachedSecret);
-        _log(
-          '🔄 SYNC: Restored conversation key for ${_safeTruncate(publicKey, 8)}...',
-        );
-      }
-    }
-  }
+  ) => _SimpleCryptoContactHelper.ensureConversationKeySync(publicKey, repo);
 
   static Future<void> restoreConversationKey(
     String publicKey,
     String cachedSecret,
-  ) async {
-    try {
-      // Restore the encrypter and IV for this conversation
-      final keyBytes = sha256
-          .convert(utf8.encode('${cachedSecret}CONVERSATION_KEY'))
-          .bytes;
-      final key = Key(Uint8List.fromList(keyBytes));
-
-      final ivBytes = sha256
-          .convert(utf8.encode('${cachedSecret}CONVERSATION_IV'))
-          .bytes
-          .sublist(0, 16);
-      final iv = IV(Uint8List.fromList(ivBytes));
-
-      _conversationEncrypters[publicKey] = Encrypter(AES(key));
-      _conversationIVs[publicKey] = iv;
-
-      _log('Restored conversation key for ${_safeTruncate(publicKey, 8)}...');
-    } catch (e) {
-      _log('Failed to restore conversation key: $e');
-    }
-  }
+  ) => _SimpleCryptoContactHelper.restoreConversationKey(
+    publicKey,
+    cachedSecret,
+  );
 
   // === CRYPTO STANDARDS VERIFICATION ===
 
@@ -720,437 +544,50 @@ class SimpleCrypto {
   static Future<Map<String, dynamic>> verifyCryptoStandards(
     String? contactPublicKey,
     IContactRepository? repo,
-  ) async {
-    final results = <String, dynamic>{
-      'timestamp': DateTime.now().toIso8601String(),
-      'overallSuccess': false,
-      'tests': <String, dynamic>{},
-    };
-
-    try {
-      // Test 1: ECDH Key Generation
-      results['tests']['ecdhKeyGeneration'] = await _testECDHKeyGeneration();
-
-      // Test 2: AES Encryption/Decryption
-      results['tests']['aesEncryption'] = await _testAESEncryption();
-
-      // Test 3: Enhanced Key Derivation
-      results['tests']['enhancedKeyDerivation'] =
-          await _testEnhancedKeyDerivation();
-
-      // Test 4: Message Signing/Verification
-      results['tests']['messageSigning'] = await _testMessageSigning();
-
-      // Test 5: Key Storage/Retrieval (if repo provided)
-      if (repo != null && contactPublicKey != null) {
-        results['tests']['keyStorage'] = await _testKeyStorage(
-          contactPublicKey,
-          repo,
-        );
-      }
-
-      // Test 6: ECDH Shared Secret Computation (if contact key provided)
-      if (contactPublicKey != null) {
-        results['tests']['ecdhSharedSecret'] = await _testECDHSharedSecret(
-          contactPublicKey,
-        );
-      }
-
-      // Calculate overall success
-      final tests = results['tests'] as Map<String, dynamic>;
-      final allPassed = tests.values.every(
-        (test) => test is Map && test['success'] == true,
-      );
-      results['overallSuccess'] = allPassed;
-
-      _log('🔍 CRYPTO VERIFICATION: Overall success = $allPassed');
-      return results;
-    } catch (e) {
-      _log('🔍 CRYPTO VERIFICATION: Fatal error during verification: $e');
-      results['error'] = e.toString();
-      results['overallSuccess'] = false;
-      return results;
-    }
-  }
+  ) => _SimpleCryptoVerificationHelper.verifyCryptoStandards(
+    contactPublicKey,
+    repo,
+  );
 
   /// Test ECDH key generation capability
-  static Future<Map<String, dynamic>> _testECDHKeyGeneration() async {
-    try {
-      _log('🔍 TEST: ECDH Key Generation');
-
-      // Check if we have a private key initialized
-      if (_privateKey == null) {
-        return {
-          'success': false,
-          'error': 'No private key available for ECDH testing',
-          'testName': 'ECDH Key Generation',
-        };
-      }
-
-      // Verify we can access the private key properties
-      final privateKeyInt = _privateKey!.d;
-      if (privateKeyInt == null) {
-        return {
-          'success': false,
-          'error': 'Private key missing scalar component',
-          'testName': 'ECDH Key Generation',
-        };
-      }
-
-      // Test that we can generate the curve
-      final curve = ECCurve_secp256r1();
-
-      // Verify curve was initialized properly
-      try {
-        final _ = curve.curve; // Access curve to ensure it's initialized
-      } catch (e) {
-        return {
-          'success': false,
-          'error': 'Failed to initialize secp256r1 curve: $e',
-          'testName': 'ECDH Key Generation',
-        };
-      }
-
-      _log('🔍 TEST: ✅ ECDH Key Generation - All components available');
-      return {
-        'success': true,
-        'details': 'Private key and curve available for ECDH operations',
-        'testName': 'ECDH Key Generation',
-      };
-    } catch (e) {
-      _log('🔍 TEST: ❌ ECDH Key Generation failed: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-        'testName': 'ECDH Key Generation',
-      };
-    }
-  }
+  static Future<Map<String, dynamic>> _testECDHKeyGeneration() =>
+      _SimpleCryptoVerificationHelper.testECDHKeyGeneration();
 
   /// Test AES encryption/decryption functionality
-  static Future<Map<String, dynamic>> _testAESEncryption() async {
-    try {
-      _log('🔍 TEST: AES Encryption/Decryption');
-
-      const testMessage = 'PakConnect_Crypto_Test_Message_123';
-
-      // Test global encryption/decryption
-      if (!isInitialized) {
-        initialize();
-      }
-
-      final encrypted = encodeLegacyPlaintext(testMessage);
-      final decrypted = decryptLegacyCompatible(encrypted);
-
-      if (decrypted != testMessage) {
-        return {
-          'success': false,
-          'error':
-              'AES round-trip failed - decrypted message does not match original',
-          'testName': 'AES Encryption',
-        };
-      }
-
-      _log('🔍 TEST: ✅ AES Encryption/Decryption - Round trip successful');
-      return {
-        'success': true,
-        'details': 'AES-256 encryption/decryption working correctly',
-        'testName': 'AES Encryption',
-      };
-    } catch (e) {
-      _log('🔍 TEST: ❌ AES Encryption/Decryption failed: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-        'testName': 'AES Encryption',
-      };
-    }
-  }
+  static Future<Map<String, dynamic>> _testAESEncryption() =>
+      _SimpleCryptoVerificationHelper.testAESEncryption();
 
   /// Test enhanced key derivation functionality
-  static Future<Map<String, dynamic>> _testEnhancedKeyDerivation() async {
-    try {
-      _log('🔍 TEST: Enhanced Key Derivation');
-
-      const mockECDHSecret = 'test_ecdh_secret_12345';
-      const mockPublicKey = 'test_public_key_67890';
-
-      // Test standard ECDH key derivation
-      final standardKey = _deriveEnhancedContactKey(
-        mockECDHSecret,
-        mockPublicKey,
-      );
-      if (standardKey.isEmpty) {
-        return {
-          'success': false,
-          'error': 'Enhanced key derivation returned empty key',
-          'testName': 'Enhanced Key Derivation',
-        };
-      }
-
-      // Test with mock pairing key
-      initializeConversation(mockPublicKey, 'mock_pairing_secret');
-      final enhancedKey = _deriveEnhancedContactKey(
-        mockECDHSecret,
-        mockPublicKey,
-      );
-
-      // Enhanced key should be different from standard
-      if (enhancedKey == standardKey) {
-        return {
-          'success': false,
-          'error':
-              'Enhanced derivation not producing different results with pairing key',
-          'testName': 'Enhanced Key Derivation',
-        };
-      }
-
-      // Cleanup test conversation key
-      clearConversationKey(mockPublicKey);
-
-      _log(
-        '🔍 TEST: ✅ Enhanced Key Derivation - Multiple derivation methods working',
-      );
-      return {
-        'success': true,
-        'details':
-            'Enhanced key derivation working with and without pairing keys',
-        'testName': 'Enhanced Key Derivation',
-      };
-    } catch (e) {
-      _log('🔍 TEST: ❌ Enhanced Key Derivation failed: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-        'testName': 'Enhanced Key Derivation',
-      };
-    }
-  }
+  static Future<Map<String, dynamic>> _testEnhancedKeyDerivation() =>
+      _SimpleCryptoVerificationHelper.testEnhancedKeyDerivation();
 
   /// Test message signing and verification
-  static Future<Map<String, dynamic>> _testMessageSigning() async {
-    try {
-      _log('🔍 TEST: Message Signing/Verification');
-
-      const testMessage = 'PakConnect_Signature_Test_Message';
-
-      if (!isSigningReady) {
-        return {
-          'success': false,
-          'error': 'Message signing not initialized',
-          'testName': 'Message Signing',
-        };
-      }
-
-      // Test signing
-      final signature = signMessage(testMessage);
-      if (signature == null) {
-        return {
-          'success': false,
-          'error': 'Failed to generate message signature',
-          'testName': 'Message Signing',
-        };
-      }
-
-      _log(
-        '🔍 TEST: ✅ Message Signing/Verification - Signature generation and verification working',
-      );
-      return {
-        'success': true,
-        'details': 'Message signing and verification functional',
-        'testName': 'Message Signing',
-      };
-    } catch (e) {
-      _log('🔍 TEST: ❌ Message Signing/Verification failed: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-        'testName': 'Message Signing',
-      };
-    }
-  }
+  static Future<Map<String, dynamic>> _testMessageSigning() =>
+      _SimpleCryptoVerificationHelper.testMessageSigning();
 
   /// Test key storage and retrieval
   static Future<Map<String, dynamic>> _testKeyStorage(
     String contactPublicKey,
     IContactRepository repo,
-  ) async {
-    try {
-      _log('🔍 TEST: Key Storage/Retrieval');
-
-      const testSecret = 'test_shared_secret_for_storage_12345';
-      const testSecretUpdated = 'updated_test_shared_secret_67890';
-
-      // Test storing a shared secret
-      await repo.cacheSharedSecret(contactPublicKey, testSecret);
-
-      // Test retrieving the shared secret
-      final retrievedSecret = await repo.getCachedSharedSecret(
-        contactPublicKey,
-      );
-      if (retrievedSecret != testSecret) {
-        return {
-          'success': false,
-          'error':
-              'Key storage/retrieval failed - retrieved secret does not match stored',
-          'testName': 'Key Storage',
-        };
-      }
-
-      // Test updating the secret
-      await repo.cacheSharedSecret(contactPublicKey, testSecretUpdated);
-      final updatedSecret = await repo.getCachedSharedSecret(contactPublicKey);
-      if (updatedSecret != testSecretUpdated) {
-        return {
-          'success': false,
-          'error': 'Key storage update failed',
-          'testName': 'Key Storage',
-        };
-      }
-
-      // Test clearing secrets
-      await repo.clearCachedSecrets(contactPublicKey);
-      final clearedSecret = await repo.getCachedSharedSecret(contactPublicKey);
-      if (clearedSecret != null) {
-        return {
-          'success': false,
-          'error': 'Key clearing failed - secret still present after clear',
-          'testName': 'Key Storage',
-        };
-      }
-
-      _log(
-        '🔍 TEST: ✅ Key Storage/Retrieval - All operations working correctly',
-      );
-      return {
-        'success': true,
-        'details':
-            'Key storage, retrieval, update, and clearing all functional',
-        'testName': 'Key Storage',
-      };
-    } catch (e) {
-      _log('🔍 TEST: ❌ Key Storage/Retrieval failed: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-        'testName': 'Key Storage',
-      };
-    }
-  }
+  ) => _SimpleCryptoVerificationHelper.testKeyStorage(contactPublicKey, repo);
 
   /// Test ECDH shared secret computation
   static Future<Map<String, dynamic>> _testECDHSharedSecret(
     String contactPublicKey,
-  ) async {
-    try {
-      _log('🔍 TEST: ECDH Shared Secret Computation');
-
-      // Attempt to compute shared secret
-      final sharedSecret = computeSharedSecret(contactPublicKey);
-
-      if (sharedSecret == null || sharedSecret.isEmpty) {
-        return {
-          'success': false,
-          'error': 'Failed to compute ECDH shared secret',
-          'testName': 'ECDH Shared Secret',
-        };
-      }
-
-      // Verify the shared secret is a valid hex string
-      try {
-        BigInt.parse(sharedSecret, radix: 16);
-      } catch (e) {
-        return {
-          'success': false,
-          'error': 'ECDH shared secret is not valid hex format',
-          'testName': 'ECDH Shared Secret',
-        };
-      }
-
-      _log(
-        '🔍 TEST: ✅ ECDH Shared Secret Computation - Successfully computed shared secret',
-      );
-      return {
-        'success': true,
-        'details': 'ECDH shared secret computation functional',
-        'secretLength': sharedSecret.length,
-        'testName': 'ECDH Shared Secret',
-      };
-    } catch (e) {
-      _log('🔍 TEST: ❌ ECDH Shared Secret Computation failed: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-        'testName': 'ECDH Shared Secret',
-      };
-    }
-  }
+  ) => _SimpleCryptoVerificationHelper.testECDHSharedSecret(contactPublicKey);
 
   /// Generate a test encrypted message for verification challenge
-  static String generateVerificationChallenge() {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final randomComponent = (timestamp % 10000).toString().padLeft(4, '0');
-    return 'CRYPTO_VERIFY_${timestamp}_$randomComponent';
-  }
+  static String generateVerificationChallenge() =>
+      _SimpleCryptoVerificationHelper.generateVerificationChallenge();
 
   /// Test bidirectional encryption with a contact
   static Future<Map<String, dynamic>> testBidirectionalEncryption(
     String contactPublicKey,
     IContactRepository repo,
     String testMessage,
-  ) async {
-    try {
-      _log('🔍 TEST: Bidirectional Encryption with contact');
-
-      // Test encryption
-      final encryptedMessage = await encryptForContact(
-        testMessage,
-        contactPublicKey,
-        repo,
-      );
-      if (encryptedMessage == null) {
-        return {
-          'success': false,
-          'error': 'Failed to encrypt message for contact',
-          'testName': 'Bidirectional Encryption',
-        };
-      }
-
-      // Test decryption
-      final decryptedMessage = await decryptFromContact(
-        encryptedMessage,
-        contactPublicKey,
-        repo,
-      );
-      if (decryptedMessage == null) {
-        return {
-          'success': false,
-          'error': 'Failed to decrypt message from contact',
-          'testName': 'Bidirectional Encryption',
-        };
-      }
-
-      if (decryptedMessage != testMessage) {
-        return {
-          'success': false,
-          'error': 'Decrypted message does not match original',
-          'testName': 'Bidirectional Encryption',
-        };
-      }
-
-      _log('🔍 TEST: ✅ Bidirectional Encryption - Round trip successful');
-      return {
-        'success': true,
-        'details': 'Bidirectional encryption/decryption working correctly',
-        'testName': 'Bidirectional Encryption',
-      };
-    } catch (e) {
-      _log('🔍 TEST: ❌ Bidirectional Encryption failed: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-        'testName': 'Bidirectional Encryption',
-      };
-    }
-  }
+  ) => _SimpleCryptoVerificationHelper.testBidirectionalEncryption(
+    contactPublicKey,
+    repo,
+    testMessage,
+  );
 }

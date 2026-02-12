@@ -42,6 +42,9 @@ import '../models/mesh_relay_models.dart' show RelayDecision, RelayStatistics;
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
 
+part 'mesh_networking_binary_helper.dart';
+part 'mesh_networking_runtime_helper.dart';
+
 /// Main orchestrator service for mesh networking functionality
 /// Coordinates all mesh components behind a clean application-facing API
 class MeshNetworkingService implements IMeshNetworkingService {
@@ -139,128 +142,18 @@ class MeshNetworkingService implements IMeshNetworkingService {
     required String recipientId,
     required int originalType,
     Map<String, dynamic>? metadata,
-  }) async {
-    final record = await _mediaStore.persist(
-      data: data,
-      metadata: {
-        'recipientId': recipientId,
-        'originalType': originalType,
-        if (metadata != null) ...metadata,
-      },
-    );
+  }) => _binaryHelper.sendOrQueueBinaryMedia(
+    data: data,
+    recipientId: recipientId,
+    originalType: originalType,
+    metadata: metadata,
+  );
 
-    await _storeBinaryMessage(
-      transferId: record.transferId,
-      filePath: record.filePath,
-      size: (record.bytes ?? data).length,
-      originalType: originalType,
-      isFromMe: true,
-      status: MessageStatus.sending,
-      peerNodeId: recipientId,
-      recipientId: recipientId,
-    );
+  Future<void> _loadPendingBinarySends() =>
+      _binaryHelper.loadPendingBinarySends();
 
-    if (!_bleService.isConnected || !_bleService.canSendMessages) {
-      _logger.fine(
-        '⚠️ Offline for binary send; queued transfer ${record.transferId} for $recipientId',
-      );
-      // Prime BLE media store so retryBinaryMedia has bytes to send later.
-      try {
-        await _bleService.sendBinaryMedia(
-          data: record.bytes ?? data,
-          recipientId: recipientId,
-          originalType: originalType,
-          metadata: metadata,
-          persistOnly: true,
-        );
-      } catch (e) {
-        _logger.fine(
-          '⚠️ Priming BLE media store for ${record.transferId} failed: $e',
-        );
-      }
-      _pendingBinarySends.add(
-        _PendingBinarySend(
-          transferId: record.transferId,
-          recipientId: recipientId,
-          originalType: originalType,
-        ),
-      );
-      await _persistPendingBinarySends();
-      return record.transferId;
-    }
-
-    try {
-      await _bleService.sendBinaryMedia(
-        data: record.bytes ?? data,
-        recipientId: recipientId,
-        originalType: originalType,
-        metadata: metadata,
-      );
-      await _updateBinaryMessageStatus(record.transferId, MessageStatus.sent);
-    } catch (e) {
-      _logger.fine(
-        '⚠️ Binary send failed, queued for retry: ${record.transferId} ($e)',
-      );
-      _pendingBinarySends.add(
-        _PendingBinarySend(
-          transferId: record.transferId,
-          recipientId: recipientId,
-          originalType: originalType,
-        ),
-      );
-      await _persistPendingBinarySends();
-    }
-
-    return record.transferId;
-  }
-
-  Future<void> _loadPendingBinarySends() async {
-    try {
-      final docs = await _getDocsDir();
-      final file = File('${docs.path}/pending_binary_sends.json');
-      if (!await file.exists()) {
-        return;
-      }
-      final decoded = jsonDecode(await file.readAsString());
-      if (decoded is List) {
-        _pendingBinarySends
-          ..clear()
-          ..addAll(
-            decoded.whereType<Map<String, dynamic>>().map(
-              (m) => _PendingBinarySend(
-                transferId: m['transferId'] as String,
-                recipientId: m['recipientId'] as String,
-                originalType: m['originalType'] as int,
-              ),
-            ),
-          );
-        _logger.fine(
-          '📂 Loaded ${_pendingBinarySends.length} pending binary sends from disk',
-        );
-      }
-    } catch (e) {
-      _logger.fine('⚠️ Failed to load pending binary sends: $e');
-    }
-  }
-
-  Future<void> _persistPendingBinarySends() async {
-    try {
-      final docs = await _getDocsDir();
-      final file = File('${docs.path}/pending_binary_sends.json');
-      final payload = _pendingBinarySends
-          .map(
-            (p) => {
-              'transferId': p.transferId,
-              'recipientId': p.recipientId,
-              'originalType': p.originalType,
-            },
-          )
-          .toList();
-      await file.writeAsString(jsonEncode(payload), flush: true);
-    } catch (e) {
-      _logger.fine('⚠️ Failed to persist pending binary sends: $e');
-    }
-  }
+  Future<void> _persistPendingBinarySends() =>
+      _binaryHelper.persistPendingBinarySends();
 
   Future<Directory> _getDocsDir() async {
     if (_docsDir != null) return _docsDir!;
@@ -276,6 +169,8 @@ class MeshNetworkingService implements IMeshNetworkingService {
   final MediaTransferStore _mediaStore = MediaTransferStore(
     subDirectory: 'binary_payloads',
   );
+  late final _MeshNetworkingBinaryHelper _binaryHelper;
+  late final _MeshNetworkingRuntimeHelper _runtimeHelper;
   @visibleForTesting
   int get pendingBinarySendCount => _pendingBinarySends.length;
   @visibleForTesting
@@ -332,6 +227,9 @@ class MeshNetworkingService implements IMeshNetworkingService {
               _relayCoordinator.shouldRelayThroughDevice(message, deviceId),
         );
 
+    _binaryHelper = _MeshNetworkingBinaryHelper(this);
+    _runtimeHelper = _MeshNetworkingRuntimeHelper(this);
+
     _healthMonitor.broadcastInitialStatus();
     _healthMonitor.schedulePostFrameStatusUpdate(
       isInitialized: () => _isInitialized,
@@ -359,275 +257,32 @@ class MeshNetworkingService implements IMeshNetworkingService {
 
   /// Initialize the mesh networking service
   @override
-  Future<void> initialize({String? nodeId}) async {
-    if (_isInitialized) {
-      _logger.warning('Mesh networking service already initialized');
-      return;
-    }
-
-    try {
-      _logger.info('Initializing mesh networking service...');
-
-      // Determine node ID with timeout and fallback
-      _currentNodeId = nodeId ?? await _getNodeIdWithFallback();
-      final truncatedNodeId = _currentNodeId!.length > 16
-          ? _currentNodeId!.shortId()
-          : _currentNodeId!;
-      _logger.info('Node ID: $truncatedNodeId...');
-
-      // Initialize core components
-      await _initializeCoreComponents();
-      await _loadPendingBinarySends();
-      unawaited(
-        _mediaStore.cleanupStaleTransfers().then((removed) {
-          if (removed > 0) {
-            _logger.fine(
-              '🧹 Cleaned $removed stale binary payload(s) from disk',
-            );
-          }
-        }),
-      );
-
-      // Set up integration with BLE layer (with error handling)
-      await _setupBLEIntegrationWithFallback();
-
-      _isInitialized = true;
-
-      // Broadcast initial status
-      _broadcastMeshStatus();
-
-      _logger.info('✅ Mesh networking service initialized successfully');
-    } catch (e) {
-      _logger.severe('❌ Failed to initialize mesh networking service: $e');
-      // Always broadcast status even when initialization fails
-      _broadcastFallbackStatus();
-      rethrow;
-    }
-  }
+  Future<void> initialize({String? nodeId}) =>
+      _runtimeHelper.initialize(nodeId: nodeId);
 
   /// Initialize core mesh networking components
-  Future<void> _initializeCoreComponents() async {
-    // Use shared message queue provider instead of creating a separate instance.
-    _logger.info('🔗 Using shared message queue provider for mesh networking');
-
-    // Ensure provider app lifecycle has initialized shared queue host.
-    // Avoid re-entering initialization while already running, since
-    // AppCore->mesh initialization can otherwise deadlock.
-    if (!_sharedQueueProvider.isInitialized) {
-      if (_sharedQueueProvider.isInitializing) {
-        _logger.info(
-          'Shared queue host initialization in progress; reusing queue without re-entry',
-        );
-      } else {
-        _logger.warning(
-          'Shared queue host not initialized, initializing now...',
-        );
-        await _sharedQueueProvider.initialize();
-      }
-    }
-
-    final sharedQueue = _sharedQueueProvider.messageQueue;
-    _logger.info(
-      '✅ Connected to shared message queue with ${sharedQueue.getStatistics().pendingMessages} pending messages',
-    );
-
-    await _queueCoordinator.initialize(
-      nodeId: _currentNodeId!,
-      messageQueue: sharedQueue,
-      onStatusChanged: _broadcastMeshStatus,
-    );
-
-    _gossipSyncManager =
-        GossipSyncManager(myNodeId: _currentNodeId!, messageQueue: sharedQueue)
-          ..onSendSyncToPeer = (peerId, syncMessage) {
-            _logger.fine(
-              '📡 Gossip: sending sync to ${peerId.shortId(8)}... (${syncMessage.messageIds.length} ids)',
-            );
-            unawaited(_bleService.sendQueueSyncMessage(syncMessage));
-          }
-          ..onDirectAnnouncement = (peerId) {
-            _scheduleInitialSyncForPeer(peerId, delay: Duration(seconds: 1));
-          }
-          ..onSendSyncRequest = (syncMessage) {
-            final peers = _bleService.activeConnectionDeviceIds;
-            if (peers.isEmpty) {
-              _logger.fine('📡 Gossip: no peers to broadcast sync request');
-              return;
-            }
-            for (final peer in peers) {
-              _logger.fine(
-                '📡 Gossip: broadcasting sync request to ${peer.shortId(8)}...',
-              );
-              unawaited(_bleService.sendQueueSyncMessage(syncMessage));
-            }
-          };
-
-    // Initialize spam prevention
-    _spamPrevention = SpamPreventionManager();
-    await _spamPrevention!.initialize();
-
-    await _relayCoordinator.initialize(
-      nodeId: _currentNodeId!,
-      messageQueue: sharedQueue,
-      spamPrevention: _spamPrevention!,
-    );
-
-    if (_gossipSyncManager != null) {
-      await _gossipSyncManager!.start();
-    }
-
-    _logger.info('Core mesh components initialized with dumb flood relay');
-  }
+  Future<void> _initializeCoreComponents() =>
+      _runtimeHelper.initializeCoreComponents();
 
   /// Set up integration with BLE layer
-  Future<void> _setupBLEIntegration() async {
-    if (_integrationCancelled) {
-      throw StateError('BLE integration cancelled');
-    }
+  Future<void> _setupBLEIntegration() => _runtimeHelper.setupBleIntegration();
 
-    // Initialize relay system in message handler
-    await _messageHandler.initializeRelaySystem(
-      currentNodeId: _currentNodeId!,
-      onRelayDecisionMade: _handleRelayDecision,
-      onRelayStatsUpdated: _handleRelayStatsUpdated,
-    );
+  void _handleConnectionUpdateForGossip(ConnectionInfo info) =>
+      _runtimeHelper.handleConnectionUpdateForGossip(info);
 
-    if (_integrationCancelled) {
-      _logger.info('BLE integration cancelled mid-initialize; aborting setup');
-      return;
-    }
-
-    // Set relay callbacks after initialization
-    _messageHandler.onRelayDecisionMade = _handleRelayDecision;
-    _messageHandler.onRelayStatsUpdated = _handleRelayStatsUpdated;
-
-    _queueCoordinator.enableQueueSyncHandling();
-    _queueCoordinator.startConnectionMonitoring();
-
-    _connectionSub ??= _bleService.connectionInfo.listen(
-      _handleConnectionUpdateForGossip,
-      onError: (e) => _logger.fine('Connection stream error: $e'),
-    );
-
-    _identitySub ??= _bleService.identityRevealed.listen(
-      _handleIdentityRevealedForGossip,
-      onError: (e) => _logger.fine('Identity stream error: $e'),
-    );
-
-    _binarySub ??= _bleService.receivedBinaryStream.listen(
-      (payload) => _handleBinaryPayload(payload),
-      onError: (e) => _logger.fine('Binary stream error: $e'),
-    );
-
-    _logger.info('BLE integration set up');
-  }
-
-  void _handleConnectionUpdateForGossip(ConnectionInfo info) {
-    if (!info.isReady) return;
-    final peerId = _bleService.currentSessionId;
-    if (peerId == null || peerId.isEmpty) return;
-    _scheduleInitialSyncForPeer(peerId, delay: Duration(seconds: 1));
-    unawaited(_flushPendingBinarySends());
-  }
-
-  void _handleIdentityRevealedForGossip(String peerId) {
-    _scheduleInitialSyncForPeer(peerId, delay: Duration(seconds: 1));
-  }
+  void _handleIdentityRevealedForGossip(String peerId) =>
+      _runtimeHelper.handleIdentityRevealedForGossip(peerId);
 
   void _scheduleInitialSyncForPeer(
     String peerId, {
     Duration delay = const Duration(seconds: 1),
-  }) {
-    if (peerId.isEmpty) return;
-    if (_initialSyncPeers.contains(peerId)) return;
-    _initialSyncPeers.add(peerId);
-    _logger.fine(
-      '📡 Scheduling initial gossip sync to ${peerId.shortId(8)}...',
-    );
-    final manager = _gossipSyncManager;
-    if (manager != null) {
-      unawaited(manager.scheduleInitialSyncToPeer(peerId, delay: delay));
-    }
-  }
+  }) => _runtimeHelper.scheduleInitialSyncForPeer(peerId, delay: delay);
 
-  Future<void> _handleBinaryPayload(BinaryPayload payload) async {
-    try {
-      final record = await _mediaStore.persist(
-        data: payload.data,
-        metadata: {
-          'fragmentId': payload.fragmentId,
-          'originalType': payload.originalType,
-          'recipient': payload.recipient,
-          'ttl': payload.ttl,
-          if (payload.senderNodeId != null)
-            'senderNodeId': payload.senderNodeId,
-        },
-      );
-      final event = ReceivedBinaryEvent(
-        fragmentId: payload.fragmentId,
-        originalType: payload.originalType,
-        filePath: record.filePath,
-        transferId: record.transferId,
-        size: payload.data.length,
-        ttl: payload.ttl,
-        recipient: payload.recipient,
-        senderNodeId: payload.senderNodeId,
-      );
-      _binaryController.add(event);
-      _binaryEventHandler?.call(event);
-      _logger.info(
-        '💾 Stored binary payload ${payload.fragmentId.shortId(8)}... (${payload.data.length}B) at ${record.filePath}',
-      );
-      await _storeBinaryMessage(
-        transferId: record.transferId,
-        filePath: record.filePath,
-        size: payload.data.length,
-        originalType: payload.originalType,
-        isFromMe: false,
-        peerNodeId:
-            payload.senderNodeId ??
-            _bleService.currentSessionId ??
-            payload.recipient,
-        recipientId: payload.recipient,
-        status: MessageStatus.delivered,
-      );
-    } catch (e) {
-      _logger.warning(
-        'Failed to persist binary payload ${payload.fragmentId}: $e',
-      );
-    }
-  }
+  Future<void> _handleBinaryPayload(BinaryPayload payload) =>
+      _binaryHelper.handleBinaryPayload(payload);
 
-  Future<void> _flushPendingBinarySends() async {
-    if (_pendingBinarySends.isEmpty) return;
-    if (!_bleService.isConnected || !_bleService.canSendMessages) return;
-
-    final pending = List<_PendingBinarySend>.from(_pendingBinarySends);
-    _pendingBinarySends.clear();
-
-    for (final pendingSend in pending) {
-      final success = await retryBinaryMedia(
-        transferId: pendingSend.transferId,
-        recipientId: pendingSend.recipientId,
-        originalType: pendingSend.originalType,
-      );
-      if (!success) {
-        _pendingBinarySends.add(pendingSend);
-        _logger.fine(
-          '⚠️ Re-queued binary transfer ${pendingSend.transferId} for ${pendingSend.recipientId}',
-        );
-      } else {
-        _logger.fine(
-          '✅ Retried binary transfer ${pendingSend.transferId} for ${pendingSend.recipientId}',
-        );
-        await _updateBinaryMessageStatus(
-          pendingSend.transferId,
-          MessageStatus.sent,
-        );
-      }
-    }
-    await _persistPendingBinarySends();
-  }
+  Future<void> _flushPendingBinarySends() =>
+      _binaryHelper.flushPendingBinarySends();
 
   @visibleForTesting
   Future<void> debugHandleBinaryPayload(BinaryPayload payload) =>
@@ -653,74 +308,21 @@ class MeshNetworkingService implements IMeshNetworkingService {
     required MessageStatus status,
     String? peerNodeId,
     String? recipientId,
-  }) async {
-    final peerId = (peerNodeId ?? '').isNotEmpty ? peerNodeId! : null;
-    if (peerId == null) {
-      _logger.fine(
-        '⚠️ Skipping binary message persistence for $transferId (no peer id)',
-      );
-      return;
-    }
-
-    final messageId = MessageId(transferId);
-    final existing = await _messageRepository.getMessageById(messageId);
-    if (existing != null) {
-      return;
-    }
-
-    final chatId = ChatId(ChatUtils.generateChatId(peerId));
-    final name = filePath.split('/').last;
-    final attachment = MessageAttachment(
-      id: transferId,
-      type: originalType == BinaryPayloadType.media ? 'media' : 'binary',
-      name: name,
-      size: size,
-      localPath: filePath,
-      metadata: {
-        'transferId': transferId,
-        'originalType': originalType,
-        'peerNodeId': peerId,
-        'recipientId': ?recipientId,
-        'direction': isFromMe ? 'outbound' : 'inbound',
-      },
-    );
-
-    final message = EnhancedMessage(
-      id: messageId,
-      chatId: chatId,
-      content: name,
-      timestamp: DateTime.now(),
-      isFromMe: isFromMe,
-      status: status,
-      attachments: [attachment],
-      metadata: {
-        'transferId': transferId,
-        'filePath': filePath,
-        'size': size,
-        'originalType': originalType,
-        'peerNodeId': peerId,
-        'recipientId': ?recipientId,
-      },
-    );
-
-    await _messageRepository.saveMessage(message);
-    _logger.fine(
-      '💾 Stored binary message ${transferId.shortId(8)}... in chat ${chatId.value.shortId(8)}...',
-    );
-  }
+  }) => _binaryHelper.storeBinaryMessage(
+    transferId: transferId,
+    filePath: filePath,
+    size: size,
+    originalType: originalType,
+    isFromMe: isFromMe,
+    status: status,
+    peerNodeId: peerNodeId,
+    recipientId: recipientId,
+  );
 
   Future<void> _updateBinaryMessageStatus(
     String transferId,
     MessageStatus status,
-  ) async {
-    final existing = await _messageRepository.getMessageById(
-      MessageId(transferId),
-    );
-    if (existing == null || existing.status == status) return;
-
-    final updated = existing.copyWith(status: status);
-    await _messageRepository.updateMessage(updated);
-  }
+  ) => _binaryHelper.updateBinaryMessageStatus(transferId, status);
 
   /// Get node ID with timeout and fallback mechanism
   ///
@@ -734,122 +336,26 @@ class MeshNetworkingService implements IMeshNetworkingService {
   /// - RelayMetadata.routingPath[] broadcasts nodeId - MUST NOT expose long-term identity
   /// - NetworkTopology.nodeId visible in gossip - MUST be session-specific
   /// - Ephemeral keys rotate per app session, preventing long-term tracking
-  Future<String> _getNodeIdWithFallback() async {
-    try {
-      // Try to get EPHEMERAL ID with timeout (NOT persistent key!)
-      final ephemeralId = await Future.any([
-        _bleService.getMyEphemeralId(), // Changed from getMyPublicKey()
-        Future.delayed(
-          Duration(seconds: 5),
-          () => throw TimeoutException(
-            'BLE service timeout',
-            Duration(seconds: 5),
-          ),
-        ),
-      ]);
-
-      if (ephemeralId.isNotEmpty) {
-        _logger.info(
-          '✅ Successfully obtained EPHEMERAL node ID from BLE service (session-specific)',
-        );
-        _logger.info(
-          '🔐 Privacy: Using ephemeral key for mesh routing (NOT persistent identity)',
-        );
-        return ephemeralId;
-      } else {
-        throw Exception('BLE service returned null/empty ephemeral ID');
-      }
-    } catch (e) {
-      _logger.warning(
-        '⚠️ BLE service unavailable for ephemeral ID (${e.toString()}), generating fallback',
-      );
-
-      // Generate fallback ephemeral node ID
-      final fallbackId = _generateFallbackNodeId();
-      _logger.info(
-        '🔄 Using fallback ephemeral node ID: ${fallbackId.length > 16 ? '${fallbackId.shortId()}...' : fallbackId}',
-      );
-
-      return fallbackId;
-    }
-  }
+  Future<String> _getNodeIdWithFallback() =>
+      _runtimeHelper.getNodeIdWithFallback();
 
   /// Generate a fallback node ID when BLE service is unavailable
-  String _generateFallbackNodeId() {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = DateTime.now().microsecond;
-    return 'fallback_${timestamp}_$random';
-  }
+  String _generateFallbackNodeId() => _runtimeHelper.generateFallbackNodeId();
 
   Future<void> _waitForBluetoothReady({
     Duration timeout = const Duration(seconds: 25),
-  }) async {
-    if (_bleService.isBluetoothReady) return;
-
-    final completer = Completer<void>();
-    late StreamSubscription<BluetoothStateInfo> sub;
-    sub = _bleService.bluetoothStateStream.listen((info) {
-      if (info.isReady || info.state == BluetoothLowEnergyState.poweredOn) {
-        if (!completer.isCompleted) completer.complete();
-      }
-    }, onError: (_) {});
-
-    try {
-      await completer.future.timeout(timeout);
-    } on TimeoutException {
-      _logger.warning(
-        '⚠️ Bluetooth not ready within ${timeout.inSeconds}s; proceeding with fallback',
-      );
-      rethrow;
-    } finally {
-      await sub.cancel();
-    }
-  }
+  }) => _runtimeHelper.waitForBluetoothReady(timeout: timeout);
 
   /// Set up BLE integration with fallback handling
-  Future<void> _setupBLEIntegrationWithFallback() async {
-    try {
-      await _waitForBluetoothReady();
-
-      _integrationCancelled = false;
-      await _setupBLEIntegration().timeout(
-        const Duration(seconds: 25),
-        onTimeout: () {
-          _integrationCancelled = true;
-          throw TimeoutException(
-            'BLE integration timeout',
-            const Duration(seconds: 25),
-          );
-        },
-      );
-      _logger.info('✅ BLE integration set up successfully');
-    } catch (e) {
-      _logger.warning(
-        '⚠️ BLE integration failed (${e.toString()}), continuing without BLE integration',
-      );
-
-      // Set up minimal integration fallback
-      _setupMinimalBLEIntegration();
-    }
-  }
+  Future<void> _setupBLEIntegrationWithFallback() =>
+      _runtimeHelper.setupBleIntegrationWithFallback();
 
   /// Set up minimal BLE integration when full integration fails
-  void _setupMinimalBLEIntegration() {
-    try {
-      _queueCoordinator.startConnectionMonitoring();
-
-      _logger.info(
-        '📱 Minimal BLE integration active (connection monitoring only)',
-      );
-    } catch (e) {
-      _logger.warning('Even minimal BLE integration failed: $e');
-    }
-  }
+  void _setupMinimalBLEIntegration() =>
+      _runtimeHelper.setupMinimalBleIntegration();
 
   /// Broadcast fallback status when initialization fails
-  void _broadcastFallbackStatus() {
-    _healthMonitor.broadcastFallbackStatus(currentNodeId: _currentNodeId);
-  }
+  void _broadcastFallbackStatus() => _runtimeHelper.broadcastFallbackStatus();
 
   /// Send message through mesh network (main API for UI)
   @override
@@ -1065,35 +571,11 @@ class MeshNetworkingService implements IMeshNetworkingService {
     _broadcastMeshStatus();
   }
 
-  void _broadcastMeshStatus() {
-    _healthMonitor.broadcastMeshStatus(
-      isInitialized: _isInitialized,
-      currentNodeId: _currentNodeId,
-      isConnected: _bleService.isConnected,
-      statistics: getNetworkStatistics(),
-      queueMessages: _queueCoordinator.getActiveQueueMessages(),
-    );
-  }
+  void _broadcastMeshStatus() => _runtimeHelper.broadcastMeshStatus();
 
   /// Dispose of all resources
   @override
-  void dispose() {
-    _relayCoordinator.dispose();
-    unawaited(_queueCoordinator.dispose());
-    _spamPrevention?.dispose();
-    _spamPrevention = null;
-    _gossipSyncManager?.stop();
-    _connectionSub?.cancel();
-    _connectionSub = null;
-    _identitySub?.cancel();
-    _identitySub = null;
-    _binarySub?.cancel();
-    _binarySub = null;
-    _binaryController.close();
-    _healthMonitor.dispose();
-
-    _logger.info('Mesh networking service disposed');
-  }
+  void dispose() => _runtimeHelper.dispose();
 }
 
 class ReceivedBinaryEvent {

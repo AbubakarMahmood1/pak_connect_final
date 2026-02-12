@@ -17,6 +17,8 @@ import 'noise_handshake_driver.dart';
 import 'handshake_peer_state.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
+part 'handshake_coordinator_phase2_helper.dart';
+
 /// Manages the handshake protocol between two BLE devices
 /// Ensures no message proceeds without explicit confirmation
 class HandshakeCoordinator implements IHandshakeCoordinator {
@@ -49,6 +51,7 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
   // Noise handshake state
   late final KKPatternTracker _kkTracker;
   late final NoiseHandshakeDriver _noiseDriver;
+  late final _HandshakeCoordinatorPhase2Helper _phase2Helper;
 
   // Role tracking: true = initiator (central), false = responder (peripheral)
   bool _isInitiator = false;
@@ -121,6 +124,7 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
       _timeoutManager.phaseTimeout = phaseTimeout;
     }
     _isInitiator = startAsInitiator;
+    _phase2Helper = _HandshakeCoordinatorPhase2Helper(this);
   }
 
   /// Start the handshake process
@@ -598,45 +602,8 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
     }
   }
 
-  Future<void> _advanceToNoiseHandshakeComplete() async {
-    _logger.info('✅ Phase 1.5 Complete: Noise session established');
-    _phase = ConnectionPhase.noiseHandshakeComplete;
-    _emitPhase(_phase);
-
-    // FIX-008: Wait for peer's static public key with retry logic
-    // This prevents Phase 2 from starting before Noise session is fully ready
-    try {
-      await _waitForPeerNoiseKey(
-        timeout: const Duration(seconds: 3),
-        maxRetries: 5,
-      );
-
-      if (_peerState.theirNoisePublicKey != null) {
-        _logger.info(
-          '  Peer Noise public key: ${_peerState.theirNoisePublicKey!.shortId()}...',
-        );
-      } else {
-        // Should never happen after successful wait, but handle defensively
-        throw Exception('Peer Noise key is null after successful wait');
-      }
-    } catch (e) {
-      _logger.severe('❌ Failed to retrieve peer Noise public key: $e');
-      await _failHandshake(
-        'Cannot proceed to Phase 2 without peer Noise public key: $e',
-      );
-      return;
-    }
-
-    // ✅ Only initiator (central) sends contactStatus first
-    // Responder (peripheral) waits to receive it
-    if (_isInitiator) {
-      _logger.info('📤 Role: INITIATOR - proceeding to send contact status');
-      await _advanceToContactStatusSent();
-    } else {
-      _logger.info('⏸️ Role: RESPONDER - waiting for contact status');
-      _startPhaseTimeout('contactStatus');
-    }
-  }
+  Future<void> _advanceToNoiseHandshakeComplete() =>
+      _phase2Helper.advanceToNoiseHandshakeComplete();
 
   /// Wait for peer's Noise public key with exponential backoff
   ///
@@ -649,269 +616,36 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
   Future<void> _waitForPeerNoiseKey({
     required Duration timeout,
     required int maxRetries,
-  }) async {
-    final startTime = DateTime.now();
-    int attempt = 0;
-
-    while (attempt < maxRetries) {
-      attempt++;
-
-      // Check if timeout exceeded
-      final elapsed = DateTime.now().difference(startTime);
-      if (elapsed > timeout) {
-        throw TimeoutException(
-          'Peer Noise key not available after ${timeout.inMilliseconds}ms',
-          timeout,
-        );
-      }
-
-      // Try to get peer key
-      try {
-        final noiseService = SecurityManager.instance.noiseService;
-        if (noiseService == null) {
-          _logger.warning(
-            '⏳ Attempt $attempt/$maxRetries: Noise service not initialized',
-          );
-        } else {
-          final peerKey = noiseService.getPeerPublicKeyData(
-            _peerState.theirEphemeralId!,
-          );
-
-          if (peerKey != null) {
-            // Success! Store key and return
-            _peerState.setNoisePublicKey(base64.encode(peerKey));
-            _logger.info(
-              '✅ Retrieved peer Noise key on attempt $attempt/$maxRetries',
-            );
-            return;
-          } else {
-            _logger.fine(
-              '⏳ Attempt $attempt/$maxRetries: Peer key not yet available',
-            );
-          }
-        }
-      } catch (e) {
-        _logger.warning(
-          '⏳ Attempt $attempt/$maxRetries: Exception retrieving key: $e',
-        );
-      }
-
-      // Exponential backoff: 50ms, 100ms, 200ms, 400ms, 800ms
-      final delayMs = 50 * (1 << (attempt - 1));
-      await Future.delayed(Duration(milliseconds: delayMs));
-    }
-
-    // Failed after all retries
-    throw TimeoutException(
-      'Peer Noise key not available after $maxRetries retries',
-      timeout,
-    );
-  }
+  }) => _phase2Helper.waitForPeerNoiseKey(
+    timeout: timeout,
+    maxRetries: maxRetries,
+  );
 
   // ========== PHASE 2: CONTACT STATUS EXCHANGE ==========
 
-  Future<void> _advanceToContactStatusSent() async {
-    _logger.info('📤 Phase 2: Sending contact status');
-    _phase = ConnectionPhase.contactStatusSent;
-    _emitPhase(_phase);
+  Future<void> _advanceToContactStatusSent() =>
+      _phase2Helper.advanceToContactStatusSent();
 
-    // SECURITY NOTE: We only have their ephemeral ID at this point.
-    // Contact status will be determined AFTER pairing when we exchange persistent keys.
-    // For now, always send false during handshake phase.
-    final weHaveThem = false; // Will be checked after pairing
+  Future<void> _handleContactStatus(ProtocolMessage message) =>
+      _phase2Helper.handleContactStatus(message);
 
-    final message = ProtocolMessage.contactStatus(
-      hasAsContact: weHaveThem,
-      publicKey: _myEphemeralId, // Send our ephemeral ID
-    );
-
-    await _sendWithGuard(message, 'contactStatus');
-    _startPhaseTimeout('contactStatus');
-  }
-
-  Future<void> _handleContactStatus(ProtocolMessage message) async {
-    _logger.info('📥 Received contactStatus');
-
-    // Valid in: noiseHandshakeComplete (peripheral), contactStatusSent (central)
-    if (_phase != ConnectionPhase.noiseHandshakeComplete &&
-        _phase != ConnectionPhase.contactStatusSent) {
-      _logger.warning('⚠️ Unexpected contactStatus in phase $_phase');
-      return;
-    }
-
-    // Store their contact status (will be false during handshake, updated after pairing)
-    _peerState.setContactStatus(message.payload['hasAsContact'] as bool);
-
-    _logger.info(
-      '  They have us as contact: ${_peerState.theyHaveUsAsContact} (may change after pairing)',
-    );
-
-    // NEW: Check for pattern mismatch (desync detection)
-    if (_peerState.patternMismatchDetected && _repositoryProvider != null) {
-      _logger.warning(
-        '⚠️ DESYNC DETECTED: Pattern mismatch indicates data loss',
-      );
-
-      if (_peerState.theirNoisePublicKey != null) {
-        try {
-          final contact = await _repositoryProvider.contactRepository
-              .getContact(_peerState.theirNoisePublicKey!);
-
-          if (contact != null && contact.securityLevel != SecurityLevel.low) {
-            _logger.warning(
-              '   Downgrading peer from ${contact.securityLevel} to LOW',
-            );
-            _logger.warning('   Peer may have reset device or lost data');
-
-            // Downgrade contact security level
-            await _repositoryProvider.contactRepository
-                .downgradeSecurityForDeletedContact(
-                  _peerState.theirNoisePublicKey!,
-                  'pattern_mismatch',
-                );
-
-            // Notify UI about security downgrade
-            onSecurityDowngrade?.call(contact.displayName, 'pattern_mismatch');
-          }
-        } catch (e) {
-          _logger.warning('⚠️ Failed to check/downgrade contact: $e');
-        }
-      }
-    }
-
-    // NEW: Check if we should notify about rejection
-    if (_peerState.rejectionReason != null) {
-      _logger.warning('🚨 Handshake required fallback to XX pattern');
-      _logger.warning('   Reason: ${_peerState.rejectionReason}');
-
-      // Notify UI about handshake fallback
-      onHandshakeFallback?.call(_peerState.rejectionReason!);
-    }
-
-    // PERIPHERAL FLOW: We haven't sent yet, so send now (response IS ack)
-    if (_phase == ConnectionPhase.noiseHandshakeComplete) {
-      _logger.info(
-        '🔄 Peripheral: Received contactStatus, sending our contactStatus (response IS ack)',
-      );
-
-      // SECURITY NOTE: We only have ephemeral IDs, so contact status is unknown
-      final weHaveThem = false; // Will be checked after pairing
-
-      final response = ProtocolMessage.contactStatus(
-        hasAsContact: weHaveThem,
-        publicKey: _myEphemeralId, // Send our ephemeral ID
-      );
-      await _sendWithGuard(response, 'contactStatus (ack)');
-
-      // Advance to contact status complete, then complete handshake
-      await _advanceToContactStatusComplete();
-      return;
-    }
-
-    // CENTRAL FLOW: We sent first, they responded, advance
-    if (_phase == ConnectionPhase.contactStatusSent) {
-      _logger.info(
-        '✅ Central: Received their contactStatus response - completing handshake',
-      );
-      await _advanceToContactStatusComplete();
-      return;
-    }
-  }
-
-  Future<void> _advanceToContactStatusComplete() async {
-    _logger.info('✅ Phase 2 Complete: Contact status exchange done');
-    _phase = ConnectionPhase.contactStatusComplete;
-    _emitPhase(_phase);
-
-    // Complete the handshake
-    await _advanceToComplete();
-  }
+  Future<void> _advanceToContactStatusComplete() =>
+      _phase2Helper.advanceToContactStatusComplete();
 
   // ========== HANDSHAKE COMPLETION ==========
 
-  Future<void> _advanceToComplete() async {
-    _logger.info(
-      '🎉 HANDSHAKE COMPLETE! Session ready for normal communication',
-    );
-    _logger.info('   Their ephemeral ID: ${_peerState.theirEphemeralId}');
-    _logger.info('   (Persistent keys will be exchanged after pairing)');
-    _timeoutManager.cancelTimeout();
-
-    _phase = ConnectionPhase.complete;
-    _emitPhase(_phase);
-
-    // Notify: Handshake complete (resume health checks)
-    onHandshakeStateChanged?.call(false);
-
-    if (_peerState.theirNoisePublicKey != null) {
-      _kkTracker.reset(_peerState.theirNoisePublicKey!);
-    }
-
-    // Notify caller with their EPHEMERAL ID and Noise public key
-    if (_peerState.theirEphemeralId != null &&
-        _peerState.theirDisplayName != null) {
-      await _onHandshakeComplete(
-        _peerState.theirEphemeralId!,
-        _peerState.theirDisplayName!,
-        _peerState.theirNoisePublicKey,
-      );
-
-      // Record peer in network topology for visualization
-      if (_peerState.theirNoisePublicKey != null) {
-        try {
-          TopologyManager.instance.recordNodeAnnouncement(
-            nodeId: _peerState.theirNoisePublicKey!,
-            displayName: _peerState.theirDisplayName!,
-          );
-          _logger.info(
-            '📊 Recorded peer in topology: ${_peerState.theirDisplayName}',
-          );
-        } catch (e) {
-          _logger.warning('⚠️ Failed to record topology: $e');
-          // Non-critical error, continue with handshake completion
-        }
-      }
-
-      // Trigger queue flush callback (for offline message delivery)
-      if (onHandshakeSuccess != null) {
-        _logger.info(
-          '📤 Triggering queue flush for peer: ${_peerState.theirEphemeralId}',
-        );
-        await onHandshakeSuccess!(_peerState.theirEphemeralId!);
-      }
-    }
-  }
+  Future<void> _advanceToComplete() => _phase2Helper.advanceToComplete();
 
   // ========== TIMEOUT & ERROR HANDLING ==========
 
-  void _startPhaseTimeout(String waitingFor) {
-    _timeoutManager.startTimeout(
-      waitingFor: waitingFor,
-      isComplete: () => _phase == ConnectionPhase.complete,
-      onTimeout: (reason) => _failHandshake(reason),
-    );
-  }
+  void _startPhaseTimeout(String waitingFor) =>
+      _phase2Helper.startPhaseTimeout(waitingFor);
 
-  Future<void> _failHandshake(String reason) async {
-    _logger.severe('❌ Handshake failed: $reason');
-    _timeoutManager.cancelTimeout();
+  Future<void> _failHandshake(String reason) =>
+      _phase2Helper.failHandshake(reason);
 
-    _phase = ConnectionPhase.failed;
-    _emitPhase(_phase);
-
-    // Notify: Handshake failed (resume health checks)
-    onHandshakeStateChanged?.call(false);
-  }
-
-  Future<void> _sendWithGuard(ProtocolMessage message, String context) async {
-    try {
-      await _sendMessage(message);
-    } catch (e) {
-      _logger.severe('❌ Failed to send $context: $e');
-      await _failHandshake('Failed to send $context: $e');
-      rethrow;
-    }
-  }
+  Future<void> _sendWithGuard(ProtocolMessage message, String context) =>
+      _phase2Helper.sendWithGuard(message, context);
 
   // ========== KK PATTERN REJECTION HANDLING ==========
 
@@ -921,81 +655,16 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
     required String attemptedPattern,
     required String suggestedPattern,
     Map<String, dynamic>? contactStatus,
-  }) async {
-    _logger.warning('📤 Sending handshake rejection: $reason');
-    _logger.warning(
-      '   Attempted: $attemptedPattern → Suggested: $suggestedPattern',
-    );
-
-    final message = ProtocolMessage.noiseHandshakeRejected(
-      reason: reason,
-      attemptedPattern: attemptedPattern,
-      suggestedPattern: suggestedPattern,
-      peerEphemeralId: _myEphemeralId,
-      contactStatus: contactStatus,
-    );
-
-    await _sendWithGuard(message, 'noiseHandshakeRejected');
-  }
+  }) => _phase2Helper.sendRejectionMessage(
+    reason: reason,
+    attemptedPattern: attemptedPattern,
+    suggestedPattern: suggestedPattern,
+    contactStatus: contactStatus,
+  );
 
   /// Handle rejection message from peer
-  Future<void> _handleNoiseHandshakeRejected(ProtocolMessage message) async {
-    final reason = message.noiseHandshakeRejectReason;
-    final attemptedPattern = message.noiseHandshakeRejectAttemptedPattern;
-    final suggestedPattern = message.noiseHandshakeRejectSuggestedPattern;
-    final contactStatus = message.noiseHandshakeRejectContactStatus;
-
-    _logger.warning('📥 Received handshake rejection');
-    _logger.warning('   Reason: $reason');
-    _logger.warning(
-      '   Attempted: $attemptedPattern → Suggested: $suggestedPattern',
-    );
-    if (_peerState.attemptedPattern != null) {
-      _logger.info(
-        '   Local attempted pattern: ${_peerState.attemptedPattern!.name.toUpperCase()}',
-      );
-    }
-
-    _peerState.markRejection(reason);
-
-    // Track failure for downgrade logic
-    if (_peerState.theirNoisePublicKey != null) {
-      _kkTracker.recordFailure(
-        _peerState.theirNoisePublicKey!,
-        reason ?? 'unknown',
-      );
-    }
-
-    // Check if peer lost data (they don't have us as contact)
-    if (contactStatus != null) {
-      final peerHasUs = contactStatus['haveThemAsContact'] as bool? ?? false;
-      final shouldDowngrade =
-          contactStatus['shouldDowngrade'] as bool? ?? false;
-
-      if (!peerHasUs && shouldDowngrade) {
-        _logger.warning('⚠️ PEER LOST DATA: They don\'t have us anymore');
-        _logger.info(
-          '   Will downgrade peer security after handshake completes',
-        );
-        _peerState.markPatternMismatch();
-      }
-    }
-
-    // Retry with suggested pattern (XX)
-    if (suggestedPattern == 'xx') {
-      _logger.info('🔄 Retrying handshake with XX pattern');
-
-      // Reset to identity complete and retry
-      _phase = ConnectionPhase.identityComplete;
-      _emitPhase(_phase);
-      _peerState.markAttemptedPattern(NoisePattern.xx);
-
-      await _advanceToNoiseHandshake1Sent();
-    } else {
-      _logger.severe('❌ Unknown suggested pattern: $suggestedPattern');
-      await _failHandshake('Unsupported suggested pattern: $suggestedPattern');
-    }
-  }
+  Future<void> _handleNoiseHandshakeRejected(ProtocolMessage message) =>
+      _phase2Helper.handleNoiseHandshakeRejected(message);
 
   // ========== KK FAILURE TRACKING ==========
 
