@@ -60,6 +60,11 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     (feature-gated by `PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD`, default `true`).
   - guard state is now centralized in a shared runtime component
     (`PeerProtocolVersionGuard`) so all inbound handlers enforce the same floor.
+- Pass D stale-event suppression increment:
+  - `NoiseSessionManager` now resets responder in-flight state on duplicate
+    handshake-1 packets instead of tearing down the session as a hard failure.
+  - covered by
+    `test/core/security/noise/noise_session_manager_test.dart`.
 - Pass B compatibility-tightening hook added:
   - inbound v2 legacy decrypt modes (`legacy_ecdh_v1`, `legacy_pairing_v1`,
     `legacy_global_v1`) can now be blocked by policy:
@@ -203,6 +208,8 @@ Implemented now:
 - downgrade protocol floor policy centralized and shared across inbound handlers.
 - cross-handler coverage added proving a v2 observation in
   `ProtocolMessageHandler` blocks later v1 downgrade in `InboundTextProcessor`.
+- duplicate/stale responder handshake-1 retransmits no longer hard-fail the
+  in-flight session state machine.
 
 Remaining:
 - session attempt stale-event suppression and reconnect simulation tests.

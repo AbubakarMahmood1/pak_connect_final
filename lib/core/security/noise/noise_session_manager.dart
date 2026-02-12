@@ -247,6 +247,13 @@ class NoiseSessionManager {
           );
           return null;
         }
+        if (!session.isInitiator && _isLikelyHandshake1(message)) {
+          _logger.warning(
+            '🛡️ Duplicate handshake 1 for $peerID while responder session is in-flight; restarting responder state',
+          );
+          removeSession(peerID);
+          session = null;
+        }
       }
 
       // Create responder session if needed

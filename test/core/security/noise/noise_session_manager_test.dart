@@ -268,6 +268,58 @@ void main() {
       bobManager.shutdown();
     });
 
+    test(
+      'duplicate handshake1 during responder in-flight handshake does not tear down session',
+      () async {
+        final aliceManager = NoiseSessionManager(
+          localStaticPrivateKey: aliceStaticPrivate,
+          localStaticPublicKey: aliceStaticPublic,
+        );
+        final bobManager = NoiseSessionManager(
+          localStaticPrivateKey: bobStaticPrivate,
+          localStaticPublicKey: bobStaticPublic,
+        );
+
+        final msg1 = await aliceManager.initiateHandshake('Bob');
+
+        // Bob processes first message 1 and responds with message 2.
+        final msg2First = await bobManager.processHandshakeMessage(
+          'Alice',
+          msg1,
+        );
+        expect(msg2First, isNotNull);
+        expect(
+          bobManager.getSessionState('Alice'),
+          equals(NoiseSessionState.handshaking),
+        );
+
+        // Simulate retransmitted/stale handshake1 from initiator.
+        // This should restart responder state and return a fresh message 2,
+        // not fail and remove the session.
+        final msg2Retry = await bobManager.processHandshakeMessage(
+          'Alice',
+          msg1,
+        );
+        expect(msg2Retry, isNotNull);
+        expect(msg2Retry!.length, equals(80));
+        expect(
+          bobManager.getSessionState('Alice'),
+          equals(NoiseSessionState.handshaking),
+        );
+
+        // Handshake can still complete after the retransmission.
+        final msg3 = await aliceManager.processHandshakeMessage(
+          'Bob',
+          msg2Retry,
+        );
+        await bobManager.processHandshakeMessage('Alice', msg3!);
+        expect(bobManager.hasEstablishedSession('Alice'), isTrue);
+
+        aliceManager.shutdown();
+        bobManager.shutdown();
+      },
+    );
+
     test('completes full handshake between two managers', () async {
       final aliceManager = NoiseSessionManager(
         localStaticPrivateKey: aliceStaticPrivate,
