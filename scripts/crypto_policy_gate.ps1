@@ -54,6 +54,12 @@ $testCases = @(
         Defines = $strictBlePolicyDefines
     },
     [PSCustomObject]@{
+        Label = 'auto sealed_v1 fallback for upgraded peers'
+        TestFile = 'test/data/services/ble_write_adapter_test.dart'
+        PlainName = 'upgraded peer auto-falls back to sealed_v1 even when rollout flag is disabled'
+        Defines = @()
+    },
+    [PSCustomObject]@{
         Label = 'protocol handler enforces v2 encrypted signature policy'
         TestFile = 'test/data/services/protocol_message_handler_test.dart'
         PlainName = 'requires signature for v2 encrypted message when policy enabled'
