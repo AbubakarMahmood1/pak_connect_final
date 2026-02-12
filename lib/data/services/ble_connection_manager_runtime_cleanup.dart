@@ -28,9 +28,9 @@ extension _BleConnectionManagerRuntimeCleanup on BLEConnectionManager {
     _clientConnections.clear();
     if (!keepMonitoring) {
       _serverConnections.clear();
-      _connectionTracker.clear();
+      _connectionTracker.clear(preserveDisconnectCooldowns: true);
     } else {
-      _connectionTracker.clear();
+      _connectionTracker.clear(preserveDisconnectCooldowns: true);
       for (final entry in _serverConnections.entries) {
         _connectionTracker.addConnection(address: entry.key, isClient: false);
       }

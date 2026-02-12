@@ -13,27 +13,46 @@ class BleConnectionTracker {
 
   final Map<String, _TrackedConnection> _connections = {};
   final Map<String, _PendingAttempt> _pendingAttempts = {};
+  final Map<String, DateTime> _disconnectCooldownUntil = {};
 
   // Backoff timing (matches BitChat-style light throttling)
   static const Duration _retryDelay = Duration(seconds: 5);
   static const Duration _attemptExpiry = Duration(seconds: 12);
+  static const Duration _postDisconnectCooldown = Duration(seconds: 3);
+  static const bool _enforcePostDisconnectCooldown = bool.fromEnvironment(
+    'PAKCONNECT_BLE_ENFORCE_POST_DISCONNECT_COOLDOWN',
+    defaultValue: true,
+  );
   static Duration get retryDelay => _retryDelay;
   static Duration get attemptExpiry => _attemptExpiry;
+  static Duration get postDisconnectCooldown => _postDisconnectCooldown;
+  static bool get isPostDisconnectCooldownEnabled =>
+      _enforcePostDisconnectCooldown;
 
   bool isConnected(String address) => _connections.containsKey(address);
 
   /// Returns true if a new connection attempt is allowed for this address.
   bool canAttempt(String address) {
     _pruneExpiredAttempts();
+    _pruneExpiredDisconnectCooldowns();
 
     final pending = _pendingAttempts[address];
-    if (pending == null) return true;
-    final age = _now().difference(pending.lastAttempt);
-    if (age > _attemptExpiry) {
-      _pendingAttempts.remove(address);
-      return true;
+    if (pending != null) {
+      final age = _now().difference(pending.lastAttempt);
+      if (age > _attemptExpiry) {
+        _pendingAttempts.remove(address);
+      } else if (age < _retryDelay) {
+        return false;
+      }
     }
-    return age >= _retryDelay;
+
+    if (!_enforcePostDisconnectCooldown) return true;
+
+    final disconnectCooldown = disconnectCooldownRemaining(address);
+    if (disconnectCooldown != null && disconnectCooldown > Duration.zero) {
+      return false;
+    }
+    return true;
   }
 
   /// Record a connection attempt (call before initiating).
@@ -106,6 +125,7 @@ class BleConnectionTracker {
     );
     // Success: clear pending attempt tracking for this address
     _pendingAttempts.remove(address);
+    _disconnectCooldownUntil.remove(address);
     _logger.fine(
       '🔗 Tracked connection: ${_format(address)} (${isClient ? "client" : "server"})',
     );
@@ -115,12 +135,16 @@ class BleConnectionTracker {
     final removed = _connections.remove(address);
     if (removed != null) {
       _logger.fine('🧹 Removed tracked connection: ${_format(address)}');
+      markDisconnectCooldown(address);
     }
   }
 
-  void clear() {
+  void clear({bool preserveDisconnectCooldowns = false}) {
     _connections.clear();
     _pendingAttempts.clear();
+    if (!preserveDisconnectCooldowns) {
+      _disconnectCooldownUntil.clear();
+    }
     _logger.fine('🧹 Cleared all tracked connections');
   }
 
@@ -130,6 +154,50 @@ class BleConnectionTracker {
     _pendingAttempts.removeWhere(
       (_, pending) => now.difference(pending.lastAttempt) > _attemptExpiry,
     );
+  }
+
+  void _pruneExpiredDisconnectCooldowns() {
+    final now = _now();
+    _disconnectCooldownUntil.removeWhere((_, until) => !now.isBefore(until));
+  }
+
+  void markDisconnectCooldown(String address, {Duration? duration}) {
+    if (!_enforcePostDisconnectCooldown) return;
+    final cooldown = duration ?? _postDisconnectCooldown;
+    if (cooldown <= Duration.zero) {
+      _disconnectCooldownUntil.remove(address);
+      return;
+    }
+
+    final until = _now().add(cooldown);
+    _disconnectCooldownUntil[address] = until;
+    _logger.fine(
+      '⏳ Disconnect cooldown started for ${_format(address)} '
+      '(${cooldown.inMilliseconds}ms, until=${until.toIso8601String()})',
+    );
+  }
+
+  /// Remaining post-disconnect cooldown for [address], when enabled.
+  ///
+  /// Returns `null` when no active cooldown exists.
+  Duration? disconnectCooldownRemaining(String address) {
+    if (!_enforcePostDisconnectCooldown) return null;
+    _pruneExpiredDisconnectCooldowns();
+    final until = _disconnectCooldownUntil[address];
+    if (until == null) return null;
+    final remaining = until.difference(_now());
+    if (remaining <= Duration.zero) {
+      _disconnectCooldownUntil.remove(address);
+      return null;
+    }
+    return remaining;
+  }
+
+  /// Cooldown-until timestamp for [address], if active.
+  DateTime? disconnectCooldownUntil(String address) {
+    if (!_enforcePostDisconnectCooldown) return null;
+    _pruneExpiredDisconnectCooldowns();
+    return _disconnectCooldownUntil[address];
   }
 
   int get count => _connections.length;

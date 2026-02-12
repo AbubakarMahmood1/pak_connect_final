@@ -54,5 +54,39 @@ void main() {
       expect(tracker.nextAllowedAttemptAt('cc:dd'), isNull);
       expect(tracker.pendingAttemptCount('cc:dd'), equals(0));
     });
+
+    test('enforces post-disconnect cooldown when enabled', () {
+      if (!BleConnectionTracker.isPostDisconnectCooldownEnabled) {
+        return;
+      }
+
+      var now = DateTime(2025, 1, 1, 12, 0, 0);
+      final tracker = BleConnectionTracker(now: () => now);
+
+      tracker.addConnection(address: 'ee:ff', isClient: true, rssi: null);
+      tracker.removeConnection('ee:ff');
+
+      expect(tracker.canAttempt('ee:ff'), isFalse);
+      expect(
+        tracker.disconnectCooldownRemaining('ee:ff'),
+        BleConnectionTracker.postDisconnectCooldown,
+      );
+      expect(
+        tracker.disconnectCooldownUntil('ee:ff'),
+        DateTime(2025, 1, 1, 12, 0, 3),
+      );
+
+      now = now.add(Duration(seconds: 2));
+      expect(tracker.canAttempt('ee:ff'), isFalse);
+      expect(
+        tracker.disconnectCooldownRemaining('ee:ff'),
+        Duration(seconds: 1),
+      );
+
+      now = now.add(Duration(seconds: 2));
+      expect(tracker.canAttempt('ee:ff'), isTrue);
+      expect(tracker.disconnectCooldownRemaining('ee:ff'), isNull);
+      expect(tracker.disconnectCooldownUntil('ee:ff'), isNull);
+    });
   });
 }

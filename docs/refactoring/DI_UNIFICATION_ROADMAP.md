@@ -162,6 +162,10 @@ Pass 6 progress highlights:
   (`retryBackoffRemaining`, `nextAllowedAttemptAt`, `pendingAttemptCount`),
   and reconnect/tie-break code paths log deterministic cooldown + token
   comparison context for runtime verification.
+- Feature-flagged post-disconnect reconnect cooldown enforcement is now active
+  (`PAKCONNECT_BLE_ENFORCE_POST_DISCONNECT_COOLDOWN`, default `true`) and
+  preserved across connection-state cleanup transitions to reduce reconnect
+  thrash after disconnect.
 
 ---
 
