@@ -18,7 +18,7 @@ class ChatManagementFacade implements IChatManagement {
 
   ChatManagementFacade({ChatManagementService? chatManagementService})
     : _chatManagementService =
-          chatManagementService ?? ChatManagementService.instance {
+          chatManagementService ?? ChatManagementService() {
     _logger.info('✅ ChatManagementFacade created (thin orchestrator)');
   }
 

@@ -41,7 +41,7 @@ typedef ContactsScreenBuilder = Widget Function();
 /// )
 ///
 /// // From anywhere (e.g., notification handler):
-/// NavigationService.instance.navigateToChatById(chatId: '123', contactName: 'Ali');
+/// NavigationService().navigateToChatById(chatId: '123', contactName: 'Ali');
 /// ```
 class NavigationService {
   static final _logger = Logger('NavigationService');
@@ -57,6 +57,8 @@ class NavigationService {
   // Screen builders - registered by presentation layer
   static ChatScreenBuilder? _chatScreenBuilder;
   static ContactsScreenBuilder? _contactsScreenBuilder;
+
+  factory NavigationService() => _instance;
 
   NavigationService._internal();
 
@@ -195,7 +197,7 @@ class NavigationServiceNotificationHandler
     required String chatId,
     required String contactName,
     String? contactPublicKey,
-  }) => NavigationService.instance.navigateToChatById(
+  }) => NavigationService().navigateToChatById(
     chatId: chatId,
     contactName: contactName,
     contactPublicKey: contactPublicKey,
@@ -205,11 +207,11 @@ class NavigationServiceNotificationHandler
   Future<void> navigateToContactRequest({
     required String publicKey,
     required String contactName,
-  }) => NavigationService.instance.navigateToContactRequest(
+  }) => NavigationService().navigateToContactRequest(
     publicKey: publicKey,
     contactName: contactName,
   );
 
   @override
-  Future<void> navigateToHome() => NavigationService.instance.navigateToHome();
+  Future<void> navigateToHome() => NavigationService().navigateToHome();
 }

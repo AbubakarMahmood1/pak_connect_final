@@ -18,6 +18,9 @@ class RelayConfigManager {
   static RelayConfigManager get instance =>
       _instance ??= RelayConfigManager._();
 
+  /// Factory constructor for constructor-style singleton access.
+  factory RelayConfigManager() => instance;
+
   // Private constructor for singleton
   RelayConfigManager._();
 

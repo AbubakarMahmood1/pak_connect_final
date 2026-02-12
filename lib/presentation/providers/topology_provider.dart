@@ -4,7 +4,7 @@ import 'package:pak_connect/domain/models/network_topology.dart';
 
 /// Provider for TopologyManager singleton
 final topologyManagerProvider = Provider.autoDispose<TopologyManager>((ref) {
-  final manager = TopologyManager.instance;
+  final manager = TopologyManager();
   ref.onDispose(() {
     // Note: TopologyManager is a singleton, so we don't dispose it
     // Disposal is managed at application lifecycle level

@@ -125,6 +125,9 @@ class DatabaseQueryOptimizer {
   static DatabaseQueryOptimizer get instance =>
       _instance ??= DatabaseQueryOptimizer._();
 
+  /// Factory constructor for constructor-style singleton access.
+  factory DatabaseQueryOptimizer() => instance;
+
   DatabaseQueryOptimizer._();
 
   // Query statistics tracking
@@ -496,7 +499,7 @@ extension DatabaseHelperOptimizedExtension on DatabaseHelper {
     String table,
     List<Map<String, dynamic>> values,
   ) async {
-    final optimizer = DatabaseQueryOptimizer.instance;
+    final optimizer = DatabaseQueryOptimizer();
     await optimizer.executeBatch((batch) async {
       for (final value in values) {
         batch.insert(table, value);
@@ -516,7 +519,7 @@ extension DatabaseHelperOptimizedExtension on DatabaseHelper {
     QueryPriority priority = QueryPriority.normal,
   }) async {
     final db = await DatabaseHelper.database;
-    return DatabaseQueryOptimizer.instance.executeQuery(
+    return DatabaseQueryOptimizer().executeQuery(
       operation: () => db.query(
         table,
         distinct: distinct,

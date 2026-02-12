@@ -41,6 +41,7 @@ import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/contact_management_service.dart';
 import 'package:pak_connect/domain/services/hint_scanner_service.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
     show MeshNetworkingService, PendingBinaryTransfer, ReceivedBinaryEvent;
 import 'package:pak_connect/domain/services/message_router.dart';
@@ -452,6 +453,7 @@ class TestSetup {
         (locator.isRegistered<ISecurityService>()
             ? locator<ISecurityService>()
             : const _NoopSecurityService());
+    SecurityServiceLocator.configureServiceResolver(() => securityService);
 
     final meshHealthMonitor = _resolveMeshHealthMonitor(
       locator: locator,

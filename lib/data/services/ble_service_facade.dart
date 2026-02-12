@@ -165,7 +165,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
        _hintScanner = hintScanner ?? HintScannerService(),
        _introHintRepository = introHintRepository ?? IntroHintRepository(),
        _bluetoothStateMonitor =
-           bluetoothStateMonitor ?? BluetoothStateMonitor.instance,
+           bluetoothStateMonitor ?? BluetoothStateMonitor(),
        _contactRepository = contactRepository ?? ContactRepository(),
        _connectionService = connectionService,
        _messagingService = messagingService,
@@ -201,7 +201,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
     _messageHandlerFacade = BLEMessageHandlerFacadeImpl(
       _messageHandler,
-      SeenMessageStore.instance,
+      SeenMessageStore(),
       connectionManager: _connectionManager,
       stateManager: _stateManager,
       getCentralManager: () => _platformHost.centralManager,

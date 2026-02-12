@@ -35,6 +35,9 @@ class SeenMessageStore implements ISeenMessageStore {
     return _instance!;
   }
 
+  /// Factory constructor for constructor-style singleton access.
+  factory SeenMessageStore() => instance;
+
   SeenMessageStore._() {
     // Keep noisy logs muted unless explicitly enabled.
     if (hierarchicalLoggingEnabled) {

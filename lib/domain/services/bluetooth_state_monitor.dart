@@ -41,6 +41,9 @@ class BluetoothStateMonitor {
     return _instance!;
   }
 
+  /// Factory constructor for constructor-style singleton access.
+  factory BluetoothStateMonitor() => instance;
+
   /// Stream of Bluetooth state information
   Stream<BluetoothStateInfo> get stateStream =>
       Stream<BluetoothStateInfo>.multi((controller) {
