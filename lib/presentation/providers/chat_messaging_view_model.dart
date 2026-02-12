@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -69,11 +69,10 @@ class ChatMessagingViewModel {
   }
 
   static IUserPreferences _resolveUserPreferences() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IUserPreferences>()) {
-      return di<IUserPreferences>();
-    }
-    return _FallbackUserPreferences.instance;
+    return maybeResolveFromAppServicesOrServiceLocator<IUserPreferences>(
+          fromServices: (services) => services.userPreferences,
+        ) ??
+        _FallbackUserPreferences.instance;
   }
 
   /// Initialize the view model
@@ -376,11 +375,9 @@ class ChatMessagingViewModel {
   }
 
   ISharedMessageQueueProvider? _resolveSharedQueueProvider() {
-    final di = GetIt.instance;
-    if (di.isRegistered<ISharedMessageQueueProvider>()) {
-      return di<ISharedMessageQueueProvider>();
-    }
-    return null;
+    return maybeResolveFromAppServicesOrServiceLocator<
+      ISharedMessageQueueProvider
+    >(fromServices: (services) => services.sharedMessageQueueProvider);
   }
 
   /// Log comprehensive send state (helper for sendMessage)

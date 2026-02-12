@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 
 import '../../domain/interfaces/i_chats_repository.dart';
@@ -88,7 +88,9 @@ final homeScreenFacadeProvider = Provider.autoDispose
         chatInteractionHandlerProvider(handlerArgs),
       );
 
-      final facadeFactory = _resolveHomeScreenFacadeFactory();
+      final facadeFactory = resolveFromServiceLocator<IHomeScreenFacadeFactory>(
+        dependencyName: 'IHomeScreenFacadeFactory',
+      );
       final facade = facadeFactory.create(
         chatsRepository: args.chatsRepository,
         bleService: ref.read(connectionServiceProvider),
@@ -120,14 +122,3 @@ final homeScreenFacadeProvider = Provider.autoDispose
       });
       return facade;
     });
-
-IHomeScreenFacadeFactory _resolveHomeScreenFacadeFactory() {
-  final locator = GetIt.instance;
-  if (locator.isRegistered<IHomeScreenFacadeFactory>()) {
-    return locator<IHomeScreenFacadeFactory>();
-  }
-  throw StateError(
-    'IHomeScreenFacadeFactory is not registered. '
-    'Register it in service locator before using HomeScreen providers.',
-  );
-}

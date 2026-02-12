@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 
 import '../../domain/interfaces/i_chat_connection_manager.dart';
@@ -13,9 +13,9 @@ final _logger = Logger('ChatConnectionProvider');
 /// Manages lifecycle and provides dependency injection for the service
 final chatConnectionManagerProvider =
     Provider.autoDispose<IChatConnectionManager>((ref) {
-      final manager = _resolveFactory().create(
-        bleService: ref.watch(connectionServiceProvider),
-      );
+      final manager = resolveFromServiceLocator<IChatConnectionManagerFactory>(
+        dependencyName: 'IChatConnectionManagerFactory',
+      ).create(bleService: ref.watch(connectionServiceProvider));
       ref.onDispose(() {
         manager.dispose();
       });
@@ -32,14 +32,3 @@ final chatConnectionStatusStreamProvider =
       yield ConnectionStatus.offline; // Initial state for late subscribers
       yield* manager.connectionStatusStream;
     });
-
-IChatConnectionManagerFactory _resolveFactory() {
-  final locator = GetIt.instance;
-  if (locator.isRegistered<IChatConnectionManagerFactory>()) {
-    return locator<IChatConnectionManagerFactory>();
-  }
-  throw StateError(
-    'IChatConnectionManagerFactory is not registered. '
-    'Register it in service locator before using chat connection providers.',
-  );
-}

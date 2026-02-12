@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 
 import '../../domain/interfaces/i_shared_message_queue_provider.dart';
@@ -49,11 +49,10 @@ class AppBootstrapNotifier extends AsyncNotifier<AppBootstrapState> {
   }
 
   ISharedMessageQueueProvider _resolveBootstrapHost() {
-    final di = GetIt.instance;
-    if (di.isRegistered<ISharedMessageQueueProvider>()) {
-      return di<ISharedMessageQueueProvider>();
-    }
-    return const _NoopSharedMessageQueueProvider();
+    return maybeResolveFromAppServicesOrServiceLocator<
+          ISharedMessageQueueProvider
+        >(fromServices: (services) => services.sharedMessageQueueProvider) ??
+        const _NoopSharedMessageQueueProvider();
   }
 }
 
