@@ -7,21 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
-import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
-import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_home_screen_facade.dart';
-import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
-import 'package:pak_connect/domain/models/archive_models.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/connection_status.dart';
-import 'package:pak_connect/domain/entities/archived_chat.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
-import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/presentation/controllers/home_screen_controller.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-import '../../test_helpers/test_setup.dart';
 
 class _FakeChatsRepository implements IChatsRepository {
   int totalUnreadCountCalls = 0;
@@ -67,151 +60,6 @@ class _FakeChatsRepository implements IChatsRepository {
 
   @override
   Future<void> updateContactLastSeen(String publicKey) async {}
-}
-
-class _FakeMessageRepository implements IMessageRepository {
-  @override
-  Future<void> clearMessages(ChatId chatId) async {}
-
-  @override
-  Future<bool> deleteMessage(MessageId messageId) async => true;
-
-  @override
-  Future<List<Message>> getAllMessages() async => <Message>[];
-
-  @override
-  Future<Message?> getMessageById(MessageId messageId) async => null;
-
-  @override
-  Future<List<Message>> getMessages(ChatId chatId) async => <Message>[];
-
-  @override
-  Future<List<Message>> getMessagesForContact(String publicKey) async =>
-      <Message>[];
-
-  @override
-  Future<void> saveMessage(Message message) async {}
-
-  @override
-  Future<void> updateMessage(Message message) async {}
-
-  @override
-  Future<void> migrateChatId(ChatId oldChatId, ChatId newChatId) async {}
-}
-
-class _FakeArchiveRepository implements IArchiveRepository {
-  @override
-  Future<ArchiveOperationResult> archiveChat({
-    required String chatId,
-    String? archiveReason,
-    Map<String, dynamic>? customData,
-    bool compressLargeArchives = true,
-  }) async => ArchiveOperationResult.success(
-    message: 'ok',
-    operationType: ArchiveOperationType.archive,
-    archiveId: ArchiveId(chatId),
-    operationTime: Duration.zero,
-  );
-
-  @override
-  Future<void> dispose() async {}
-
-  @override
-  Future<ArchiveStatistics?> getArchiveStatistics() async => null;
-
-  @override
-  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async => null;
-
-  @override
-  Future<ArchivedChatSummary?> getArchivedChatByOriginalId(
-    String chatId,
-  ) async => null;
-
-  @override
-  Future<int> getArchivedChatsCount() async => 0;
-
-  @override
-  Future<List<ArchivedChatSummary>> getArchivedChats({
-    ArchiveSearchFilter? filter,
-    int? limit,
-    int? offset,
-  }) async => <ArchivedChatSummary>[];
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async {}
-
-  @override
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
-      ArchiveOperationResult.success(
-        message: 'ok',
-        operationType: ArchiveOperationType.restore,
-        archiveId: archiveId,
-        operationTime: Duration.zero,
-      );
-
-  @override
-  Future<ArchiveSearchResult> searchArchives({
-    required String query,
-    ArchiveSearchFilter? filter,
-    int? limit,
-    String? afterCursor,
-  }) async => ArchiveSearchResult(
-    messages: const [],
-    chats: const [],
-    messagesByChat: const {},
-    query: query,
-    filter: filter,
-    totalResults: 0,
-    totalChatsFound: 0,
-    searchTime: Duration.zero,
-    hasMore: false,
-    metadata: ArchiveSearchMetadata.empty(),
-  );
-
-  @override
-  void clearCache() {}
-}
-
-class _InMemorySeenMessageStore implements ISeenMessageStore {
-  final Set<String> _delivered = {};
-  final Set<String> _read = {};
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<void> clear() async {
-    _delivered.clear();
-    _read.clear();
-  }
-
-  @override
-  Map<String, dynamic> getStatistics() => {
-    'delivered': _delivered.length,
-    'read': _read.length,
-  };
-
-  @override
-  bool hasDelivered(String messageId) => _delivered.contains(messageId);
-
-  @override
-  bool hasRead(String messageId) => _read.contains(messageId);
-
-  @override
-  Future<void> markDelivered(String messageId) async {
-    _delivered.add(messageId);
-  }
-
-  @override
-  Future<void> markRead(String messageId) async {
-    _read.add(messageId);
-  }
-
-  @override
-  Future<void> performMaintenance() async {}
 }
 
 class _FakeHomeScreenFacade implements IHomeScreenFacade {
@@ -351,18 +199,6 @@ void main() {
     ) async {
       late _TestHomeScreenController controller;
       final fakeRepo = _FakeChatsRepository();
-      final fakeMessageRepo = _FakeMessageRepository();
-      final fakeArchiveRepo = _FakeArchiveRepository();
-
-      await TestSetup.configureTestDI(
-        messageRepository: fakeMessageRepo,
-        chatsRepository: fakeRepo,
-        archiveRepository: fakeArchiveRepo,
-        seenMessageStore: _InMemorySeenMessageStore(),
-      );
-      addTearDown(() async {
-        await TestSetup.resetDIServiceLocator();
-      });
 
       await tester.pumpWidget(
         ProviderScope(
