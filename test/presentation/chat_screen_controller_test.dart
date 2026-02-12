@@ -1160,10 +1160,9 @@ class _FakeMessageRetryCoordinator extends MessageRetryCoordinator {
   _FakeMessageRetryCoordinator({
     required this.status,
     required this.result,
-    required IRepositoryProvider repositoryProvider,
+    required super.repositoryProvider,
   }) : super(
          offlineQueue: _FakeOfflineMessageQueue(),
-         repositoryProvider: repositoryProvider,
        );
 
   @override
