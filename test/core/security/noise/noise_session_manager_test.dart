@@ -371,6 +371,32 @@ void main() {
       bobManager.shutdown();
     });
 
+    test('ignores stale handshake1 after session is established', () async {
+      final aliceManager = NoiseSessionManager(
+        localStaticPrivateKey: aliceStaticPrivate,
+        localStaticPublicKey: aliceStaticPublic,
+      );
+      final bobManager = NoiseSessionManager(
+        localStaticPrivateKey: bobStaticPrivate,
+        localStaticPublicKey: bobStaticPublic,
+      );
+
+      final msg1 = await aliceManager.initiateHandshake('Bob');
+      final msg2 = await bobManager.processHandshakeMessage('Alice', msg1);
+      final msg3 = await aliceManager.processHandshakeMessage('Bob', msg2!);
+      await bobManager.processHandshakeMessage('Alice', msg3!);
+
+      expect(bobManager.hasEstablishedSession('Alice'), isTrue);
+
+      // A stale/replayed handshake1 should be ignored once established.
+      final ignored = await bobManager.processHandshakeMessage('Alice', msg1);
+      expect(ignored, isNull);
+      expect(bobManager.hasEstablishedSession('Alice'), isTrue);
+
+      aliceManager.shutdown();
+      bobManager.shutdown();
+    });
+
     test('encrypts and decrypts messages between managers', () async {
       final aliceManager = NoiseSessionManager(
         localStaticPrivateKey: aliceStaticPrivate,
