@@ -39,6 +39,10 @@ $strictBlePolicyDefines = @(
     '--dart-define=PAKCONNECT_ALLOW_LEGACY_V2_SEND=false',
     '--dart-define=PAKCONNECT_ENABLE_SEALED_V1_SEND=true'
 )
+$strictNoRolloutDefines = @(
+    '--dart-define=PAKCONNECT_ALLOW_LEGACY_V2_SEND=false',
+    '--dart-define=PAKCONNECT_ENABLE_SEALED_V1_SEND=false'
+)
 
 $testCases = @(
     [PSCustomObject]@{
@@ -52,6 +56,12 @@ $testCases = @(
         TestFile = 'test/data/services/ble_write_adapter_test.dart'
         PlainName = 'strict mode can emit sealed_v1 when recipient Noise static key is known'
         Defines = $strictBlePolicyDefines
+    },
+    [PSCustomObject]@{
+        Label = 'strict mode auto-falls back to sealed_v1 even without rollout flag'
+        TestFile = 'test/data/services/ble_write_adapter_test.dart'
+        PlainName = 'strict mode auto-falls back to sealed_v1 even when rollout flag is disabled'
+        Defines = $strictNoRolloutDefines
     },
     [PSCustomObject]@{
         Label = 'auto sealed_v1 fallback for upgraded peers'

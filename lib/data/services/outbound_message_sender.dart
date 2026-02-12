@@ -188,7 +188,9 @@ class OutboundMessageSender {
       );
       final shouldAttemptSealedFallback =
           _isLegacyEncryptionType(encryptionDecision.type) &&
-          (_enableSealedV1Send || upgradedPeerObserved);
+          (_enableSealedV1Send ||
+              upgradedPeerObserved ||
+              !_allowLegacyV2Send);
 
       if (shouldAttemptSealedFallback) {
         final sealedResult = await _tryEncryptWithSealedV1(
@@ -484,7 +486,9 @@ class OutboundMessageSender {
       );
       final shouldAttemptSealedFallback =
           _isLegacyEncryptionType(encryptionDecision.type) &&
-          (_enableSealedV1Send || upgradedPeerObserved);
+          (_enableSealedV1Send ||
+              upgradedPeerObserved ||
+              !_allowLegacyV2Send);
 
       if (shouldAttemptSealedFallback) {
         final sealedResult = await _tryEncryptWithSealedV1(

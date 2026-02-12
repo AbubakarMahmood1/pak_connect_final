@@ -551,6 +551,63 @@ void main() {
   );
 
   test(
+    'strict mode auto-falls back to sealed_v1 even when rollout flag is disabled',
+    () async {
+      await contactRepository.saveContact(
+        'recipient_strict_auto_sealed',
+        'Recipient Strict Auto Sealed',
+      );
+      await contactRepository.updateNoiseSession(
+        publicKey: 'recipient_strict_auto_sealed',
+        noisePublicKey: _generateNoiseStaticPublicKeyBase64(),
+        sessionState: 'established',
+      );
+      SimpleCrypto.initializeConversation(
+        'recipient_strict_auto_sealed',
+        'ble-write-test-strict-auto-sealed-secret',
+      );
+
+      final captureWriteClient = _CaptureThenThrowCentralWriteClient();
+      adapter = BleWriteAdapter(
+        contactRepository: contactRepository,
+        stateManagerProvider: () => stateManager,
+        writeClient: captureWriteClient,
+        allowLegacyV2Send: false,
+        enableSealedV1Send: false,
+      );
+
+      allowSevere(
+        'Failed to send message: Exception: central boom after capture',
+      );
+      allowSevere('Stack trace');
+
+      final result = await adapter.sendCentralMessage(
+        centralManager: _FakeCentralManager(),
+        connectedDevice: FakePeripheral(uuid: makeUuid(43)),
+        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(44)),
+        recipientKey: 'recipient_strict_auto_sealed',
+        content: 'strict auto sealed fallback',
+        mtuSize: 1024,
+      );
+
+      expect(result, isFalse);
+      expect(captureWriteClient.lastCentralValue, isNotNull);
+
+      final chunk = MessageChunk.fromBytes(
+        captureWriteClient.lastCentralValue!,
+      );
+      final protocolBytes = base64.decode(chunk.content);
+      final protocolMessage = ProtocolMessage.fromBytes(
+        Uint8List.fromList(protocolBytes),
+      );
+
+      expect(protocolMessage.version, equals(2));
+      expect(protocolMessage.payload['encryptionMethod'], equals('sealed'));
+      expect(protocolMessage.cryptoHeader?.mode, equals(CryptoMode.sealedV1));
+    },
+  );
+
+  test(
     'legacy v2 send is blocked for peers already observed on v2 protocol floor',
     () async {
       await contactRepository.saveContact(
