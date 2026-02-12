@@ -174,9 +174,12 @@ Implemented now:
 - inbound v2 handlers route `sealed_v1` to dedicated sealed decrypt logic
   (no legacy fallback guessing for sealed mode).
 - binary payload processing is now fail-closed when decrypt fails.
+- relay-aware inbound text tests now verify transport sender is not used as
+  cryptographic sender for v2 decrypt/signature routing paths:
+  `test/data/services/inbound_text_processor_test.dart`.
 
 Remaining:
-- add relay-aware integration tests (transport sender differs from crypto sender).
+- expand to device-level multi-hop validation for live relay routes.
 
 ### Pass D (55-75%): Live Session Lifecycle Hardening
 
