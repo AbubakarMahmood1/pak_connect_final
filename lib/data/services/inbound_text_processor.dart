@@ -27,6 +27,10 @@ class InboundTextProcessor {
     'PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT',
     defaultValue: true,
   );
+  static const bool _defaultRequireV2Signature = bool.fromEnvironment(
+    'PAKCONNECT_REQUIRE_V2_SIGNATURE',
+    defaultValue: false,
+  );
 
   InboundTextProcessor({
     required IContactRepository contactRepository,
@@ -34,6 +38,7 @@ class InboundTextProcessor {
     required String? Function() currentNodeIdProvider,
     ISecurityService? securityService,
     bool? allowLegacyV2Decrypt,
+    bool? requireV2Signature,
     Logger? logger,
   }) : _contactRepository = contactRepository,
        _isMessageForMe = isMessageForMe,
@@ -42,6 +47,7 @@ class InboundTextProcessor {
            securityService ?? SecurityServiceLocator.resolveService(),
        _allowLegacyV2Decrypt =
            allowLegacyV2Decrypt ?? _defaultAllowLegacyV2Decrypt,
+       _requireV2Signature = requireV2Signature ?? _defaultRequireV2Signature,
        _logger = logger ?? Logger('InboundTextProcessor');
 
   final IContactRepository _contactRepository;
@@ -49,6 +55,7 @@ class InboundTextProcessor {
   final String? Function() _currentNodeIdProvider;
   final ISecurityService _securityService;
   final bool _allowLegacyV2Decrypt;
+  final bool _requireV2Signature;
   final Logger _logger;
   static const bool _allowLegacyV1DecryptFallback = true;
 
@@ -134,6 +141,14 @@ class InboundTextProcessor {
     String? decryptKeyUsed = decryptKey;
 
     if (protocolMessage.isEncrypted) {
+      if (protocolMessage.version >= 2 &&
+          _requireV2Signature &&
+          protocolMessage.signature == null) {
+        _logger.severe(
+          '🔒 v2 encrypted message missing signature under strict policy: $messageId',
+        );
+        return const InboundTextResult(content: null, shouldAck: false);
+      }
       final cryptoHeader = protocolMessage.version >= 2
           ? protocolMessage.cryptoHeader
           : null;

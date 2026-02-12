@@ -30,6 +30,10 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     'PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT',
     defaultValue: true,
   );
+  static const bool _defaultRequireV2Signature = bool.fromEnvironment(
+    'PAKCONNECT_REQUIRE_V2_SIGNATURE',
+    defaultValue: false,
+  );
   static IIdentityManager? Function()? _identityManagerResolver;
 
   static void configureIdentityManagerResolver(
@@ -46,15 +50,18 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   final ContactRepository _contactRepository;
   final ISecurityService _securityService;
   final bool _allowLegacyV2Decrypt;
+  final bool _requireV2Signature;
 
   ProtocolMessageHandler({
     required ISecurityService securityService,
     ContactRepository? contactRepository,
     bool? allowLegacyV2Decrypt,
+    bool? requireV2Signature,
   }) : _securityService = securityService,
        _contactRepository = contactRepository ?? ContactRepository(),
        _allowLegacyV2Decrypt =
-           allowLegacyV2Decrypt ?? _defaultAllowLegacyV2Decrypt;
+           allowLegacyV2Decrypt ?? _defaultAllowLegacyV2Decrypt,
+       _requireV2Signature = requireV2Signature ?? _defaultRequireV2Signature;
 
   // Callbacks
   Function(String, String)? _onContactRequestReceived;
@@ -254,6 +261,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       // Decrypt if needed
       String decryptedContent = content;
       if (message.isEncrypted && decryptionPeerId.isNotEmpty) {
+        if (message.version >= 2 &&
+            _requireV2Signature &&
+            message.signature == null) {
+          _logger.severe(
+            '🔒 v2 encrypted message missing signature under strict policy: $messageId',
+          );
+          return null;
+        }
         try {
           if (message.version >= 2) {
             final cryptoHeader = message.cryptoHeader;

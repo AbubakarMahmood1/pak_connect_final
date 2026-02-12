@@ -97,6 +97,41 @@ void main() {
       },
     );
 
+    test(
+      'requires signature for v2 encrypted message when policy enabled',
+      () async {
+        final strictProcessor = InboundTextProcessor(
+          contactRepository: contactRepository,
+          isMessageForMe: (_) async => true,
+          currentNodeIdProvider: () => 'local-node',
+          securityService: securityService,
+          requireV2Signature: true,
+        );
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-signature-required',
+            'content': 'ciphertext',
+            'encrypted': true,
+            'senderId': 'crypto-sender',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final result = await strictProcessor.process(
+          protocolMessage: message,
+          senderPublicKey: 'relay-node',
+        );
+
+        expect(result.content, isNull);
+        expect(result.shouldAck, isFalse);
+        expect(securityService.decryptMessageByTypeCalls, equals(0));
+        expect(securityService.decryptMessageCalls, equals(0));
+      },
+    );
+
     test('blocks legacy v2 decrypt modes when policy disables them', () async {
       final strictProcessor = InboundTextProcessor(
         contactRepository: contactRepository,
