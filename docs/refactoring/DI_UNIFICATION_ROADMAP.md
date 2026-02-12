@@ -37,7 +37,7 @@
 Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
-- `.instance` usages in `lib/**`: 86
+- `.instance` usages in `lib/**`: 81
 - `GetIt` resolutions in `lib/presentation/**`: 2
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
@@ -191,6 +191,10 @@ Pass 7 progress highlights:
 - Test harness `AppServices` snapshot wiring now composes and publishes the
   same management-service seams so provider/runtime DI behavior stays aligned
   under test.
+- Presentation chat flows now resolve `ISecurityService` through
+  `resolveFromAppServicesOrServiceLocator(...)` (AppServices-first) instead of
+  direct `SecurityServiceLocator.instance` calls in chat screen/controller/view
+  model paths.
 
 ---
 

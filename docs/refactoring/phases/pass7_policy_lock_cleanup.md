@@ -61,6 +61,17 @@ escape hatches that can reintroduce split-brain behavior.
     - test harness now composes and snapshots these same management services in
       `AppServices`, keeping provider/runtime seams consistent in tests
 
+- Pruned presentation `SecurityServiceLocator` singleton usage in chat flow:
+  - `lib/presentation/providers/chat_messaging_view_model.dart`
+    - introduced injected/resolved `ISecurityService` dependency
+      (AppServices-first)
+  - `lib/presentation/controllers/chat_screen_controller.dart`
+    - chat open-state security/encryption reads now resolve `ISecurityService`
+      via DI helper
+  - `lib/presentation/screens/chat_screen.dart`
+    - media send Noise-session callback now resolves from DI helper instead of
+      static locator singleton
+
 ---
 
 ## Verification
@@ -75,6 +86,9 @@ flutter analyze lib/domain/services/security_service_locator.dart lib/core/servi
 flutter test test/data/services/ble_write_adapter_test.dart
 flutter analyze lib/core/di/app_services.dart lib/core/app_core.dart lib/presentation/providers/archive_provider.dart lib/presentation/providers/archive_management_service_provider.dart lib/presentation/providers/archive_search_service_provider.dart lib/presentation/providers/chat_notification_providers.dart lib/presentation/providers/contact_provider.dart test/core/test_helpers/test_setup.dart
 flutter test test/domain/services/archive_search_service_test.dart
+flutter analyze lib/presentation/providers/chat_messaging_view_model.dart lib/presentation/controllers/chat_screen_controller.dart lib/presentation/screens/chat_screen.dart
+flutter test test/presentation/chat_screen_controller_test.dart
+flutter test test/presentation/chat_session_view_model_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -84,7 +98,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **86**
+  - `.instance` usages in `lib/**`: **81**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

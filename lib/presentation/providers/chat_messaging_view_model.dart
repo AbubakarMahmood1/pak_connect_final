@@ -5,8 +5,8 @@ import '../../domain/entities/message.dart';
 import '../../domain/entities/enhanced_message.dart';
 import '../../domain/interfaces/i_message_repository.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
+import '../../domain/interfaces/i_security_service.dart';
 import '../../domain/interfaces/i_user_preferences.dart';
-import 'package:pak_connect/domain/services/security_service_locator.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import '../../domain/services/message_router.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
@@ -46,6 +46,7 @@ class ChatMessagingViewModel {
   final _logger = Logger('ChatMessagingViewModel');
   final IMessageRepository messageRepository;
   final IContactRepository contactRepository;
+  final ISecurityService _securityService;
   final IUserPreferences _userPreferences;
   final ISharedMessageQueueProvider? _sharedQueueProvider;
   final ChatId chatId;
@@ -60,12 +61,21 @@ class ChatMessagingViewModel {
     required this.contactPublicKey,
     required this.messageRepository,
     required this.contactRepository,
+    ISecurityService? securityService,
     IUserPreferences? userPreferences,
     ISharedMessageQueueProvider? sharedQueueProvider,
     this.chatManagementFacade,
-  }) : _userPreferences = userPreferences ?? _resolveUserPreferences(),
+  }) : _securityService = securityService ?? _resolveSecurityService(),
+       _userPreferences = userPreferences ?? _resolveUserPreferences(),
        _sharedQueueProvider = sharedQueueProvider {
     _initialize();
+  }
+
+  static ISecurityService _resolveSecurityService() {
+    return resolveFromAppServicesOrServiceLocator<ISecurityService>(
+      fromServices: (services) => services.securityService,
+      dependencyName: 'ISecurityService',
+    );
   }
 
   static IUserPreferences _resolveUserPreferences() {
@@ -95,7 +105,7 @@ class ChatMessagingViewModel {
   Future<String> _resolveRecipientKey() async {
     try {
       final contact = await contactRepository.getContact(contactPublicKey);
-      final level = await SecurityServiceLocator.instance.getCurrentLevel(
+      final level = await _securityService.getCurrentLevel(
         contactPublicKey,
         contactRepository,
       );
@@ -384,8 +394,10 @@ class ChatMessagingViewModel {
   Future<void> _logMessageSendState(String messageContent) async {
     try {
       final contact = await contactRepository.getContact(contactPublicKey);
-      final encryptionMethod = await SecurityServiceLocator.instance
-          .getEncryptionMethod(contactPublicKey, contactRepository);
+      final encryptionMethod = await _securityService.getEncryptionMethod(
+        contactPublicKey,
+        contactRepository,
+      );
 
       final preview = messageContent.length > 30
           ? "${messageContent.substring(0, 27)}..."

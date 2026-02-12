@@ -8,10 +8,10 @@ import '../../domain/interfaces/i_connection_service.dart';
 import '../../domain/models/connection_info.dart';
 import '../../domain/services/message_router.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
+import '../../domain/interfaces/i_security_service.dart';
 import '../../domain/services/message_security.dart';
 import '../../domain/services/message_retry_coordinator.dart';
 import '../../domain/services/persistent_chat_state_manager.dart';
-import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/utils/chat_utils.dart';
 import '../../domain/utils/string_extensions.dart';
 import '../../domain/interfaces/i_chats_repository.dart';
@@ -31,6 +31,7 @@ import '../../presentation/controllers/chat_session_lifecycle.dart';
 import '../../presentation/models/chat_ui_state.dart';
 import '../../presentation/providers/ble_providers.dart';
 import '../../presentation/providers/chat_messaging_view_model.dart';
+import '../../presentation/providers/di_providers.dart';
 import '../../presentation/providers/mesh_networking_provider.dart';
 import '../../presentation/providers/security_state_provider.dart';
 import '../widgets/chat_search_bar.dart' show SearchResult;
@@ -592,6 +593,13 @@ class ChatScreenController extends ChangeNotifier {
     });
   }
 
+  ISecurityService _resolveSecurityService() {
+    return resolveFromAppServicesOrServiceLocator<ISecurityService>(
+      fromServices: (services) => services.securityService,
+      dependencyName: 'ISecurityService',
+    );
+  }
+
   Future<void> _logChatOpenState() async {
     final configKey = config.contactPublicKey;
     final userId =
@@ -603,12 +611,15 @@ class ChatScreenController extends ChangeNotifier {
     }
 
     final contact = await contactRepository.getContactByUserId(userId);
-    final securityLevel = await SecurityServiceLocator.instance.getCurrentLevel(
+    final securityService = _resolveSecurityService();
+    final securityLevel = await securityService.getCurrentLevel(
       userId.value,
       contactRepository,
     );
-    final encryptionMethod = await SecurityServiceLocator.instance
-        .getEncryptionMethod(userId.value, contactRepository);
+    final encryptionMethod = await securityService.getEncryptionMethod(
+      userId.value,
+      contactRepository,
+    );
 
     _logger.info(
       'Chat open: ${config.contactName ?? "Unknown"} | Security=${securityLevel.name} | Encryption=${encryptionMethod.type.name}',
