@@ -506,46 +506,32 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
               payload.originalType != null) {
             Uint8List? decrypted;
             var decryptSucceeded = false;
-            String? decryptKeyUsed = await _resolveBinarySenderKey(fromNodeId);
-            if ((decryptKeyUsed == null || decryptKeyUsed.isEmpty) &&
-                fromNodeId.isNotEmpty) {
-              decryptKeyUsed = fromNodeId;
-            }
+            String? decryptKeyUsed;
+            final decryptKeyCandidates =
+                await _resolveBinarySenderDecryptCandidates(fromNodeId);
 
-            if (decryptKeyUsed != null && decryptKeyUsed.isNotEmpty) {
-              try {
-                decrypted = await _securityService.decryptBinaryPayload(
-                  payload.bytes,
-                  decryptKeyUsed,
-                  _contactRepository,
-                );
-                decryptSucceeded = true;
-              } catch (e) {
-                final canFallbackToTransportSender =
-                    fromNodeId.isNotEmpty && fromNodeId != decryptKeyUsed;
-                if (canFallbackToTransportSender) {
-                  try {
-                    decrypted = await _securityService.decryptBinaryPayload(
-                      payload.bytes,
-                      fromNodeId,
-                      _contactRepository,
-                    );
-                    decryptKeyUsed = fromNodeId;
-                    decryptSucceeded = true;
-                    _logger.fine(
-                      '🔒 Binary decrypt fallback succeeded using transport sender',
-                    );
-                  } catch (fallbackError) {
-                    _logger.warning(
-                      '⚠️ Binary payload decrypt failed for resolved sender ($decryptKeyUsed) '
-                      'and transport sender ($fromNodeId): $fallbackError',
-                    );
-                  }
-                } else {
-                  _logger.warning(
-                    '⚠️ Binary payload decrypt failed for $decryptKeyUsed: $e',
+            if (decryptKeyCandidates.isNotEmpty) {
+              Object? lastError;
+              for (final decryptKeyCandidate in decryptKeyCandidates) {
+                try {
+                  decrypted = await _securityService.decryptBinaryPayload(
+                    payload.bytes,
+                    decryptKeyCandidate,
+                    _contactRepository,
                   );
+                  decryptKeyUsed = decryptKeyCandidate;
+                  decryptSucceeded = true;
+                  break;
+                } catch (e) {
+                  lastError = e;
                 }
+              }
+
+              if (!decryptSucceeded) {
+                _logger.warning(
+                  '⚠️ Binary payload decrypt failed for all sender candidates '
+                  '(count=${decryptKeyCandidates.length}, transport=$fromNodeId): $lastError',
+                );
               }
             } else if (fromNodeId.isNotEmpty) {
               _logger.warning(
@@ -610,10 +596,20 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     }
   }
 
-  Future<String?> _resolveBinarySenderKey(String? candidateKey) async {
+  Future<List<String>> _resolveBinarySenderDecryptCandidates(
+    String? candidateKey,
+  ) async {
     if (candidateKey == null || candidateKey.isEmpty) {
-      return candidateKey;
+      return const <String>[];
     }
+    final candidates = <String>[];
+    void addCandidate(String? value) {
+      if (value == null || value.isEmpty || candidates.contains(value)) {
+        return;
+      }
+      candidates.add(value);
+    }
+
     try {
       final contact = await _contactRepository.getContactByAnyId(candidateKey);
       if (contact != null) {
@@ -628,18 +624,15 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
             ephemeralID: sessionId,
           );
         }
-        if (sessionId != null && sessionId.isNotEmpty) {
-          return sessionId;
-        }
-        if (persistentKey != null && persistentKey.isNotEmpty) {
-          return persistentKey;
-        }
-        return contact.publicKey;
+        addCandidate(sessionId);
+        addCandidate(persistentKey);
+        addCandidate(contact.publicKey);
       }
     } catch (e) {
       _logger.fine('Binary sender resolution failed for $candidateKey: $e');
     }
-    return candidateKey;
+    addCandidate(candidateKey);
+    return candidates;
   }
 
   /// Retrieves reassembled message bytes produced during fragment processing.
