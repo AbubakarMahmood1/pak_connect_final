@@ -688,6 +688,53 @@ void main() {
       bobManager.shutdown();
     });
 
+    test(
+      'marks session for rekey at message limit and blocks extra sends',
+      () async {
+        final aliceManager = NoiseSessionManager(
+          localStaticPrivateKey: aliceStaticPrivate,
+          localStaticPublicKey: aliceStaticPublic,
+        );
+        final bobManager = NoiseSessionManager(
+          localStaticPrivateKey: bobStaticPrivate,
+          localStaticPublicKey: bobStaticPublic,
+        );
+
+        final previousLevel = Logger.root.level;
+        Logger.root.level = Level.WARNING;
+        addTearDown(() => Logger.root.level = previousLevel);
+
+        final msg1 = await aliceManager.initiateHandshake('Bob');
+        final msg2 = await bobManager.processHandshakeMessage('Alice', msg1);
+        final msg3 = await aliceManager.processHandshakeMessage('Bob', msg2!);
+        await bobManager.processHandshakeMessage('Alice', msg3!);
+
+        expect(aliceManager.hasEstablishedSession('Bob'), isTrue);
+
+        final payload = Uint8List.fromList([1]);
+        for (var i = 0; i < 10000; i++) {
+          await aliceManager.encrypt(payload, 'Bob');
+        }
+
+        final needingRekey = aliceManager.getSessionsNeedingRekey();
+        expect(needingRekey, contains('Bob'));
+
+        await expectLater(
+          () => aliceManager.encrypt(payload, 'Bob'),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              contains('requires rekeying'),
+            ),
+          ),
+        );
+
+        aliceManager.shutdown();
+        bobManager.shutdown();
+      },
+    );
+
     test('gets handshake hash for channel binding', () async {
       final aliceManager = NoiseSessionManager(
         localStaticPrivateKey: aliceStaticPrivate,
