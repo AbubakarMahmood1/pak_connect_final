@@ -152,6 +152,25 @@ escape hatches that can reintroduce split-brain behavior.
     - provider now takes/stores an injected `AppCore` handle (default
       `AppCore()`), removing repeated static singleton lookups
 
+- Normalized remaining singleton access patterns to constructor-style paths:
+  - added factory constructors:
+    - `lib/core/services/navigation_service.dart`
+    - `lib/domain/services/bluetooth_state_monitor.dart`
+    - `lib/core/messaging/relay_config_manager.dart`
+    - `lib/data/database/database_query_optimizer.dart`
+    - `lib/data/services/seen_message_store.dart`
+  - migrated call sites from `.instance` to constructor-style access:
+    - `lib/domain/services/burst_scanning_controller.dart`
+    - `lib/data/services/ble_service_facade.dart`
+    - `lib/domain/services/chat_management_facade.dart`
+    - `lib/presentation/providers/bluetooth_state_provider.dart`
+    - `lib/presentation/providers/topology_provider.dart`
+  - test harness alignment:
+    - `test/core/test_helpers/test_setup.dart`
+      - now always configures `SecurityServiceLocator` from the composed
+        harness security service snapshot, keeping stricter resolver policy
+        compatible with facade/integration suites
+
 ---
 
 ## Verification
@@ -187,6 +206,11 @@ pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_out
 flutter analyze lib/main.dart lib/core/services/app_core_shared_message_queue_provider.dart lib/core/app_core.dart
 flutter test test/core/app_core_initialization_retry_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
+flutter analyze lib/core/services/navigation_service.dart lib/domain/services/bluetooth_state_monitor.dart lib/core/messaging/relay_config_manager.dart lib/data/database/database_query_optimizer.dart lib/domain/services/burst_scanning_controller.dart lib/data/services/ble_service_facade.dart lib/data/services/seen_message_store.dart lib/presentation/providers/bluetooth_state_provider.dart lib/core/messaging/mesh_relay_engine.dart lib/domain/services/chat_management_facade.dart lib/presentation/providers/topology_provider.dart lib/presentation/providers/mesh_networking_provider.dart
+flutter test test/data/services/ble_service_facade_test.dart
+flutter test test/database_query_optimizer_test.dart
+flutter test test/core/messaging/relay_phase1_test.dart
+pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
 Results:
@@ -195,7 +219,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **37**
+  - `.instance` usages in `lib/**`: **24**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

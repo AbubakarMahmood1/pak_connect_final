@@ -5,7 +5,7 @@ import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 final bluetoothStateMonitorProvider = Provider.autoDispose<BluetoothStateMonitor>((
   ref,
 ) {
-  final monitor = BluetoothStateMonitor.instance;
+  final monitor = BluetoothStateMonitor();
   ref.onDispose(() {
     // Note: BluetoothStateMonitor is a singleton, managed at app lifecycle level
   });

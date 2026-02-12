@@ -71,7 +71,7 @@ class BurstScanningController {
       onStatsUpdate: _handleStatsUpdate,
     );
 
-    final bluetoothMonitor = BluetoothStateMonitor.instance;
+    final bluetoothMonitor = BluetoothStateMonitor();
     await _powerManager!.updateBluetoothAvailability(
       bluetoothMonitor.isBluetoothReady,
     );
@@ -147,7 +147,7 @@ class BurstScanningController {
 
     // ✅ FIX #2: Check Bluetooth state before attempting scan
     // This prevents permission errors when Bluetooth is off/unauthorized/unsupported
-    final bluetoothMonitor = BluetoothStateMonitor.instance;
+    final bluetoothMonitor = BluetoothStateMonitor();
     if (!bluetoothMonitor.isBluetoothReady) {
       _logger.fine(
         '🔥 BURST: Bluetooth not ready (state: ${bluetoothMonitor.currentState}) - skipping scan',
