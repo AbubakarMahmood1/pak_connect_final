@@ -1,6 +1,12 @@
 import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
+import '../../domain/services/archive_management_service.dart';
+import '../../domain/services/archive_search_service.dart';
+import '../../domain/services/chat_management_service.dart';
+import '../../domain/services/contact_management_service.dart';
+import '../../domain/services/security_service_locator.dart';
 import '../../domain/services/mesh_networking_service.dart';
+import '../services/security_manager.dart';
 import '../../domain/services/mesh/mesh_network_health_monitor.dart';
 import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import '../../domain/services/mesh/mesh_relay_coordinator.dart';
@@ -21,6 +27,9 @@ import 'package:pak_connect/domain/interfaces/i_home_screen_facade_factory.dart'
 import 'package:pak_connect/domain/interfaces/i_chat_connection_manager_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_chat_list_coordinator_factory.dart';
 import '../bluetooth/handshake_coordinator_factory.dart';
+import '../bluetooth/handshake_coordinator.dart';
+import '../bluetooth/smart_handshake_manager.dart';
+import '../messaging/mesh_relay_engine.dart';
 import '../messaging/mesh_relay_engine_factory.dart';
 import '../services/app_core_shared_message_queue_provider.dart';
 import '../services/home_screen_facade_factory.dart';
@@ -115,8 +124,8 @@ Future<void> setupServiceLocator() async {
     if (!getIt.isRegistered<IRepositoryProvider>()) {
       getIt.registerSingleton<IRepositoryProvider>(
         RepositoryProviderImpl(
-          contactRepository: getIt<IContactRepository>(),
-          messageRepository: getIt<IMessageRepository>(),
+          contactRepository: getIt.get<IContactRepository>(),
+          messageRepository: getIt.get<IMessageRepository>(),
         ),
       );
       _logger.fine('✅ IRepositoryProvider registered (Phase 3)');
@@ -174,7 +183,7 @@ Future<void> setupServiceLocator() async {
     // ===========================
     // SecurityManager: Registered as singleton instance (lazy init by AppCore)
     // Note: SecurityManager is initialized in AppCore._initializeCoreServices()
-    // We access it via SecurityManager.instance to maintain backward compatibility
+    // We keep compatibility with the legacy static singleton accessor.
     _logger.fine('🔐 SecurityManager will be initialized by AppCore');
 
     // BLEService: Will be registered by AppCore after initialization
@@ -205,6 +214,8 @@ void registerInitializedServices({
   _logger.info('📋 Registering initialized services...');
 
   try {
+    SecurityServiceLocator.configureServiceResolver(() => securityService);
+
     // Register security interface
     if (!getIt.isRegistered<ISecurityService>()) {
       getIt.registerSingleton<ISecurityService>(securityService);
@@ -268,6 +279,15 @@ void registerInitializedServices({
 /// Resets the service locator (useful for testing)
 Future<void> resetServiceLocator() async {
   _logger.info('🔄 Resetting service locator...');
+  ContactManagementService.clearDependencyResolvers();
+  ArchiveManagementService.clearArchiveRepositoryResolver();
+  ArchiveSearchService.clearArchiveRepositoryResolver();
+  ChatManagementService.clearDependencyResolvers();
+  SecurityServiceLocator.clearServiceResolver();
+  SecurityManager.clearContactRepositoryResolver();
+  HandshakeCoordinator.clearRepositoryProviderResolver();
+  SmartHandshakeManager.clearRepositoryProviderResolver();
+  MeshRelayEngine.clearDependencyResolvers();
   await getIt.reset();
   _logger.info('✅ Service locator reset complete');
 }
@@ -276,3 +296,4 @@ Future<void> resetServiceLocator() async {
 bool isRegistered<T extends Object>() {
   return getIt.isRegistered<T>();
 }
+

@@ -5,22 +5,16 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
-import '../../domain/services/mesh_networking_service.dart';
-import '../../domain/services/chat_management_service.dart';
-import '../../domain/interfaces/i_ble_message_handler_facade.dart';
-import '../../domain/interfaces/i_mesh_relay_engine_factory.dart';
+import '../../domain/services/mesh_networking_service.dart'
+    show PendingBinaryTransfer, ReceivedBinaryEvent;
 import '../../domain/interfaces/i_mesh_networking_service.dart';
-import '../../domain/interfaces/i_shared_message_queue_provider.dart';
 import '../../domain/messaging/queue_sync_manager.dart';
 import '../../domain/models/mesh_relay_models.dart' show RelayStatistics;
 import '../../domain/models/mesh_network_models.dart';
 import '../../domain/models/bluetooth_state_models.dart';
 import '../../domain/entities/enhanced_message.dart';
-import '../../domain/services/mesh/mesh_relay_coordinator.dart';
-import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
-import '../../domain/services/mesh/mesh_network_health_monitor.dart';
 import 'ble_providers.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'runtime_providers.dart';
@@ -139,25 +133,7 @@ final meshRuntimeProvider =
     );
 
 /// Logger for mesh networking providers
-final GetIt getIt = GetIt.instance;
 final _logger = Logger('MeshNetworkingProvider');
-
-/// Singleton providers for service dependencies
-/// ✅ FIXED: Services now use singleton pattern to prevent re-initialization
-
-/// Provider for IBLEMessageHandlerFacade implementation
-final _messageHandlerProvider = Provider<IBLEMessageHandlerFacade>((ref) {
-  if (getIt.isRegistered<IBLEMessageHandlerFacade>()) {
-    return getIt<IBLEMessageHandlerFacade>();
-  }
-  throw StateError(
-    'IBLEMessageHandlerFacade is not registered. '
-    'Call setupServiceLocator() before creating mesh providers.',
-  );
-});
-final _chatManagementServiceProvider = Provider<ChatManagementService>(
-  (ref) => ChatManagementService.instance,
-);
 
 /// Bluetooth state stream (bridged via Riverpod for lifecycle safety)
 final bluetoothStateStreamProvider = StreamProvider<BluetoothStateInfo>((ref) {
@@ -192,96 +168,25 @@ final bluetoothReadyProvider = Provider<bool>((ref) {
 });
 
 /// Provider for MeshNetworkingService (Singleton to prevent multiple instances)
-/// Phase 1 Part C: Register in DI container when created
+/// Pass 2: runtime ownership is outside presentation providers.
 final meshNetworkingServiceProvider = Provider<IMeshNetworkingService>((ref) {
-  if (getIt.isRegistered<IMeshNetworkingService>()) {
-    return getIt<IMeshNetworkingService>();
+  final bootstrap = ref.watch(appBootstrapProvider);
+  try {
+    return resolveFromAppServicesOrServiceLocator<IMeshNetworkingService>(
+      fromServices: (services) => services.meshNetworkingService,
+      dependencyName: 'IMeshNetworkingService',
+    );
+  } catch (_) {
+    final bootstrapStatus = bootstrap.asData?.value.status.name;
+    final runtimeState = bootstrap.isLoading
+        ? 'initializing'
+        : (bootstrapStatus ?? 'unknown');
+    throw StateError(
+      'IMeshNetworkingService is not registered in DI (runtime=$runtimeState). '
+      'Ensure AppCore initialization completes before reading mesh networking providers.',
+    );
   }
-
-  final connectionService = ref.watch(connectionServiceProvider);
-  final messageHandler = ref.watch(_messageHandlerProvider);
-  final chatManagementService = ref.watch(_chatManagementServiceProvider);
-
-  _logger.info(
-    '🔧 Creating MeshNetworkingService instance (fallback for tests)',
-  );
-
-  final service = MeshNetworkingService(
-    bleService: connectionService,
-    messageHandler: messageHandler,
-    chatManagementService: chatManagementService,
-    sharedQueueProvider: _resolveSharedMessageQueueProvider(),
-    relayEngineFactory: (queue, spam) => _resolveRelayEngineFactory().create(
-      messageQueue: queue,
-      spamPrevention: spam,
-      forceFloodMode: true,
-    ),
-  );
-
-  _initializeServiceAsync(service, ref);
-
-  ref.onDispose(() {
-    _logger.info('🔧 Disposing fallback MeshNetworkingService');
-    service.dispose();
-    try {
-      getIt.unregister<MeshNetworkingService>();
-    } catch (_) {}
-    try {
-      getIt.unregister<IMeshNetworkingService>();
-    } catch (_) {}
-    try {
-      getIt.unregister<MeshRelayCoordinator>();
-    } catch (_) {}
-    try {
-      getIt.unregister<MeshQueueSyncCoordinator>();
-    } catch (_) {}
-    try {
-      getIt.unregister<MeshNetworkHealthMonitor>();
-    } catch (_) {}
-  });
-
-  try {
-    getIt.registerSingleton<MeshNetworkingService>(service);
-  } catch (_) {}
-
-  try {
-    getIt.registerSingleton<IMeshNetworkingService>(service);
-  } catch (_) {}
-
-  try {
-    getIt.registerSingleton<MeshRelayCoordinator>(service.relayCoordinator);
-  } catch (_) {}
-
-  try {
-    getIt.registerSingleton<MeshQueueSyncCoordinator>(service.queueCoordinator);
-  } catch (_) {}
-
-  try {
-    getIt.registerSingleton<MeshNetworkHealthMonitor>(service.healthMonitor);
-  } catch (_) {}
-
-  return service;
 });
-
-ISharedMessageQueueProvider _resolveSharedMessageQueueProvider() {
-  if (getIt.isRegistered<ISharedMessageQueueProvider>()) {
-    return getIt<ISharedMessageQueueProvider>();
-  }
-  throw StateError(
-    'ISharedMessageQueueProvider is not registered. '
-    'Register it in DI before creating MeshNetworkingService.',
-  );
-}
-
-IMeshRelayEngineFactory _resolveRelayEngineFactory() {
-  if (getIt.isRegistered<IMeshRelayEngineFactory>()) {
-    return getIt<IMeshRelayEngineFactory>();
-  }
-  throw StateError(
-    'IMeshRelayEngineFactory is not registered. '
-    'Register it in DI before creating MeshNetworkingService.',
-  );
-}
 
 /// Binary/media payload stream for UI consumption.
 final binaryPayloadStreamProvider = StreamProvider<ReceivedBinaryEvent>((ref) {
@@ -330,7 +235,7 @@ final queueStatsStreamProvider = StreamProvider<QueueSyncManagerStats>((ref) {
 
 /// ✅ Phase 6: Topology manager provider (singleton access)
 final topologyManagerProvider = Provider<TopologyManager>((ref) {
-  return TopologyManager.instance;
+  return TopologyManager();
 });
 
 /// ✅ Phase 6: Network topology stream (bridged through Riverpod)
@@ -655,32 +560,6 @@ extension MeshNetworkingProviderExtensions on WidgetRef {
   MeshNetworkHealth getMeshNetworkHealth() {
     final controller = read(meshNetworkingControllerProvider);
     return controller.getNetworkHealth();
-  }
-}
-
-/// Initialize mesh service asynchronously with error handling
-Future<void> _initializeServiceAsync(
-  MeshNetworkingService service,
-  Ref ref,
-) async {
-  try {
-    _logger.info('Initializing mesh networking service...');
-    await service.initialize();
-
-    _logger.info('✅ Mesh networking service initialized successfully');
-
-    // CRITICAL FIX: Add a small delay then force a status broadcast
-    // This ensures any late-subscribing widgets get the final initialized status
-    await Future.delayed(Duration(milliseconds: 100));
-
-    // Force a final status broadcast to ensure all listeners get the initialized state
-    service.refreshMeshStatus();
-    _logger.info(
-      '🔄 Final status broadcast sent to ensure all widgets receive initialized state',
-    );
-  } catch (e) {
-    _logger.severe('❌ Failed to initialize mesh networking service: $e');
-    // Don't rethrow - let the service handle fallback status broadcasting
   }
 }
 

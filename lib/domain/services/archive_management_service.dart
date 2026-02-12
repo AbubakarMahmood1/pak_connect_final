@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:get_it/get_it.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../models/archive_models.dart';
@@ -22,31 +21,75 @@ class ArchiveManagementService {
 
   // Singleton instance
   static ArchiveManagementService? _instance;
+  static IArchiveRepository Function()? _archiveRepositoryResolver;
 
   /// Get the singleton instance
   static ArchiveManagementService get instance {
-    // Dart is single-threaded, simple null-check is sufficient
-    _instance ??= ArchiveManagementService._internal();
+    _instance ??= ArchiveManagementService.fromServiceLocator();
     return _instance!;
   }
 
+  /// Install an app-composed singleton instance.
+  static void setInstance(ArchiveManagementService service) {
+    _instance = service;
+  }
+
+  /// Configure fallback archive repository resolver for legacy singleton access.
+  static void configureArchiveRepositoryResolver(
+    IArchiveRepository Function() resolver,
+  ) {
+    _archiveRepositoryResolver = resolver;
+  }
+
+  /// Clear fallback resolver.
+  static void clearArchiveRepositoryResolver() {
+    _archiveRepositoryResolver = null;
+  }
+
   /// Private constructor for singleton
-  ArchiveManagementService._internal({IArchiveRepository? archiveRepository})
-    : _archiveRepository =
-          archiveRepository ?? GetIt.instance<IArchiveRepository>(),
-      _policyEngine = ArchivePolicyEngine(
-        archiveRepository:
-            archiveRepository ?? GetIt.instance<IArchiveRepository>(),
-      ),
-      _maintenance = ArchiveMaintenance(
-        archiveRepository:
-            archiveRepository ?? GetIt.instance<IArchiveRepository>(),
-      ) {
+  ArchiveManagementService._internal({
+    required IArchiveRepository archiveRepository,
+    ArchivePolicyEngine? policyEngine,
+    ArchiveMaintenance? maintenance,
+  }) : _archiveRepository = archiveRepository,
+       _policyEngine =
+           policyEngine ??
+           ArchivePolicyEngine(archiveRepository: archiveRepository),
+       _maintenance =
+           maintenance ??
+           ArchiveMaintenance(archiveRepository: archiveRepository) {
     _logger.info('✅ ArchiveManagementService singleton instance created');
   }
 
   /// Factory constructor (redirects to instance getter)
   factory ArchiveManagementService() => instance;
+
+  /// Constructor-first creation path for app composition.
+  factory ArchiveManagementService.withDependencies({
+    required IArchiveRepository archiveRepository,
+    ArchivePolicyEngine? policyEngine,
+    ArchiveMaintenance? maintenance,
+  }) => ArchiveManagementService._internal(
+    archiveRepository: archiveRepository,
+    policyEngine: policyEngine,
+    maintenance: maintenance,
+  );
+
+  /// Legacy fallback for contexts still relying on global DI.
+  factory ArchiveManagementService.fromServiceLocator() {
+    final resolver = _archiveRepositoryResolver;
+    if (resolver == null) {
+      throw StateError(
+        'ArchiveManagementService fallback dependencies are not configured. '
+        'Call ArchiveManagementService.configureArchiveRepositoryResolver(...), '
+        'or install an app-composed singleton via setInstance().',
+      );
+    }
+    final archiveRepository = resolver();
+    return ArchiveManagementService._internal(
+      archiveRepository: archiveRepository,
+    );
+  }
 
   // Dependencies (injected for testability)
   final IArchiveRepository _archiveRepository;

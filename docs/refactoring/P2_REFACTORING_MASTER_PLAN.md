@@ -95,3 +95,27 @@ the team can see what is actually done and what must happen next.
 
 Proceeding with Phase 4 on this updated baseline keeps later refactors aligned
 with the current code shape.
+
+---
+
+## DI Unification Track (New)
+
+- Pass 0 guardrails and baseline are captured in:
+  - `docs/refactoring/phases/pass0_di_unification_guardrails.md`
+  - `docs/refactoring/DI_UNIFICATION_ROADMAP.md`
+  - `validation_outputs/di_pass0_baseline.json`
+- Pass 1 presentation firewall is captured in:
+  - `docs/refactoring/phases/pass1_presentation_di_firewall.md`
+  - `validation_outputs/di_pass1_snapshot.json`
+- Pass 2 single-runtime-owner guardrails are captured in:
+  - `docs/refactoring/phases/pass2_single_runtime_owner.md`
+  - `validation_outputs/di_pass2_snapshot.json`
+- Pass 3 constructor-first migration progress is captured in:
+  - `docs/refactoring/phases/pass3_constructor_first_domain_core.md`
+  - `validation_outputs/di_pass3_snapshot.json`
+- Pass 4 composition-root/provider wiring progress is captured in:
+  - `docs/refactoring/phases/pass4_composition_root_provider_wiring.md`
+  - `validation_outputs/di_pass4_snapshot.json`
+- Audit/enforcement tool:
+  - `scripts/di_pass0_audit.ps1`
+  - CI-enforced in `.github/workflows/flutter_coverage.yml`

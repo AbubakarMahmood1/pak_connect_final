@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/entities/enhanced_contact.dart';
 import 'package:pak_connect/domain/utils/hint_advertisement_service.dart';
 
@@ -9,8 +8,19 @@ class HintCacheManager {
   static final Map<String, ContactHint> _contactCache = {};
   static DateTime? _lastCacheUpdate;
   static int _cacheValidityMinutes = 30;
+  static IContactRepository? _contactRepository;
 
   static int get cacheSize => _contactCache.length;
+
+  static void configureContactRepository({
+    required IContactRepository contactRepository,
+  }) {
+    _contactRepository = contactRepository;
+  }
+
+  static void clearContactRepository() {
+    _contactRepository = null;
+  }
 
   static Future<void> updateCache() async {
     final now = DateTime.now();
@@ -20,7 +30,13 @@ class HintCacheManager {
     }
 
     _contactCache.clear();
-    final contactRepo = GetIt.instance<IContactRepository>();
+    final contactRepo = _contactRepository;
+    if (contactRepo == null) {
+      if (kDebugMode) {
+        print('⚠️ Hint cache skipped: contact repository is not configured');
+      }
+      return;
+    }
     final contacts = await contactRepo.getAllContacts();
 
     for (final contact in contacts.values) {

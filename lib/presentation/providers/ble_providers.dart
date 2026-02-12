@@ -402,7 +402,7 @@ class UsernameNotifier extends AsyncNotifier<String> {
     return maybeResolveFromAppServicesOrServiceLocator<IUserPreferences>(
           fromServices: (services) => services.userPreferences,
         ) ??
-        _FallbackUserPreferences.instance;
+        _fallbackUserPreferences;
   }
 }
 
@@ -814,9 +814,9 @@ final unifiedMessagingProvider = Provider<UnifiedMessagingService>((ref) {
   );
 });
 
-class _FallbackUserPreferences implements IUserPreferences {
-  static final _FallbackUserPreferences instance = _FallbackUserPreferences._();
+final _fallbackUserPreferences = _FallbackUserPreferences._();
 
+class _FallbackUserPreferences implements IUserPreferences {
   _FallbackUserPreferences._();
 
   String _name = 'User';

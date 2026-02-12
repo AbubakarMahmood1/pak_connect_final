@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "generatedAtUtc": "2026-02-12T09:26:00.8821367Z",
+  "scope": "lib/**/*.dart",
+  "metrics": {
+    "getItResolutionCount": 101,
+    "instanceUsageCount": 168,
+    "presentationGetItResolutionCount": 2,
+    "presentationGetItImportCount": 1,
+    "presentationGetItImportFileCount": 1
+  },
+  "breakdown": {
+    "getItResolutionsByLayer": [
+      {
+        "layer": "core",
+        "count": 41
+      },
+      {
+        "layer": "domain",
+        "count": 31
+      },
+      {
+        "layer": "data",
+        "count": 27
+      },
+      {
+        "layer": "presentation",
+        "count": 2
+      }
+    ],
+    "topGetItResolutionFiles": [
+      {
+        "path": "lib/core/app_core.dart",
+        "count": 11
+      },
+      {
+        "path": "lib/data/di/data_layer_service_registrar.dart",
+        "count": 10
+      },
+      {
+        "path": "lib/core/messaging/mesh_relay_engine.dart",
+        "count": 6
+      },
+      {
+        "path": "lib/data/services/ble_message_handler_facade.dart",
+        "count": 4
+      },
+      {
+        "path": "lib/core/messaging/offline_message_queue.dart",
+        "count": 4
+      },
+      {
+        "path": "lib/core/di/service_locator.dart",
+        "count": 3
+      },
+      {
+        "path": "lib/domain/services/mesh_networking_service.dart",
+        "count": 3
+      },
+      {
+        "path": "lib/domain/services/archive_management_service.dart",
+        "count": 3
+      },
+      {
+        "path": "lib/domain/services/chat_management_service.dart",
+        "count": 3
+      },
+      {
+        "path": "lib/domain/services/auto_archive_scheduler.dart",
+        "count": 3
+      },
+      {
+        "path": "lib/data/services/relay_coordinator.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/domain/interfaces/i_repository_provider.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/domain/services/chat_sync_service.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/data/services/protocol_message_handler.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/domain/services/contact_management_service.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/domain/services/hint_scanner_service.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/domain/services/message_router.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/domain/services/pinning_service.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/domain/services/archive_search_service.dart",
+        "count": 2
+      },
+      {
+        "path": "lib/data/services/mesh_relay_handler.dart",
+        "count": 2
+      }
+    ]
+  },
+  "guardrails": {
+    "mode": "advisory",
+    "allowedPresentationGetItImportFiles": [
+      "lib/presentation/providers/di_providers.dart"
+    ],
+    "presentationGetItImportViolationCount": 0,
+    "presentationGetItImportViolations": []
+  }
+}

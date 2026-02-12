@@ -10,7 +10,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import '../security/noise/noise.dart';
@@ -31,6 +30,7 @@ class HandshakeInitiationResult {
 /// Smart handshake manager with pattern selection and fallback
 class SmartHandshakeManager {
   static final _logger = Logger('SmartHandshakeManager');
+  static IRepositoryProvider Function()? _repositoryProviderResolver;
 
   final IRepositoryProvider _repositoryProvider;
   final NoiseEncryptionService _noiseService;
@@ -47,12 +47,35 @@ class SmartHandshakeManager {
   /// Minimum time between KK retry attempts
   static const Duration _kkRetryDelay = Duration(hours: 1);
 
+  /// Configure repository provider resolver from composition/bootstrap code.
+  static void configureRepositoryProviderResolver(
+    IRepositoryProvider Function() resolver,
+  ) {
+    _repositoryProviderResolver = resolver;
+  }
+
+  /// Clear configured repository resolver.
+  static void clearRepositoryProviderResolver() {
+    _repositoryProviderResolver = null;
+  }
+
   SmartHandshakeManager({
     IRepositoryProvider? repositoryProvider,
     required NoiseEncryptionService noiseService,
-  }) : _repositoryProvider =
-           repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),
+  }) : _repositoryProvider = repositoryProvider ?? _resolveRepositoryProvider(),
        _noiseService = noiseService;
+
+  static IRepositoryProvider _resolveRepositoryProvider() {
+    final resolver = _repositoryProviderResolver;
+    if (resolver != null) {
+      return resolver();
+    }
+    throw StateError(
+      'SmartHandshakeManager repository provider is not configured. '
+      'Pass repositoryProvider explicitly or call '
+      'SmartHandshakeManager.configureRepositoryProviderResolver(...).',
+    );
+  }
 
   /// Initiate handshake with peer (smart pattern selection)
   ///

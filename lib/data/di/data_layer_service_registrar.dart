@@ -10,23 +10,38 @@ import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/data/repositories/preferences_repository.dart';
 import 'package:pak_connect/data/repositories/user_preferences.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
+import 'package:pak_connect/data/services/ble_message_handler_facade.dart';
 import 'package:pak_connect/data/services/ble_message_handler_facade_impl.dart';
+import 'package:pak_connect/data/services/ble_handshake_service.dart';
+import 'package:pak_connect/data/services/ble_service_facade.dart';
 import 'package:pak_connect/data/services/ble_service_facade_factory.dart';
+import 'package:pak_connect/data/services/ble_state_manager.dart';
+import 'package:pak_connect/data/services/ble_state_manager_facade.dart';
+import 'package:pak_connect/data/services/ephemeral_contact_cleaner.dart';
 import 'package:pak_connect/data/services/export_import/export_service_adapter.dart';
 import 'package:pak_connect/data/services/export_import/import_service_adapter.dart';
 import 'package:pak_connect/data/services/mesh_routing_service.dart';
+import 'package:pak_connect/data/services/mesh_relay_handler.dart';
+import 'package:pak_connect/data/services/protocol_message_handler.dart';
+import 'package:pak_connect/data/services/relay_coordinator.dart';
 import 'package:pak_connect/data/services/seen_message_store.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_service_facade_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_export_service.dart';
 import 'package:pak_connect/domain/interfaces/i_group_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_import_service.dart';
 import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_handshake_coordinator_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
@@ -37,6 +52,76 @@ import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 ///
 /// Core DI setup should call this hook instead of importing concrete data types.
 Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
+  BLEHandshakeService.configureCoordinatorFactoryResolver(
+    () => getIt.get<IHandshakeCoordinatorFactory>(),
+  );
+  BLEServiceFacade.configureHandshakeServiceRegistrar((handshakeService) {
+    if (!getIt.isRegistered<IBLEHandshakeService>()) {
+      getIt.registerSingleton<IBLEHandshakeService>(handshakeService);
+    }
+  });
+  BLEMessageHandlerFacade.configureDependencyResolvers(
+    handshakeServiceResolver: () {
+      if (getIt.isRegistered<IBLEHandshakeService>()) {
+        return getIt.get<IBLEHandshakeService>();
+      }
+      return null;
+    },
+    seenMessageStoreResolver: () {
+      if (getIt.isRegistered<ISeenMessageStore>()) {
+        return getIt.get<ISeenMessageStore>();
+      }
+      return null;
+    },
+  );
+  BLEMessageHandlerFacadeImpl.configureDependencyResolvers(
+    legacyStateManagerResolver: () {
+      if (getIt.isRegistered<BLEStateManagerFacade>()) {
+        return getIt.get<BLEStateManagerFacade>().legacyStateManager;
+      }
+      if (getIt.isRegistered<IBLEStateManagerFacade>()) {
+        final facade = getIt.get<IBLEStateManagerFacade>();
+        if (facade is BLEStateManagerFacade) {
+          return facade.legacyStateManager;
+        }
+      }
+      if (getIt.isRegistered<BLEStateManager>()) {
+        return getIt.get<BLEStateManager>();
+      }
+      return null;
+    },
+    sharedQueueProviderResolver: () {
+      if (getIt.isRegistered<ISharedMessageQueueProvider>()) {
+        return getIt.get<ISharedMessageQueueProvider>();
+      }
+      return null;
+    },
+  );
+  ProtocolMessageHandler.configureIdentityManagerResolver(() {
+    if (getIt.isRegistered<IIdentityManager>()) {
+      return getIt.get<IIdentityManager>();
+    }
+    return null;
+  });
+  RelayCoordinator.configureDependencyResolvers(
+    sharedQueueProviderResolver: () {
+      if (getIt.isRegistered<ISharedMessageQueueProvider>()) {
+        return getIt.get<ISharedMessageQueueProvider>();
+      }
+      return null;
+    },
+    relayEngineFactoryResolver: () => getIt.get<IMeshRelayEngineFactory>(),
+  );
+  MeshRelayHandler.configureRelayEngineFactoryResolver(
+    () => getIt.get<IMeshRelayEngineFactory>(),
+  );
+  EphemeralContactCleaner.configureQueueRepositoryResolver(() {
+    if (getIt.isRegistered<IMessageQueueRepository>()) {
+      return getIt.get<IMessageQueueRepository>();
+    }
+    return null;
+  });
+
   // ===========================
   // REPOSITORIES
   // ===========================
@@ -48,7 +133,7 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
   }
 
   if (!getIt.isRegistered<IContactRepository>()) {
-    getIt.registerSingleton<IContactRepository>(getIt<ContactRepository>());
+    getIt.registerSingleton<IContactRepository>(getIt.get<ContactRepository>());
     logger.fine('✅ IContactRepository registered (data registrar)');
   }
 
@@ -60,12 +145,12 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
   }
 
   if (!getIt.isRegistered<IMessageRepository>()) {
-    getIt.registerSingleton<IMessageRepository>(getIt<MessageRepository>());
+    getIt.registerSingleton<IMessageRepository>(getIt.get<MessageRepository>());
     logger.fine('✅ IMessageRepository registered (data registrar)');
   }
 
   if (!getIt.isRegistered<ArchiveRepository>()) {
-    getIt.registerSingleton<ArchiveRepository>(ArchiveRepository.instance);
+    getIt.registerSingleton<ArchiveRepository>(ArchiveRepository());
     logger.fine('✅ ArchiveRepository registered');
   } else {
     logger.fine('ℹ️ ArchiveRepository already registered');
@@ -110,23 +195,23 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
   // INTERFACE BINDINGS
   // ===========================
   if (!getIt.isRegistered<IMeshRoutingService>()) {
-    getIt.registerSingleton<IMeshRoutingService>(getIt<MeshRoutingService>());
+    getIt.registerSingleton<IMeshRoutingService>(getIt.get<MeshRoutingService>());
     logger.fine('✅ IMeshRoutingService registered');
   }
 
   if (!getIt.isRegistered<IArchiveRepository>()) {
-    getIt.registerSingleton<IArchiveRepository>(getIt<ArchiveRepository>());
+    getIt.registerSingleton<IArchiveRepository>(getIt.get<ArchiveRepository>());
     logger.fine('✅ IArchiveRepository registered');
   }
 
   if (!getIt.isRegistered<IChatsRepository>()) {
-    getIt.registerSingleton<IChatsRepository>(getIt<ChatsRepository>());
+    getIt.registerSingleton<IChatsRepository>(getIt.get<ChatsRepository>());
     logger.fine('✅ IChatsRepository registered');
   }
 
   if (!getIt.isRegistered<IPreferencesRepository>()) {
     getIt.registerSingleton<IPreferencesRepository>(
-      getIt<PreferencesRepository>(),
+      getIt.get<PreferencesRepository>(),
     );
     logger.fine('✅ IPreferencesRepository registered');
   }
@@ -137,12 +222,12 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
   }
 
   if (!getIt.isRegistered<IGroupRepository>()) {
-    getIt.registerSingleton<IGroupRepository>(getIt<GroupRepository>());
+    getIt.registerSingleton<IGroupRepository>(getIt.get<GroupRepository>());
     logger.fine('✅ IGroupRepository registered');
   }
 
   if (!getIt.isRegistered<IIntroHintRepository>()) {
-    getIt.registerSingleton<IIntroHintRepository>(getIt<IntroHintRepository>());
+    getIt.registerSingleton<IIntroHintRepository>(getIt.get<IntroHintRepository>());
     logger.fine('✅ IIntroHintRepository registered');
   }
 
@@ -161,7 +246,7 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
   }
 
   if (!getIt.isRegistered<ISeenMessageStore>()) {
-    getIt.registerSingleton<ISeenMessageStore>(SeenMessageStore.instance);
+    getIt.registerSingleton<ISeenMessageStore>(SeenMessageStore());
     logger.fine('✅ ISeenMessageStore registered');
   }
 
@@ -180,8 +265,8 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
     getIt.registerLazySingleton<IBLEMessageHandlerFacade>(
       () => BLEMessageHandlerFacadeImpl(
         BLEMessageHandler(),
-        getIt<ISeenMessageStore>(),
-        sharedQueueProvider: getIt<ISharedMessageQueueProvider>(),
+        getIt.get<ISeenMessageStore>(),
+        sharedQueueProvider: getIt.get<ISharedMessageQueueProvider>(),
       ),
     );
     logger.fine('✅ IBLEMessageHandlerFacade registered');
@@ -194,3 +279,4 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
     logger.fine('✅ IBLEServiceFacadeFactory registered');
   }
 }
+

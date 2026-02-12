@@ -7,7 +7,6 @@ import '../entities/contact.dart' show Contact;
 import 'package:pak_connect/domain/utils/hint_advertisement_service.dart';
 import '../interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
-import 'package:get_it/get_it.dart';
 
 /// Result of hint matching
 class HintMatchResult {
@@ -68,6 +67,7 @@ enum HintMatchType {
 /// Service for scanning and matching discovered hints
 class HintScannerService {
   final _logger = Logger('HintScannerService');
+  static IRepositoryProvider? _defaultRepositoryProvider;
 
   /// Cache of contacts keyed by identifier (public key)
   final Map<String, Contact> _contactCache = {};
@@ -78,12 +78,19 @@ class HintScannerService {
   /// Provider for accessing repositories
   final IRepositoryProvider? _repositoryProvider;
 
+  static void configureRepositoryProvider(IRepositoryProvider provider) {
+    _defaultRepositoryProvider = provider;
+  }
+
+  static void clearRepositoryProvider() {
+    _defaultRepositoryProvider = null;
+  }
+
+  static bool get hasConfiguredRepositoryProvider =>
+      _defaultRepositoryProvider != null;
+
   HintScannerService({IRepositoryProvider? repositoryProvider})
-    : _repositoryProvider =
-          repositoryProvider ??
-          (GetIt.instance.isRegistered<IRepositoryProvider>()
-              ? GetIt.instance<IRepositoryProvider>()
-              : null);
+    : _repositoryProvider = repositoryProvider ?? _defaultRepositoryProvider;
 
   /// Initialize scanner by precomputing all contact hints
   Future<void> initialize() async {

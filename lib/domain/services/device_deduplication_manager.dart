@@ -7,7 +7,6 @@ import 'package:pak_connect/domain/services/hint_cache_manager.dart';
 import 'package:pak_connect/domain/entities/enhanced_contact.dart';
 import 'package:pak_connect/domain/entities/ephemeral_discovery_hint.dart';
 import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
-import 'package:get_it/get_it.dart';
 
 import 'package:pak_connect/domain/utils/hint_advertisement_service.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
@@ -51,6 +50,15 @@ class DeviceDeduplicationManager {
   static bool Function(DiscoveredDevice device)? shouldAutoConnect;
   // Optional provider for self-advertisement filtering.
   static String Function()? myEphemeralHintProvider;
+  static IIntroHintRepository? _introHintRepository;
+
+  static void setIntroHintRepository(IIntroHintRepository repository) {
+    _introHintRepository = repository;
+  }
+
+  static void clearIntroHintRepository() {
+    _introHintRepository = null;
+  }
 
   static void processDiscoveredDevice(DiscoveredEventArgs event) {
     final deviceId = event.peripheral.uuid.toString();
@@ -497,7 +505,13 @@ class DeviceDeduplicationManager {
   static Future<EphemeralDiscoveryHint?> _findMatchingIntro(
     ParsedHint parsed,
   ) async {
-    final introHintRepo = GetIt.instance<IIntroHintRepository>();
+    final introHintRepo = _introHintRepository;
+    if (introHintRepo == null) {
+      _logger.fine(
+        'Intro hint repository not configured; skipping intro match',
+      );
+      return null;
+    }
     final scannedHints = await introHintRepo.getScannedHints();
 
     _logger.info(

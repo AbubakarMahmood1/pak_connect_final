@@ -10,7 +10,6 @@ import '../values/id_types.dart';
 import '../interfaces/i_repository_provider.dart';
 import '../interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
-import 'package:get_it/get_it.dart';
 
 /// Coordinates retry operations between different message persistence systems
 class MessageRetryCoordinator {
@@ -20,12 +19,11 @@ class MessageRetryCoordinator {
   final OfflineMessageQueueContract _offlineQueue;
 
   MessageRetryCoordinator({
-    IRepositoryProvider? repositoryProvider,
+    required IRepositoryProvider repositoryProvider,
     required OfflineMessageQueueContract offlineQueue,
     IMeshNetworkingService?
     meshService, // Kept for API compatibility but not used
-  }) : _repositoryProvider =
-           repositoryProvider ?? GetIt.instance<IRepositoryProvider>(),
+  }) : _repositoryProvider = repositoryProvider,
        _offlineQueue = offlineQueue;
 
   /// Get unified failed message count from both persistence systems

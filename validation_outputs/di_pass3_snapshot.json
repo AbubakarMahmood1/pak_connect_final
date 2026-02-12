@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "generatedAtUtc": "2026-02-12T15:12:41.4580494Z",
+  "generatedAtUtc": "2026-02-12T12:19:25.7727635Z",
   "scope": "lib/**/*.dart",
   "metrics": {
-    "getItResolutionCount": 5,
-    "instanceUsageCount": 17,
+    "getItResolutionCount": 44,
+    "instanceUsageCount": 92,
     "presentationGetItResolutionCount": 2,
     "presentationGetItImportCount": 1,
     "presentationGetItImportFileCount": 1,
@@ -13,19 +13,35 @@
   "breakdown": {
     "getItResolutionsByLayer": [
       {
+        "layer": "data",
+        "count": 22
+      },
+      {
+        "layer": "core",
+        "count": 18
+      },
+      {
         "layer": "domain",
         "count": 2
       },
       {
         "layer": "presentation",
         "count": 2
-      },
-      {
-        "layer": "core",
-        "count": 1
       }
     ],
     "topGetItResolutionFiles": [
+      {
+        "path": "lib/data/di/data_layer_service_registrar.dart",
+        "count": 22
+      },
+      {
+        "path": "lib/core/app_core.dart",
+        "count": 15
+      },
+      {
+        "path": "lib/core/di/service_locator.dart",
+        "count": 3
+      },
       {
         "path": "lib/domain/interfaces/i_repository_provider.dart",
         "count": 2
@@ -33,10 +49,6 @@
       {
         "path": "lib/presentation/providers/di_providers.dart",
         "count": 2
-      },
-      {
-        "path": "lib/core/di/service_locator.dart",
-        "count": 1
       }
     ]
   },

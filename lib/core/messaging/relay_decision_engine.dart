@@ -1,9 +1,7 @@
 import 'dart:math';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
-import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
@@ -114,10 +112,7 @@ class RelayDecisionEngine {
     if (_myPersistentId != null && _myPersistentId!.isNotEmpty) {
       return _myPersistentId;
     }
-    if (GetIt.instance.isRegistered<IIdentityManager>()) {
-      _myPersistentId = GetIt.instance<IIdentityManager>().myPersistentId;
-    }
-    return _myPersistentId;
+    return null;
   }
 
   bool shouldProbabilisticallySkip({

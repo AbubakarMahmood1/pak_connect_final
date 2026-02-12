@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 
 import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
@@ -39,6 +38,18 @@ class _BufferedMessage {
 /// - Spy mode and identity exposure detection
 /// - Processing of buffered messages after handshake completion
 class BLEHandshakeService implements IBLEHandshakeService {
+  static IHandshakeCoordinatorFactory Function()? _coordinatorFactoryResolver;
+
+  static void configureCoordinatorFactoryResolver(
+    IHandshakeCoordinatorFactory Function() resolver,
+  ) {
+    _coordinatorFactoryResolver = resolver;
+  }
+
+  static void clearCoordinatorFactoryResolver() {
+    _coordinatorFactoryResolver = null;
+  }
+
   final _logger = Logger('BLEHandshakeService');
 
   // ===== Dependencies =====
@@ -678,13 +689,14 @@ class BLEHandshakeService implements IBLEHandshakeService {
   }
 
   static IHandshakeCoordinatorFactory _resolveCoordinatorFactory() {
-    final getIt = GetIt.instance;
-    if (getIt.isRegistered<IHandshakeCoordinatorFactory>()) {
-      return getIt<IHandshakeCoordinatorFactory>();
+    final resolver = _coordinatorFactoryResolver;
+    if (resolver != null) {
+      return resolver();
     }
     throw StateError(
       'IHandshakeCoordinatorFactory is not registered. '
-      'Register it in DI or pass handshakeCoordinatorFactory explicitly.',
+      'Configure BLEHandshakeService.configureCoordinatorFactoryResolver(...), '
+      'or pass handshakeCoordinatorFactory explicitly.',
     );
   }
 }

@@ -4,7 +4,6 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:get_it/get_it.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_message_repository.dart';
 import 'chat_management_service.dart';
@@ -15,13 +14,8 @@ import '../values/id_types.dart';
 class PinningService {
   static final _logger = Logger('PinningService');
 
-  // Dependencies (optional for DI/testing)
-  final IChatsRepository? _chatsRepositoryOverride;
-  final IMessageRepository? _messageRepositoryOverride;
-
-  // Lazy-initialized dependencies
-  late final IChatsRepository _chatsRepository;
-  late final IMessageRepository _messageRepository;
+  final IChatsRepository _chatsRepository;
+  final IMessageRepository _messageRepository;
 
   // Storage keys
   static const String _starredMessagesKey = 'starred_messages';
@@ -47,23 +41,17 @@ class PinningService {
         };
       });
 
-  /// Constructor with optional dependency injection
+  /// Constructor with explicit dependency injection.
   PinningService({
-    IChatsRepository? chatsRepository,
-    IMessageRepository? messageRepository,
-  }) : _chatsRepositoryOverride = chatsRepository,
-       _messageRepositoryOverride = messageRepository {
+    required IChatsRepository chatsRepository,
+    required IMessageRepository messageRepository,
+  }) : _chatsRepository = chatsRepository,
+       _messageRepository = messageRepository {
     _logger.info('✅ PinningService created');
   }
 
   /// Initialize the service
   Future<void> initialize() async {
-    // Initialize dependencies (use overrides if provided, else defaults)
-    _chatsRepository =
-        _chatsRepositoryOverride ?? GetIt.instance<IChatsRepository>();
-    _messageRepository =
-        _messageRepositoryOverride ?? GetIt.instance<IMessageRepository>();
-
     // Load cached data
     await _loadStarredMessages();
     await _loadPinnedChats();

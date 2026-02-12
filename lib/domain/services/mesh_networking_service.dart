@@ -8,7 +8,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:path_provider/path_provider.dart';
@@ -194,18 +193,16 @@ class MeshNetworkingService implements IMeshNetworkingService {
     // ✅ Phase 3A: Now properly typed via BLEMessageHandlerFacadeImpl adapter
     required ChatManagementService
     chatManagementService, // Kept for API compatibility
-    IRepositoryProvider? repositoryProvider,
-    ISharedMessageQueueProvider? sharedQueueProvider,
+    required IRepositoryProvider repositoryProvider,
+    required ISharedMessageQueueProvider sharedQueueProvider,
     MeshRelayCoordinator? relayCoordinator,
     MeshNetworkHealthMonitor? healthMonitor,
     MeshQueueSyncCoordinator? queueCoordinator,
     MeshRelayEngineFactory? relayEngineFactory,
   }) : _bleService = bleService,
        _messageHandler = messageHandler,
-       _messageRepository =
-           (repositoryProvider ?? GetIt.instance<IRepositoryProvider>())
-               .messageRepository,
-       _sharedQueueProvider = _resolveSharedQueueProvider(sharedQueueProvider),
+       _messageRepository = repositoryProvider.messageRepository,
+       _sharedQueueProvider = sharedQueueProvider,
        _healthMonitor = healthMonitor ?? MeshNetworkHealthMonitor() {
     _relayCoordinator =
         relayCoordinator ??
@@ -237,21 +234,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
       queueSnapshotProvider: () => _queueCoordinator.getActiveQueueMessages(),
       statisticsProvider: () => getNetworkStatistics(),
       isConnectedProvider: () => _bleService.isConnected,
-    );
-  }
-
-  static ISharedMessageQueueProvider _resolveSharedQueueProvider(
-    ISharedMessageQueueProvider? sharedQueueProvider,
-  ) {
-    if (sharedQueueProvider != null) {
-      return sharedQueueProvider;
-    }
-    if (GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
-      return GetIt.instance<ISharedMessageQueueProvider>();
-    }
-    throw StateError(
-      'ISharedMessageQueueProvider is not registered. '
-      'Pass sharedQueueProvider explicitly or register it in DI.',
     );
   }
 

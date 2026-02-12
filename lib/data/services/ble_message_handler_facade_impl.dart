@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
@@ -34,6 +33,26 @@ import '../../domain/models/protocol_message.dart' as domain_models;
 /// MeshNetworkingService only requires initialization and callback management.
 /// Methods with incompatible BLE-specific signatures are stubbed (Phase 3B work).
 class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
+  static BLEStateManager? Function()? _legacyStateManagerResolver;
+  static ISharedMessageQueueProvider? Function()? _sharedQueueProviderResolver;
+
+  static void configureDependencyResolvers({
+    BLEStateManager? Function()? legacyStateManagerResolver,
+    ISharedMessageQueueProvider? Function()? sharedQueueProviderResolver,
+  }) {
+    if (legacyStateManagerResolver != null) {
+      _legacyStateManagerResolver = legacyStateManagerResolver;
+    }
+    if (sharedQueueProviderResolver != null) {
+      _sharedQueueProviderResolver = sharedQueueProviderResolver;
+    }
+  }
+
+  static void clearDependencyResolvers() {
+    _legacyStateManagerResolver = null;
+    _sharedQueueProviderResolver = null;
+  }
+
   final _logger = Logger('BLEMessageHandlerFacadeImpl');
 
   final BLEMessageHandler _handler;
@@ -580,21 +599,12 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     if (_stateManager is BLEStateManager) {
       return _stateManager as BLEStateManager;
     }
-    try {
-      final di = GetIt.instance;
-      if (di.isRegistered<BLEStateManagerFacade>()) {
-        return di<BLEStateManagerFacade>().legacyStateManager;
-      }
-      if (di.isRegistered<IBLEStateManagerFacade>()) {
-        final facade = di<IBLEStateManagerFacade>();
-        if (facade is BLEStateManagerFacade) {
-          return facade.legacyStateManager;
-        }
-      }
-      if (di.isRegistered<BLEStateManager>()) {
-        return di<BLEStateManager>();
-      }
-    } catch (_) {}
+    final resolver = _legacyStateManagerResolver;
+    if (resolver != null) {
+      try {
+        return resolver();
+      } catch (_) {}
+    }
     return null;
   }
 
@@ -646,13 +656,8 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     if (_sharedQueueProvider != null) {
       return _sharedQueueProvider;
     }
-    try {
-      final di = GetIt.instance;
-      if (di.isRegistered<ISharedMessageQueueProvider>()) {
-        return di<ISharedMessageQueueProvider>();
-      }
-    } catch (_) {}
-    return null;
+    final resolver = _sharedQueueProviderResolver;
+    return resolver?.call();
   }
 
   Future<bool> _sendCentralViaAdapter({

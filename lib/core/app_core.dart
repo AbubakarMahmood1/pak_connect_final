@@ -185,7 +185,7 @@ class AppCore {
       _logger.info('✅ DI container setup complete');
 
       // Load kill switches before bringing up subsystems.
-      final prefsRepo = getIt<IPreferencesRepository>();
+      final prefsRepo = getIt.get<IPreferencesRepository>();
       await KillSwitches.load(
         getBool: (key, {defaultValue = false}) =>
             prefsRepo.getBool(key, defaultValue: defaultValue),
@@ -212,7 +212,7 @@ class AppCore {
 
       // Initialize seen message store after database setup
       _logger.info('👀 Initializing SeenMessageStore...');
-      final seenMessageStore = getIt<ISeenMessageStore>();
+      final seenMessageStore = getIt.get<ISeenMessageStore>();
       await seenMessageStore.initialize();
       MeshRelayEngine.configureDependencyResolvers(
         seenMessageStoreResolver: () => seenMessageStore,
@@ -314,7 +314,7 @@ class AppCore {
   Future<void> _initializeRepositories() async {
     // Initialize database first to ensure it's ready
     _logger.info('Initializing database...');
-    final databaseProvider = getIt<IDatabaseProvider>();
+    final databaseProvider = getIt.get<IDatabaseProvider>();
     await databaseProvider.database;
     _logger.info('Database initialized successfully');
 
@@ -323,12 +323,12 @@ class AppCore {
     QueuePersistenceManager.configureDefaultDatabaseProvider(databaseProvider);
 
     // Initialize repositories
-    contactRepository = getIt<IContactRepository>();
-    messageRepository = getIt<IMessageRepository>();
-    userPreferences = getIt<IUserPreferences>();
-    archiveRepository = getIt<IArchiveRepository>();
-    chatsRepository = getIt<IChatsRepository>();
-    preferencesRepository = getIt<IPreferencesRepository>();
+    contactRepository = getIt.get<IContactRepository>();
+    messageRepository = getIt.get<IMessageRepository>();
+    userPreferences = getIt.get<IUserPreferences>();
+    archiveRepository = getIt.get<IArchiveRepository>();
+    chatsRepository = getIt.get<IChatsRepository>();
+    preferencesRepository = getIt.get<IPreferencesRepository>();
     MessageRouter.configureDependencyResolvers(
       preferencesRepositoryResolver: () => preferencesRepository,
     );
@@ -349,7 +349,7 @@ class AppCore {
       archiveRepositoryResolver: () => archiveRepository,
     );
 
-    repositoryProvider = getIt<IRepositoryProvider>();
+    repositoryProvider = getIt.get<IRepositoryProvider>();
     OfflineMessageQueue.configureDefaultRepositoryProvider(repositoryProvider);
     HintScannerService.configureRepositoryProvider(repositoryProvider);
     HandshakeCoordinator.configureRepositoryProviderResolver(
@@ -512,13 +512,13 @@ class AppCore {
 
     try {
       final bleFacade = getIt.isRegistered<IBLEServiceFacade>()
-          ? getIt<IBLEServiceFacade>()
-          : getIt<IBLEServiceFacadeFactory>().create();
+          ? getIt.get<IBLEServiceFacade>()
+          : getIt.get<IBLEServiceFacadeFactory>().create();
       final connectionService = bleFacade as IConnectionService;
       MeshRelayEngine.configureDependencyResolvers(
         persistentIdResolver: () => connectionService.myPersistentId,
       );
-      sharedMessageQueueProvider = getIt<ISharedMessageQueueProvider>();
+      sharedMessageQueueProvider = getIt.get<ISharedMessageQueueProvider>();
       final sharedQueueProvider = sharedMessageQueueProvider;
       MessageRouter.configureQueueFactories(
         standaloneQueueFactory: () => OfflineMessageQueue(),
@@ -556,7 +556,7 @@ class AppCore {
         repositoryProvider: repositoryProvider,
         sharedQueueProvider: sharedQueueProvider,
         relayEngineFactory: (queue, spam) =>
-            getIt<IMeshRelayEngineFactory>().create(
+            getIt.get<IMeshRelayEngineFactory>().create(
               messageQueue: queue,
               spamPrevention: spam,
               forceFloodMode: true,
@@ -1005,3 +1005,4 @@ class AppCoreException implements Exception {
   @override
   String toString() => 'AppCoreException: $message';
 }
+

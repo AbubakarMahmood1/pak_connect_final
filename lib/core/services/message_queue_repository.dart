@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
@@ -19,6 +18,7 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 /// - Track retry attempts and delivery status
 class MessageQueueRepository implements IMessageQueueRepository {
   static final _logger = Logger('MessageQueueRepository');
+  static IDatabaseProvider? _defaultDatabaseProvider;
 
   // In-memory queues
   final List<QueuedMessage> directMessageQueue;
@@ -26,6 +26,19 @@ class MessageQueueRepository implements IMessageQueueRepository {
   final Set<MessageId> deletedMessageIds;
   final IDatabaseProvider? _databaseProvider;
   IDatabaseProvider? _resolvedDatabaseProvider;
+
+  static void configureDefaultDatabaseProvider(
+    IDatabaseProvider databaseProvider,
+  ) {
+    _defaultDatabaseProvider = databaseProvider;
+  }
+
+  static void clearDefaultDatabaseProvider() {
+    _defaultDatabaseProvider = null;
+  }
+
+  static bool get hasDefaultDatabaseProvider =>
+      _defaultDatabaseProvider != null;
 
   MessageQueueRepository({
     List<QueuedMessage>? directMessageQueue,
@@ -38,11 +51,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
        _databaseProvider = databaseProvider;
 
   Future<Database> _getDatabase() async {
-    _resolvedDatabaseProvider ??=
-        _databaseProvider ??
-        (GetIt.instance.isRegistered<IDatabaseProvider>()
-            ? GetIt.instance<IDatabaseProvider>()
-            : null);
+    _resolvedDatabaseProvider ??= _databaseProvider ?? _defaultDatabaseProvider;
     final provider = _resolvedDatabaseProvider;
     if (provider == null) {
       throw StateError('IDatabaseProvider not available');

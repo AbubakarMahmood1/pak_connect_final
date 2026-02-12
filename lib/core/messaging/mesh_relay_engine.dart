@@ -6,14 +6,12 @@
 
 import 'dart:async';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
     as domain_messaging;
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
-import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
@@ -30,6 +28,9 @@ import 'package:pak_connect/domain/models/security_level.dart';
 /// Core engine for mesh relay operations
 class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   static final _logger = Logger('MeshRelayEngine');
+  static IRepositoryProvider? Function()? _repositoryProviderResolver;
+  static ISeenMessageStore? Function()? _seenMessageStoreResolver;
+  static String? Function()? _persistentIdResolver;
 
   final IRepositoryProvider? _repositoryProvider;
   final ISeenMessageStore _seenMessageStore;
@@ -43,7 +44,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   NetworkTopologyAnalyzer? _topologyAnalyzer;
 
   // Relay configuration (Phase 1: Role Awareness)
-  final RelayConfigManager _relayConfig = RelayConfigManager.instance;
+  final RelayConfigManager _relayConfig = RelayConfigManager();
   late final RelayDecisionEngine _decisionEngine;
   late final RelaySendPipeline _sendPipeline;
 
@@ -66,22 +67,38 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   Function(RelayStatistics stats)? onStatsUpdated;
   final bool forceFloodMode;
 
+  /// Configure dependency resolvers from composition/bootstrap code.
+  static void configureDependencyResolvers({
+    IRepositoryProvider? Function()? repositoryProviderResolver,
+    ISeenMessageStore? Function()? seenMessageStoreResolver,
+    String? Function()? persistentIdResolver,
+  }) {
+    if (repositoryProviderResolver != null) {
+      _repositoryProviderResolver = repositoryProviderResolver;
+    }
+    if (seenMessageStoreResolver != null) {
+      _seenMessageStoreResolver = seenMessageStoreResolver;
+    }
+    if (persistentIdResolver != null) {
+      _persistentIdResolver = persistentIdResolver;
+    }
+  }
+
+  /// Clear dependency resolvers.
+  static void clearDependencyResolvers() {
+    _repositoryProviderResolver = null;
+    _seenMessageStoreResolver = null;
+    _persistentIdResolver = null;
+  }
+
   MeshRelayEngine({
     IRepositoryProvider? repositoryProvider,
     ISeenMessageStore? seenMessageStore,
     required OfflineMessageQueueContract messageQueue,
     required SpamPreventionManager spamPrevention,
     this.forceFloodMode = false,
-  }) : _repositoryProvider =
-           repositoryProvider ??
-           (GetIt.instance.isRegistered<IRepositoryProvider>()
-               ? GetIt.instance<IRepositoryProvider>()
-               : null),
-       _seenMessageStore =
-           seenMessageStore ??
-           (GetIt.instance.isRegistered<ISeenMessageStore>()
-               ? GetIt.instance<ISeenMessageStore>()
-               : _InMemorySeenMessageStore()),
+  }) : _repositoryProvider = repositoryProvider ?? _resolveRepositoryProvider(),
+       _seenMessageStore = seenMessageStore ?? _resolveSeenMessageStore(),
        _messageQueue = messageQueue,
        _spamPrevention = spamPrevention {
     _decisionEngine = RelayDecisionEngine(
@@ -671,10 +688,44 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   }
 
   String? _getMyPersistentId() {
-    if (GetIt.instance.isRegistered<IIdentityManager>()) {
-      return GetIt.instance<IIdentityManager>().myPersistentId;
+    final resolver = _persistentIdResolver;
+    if (resolver == null) {
+      return null;
     }
-    return null;
+    try {
+      return resolver();
+    } catch (error) {
+      _logger.warning('Failed to resolve persistent ID: $error');
+      return null;
+    }
+  }
+
+  static IRepositoryProvider? _resolveRepositoryProvider() {
+    final resolver = _repositoryProviderResolver;
+    if (resolver == null) {
+      return null;
+    }
+    try {
+      return resolver();
+    } catch (error) {
+      _logger.warning('Failed to resolve IRepositoryProvider: $error');
+      return null;
+    }
+  }
+
+  static ISeenMessageStore _resolveSeenMessageStore() {
+    final resolver = _seenMessageStoreResolver;
+    if (resolver != null) {
+      try {
+        final store = resolver();
+        if (store != null) {
+          return store;
+        }
+      } catch (error) {
+        _logger.warning('Failed to resolve ISeenMessageStore: $error');
+      }
+    }
+    return _InMemorySeenMessageStore();
   }
 }
 

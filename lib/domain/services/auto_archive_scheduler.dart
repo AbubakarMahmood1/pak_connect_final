@@ -3,7 +3,6 @@
 
 import 'dart:async';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_preferences_repository.dart';
 import '../entities/preference_keys.dart' show PreferenceKeys;
@@ -16,6 +15,27 @@ class AutoArchiveScheduler {
   static Timer? _checkTimer;
   static bool _isRunning = false;
   static DateTime? _lastCheckTime;
+  static IPreferencesRepository? _preferencesRepository;
+  static IChatsRepository? _chatsRepository;
+  static ArchiveManagementService? _archiveManagementService;
+
+  /// Configure required dependencies from the app composition root.
+  static void configure({
+    required IPreferencesRepository preferencesRepository,
+    required IChatsRepository chatsRepository,
+    required ArchiveManagementService archiveManagementService,
+  }) {
+    _preferencesRepository = preferencesRepository;
+    _chatsRepository = chatsRepository;
+    _archiveManagementService = archiveManagementService;
+  }
+
+  /// Clear configured dependencies (primarily for app teardown/tests).
+  static void clearConfiguration() {
+    _preferencesRepository = null;
+    _chatsRepository = null;
+    _archiveManagementService = null;
+  }
 
   /// Start the auto-archive scheduler
   /// Call this in main.dart after app initialization
@@ -26,7 +46,13 @@ class AutoArchiveScheduler {
     }
 
     try {
-      final prefs = GetIt.instance<IPreferencesRepository>();
+      final prefs = _preferencesRepository;
+      if (prefs == null) {
+        _logger.warning(
+          'Auto-archive scheduler not configured; skipping start',
+        );
+        return;
+      }
       final enabled = await prefs.getBool(PreferenceKeys.autoArchiveOldChats);
 
       if (!enabled) {
@@ -90,7 +116,15 @@ class AutoArchiveScheduler {
       _lastCheckTime = DateTime.now();
 
       // Get user settings
-      final prefs = GetIt.instance<IPreferencesRepository>();
+      final prefs = _preferencesRepository;
+      final chatsRepo = _chatsRepository;
+      final archiveService = _archiveManagementService;
+      if (prefs == null || chatsRepo == null || archiveService == null) {
+        _logger.warning(
+          'Auto-archive scheduler not fully configured; skipping check',
+        );
+        return 0;
+      }
       final enabled = await prefs.getBool(PreferenceKeys.autoArchiveOldChats);
 
       if (!enabled) {
@@ -110,7 +144,6 @@ class AutoArchiveScheduler {
       );
 
       // Get all chats
-      final chatsRepo = GetIt.instance<IChatsRepository>();
       final allChats = await chatsRepo.getAllChats();
 
       int archivedCount = 0;
@@ -142,7 +175,7 @@ class AutoArchiveScheduler {
 
         // Archive this inactive chat
         try {
-          final result = await ArchiveManagementService.instance.archiveChat(
+          final result = await archiveService.archiveChat(
             chatId: chat.chatId.value,
             reason: 'Auto-archived after $daysInactive days of inactivity',
             metadata: {

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
@@ -8,18 +7,28 @@ import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 /// Manages queue table persistence, migrations, and maintenance
 class QueuePersistenceManager implements IQueuePersistenceManager {
   static final _logger = Logger('QueuePersistenceManager');
+  static IDatabaseProvider? _defaultDatabaseProvider;
   final IDatabaseProvider? _databaseProvider;
   IDatabaseProvider? _resolvedDatabaseProvider;
+
+  static void configureDefaultDatabaseProvider(
+    IDatabaseProvider databaseProvider,
+  ) {
+    _defaultDatabaseProvider = databaseProvider;
+  }
+
+  static void clearDefaultDatabaseProvider() {
+    _defaultDatabaseProvider = null;
+  }
+
+  static bool get hasDefaultDatabaseProvider =>
+      _defaultDatabaseProvider != null;
 
   QueuePersistenceManager({IDatabaseProvider? databaseProvider})
     : _databaseProvider = databaseProvider;
 
   Future<Database> _getDatabase() async {
-    _resolvedDatabaseProvider ??=
-        _databaseProvider ??
-        (GetIt.instance.isRegistered<IDatabaseProvider>()
-            ? GetIt.instance<IDatabaseProvider>()
-            : null);
+    _resolvedDatabaseProvider ??= _databaseProvider ?? _defaultDatabaseProvider;
     final provider = _resolvedDatabaseProvider;
     if (provider == null) {
       throw StateError('IDatabaseProvider not available');
