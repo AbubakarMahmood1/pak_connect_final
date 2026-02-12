@@ -1,6 +1,6 @@
-# Pass 7: Policy Lock + Cleanup (In Progress)
+# Pass 7: Policy Lock + Cleanup (Complete)
 
-**Status**: In Progress  
+**Status**: Complete  
 **Date**: 2026-02-12  
 **Owner**: Architecture Refactor Track
 
@@ -227,5 +227,6 @@ Results:
 
 ## Next Slice
 
-- Continue pruning resolver fallback seams in domain/core singleton factories
-  where composition-root wiring is now guaranteed.
+- Pass 7 objectives complete. Future DI work should be treated as routine
+  maintenance (new features should default to constructor/provider injection
+  and avoid introducing new global singleton reach-through paths).

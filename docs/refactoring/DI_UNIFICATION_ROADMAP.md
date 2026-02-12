@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-02-12 (Pass 7 in progress)
+**Last Updated**: 2026-02-12 (Pass 7 complete)
 
 ---
 
@@ -28,7 +28,7 @@
 | Pass 4 | 45-60% | Complete | `AppServices` composition root + provider wiring |
 | Pass 5 | 60-75% | Complete | Test strategy convergence (provider overrides first) |
 | Pass 6 | 75-90% | Complete | Connection runtime serialization hardening |
-| Pass 7 | 90-100% | In Progress | Remove legacy fallbacks, enable strict guardrails |
+| Pass 7 | 90-100% | Complete | Remove legacy fallbacks, enable strict guardrails |
 
 ---
 
@@ -42,6 +42,10 @@ Source: `validation_outputs/di_pass7_snapshot.json`
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
 - Presentation DI mutation sites (`register*`/`unregister`): 0
+
+Residual `.instance` usage is now primarily framework/plugin access
+(`WidgetsBinding.instance`, `SharePlus.instance`) plus explicit DI boundary
+files (`service_locator.dart`, `di_providers.dart`).
 
 Pass 3 progress highlights:
 
