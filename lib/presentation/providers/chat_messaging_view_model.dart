@@ -457,7 +457,10 @@ class ChatMessagingViewModel {
           try {
             // Send deletion request using MessageRouter (offline-reliable pattern)
             final deletionMessage = 'DELETE_MESSAGE:${messageId.value}';
-            final router = MessageRouter.instance;
+            final router = MessageRouter.maybeInstance;
+            if (router == null) {
+              throw StateError('MessageRouter not initialized');
+            }
 
             final result = await router.sendMessage(
               content: deletionMessage,

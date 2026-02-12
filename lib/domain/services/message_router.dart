@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
@@ -31,6 +30,8 @@ class MessageRouter {
   static OfflineMessageQueueContract Function()? _standaloneQueueFactory;
   static Future<OfflineMessageQueueContract> Function()?
   _initializedQueueFactory;
+  static IPreferencesRepository Function()? _preferencesRepositoryResolver;
+  static ISharedMessageQueueProvider? Function()? _sharedQueueProviderResolver;
 
   // Singleton
   static MessageRouter? _instance;
@@ -42,6 +43,11 @@ class MessageRouter {
     }
     return _instance!;
   }
+
+  /// Best-effort optional access to the current singleton instance.
+  ///
+  /// Returns null before [initialize] finishes.
+  static MessageRouter? get maybeInstance => _instance;
 
   // Dependencies
   late final IConnectionService _bleService;
@@ -60,15 +66,43 @@ class MessageRouter {
     _initializedQueueFactory = initializedQueueFactory;
   }
 
+  /// Configure dependency resolvers from bootstrap/composition code.
+  static void configureDependencyResolvers({
+    IPreferencesRepository Function()? preferencesRepositoryResolver,
+    ISharedMessageQueueProvider? Function()? sharedQueueProviderResolver,
+  }) {
+    if (preferencesRepositoryResolver != null) {
+      _preferencesRepositoryResolver = preferencesRepositoryResolver;
+    }
+    if (sharedQueueProviderResolver != null) {
+      _sharedQueueProviderResolver = sharedQueueProviderResolver;
+    }
+  }
+
+  /// Clear configured dependency resolvers.
+  static void clearDependencyResolvers() {
+    _preferencesRepositoryResolver = null;
+    _sharedQueueProviderResolver = null;
+  }
+
   /// Initialize the message router
   static Future<void> initialize(
     IConnectionService bleService, {
     OfflineMessageQueueContract? offlineQueue,
     Future<OfflineMessageQueueContract> Function()? fallbackQueueBuilder,
+    IPreferencesRepository? preferencesRepository,
+    ISharedMessageQueueProvider? sharedQueueProvider,
   }) async {
     if (_instance != null) {
       _logger.warning('MessageRouter already initialized');
       return;
+    }
+
+    if (preferencesRepository != null) {
+      _preferencesRepositoryResolver = () => preferencesRepository;
+    }
+    if (sharedQueueProvider != null) {
+      _sharedQueueProviderResolver = () => sharedQueueProvider;
     }
 
     _instance = MessageRouter._();
@@ -109,7 +143,7 @@ class MessageRouter {
       );
 
       // Get sender's public key
-      final prefs = GetIt.instance<IPreferencesRepository>();
+      final prefs = _resolvePreferencesRepository();
       final senderKey = await prefs.getString('public_key');
 
       if (senderKey.isEmpty) {
@@ -326,15 +360,28 @@ class MessageRouter {
   }
 
   static ISharedMessageQueueProvider? _resolveSharedQueueProvider() {
-    try {
-      final di = GetIt.instance;
-      if (di.isRegistered<ISharedMessageQueueProvider>()) {
-        return di<ISharedMessageQueueProvider>();
-      }
-    } catch (_) {
-      // Fall through
+    final resolver = _sharedQueueProviderResolver;
+    if (resolver == null) {
+      return null;
     }
-    return null;
+    try {
+      return resolver();
+    } catch (error) {
+      _logger.warning('Failed to resolve shared queue provider: $error');
+      return null;
+    }
+  }
+
+  static IPreferencesRepository _resolvePreferencesRepository() {
+    final resolver = _preferencesRepositoryResolver;
+    if (resolver != null) {
+      return resolver();
+    }
+    throw StateError(
+      'IPreferencesRepository not configured for MessageRouter. '
+      'Call MessageRouter.configureDependencyResolvers(...) or pass '
+      'preferencesRepository to MessageRouter.initialize(...).',
+    );
   }
 }
 

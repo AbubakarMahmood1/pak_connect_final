@@ -72,6 +72,16 @@ escape hatches that can reintroduce split-brain behavior.
     - media send Noise-session callback now resolves from DI helper instead of
       static locator singleton
 
+- Pruned presentation `MessageRouter.instance` singleton usage in chat flow:
+  - `lib/domain/services/message_router.dart`
+    - added optional singleton accessor `MessageRouter.maybeInstance`
+  - `lib/presentation/controllers/chat_session_lifecycle.dart`
+    - queue/router resolution now uses `maybeInstance` and keeps existing
+      on-demand initialize fallback behavior
+  - `lib/presentation/providers/chat_messaging_view_model.dart`
+    - delete-for-everyone path now uses optional router access with explicit
+      uninitialized guard handling
+
 ---
 
 ## Verification
@@ -89,6 +99,7 @@ flutter test test/domain/services/archive_search_service_test.dart
 flutter analyze lib/presentation/providers/chat_messaging_view_model.dart lib/presentation/controllers/chat_screen_controller.dart lib/presentation/screens/chat_screen.dart
 flutter test test/presentation/chat_screen_controller_test.dart
 flutter test test/presentation/chat_session_view_model_test.dart
+flutter analyze lib/domain/services/message_router.dart lib/presentation/controllers/chat_session_lifecycle.dart lib/presentation/providers/chat_messaging_view_model.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -98,7 +109,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **81**
+  - `.instance` usages in `lib/**`: **77**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 
