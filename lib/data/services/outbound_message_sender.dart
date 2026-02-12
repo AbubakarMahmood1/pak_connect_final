@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
@@ -19,6 +20,7 @@ import '../../domain/utils/binary_fragmenter.dart';
 import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import '../../domain/models/security_level.dart';
 import '../../domain/values/id_types.dart';
+import '../../core/security/sealed/sealed_encryption_service.dart';
 
 /// Handles outbound message preparation and sending for BLEMessageHandler.
 class OutboundMessageSender {
@@ -26,13 +28,19 @@ class OutboundMessageSender {
     'PAKCONNECT_ALLOW_LEGACY_V2_SEND',
     defaultValue: true,
   );
+  static const bool _defaultEnableSealedV1Send = bool.fromEnvironment(
+    'PAKCONNECT_ENABLE_SEALED_V1_SEND',
+    defaultValue: false,
+  );
 
   OutboundMessageSender({
     required Logger logger,
     required MessageAckTracker ackTracker,
     required MessageChunkSender chunkSender,
     ISecurityService? securityService,
+    SealedEncryptionService? sealedEncryptionService,
     bool? allowLegacyV2Send,
+    bool? enableSealedV1Send,
     Future<void> Function({
       required CentralManager centralManager,
       required Peripheral peripheral,
@@ -53,7 +61,11 @@ class OutboundMessageSender {
        _chunkSender = chunkSender,
        _securityService =
            securityService ?? SecurityServiceLocator.resolveService(),
+       _sealedEncryptionService =
+           sealedEncryptionService ?? SealedEncryptionService(),
        _allowLegacyV2Send = allowLegacyV2Send ?? _defaultAllowLegacyV2Send,
+       _enableSealedV1Send =
+           enableSealedV1Send ?? _defaultEnableSealedV1Send,
        _centralWrite = centralWrite,
        _peripheralWrite = peripheralWrite;
 
@@ -61,7 +73,9 @@ class OutboundMessageSender {
   final MessageAckTracker _ackTracker;
   final MessageChunkSender _chunkSender;
   final ISecurityService _securityService;
+  final SealedEncryptionService _sealedEncryptionService;
   final bool _allowLegacyV2Send;
+  final bool _enableSealedV1Send;
   final Future<void> Function({
     required CentralManager centralManager,
     required Peripheral peripheral,
@@ -144,6 +158,7 @@ class OutboundMessageSender {
       String payload = message;
       String encryptionMethod = 'none';
       EncryptionMethod? encryptionDecision;
+      CryptoHeader? explicitCryptoHeader;
 
       if (encryptionKey.isNotEmpty) {
         encryptionDecision = await _securityService.getEncryptionMethod(
@@ -164,6 +179,27 @@ class OutboundMessageSender {
           '❌ SEND ABORTED: No encryption key available for message $msgId',
         );
         throw Exception('Cannot send message without encryption key');
+      }
+
+      if (_enableSealedV1Send &&
+          !_allowLegacyV2Send &&
+          _isLegacyEncryptionType(encryptionDecision.type)) {
+        final sealedResult = await _tryEncryptWithSealedV1(
+          plaintext: message,
+          messageId: msgId,
+          senderId: finalSenderIf,
+          recipientId: finalRecipientId,
+          contactLookupKey: encryptionKey,
+          contactRepository: contactRepository,
+        );
+        if (sealedResult != null) {
+          payload = sealedResult.payloadBase64;
+          encryptionMethod = 'sealed';
+          explicitCryptoHeader = sealedResult.header;
+          _logger.info(
+            '🔒 MESSAGE: Switched to SEALED_V1 for strict-mode send (${_safeTruncate(msgId, 16)})',
+          );
+        }
       }
 
       SecurityLevel trustLevel;
@@ -192,14 +228,16 @@ class OutboundMessageSender {
 
       final intendedRecipientPayload =
           originalIntendedRecipient ?? finalRecipientId;
-      final cryptoHeader = _buildCryptoHeader(
-        encryptionMethod: encryptionMethod,
-        sessionId: encryptionMethod == 'noise'
-            ? (encryptionDecision.publicKey ?? encryptionKey)
-            : null,
-        messageId: msgId,
-        transportSide: 'central',
-      );
+      final cryptoHeader =
+          explicitCryptoHeader ??
+          _buildCryptoHeader(
+            encryptionMethod: encryptionMethod,
+            sessionId: encryptionMethod == 'noise'
+                ? (encryptionDecision.publicKey ?? encryptionKey)
+                : null,
+            messageId: msgId,
+            transportSide: 'central',
+          );
 
       final legacyPayload = {
         ...protocolMessage.payload,
@@ -387,6 +425,7 @@ class OutboundMessageSender {
       String payload = message;
       String encryptionMethod = 'none';
       EncryptionMethod? encryptionDecision;
+      CryptoHeader? explicitCryptoHeader;
 
       if (encryptionKey.isNotEmpty) {
         encryptionDecision = await _securityService.getEncryptionMethod(
@@ -407,6 +446,27 @@ class OutboundMessageSender {
           '❌ PERIPHERAL SEND ABORTED: No encryption key available for message $msgId',
         );
         throw Exception('Cannot send message without encryption key');
+      }
+
+      if (_enableSealedV1Send &&
+          !_allowLegacyV2Send &&
+          _isLegacyEncryptionType(encryptionDecision.type)) {
+        final sealedResult = await _tryEncryptWithSealedV1(
+          plaintext: message,
+          messageId: msgId,
+          senderId: finalSenderIf,
+          recipientId: finalRecipientId,
+          contactLookupKey: encryptionKey,
+          contactRepository: contactRepository,
+        );
+        if (sealedResult != null) {
+          payload = sealedResult.payloadBase64;
+          encryptionMethod = 'sealed';
+          explicitCryptoHeader = sealedResult.header;
+          _logger.info(
+            '🔒 PERIPHERAL MESSAGE: Switched to SEALED_V1 for strict-mode send (${_safeTruncate(msgId, 16)})',
+          );
+        }
       }
 
       SecurityLevel trustLevel;
@@ -441,14 +501,16 @@ class OutboundMessageSender {
 
       final intendedRecipientPayload =
           originalIntendedRecipient ?? finalRecipientId;
-      final cryptoHeader = _buildCryptoHeader(
-        encryptionMethod: encryptionMethod,
-        sessionId: encryptionMethod == 'noise'
-            ? (encryptionDecision.publicKey ?? encryptionKey)
-            : null,
-        messageId: msgId,
-        transportSide: 'peripheral',
-      );
+      final cryptoHeader =
+          explicitCryptoHeader ??
+          _buildCryptoHeader(
+            encryptionMethod: encryptionMethod,
+            sessionId: encryptionMethod == 'noise'
+                ? (encryptionDecision.publicKey ?? encryptionKey)
+                : null,
+            messageId: msgId,
+            transportSide: 'peripheral',
+          );
 
       final legacyPayload = {
         ...protocolMessage.payload,
@@ -631,6 +693,91 @@ class OutboundMessageSender {
     }
   }
 
+  bool _isLegacyEncryptionType(EncryptionType type) {
+    return type == EncryptionType.ecdh ||
+        type == EncryptionType.pairing ||
+        type == EncryptionType.global;
+  }
+
+  Future<_SealedPayload?> _tryEncryptWithSealedV1({
+    required String plaintext,
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+    required String contactLookupKey,
+    required ContactRepository contactRepository,
+  }) async {
+    if (senderId.isEmpty || recipientId.isEmpty || contactLookupKey.isEmpty) {
+      return null;
+    }
+
+    final contact = await contactRepository.getContactByAnyId(contactLookupKey);
+    final recipientNoisePublicKey = contact?.noisePublicKey;
+    if (recipientNoisePublicKey == null || recipientNoisePublicKey.isEmpty) {
+      _logger.fine(
+        '🔒 SEALED_V1 unavailable: no recipient noise key for ${_safeTruncate(contactLookupKey, 12)}',
+      );
+      return null;
+    }
+
+    Uint8List recipientStaticKeyBytes;
+    try {
+      recipientStaticKeyBytes = Uint8List.fromList(
+        base64.decode(recipientNoisePublicKey),
+      );
+    } catch (error) {
+      _logger.warning(
+        '🔒 SEALED_V1 unavailable: invalid recipient noise key encoding for ${_safeTruncate(contactLookupKey, 12)}: $error',
+      );
+      return null;
+    }
+
+    if (recipientStaticKeyBytes.length != 32) {
+      _logger.warning(
+        '🔒 SEALED_V1 unavailable: recipient noise key has invalid length (${recipientStaticKeyBytes.length}) for ${_safeTruncate(contactLookupKey, 12)}',
+      );
+      return null;
+    }
+
+    try {
+      final aad = _buildSealedV1Aad(
+        messageId: messageId,
+        senderId: senderId,
+        recipientId: recipientId,
+      );
+      final sealed = await _sealedEncryptionService.encrypt(
+        plaintext: Uint8List.fromList(utf8.encode(plaintext)),
+        recipientPublicKey: recipientStaticKeyBytes,
+        aad: aad,
+      );
+
+      return _SealedPayload(
+        payloadBase64: base64.encode(sealed.ciphertext),
+        header: CryptoHeader(
+          mode: CryptoMode.sealedV1,
+          modeVersion: 1,
+          keyId: sealed.keyId,
+          ephemeralPublicKey: base64.encode(sealed.ephemeralPublicKey),
+          nonce: base64.encode(sealed.nonce),
+        ),
+      );
+    } catch (error) {
+      _logger.warning(
+        '🔒 SEALED_V1 encryption failed for ${_safeTruncate(contactLookupKey, 12)}: $error',
+      );
+      return null;
+    }
+  }
+
+  Uint8List _buildSealedV1Aad({
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+  }) {
+    final context = 'v2|$messageId|$senderId|$recipientId|sealed_v1';
+    return Uint8List.fromList(utf8.encode(context));
+  }
+
   CryptoHeader? _buildCryptoHeader({
     required String encryptionMethod,
     required String? sessionId,
@@ -672,6 +819,8 @@ class OutboundMessageSender {
     switch (encryptionMethod) {
       case 'noise':
         return CryptoMode.noiseV1;
+      case 'sealed':
+        return CryptoMode.sealedV1;
       case 'ecdh':
         return CryptoMode.legacyEcdhV1;
       case 'pairing':
@@ -842,4 +991,11 @@ class _MessageIdentities {
     required this.intendedRecipient,
     required this.isSpyMode,
   });
+}
+
+class _SealedPayload {
+  final String payloadBase64;
+  final CryptoHeader header;
+
+  _SealedPayload({required this.payloadBase64, required this.header});
 }

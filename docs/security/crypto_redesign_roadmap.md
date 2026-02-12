@@ -53,7 +53,11 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     - wrong-recipient decrypt failure
     - ciphertext tamper failure
     - AAD mismatch failure
-  - note: service is not yet wired into outbound/inbound message flows.
+  - outbound strict-mode fallback now supports sealed send when explicitly enabled:
+    - `PAKCONNECT_ENABLE_SEALED_V1_SEND=true`
+    - requires recipient Noise static key in contact record
+    - covered by `test/data/services/ble_write_adapter_test.dart`
+  - note: inbound sealed decrypt wiring remains pending.
 
 ---
 
@@ -130,11 +134,16 @@ Remaining:
 Implemented now:
 - sealed/offline cryptographic primitive service and core invariants are in place
   via `test/core/security/sealed/sealed_encryption_service_test.dart`.
+- outbound v2 strict policy can switch legacy send attempts to `sealed_v1`
+  when:
+  - legacy v2 send is blocked (`PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`)
+  - sealed fallback is enabled (`PAKCONNECT_ENABLE_SEALED_V1_SEND=true`)
+  - recipient static Noise key is available.
 
 Remaining:
-- wire `sealed_v1` into outbound send policy when no live Noise session exists.
+- expand sealed send from strict fallback to primary offline lane policy.
 - add envelope fields (`kid`, `epk`, `nonce`) from sealed service output.
-- implement deterministic `sealed_v1` decrypt routing in handlers.
+- implement deterministic `sealed_v1` decrypt routing in inbound handlers.
 - add relay-aware integration tests (transport sender differs from crypto sender).
 
 ### Pass D (55-75%): Live Session Lifecycle Hardening
