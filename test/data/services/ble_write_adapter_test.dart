@@ -199,7 +199,11 @@ void main() {
     );
 
     securityService = _FakeSecurityService();
-    SecurityServiceLocator.registerFallback(securityService);
+    SecurityServiceLocator.configureServiceResolver(() => securityService);
+  });
+
+  tearDownAll(() {
+    SecurityServiceLocator.clearServiceResolver();
   });
 
   setUp(() {

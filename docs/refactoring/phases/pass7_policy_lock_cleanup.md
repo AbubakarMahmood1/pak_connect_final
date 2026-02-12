@@ -32,6 +32,15 @@ escape hatches that can reintroduce split-brain behavior.
     - `flutter test test/data/services/ble_service_facade_test.dart --dart-define=PAKCONNECT_BLE_STRICT_SINGLETON_GUARD=true`
   - publishes `ble_strict_singleton_latest.log` as workflow artifact
 
+- Pruned one legacy security fallback escape hatch:
+  - `lib/domain/services/security_service_locator.dart`
+    - removed implicit fallback instance path (`registerFallback`)
+    - locator now requires explicit resolver configuration
+  - `lib/core/services/security_manager.dart`
+    - removed constructor-side implicit fallback registration
+  - `test/data/services/ble_write_adapter_test.dart`
+    - migrated to explicit `configureServiceResolver(...)` + teardown cleanup
+
 ---
 
 ## Verification
@@ -42,6 +51,8 @@ Commands run:
 flutter analyze test/data/services/ble_service_facade_test.dart
 flutter test test/data/services/ble_service_facade_test.dart
 flutter test test/data/services/ble_service_facade_test.dart --dart-define=PAKCONNECT_BLE_STRICT_SINGLETON_GUARD=true
+flutter analyze lib/domain/services/security_service_locator.dart lib/core/services/security_manager.dart test/data/services/ble_write_adapter_test.dart
+flutter test test/data/services/ble_write_adapter_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -59,5 +70,5 @@ Results:
 
 ## Next Slice
 
-- Start pruning remaining legacy fallback seams that still depend on global
-  resolver escape hatches.
+- Continue pruning resolver fallback seams in domain/core singleton factories
+  where composition-root wiring is now guaranteed.
