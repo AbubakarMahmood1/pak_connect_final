@@ -55,8 +55,8 @@ void main() {
       );
     });
 
-    tearDown(() {
-      facade.dispose();
+    tearDown(() async {
+      await facade.dispose();
       messagingStub.dispose();
       handshakeStub.dispose();
 
@@ -255,16 +255,14 @@ void main() {
       });
 
       test('spy mode events bubble to state manager and stream', () async {
-        final localFacade = BLEServiceFacade(platformHost: platformHost);
-        addTearDown(() => localFacade.dispose());
         final spyInfo = SpyModeInfo(contactName: 'Alice', ephemeralID: 'eph1');
         final received = <String>[];
-        localFacade.stateManager.onSpyModeDetected = (info) {
+        facade.stateManager.onSpyModeDetected = (info) {
           received.add(info.contactName);
         };
 
-        final streamFuture = localFacade.spyModeDetectedStream.first;
-        localFacade.debugEmitSpyModeDetected(spyInfo);
+        final streamFuture = facade.spyModeDetectedStream.first;
+        facade.debugEmitSpyModeDetected(spyInfo);
 
         final streamValue = await streamFuture;
         expect(received, contains('Alice'));
@@ -274,13 +272,11 @@ void main() {
       test(
         'identity revealed events bubble to state manager and stream',
         () async {
-          final localFacade = BLEServiceFacade(platformHost: platformHost);
-          addTearDown(() => localFacade.dispose());
           final received = <String>[];
-          localFacade.stateManager.onIdentityRevealed = received.add;
+          facade.stateManager.onIdentityRevealed = received.add;
 
-          final streamFuture = localFacade.identityRevealedStream.first;
-          localFacade.debugEmitIdentityRevealed('peer-123');
+          final streamFuture = facade.identityRevealedStream.first;
+          facade.debugEmitIdentityRevealed('peer-123');
 
           final streamValue = await streamFuture;
           expect(received, contains('peer-123'));
@@ -887,19 +883,19 @@ void main() {
     // ========================================================================
 
     group('Lifecycle & Cleanup', () {
-      test('dispose() completes successfully', () {
+      test('dispose() completes successfully', () async {
         // Arrange & Act
-        facade.dispose();
+        await facade.dispose();
 
         // Assert (no exception thrown)
         expect(true, isTrue);
       });
 
-      test('dispose() can be called multiple times', () {
+      test('dispose() can be called multiple times', () async {
         // Arrange & Act
-        facade.dispose();
-        facade.dispose();
-        facade.dispose();
+        await facade.dispose();
+        await facade.dispose();
+        await facade.dispose();
 
         // Assert (no exception thrown)
         expect(true, isTrue);
@@ -907,7 +903,7 @@ void main() {
 
       test('facade can be re-initialized after dispose', () async {
         // Arrange
-        facade.dispose();
+        await facade.dispose();
 
         // Act
         final facade2 = BLEServiceFacade();
@@ -917,7 +913,7 @@ void main() {
         expect(facade2.initializationComplete, completes);
 
         // Cleanup
-        facade2.dispose();
+        await facade2.dispose();
       });
     });
 
