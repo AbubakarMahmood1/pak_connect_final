@@ -66,6 +66,18 @@ $testCases = @(
         Defines = @()
     },
     [PSCustomObject]@{
+        Label = 'protocol handler rejects unsigned v2 direct plaintext text'
+        TestFile = 'test/data/services/protocol_message_handler_test.dart'
+        PlainName = 'rejects unsigned v2 direct plaintext text message'
+        Defines = @()
+    },
+    [PSCustomObject]@{
+        Label = 'protocol handler blocks legacy v2 mode for upgraded peer floor'
+        TestFile = 'test/data/services/protocol_message_handler_test.dart'
+        PlainName = 'blocks legacy v2 decrypt mode for peers already observed at v2 floor'
+        Defines = @()
+    },
+    [PSCustomObject]@{
         Label = 'inbound processor enforces v2 encrypted signature policy'
         TestFile = 'test/data/services/inbound_text_processor_test.dart'
         PlainName = 'requires signature for v2 encrypted message when policy enabled'
@@ -75,6 +87,18 @@ $testCases = @(
         Label = 'inbound processor rejects sealed v2 payload missing sender binding'
         TestFile = 'test/data/services/inbound_text_processor_test.dart'
         PlainName = 'rejects sealed v2 payload missing sender binding'
+        Defines = @()
+    },
+    [PSCustomObject]@{
+        Label = 'inbound processor rejects unsigned v2 direct plaintext text'
+        TestFile = 'test/data/services/inbound_text_processor_test.dart'
+        PlainName = 'rejects unsigned v2 direct plaintext text message'
+        Defines = @()
+    },
+    [PSCustomObject]@{
+        Label = 'inbound processor blocks legacy v2 mode for upgraded peer floor'
+        TestFile = 'test/data/services/inbound_text_processor_test.dart'
+        PlainName = 'blocks legacy v2 decrypt mode for peers already observed at v2 floor'
         Defines = @()
     }
 )

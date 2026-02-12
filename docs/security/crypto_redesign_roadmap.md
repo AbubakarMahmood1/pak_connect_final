@@ -37,6 +37,7 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - Logging/RNG hardening completed:
   - pairing code uses `Random.secure()`.
   - pairing code values are no longer logged.
+  - pairing dialog controller log no longer prints live PIN values.
   - `print(...)` removed from `lib/**` runtime code (doc comments excluded).
 - Runtime hygiene gates added to CI:
   - no non-comment `print(...)` in `lib/**`.
@@ -49,6 +50,8 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     - sealed v1 strict fallback emission when recipient static Noise key exists.
     - sealed v2 inbound sender-binding requirement (no transport fallback).
     - inbound encrypted v2 signature requirement in both text handler paths.
+    - inbound rejection of unsigned v2 direct plaintext text messages.
+    - inbound block of legacy v2 decrypt modes for upgraded peers.
 - Pass B migration scaffold added:
   - outbound v2 send path can now fail-closed on legacy modes using
     `PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`.
@@ -93,6 +96,12 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - Pass B peer-upgrade send policy tightening added:
   - outbound legacy v2 send modes are now auto-blocked for peers already
     observed at protocol floor v2+, even when global compatibility mode is on.
+- Pass B peer-upgrade decrypt policy tightening added:
+  - inbound legacy v2 decrypt modes are now auto-blocked for peers already
+    observed at protocol floor v2+, even when compatibility mode is enabled.
+  - implemented in:
+    - `lib/data/services/protocol_message_handler.dart`
+    - `lib/data/services/inbound_text_processor.dart`
 - Sender identity resolution split by purpose:
   - decrypt path can still resolve Noise session IDs where required.
   - signature path resolves stable identity keys (persistent/public), avoiding
@@ -360,6 +369,8 @@ Below are vetted findings from an additional review, filtered for usefulness.
   - **Fixed**:
     - `Random()` -> `Random.secure()`
     - redacted pairing-code value logs.
+    - removed UI-layer PIN value logging in
+      `lib/presentation/controllers/chat_pairing_dialog_controller.dart`.
 - Timer hygiene remains a real operational concern.
   - Multiple `Timer.periodic(...)` usages still exist across mesh/monitoring services.
   - Not automatically a bug, but requires strict lifecycle ownership.

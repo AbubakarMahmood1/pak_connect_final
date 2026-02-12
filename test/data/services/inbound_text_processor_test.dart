@@ -307,6 +307,73 @@ void main() {
     );
 
     test(
+      'blocks legacy v2 decrypt mode for peers already observed at v2 floor',
+      () async {
+        final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
+        final signingKeyPair = _generateEphemeralSigningKeyPair();
+        final baselineV2 = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-floor-legacy-mode',
+            'content': 'ciphertext-floor',
+            'encrypted': true,
+            'senderId': 'peer-upgraded',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        );
+        final baselinePayload = SigningManager.signaturePayloadForMessage(
+          baselineV2,
+          fallbackContent: 'typed:ciphertext-floor',
+        );
+        final baselineSignature = _signWithEphemeralPrivateKey(
+          content: baselinePayload,
+          privateKeyHex: signingKeyPair.privateHex,
+        );
+        final signedV2 = ProtocolMessage(
+          type: baselineV2.type,
+          version: baselineV2.version,
+          payload: baselineV2.payload,
+          signature: baselineSignature,
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        );
+        final legacyModeV2 = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-legacy-after-upgrade',
+            'content': 'ciphertext-legacy',
+            'encrypted': true,
+            'senderId': 'peer-upgraded',
+            'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final firstResult = await processor.process(
+          protocolMessage: signedV2,
+          senderPublicKey: 'relay-node',
+        );
+        final secondResult = await processor.process(
+          protocolMessage: legacyModeV2,
+          senderPublicKey: 'relay-node',
+        );
+
+        expect(firstResult.content, equals('typed:ciphertext-floor'));
+        expect(firstResult.shouldAck, isTrue);
+        expect(secondResult.content, isNull);
+        expect(secondResult.shouldAck, isFalse);
+        expect(securityService.decryptMessageByTypeCalls, equals(1));
+        expect(securityService.decryptMessageCalls, equals(0));
+      },
+    );
+
+    test(
       'rejects v1 message after observing authenticated v2 from same peer',
       () async {
         final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);

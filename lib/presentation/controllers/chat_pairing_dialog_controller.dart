@@ -114,7 +114,7 @@ class ChatPairingDialogController {
       // Generate our pairing code
       final myCode = stateManager.generatePairingCode();
 
-      _logger.info('🔑 Pairing dialog showing (code: $myCode)');
+      _logger.info('🔑 Pairing dialog showing');
 
       final result = await showDialog<bool>(
         context: context,

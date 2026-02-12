@@ -332,6 +332,13 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
                 );
                 return null;
               }
+              if (_shouldRejectLegacyV2ModeForUpgradedPeer(
+                peerKey: versionPeerKey,
+                mode: cryptoHeader.mode,
+                messageId: messageId,
+              )) {
+                return null;
+              }
               if (!_allowLegacyV2Decrypt && _isLegacyMode(cryptoHeader.mode)) {
                 _logger.warning(
                   '🔒 v2 legacy decrypt mode blocked by policy: ${cryptoHeader.mode.wireValue} '
@@ -789,6 +796,28 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     return mode == CryptoMode.legacyEcdhV1 ||
         mode == CryptoMode.legacyPairingV1 ||
         mode == CryptoMode.legacyGlobalV1;
+  }
+
+  bool _shouldRejectLegacyV2ModeForUpgradedPeer({
+    required String peerKey,
+    required CryptoMode mode,
+    required String messageId,
+  }) {
+    if (!_isLegacyMode(mode) || peerKey.isEmpty) {
+      return false;
+    }
+
+    final floor = PeerProtocolVersionGuard.floorForPeer(peerKey);
+    if (floor < 2) {
+      return false;
+    }
+
+    _logger.warning(
+      '🔒 v2 legacy decrypt mode blocked for upgraded peer '
+      '${peerKey.shortId(8)}... (floor=v$floor, mode=${mode.wireValue}, '
+      'messageId=${messageId.shortId(8)})',
+    );
+    return true;
   }
 
   bool _isBroadcastV2TextMessage({
