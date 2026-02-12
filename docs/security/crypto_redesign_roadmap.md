@@ -102,6 +102,16 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - implemented in:
     - `lib/data/services/protocol_message_handler.dart`
     - `lib/data/services/inbound_text_processor.dart`
+- Pass B peer-upgrade signature policy tightening added:
+  - inbound encrypted v2 messages now require a signature for peers already
+    observed at protocol floor v2+, even when global strict-signature mode is
+    disabled.
+  - implemented in:
+    - `lib/data/services/protocol_message_handler.dart`
+    - `lib/data/services/inbound_text_processor.dart`
+  - regression coverage:
+    - `test/data/services/protocol_message_handler_test.dart`
+    - `test/data/services/inbound_text_processor_test.dart`
 - Sender identity resolution split by purpose:
   - decrypt path can still resolve Noise session IDs where required.
   - signature path resolves stable identity keys (persistent/public), avoiding

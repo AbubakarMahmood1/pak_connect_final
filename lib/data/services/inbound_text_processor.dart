@@ -162,11 +162,13 @@ class InboundTextProcessor {
     var isV2Authenticated = protocolMessage.version < 2;
 
     if (protocolMessage.isEncrypted) {
-      if (protocolMessage.version >= 2 &&
-          _requireV2Signature &&
+      if (_shouldRequireV2Signature(
+            messageVersion: protocolMessage.version,
+            peerKey: versionPeerKey,
+          ) &&
           protocolMessage.signature == null) {
         _logger.severe(
-          '🔒 v2 encrypted message missing signature under strict policy: $messageId',
+          '🔒 v2 encrypted message missing signature under strict/upgraded-peer policy: $messageId',
         );
         return const InboundTextResult(content: null, shouldAck: false);
       }
@@ -588,6 +590,22 @@ class InboundTextProcessor {
     return mode == CryptoMode.legacyEcdhV1 ||
         mode == CryptoMode.legacyPairingV1 ||
         mode == CryptoMode.legacyGlobalV1;
+  }
+
+  bool _shouldRequireV2Signature({
+    required int messageVersion,
+    required String peerKey,
+  }) {
+    if (messageVersion < 2) {
+      return false;
+    }
+    if (_requireV2Signature) {
+      return true;
+    }
+    if (!PeerProtocolVersionGuard.isEnabled || peerKey.isEmpty) {
+      return false;
+    }
+    return PeerProtocolVersionGuard.floorForPeer(peerKey) >= 2;
   }
 
   bool _shouldRejectLegacyV2ModeForUpgradedPeer({
