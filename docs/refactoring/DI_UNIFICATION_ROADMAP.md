@@ -37,7 +37,7 @@
 Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
-- `.instance` usages in `lib/**`: 47
+- `.instance` usages in `lib/**`: 37
 - `GetIt` resolutions in `lib/presentation/**`: 2
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
@@ -223,6 +223,9 @@ Pass 7 progress highlights:
   singleton reach-through, and related app-core call sites now prefer
   constructor-style singleton access (`SecurityManager()`, `TopologyManager()`)
   plus local `_isInitialized` checks over `AppCore.instance` self-access.
+- `AppCore` now exposes constructor-style singleton access (`factory AppCore()`)
+  and app bootstrap/shared queue wrappers consume a retained `AppCore` handle
+  instead of repeating `AppCore.instance` lookups throughout lifecycle methods.
 
 ---
 

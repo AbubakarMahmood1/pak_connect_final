@@ -101,6 +101,7 @@ class AppCore {
   @visibleForTesting
   static Future<void> Function()? initializationOverride;
   AppCore._();
+  factory AppCore() => instance;
 
   /// Get singleton instance
   static AppCore get instance {
