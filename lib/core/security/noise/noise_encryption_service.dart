@@ -129,6 +129,15 @@ class NoiseEncryptionService {
     return Uint8List.fromList(_staticIdentityPublicKey);
   }
 
+  /// Get our static private key (32 bytes).
+  ///
+  /// Intended for internal crypto services that need local static identity
+  /// material (for example sealed/offline decrypt).
+  Uint8List getStaticPrivateKeyData() {
+    _checkInitialized();
+    return Uint8List.fromList(_staticIdentityPrivateKey);
+  }
+
   /// Get our identity fingerprint
   ///
   /// Returns SHA-256 hash of static public key as hex string.

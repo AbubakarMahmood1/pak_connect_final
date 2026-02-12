@@ -57,7 +57,8 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     - `PAKCONNECT_ENABLE_SEALED_V1_SEND=true`
     - requires recipient Noise static key in contact record
     - covered by `test/data/services/ble_write_adapter_test.dart`
-  - note: inbound sealed decrypt wiring remains pending.
+  - inbound sealed decrypt path is now wired for v2 handlers via
+    `ISecurityService.decryptSealedMessage(...)`.
 
 ---
 
@@ -139,11 +140,12 @@ Implemented now:
   - legacy v2 send is blocked (`PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`)
   - sealed fallback is enabled (`PAKCONNECT_ENABLE_SEALED_V1_SEND=true`)
   - recipient static Noise key is available.
+- inbound v2 handlers route `sealed_v1` to dedicated sealed decrypt logic
+  (no legacy fallback guessing for sealed mode).
 
 Remaining:
 - expand sealed send from strict fallback to primary offline lane policy.
 - add envelope fields (`kid`, `epk`, `nonce`) from sealed service output.
-- implement deterministic `sealed_v1` decrypt routing in inbound handlers.
 - add relay-aware integration tests (transport sender differs from crypto sender).
 
 ### Pass D (55-75%): Live Session Lifecycle Hardening

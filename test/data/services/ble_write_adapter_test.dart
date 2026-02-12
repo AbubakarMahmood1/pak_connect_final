@@ -172,6 +172,17 @@ class _FakeSecurityService implements ISecurityService {
   }
 
   @override
+  Future<String> decryptSealedMessage({
+    required String encryptedMessage,
+    required CryptoHeader cryptoHeader,
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+  }) async {
+    throw _FakeEncryptionException('sealed decrypt not implemented in fake');
+  }
+
+  @override
   Future<Uint8List> encryptBinaryPayload(
     Uint8List data,
     String publicKey,

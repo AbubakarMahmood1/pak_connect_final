@@ -39,3 +39,4 @@ Validate envelope/mode policy and Pass C sealed-lane scaffold before full wiring
 7. Does `sealed_encryption_service.dart` have any construction-level mistakes (KDF, nonce handling, key erasure, AAD semantics)?
 8. What is the minimum safe envelope spec for wiring sealed mode (`kid`, `epk`, `nonce`, sender binding) without creating downgrade or replay gaps?
 9. Is the interaction between `PAKCONNECT_ALLOW_LEGACY_V2_SEND` and `PAKCONNECT_ENABLE_SEALED_V1_SEND` safe for phased rollout, or can it create downgrade confusion?
+10. Does the new `decryptSealedMessage(...)` API/usage bind the same AAD context as sender-side sealing, and what edge cases remain?
