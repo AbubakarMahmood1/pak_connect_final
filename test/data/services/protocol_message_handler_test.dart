@@ -238,7 +238,7 @@ void main() {
       'requires signature for v2 encrypted message when policy enabled',
       () async {
         allowedSevere.add(
-          'v2 encrypted message missing signature under strict policy',
+          'v2 encrypted message missing signature under strict/upgraded-peer policy',
         );
         final strictHandler = ProtocolMessageHandler(
           securityService: securityService,
@@ -265,6 +265,76 @@ void main() {
 
         expect(result, isNull);
         expect(securityService.decryptMessageByTypeCalls, equals(0));
+        expect(securityService.decryptMessageCalls, equals(0));
+      },
+    );
+
+    test(
+      'requires signature for encrypted v2 message once peer floor is upgraded',
+      () async {
+        allowedSevere.add(
+          'v2 encrypted message missing signature under strict/upgraded-peer policy',
+        );
+        final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
+        final signingKeyPair = _generateEphemeralSigningKeyPair();
+        final baselineV2 = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-floor-signature',
+            'content': 'ciphertext-floor-signature',
+            'encrypted': true,
+            'senderId': 'peer-upgraded',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        );
+        final baselinePayload = SigningManager.signaturePayloadForMessage(
+          baselineV2,
+          fallbackContent: 'typed:ciphertext-floor-signature',
+        );
+        final baselineSignature = _signWithEphemeralPrivateKey(
+          content: baselinePayload,
+          privateKeyHex: signingKeyPair.privateHex,
+        );
+        final signedV2 = ProtocolMessage(
+          type: baselineV2.type,
+          version: baselineV2.version,
+          payload: baselineV2.payload,
+          signature: baselineSignature,
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        );
+        final unsignedV2 = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-unsigned-after-upgrade',
+            'content': 'ciphertext-unsigned',
+            'encrypted': true,
+            'senderId': 'peer-upgraded',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          timestamp: now.add(const Duration(seconds: 1)),
+        );
+
+        final firstResult = await handler.processProtocolMessage(
+          message: signedV2,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+        final secondResult = await handler.processProtocolMessage(
+          message: unsignedV2,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+
+        expect(firstResult, equals('typed:ciphertext-floor-signature'));
+        expect(secondResult, isNull);
+        expect(securityService.decryptMessageByTypeCalls, equals(1));
         expect(securityService.decryptMessageCalls, equals(0));
       },
     );
@@ -550,17 +620,36 @@ void main() {
           ephemeralSigningKey: signingKeyPair.publicHex,
           timestamp: now,
         );
-        final legacyModeV2 = ProtocolMessage(
+        final legacyModePayload = <String, dynamic>{
+          'messageId': 'msg-v2-legacy-after-upgrade',
+          'content': 'ciphertext-legacy',
+          'encrypted': true,
+          'senderId': 'peer-upgraded',
+          'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
+        };
+        final legacyModeUnsigned = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           version: 2,
-          payload: {
-            'messageId': 'msg-v2-legacy-after-upgrade',
-            'content': 'ciphertext-legacy',
-            'encrypted': true,
-            'senderId': 'peer-upgraded',
-            'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
-          },
-          timestamp: DateTime.now(),
+          payload: legacyModePayload,
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now.add(const Duration(seconds: 1)),
+        );
+        final legacyModeSignature = _signWithEphemeralPrivateKey(
+          content: SigningManager.signaturePayloadForMessage(
+            legacyModeUnsigned,
+            fallbackContent: 'typed:ciphertext-legacy',
+          ),
+          privateKeyHex: signingKeyPair.privateHex,
+        );
+        final legacyModeV2 = ProtocolMessage(
+          type: legacyModeUnsigned.type,
+          version: legacyModeUnsigned.version,
+          payload: legacyModeUnsigned.payload,
+          signature: legacyModeSignature,
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: legacyModeUnsigned.timestamp,
         );
 
         final firstResult = await handler.processProtocolMessage(
