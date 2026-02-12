@@ -1,27 +1,27 @@
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 
 /// Resolves the app-wide security service without exposing core implementation
 /// details to data/presentation layers.
 class SecurityServiceLocator {
-  static ISecurityService? _fallback;
+  static ISecurityService Function()? _serviceResolver;
 
-  static void registerFallback(ISecurityService service) {
-    _fallback = service;
+  static void configureServiceResolver(ISecurityService Function() resolver) {
+    _serviceResolver = resolver;
+  }
+
+  static void clearServiceResolver() {
+    _serviceResolver = null;
   }
 
   static ISecurityService get instance {
-    final di = GetIt.instance;
-    if (di.isRegistered<ISecurityService>()) {
-      return di<ISecurityService>();
-    }
-    final fallback = _fallback;
-    if (fallback != null) {
-      return fallback;
+    final resolver = _serviceResolver;
+    if (resolver != null) {
+      return resolver();
     }
     throw StateError(
-      'ISecurityService not registered. '
-      'Register it in DI or call registerFallback().',
+      'ISecurityService resolver not configured. '
+      'Call SecurityServiceLocator.configureServiceResolver(...) during '
+      'composition root setup.',
     );
   }
 }

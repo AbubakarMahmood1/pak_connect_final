@@ -1,11 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
-import 'package:pak_connect/domain/services/security_service_locator.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
-import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
@@ -18,10 +15,10 @@ import '../../domain/values/id_types.dart';
 import '../exceptions/encryption_exception.dart';
 
 class SecurityManager implements ISecurityService {
-  SecurityManager._internal() {
-    SecurityServiceLocator.registerFallback(this);
-  }
+  SecurityManager._internal();
   static final SecurityManager _instance = SecurityManager._internal();
+  static IContactRepository Function()? _contactRepositoryResolver;
+
   factory SecurityManager() => _instance;
   static SecurityManager get instance => _instance;
 
@@ -29,6 +26,16 @@ class SecurityManager implements ISecurityService {
   NoiseEncryptionService? _noiseService;
 
   NoiseEncryptionService? get noiseService => _noiseService;
+
+  static void configureContactRepositoryResolver(
+    IContactRepository Function() resolver,
+  ) {
+    _contactRepositoryResolver = resolver;
+  }
+
+  static void clearContactRepositoryResolver() {
+    _contactRepositoryResolver = null;
+  }
 
   @override
   bool hasEstablishedNoiseSession(String peerSessionId) =>
@@ -117,9 +124,7 @@ class SecurityManager implements ISecurityService {
     String publicKey, [
     IContactRepository? repo,
   ]) async {
-    // Use provided repo or fallback to DI container
-    final contactRepo =
-        repo ?? GetIt.instance<IRepositoryProvider>().contactRepository;
+    final contactRepo = _resolveContactRepository(repo);
 
     // 🔧 FIX: Handle empty or invalid public keys safely
     if (publicKey.isEmpty) {
@@ -206,9 +211,7 @@ class SecurityManager implements ISecurityService {
     String publicKey, [
     IContactRepository? repo,
   ]) async {
-    // Use provided repo or fallback to DI container
-    final contactRepo =
-        repo ?? GetIt.instance<IRepositoryProvider>().contactRepository;
+    final contactRepo = _resolveContactRepository(repo);
 
     // 🔧 SCHEMA V8: Use dual lookup to find contact by publicKey OR persistentPublicKey
     final contact = await contactRepo.getContactByAnyId(publicKey);
@@ -813,4 +816,21 @@ class SecurityManager implements ISecurityService {
     UserId userId,
     IContactRepository repo,
   ) => decryptMessage(encryptedMessage, userId.value, repo);
+
+  static IContactRepository _resolveContactRepository(
+    IContactRepository? repository,
+  ) {
+    if (repository != null) {
+      return repository;
+    }
+    final resolver = _contactRepositoryResolver;
+    if (resolver != null) {
+      return resolver();
+    }
+    throw StateError(
+      'SecurityManager contact repository is not configured. '
+      'Call SecurityManager.configureContactRepositoryResolver(...) from '
+      'your composition root, or pass IContactRepository explicitly.',
+    );
+  }
 }

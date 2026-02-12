@@ -181,6 +181,9 @@ Pass 7 progress highlights:
 - CI now enforces the strict singleton guard suite via
   `.github/workflows/flutter_coverage.yml` and publishes
   `ble_strict_singleton_latest.log` as an artifact for regression triage.
+- `SecurityServiceLocator` no longer supports implicit fallback instance
+  registration; runtime/tests now use explicit resolver configuration,
+  reducing a legacy global escape hatch.
 
 ---
 
