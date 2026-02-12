@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 
 import '../../domain/services/hint_cache_manager.dart';
@@ -278,13 +278,9 @@ class DiscoveryOverlayController extends AsyncNotifier<DiscoveryOverlayState> {
   }
 
   IContactRepository get _contactRepository {
-    final di = GetIt.instance;
-    if (di.isRegistered<IContactRepository>()) {
-      return di<IContactRepository>();
-    }
-    throw StateError(
-      'IContactRepository is not registered. '
-      'Call setupServiceLocator() before using DiscoveryOverlayController.',
+    return resolveFromAppServicesOrServiceLocator<IContactRepository>(
+      fromServices: (services) => services.contactRepository,
+      dependencyName: 'IContactRepository',
     );
   }
 }

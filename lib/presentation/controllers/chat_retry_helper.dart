@@ -1,11 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 
 import '../../domain/services/message_retry_coordinator.dart';
 import '../../domain/utils/string_extensions.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/interfaces/i_message_repository.dart';
+import '../../domain/interfaces/i_repository_provider.dart';
 import '../../domain/interfaces/i_shared_message_queue_provider.dart';
 import '../../domain/values/id_types.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
@@ -61,10 +62,12 @@ class ChatRetryHelper {
           ? offlineQueueResolver!()
           : null;
       OfflineMessageQueueContract? queue = offlineQueue;
-      if (queue == null &&
-          GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
-        final sharedProvider = GetIt.instance<ISharedMessageQueueProvider>();
-        if (sharedProvider.isInitialized) {
+      if (queue == null) {
+        final sharedProvider =
+            maybeResolveFromAppServicesOrServiceLocator<
+              ISharedMessageQueueProvider
+            >(fromServices: (services) => services.sharedMessageQueueProvider);
+        if (sharedProvider != null && sharedProvider.isInitialized) {
           queue = sharedProvider.messageQueue;
         }
       }
@@ -75,9 +78,21 @@ class ChatRetryHelper {
         return;
       }
 
+      final repositoryProvider =
+          maybeResolveFromAppServicesOrServiceLocator<IRepositoryProvider>(
+            fromServices: (services) => services.repositoryProvider,
+          );
+      if (repositoryProvider == null) {
+        _logger.fine(
+          'IRepositoryProvider unavailable; deferring MessageRetryCoordinator setup',
+        );
+        return;
+      }
+
       final meshService = ref.read(meshNetworkingServiceProvider);
 
       _retryCoordinator = MessageRetryCoordinator(
+        repositoryProvider: repositoryProvider,
         offlineQueue: queue,
         meshService: meshService,
       );

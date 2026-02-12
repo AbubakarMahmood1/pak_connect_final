@@ -4,7 +4,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import '../../domain/interfaces/i_import_service.dart';
 
 class ImportDialog extends StatefulWidget {
@@ -559,10 +559,8 @@ class _ImportDialogState extends State<ImportDialog> {
   }
 
   IImportService _resolveImportService() {
-    final serviceLocator = GetIt.instance;
-    if (serviceLocator.isRegistered<IImportService>()) {
-      return serviceLocator<IImportService>();
-    }
-    throw StateError('IImportService is not registered in GetIt');
+    return resolveFromServiceLocator<IImportService>(
+      dependencyName: 'IImportService',
+    );
   }
 }

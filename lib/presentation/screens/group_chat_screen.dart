@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import '../providers/group_providers.dart';
 import '../../domain/models/contact_group.dart';
 import '../../domain/interfaces/i_user_preferences.dart';
@@ -72,13 +72,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   }
 
   IUserPreferences _resolveUserPreferences() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IUserPreferences>()) {
-      return di<IUserPreferences>();
-    }
-    throw StateError(
-      'IUserPreferences is not registered. '
-      'Call setupServiceLocator() before opening GroupChatScreen.',
+    return resolveFromAppServicesOrServiceLocator<IUserPreferences>(
+      fromServices: (services) => services.userPreferences,
+      dependencyName: 'IUserPreferences',
     );
   }
 

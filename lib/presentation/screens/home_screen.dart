@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
 import '../providers/ble_providers.dart';
@@ -53,7 +53,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _chatsRepository = GetIt.instance<IChatsRepository>();
+    _chatsRepository = resolveFromAppServicesOrServiceLocator<IChatsRepository>(
+      fromServices: (services) => services.chatsRepository,
+      dependencyName: 'IChatsRepository',
+    );
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(
       _onTabChanged,

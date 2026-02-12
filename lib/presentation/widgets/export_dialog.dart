@@ -4,7 +4,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../domain/interfaces/i_export_service.dart';
 import '../../domain/models/export_bundle.dart';
@@ -522,10 +522,8 @@ class _ExportDialogState extends State<ExportDialog> {
   }
 
   IExportService _resolveExportService() {
-    final serviceLocator = GetIt.instance;
-    if (serviceLocator.isRegistered<IExportService>()) {
-      return serviceLocator<IExportService>();
-    }
-    throw StateError('IExportService is not registered in GetIt');
+    return resolveFromServiceLocator<IExportService>(
+      dependencyName: 'IExportService',
+    );
   }
 }

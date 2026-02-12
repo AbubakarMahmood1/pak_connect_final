@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import '../../domain/interfaces/i_chat_interaction_handler.dart';
 import '../../domain/interfaces/i_chats_repository.dart';
@@ -665,10 +665,9 @@ class ChatInteractionHandler implements IChatInteractionHandler {
   bool _canNavigate() => _context != null;
 
   ISharedMessageQueueProvider? _resolveQueueProvider() {
-    if (GetIt.instance.isRegistered<ISharedMessageQueueProvider>()) {
-      return GetIt.instance<ISharedMessageQueueProvider>();
-    }
-    return null;
+    return maybeResolveFromAppServicesOrServiceLocator<
+      ISharedMessageQueueProvider
+    >(fromServices: (services) => services.sharedMessageQueueProvider);
   }
 
   @override

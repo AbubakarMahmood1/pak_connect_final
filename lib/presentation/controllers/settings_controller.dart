@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 
 import '../../domain/services/ephemeral_key_manager.dart';
@@ -186,8 +186,12 @@ class SettingsController extends ChangeNotifier {
       value,
     );
     final handler = value
-        ? NotificationHandlerFactory.createBackgroundHandler()
-        : NotificationHandlerFactory.createDefault();
+        ? NotificationHandlerFactory.createBackgroundHandler(
+            preferencesRepository: _preferencesRepository,
+          )
+        : NotificationHandlerFactory.createDefault(
+            preferencesRepository: _preferencesRepository,
+          );
     await NotificationService.swapHandler(handler);
   }
 
@@ -453,27 +457,33 @@ class SettingsController extends ChangeNotifier {
   }
 
   static IPreferencesRepository _resolvePreferencesRepository() =>
-      _resolveOrThrow<IPreferencesRepository>('IPreferencesRepository');
+      resolveFromAppServicesOrServiceLocator<IPreferencesRepository>(
+        fromServices: (services) => services.preferencesRepository,
+        dependencyName: 'IPreferencesRepository',
+      );
 
   static IContactRepository _resolveContactRepository() =>
-      _resolveOrThrow<IContactRepository>('IContactRepository');
+      resolveFromAppServicesOrServiceLocator<IContactRepository>(
+        fromServices: (services) => services.contactRepository,
+        dependencyName: 'IContactRepository',
+      );
 
   static IChatsRepository _resolveChatsRepository() =>
-      _resolveOrThrow<IChatsRepository>('IChatsRepository');
+      resolveFromAppServicesOrServiceLocator<IChatsRepository>(
+        fromServices: (services) => services.chatsRepository,
+        dependencyName: 'IChatsRepository',
+      );
 
   static IUserPreferences _resolveUserPreferences() =>
-      _resolveOrThrow<IUserPreferences>('IUserPreferences');
+      resolveFromAppServicesOrServiceLocator<IUserPreferences>(
+        fromServices: (services) => services.userPreferences,
+        dependencyName: 'IUserPreferences',
+      );
 
   static IDatabaseProvider _resolveDatabaseProvider() =>
-      _resolveOrThrow<IDatabaseProvider>('IDatabaseProvider');
-
-  static T _resolveOrThrow<T extends Object>(String typeName) {
-    final serviceLocator = GetIt.instance;
-    if (serviceLocator.isRegistered<T>()) {
-      return serviceLocator<T>();
-    }
-    throw StateError('$typeName is not registered in GetIt');
-  }
+      resolveFromServiceLocator<IDatabaseProvider>(
+        dependencyName: 'IDatabaseProvider',
+      );
 }
 
 class StorageInfo {

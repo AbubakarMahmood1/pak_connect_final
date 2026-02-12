@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import '../providers/group_providers.dart';
 import '../../domain/entities/contact.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
@@ -56,13 +56,9 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   }
 
   IContactRepository _resolveContactRepository() {
-    final di = GetIt.instance;
-    if (di.isRegistered<IContactRepository>()) {
-      return di<IContactRepository>();
-    }
-    throw StateError(
-      'IContactRepository is not registered. '
-      'Call setupServiceLocator() before opening CreateGroupScreen.',
+    return resolveFromAppServicesOrServiceLocator<IContactRepository>(
+      fromServices: (services) => services.contactRepository,
+      dependencyName: 'IContactRepository',
     );
   }
 

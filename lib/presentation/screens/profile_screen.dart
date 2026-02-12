@@ -4,7 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import '../providers/ble_providers.dart';
 import '../../domain/interfaces/i_archive_repository.dart';
 import '../../domain/interfaces/i_chats_repository.dart';
@@ -516,25 +516,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   IUserPreferences _resolveUserPreferences() =>
-      _resolveOrThrow<IUserPreferences>('IUserPreferences');
+      resolveFromAppServicesOrServiceLocator<IUserPreferences>(
+        fromServices: (services) => services.userPreferences,
+        dependencyName: 'IUserPreferences',
+      );
 
   IContactRepository _resolveContactRepository() =>
-      _resolveOrThrow<IContactRepository>('IContactRepository');
+      resolveFromAppServicesOrServiceLocator<IContactRepository>(
+        fromServices: (services) => services.contactRepository,
+        dependencyName: 'IContactRepository',
+      );
 
   IChatsRepository _resolveChatsRepository() =>
-      _resolveOrThrow<IChatsRepository>('IChatsRepository');
+      resolveFromAppServicesOrServiceLocator<IChatsRepository>(
+        fromServices: (services) => services.chatsRepository,
+        dependencyName: 'IChatsRepository',
+      );
 
   IArchiveRepository _resolveArchiveRepository() =>
-      _resolveOrThrow<IArchiveRepository>('IArchiveRepository');
+      resolveFromAppServicesOrServiceLocator<IArchiveRepository>(
+        fromServices: (services) => services.archiveRepository,
+        dependencyName: 'IArchiveRepository',
+      );
 
   IDatabaseProvider _resolveDatabaseProvider() =>
-      _resolveOrThrow<IDatabaseProvider>('IDatabaseProvider');
-
-  T _resolveOrThrow<T extends Object>(String typeName) {
-    final serviceLocator = GetIt.instance;
-    if (serviceLocator.isRegistered<T>()) {
-      return serviceLocator<T>();
-    }
-    throw StateError('$typeName is not registered in GetIt');
-  }
+      resolveFromServiceLocator<IDatabaseProvider>(
+        dependencyName: 'IDatabaseProvider',
+      );
 }
