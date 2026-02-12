@@ -144,6 +144,12 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     - `test/data/services/inbound_text_processor_test.dart`
 - binary payload handling now fails closed on decrypt failure (drop instead of
   forwarding undecrypted bytes to downstream callbacks).
+- binary payload sender-key resolution is now deterministic per transport
+  identity:
+  - decrypt attempts use a single ordered candidate set (contact session key,
+    persistent key, contact public key, transport key).
+  - removed ad-hoc "retry transport sender after resolved-sender failure"
+    branching in binary decrypt flow.
 - v2 plaintext spoofing policy tightened for text messages:
   - direct plaintext v2 text messages are rejected.
   - plaintext broadcast v2 text messages now require a valid signature.
