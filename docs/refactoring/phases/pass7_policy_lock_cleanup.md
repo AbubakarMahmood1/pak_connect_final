@@ -26,6 +26,12 @@ escape hatches that can reintroduce split-brain behavior.
     `ble_service_facade_test.dart`
   - confirms no accidental concurrent facade ownership within the suite
 
+- Wired strict singleton guard verification into CI:
+  - `.github/workflows/flutter_coverage.yml`
+  - added `Enforce BLE strict singleton guard suite` step that runs:
+    - `flutter test test/data/services/ble_service_facade_test.dart --dart-define=PAKCONNECT_BLE_STRICT_SINGLETON_GUARD=true`
+  - publishes `ble_strict_singleton_latest.log` as workflow artifact
+
 ---
 
 ## Verification
@@ -53,7 +59,5 @@ Results:
 
 ## Next Slice
 
-- Wire strict singleton guard verification into CI (targeted suite step).
 - Start pruning remaining legacy fallback seams that still depend on global
   resolver escape hatches.
-
