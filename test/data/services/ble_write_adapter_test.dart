@@ -327,6 +327,47 @@ void main() {
     },
   );
 
+  test(
+    'central send blocks legacy v2 crypto mode when compatibility is disabled',
+    () async {
+      await contactRepository.saveContact(
+        'recipient_strict_policy',
+        'Recipient Strict Policy',
+      );
+      SimpleCrypto.initializeConversation(
+        'recipient_strict_policy',
+        'ble-write-test-strict-secret',
+      );
+
+      // With no Noise session, sender would pick PAIRING for v2.
+      // Strict policy must fail-closed instead of emitting legacy_v2 mode.
+      adapter = BleWriteAdapter(
+        contactRepository: contactRepository,
+        stateManagerProvider: () => stateManager,
+        writeClient: writeClient,
+        allowLegacyV2Send: false,
+      );
+      allowSevere('Legacy v2 send mode blocked by policy');
+      allowSevere('Stack trace');
+
+      final result = await adapter.sendCentralMessage(
+        centralManager: _FakeCentralManager(),
+        connectedDevice: FakePeripheral(uuid: makeUuid(21)),
+        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(22)),
+        recipientKey: 'recipient_strict_policy',
+        content: 'strict mode should block legacy v2 sends',
+        mtuSize: 185,
+      );
+
+      expect(result, isFalse);
+      expect(
+        writeClient.lastCentralValue,
+        isNull,
+        reason: 'Strict mode must block transport writes for legacy v2 modes',
+      );
+    },
+  );
+
   test('peripheral send short-circuits when not in peripheral mode', () async {
     stateManager.peripheralMode = false;
 

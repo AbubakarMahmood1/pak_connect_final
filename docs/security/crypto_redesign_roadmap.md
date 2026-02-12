@@ -41,6 +41,10 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - Runtime hygiene gates added to CI:
   - no non-comment `print(...)` in `lib/**`.
   - `Timer.periodic(...)` count regression gate capped at current baseline.
+- Pass B migration scaffold added:
+  - outbound v2 send path can now fail-closed on legacy modes using
+    `PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`.
+  - default remains compatibility-on (`true`) for progressive rollout.
 
 ---
 
@@ -88,6 +92,15 @@ This preserves:
 
 - No new outbound payload is produced with legacy/global mode.
 - Fallback logic only applies to old incoming messages.
+
+**Status**: In progress (`2026-02-12`).
+
+Implemented now:
+- strict policy gate exists for outbound v2 legacy mode emission.
+
+Remaining:
+- make strict mode default in controlled stages.
+- add sealed/offline lane so strict mode does not block non-live delivery use cases.
 
 ### Pass C (35-55%): Offline Async Prekey Lane
 
