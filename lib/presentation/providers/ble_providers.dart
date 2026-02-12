@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:logging/logging.dart';
 import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'dart:async';
 import '../../domain/models/connection_info.dart';
@@ -25,6 +26,8 @@ import 'runtime_providers.dart';
 import '../../domain/utils/string_extensions.dart';
 
 export 'ble_provider_models.dart';
+
+final _logger = Logger('BleProviders');
 
 // =============================================================================
 // CORE RUNTIME NOTIFIER (BLE)
@@ -269,8 +272,8 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
       );
     } catch (e, stackTrace) {
       if (kDebugMode) {
-        print('⚠️ Identity propagation failed: $e');
-        print(stackTrace);
+        _logger.warning('⚠️ Identity propagation failed: $e');
+        _logger.fine('Identity propagation stack: $stackTrace');
       }
     }
   }
@@ -393,7 +396,7 @@ class UsernameNotifier extends AsyncNotifier<String> {
     } catch (e) {
       // Log error but don't fail the username update
       if (kDebugMode) {
-        print('Failed to re-exchange identity: $e');
+        _logger.warning('Failed to re-exchange identity: $e');
       }
     }
   }
@@ -494,7 +497,7 @@ final bleServiceInitializedProvider = FutureProvider<IConnectionService>((
 
   if (!isInitialized) {
     if (kDebugMode) {
-      print('✅ [BLEService] Starting initialization (AppCore is ready)');
+      _logger.info('✅ [BLEService] Starting initialization (AppCore is ready)');
     }
 
     try {
@@ -503,17 +506,19 @@ final bleServiceInitializedProvider = FutureProvider<IConnectionService>((
       await MessageRouter.initialize(service);
 
       if (kDebugMode) {
-        print('✅ [BLEService] Initialization complete with MessageRouter');
+        _logger.info(
+          '✅ [BLEService] Initialization complete with MessageRouter',
+        );
       }
     } catch (e, stackTrace) {
       if (kDebugMode) {
-        print('❌ CRITICAL: BLEService initialization failed: $e');
-        print('Stack trace: $stackTrace');
+        _logger.severe('❌ CRITICAL: BLEService initialization failed', e);
+        _logger.fine('BLEService initialization stack: $stackTrace');
       }
       // Don't rethrow - let the app continue in degraded mode
     }
   } else if (kDebugMode) {
-    print('ℹ️ [BLEService] Already initialized via AppCore');
+    _logger.info('ℹ️ [BLEService] Already initialized via AppCore');
   }
 
   return service;

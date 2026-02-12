@@ -28,6 +28,22 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 
 ---
 
+## Progress Snapshot (2026-02-12)
+
+- Pass A foundation is implemented in code:
+  - canonical `CryptoHeader` model added.
+  - protocol `v2` encrypted decrypt path is deterministic by declared `crypto.mode`.
+  - explicit legacy fallback gate is limited to `v1` handling.
+- Logging/RNG hardening completed:
+  - pairing code uses `Random.secure()`.
+  - pairing code values are no longer logged.
+  - `print(...)` removed from `lib/**` runtime code (doc comments excluded).
+- Runtime hygiene gates added to CI:
+  - no non-comment `print(...)` in `lib/**`.
+  - `Timer.periodic(...)` count regression gate capped at current baseline.
+
+---
+
 ## 2) Target End State (Best of Both Worlds)
 
 Use a dual-lane model with one unified envelope policy:
@@ -58,6 +74,8 @@ This preserves:
 - New messages always include mode/version.
 - Decrypt logic is deterministic for new versions.
 - Compatibility metrics/logging available for legacy payload reads.
+
+**Status**: Completed on `2026-02-12` (follow-up threat-model review now high ROI).
 
 ### Pass B (15-35%): New-Send Path Simplification
 
@@ -186,8 +204,10 @@ Below are vetted findings from an additional review, filtered for usefulness.
 - Logging hygiene still needs hardening.
   - `print(...)` calls remain in `lib/**` (non-test code) and should be removed or gated.
 - Transport sender vs cryptographic sender separation is still a real protocol concern.
-  - `ProtocolMessageHandler` still anchors decrypt/verify heavily on `fromNodeId`.
-  - This must be addressed during envelope/mode redesign to avoid relay-hop identity errors.
+  - **Partially addressed**:
+    - text message decrypt/verify now resolve declared sender identity (`senderId`/`originalSender`) instead of anchoring only on `fromNodeId`.
+  - Remaining scope:
+    - binary payload decrypt paths still need the same sender/crypto identity treatment.
 
 ### Rejected / Deprioritized
 
@@ -207,5 +227,7 @@ Before running the dedicated adversarial threat-model review, complete this pass
   - crypto header schema
   - deterministic decrypt routing by declared mode for v2
   - compatibility gate boundaries (legacy decrypt-only)
+
+Status: ✅ Gate satisfied.
 
 Rationale: threat-model review ROI is highest after envelope/mode/migration rules are explicit in code and docs.

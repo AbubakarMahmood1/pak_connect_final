@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:logging/logging.dart';
 import 'package:pointycastle/export.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
 class SigningManager {
+  static final _logger = Logger('SigningManager');
+
   /// Sign message with appropriate key based on trust level
   static String? signMessage(String content, SecurityLevel trustLevel) {
     switch (trustLevel) {
@@ -23,7 +26,9 @@ class SigningManager {
     final ephemeralPrivateKey = EphemeralKeyManager.ephemeralSigningPrivateKey;
     if (ephemeralPrivateKey == null) {
       if (kDebugMode) {
-        print('🔴 EPHEMERAL SIGN FAIL: No ephemeral private key available');
+        _logger.warning(
+          '🔴 EPHEMERAL SIGN FAIL: No ephemeral private key available',
+        );
       }
       return null;
     }
@@ -60,7 +65,7 @@ class SigningManager {
       return '$rHex:$sHex';
     } catch (e) {
       if (kDebugMode) {
-        print('🔴 EPHEMERAL SIGN FAIL: $e');
+        _logger.warning('🔴 EPHEMERAL SIGN FAIL: $e');
       }
       return null;
     }
@@ -107,7 +112,7 @@ class SigningManager {
       return verifier.verifySignature(messageBytes, signature);
     } catch (e) {
       if (kDebugMode) {
-        print('Ephemeral signature verification failed: $e');
+        _logger.warning('Ephemeral signature verification failed: $e');
       }
       return false;
     }

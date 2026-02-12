@@ -39,6 +39,13 @@ jobs:
             -MaxGetItResolutionCount 5 \
             -MaxInstanceUsageCount 17
 
+      - name: Enforce runtime hygiene gates
+        run: |
+          pwsh -File scripts/runtime_hygiene_audit.ps1 \
+            -EnforceNoPrint \
+            -EnforceTimerPeriodicGate \
+            -MaxTimerPeriodicCount 23
+
       - name: Determine release strict mode
         id: release_mode
         run: |
