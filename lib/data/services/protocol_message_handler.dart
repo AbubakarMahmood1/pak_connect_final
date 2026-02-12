@@ -13,6 +13,7 @@ import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
 import '../../domain/services/signing_manager.dart';
 import 'package:pak_connect/core/security/peer_protocol_version_guard.dart';
+import '../../domain/constants/special_recipients.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
@@ -258,8 +259,28 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         return null;
       }
 
+      if (message.version >= 2 && !message.isEncrypted) {
+        final isBroadcast = _isBroadcastV2TextMessage(
+          recipientId: message.recipientId,
+          intendedRecipient: intendedRecipient,
+        );
+        if (!isBroadcast) {
+          _logger.severe(
+            '🔒 v2 direct plaintext text message rejected: $messageId',
+          );
+          return null;
+        }
+        if (message.signature == null) {
+          _logger.severe(
+            '🔒 v2 plaintext broadcast missing signature: $messageId',
+          );
+          return null;
+        }
+      }
+
       // Decrypt if needed
       String decryptedContent = content;
+      var isV2Authenticated = message.version < 2;
       if (message.isEncrypted && decryptionPeerId.isNotEmpty) {
         if (message.version >= 2 &&
             _requireV2Signature &&
@@ -282,8 +303,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
               final sealedSenderId =
                   message.senderId ??
                   (message.payload['originalSender'] as String?);
-              final recipientForSealed =
-                  message.recipientId ?? intendedRecipient;
+              final recipientForSealed = message.recipientId;
               if (sealedSenderId == null || sealedSenderId.isEmpty) {
                 _logger.severe(
                   '🔒 v2 sealed message missing sender binding: $messageId',
@@ -304,6 +324,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
                 recipientId: recipientForSealed,
               );
             } else {
+              if (cryptoHeader.mode == CryptoMode.legacyGlobalV1) {
+                _logger.warning(
+                  '🔒 v2 legacy global decrypt mode is blocked by policy: '
+                  '${cryptoHeader.mode.wireValue} '
+                  '(messageId=${messageId.shortId(8)})',
+                );
+                return null;
+              }
               if (!_allowLegacyV2Decrypt && _isLegacyMode(cryptoHeader.mode)) {
                 _logger.warning(
                   '🔒 v2 legacy decrypt mode blocked by policy: ${cryptoHeader.mode.wireValue} '
@@ -393,14 +421,25 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         _logger.fine(
           '✅ Signature verified (${message.useEphemeralSigning ? "ephemeral" : "real"})',
         );
+        if (message.version >= 2) {
+          isV2Authenticated = true;
+        }
       }
 
       _sendAck(messageId, fromNodeId);
-      _trackPeerVersionFloor(
-        peerKey: versionPeerKey,
-        messageVersion: message.version,
-        messageId: messageId,
-      );
+      if (message.version < 2 || isV2Authenticated) {
+        _trackPeerVersionFloor(
+          peerKey: versionPeerKey,
+          messageVersion: message.version,
+          messageId: messageId,
+        );
+      } else {
+        _logger.warning(
+          '🔒 Skipping protocol-floor upgrade for unauthenticated '
+          'v${message.version} message from ${versionPeerKey.shortId(8)}... '
+          '(messageId=${messageId.shortId(8)})',
+        );
+      }
       final textCallback = _onTextMessageReceived;
       if (textCallback != null) {
         try {
@@ -752,6 +791,17 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         mode == CryptoMode.legacyGlobalV1;
   }
 
+  bool _isBroadcastV2TextMessage({
+    required String? recipientId,
+    required String? intendedRecipient,
+  }) {
+    if (recipientId == SpecialRecipients.broadcast ||
+        intendedRecipient == SpecialRecipients.broadcast) {
+      return true;
+    }
+    return recipientId == null && intendedRecipient == null;
+  }
+
   EncryptionType? _encryptionTypeForMode(CryptoMode mode) {
     switch (mode) {
       case CryptoMode.noiseV1:
@@ -761,7 +811,8 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       case CryptoMode.legacyPairingV1:
         return EncryptionType.pairing;
       case CryptoMode.legacyGlobalV1:
-        return EncryptionType.global;
+        // v2 never permits legacy global decrypt.
+        return null;
       case CryptoMode.none:
       case CryptoMode.sealedV1:
         return null;

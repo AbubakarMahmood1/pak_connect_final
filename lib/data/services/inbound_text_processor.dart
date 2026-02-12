@@ -4,6 +4,7 @@ import '../../domain/interfaces/i_contact_repository.dart';
 import '../../domain/interfaces/i_security_service.dart';
 import '../../domain/models/crypto_header.dart';
 import '../../domain/models/encryption_method.dart';
+import '../../domain/constants/special_recipients.dart';
 import 'package:pak_connect/core/security/peer_protocol_version_guard.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/services/signing_manager.dart';
@@ -101,6 +102,25 @@ class InboundTextProcessor {
       }
     }
 
+    if (protocolMessage.version >= 2 && !protocolMessage.isEncrypted) {
+      final isBroadcast = _isBroadcastV2TextMessage(
+        recipientId: protocolMessage.recipientId,
+        intendedRecipient: intendedRecipient,
+      );
+      if (!isBroadcast) {
+        _logger.severe(
+          '🔒 v2 direct plaintext text message rejected: $messageId',
+        );
+        return const InboundTextResult(content: null, shouldAck: false);
+      }
+      if (protocolMessage.signature == null) {
+        _logger.severe(
+          '🔒 v2 plaintext broadcast missing signature: $messageId',
+        );
+        return const InboundTextResult(content: null, shouldAck: false);
+      }
+    }
+
     String decryptedContent = content;
     final originalSender = protocolMessage.payload['originalSender'] as String?;
     final declaredSenderId = protocolMessage.senderId ?? originalSender;
@@ -139,6 +159,7 @@ class InboundTextProcessor {
               ? resolvedSenderForDecrypt
               : resolvedOriginalSenderForDecrypt);
     String? decryptKeyUsed = decryptKey;
+    var isV2Authenticated = protocolMessage.version < 2;
 
     if (protocolMessage.isEncrypted) {
       if (protocolMessage.version >= 2 &&
@@ -193,6 +214,14 @@ class InboundTextProcessor {
               '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
             );
           } else {
+            if (cryptoHeader.mode == CryptoMode.legacyGlobalV1) {
+              _logger.warning(
+                '🔒 v2 legacy global decrypt mode is blocked by policy: '
+                '${cryptoHeader.mode.wireValue} '
+                '(messageId=${_safeTruncate(messageId)})',
+              );
+              return const InboundTextResult(content: null, shouldAck: false);
+            }
             if (!_allowLegacyV2Decrypt && _isLegacyMode(cryptoHeader.mode)) {
               _logger.warning(
                 '🔒 v2 legacy decrypt mode blocked by policy: ${cryptoHeader.mode.wireValue} '
@@ -380,13 +409,24 @@ class InboundTextProcessor {
       } else {
         _logger.info('✅ Real signature verified');
       }
+      if (protocolMessage.version >= 2) {
+        isV2Authenticated = true;
+      }
     }
 
-    _trackPeerVersionFloor(
-      peerKey: versionPeerKey,
-      messageVersion: protocolMessage.version,
-      messageId: messageId,
-    );
+    if (protocolMessage.version < 2 || isV2Authenticated) {
+      _trackPeerVersionFloor(
+        peerKey: versionPeerKey,
+        messageVersion: protocolMessage.version,
+        messageId: messageId,
+      );
+    } else {
+      _logger.warning(
+        '🔒 Skipping protocol-floor upgrade for unauthenticated '
+        'v${protocolMessage.version} message from ${_safeTruncate(versionPeerKey)} '
+        '(messageId=${_safeTruncate(messageId)})',
+      );
+    }
 
     return InboundTextResult(
       content: decryptedContent,
@@ -543,6 +583,17 @@ class InboundTextProcessor {
         mode == CryptoMode.legacyGlobalV1;
   }
 
+  bool _isBroadcastV2TextMessage({
+    required String? recipientId,
+    required String? intendedRecipient,
+  }) {
+    if (recipientId == SpecialRecipients.broadcast ||
+        intendedRecipient == SpecialRecipients.broadcast) {
+      return true;
+    }
+    return recipientId == null && intendedRecipient == null;
+  }
+
   EncryptionType? _encryptionTypeForMode(CryptoMode mode) {
     switch (mode) {
       case CryptoMode.noiseV1:
@@ -552,7 +603,8 @@ class InboundTextProcessor {
       case CryptoMode.legacyPairingV1:
         return EncryptionType.pairing;
       case CryptoMode.legacyGlobalV1:
-        return EncryptionType.global;
+        // v2 never permits legacy global decrypt.
+        return null;
       case CryptoMode.none:
       case CryptoMode.sealedV1:
         return null;
