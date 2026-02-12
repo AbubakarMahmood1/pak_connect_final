@@ -111,8 +111,14 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - when sealed send is enabled, outbound now prefers `sealed_v1` over legacy
   methods for offline-eligible sends (with legacy fallback only if sealed
   prerequisites are missing).
-  - inbound sealed decrypt path is now wired for v2 handlers via
-    `ISecurityService.decryptSealedMessage(...)`.
+- inbound sealed decrypt path is now wired for v2 handlers via
+  `ISecurityService.decryptSealedMessage(...)`.
+- inbound sealed v2 sender/recipient envelope binding is now strict:
+  - `senderId` must be explicitly present in the message envelope.
+  - transport sender fallback is no longer accepted for sealed decrypt.
+  - covered by negative-path tests in:
+    - `test/data/services/protocol_message_handler_test.dart`
+    - `test/data/services/inbound_text_processor_test.dart`
 - binary payload handling now fails closed on decrypt failure (drop instead of
   forwarding undecrypted bytes to downstream callbacks).
 

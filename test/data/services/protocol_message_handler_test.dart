@@ -333,6 +333,39 @@ void main() {
       expect(securityService.lastSealedRecipientId, equals('recipient-key'));
     });
 
+    test('rejects v2 sealed message missing sender binding', () async {
+      allowedSevere.add('v2 sealed message missing sender binding');
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-sealed-missing-sender',
+          'content': 'ciphertext-base64',
+          'encrypted': true,
+          'recipientId': 'recipient-key',
+          'crypto': {
+            'mode': 'sealed_v1',
+            'modeVersion': 1,
+            'kid': 'kid-1',
+            'epk': 'ZWJjZGVmZw==',
+            'nonce': 'bm9uY2UxMjM=',
+          },
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await handler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, isNull);
+      expect(securityService.decryptSealedCalls, equals(0));
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
+      expect(securityService.decryptMessageCalls, equals(0));
+    });
+
     test('blocks legacy v2 decrypt modes when policy disables them', () async {
       final strictHandler = ProtocolMessageHandler(
         securityService: securityService,

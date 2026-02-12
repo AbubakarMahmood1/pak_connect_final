@@ -171,7 +171,7 @@ class InboundTextProcessor {
             return const InboundTextResult(content: null, shouldAck: false);
           }
           if (cryptoHeader.mode == CryptoMode.sealedV1) {
-            final sealedSenderId = declaredSenderId ?? senderPublicKey;
+            final sealedSenderId = declaredSenderId;
             final sealedRecipientId = protocolMessage.recipientId;
             if (sealedSenderId == null ||
                 sealedSenderId.isEmpty ||
