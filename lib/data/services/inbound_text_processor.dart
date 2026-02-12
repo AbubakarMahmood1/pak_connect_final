@@ -82,20 +82,34 @@ class InboundTextProcessor {
     String decryptedContent = content;
     final originalSender = protocolMessage.payload['originalSender'] as String?;
     final declaredSenderId = protocolMessage.senderId ?? originalSender;
-    final resolvedSender = await _resolveSenderKey(senderPublicKey);
-    final resolvedOriginalSender = await _resolveSenderKey(originalSender);
-    final resolvedDeclaredSender = await _resolveSenderKey(declaredSenderId);
+    final resolvedSenderForDecrypt = await _resolveSenderKeyForDecrypt(
+      senderPublicKey,
+    );
+    final resolvedOriginalSenderForDecrypt = await _resolveSenderKeyForDecrypt(
+      originalSender,
+    );
+    final resolvedDeclaredSenderForDecrypt = await _resolveSenderKeyForDecrypt(
+      declaredSenderId,
+    );
+    final resolvedSenderForSignature = await _resolveSenderKeyForSignature(
+      senderPublicKey,
+    );
+    final resolvedOriginalSenderForSignature =
+        await _resolveSenderKeyForSignature(originalSender);
+    final resolvedDeclaredSenderForSignature =
+        await _resolveSenderKeyForSignature(declaredSenderId);
 
-    final decryptKey = resolvedDeclaredSender?.isNotEmpty == true
-        ? resolvedDeclaredSender
-        : (resolvedSender?.isNotEmpty == true
-              ? resolvedSender
-              : resolvedOriginalSender);
+    final decryptKey = resolvedDeclaredSenderForDecrypt?.isNotEmpty == true
+        ? resolvedDeclaredSenderForDecrypt
+        : (resolvedSenderForDecrypt?.isNotEmpty == true
+              ? resolvedSenderForDecrypt
+              : resolvedOriginalSenderForDecrypt);
     String? decryptKeyUsed = decryptKey;
 
     if (protocolMessage.isEncrypted) {
-      final cryptoHeader =
-          protocolMessage.version >= 2 ? protocolMessage.cryptoHeader : null;
+      final cryptoHeader = protocolMessage.version >= 2
+          ? protocolMessage.cryptoHeader
+          : null;
       final isSealedV2 = cryptoHeader?.mode == CryptoMode.sealedV1;
 
       if (decryptKey == null && !isSealedV2) {
@@ -271,18 +285,18 @@ class InboundTextProcessor {
             shouldAck: true,
             resolvedSenderKey:
                 decryptKeyUsed ??
-                resolvedDeclaredSender ??
-                resolvedSender ??
-                resolvedOriginalSender,
+                resolvedDeclaredSenderForDecrypt ??
+                resolvedSenderForDecrypt ??
+                resolvedOriginalSenderForDecrypt,
           );
         }
         verifyingKey = protocolMessage.ephemeralSigningKey!;
       } else {
         final resolvedForSignature =
-            resolvedDeclaredSender ??
-            resolvedSender ??
+            resolvedDeclaredSenderForSignature ??
+            resolvedSenderForSignature ??
             senderPublicKey ??
-            resolvedOriginalSender;
+            resolvedOriginalSenderForSignature;
         if (resolvedForSignature == null) {
           _logger.severe('❌ Trusted message but no sender identity');
           return const InboundTextResult(
@@ -293,8 +307,12 @@ class InboundTextProcessor {
         verifyingKey = resolvedForSignature;
       }
 
+      final signaturePayload = SigningManager.signaturePayloadForMessage(
+        protocolMessage,
+        fallbackContent: decryptedContent,
+      );
       final isValid = SigningManager.verifySignature(
-        decryptedContent,
+        signaturePayload,
         protocolMessage.signature!,
         verifyingKey,
         protocolMessage.useEphemeralSigning,
@@ -320,9 +338,9 @@ class InboundTextProcessor {
       shouldAck: true,
       resolvedSenderKey:
           decryptKeyUsed ??
-          resolvedDeclaredSender ??
-          resolvedSender ??
-          resolvedOriginalSender ??
+          resolvedDeclaredSenderForDecrypt ??
+          resolvedSenderForDecrypt ??
+          resolvedOriginalSenderForDecrypt ??
           senderPublicKey ??
           declaredSenderId ??
           originalSender,
@@ -344,7 +362,7 @@ class InboundTextProcessor {
     _logger.fine('===============================================');
   }
 
-  Future<String?> _resolveSenderKey(String? candidateKey) async {
+  Future<String?> _resolveSenderKeyForDecrypt(String? candidateKey) async {
     if (candidateKey == null || candidateKey.isEmpty) return candidateKey;
     try {
       final contact = await _contactRepository.getContactByAnyId(candidateKey);
@@ -370,7 +388,38 @@ class InboundTextProcessor {
       }
     } catch (e) {
       _logger.fine(
-        'Sender resolution failed for ${_safeTruncate(candidateKey)}: $e',
+        'Decrypt sender resolution failed for ${_safeTruncate(candidateKey)}: $e',
+      );
+    }
+    return candidateKey;
+  }
+
+  Future<String?> _resolveSenderKeyForSignature(String? candidateKey) async {
+    if (candidateKey == null || candidateKey.isEmpty) return candidateKey;
+    try {
+      final contact = await _contactRepository.getContactByAnyId(candidateKey);
+      if (contact != null) {
+        final sessionId = contact.currentEphemeralId;
+        final persistentKey = contact.persistentPublicKey;
+        if (persistentKey != null &&
+            persistentKey.isNotEmpty &&
+            sessionId != null &&
+            sessionId.isNotEmpty) {
+          _securityService.registerIdentityMapping(
+            persistentPublicKey: persistentKey,
+            ephemeralID: sessionId,
+          );
+        }
+        if (persistentKey != null && persistentKey.isNotEmpty) {
+          return persistentKey;
+        }
+        if (contact.publicKey.isNotEmpty) {
+          return contact.publicKey;
+        }
+      }
+    } catch (e) {
+      _logger.fine(
+        'Signature sender resolution failed for ${_safeTruncate(candidateKey)}: $e',
       );
     }
     return candidateKey;

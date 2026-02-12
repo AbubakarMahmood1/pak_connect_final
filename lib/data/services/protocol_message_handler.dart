@@ -208,9 +208,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
           message.senderId ??
           (message.payload['originalSender'] as String?) ??
           fromNodeId;
-      final resolvedSenderId = await _resolveSenderKey(declaredSenderId);
-      final decryptionPeerId = (resolvedSenderId?.isNotEmpty ?? false)
-          ? resolvedSenderId!
+      final resolvedDecryptSenderId = await _resolveSenderKeyForDecrypt(
+        declaredSenderId,
+      );
+      final resolvedSignatureSenderKey = await _resolveSenderKeyForSignature(
+        declaredSenderId,
+      );
+      final decryptionPeerId = (resolvedDecryptSenderId?.isNotEmpty ?? false)
+          ? resolvedDecryptSenderId!
           : fromNodeId;
 
       // Check if message is for us
@@ -233,7 +238,8 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
               return null;
             }
             if (cryptoHeader.mode == CryptoMode.sealedV1) {
-              final recipientForSealed = message.recipientId ?? intendedRecipient;
+              final recipientForSealed =
+                  message.recipientId ?? intendedRecipient;
               if (recipientForSealed == null || recipientForSealed.isEmpty) {
                 _logger.severe(
                   '🔒 v2 sealed message missing recipient binding: $messageId',
@@ -301,11 +307,22 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
             verifyingKey = message.ephemeralSigningKey!;
           }
         } else {
-          verifyingKey = decryptionPeerId;
+          final signatureKey = resolvedSignatureSenderKey ?? declaredSenderId;
+          if (signatureKey.isEmpty) {
+            _logger.severe(
+              '❌ v2 trusted signature missing sender verification key for message $messageId',
+            );
+            return '[❌ UNTRUSTED MESSAGE - Missing sender identity]';
+          }
+          verifyingKey = signatureKey;
         }
 
+        final signaturePayload = SigningManager.signaturePayloadForMessage(
+          message,
+          fallbackContent: decryptedContent,
+        );
         final isValid = SigningManager.verifySignature(
-          decryptedContent,
+          signaturePayload,
           message.signature!,
           verifyingKey,
           message.useEphemeralSigning,
@@ -543,7 +560,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     }
   }
 
-  Future<String?> _resolveSenderKey(String? candidateKey) async {
+  Future<String?> _resolveSenderKeyForDecrypt(String? candidateKey) async {
     if (candidateKey == null || candidateKey.isEmpty) {
       return candidateKey;
     }
@@ -571,7 +588,40 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       }
     } catch (e) {
       _logger.fine(
-        'Sender resolution failed for ${candidateKey.shortId(8)}: $e',
+        'Decrypt sender resolution failed for ${candidateKey.shortId(8)}: $e',
+      );
+    }
+    return candidateKey;
+  }
+
+  Future<String?> _resolveSenderKeyForSignature(String? candidateKey) async {
+    if (candidateKey == null || candidateKey.isEmpty) {
+      return candidateKey;
+    }
+    try {
+      final contact = await _contactRepository.getContactByAnyId(candidateKey);
+      if (contact != null) {
+        final sessionId = contact.currentEphemeralId;
+        final persistentKey = contact.persistentPublicKey;
+        if (persistentKey != null &&
+            persistentKey.isNotEmpty &&
+            sessionId != null &&
+            sessionId.isNotEmpty) {
+          _securityService.registerIdentityMapping(
+            persistentPublicKey: persistentKey,
+            ephemeralID: sessionId,
+          );
+        }
+        if (persistentKey != null && persistentKey.isNotEmpty) {
+          return persistentKey;
+        }
+        if (contact.publicKey.isNotEmpty) {
+          return contact.publicKey;
+        }
+      }
+    } catch (e) {
+      _logger.fine(
+        'Signature sender resolution failed for ${candidateKey.shortId(8)}: $e',
       );
     }
     return candidateKey;

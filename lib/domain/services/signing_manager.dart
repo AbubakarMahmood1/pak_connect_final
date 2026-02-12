@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:pointycastle/export.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
@@ -124,6 +125,62 @@ class SigningManager {
       result.add(int.parse(hex.substring(i, i + 2), radix: 16));
     }
     return Uint8List.fromList(result);
+  }
+
+  /// Produces the exact bytestring that should be signed/verified for a message.
+  ///
+  /// v2+ binds envelope metadata and payload content using a canonical JSON form.
+  /// v1 preserves legacy behavior by signing just plaintext content.
+  static String signaturePayloadForMessage(
+    ProtocolMessage message, {
+    String? fallbackContent,
+  }) {
+    if (message.version >= 2 &&
+        message.type == ProtocolMessageType.textMessage) {
+      final payload = message.payload;
+      final signingEnvelope = <String, dynamic>{
+        'version': message.version,
+        'type': message.type.name,
+        'timestamp': message.timestamp.millisecondsSinceEpoch,
+        'messageId': payload['messageId'],
+        'senderId': payload['senderId'],
+        'originalSender': payload['originalSender'],
+        'recipientId': payload['recipientId'],
+        'intendedRecipient': payload['intendedRecipient'],
+        'encrypted': payload['encrypted'],
+        'useEphemeralAddressing': payload['useEphemeralAddressing'],
+        'content': payload['content'],
+        'crypto': payload['crypto'],
+      };
+      return _canonicalJsonEncode(signingEnvelope);
+    }
+    return fallbackContent ?? message.textContent ?? '';
+  }
+
+  static String _canonicalJsonEncode(Object? value) {
+    return jsonEncode(_canonicalize(value));
+  }
+
+  static Object? _canonicalize(Object? value) {
+    if (value is Map) {
+      final keyed = <String, Object?>{};
+      for (final entry in value.entries) {
+        keyed[entry.key.toString()] = _canonicalize(entry.value);
+      }
+      final keys = keyed.keys.toList()..sort();
+      final sorted = <String, Object?>{};
+      for (final key in keys) {
+        sorted[key] = keyed[key];
+      }
+      return sorted;
+    }
+    if (value is List) {
+      return value.map(_canonicalize).toList(growable: false);
+    }
+    if (value is num || value is bool || value is String || value == null) {
+      return value;
+    }
+    return value.toString();
   }
 
   /// Get signing info for message
