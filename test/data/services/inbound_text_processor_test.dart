@@ -1,6 +1,9 @@
+import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pointycastle/export.dart';
 import 'package:pak_connect/data/services/inbound_text_processor.dart';
 import 'package:pak_connect/data/services/protocol_message_handler.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
@@ -10,6 +13,7 @@ import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/domain/services/signing_manager.dart';
 
 void main() {
   group('InboundTextProcessor', () {
@@ -212,7 +216,141 @@ void main() {
         expect(inboundResult.shouldAck, isFalse);
       },
     );
+
+    test('rejects v2 envelope tampering when signature is present', () async {
+      final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
+      final signingKeyPair = _generateEphemeralSigningKeyPair();
+
+      final baselineMessage = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-signed-inbound',
+          'content': 'ciphertext',
+          'encrypted': true,
+          'senderId': 'crypto-sender',
+          'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+        },
+        useEphemeralSigning: true,
+        ephemeralSigningKey: signingKeyPair.publicHex,
+        timestamp: now,
+      );
+      final baselinePayload = SigningManager.signaturePayloadForMessage(
+        baselineMessage,
+        fallbackContent: 'typed:ciphertext',
+      );
+      final baselineSignature = _signWithEphemeralPrivateKey(
+        content: baselinePayload,
+        privateKeyHex: signingKeyPair.privateHex,
+      );
+
+      final validResult = await processor.process(
+        protocolMessage: ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-signed-inbound',
+            'content': 'ciphertext',
+            'encrypted': true,
+            'senderId': 'crypto-sender',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          signature: baselineSignature,
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        ),
+        senderPublicKey: 'relay-node',
+      );
+      expect(validResult.content, equals('typed:ciphertext'));
+      expect(validResult.shouldAck, isTrue);
+
+      final tamperedResult = await processor.process(
+        protocolMessage: ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-signed-inbound',
+            'content': 'ciphertext',
+            'encrypted': true,
+            'senderId': 'crypto-sender',
+            'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
+          },
+          signature: baselineSignature,
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        ),
+        senderPublicKey: 'relay-node',
+      );
+      expect(
+        tamperedResult.content,
+        equals('[❌ UNTRUSTED MESSAGE - Signature Invalid]'),
+      );
+      expect(tamperedResult.shouldAck, isFalse);
+    });
   });
+}
+
+_EphemeralSigningKeyPair _generateEphemeralSigningKeyPair() {
+  final keyGen = ECKeyGenerator();
+  final secureRandom = FortunaRandom();
+  final random = Random.secure();
+  final seed = Uint8List.fromList(
+    List<int>.generate(32, (_) => random.nextInt(256)),
+  );
+  secureRandom.seed(KeyParameter(seed));
+  keyGen.init(
+    ParametersWithRandom(
+      ECKeyGeneratorParameters(ECCurve_secp256r1()),
+      secureRandom,
+    ),
+  );
+
+  final keyPair = keyGen.generateKeyPair();
+  final publicKey = keyPair.publicKey as ECPublicKey;
+  final privateKey = keyPair.privateKey as ECPrivateKey;
+
+  return _EphemeralSigningKeyPair(
+    privateHex: privateKey.d!.toRadixString(16),
+    publicHex: publicKey.Q!
+        .getEncoded(false)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join(),
+  );
+}
+
+String _signWithEphemeralPrivateKey({
+  required String content,
+  required String privateKeyHex,
+}) {
+  final privateKeyInt = BigInt.parse(privateKeyHex, radix: 16);
+  final privateKey = ECPrivateKey(privateKeyInt, ECCurve_secp256r1());
+  final signer = ECDSASigner(SHA256Digest());
+  final secureRandom = FortunaRandom();
+  final random = Random.secure();
+  final seed = Uint8List.fromList(
+    List<int>.generate(32, (_) => random.nextInt(256)),
+  );
+  secureRandom.seed(KeyParameter(seed));
+  signer.init(
+    true,
+    ParametersWithRandom(PrivateKeyParameter(privateKey), secureRandom),
+  );
+
+  final signature =
+      signer.generateSignature(utf8.encode(content)) as ECSignature;
+  return '${signature.r.toRadixString(16)}:${signature.s.toRadixString(16)}';
+}
+
+class _EphemeralSigningKeyPair {
+  const _EphemeralSigningKeyPair({
+    required this.privateHex,
+    required this.publicHex,
+  });
+
+  final String privateHex;
+  final String publicHex;
 }
 
 class _FakeContactRepository implements IContactRepository {
