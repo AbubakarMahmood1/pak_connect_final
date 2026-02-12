@@ -67,6 +67,9 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     `test/core/security/noise/noise_session_manager_test.dart`.
   - established sessions explicitly ignore stale/replayed handshake-1 packets
     (now regression-tested).
+  - reconnect cleanup and fresh re-establishment flow are now regression-tested.
+  - message-limit rekey threshold behavior is now regression-tested
+    (session marked for rekey at 10k sends, 10,001st send fails closed).
 - Pass B compatibility-tightening hook added:
   - inbound v2 legacy decrypt modes (`legacy_ecdh_v1`, `legacy_pairing_v1`,
     `legacy_global_v1`) can now be blocked by policy:
@@ -212,9 +215,17 @@ Implemented now:
   `ProtocolMessageHandler` blocks later v1 downgrade in `InboundTextProcessor`.
 - duplicate/stale responder handshake-1 retransmits no longer hard-fail the
   in-flight session state machine.
+- stale handshake-1 packets are now ignored while initiator session is active
+  and after session establishment.
+- reconnect cleanup + re-establishment flow is now covered in session-manager
+  tests.
+- rekey threshold behavior is now covered in session-manager tests:
+  - rekey marker appears at 10k sent messages.
+  - additional sends fail closed until rekey.
 
 Remaining:
-- session attempt stale-event suppression and reconnect simulation tests.
+- time-based rekey and extended reconnect/drop/out-of-order simulations beyond
+  unit test scope.
 
 ### Pass E (75-90%): Optional Double Ratchet
 
