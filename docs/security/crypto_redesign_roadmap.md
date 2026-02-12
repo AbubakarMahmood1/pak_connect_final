@@ -96,6 +96,9 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - Pass B peer-upgrade send policy tightening added:
   - outbound legacy v2 send modes are now auto-blocked for peers already
     observed at protocol floor v2+, even when global compatibility mode is on.
+  - when a peer is already upgraded and legacy mode is blocked, outbound now
+    auto-attempts `sealed_v1` fallback even if the global sealed rollout flag
+    is disabled (still fail-closed if recipient sealed prerequisites are absent).
 - Pass B peer-upgrade decrypt policy tightening added:
   - inbound legacy v2 decrypt modes are now auto-blocked for peers already
     observed at protocol floor v2+, even when compatibility mode is enabled.

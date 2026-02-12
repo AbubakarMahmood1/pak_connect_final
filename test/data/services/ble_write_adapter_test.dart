@@ -653,6 +653,67 @@ void main() {
     },
   );
 
+  test(
+    'upgraded peer auto-falls back to sealed_v1 even when rollout flag is disabled',
+    () async {
+      await contactRepository.saveContact(
+        'recipient_sealed_upgraded',
+        'Recipient Sealed Upgraded',
+      );
+      await contactRepository.updateNoiseSession(
+        publicKey: 'recipient_sealed_upgraded',
+        noisePublicKey: _generateNoiseStaticPublicKeyBase64(),
+        sessionState: 'established',
+      );
+      SimpleCrypto.initializeConversation(
+        'recipient_sealed_upgraded',
+        'ble-write-test-sealed-upgraded-secret',
+      );
+      PeerProtocolVersionGuard.trackObservedVersion(
+        messageVersion: 2,
+        peerKey: 'recipient_sealed_upgraded',
+      );
+
+      final captureWriteClient = _CaptureThenThrowCentralWriteClient();
+      adapter = BleWriteAdapter(
+        contactRepository: contactRepository,
+        stateManagerProvider: () => stateManager,
+        writeClient: captureWriteClient,
+        allowLegacyV2Send: true,
+        enableSealedV1Send: false,
+      );
+
+      allowSevere(
+        'Failed to send message: Exception: central boom after capture',
+      );
+      allowSevere('Stack trace');
+
+      final result = await adapter.sendCentralMessage(
+        centralManager: _FakeCentralManager(),
+        connectedDevice: FakePeripheral(uuid: makeUuid(53)),
+        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(54)),
+        recipientKey: 'recipient_sealed_upgraded',
+        content: 'sealed upgraded fallback',
+        mtuSize: 1024,
+      );
+
+      expect(result, isFalse);
+      expect(captureWriteClient.lastCentralValue, isNotNull);
+
+      final chunk = MessageChunk.fromBytes(
+        captureWriteClient.lastCentralValue!,
+      );
+      final protocolBytes = base64.decode(chunk.content);
+      final protocolMessage = ProtocolMessage.fromBytes(
+        Uint8List.fromList(protocolBytes),
+      );
+
+      expect(protocolMessage.version, equals(2));
+      expect(protocolMessage.payload['encryptionMethod'], equals('sealed'));
+      expect(protocolMessage.cryptoHeader?.mode, equals(CryptoMode.sealedV1));
+    },
+  );
+
   test('peripheral send short-circuits when not in peripheral mode', () async {
     stateManager.peripheralMode = false;
 

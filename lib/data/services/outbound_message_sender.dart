@@ -182,8 +182,15 @@ class OutboundMessageSender {
         throw Exception('Cannot send message without encryption key');
       }
 
-      if (_enableSealedV1Send &&
-          _isLegacyEncryptionType(encryptionDecision.type)) {
+      final upgradedPeerObserved = _hasUpgradedPeerProtocolFloor(
+        recipientId: finalRecipientId,
+        contactLookupKey: encryptionKey,
+      );
+      final shouldAttemptSealedFallback =
+          _isLegacyEncryptionType(encryptionDecision.type) &&
+          (_enableSealedV1Send || upgradedPeerObserved);
+
+      if (shouldAttemptSealedFallback) {
         final sealedResult = await _tryEncryptWithSealedV1(
           plaintext: message,
           messageId: msgId,
@@ -471,8 +478,15 @@ class OutboundMessageSender {
         throw Exception('Cannot send message without encryption key');
       }
 
-      if (_enableSealedV1Send &&
-          _isLegacyEncryptionType(encryptionDecision.type)) {
+      final upgradedPeerObserved = _hasUpgradedPeerProtocolFloor(
+        recipientId: finalRecipientId,
+        contactLookupKey: encryptionKey,
+      );
+      final shouldAttemptSealedFallback =
+          _isLegacyEncryptionType(encryptionDecision.type) &&
+          (_enableSealedV1Send || upgradedPeerObserved);
+
+      if (shouldAttemptSealedFallback) {
         final sealedResult = await _tryEncryptWithSealedV1(
           plaintext: message,
           messageId: msgId,
@@ -877,6 +891,23 @@ class OutboundMessageSender {
       }
     }
     return true;
+  }
+
+  bool _hasUpgradedPeerProtocolFloor({
+    required String recipientId,
+    required String contactLookupKey,
+  }) {
+    if (!PeerProtocolVersionGuard.isEnabled) {
+      return false;
+    }
+    final peerCandidates = <String>{recipientId, contactLookupKey}
+      ..removeWhere((candidate) => candidate.isEmpty);
+    for (final candidate in peerCandidates) {
+      if (PeerProtocolVersionGuard.floorForPeer(candidate) >= 2) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool _isLegacyMode(CryptoMode mode) {
