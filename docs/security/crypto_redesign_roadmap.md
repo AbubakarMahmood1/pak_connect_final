@@ -47,6 +47,7 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - gate currently enforces:
     - outbound block of legacy v2 send modes in strict policy mode.
     - sealed v1 strict fallback emission when recipient static Noise key exists.
+    - sealed v2 inbound sender-binding requirement (no transport fallback).
     - inbound encrypted v2 signature requirement in both text handler paths.
 - Pass B migration scaffold added:
   - outbound v2 send path can now fail-closed on legacy modes using

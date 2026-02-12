@@ -60,9 +60,21 @@ $testCases = @(
         Defines = @()
     },
     [PSCustomObject]@{
+        Label = 'protocol handler rejects sealed v2 messages missing sender binding'
+        TestFile = 'test/data/services/protocol_message_handler_test.dart'
+        PlainName = 'rejects v2 sealed message missing sender binding'
+        Defines = @()
+    },
+    [PSCustomObject]@{
         Label = 'inbound processor enforces v2 encrypted signature policy'
         TestFile = 'test/data/services/inbound_text_processor_test.dart'
         PlainName = 'requires signature for v2 encrypted message when policy enabled'
+        Defines = @()
+    },
+    [PSCustomObject]@{
+        Label = 'inbound processor rejects sealed v2 payload missing sender binding'
+        TestFile = 'test/data/services/inbound_text_processor_test.dart'
+        PlainName = 'rejects sealed v2 payload missing sender binding'
         Defines = @()
     }
 )
