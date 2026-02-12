@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_service_facade.dart';
@@ -65,8 +64,28 @@ part 'ble_service_facade_runtime_helper.dart';
 /// - Integrate mesh networking via callback handlers
 /// - Handle graceful shutdown and resource cleanup
 class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
+  static void Function(IBLEHandshakeService handshakeService)?
+  _handshakeServiceRegistrar;
+  static int _liveInstances = 0;
+  static int _nextInstanceId = 0;
+  static int _connectionInfoListenerCount = 0;
+  static const bool _strictSingletonGuard = bool.fromEnvironment(
+    'PAKCONNECT_BLE_STRICT_SINGLETON_GUARD',
+    defaultValue: false,
+  );
+
+  static void configureHandshakeServiceRegistrar(
+    void Function(IBLEHandshakeService handshakeService) registrar,
+  ) {
+    _handshakeServiceRegistrar = registrar;
+  }
+
+  static void clearHandshakeServiceRegistrar() {
+    _handshakeServiceRegistrar = null;
+  }
+
   final _logger = Logger('BLEServiceFacade');
-  final GetIt _getIt = GetIt.instance;
+  final int instanceId;
   late final BleFacadeEventBus _eventBus;
   final IBLEPlatformHost _platformHost;
   final BLEStateManagerFacade _stateManager;
@@ -103,6 +122,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   bool _forwardingSpyModeEvent = false;
   bool _forwardingIdentityEvent = false;
   StreamSubscription<ConnectionInfo>? _connectionInfoSubscription;
+  bool _lifecycleDisposed = false;
 
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
@@ -147,7 +167,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
        _discoveryService = discoveryService,
        _advertisingService = advertisingService,
        _handshakeService = handshakeService,
-       _handshakeCoordinatorFactory = handshakeCoordinatorFactory {
+       _handshakeCoordinatorFactory = handshakeCoordinatorFactory,
+       instanceId = ++_nextInstanceId {
     _eventBus = BleFacadeEventBus(logger: _logger);
     _connectionManager =
         connectionManager ??
@@ -171,6 +192,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
         );
     DeviceDeduplicationManager.myEphemeralHintProvider =
         EphemeralKeyManager.generateMyEphemeralKey;
+    DeviceDeduplicationManager.setIntroHintRepository(_introHintRepository);
 
     _messageHandlerFacade = BLEMessageHandlerFacadeImpl(
       _messageHandler,
@@ -203,6 +225,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       getHandshakeService: _getHandshakeService,
     );
     _runtimeHelper = _BleServiceFacadeRuntimeHelper(this);
+    _recordInstanceCreated();
   }
 
   /// Get or create connection service (lazy singleton)
@@ -222,6 +245,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     ) {
       _eventBus.emitConnectionInfo(connectionInfo);
     });
+    _recordConnectionInfoListenerAdded();
 
     _connectionService = service;
     return _connectionService!;
@@ -306,13 +330,15 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     );
 
     // Make the handshake service discoverable to the message handler (fragment
-    // pipeline) via DI so reassembled handshake frames route correctly.
-    try {
-      if (!_getIt.isRegistered<IBLEHandshakeService>()) {
-        _getIt.registerSingleton<IBLEHandshakeService>(_handshakeService!);
+    // pipeline) via composition root so reassembled handshake frames route
+    // correctly.
+    final registrar = _handshakeServiceRegistrar;
+    if (registrar != null) {
+      try {
+        registrar(_handshakeService!);
+      } catch (_) {
+        // Registration is best-effort; service still works via direct refs.
       }
-    } catch (_) {
-      // DI is best-effort; the service still works via direct references.
     }
 
     return _handshakeService!;
@@ -908,6 +934,73 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     isReconnecting: isReconnecting,
   );
 
+  void _recordInstanceCreated() {
+    _liveInstances++;
+    _logger.info(
+      'BLEServiceFacade#$instanceId created (liveInstances=$_liveInstances)',
+    );
+
+    if (_liveInstances <= 1) {
+      return;
+    }
+
+    final message =
+        'Multiple BLEServiceFacade instances detected '
+        '(liveInstances=$_liveInstances). '
+        'This can trigger BLE runtime split-brain behavior.';
+
+    if (_strictSingletonGuard) {
+      throw StateError('$message strictGuard=true');
+    }
+    _logger.warning('⚠️ $message');
+  }
+
+  void _recordInstanceDisposed() {
+    if (_lifecycleDisposed) {
+      return;
+    }
+    _lifecycleDisposed = true;
+
+    if (_liveInstances <= 0) {
+      _logger.warning(
+        'BLEServiceFacade#$instanceId disposed with non-positive live count',
+      );
+      _liveInstances = 0;
+      return;
+    }
+
+    _liveInstances--;
+    _logger.info(
+      'BLEServiceFacade#$instanceId disposed (liveInstances=$_liveInstances)',
+    );
+  }
+
+  void _recordConnectionInfoListenerAdded() {
+    _connectionInfoListenerCount++;
+    if (_connectionInfoListenerCount > 1) {
+      _logger.warning(
+        'Multiple connectionInfo listeners active '
+        '(count=$_connectionInfoListenerCount).',
+      );
+    } else {
+      _logger.fine(
+        'connectionInfo listener registered (count=$_connectionInfoListenerCount)',
+      );
+    }
+  }
+
+  void _recordConnectionInfoListenerRemoved() {
+    if (_connectionInfoListenerCount <= 0) {
+      _logger.warning('connectionInfo listener count underflow on remove');
+      _connectionInfoListenerCount = 0;
+      return;
+    }
+    _connectionInfoListenerCount--;
+    _logger.fine(
+      'connectionInfo listener removed (count=$_connectionInfoListenerCount)',
+    );
+  }
+
   Future<void> _initializeNodeIdentity() =>
       _runtimeHelper.initializeNodeIdentity();
 
@@ -974,4 +1067,18 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   /// Expose underlying message handler for integration wiring (AppCore tests).
   @visibleForTesting
   BLEMessageHandler get messageHandler => _messageHandler;
+
+  @visibleForTesting
+  static int get debugLiveInstanceCount => _liveInstances;
+
+  @visibleForTesting
+  static int get debugConnectionInfoListenerCount =>
+      _connectionInfoListenerCount;
+
+  @visibleForTesting
+  static void resetLifecycleInstrumentationForTests() {
+    _liveInstances = 0;
+    _connectionInfoListenerCount = 0;
+    _nextInstanceId = 0;
+  }
 }

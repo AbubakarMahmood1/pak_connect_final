@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-02-12 (Pass 5 in progress)
+**Last Updated**: 2026-02-12 (Pass 6 in progress)
 
 ---
 
@@ -26,15 +26,15 @@
 | Pass 2 | 15-30% | Complete | Remove provider-driven global register/unregister patterns |
 | Pass 3 | 30-45% | Complete | Constructor-first dependency flow in core/domain |
 | Pass 4 | 45-60% | Complete | `AppServices` composition root + provider wiring |
-| Pass 5 | 60-75% | In Progress | Test strategy convergence (provider overrides first) |
-| Pass 6 | 75-90% | Pending | Connection runtime serialization hardening |
+| Pass 5 | 60-75% | Complete | Test strategy convergence (provider overrides first) |
+| Pass 6 | 75-90% | In Progress | Connection runtime serialization hardening |
 | Pass 7 | 90-100% | Pending | Remove legacy fallbacks, enable strict guardrails |
 
 ---
 
-## Latest Snapshot (Pass 5 Current)
+## Latest Snapshot (Pass 6 Current)
 
-Source: `validation_outputs/di_pass5_snapshot.json`
+Source: `validation_outputs/di_pass6_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
 - `.instance` usages in `lib/**`: 92
@@ -137,6 +137,17 @@ Pass 5 progress highlights:
 - `test/core/di/phase3_integration_flows_test.dart` dropped its legacy
   `configureTestDI()` bootstrap; all test suites now use
   `initializeTestEnvironment(...)` as the shared DI baseline.
+
+Pass 6 progress highlights:
+
+- `BLEServiceFacade` now tracks runtime owner lifecycle (`instanceId`,
+  live-instance counter) and logs split-brain risk when multiple owners exist.
+- Added optional strict singleton guard for debug sessions via
+  `PAKCONNECT_BLE_STRICT_SINGLETON_GUARD`.
+- Added connection-info subscription counters to expose duplicate listener
+  patterns and underflow issues in teardown paths.
+- Disposal flow now accounts for listener removal and owner disposal in a
+  `finally` path, improving lifecycle observability without behavior changes.
 
 ---
 

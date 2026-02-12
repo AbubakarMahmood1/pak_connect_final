@@ -61,9 +61,15 @@ class _BleServiceFacadeRuntimeHelper {
       _owner._logger.severe('❌ Disposal error', e, stack);
     } finally {
       _owner._eventBus.clear();
-      await _owner._connectionInfoSubscription?.cancel();
-      _owner._connectionInfoSubscription = null;
+      final connectionInfoSubscription = _owner._connectionInfoSubscription;
+      if (connectionInfoSubscription != null) {
+        await connectionInfoSubscription.cancel();
+        _owner._connectionInfoSubscription = null;
+        _owner._recordConnectionInfoListenerRemoved();
+      }
       await _owner._lifecycleCoordinator.dispose();
+      DeviceDeduplicationManager.clearIntroHintRepository();
+      _owner._recordInstanceDisposed();
     }
   }
 
