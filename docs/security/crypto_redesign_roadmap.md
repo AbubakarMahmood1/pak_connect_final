@@ -246,6 +246,9 @@ Implemented now:
 - direct Noise session coverage now also enforces message-limit rekey behavior
   (`test/core/security/noise/noise_session_test.dart`), validating stats and
   fail-closed encryption after 10k sends.
+- direct Noise session coverage now enforces time-limit rekey behavior using a
+  deterministic test clock (1 hour threshold), validating `needsRekey` and
+  fail-closed encryption after expiry.
 
 Remaining:
 - time-based rekey and extended reconnect/drop/out-of-order simulations beyond
