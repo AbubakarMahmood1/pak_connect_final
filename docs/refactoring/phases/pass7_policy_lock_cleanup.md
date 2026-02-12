@@ -128,6 +128,20 @@ escape hatches that can reintroduce split-brain behavior.
       `ArchiveSearchService.fromServiceLocator()` instead of `.instance`
       access, reducing implicit singleton reach-through in fallback paths
 
+- Pruned handshake singleton reach-through in Noise/topology paths:
+  - `lib/core/bluetooth/handshake_coordinator.dart`
+  - `lib/core/bluetooth/handshake_coordinator_phase2_helper.dart`
+    - coordinator now resolves Noise access via injected/defaulted resolver
+      callback and routes topology writes via a configurable callback, removing
+      repeated direct `SecurityManager.instance`/`TopologyManager.instance`
+      access in handshake execution paths
+  - `lib/domain/routing/topology_manager.dart`
+    - added constructor-style singleton access (`factory TopologyManager()`)
+      for composition-friendly call sites
+  - `lib/core/app_core.dart`
+    - app boot now uses constructor-style singleton access for security/topology
+      setup and local `_isInitialized` checks in message-send guard paths
+
 ---
 
 ## Verification
@@ -157,6 +171,9 @@ flutter test test/data/services/protocol_message_handler_test.dart
 flutter analyze lib/domain/services/security_service_locator.dart lib/data/services/ble_message_handler.dart lib/data/services/ble_message_handler_facade.dart lib/data/services/ble_messaging_transport_helper.dart lib/data/services/ble_service_facade_runtime_helper.dart lib/data/services/inbound_text_processor.dart lib/data/services/outbound_message_sender.dart lib/data/services/pairing_failure_handler.dart lib/data/services/pairing_lifecycle_service.dart lib/data/services/pairing_request_coordinator.dart
 flutter test test/data/services/ble_messaging_service_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
+flutter analyze lib/core/bluetooth/handshake_coordinator.dart lib/core/app_core.dart lib/domain/routing/topology_manager.dart
+flutter test test/core/bluetooth/handshake_coordinator_test.dart
+pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
 Results:
@@ -165,7 +182,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **54**
+  - `.instance` usages in `lib/**`: **47**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

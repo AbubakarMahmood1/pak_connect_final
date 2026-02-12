@@ -62,7 +62,7 @@ class _HandshakeCoordinatorPhase2Helper {
       }
 
       try {
-        final noiseService = SecurityManager.instance.noiseService;
+        final noiseService = _owner._noiseServiceResolver();
         if (noiseService == null) {
           _owner._logger.warning(
             '⏳ Attempt $attempt/$maxRetries: Noise service not initialized',
@@ -228,9 +228,9 @@ class _HandshakeCoordinatorPhase2Helper {
 
       if (_owner._peerState.theirNoisePublicKey != null) {
         try {
-          TopologyManager.instance.recordNodeAnnouncement(
-            nodeId: _owner._peerState.theirNoisePublicKey!,
-            displayName: _owner._peerState.theirDisplayName!,
+          _owner._recordTopologyAnnouncement(
+            _owner._peerState.theirNoisePublicKey!,
+            _owner._peerState.theirDisplayName!,
           );
           _owner._logger.info(
             '📊 Recorded peer in topology: ${_owner._peerState.theirDisplayName}',

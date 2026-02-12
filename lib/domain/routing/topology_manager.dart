@@ -17,6 +17,9 @@ class TopologyManager {
     return _instance!;
   }
 
+  /// Factory constructor for constructor-style singleton access.
+  factory TopologyManager() => instance;
+
   TopologyManager._();
 
   // Network graph storage
