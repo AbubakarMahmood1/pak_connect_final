@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-02-12 (Pass 6 complete)
+**Last Updated**: 2026-02-12 (Pass 7 in progress)
 
 ---
 
@@ -28,13 +28,13 @@
 | Pass 4 | 45-60% | Complete | `AppServices` composition root + provider wiring |
 | Pass 5 | 60-75% | Complete | Test strategy convergence (provider overrides first) |
 | Pass 6 | 75-90% | Complete | Connection runtime serialization hardening |
-| Pass 7 | 90-100% | Pending | Remove legacy fallbacks, enable strict guardrails |
+| Pass 7 | 90-100% | In Progress | Remove legacy fallbacks, enable strict guardrails |
 
 ---
 
-## Latest Snapshot (Pass 6 Current)
+## Latest Snapshot (Pass 7 Current)
 
-Source: `validation_outputs/di_pass6_snapshot.json`
+Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
 - `.instance` usages in `lib/**`: 92
@@ -169,6 +169,15 @@ Pass 6 progress highlights:
 - Client connect runtime now uses attempt-scoped stale guards across async
   stages, so stale failure/finalizer callbacks from old attempts cannot tear
   down newer active flows.
+
+Pass 7 progress highlights:
+
+- BLE facade lifecycle tests now await disposal and avoid ad-hoc secondary
+  facade instances, making strict singleton validation reliable within the
+  suite.
+- Strict singleton guard mode (`PAKCONNECT_BLE_STRICT_SINGLETON_GUARD=true`)
+  now passes for the full `ble_service_facade_test.dart` suite, establishing a
+  stable policy lock baseline before CI wiring.
 
 ---
 
