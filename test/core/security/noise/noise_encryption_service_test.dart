@@ -154,6 +154,23 @@ void main() {
       service.shutdown();
     });
 
+    test('returns defensive copy for static private key data', () async {
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      await service.initialize();
+
+      final firstRead = service.getStaticPrivateKeyData();
+      final originalFirstByte = firstRead.first;
+      firstRead[0] = originalFirstByte == 0 ? 1 : 0;
+
+      final secondRead = service.getStaticPrivateKeyData();
+      expect(secondRead.first, equals(originalFirstByte));
+      expect(secondRead.first, isNot(equals(firstRead.first)));
+
+      service.shutdown();
+    });
+
     test('throws StateError if not initialized', () {
       final service = NoiseEncryptionService(
         secureStorage: MockSecureStorage(),

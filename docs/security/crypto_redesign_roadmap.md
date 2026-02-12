@@ -122,6 +122,24 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     - `test/data/services/inbound_text_processor_test.dart`
 - binary payload handling now fails closed on decrypt failure (drop instead of
   forwarding undecrypted bytes to downstream callbacks).
+- v2 plaintext spoofing policy tightened for text messages:
+  - direct plaintext v2 text messages are rejected.
+  - plaintext broadcast v2 text messages now require a valid signature.
+  - enforced in both inbound text handling paths.
+- `legacy_global_v1` is now hard-blocked for v2 inbound decrypt routing.
+- downgrade-floor poisoning mitigation:
+  - peer protocol floor now advances only for authenticated v2 messages
+    (or legacy v1 flow), not from unauthenticated v2 traffic.
+- envelope binding regression coverage expanded:
+  - tamper-matrix tests now verify signature rejection when these fields change:
+    - `senderId`, `recipientId`, `messageId`, `content`
+    - `crypto.mode`, `crypto.sessionId`, `crypto.kid`, `crypto.epk`, `crypto.nonce`
+  - tests:
+    - `test/data/services/protocol_message_handler_test.dart`
+    - `test/data/services/inbound_text_processor_test.dart`
+- local Noise static private key accessor now has an explicit defensive-copy
+  invariant test:
+  - `test/core/security/noise/noise_encryption_service_test.dart`
 
 ---
 

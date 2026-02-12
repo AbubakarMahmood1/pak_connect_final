@@ -269,6 +269,59 @@ void main() {
       },
     );
 
+    test('rejects unsigned v2 direct plaintext text message', () async {
+      allowedSevere.add('v2 direct plaintext text message rejected');
+      handler.setCurrentNodeId('local-node');
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-direct-plaintext',
+          'content': 'spoof-attempt',
+          'encrypted': false,
+          'senderId': 'sender-key',
+          'intendedRecipient': 'local-node',
+          'recipientId': 'local-node',
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await handler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, isNull);
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
+      expect(securityService.decryptMessageCalls, equals(0));
+    });
+
+    test('rejects unsigned v2 broadcast plaintext text message', () async {
+      allowedSevere.add('v2 plaintext broadcast missing signature');
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-broadcast-plaintext',
+          'content': 'spoof-broadcast',
+          'encrypted': false,
+          'senderId': 'sender-key',
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await handler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, isNull);
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
+      expect(securityService.decryptMessageCalls, equals(0));
+    });
+
     test(
       'routes v2 decrypt by declared mode without fallback guessing',
       () async {
@@ -366,6 +419,72 @@ void main() {
       expect(securityService.decryptMessageCalls, equals(0));
     });
 
+    test(
+      'rejects v2 sealed message missing explicit recipient binding',
+      () async {
+        allowedSevere.add('v2 sealed message missing recipient binding');
+        handler.setCurrentNodeId('recipient-key');
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-sealed-missing-recipient',
+            'content': 'ciphertext-base64',
+            'encrypted': true,
+            'senderId': 'sender-key',
+            'intendedRecipient': 'recipient-key',
+            'crypto': {
+              'mode': 'sealed_v1',
+              'modeVersion': 1,
+              'kid': 'kid-1',
+              'epk': 'ZWJjZGVmZw==',
+              'nonce': 'bm9uY2UxMjM=',
+            },
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final result = await handler.processProtocolMessage(
+          message: message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+
+        expect(result, isNull);
+        expect(securityService.decryptSealedCalls, equals(0));
+        expect(securityService.decryptMessageByTypeCalls, equals(0));
+        expect(securityService.decryptMessageCalls, equals(0));
+      },
+    );
+
+    test(
+      'blocks v2 legacy_global_v1 decrypt mode even when compatibility is enabled',
+      () async {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-legacy-global-blocked',
+            'content': 'PLAINTEXT:spoofed-message',
+            'encrypted': true,
+            'senderId': 'sender-key',
+            'crypto': {'mode': 'legacy_global_v1', 'modeVersion': 1},
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final result = await handler.processProtocolMessage(
+          message: message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+
+        expect(result, isNull);
+        expect(securityService.decryptMessageByTypeCalls, equals(0));
+        expect(securityService.decryptMessageCalls, equals(0));
+      },
+    );
+
     test('blocks legacy v2 decrypt modes when policy disables them', () async {
       final strictHandler = ProtocolMessageHandler(
         securityService: securityService,
@@ -395,127 +514,277 @@ void main() {
       expect(securityService.decryptMessageCalls, equals(0));
     });
 
-    test('rejects v1 message after observing v2 from same peer', () async {
-      final v2Message = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        version: 2,
-        payload: {
-          'messageId': 'msg-v2-floor',
-          'content': 'hello-v2',
-          'encrypted': false,
-          'senderId': 'peer-upgraded',
-          'crypto': {'mode': 'none', 'modeVersion': 1},
-        },
-        timestamp: DateTime.now(),
-      );
+    test(
+      'rejects v1 message after observing authenticated v2 from same peer',
+      () async {
+        final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
+        final signingKeyPair = _generateEphemeralSigningKeyPair();
+        final baselineV2 = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-floor',
+            'content': 'ciphertext-floor',
+            'encrypted': true,
+            'senderId': 'peer-upgraded',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        );
+        final baselinePayload = SigningManager.signaturePayloadForMessage(
+          baselineV2,
+          fallbackContent: 'typed:ciphertext-floor',
+        );
+        final baselineSignature = _signWithEphemeralPrivateKey(
+          content: baselinePayload,
+          privateKeyHex: signingKeyPair.privateHex,
+        );
+        final signedV2 = ProtocolMessage(
+          type: baselineV2.type,
+          version: baselineV2.version,
+          payload: baselineV2.payload,
+          signature: baselineSignature,
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        );
 
-      final v1Message = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        version: 1,
-        payload: {
-          'messageId': 'msg-v1-downgrade',
-          'content': 'hello-v1',
-          'encrypted': false,
-          'senderId': 'peer-upgraded',
-        },
-        timestamp: DateTime.now(),
-      );
+        final v1Message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 1,
+          payload: {
+            'messageId': 'msg-v1-downgrade',
+            'content': 'hello-v1',
+            'encrypted': false,
+            'senderId': 'peer-upgraded',
+          },
+          timestamp: DateTime.now(),
+        );
 
-      final firstResult = await handler.processProtocolMessage(
-        message: v2Message,
-        fromDeviceId: 'device-1',
-        fromNodeId: 'relay-node',
-      );
-      final secondResult = await handler.processProtocolMessage(
-        message: v1Message,
-        fromDeviceId: 'device-1',
-        fromNodeId: 'relay-node',
-      );
+        final firstResult = await handler.processProtocolMessage(
+          message: signedV2,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+        final secondResult = await handler.processProtocolMessage(
+          message: v1Message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
 
-      expect(firstResult, equals('hello-v2'));
-      expect(secondResult, isNull);
-      expect(securityService.decryptMessageCalls, equals(0));
-      expect(securityService.decryptMessageByTypeCalls, equals(0));
-    });
+        expect(firstResult, equals('typed:ciphertext-floor'));
+        expect(secondResult, isNull);
+        expect(securityService.decryptMessageCalls, equals(0));
+        expect(securityService.decryptMessageByTypeCalls, equals(1));
+      },
+    );
 
-    test('rejects v2 envelope tampering when signature is present', () async {
-      allowedSevere.add('Signature verification failed');
-      final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
-      final signingKeyPair = _generateEphemeralSigningKeyPair();
+    test(
+      'does not raise protocol floor for unauthenticated v2 message',
+      () async {
+        final unsignedV2 = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-unsigned-floor',
+            'content': 'ciphertext-unsigned',
+            'encrypted': true,
+            'senderId': 'peer-unsigned',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          timestamp: DateTime.now(),
+        );
+        final v1Message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 1,
+          payload: {
+            'messageId': 'msg-v1-after-unsigned',
+            'content': 'hello-v1',
+            'encrypted': false,
+            'senderId': 'peer-unsigned',
+          },
+          timestamp: DateTime.now(),
+        );
 
-      final baselineMessage = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        version: 2,
-        payload: {
+        final firstResult = await handler.processProtocolMessage(
+          message: unsignedV2,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+        final secondResult = await handler.processProtocolMessage(
+          message: v1Message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+
+        expect(firstResult, equals('typed:ciphertext-unsigned'));
+        expect(secondResult, equals('hello-v1'));
+        expect(securityService.decryptMessageCalls, equals(0));
+        expect(securityService.decryptMessageByTypeCalls, equals(1));
+      },
+    );
+
+    test(
+      'rejects v2 envelope tampering across bound fields when signature is present',
+      () async {
+        allowedSevere.add('Signature verification failed');
+        handler.setCurrentNodeId('local-node');
+
+        final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
+        final signingKeyPair = _generateEphemeralSigningKeyPair();
+        final basePayload = <String, dynamic>{
           'messageId': 'msg-v2-signed',
           'content': 'ciphertext',
           'encrypted': true,
           'senderId': 'sender-key',
-          'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
-        },
-        useEphemeralSigning: true,
-        ephemeralSigningKey: signingKeyPair.publicHex,
-        timestamp: now,
-      );
-      final baselinePayload = SigningManager.signaturePayloadForMessage(
-        baselineMessage,
-        fallbackContent: 'typed:ciphertext',
-      );
-      final baselineSignature = _signWithEphemeralPrivateKey(
-        content: baselinePayload,
-        privateKeyHex: signingKeyPair.privateHex,
-      );
-      final signedBaselineMessage = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        version: 2,
-        payload: {
-          'messageId': 'msg-v2-signed',
-          'content': 'ciphertext',
-          'encrypted': true,
-          'senderId': 'sender-key',
-          'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
-        },
-        signature: baselineSignature,
-        useEphemeralSigning: true,
-        ephemeralSigningKey: signingKeyPair.publicHex,
-        timestamp: now,
-      );
+          'recipientId': 'recipient-key',
+          'intendedRecipient': 'local-node',
+          'crypto': {
+            'mode': 'sealed_v1',
+            'modeVersion': 1,
+            'sessionId': 'session-1',
+            'kid': 'kid-1',
+            'epk': 'ZWJjZGVmZw==',
+            'nonce': 'bm9uY2UxMjM=',
+          },
+        };
 
-      final validResult = await handler.processProtocolMessage(
-        message: signedBaselineMessage,
-        fromDeviceId: 'device-1',
-        fromNodeId: 'relay-node',
-      );
-      expect(validResult, equals('typed:ciphertext'));
+        final baselineMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: _clonePayload(basePayload),
+          useEphemeralSigning: true,
+          ephemeralSigningKey: signingKeyPair.publicHex,
+          timestamp: now,
+        );
+        final baselineSignature = _signWithEphemeralPrivateKey(
+          content: SigningManager.signaturePayloadForMessage(
+            baselineMessage,
+            fallbackContent: 'sealed:ciphertext',
+          ),
+          privateKeyHex: signingKeyPair.privateHex,
+        );
 
-      final tamperedMessage = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        version: 2,
-        payload: {
-          'messageId': 'msg-v2-signed',
-          'content': 'ciphertext',
-          'encrypted': true,
-          'senderId': 'sender-key',
-          'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
-        },
-        signature: baselineSignature,
-        useEphemeralSigning: true,
-        ephemeralSigningKey: signingKeyPair.publicHex,
-        timestamp: now,
-      );
+        final validResult = await handler.processProtocolMessage(
+          message: ProtocolMessage(
+            type: ProtocolMessageType.textMessage,
+            version: 2,
+            payload: _clonePayload(basePayload),
+            signature: baselineSignature,
+            useEphemeralSigning: true,
+            ephemeralSigningKey: signingKeyPair.publicHex,
+            timestamp: now,
+          ),
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+        expect(validResult, equals('sealed:ciphertext'));
 
-      final tamperedResult = await handler.processProtocolMessage(
-        message: tamperedMessage,
-        fromDeviceId: 'device-1',
-        fromNodeId: 'relay-node',
-      );
+        final tamperCases = <_EnvelopeTamperCase>[
+          _EnvelopeTamperCase(
+            label: 'senderId',
+            apply: (payload) => payload['senderId'] = 'sender-key-tampered',
+          ),
+          _EnvelopeTamperCase(
+            label: 'recipientId',
+            apply: (payload) => payload['recipientId'] = 'recipient-tampered',
+          ),
+          _EnvelopeTamperCase(
+            label: 'messageId',
+            apply: (payload) => payload['messageId'] = 'msg-v2-signed-tampered',
+          ),
+          _EnvelopeTamperCase(
+            label: 'content',
+            apply: (payload) => payload['content'] = 'ciphertext-tampered',
+          ),
+          _EnvelopeTamperCase(
+            label: 'crypto.mode',
+            apply: (payload) {
+              final crypto = Map<String, dynamic>.from(
+                payload['crypto'] as Map,
+              );
+              crypto['mode'] = 'noise_v1';
+              payload['crypto'] = crypto;
+            },
+          ),
+          _EnvelopeTamperCase(
+            label: 'crypto.sessionId',
+            apply: (payload) {
+              final crypto = Map<String, dynamic>.from(
+                payload['crypto'] as Map,
+              );
+              crypto['sessionId'] = 'session-2';
+              payload['crypto'] = crypto;
+            },
+          ),
+          _EnvelopeTamperCase(
+            label: 'crypto.kid',
+            apply: (payload) {
+              final crypto = Map<String, dynamic>.from(
+                payload['crypto'] as Map,
+              );
+              crypto['kid'] = 'kid-2';
+              payload['crypto'] = crypto;
+            },
+          ),
+          _EnvelopeTamperCase(
+            label: 'crypto.epk',
+            apply: (payload) {
+              final crypto = Map<String, dynamic>.from(
+                payload['crypto'] as Map,
+              );
+              crypto['epk'] = 'YWJjZGVmZw==';
+              payload['crypto'] = crypto;
+            },
+          ),
+          _EnvelopeTamperCase(
+            label: 'crypto.nonce',
+            apply: (payload) {
+              final crypto = Map<String, dynamic>.from(
+                payload['crypto'] as Map,
+              );
+              crypto['nonce'] = 'bm9uY2UyMzQ=';
+              payload['crypto'] = crypto;
+            },
+          ),
+        ];
 
-      expect(
-        tamperedResult,
-        equals('[❌ UNTRUSTED MESSAGE - Invalid signature]'),
-      );
-    });
+        for (final tamperCase in tamperCases) {
+          final tamperedPayload = _clonePayload(basePayload);
+          tamperCase.apply(tamperedPayload);
+          final tamperedMessage = ProtocolMessage(
+            type: ProtocolMessageType.textMessage,
+            version: 2,
+            payload: tamperedPayload,
+            signature: baselineSignature,
+            useEphemeralSigning: true,
+            ephemeralSigningKey: signingKeyPair.publicHex,
+            timestamp: now,
+          );
+
+          final tamperedResult = await handler.processProtocolMessage(
+            message: tamperedMessage,
+            fromDeviceId: 'device-1',
+            fromNodeId: 'relay-node',
+          );
+
+          expect(
+            tamperedResult,
+            equals('[❌ UNTRUSTED MESSAGE - Invalid signature]'),
+            reason: 'Tamper case failed: ${tamperCase.label}',
+          );
+        }
+      },
+    );
   });
+}
+
+Map<String, dynamic> _clonePayload(Map<String, dynamic> payload) {
+  return Map<String, dynamic>.from(
+    jsonDecode(jsonEncode(payload)) as Map<String, dynamic>,
+  );
 }
 
 _EphemeralSigningKeyPair _generateEphemeralSigningKeyPair() {
@@ -577,6 +846,13 @@ class _EphemeralSigningKeyPair {
 
   final String privateHex;
   final String publicHex;
+}
+
+class _EnvelopeTamperCase {
+  const _EnvelopeTamperCase({required this.label, required this.apply});
+
+  final String label;
+  final void Function(Map<String, dynamic>) apply;
 }
 
 class _FakeSecurityService implements ISecurityService {

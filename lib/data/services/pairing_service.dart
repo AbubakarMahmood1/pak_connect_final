@@ -123,8 +123,8 @@ class PairingService implements IPairingService {
     );
     onSendPairingAccept?.call(message);
 
-    final code = generatePairingCode();
-    _logger.info('📱 Generated PIN code after accept: $code');
+    generatePairingCode();
+    _logger.info('📱 Generated PIN code after accept');
 
     _currentPairing = _currentPairing!.copyWith(state: PairingState.displaying);
   }
@@ -150,8 +150,8 @@ class PairingService implements IPairingService {
 
     _pairingTimeout?.cancel();
 
-    final code = generatePairingCode();
-    _logger.info('📱 Generated PIN code after receiving accept: $code');
+    generatePairingCode();
+    _logger.info('📱 Generated PIN code after receiving accept');
 
     _currentPairing = _currentPairing!.copyWith(
       state: PairingState.displaying,
