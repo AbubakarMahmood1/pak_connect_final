@@ -279,8 +279,17 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
               return null;
             }
             if (cryptoHeader.mode == CryptoMode.sealedV1) {
+              final sealedSenderId =
+                  message.senderId ??
+                  (message.payload['originalSender'] as String?);
               final recipientForSealed =
                   message.recipientId ?? intendedRecipient;
+              if (sealedSenderId == null || sealedSenderId.isEmpty) {
+                _logger.severe(
+                  '🔒 v2 sealed message missing sender binding: $messageId',
+                );
+                return null;
+              }
               if (recipientForSealed == null || recipientForSealed.isEmpty) {
                 _logger.severe(
                   '🔒 v2 sealed message missing recipient binding: $messageId',
@@ -291,7 +300,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
                 encryptedMessage: content,
                 cryptoHeader: cryptoHeader,
                 messageId: messageId,
-                senderId: declaredSenderId,
+                senderId: sealedSenderId,
                 recipientId: recipientForSealed,
               );
             } else {
