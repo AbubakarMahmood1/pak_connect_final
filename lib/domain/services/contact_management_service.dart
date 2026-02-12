@@ -3,7 +3,6 @@
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:get_it/get_it.dart';
 import '../interfaces/i_contact_repository.dart';
 import '../interfaces/i_message_repository.dart';
 import '../entities/contact.dart' show Contact, TrustStatus;
@@ -19,26 +18,76 @@ class ContactManagementService {
 
   // Singleton instance
   static ContactManagementService? _instance;
+  static IContactRepository Function()? _contactRepositoryResolver;
+  static IMessageRepository Function()? _messageRepositoryResolver;
 
   /// Get the singleton instance
   static ContactManagementService get instance {
-    _instance ??= ContactManagementService._internal();
+    _instance ??= ContactManagementService.fromServiceLocator();
     return _instance!;
   }
 
-  /// Private constructor for singleton
+  /// Install an app-composed singleton instance.
+  static void setInstance(ContactManagementService service) {
+    _instance = service;
+  }
+
+  /// Configure fallback dependency resolvers for legacy singleton access.
+  static void configureDependencyResolvers({
+    IContactRepository Function()? contactRepositoryResolver,
+    IMessageRepository Function()? messageRepositoryResolver,
+  }) {
+    if (contactRepositoryResolver != null) {
+      _contactRepositoryResolver = contactRepositoryResolver;
+    }
+    if (messageRepositoryResolver != null) {
+      _messageRepositoryResolver = messageRepositoryResolver;
+    }
+  }
+
+  /// Clear fallback dependency resolvers.
+  static void clearDependencyResolvers() {
+    _contactRepositoryResolver = null;
+    _messageRepositoryResolver = null;
+  }
+
+  /// Constructor with explicit dependencies.
   ContactManagementService._internal({
-    IContactRepository? contactRepository,
-    IMessageRepository? messageRepository,
-  }) : _contactRepository =
-           contactRepository ?? GetIt.instance<IContactRepository>(),
-       _messageRepository =
-           messageRepository ?? GetIt.instance<IMessageRepository>() {
+    required IContactRepository contactRepository,
+    required IMessageRepository messageRepository,
+  }) : _contactRepository = contactRepository,
+       _messageRepository = messageRepository {
     _logger.info('✅ ContactManagementService singleton instance created');
   }
 
   /// Factory constructor (redirects to instance getter)
   factory ContactManagementService() => instance;
+
+  /// Constructor-first creation path for app composition.
+  factory ContactManagementService.withDependencies({
+    required IContactRepository contactRepository,
+    required IMessageRepository messageRepository,
+  }) => ContactManagementService._internal(
+    contactRepository: contactRepository,
+    messageRepository: messageRepository,
+  );
+
+  /// Legacy fallback for contexts still relying on global DI.
+  factory ContactManagementService.fromServiceLocator() {
+    final contactResolver = _contactRepositoryResolver;
+    final messageResolver = _messageRepositoryResolver;
+    if (contactResolver == null || messageResolver == null) {
+      throw StateError(
+        'ContactManagementService fallback dependencies are not configured. '
+        'Call ContactManagementService.configureDependencyResolvers(...), '
+        'or install an app-composed singleton via setInstance().',
+      );
+    }
+    return ContactManagementService._internal(
+      contactRepository: contactResolver(),
+      messageRepository: messageResolver(),
+    );
+  }
 
   // Dependencies (injected for testability)
   final IContactRepository _contactRepository;

@@ -4,7 +4,6 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import '../../domain/services/archive_search_service.dart';
@@ -18,15 +17,9 @@ import 'package:pak_connect/domain/values/id_types.dart';
 class SearchService {
   static final _logger = Logger('SearchService');
 
-  // Dependencies (optional for DI/testing)
-  final IChatsRepository? _chatsRepositoryOverride;
-  final IMessageRepository? _messageRepositoryOverride;
-  final ArchiveSearchService? _archiveSearchServiceOverride;
-
-  // Lazy-initialized dependencies
-  late final IChatsRepository _chatsRepository;
-  late final IMessageRepository _messageRepository;
-  late final ArchiveSearchService _archiveSearchService;
+  final IChatsRepository _chatsRepository;
+  final IMessageRepository _messageRepository;
+  final ArchiveSearchService _archiveSearchService;
 
   // Storage keys
   static const String _messageSearchHistoryKey = 'message_search_history';
@@ -34,27 +27,19 @@ class SearchService {
   // Search history state
   final List<String> _messageSearchHistory = [];
 
-  /// Constructor with optional dependency injection
+  /// Constructor with explicit dependency injection.
   SearchService({
-    IChatsRepository? chatsRepository,
-    IMessageRepository? messageRepository,
-    ArchiveSearchService? archiveSearchService,
-  }) : _chatsRepositoryOverride = chatsRepository,
-       _messageRepositoryOverride = messageRepository,
-       _archiveSearchServiceOverride = archiveSearchService {
+    required IChatsRepository chatsRepository,
+    required IMessageRepository messageRepository,
+    required ArchiveSearchService archiveSearchService,
+  }) : _chatsRepository = chatsRepository,
+       _messageRepository = messageRepository,
+       _archiveSearchService = archiveSearchService {
     _logger.info('✅ SearchService created');
   }
 
   /// Initialize the service
   Future<void> initialize() async {
-    // Initialize dependencies (use overrides if provided, else defaults)
-    _chatsRepository =
-        _chatsRepositoryOverride ?? GetIt.instance<IChatsRepository>();
-    _messageRepository =
-        _messageRepositoryOverride ?? GetIt.instance<IMessageRepository>();
-    _archiveSearchService =
-        _archiveSearchServiceOverride ?? ArchiveSearchService.instance;
-
     // Load search history
     await _loadMessageSearchHistory();
 

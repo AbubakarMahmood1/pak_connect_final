@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
@@ -90,11 +89,11 @@ void main() {
 
   setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
-    await GetIt.I.reset();
     repository = _FakeArchiveRepository();
-    GetIt.I.registerSingleton<IArchiveRepository>(repository);
-
-    service = ArchiveSearchService.instance;
+    service = ArchiveSearchService.withDependencies(
+      archiveRepository: repository,
+    );
+    ArchiveSearchService.setInstance(service);
     await service.initialize();
   });
 

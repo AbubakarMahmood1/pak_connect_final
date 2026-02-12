@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 
@@ -7,25 +7,18 @@ import '../../domain/interfaces/i_connection_service.dart';
 import '../../domain/models/connection_info.dart';
 import '../../domain/models/spy_mode_info.dart';
 
-final GetIt getIt = GetIt.instance;
 final _logger = Logger('BLEServiceFacadeProvider');
 
 /// ✅ Phase 6D: Riverpod provider for BLEServiceFacade
-/// Accesses the service locator singleton and exposes lifecycle management
+/// Accesses the service locator singleton.
 /// Note: BLEServiceFacade manages multiple internal streams
-/// This provider provides Riverpod-managed access to the singleton
-final bleServiceFacadeProvider = Provider.autoDispose<IConnectionService>((
-  ref,
-) {
-  final facade = getIt<IConnectionService>();
+/// Pass 2: lifecycle ownership stays in AppCore/DI, not provider disposal.
+final bleServiceFacadeProvider = Provider<IConnectionService>((ref) {
+  final facade = resolveFromAppServicesOrServiceLocator<IConnectionService>(
+    fromServices: (services) => services.connectionService,
+    dependencyName: 'IConnectionService',
+  );
   _logger.fine('✅ BLEServiceFacade provider accessed');
-  ref.onDispose(() {
-    // Best-effort cleanup for implementations that expose a dispose method.
-    try {
-      final dynamic maybeFacade = facade;
-      maybeFacade.dispose();
-    } catch (_) {}
-  });
   return facade;
 });
 

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import '../../domain/services/archive_management_service.dart';
 import '../../domain/models/archive_models.dart';
@@ -22,12 +21,10 @@ class ArchiveService implements IArchiveService {
   final Set<String> _archivedChats = {};
 
   ArchiveService({
-    IArchiveRepository? archiveRepository,
-    ArchiveManagementService? archiveManagementService,
-  }) : _archiveRepository =
-           archiveRepository ?? GetIt.instance<IArchiveRepository>(),
-       _archiveManagementService =
-           archiveManagementService ?? ArchiveManagementService.instance {
+    required IArchiveRepository archiveRepository,
+    required ArchiveManagementService archiveManagementService,
+  }) : _archiveRepository = archiveRepository,
+       _archiveManagementService = archiveManagementService {
     _logger.info('✅ ArchiveService initialized');
   }
 

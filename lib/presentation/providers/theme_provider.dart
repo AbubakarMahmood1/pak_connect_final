@@ -3,7 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import '../../domain/entities/preference_keys.dart';
 import '../../domain/interfaces/i_preferences_repository.dart';
@@ -12,13 +12,9 @@ final _logger = Logger('ThemeProvider');
 
 /// Provider for preferences repository
 final preferencesRepositoryProvider = Provider<IPreferencesRepository>((ref) {
-  final di = GetIt.instance;
-  if (di.isRegistered<IPreferencesRepository>()) {
-    return di<IPreferencesRepository>();
-  }
-  throw StateError(
-    'IPreferencesRepository is not registered. '
-    'Call setupServiceLocator() before using theme providers.',
+  return resolveFromAppServicesOrServiceLocator<IPreferencesRepository>(
+    fromServices: (services) => services.preferencesRepository,
+    dependencyName: 'IPreferencesRepository',
   );
 });
 

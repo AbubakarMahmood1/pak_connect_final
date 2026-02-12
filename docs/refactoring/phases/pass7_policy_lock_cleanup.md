@@ -171,6 +171,24 @@ escape hatches that can reintroduce split-brain behavior.
         harness security service snapshot, keeping stricter resolver policy
         compatible with facade/integration suites
 
+- Post-pass DI hardening follow-through:
+  - `.github/workflows/flutter_coverage.yml`
+    - CI now enforces DI metric regression gates using
+      `scripts/di_pass0_audit.ps1 -EnforceMetricsGate`
+      (`GetIt <= 43`, `.instance <= 24`)
+  - `lib/core/app_core.dart`
+  - `lib/core/di/service_locator.dart`
+  - `lib/data/di/data_layer_service_registrar.dart`
+    - normalized remaining locator resolutions to `getIt.get<T>()` calls
+      (removed direct callable-locator syntax from production paths)
+  - `lib/presentation/providers/ble_providers.dart`
+  - `lib/presentation/providers/chat_messaging_view_model.dart`
+  - `lib/presentation/providers/mesh_networking_provider.dart`
+  - `lib/data/di/data_layer_service_registrar.dart`
+  - `lib/core/messaging/mesh_relay_engine.dart`
+    - pruned remaining non-framework `.instance` callsites in provider/runtime
+      wiring paths (constructor/object reference based access)
+
 ---
 
 ## Verification
@@ -210,6 +228,11 @@ flutter analyze lib/core/services/navigation_service.dart lib/domain/services/bl
 flutter test test/data/services/ble_service_facade_test.dart
 flutter test test/database_query_optimizer_test.dart
 flutter test test/core/messaging/relay_phase1_test.dart
+pwsh -File scripts/di_pass0_audit.ps1 -EnforceMetricsGate -MaxGetItResolutionCount 43 -MaxInstanceUsageCount 24 -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
+flutter analyze lib/core/app_core.dart lib/core/di/service_locator.dart lib/core/messaging/mesh_relay_engine.dart lib/data/di/data_layer_service_registrar.dart lib/presentation/providers/ble_providers.dart lib/presentation/providers/chat_messaging_view_model.dart lib/presentation/providers/mesh_networking_provider.dart
+flutter test test/core/app_core_initialization_retry_test.dart test/core/di/phase3_integration_flows_test.dart test/core/messaging/relay_phase2_test.dart test/core/messaging/relay_phase3_test.dart
+flutter test test/domain/services/archive_search_service_test.dart test/domain/services/mesh/mesh_networking_service_binary_test.dart
+flutter test test/data/services/ble_service_facade_test.dart test/presentation/controllers/home_screen_controller_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -218,8 +241,8 @@ Results:
 - Targeted analyze/tests: **Passed**
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
-  - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **24**
+  - `GetIt` resolutions in `lib/**`: **5**
+  - `.instance` usages in `lib/**`: **17**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

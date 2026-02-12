@@ -1,4 +1,3 @@
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
@@ -37,7 +36,8 @@ class QueueStore {
 
   bool get hasDatabaseProvider {
     return _databaseProvider != null ||
-        GetIt.instance.isRegistered<IDatabaseProvider>();
+        MessageQueueRepository.hasDefaultDatabaseProvider ||
+        QueuePersistenceManager.hasDefaultDatabaseProvider;
   }
 
   int get directQueueSize => _directMessageQueue.length;

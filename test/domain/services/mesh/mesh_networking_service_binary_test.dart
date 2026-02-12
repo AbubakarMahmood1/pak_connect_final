@@ -5,8 +5,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -22,6 +24,8 @@ import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
+import 'package:pak_connect/domain/services/archive_management_service.dart';
+import 'package:pak_connect/domain/services/archive_search_service.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -46,6 +50,25 @@ void main() {
     GetIt.instance
       ..registerSingleton<_StubRepositoryProvider>(provider)
       ..registerSingleton<IRepositoryProvider>(provider);
+
+    final archiveRepository = _NoopArchiveRepository();
+    final archiveManagementService = ArchiveManagementService.withDependencies(
+      archiveRepository: archiveRepository,
+    );
+    ArchiveManagementService.setInstance(archiveManagementService);
+    final archiveSearchService = ArchiveSearchService.withDependencies(
+      archiveRepository: archiveRepository,
+    );
+    ArchiveSearchService.setInstance(archiveSearchService);
+    ChatManagementService.setInstance(
+      ChatManagementService.withDependencies(
+        chatsRepository: _NoopChatsRepository(),
+        messageRepository: provider.messageRepository,
+        archiveRepository: archiveRepository,
+        archiveManagementService: archiveManagementService,
+        archiveSearchService: archiveSearchService,
+      ),
+    );
   });
 
   setUp(() {
@@ -56,10 +79,12 @@ void main() {
   group('MeshNetworkingService binary handling', () {
     test('propagates ttl/recipient through ReceivedBinaryEvent', () async {
       final ble = _FakeConnectionService();
+      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        repositoryProvider: repositoryProvider,
         sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
@@ -84,10 +109,12 @@ void main() {
 
     test('queues offline binary sends and retries when connected', () async {
       final ble = _FakeConnectionService(canSend: false, connected: false);
+      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        repositoryProvider: repositoryProvider,
         sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
@@ -108,10 +135,12 @@ void main() {
 
     test('stores outbound binary messages with transferId metadata', () async {
       final ble = _FakeConnectionService();
+      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        repositoryProvider: repositoryProvider,
         sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
@@ -133,10 +162,12 @@ void main() {
 
     test('tracks initial sync peers when identity is revealed', () async {
       final ble = _FakeConnectionService();
+      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        repositoryProvider: repositoryProvider,
         sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
@@ -152,10 +183,12 @@ void main() {
 
     test('schedules initial sync on direct announce', () async {
       final ble = _FakeConnectionService();
+      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
         chatManagementService: ChatManagementService.instance,
+        repositoryProvider: repositoryProvider,
         sharedQueueProvider: _StubSharedQueueProvider(),
       );
 
@@ -173,6 +206,16 @@ void main() {
 class _NoopFacade implements IBLEMessageHandlerFacade {
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NoopChatsRepository implements IChatsRepository {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NoopArchiveRepository implements IArchiveRepository {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeConnectionService implements IConnectionService {

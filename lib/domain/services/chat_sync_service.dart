@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:get_it/get_it.dart';
 import '../interfaces/i_chats_repository.dart';
 import '../interfaces/i_message_repository.dart';
 import '../entities/chat_list_item.dart';
@@ -29,15 +28,13 @@ class ChatSyncService {
   bool _isInitialized = false;
 
   ChatSyncService({
-    IChatsRepository? chatsRepository,
-    IMessageRepository? messageRepository,
+    required IChatsRepository chatsRepository,
+    required IMessageRepository messageRepository,
     required ChatCacheState cacheState,
-    ArchiveSearchService? archiveSearchService,
-  }) : _chatsRepository = chatsRepository ?? GetIt.instance<IChatsRepository>(),
-       _messageRepository =
-           messageRepository ?? GetIt.instance<IMessageRepository>(),
-       _archiveSearchService =
-           archiveSearchService ?? ArchiveSearchService.instance,
+    required ArchiveSearchService archiveSearchService,
+  }) : _chatsRepository = chatsRepository,
+       _messageRepository = messageRepository,
+       _archiveSearchService = archiveSearchService,
        _cacheState = cacheState;
 
   Future<void> initialize() async {

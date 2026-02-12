@@ -5,6 +5,7 @@
 import 'dart:io' show Platform;
 import 'package:logging/logging.dart';
 import '../../domain/interfaces/i_notification_handler.dart';
+import '../../domain/interfaces/i_preferences_repository.dart';
 import 'notification_service.dart'; // For ForegroundNotificationHandler
 
 // Conditional import - only imports on Android, doesn't break build on other platforms
@@ -24,11 +25,15 @@ import 'background_notification_handler_impl.dart'
 /// USAGE:
 /// ```dart
 /// // Automatically selects best handler for platform
-/// final handler = NotificationHandlerFactory.createDefault();
+/// final handler = NotificationHandlerFactory.createDefault(
+///   preferencesRepository: prefsRepo,
+/// );
 /// await handler.initialize();
 ///
 /// // Or explicitly request background handler (Android only)
-/// final bgHandler = NotificationHandlerFactory.createBackgroundHandler();
+/// final bgHandler = NotificationHandlerFactory.createBackgroundHandler(
+///   preferencesRepository: prefsRepo,
+/// );
 /// await bgHandler.initialize();
 /// ```
 class NotificationHandlerFactory {
@@ -39,13 +44,17 @@ class NotificationHandlerFactory {
   /// Returns:
   /// - Android: ForegroundNotificationHandler (safe default)
   /// - Other platforms: ForegroundNotificationHandler
-  static INotificationHandler createDefault() {
+  static INotificationHandler createDefault({
+    required IPreferencesRepository preferencesRepository,
+  }) {
     _logger.info(
       'Creating default notification handler for platform: ${_getPlatformName()}',
     );
 
     // All platforms use foreground handler by default for safety
-    return ForegroundNotificationHandler();
+    return ForegroundNotificationHandler(
+      preferencesRepository: preferencesRepository,
+    );
   }
 
   /// Create background notification handler if available on platform
@@ -55,7 +64,9 @@ class NotificationHandlerFactory {
   /// - Other platforms: ForegroundNotificationHandler (fallback)
   ///
   /// This method is safe to call on all platforms - it won't cause build errors.
-  static INotificationHandler createBackgroundHandler() {
+  static INotificationHandler createBackgroundHandler({
+    required IPreferencesRepository preferencesRepository,
+  }) {
     _logger.info(
       'Creating background notification handler for platform: ${_getPlatformName()}',
     );
@@ -72,13 +83,17 @@ class NotificationHandlerFactory {
         '⚠️ iOS background notifications not yet implemented, using foreground handler',
       );
       // Future: return IOSNotificationHandler();
-      return ForegroundNotificationHandler();
+      return ForegroundNotificationHandler(
+        preferencesRepository: preferencesRepository,
+      );
     }
 
     // Windows - no background service support
     if (Platform.isWindows) {
       _logger.info('ℹ️ Windows uses foreground notifications only');
-      return ForegroundNotificationHandler();
+      return ForegroundNotificationHandler(
+        preferencesRepository: preferencesRepository,
+      );
     }
 
     // Linux - could support libnotify in future
@@ -87,7 +102,9 @@ class NotificationHandlerFactory {
         '⚠️ Linux system notifications not yet implemented, using foreground handler',
       );
       // Future: return LinuxNotificationHandler();
-      return ForegroundNotificationHandler();
+      return ForegroundNotificationHandler(
+        preferencesRepository: preferencesRepository,
+      );
     }
 
     // macOS - could use UNUserNotificationCenter
@@ -96,12 +113,16 @@ class NotificationHandlerFactory {
         '⚠️ macOS notifications not yet implemented, using foreground handler',
       );
       // Future: return MacOSNotificationHandler();
-      return ForegroundNotificationHandler();
+      return ForegroundNotificationHandler(
+        preferencesRepository: preferencesRepository,
+      );
     }
 
     // Fallback for unknown platforms
     _logger.warning('Unknown platform, using foreground notification handler');
-    return ForegroundNotificationHandler();
+    return ForegroundNotificationHandler(
+      preferencesRepository: preferencesRepository,
+    );
   }
 
   /// Check if background notifications are supported on current platform

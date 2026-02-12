@@ -4,7 +4,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
@@ -16,6 +15,8 @@ import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/utils/app_logger.dart';
+import '../services/message_queue_repository.dart';
+import '../services/queue_persistence_manager.dart';
 import '../services/queue_sync_coordinator.dart';
 import '../services/queue_policy_manager.dart';
 import '../services/queue_bandwidth_allocator.dart';
@@ -31,6 +32,7 @@ part 'offline_message_queue_maintenance_helper.dart';
 /// Comprehensive offline message queue with intelligent retry and delivery management
 class OfflineMessageQueue implements OfflineMessageQueueContract {
   static final _logger = Logger('OfflineMessageQueue');
+  static IRepositoryProvider? _defaultRepositoryProvider;
 
   static const int _maxRetries = 5;
 
@@ -117,6 +119,19 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
        _initialQueuePersistenceManager = queuePersistenceManager,
        _initialRetryScheduler = retryScheduler;
 
+  static void configureDefaultRepositoryProvider(
+    IRepositoryProvider repositoryProvider,
+  ) {
+    _defaultRepositoryProvider = repositoryProvider;
+  }
+
+  static void clearDefaultRepositoryProvider() {
+    _defaultRepositoryProvider = null;
+  }
+
+  static bool get hasDefaultRepositoryProvider =>
+      _defaultRepositoryProvider != null;
+
   IMessageQueueRepository get _repo => _store.repo;
 
   /// Initialize the offline message queue
@@ -138,8 +153,8 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
     this.onConnectivityCheck = onConnectivityCheck;
     if (repositoryProvider != null) {
       _repositoryProvider = repositoryProvider;
-    } else if (GetIt.instance.isRegistered<IRepositoryProvider>()) {
-      _repositoryProvider = GetIt.instance<IRepositoryProvider>();
+    } else if (_defaultRepositoryProvider != null) {
+      _repositoryProvider = _defaultRepositoryProvider;
     } else {
       _logger.warning(
         'ℹ️ IRepositoryProvider not registered - favorites-based limits disabled',
@@ -157,9 +172,15 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
     if (databaseProvider != null) {
       _databaseProvider = databaseProvider;
+      MessageQueueRepository.configureDefaultDatabaseProvider(databaseProvider);
+      QueuePersistenceManager.configureDefaultDatabaseProvider(
+        databaseProvider,
+      );
     } else if (_databaseProvider == null &&
-        GetIt.instance.isRegistered<IDatabaseProvider>()) {
-      _databaseProvider = GetIt.instance<IDatabaseProvider>();
+        (MessageQueueRepository.hasDefaultDatabaseProvider ||
+            QueuePersistenceManager.hasDefaultDatabaseProvider)) {
+      // Database access will resolve through repository/persistence defaults.
+      _databaseProvider = null;
     }
 
     _store.setDatabaseProvider(_databaseProvider);

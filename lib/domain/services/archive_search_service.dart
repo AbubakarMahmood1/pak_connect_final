@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:get_it/get_it.dart';
 import '../interfaces/i_archive_repository.dart';
 import '../models/archive_models.dart';
 import 'archive_search_indexing.dart';
@@ -25,30 +24,44 @@ class ArchiveSearchService {
 
   // Singleton instance
   static ArchiveSearchService? _instance;
+  static IArchiveRepository Function()? _archiveRepositoryResolver;
 
   /// Get the singleton instance
   static ArchiveSearchService get instance {
-    _instance ??= ArchiveSearchService._internal();
+    _instance ??= ArchiveSearchService.fromServiceLocator();
     return _instance!;
+  }
+
+  /// Install an app-composed singleton instance.
+  static void setInstance(ArchiveSearchService service) {
+    _instance = service;
+  }
+
+  /// Configure fallback archive repository resolver for legacy singleton access.
+  static void configureArchiveRepositoryResolver(
+    IArchiveRepository Function() resolver,
+  ) {
+    _archiveRepositoryResolver = resolver;
+  }
+
+  /// Clear fallback resolver.
+  static void clearArchiveRepositoryResolver() {
+    _archiveRepositoryResolver = null;
   }
 
   /// Private constructor for singleton
   ArchiveSearchService._internal({
-    IArchiveRepository? archiveRepository,
+    required IArchiveRepository archiveRepository,
     ArchiveSearchIndexing? indexing,
     ArchiveSearchQueryBuilder? queryBuilder,
     ArchiveSearchPagination? pagination,
     SearchCacheManager? cacheManager,
     SearchHistoryManager? historyManager,
     SearchAnalyticsTracker? analyticsTracker,
-  }) : _archiveRepository =
-           archiveRepository ?? GetIt.instance<IArchiveRepository>(),
+  }) : _archiveRepository = archiveRepository,
        _indexing =
            indexing ??
-           ArchiveSearchIndexing(
-             archiveRepository:
-                 archiveRepository ?? GetIt.instance<IArchiveRepository>(),
-           ),
+           ArchiveSearchIndexing(archiveRepository: archiveRepository),
        _queryBuilder = queryBuilder ?? ArchiveSearchQueryBuilder(),
        _pagination = pagination ?? ArchiveSearchPagination() {
     // Initialize extracted services (Phase 4D)
@@ -63,6 +76,38 @@ class ArchiveSearchService {
 
   /// Factory constructor (redirects to instance getter)
   factory ArchiveSearchService() => instance;
+
+  /// Constructor-first creation path for app composition.
+  factory ArchiveSearchService.withDependencies({
+    required IArchiveRepository archiveRepository,
+    ArchiveSearchIndexing? indexing,
+    ArchiveSearchQueryBuilder? queryBuilder,
+    ArchiveSearchPagination? pagination,
+    SearchCacheManager? cacheManager,
+    SearchHistoryManager? historyManager,
+    SearchAnalyticsTracker? analyticsTracker,
+  }) => ArchiveSearchService._internal(
+    archiveRepository: archiveRepository,
+    indexing: indexing,
+    queryBuilder: queryBuilder,
+    pagination: pagination,
+    cacheManager: cacheManager,
+    historyManager: historyManager,
+    analyticsTracker: analyticsTracker,
+  );
+
+  /// Legacy fallback for contexts still relying on global DI.
+  factory ArchiveSearchService.fromServiceLocator() {
+    final resolver = _archiveRepositoryResolver;
+    if (resolver == null) {
+      throw StateError(
+        'ArchiveSearchService fallback dependencies are not configured. '
+        'Call ArchiveSearchService.configureArchiveRepositoryResolver(...), '
+        'or install an app-composed singleton via setInstance().',
+      );
+    }
+    return ArchiveSearchService._internal(archiveRepository: resolver());
+  }
 
   // Dependencies (injected for testability)
   final IArchiveRepository _archiveRepository;

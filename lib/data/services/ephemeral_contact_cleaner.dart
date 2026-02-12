@@ -1,5 +1,4 @@
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import '../repositories/contact_repository.dart';
 import '../repositories/message_repository.dart';
 import 'package:pak_connect/domain/utils/chat_utils.dart';
@@ -9,6 +8,18 @@ import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Cleans up ephemeral contacts with no chat history (called on disconnect)
 class EphemeralContactCleaner {
+  static IMessageQueueRepository? Function()? _queueRepositoryResolver;
+
+  static void configureQueueRepositoryResolver(
+    IMessageQueueRepository? Function() resolver,
+  ) {
+    _queueRepositoryResolver = resolver;
+  }
+
+  static void clearQueueRepositoryResolver() {
+    _queueRepositoryResolver = null;
+  }
+
   static Future<void> cleanup({
     required String contactId,
     required Logger logger,
@@ -65,13 +76,17 @@ class EphemeralContactCleaner {
     required Logger logger,
   }) async {
     try {
-      final getIt = GetIt.instance;
-      if (!getIt.isRegistered<IMessageQueueRepository>()) {
+      final resolver = _queueRepositoryResolver;
+      if (resolver == null) {
         logger.fine('Queue repository not registered - skipping queue check');
         return false;
       }
 
-      final repo = getIt<IMessageQueueRepository>();
+      final repo = resolver();
+      if (repo == null) {
+        logger.fine('Queue repository not registered - skipping queue check');
+        return false;
+      }
       await repo.loadQueueFromStorage();
       final keys = <String>{
         contact.publicKey,

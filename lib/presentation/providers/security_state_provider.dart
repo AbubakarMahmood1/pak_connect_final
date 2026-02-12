@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import '../../domain/interfaces/i_connection_service.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
@@ -136,13 +136,9 @@ final encryptionDescriptionProvider = Provider.family<String, String?>((
 });
 
 IContactRepository _resolveContactRepository() {
-  final serviceLocator = GetIt.instance;
-  if (serviceLocator.isRegistered<IContactRepository>()) {
-    return serviceLocator<IContactRepository>();
-  }
-  throw StateError(
-    'IContactRepository is not registered. '
-    'Call setupServiceLocator() before using security state providers.',
+  return resolveFromAppServicesOrServiceLocator<IContactRepository>(
+    fromServices: (services) => services.contactRepository,
+    dependencyName: 'IContactRepository',
   );
 }
 

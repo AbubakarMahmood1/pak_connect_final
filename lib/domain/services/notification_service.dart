@@ -5,7 +5,6 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import '../interfaces/i_preferences_repository.dart';
 import '../entities/preference_keys.dart' show PreferenceKeys;
 import '../../domain/entities/message.dart';
@@ -20,9 +19,9 @@ class ForegroundNotificationHandler implements INotificationHandler {
   // Injected dependency for preference settings
   final IPreferencesRepository _preferencesRepository;
 
-  ForegroundNotificationHandler({IPreferencesRepository? preferencesRepository})
-    : _preferencesRepository =
-          preferencesRepository ?? GetIt.instance<IPreferencesRepository>();
+  ForegroundNotificationHandler({
+    required IPreferencesRepository preferencesRepository,
+  }) : _preferencesRepository = preferencesRepository;
 
   @override
   Future<void> initialize() async {
@@ -186,9 +185,11 @@ class NotificationService {
   static INotificationHandler? _handler;
   static bool _isInitialized = false;
 
-  /// Initialize with a specific handler (defaults to foreground)
+  /// Initialize with a specific handler composed by the caller.
   /// For Android background service: inject BackgroundNotificationHandler
-  static Future<void> initialize({INotificationHandler? handler}) async {
+  static Future<void> initialize({
+    required INotificationHandler handler,
+  }) async {
     if (_isInitialized) {
       _logger.fine('Notification service already initialized');
       return;
@@ -197,8 +198,8 @@ class NotificationService {
     try {
       _logger.info('Initializing notification service...');
 
-      // Use provided handler or create default foreground handler
-      _handler = handler ?? ForegroundNotificationHandler();
+      // Use caller-provided handler composed at the app root.
+      _handler = handler;
       await _handler!.initialize();
 
       _isInitialized = true;

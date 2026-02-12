@@ -1,4 +1,3 @@
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
@@ -13,6 +12,18 @@ import '../../domain/values/id_types.dart';
 /// Encapsulates mesh relay handling (ACKs, forwarding, delivery) so
 /// BLEMessageHandler can stay as a thin orchestrator.
 class MeshRelayHandler {
+  static IMeshRelayEngineFactory Function()? _relayEngineFactoryResolver;
+
+  static void configureRelayEngineFactoryResolver(
+    IMeshRelayEngineFactory Function() resolver,
+  ) {
+    _relayEngineFactoryResolver = resolver;
+  }
+
+  static void clearRelayEngineFactoryResolver() {
+    _relayEngineFactoryResolver = null;
+  }
+
   MeshRelayHandler({
     Logger? logger,
     IMeshRelayEngineFactory? relayEngineFactory,
@@ -452,13 +463,14 @@ class MeshRelayHandler {
     if (_relayEngineFactory != null) {
       return _relayEngineFactory;
     }
-    final getIt = GetIt.instance;
-    if (getIt.isRegistered<IMeshRelayEngineFactory>()) {
-      return getIt<IMeshRelayEngineFactory>();
+    final resolver = _relayEngineFactoryResolver;
+    if (resolver != null) {
+      return resolver();
     }
     throw StateError(
       'IMeshRelayEngineFactory is not registered. '
-      'Register it in DI or pass relayEngineFactory explicitly.',
+      'Configure MeshRelayHandler.configureRelayEngineFactoryResolver(...), '
+      'or pass relayEngineFactory explicitly.',
     );
   }
 }

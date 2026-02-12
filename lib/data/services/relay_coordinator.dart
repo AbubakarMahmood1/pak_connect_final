@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_relay_coordinator.dart';
@@ -28,6 +27,26 @@ import '../../domain/messaging/offline_message_queue_contract.dart';
 /// - Managing relay statistics
 /// - Coordinating with MeshRelayEngine for routing decisions
 class RelayCoordinator implements IRelayCoordinator {
+  static ISharedMessageQueueProvider? Function()? _sharedQueueProviderResolver;
+  static IMeshRelayEngineFactory Function()? _relayEngineFactoryResolver;
+
+  static void configureDependencyResolvers({
+    ISharedMessageQueueProvider? Function()? sharedQueueProviderResolver,
+    IMeshRelayEngineFactory Function()? relayEngineFactoryResolver,
+  }) {
+    if (sharedQueueProviderResolver != null) {
+      _sharedQueueProviderResolver = sharedQueueProviderResolver;
+    }
+    if (relayEngineFactoryResolver != null) {
+      _relayEngineFactoryResolver = relayEngineFactoryResolver;
+    }
+  }
+
+  static void clearDependencyResolvers() {
+    _sharedQueueProviderResolver = null;
+    _relayEngineFactoryResolver = null;
+  }
+
   final _logger = Logger('RelayCoordinator');
   final ISharedMessageQueueProvider? _sharedQueueProvider;
   final IMeshRelayEngineFactory? _relayEngineFactory;
@@ -538,28 +557,22 @@ class RelayCoordinator implements IRelayCoordinator {
     if (_sharedQueueProvider != null) {
       return _sharedQueueProvider;
     }
-    try {
-      final di = GetIt.instance;
-      if (di.isRegistered<ISharedMessageQueueProvider>()) {
-        return di<ISharedMessageQueueProvider>();
-      }
-    } catch (_) {
-      // Fall through
-    }
-    return null;
+    final resolver = _sharedQueueProviderResolver;
+    return resolver?.call();
   }
 
   IMeshRelayEngineFactory _resolveRelayEngineFactory() {
     if (_relayEngineFactory != null) {
       return _relayEngineFactory;
     }
-    final di = GetIt.instance;
-    if (di.isRegistered<IMeshRelayEngineFactory>()) {
-      return di<IMeshRelayEngineFactory>();
+    final resolver = _relayEngineFactoryResolver;
+    if (resolver != null) {
+      return resolver();
     }
     throw StateError(
       'IMeshRelayEngineFactory not available. '
-      'Register it in DI or pass relayEngineFactory explicitly.',
+      'Configure RelayCoordinator.configureDependencyResolvers(...), '
+      'or pass relayEngineFactory explicitly.',
     );
   }
 
