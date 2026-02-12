@@ -15,6 +15,7 @@ import 'package:pak_connect/domain/services/security_service_locator.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/utils/message_fragmenter.dart';
 import 'package:pak_connect/core/security/noise/primitives/dh_state.dart';
+import 'package:pak_connect/core/security/peer_protocol_version_guard.dart';
 import 'package:pak_connect/data/services/ble_state_manager.dart';
 import 'package:pak_connect/data/services/ble_write_adapter.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
@@ -281,6 +282,7 @@ void main() {
     // Keep each test independent from previous key/session state.
     SimpleCrypto.clearAllConversationKeys();
     securityService.clearAllNoiseSessions();
+    PeerProtocolVersionGuard.clearForTest();
 
     stateManager = _FakeStateManager();
     contactRepository = ContactRepository();
@@ -327,6 +329,8 @@ void main() {
         reason: 'Missing expected SEVERE matching "$pattern"',
       );
     }
+
+    PeerProtocolVersionGuard.clearForTest();
   });
 
   test('central send returns false when write client throws', () async {
@@ -542,6 +546,50 @@ void main() {
       expect(
         protocolMessage.textContent,
         isNot(equals('sealed strict fallback')),
+      );
+    },
+  );
+
+  test(
+    'legacy v2 send is blocked for peers already observed on v2 protocol floor',
+    () async {
+      await contactRepository.saveContact(
+        'recipient_v2_floor',
+        'Recipient V2 Floor',
+      );
+      SimpleCrypto.initializeConversation(
+        'recipient_v2_floor',
+        'ble-write-test-v2-floor-secret',
+      );
+      PeerProtocolVersionGuard.trackObservedVersion(
+        messageVersion: 2,
+        peerKey: 'recipient_v2_floor',
+      );
+
+      adapter = BleWriteAdapter(
+        contactRepository: contactRepository,
+        stateManagerProvider: () => stateManager,
+        writeClient: writeClient,
+        allowLegacyV2Send: true,
+      );
+      allowSevere('Legacy v2 send mode blocked by policy');
+      allowSevere('Stack trace');
+
+      final result = await adapter.sendCentralMessage(
+        centralManager: _FakeCentralManager(),
+        connectedDevice: FakePeripheral(uuid: makeUuid(46)),
+        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(47)),
+        recipientKey: 'recipient_v2_floor',
+        content: 'legacy must be blocked for upgraded peer',
+        mtuSize: 185,
+      );
+
+      expect(result, isFalse);
+      expect(
+        writeClient.lastCentralValue,
+        isNull,
+        reason:
+            'Transport must not write when legacy v2 mode is disallowed by upgraded peer floor',
       );
     },
   );

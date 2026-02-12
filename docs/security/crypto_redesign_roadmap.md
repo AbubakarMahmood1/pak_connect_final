@@ -64,6 +64,9 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - inbound v2 legacy decrypt modes (`legacy_ecdh_v1`, `legacy_pairing_v1`,
     `legacy_global_v1`) can now be blocked by policy:
     `PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT=false`.
+- Pass B peer-upgrade send policy tightening added:
+  - outbound legacy v2 send modes are now auto-blocked for peers already
+    observed at protocol floor v2+, even when global compatibility mode is on.
 - Sender identity resolution split by purpose:
   - decrypt path can still resolve Noise session IDs where required.
   - signature path resolves stable identity keys (persistent/public), avoiding
@@ -146,7 +149,7 @@ Implemented now:
   with the same resolved method used for metadata, removing dual-path drift.
 
 Remaining:
-- make strict mode default in controlled stages.
+- make strict mode default globally in controlled stages.
 - add sealed/offline lane so strict mode does not block non-live delivery use cases.
 
 ### Pass C (35-55%): Offline Async Prekey Lane

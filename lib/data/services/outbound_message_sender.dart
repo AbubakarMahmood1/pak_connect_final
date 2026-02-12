@@ -21,6 +21,7 @@ import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import '../../domain/models/security_level.dart';
 import '../../domain/values/id_types.dart';
 import '../../core/security/sealed/sealed_encryption_service.dart';
+import '../../core/security/peer_protocol_version_guard.dart';
 
 /// Handles outbound message preparation and sending for BLEMessageHandler.
 class OutboundMessageSender {
@@ -226,6 +227,12 @@ class OutboundMessageSender {
 
       final intendedRecipientPayload =
           originalIntendedRecipient ?? finalRecipientId;
+      final allowLegacyV2ForMessage = _allowLegacyV2ForMessage(
+        recipientId: finalRecipientId,
+        contactLookupKey: encryptionKey,
+        transportSide: 'central',
+        messageId: msgId,
+      );
       final cryptoHeader =
           explicitCryptoHeader ??
           _buildCryptoHeader(
@@ -235,6 +242,7 @@ class OutboundMessageSender {
                 : null,
             messageId: msgId,
             transportSide: 'central',
+            allowLegacyV2ForMessage: allowLegacyV2ForMessage,
           );
 
       final legacyPayload = {
@@ -514,6 +522,12 @@ class OutboundMessageSender {
 
       final intendedRecipientPayload =
           originalIntendedRecipient ?? finalRecipientId;
+      final allowLegacyV2ForMessage = _allowLegacyV2ForMessage(
+        recipientId: finalRecipientId,
+        contactLookupKey: encryptionKey,
+        transportSide: 'peripheral',
+        messageId: msgId,
+      );
       final cryptoHeader =
           explicitCryptoHeader ??
           _buildCryptoHeader(
@@ -523,6 +537,7 @@ class OutboundMessageSender {
                 : null,
             messageId: msgId,
             transportSide: 'peripheral',
+            allowLegacyV2ForMessage: allowLegacyV2ForMessage,
           );
 
       final legacyPayload = {
@@ -812,13 +827,14 @@ class OutboundMessageSender {
     required String? sessionId,
     required String messageId,
     required String transportSide,
+    required bool allowLegacyV2ForMessage,
   }) {
     final mode = _mapEncryptionMethodToMode(encryptionMethod);
     if (mode == null) {
       return null;
     }
     if (_isLegacyMode(mode)) {
-      if (!_allowLegacyV2Send) {
+      if (!allowLegacyV2ForMessage) {
         throw StateError(
           'Legacy v2 send mode blocked by policy: $encryptionMethod '
           '(messageId=$messageId). Enable PAKCONNECT_ALLOW_LEGACY_V2_SEND=true '
@@ -832,6 +848,35 @@ class OutboundMessageSender {
       );
     }
     return CryptoHeader(mode: mode, modeVersion: 1, sessionId: sessionId);
+  }
+
+  bool _allowLegacyV2ForMessage({
+    required String recipientId,
+    required String contactLookupKey,
+    required String transportSide,
+    required String messageId,
+  }) {
+    if (!_allowLegacyV2Send) {
+      return false;
+    }
+    if (!PeerProtocolVersionGuard.isEnabled) {
+      return true;
+    }
+
+    final peerCandidates = <String>{recipientId, contactLookupKey}
+      ..removeWhere((candidate) => candidate.isEmpty);
+    for (final candidate in peerCandidates) {
+      final floor = PeerProtocolVersionGuard.floorForPeer(candidate);
+      if (floor >= 2) {
+        _logger.warning(
+          '🔒 POLICY: Blocking legacy v2 mode for upgraded peer '
+          '${_safeTruncate(candidate, 12)} on $transportSide send '
+          '(messageId=${_safeTruncate(messageId, 16)}, floor=v$floor)',
+        );
+        return false;
+      }
+    }
+    return true;
   }
 
   bool _isLegacyMode(CryptoMode mode) {
