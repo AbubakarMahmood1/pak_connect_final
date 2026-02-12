@@ -219,8 +219,9 @@ Below are vetted findings from an additional review, filtered for usefulness.
 - Transport sender vs cryptographic sender separation is still a real protocol concern.
   - **Partially addressed**:
     - text message decrypt/verify now resolve declared sender identity (`senderId`/`originalSender`) instead of anchoring only on `fromNodeId`.
+    - binary payload decrypt now resolves sender key through contact identity mapping before decrypt, with explicit fallback.
   - Remaining scope:
-    - binary payload decrypt paths still need the same sender/crypto identity treatment.
+    - binary envelope itself does not yet carry a cryptographic sender field, so fully relay-safe sender attribution for multi-hop binary payloads remains pending protocol work.
 
 ### Rejected / Deprioritized
 
