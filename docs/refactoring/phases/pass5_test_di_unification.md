@@ -1,6 +1,6 @@
-# Pass 5: Test DI Unification (In Progress)
+# Pass 5: Test DI Unification (Complete)
 
-**Status**: In Progress  
+**Status**: Complete  
 **Date**: 2026-02-12  
 **Owner**: Architecture Refactor Track
 
@@ -77,10 +77,10 @@ Results:
 
 ---
 
-## Next Slice
+## Exit Check
 
-- Add test helper APIs for provider-container overrides that consume
-  `AppServices` directly.
-- Add a lightweight helper to generate canonical `ProviderScope` overrides from
-  a test `AppServices` snapshot (to reduce per-suite boilerplate).
-- Keep guardrails and targeted test subsets green after each migration batch.
+- `AppServices` snapshot is available in harness bootstrap paths.
+- Presentation/controller test migration removed global DI mutation usage.
+- `rg -n "TestSetup\\.configureTestDI\\(" test` returns no matches.
+- Pass 0 guardrails remain clean for presentation DI boundaries.
+- Remaining runtime stability work moved to Pass 6.
