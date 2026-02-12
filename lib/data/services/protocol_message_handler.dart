@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_protocol_message_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
@@ -10,7 +10,6 @@ import 'package:pak_connect/domain/models/protocol_message.dart'
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
 import '../../domain/services/signing_manager.dart';
-import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
@@ -24,8 +23,27 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 /// - Contact request/accept/reject lifecycle
 /// - Crypto verification request/response handling
 class ProtocolMessageHandler implements IProtocolMessageHandler {
+  static IIdentityManager? Function()? _identityManagerResolver;
+
+  static void configureIdentityManagerResolver(
+    IIdentityManager? Function() resolver,
+  ) {
+    _identityManagerResolver = resolver;
+  }
+
+  static void clearIdentityManagerResolver() {
+    _identityManagerResolver = null;
+  }
+
   final _logger = Logger('ProtocolMessageHandler');
-  final ContactRepository _contactRepository = ContactRepository();
+  final ContactRepository _contactRepository;
+  final ISecurityService _securityService;
+
+  ProtocolMessageHandler({
+    required ISecurityService securityService,
+    ContactRepository? contactRepository,
+  }) : _securityService = securityService,
+       _contactRepository = contactRepository ?? ContactRepository();
 
   // Callbacks
   Function(String, String)? _onContactRequestReceived;
@@ -195,8 +213,11 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       String decryptedContent = content;
       if (message.isEncrypted && fromNodeId.isNotEmpty) {
         try {
-          decryptedContent = await SecurityServiceLocator.instance
-              .decryptMessage(content, fromNodeId, _contactRepository);
+          decryptedContent = await _securityService.decryptMessage(
+            content,
+            fromNodeId,
+            _contactRepository,
+          );
           _logger.fine('🔒 Message decrypted successfully');
         } catch (e) {
           _logger.warning(
@@ -403,8 +424,8 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     String? sessionEphemeralId;
     String? signingEphemeralId;
 
-    if (GetIt.instance.isRegistered<IIdentityManager>()) {
-      final identity = GetIt.instance<IIdentityManager>();
+    final identity = _resolveIdentityManager();
+    if (identity != null) {
       myPersistentId = identity.myPersistentId ?? identity.getMyPersistentId();
       try {
         sessionEphemeralId = identity.myEphemeralId;
@@ -437,6 +458,18 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       '💬 Message not for us (recipient: $truncatedRecipient, node: $truncatedNodeId, session: ${sessionEphemeralId?.shortId(8) ?? "null"})',
     );
     return false;
+  }
+
+  IIdentityManager? _resolveIdentityManager() {
+    final resolver = _identityManagerResolver;
+    if (resolver == null) {
+      return null;
+    }
+    try {
+      return resolver();
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Resolves message sender and recipient identities

@@ -104,6 +104,15 @@ escape hatches that can reintroduce split-brain behavior.
       when needed, replacing repeated per-method static locator calls while
       avoiding eager resolver requirements during test setup
 
+- Pruned protocol-level static security locator usage:
+  - `lib/data/services/protocol_message_handler.dart`
+    - now requires explicit `ISecurityService` constructor dependency
+  - `lib/data/services/ble_message_handler_facade.dart`
+    - now owns a shared `ISecurityService` dependency and passes it into
+      `ProtocolMessageHandler`, and also reuses it for binary payload decrypt
+  - `test/data/services/protocol_message_handler_test.dart`
+    - now uses `_FakeSecurityService` injection for constructor-first test setup
+
 ---
 
 ## Verification
@@ -128,6 +137,8 @@ flutter test test/data/services/ble_write_adapter_test.dart
 flutter analyze lib/data/services/inbound_text_processor.dart lib/data/services/ble_message_handler.dart
 flutter analyze lib/data/services/pairing_lifecycle_service.dart lib/data/services/pairing_failure_handler.dart lib/data/services/pairing_request_coordinator.dart
 flutter test test/data/services/pairing_flow_controller_test.dart
+flutter analyze lib/data/services/protocol_message_handler.dart lib/data/services/ble_message_handler_facade.dart test/data/services/protocol_message_handler_test.dart
+flutter test test/data/services/protocol_message_handler_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -137,7 +148,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **66**
+  - `.instance` usages in `lib/**`: **65**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import '../../domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
@@ -28,6 +28,26 @@ import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
 ///
 /// All consumers of BLEMessageHandler should use this interface
 class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
+  static IBLEHandshakeService? Function()? _handshakeServiceResolver;
+  static ISeenMessageStore? Function()? _seenMessageStoreResolver;
+
+  static void configureDependencyResolvers({
+    IBLEHandshakeService? Function()? handshakeServiceResolver,
+    ISeenMessageStore? Function()? seenMessageStoreResolver,
+  }) {
+    if (handshakeServiceResolver != null) {
+      _handshakeServiceResolver = handshakeServiceResolver;
+    }
+    if (seenMessageStoreResolver != null) {
+      _seenMessageStoreResolver = seenMessageStoreResolver;
+    }
+  }
+
+  static void clearDependencyResolvers() {
+    _handshakeServiceResolver = null;
+    _seenMessageStoreResolver = null;
+  }
+
   final _logger = Logger('BLEMessageHandlerFacade');
   final bool _enableCleanupTimer;
 
@@ -73,9 +93,13 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
 
   bool _initialized = false;
   final ContactRepository _contactRepository = ContactRepository();
+  final ISecurityService _securityService;
 
-  BLEMessageHandlerFacade({bool enableCleanupTimer = false})
-    : _enableCleanupTimer = enableCleanupTimer;
+  BLEMessageHandlerFacade({
+    bool enableCleanupTimer = false,
+    ISecurityService? securityService,
+  }) : _enableCleanupTimer = enableCleanupTimer,
+       _securityService = securityService ?? SecurityServiceLocator.instance;
 
   /// Initializes the facade (lazy - called on first access)
   void _ensureInitialized() {
@@ -84,7 +108,9 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     _fragmentationHandler = MessageFragmentationHandler(
       enableCleanupTimer: _enableCleanupTimer,
     );
-    _protocolHandler = ProtocolMessageHandler();
+    _protocolHandler = ProtocolMessageHandler(
+      securityService: _securityService,
+    );
     _relayCoordinator = RelayCoordinator();
     if (_messageQueue != null) {
       _relayCoordinator.setMessageQueue(_messageQueue!);
@@ -103,12 +129,13 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   /// Lazy resolve handshake service from DI when first needed.
   IBLEHandshakeService? _resolveHandshakeService() {
     if (_handshakeService != null) return _handshakeService;
-    try {
-      if (GetIt.instance.isRegistered<IBLEHandshakeService>()) {
-        _handshakeService = GetIt.instance<IBLEHandshakeService>();
+    final resolver = _handshakeServiceResolver;
+    if (resolver != null) {
+      try {
+        _handshakeService = resolver();
+      } catch (_) {
+        // Ignore resolver issues; will remain null.
       }
-    } catch (_) {
-      // Ignore DI lookup issues; will remain null.
     }
     return _handshakeService;
   }
@@ -201,18 +228,20 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
       _relayCoordinator.onRelayStatsUpdated(onRelayStatsUpdated);
     }
 
-    // Auto-inject SeenMessageStore from DI for duplicate detection
-    // This ensures production code automatically gets the dependency
-    try {
-      if (GetIt.instance.isRegistered<ISeenMessageStore>()) {
-        final seenMessageStore = GetIt.instance<ISeenMessageStore>();
-        setSeenMessageStore(seenMessageStore);
-        _logger.fine(
-          '✅ SeenMessageStore auto-injected from DI for duplicate detection',
-        );
+    // Auto-inject SeenMessageStore from composition resolver for duplicate detection.
+    final seenResolver = _seenMessageStoreResolver;
+    if (seenResolver != null) {
+      try {
+        final seenMessageStore = seenResolver();
+        if (seenMessageStore != null) {
+          setSeenMessageStore(seenMessageStore);
+          _logger.fine(
+            '✅ SeenMessageStore auto-injected via resolver for duplicate detection',
+          );
+        }
+      } catch (e) {
+        _logger.warning('⚠️ SeenMessageStore resolver failed: $e');
       }
-    } catch (e) {
-      _logger.warning('⚠️ SeenMessageStore not available in DI: $e');
     }
   }
 
@@ -477,12 +506,11 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
             Uint8List decrypted = payload.bytes;
             if (fromNodeId.isNotEmpty) {
               try {
-                decrypted = await SecurityServiceLocator.instance
-                    .decryptBinaryPayload(
-                      payload.bytes,
-                      fromNodeId,
-                      _contactRepository,
-                    );
+                decrypted = await _securityService.decryptBinaryPayload(
+                  payload.bytes,
+                  fromNodeId,
+                  _contactRepository,
+                );
               } catch (e) {
                 _logger.warning(
                   '⚠️ Binary payload decrypt failed from $fromNodeId: $e',
