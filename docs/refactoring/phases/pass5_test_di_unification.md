@@ -44,6 +44,11 @@ accidental global fallback behavior.
   - Removed `TestSetup.configureTestDI(...)` + reset calls and kept constructor/
     provider-scope injection local to the test.
 
+- Removed the last remaining direct `configureTestDI` call from integration
+  tests:
+  - `test/core/di/phase3_integration_flows_test.dart`
+  - Suite now relies on `initializeTestEnvironment(...)` harness bootstrap only.
+
 ---
 
 ## Verification
@@ -53,7 +58,9 @@ Commands run:
 ```powershell
 flutter analyze lib/core/di/app_services.dart lib/core/app_core.dart lib/presentation/providers/mesh_health_provider.dart test/core/test_helpers/test_setup.dart
 flutter analyze test/presentation/controllers/home_screen_controller_test.dart
+flutter analyze test/core/di/phase3_integration_flows_test.dart
 flutter test test/widget_test.dart test/presentation/chat_screen_controller_test.dart test/presentation/controllers/home_screen_controller_test.dart
+flutter test test/core/di/phase3_integration_flows_test.dart
 flutter test test/profile_screen_validation_test.dart test/chat_lifecycle_persistence_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass5_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
@@ -74,7 +81,6 @@ Results:
 
 - Add test helper APIs for provider-container overrides that consume
   `AppServices` directly.
-- Continue migrating remaining presentation tests that still call
-  `TestSetup.configureTestDI(...)` where constructor/provider overrides already
-  supply dependencies.
+- Add a lightweight helper to generate canonical `ProviderScope` overrides from
+  a test `AppServices` snapshot (to reduce per-suite boilerplate).
 - Keep guardrails and targeted test subsets green after each migration batch.
