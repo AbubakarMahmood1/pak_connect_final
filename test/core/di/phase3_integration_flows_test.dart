@@ -12,7 +12,6 @@ void main() {
       await TestSetup.initializeTestEnvironment(
         dbLabel: 'phase3_integration_flows',
       );
-      await TestSetup.configureTestDI();
     });
 
     tearDownAll(() {

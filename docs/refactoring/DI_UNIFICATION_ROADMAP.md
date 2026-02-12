@@ -134,6 +134,9 @@ Pass 5 progress highlights:
 - `test/presentation/controllers/home_screen_controller_test.dart` no longer
   mutates global locator state via `configureTestDI`; dependencies are injected
   locally through constructor/provider wiring.
+- `test/core/di/phase3_integration_flows_test.dart` dropped its legacy
+  `configureTestDI()` bootstrap; all test suites now use
+  `initializeTestEnvironment(...)` as the shared DI baseline.
 
 ---
 
