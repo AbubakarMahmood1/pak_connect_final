@@ -37,7 +37,7 @@
 Source: `validation_outputs/di_pass7_snapshot.json`
 
 - `GetIt` resolutions in `lib/**`: 43
-- `.instance` usages in `lib/**`: 54
+- `.instance` usages in `lib/**`: 47
 - `GetIt` resolutions in `lib/presentation/**`: 2
 - `get_it` imports in `lib/presentation/**`: 1 file (`di_providers.dart`)
 - Presentation import guard violations: 0
@@ -218,6 +218,11 @@ Pass 7 progress highlights:
 - `ChatManagementService.fromServiceLocator()` no longer reaches through
   `ArchiveManagementService.instance` / `ArchiveSearchService.instance`;
   fallback composition now uses their constructor-first locator factories.
+- `HandshakeCoordinator` now resolves Noise service and topology announcement
+  writes through injected/defaulted callbacks instead of repeated direct
+  singleton reach-through, and related app-core call sites now prefer
+  constructor-style singleton access (`SecurityManager()`, `TopologyManager()`)
+  plus local `_isInitialized` checks over `AppCore.instance` self-access.
 
 ---
 

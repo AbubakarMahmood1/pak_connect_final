@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:logging/logging.dart';
-import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/interfaces/i_handshake_coordinator.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/models/connection_phase.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
+import 'package:pak_connect/core/security/noise/noise_encryption_service.dart';
 import 'package:pak_connect/core/security/noise/models/noise_models.dart';
 import 'package:pak_connect/core/security/noise/noise_session.dart';
 import 'package:pak_connect/domain/routing/topology_manager.dart';
@@ -22,6 +22,20 @@ part 'handshake_coordinator_phase2_helper.dart';
 /// Manages the handshake protocol between two BLE devices
 /// Ensures no message proceeds without explicit confirmation
 class HandshakeCoordinator implements IHandshakeCoordinator {
+  static IRepositoryProvider? Function()? _repositoryProviderResolver;
+
+  /// Configure repository provider resolver from composition/bootstrap code.
+  static void configureRepositoryProviderResolver(
+    IRepositoryProvider? Function() resolver,
+  ) {
+    _repositoryProviderResolver = resolver;
+  }
+
+  /// Clear configured repository resolver.
+  static void clearRepositoryProviderResolver() {
+    _repositoryProviderResolver = null;
+  }
+
   final Logger _logger;
 
   // State management
@@ -63,6 +77,9 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
 
   // Dependencies
   final IRepositoryProvider? _repositoryProvider;
+  final NoiseEncryptionService? Function() _noiseServiceResolver;
+  final void Function(String nodeId, String displayName)
+  _recordTopologyAnnouncement;
 
   // Callbacks for sending messages
   final Future<void> Function(ProtocolMessage) _sendMessage;
@@ -98,16 +115,22 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
     this.onHandshakeStateChanged,
     this.onSecurityDowngrade,
     this.onHandshakeFallback,
+    NoiseEncryptionService? noiseService,
+    NoiseEncryptionService? Function()? noiseServiceResolver,
+    void Function(String nodeId, String displayName)?
+    recordTopologyAnnouncement,
     bool startAsInitiator = true,
   }) : _logger = Logger('[HandshakeCoordinator]'),
        _myEphemeralId = myEphemeralId,
        _myPublicKey = myPublicKey,
        _myDisplayName = myDisplayName,
-       _repositoryProvider =
-           repositoryProvider ??
-           (GetIt.instance.isRegistered<IRepositoryProvider>()
-               ? GetIt.instance<IRepositoryProvider>()
-               : null),
+       _repositoryProvider = repositoryProvider ?? _resolveRepositoryProvider(),
+       _noiseServiceResolver = _resolveNoiseServiceResolver(
+         noiseService: noiseService,
+         noiseServiceResolver: noiseServiceResolver,
+       ),
+       _recordTopologyAnnouncement =
+           recordTopologyAnnouncement ?? _defaultRecordTopologyAnnouncement,
        _sendMessage = sendMessage,
        _onHandshakeComplete = onHandshakeComplete {
     _timeoutManager = HandshakeTimeoutManager(
@@ -118,13 +141,48 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
     _noiseDriver = NoiseHandshakeDriver(
       logger: _logger,
       kkPatternTracker: _kkTracker,
-      noiseService: SecurityManager.instance.noiseService,
+      noiseService: _noiseServiceResolver(),
     );
     if (phaseTimeout != null) {
       _timeoutManager.phaseTimeout = phaseTimeout;
     }
     _isInitiator = startAsInitiator;
     _phase2Helper = _HandshakeCoordinatorPhase2Helper(this);
+  }
+
+  static IRepositoryProvider? _resolveRepositoryProvider() {
+    final resolver = _repositoryProviderResolver;
+    if (resolver == null) {
+      return null;
+    }
+    try {
+      return resolver();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static NoiseEncryptionService? Function() _resolveNoiseServiceResolver({
+    NoiseEncryptionService? noiseService,
+    NoiseEncryptionService? Function()? noiseServiceResolver,
+  }) {
+    if (noiseService != null) {
+      return () => noiseService;
+    }
+    if (noiseServiceResolver != null) {
+      return noiseServiceResolver;
+    }
+    return () => SecurityManager().noiseService;
+  }
+
+  static void _defaultRecordTopologyAnnouncement(
+    String nodeId,
+    String displayName,
+  ) {
+    TopologyManager().recordNodeAnnouncement(
+      nodeId: nodeId,
+      displayName: displayName,
+    );
   }
 
   /// Start the handshake process
@@ -439,7 +497,7 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
       // Ensure stale sessions don't block re-key handshakes on responder side,
       // but avoid tearing down healthy established sessions.
       final peerId = message.noiseHandshakePeerId;
-      final noiseService = SecurityManager.instance.noiseService;
+      final noiseService = _noiseServiceResolver();
       if (peerId != null && noiseService != null) {
         final sessionState = noiseService.getSessionState(peerId);
         final needsRekey = noiseService.checkForRekeyNeeded().contains(peerId);

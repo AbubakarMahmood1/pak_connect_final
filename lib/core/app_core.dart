@@ -426,7 +426,7 @@ class AppCore {
 
     // Initialize SecurityManager with Noise Protocol
     _logger.info('🔒 Initializing SecurityManager with Noise Protocol...');
-    final securityManager = SecurityManager.instance;
+    final securityManager = SecurityManager();
     await securityManager.initialize();
     securityService = securityManager;
     _logger.info('✅ SecurityManager initialized successfully');
@@ -446,7 +446,7 @@ class AppCore {
       _logger.info(
         '🌐 Initializing TopologyManager with session ephemeral ID...',
       );
-      TopologyManager.instance.initialize(myEphemeralId);
+      TopologyManager().initialize(myEphemeralId);
       _logger.info(
         '✅ TopologyManager initialized with ephemeral node ID: ${myEphemeralId.shortId()}...',
       );
@@ -690,7 +690,7 @@ class AppCore {
   /// Handle message send callback
   void _handleMessageSend(String messageId) {
     // Guard: ensure mesh layer is initialized; otherwise surface an error.
-    if (!AppCore.instance.isInitialized) {
+    if (!_isInitialized) {
       _logger.severe(
         '❌ Cannot send message ${messageId.shortId()}...: mesh not initialized',
       );
