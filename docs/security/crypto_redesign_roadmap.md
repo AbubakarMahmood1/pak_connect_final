@@ -54,6 +54,9 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - v2 signatures now cover a canonicalized envelope payload (version/type/
     sender/recipient/messageId/crypto/content) instead of plaintext-only.
   - inbound signature verification for v2 now verifies that canonical envelope.
+  - strict signature policy gate added for encrypted v2 text messages:
+    `PAKCONNECT_REQUIRE_V2_SIGNATURE=true` rejects unsigned encrypted v2
+    payloads in both inbound handlers.
   - adversarial regression coverage added for both inbound handlers:
     - `test/data/services/protocol_message_handler_test.dart`
     - `test/data/services/inbound_text_processor_test.dart`

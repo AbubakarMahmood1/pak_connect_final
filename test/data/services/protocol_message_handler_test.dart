@@ -235,6 +235,41 @@ void main() {
     });
 
     test(
+      'requires signature for v2 encrypted message when policy enabled',
+      () async {
+        allowedSevere.add(
+          'v2 encrypted message missing signature under strict policy',
+        );
+        final strictHandler = ProtocolMessageHandler(
+          securityService: securityService,
+          requireV2Signature: true,
+        );
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-signature-required',
+            'content': 'ciphertext',
+            'encrypted': true,
+            'senderId': 'sender-key',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final result = await strictHandler.processProtocolMessage(
+          message: message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+
+        expect(result, isNull);
+        expect(securityService.decryptMessageByTypeCalls, equals(0));
+        expect(securityService.decryptMessageCalls, equals(0));
+      },
+    );
+
+    test(
       'routes v2 decrypt by declared mode without fallback guessing',
       () async {
         final message = ProtocolMessage(
