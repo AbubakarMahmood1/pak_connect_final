@@ -142,6 +142,16 @@ escape hatches that can reintroduce split-brain behavior.
     - app boot now uses constructor-style singleton access for security/topology
       setup and local `_isInitialized` checks in message-send guard paths
 
+- Pruned repeated `AppCore.instance` access in bootstrap/runtime wrappers:
+  - `lib/core/app_core.dart`
+    - added constructor-style singleton access (`factory AppCore()`)
+  - `lib/main.dart`
+    - `AppWrapperState` now holds a retained `AppCore` handle and routes
+      initialize/dispose/status checks through that instance field
+  - `lib/core/services/app_core_shared_message_queue_provider.dart`
+    - provider now takes/stores an injected `AppCore` handle (default
+      `AppCore()`), removing repeated static singleton lookups
+
 ---
 
 ## Verification
@@ -174,6 +184,9 @@ pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_out
 flutter analyze lib/core/bluetooth/handshake_coordinator.dart lib/core/app_core.dart lib/domain/routing/topology_manager.dart
 flutter test test/core/bluetooth/handshake_coordinator_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
+flutter analyze lib/main.dart lib/core/services/app_core_shared_message_queue_provider.dart lib/core/app_core.dart
+flutter test test/core/app_core_initialization_retry_test.dart
+pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
 Results:
@@ -182,7 +195,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **47**
+  - `.instance` usages in `lib/**`: **37**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

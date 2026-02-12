@@ -4,15 +4,20 @@ import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart
 
 /// AppCore-backed implementation for shared queue access.
 class AppCoreSharedMessageQueueProvider implements ISharedMessageQueueProvider {
-  @override
-  bool get isInitialized => AppCore.instance.isInitialized;
+  AppCoreSharedMessageQueueProvider({AppCore? appCore})
+    : _appCore = appCore ?? AppCore();
+
+  final AppCore _appCore;
 
   @override
-  bool get isInitializing => AppCore.instance.isInitializing;
+  bool get isInitialized => _appCore.isInitialized;
 
   @override
-  Future<void> initialize() => AppCore.instance.initialize();
+  bool get isInitializing => _appCore.isInitializing;
 
   @override
-  OfflineMessageQueueContract get messageQueue => AppCore.instance.messageQueue;
+  Future<void> initialize() => _appCore.initialize();
+
+  @override
+  OfflineMessageQueueContract get messageQueue => _appCore.messageQueue;
 }

@@ -94,6 +94,7 @@ class AppWrapper extends ConsumerStatefulWidget {
 class _AppWrapperState extends ConsumerState<AppWrapper>
     with WidgetsBindingObserver {
   static final _logger = Logger('AppWrapper');
+  final AppCore _appCore = AppCore();
   bool _initializationStarted = false;
 
   @override
@@ -114,7 +115,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
     // Initialize on the next frame to ensure widget is built
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
-        await AppCore.instance.initialize();
+        await _appCore.initialize();
         _logger.info('✅ App core initialized successfully from AppWrapper');
 
         // 🧭 Register navigation callbacks (fix Core → Presentation layer violation)
@@ -146,7 +147,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    AppCore.instance.dispose();
+    _appCore.dispose();
     super.dispose();
   }
 
@@ -155,7 +156,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
     super.didChangeAppLifecycleState(state);
 
     // Only interact with power manager if initialized
-    if (AppCore.instance.isInitialized) {
+    if (_appCore.isInitialized) {
       // Fixed: use isInitialized getter
       switch (state) {
         case AppLifecycleState.paused:
@@ -172,7 +173,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
           break;
         case AppLifecycleState.detached:
           _logger.info('App detached - performing cleanup');
-          AppCore.instance.dispose();
+          _appCore.dispose();
           break;
         default:
           break;
@@ -185,7 +186,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
     final theme = Theme.of(context);
 
     return StreamBuilder<AppStatus>(
-      stream: AppCore.instance.statusStream,
+      stream: _appCore.statusStream,
       initialData: AppStatus.initializing, // Set proper initial data
       builder: (context, snapshot) {
         final status = snapshot.data ?? AppStatus.initializing;
@@ -328,7 +329,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
               onPressed: () async {
                 try {
                   _logger.info('Retrying initialization...');
-                  await AppCore.instance.initialize();
+                  await _appCore.initialize();
                 } catch (e) {
                   _logger.severe('Retry initialization failed: $e');
                 }
