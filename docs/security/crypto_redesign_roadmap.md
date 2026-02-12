@@ -97,6 +97,9 @@ This preserves:
 
 Implemented now:
 - strict policy gate exists for outbound v2 legacy mode emission.
+- outbound v2 `crypto.mode`/`sessionId` metadata now derives from
+  `ISecurityService.getEncryptionMethod(...)` (not local heuristics),
+  reducing header/method mismatch risk.
 
 Remaining:
 - make strict mode default in controlled stages.
