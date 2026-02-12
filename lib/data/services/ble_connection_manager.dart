@@ -47,6 +47,8 @@ class BLEConnectionManager {
 
   // Track devices we are actively trying to connect to so we can detect races
   final Set<String> _pendingClientConnections = {};
+  final Map<String, int> _activeClientAttemptIds = {};
+  int _nextClientAttemptId = 0;
 
   // Callback to abort responder handshake when an inbound is rejected as duplicate.
   Function(String address)? onInboundDuplicateRejected;
@@ -392,6 +394,29 @@ class BLEConnectionManager {
     _connectionTracker.clearAttempt(pendingAddress);
     _connectionTracker.removeConnection(pendingAddress);
     _clearPeerHintIfUnused(pendingAddress);
+  }
+
+  int _beginClientAttempt(String address) {
+    final attemptId = ++_nextClientAttemptId;
+    _activeClientAttemptIds[address] = attemptId;
+    return attemptId;
+  }
+
+  bool _isClientAttemptCurrent(String address, int attemptId) =>
+      _activeClientAttemptIds[address] == attemptId;
+
+  void _endClientAttempt(String address, int attemptId) {
+    if (_activeClientAttemptIds[address] == attemptId) {
+      _activeClientAttemptIds.remove(address);
+    }
+  }
+
+  void _invalidateClientAttempts({String? address}) {
+    if (address != null) {
+      _activeClientAttemptIds.remove(address);
+      return;
+    }
+    _activeClientAttemptIds.clear();
   }
 
   void _ensureTrackerForClientPeer(String peerAddress) {

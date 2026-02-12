@@ -12,6 +12,8 @@ extension _BleConnectionManagerRuntimeCleanup on BLEConnectionManager {
     }
     _deferredServerTeardownTimers.clear();
     _deferredServerTeardown.clear();
+    _pendingClientConnections.clear();
+    _invalidateClientAttempts();
 
     onCharacteristicFound?.call(null);
     onMtuDetected?.call(null);

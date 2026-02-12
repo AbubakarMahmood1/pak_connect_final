@@ -1,6 +1,6 @@
-# Pass 6: Runtime Serialization Hardening (In Progress)
+# Pass 6: Runtime Serialization Hardening (Complete)
 
-**Status**: In Progress  
+**Status**: Complete  
 **Date**: 2026-02-12  
 **Owner**: Architecture Refactor Track
 
@@ -83,6 +83,17 @@ before introducing behavior-changing coordination logic.
   - `test/core/bluetooth/connection_tracker_test.dart`
     - added cooldown enforcement test covering blocked/released retry windows
 
+- Added attempt-scoped stale-result guards in client connect runtime:
+  - `lib/data/services/ble_connection_manager.dart`
+    - per-address client attempt IDs with explicit begin/end/invalidate hooks
+  - `lib/data/services/ble_connection_manager_runtime_client_links.dart`
+    - connect pipeline now checks attempt currency across async stages
+    - stale attempts are ignored safely (optional best-effort disconnect cleanup)
+    - stale failure/finalizer paths no longer clear/override newer attempt state
+  - `lib/data/services/ble_connection_manager_runtime_cleanup.dart`
+    - clearing connection state now invalidates active attempt IDs and pending
+      outbound set to prevent stale callbacks from reviving old flows
+
 ---
 
 ## Verification
@@ -94,6 +105,7 @@ flutter analyze lib/data/services/ble_service_facade.dart lib/data/services/ble_
 flutter analyze test/data/services/ble_service_facade_test.dart
 flutter analyze lib/domain/services/ble_connection_tracker.dart lib/data/services/ble_connection_manager_runtime_client_links.dart lib/data/services/ble_connection_manager_runtime_collision_policy.dart test/core/bluetooth/connection_tracker_test.dart
 flutter analyze lib/data/services/ble_connection_manager_runtime_cleanup.dart
+flutter analyze lib/data/services/ble_connection_manager.dart
 flutter test test/data/services/ble_service_facade_test.dart --plain-name \"connectToDevice() serializes overlapping connect attempts\"
 flutter test test/core/bluetooth/connection_tracker_test.dart
 flutter test test/data/services/ble_service_facade_test.dart
@@ -116,5 +128,6 @@ Results:
 
 ## Next Slice
 
-- Add attempt-scoped stale-result guards for connect/disconnect completion paths
-  so delayed async completion from old attempts cannot mutate newer sessions.
+- Start Pass 7 policy lock-in:
+  - tighten strict singleton guard usage in CI/debug profiles
+  - trim remaining legacy runtime fallback seams that bypass composition root

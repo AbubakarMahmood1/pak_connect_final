@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-02-12 (Pass 6 in progress)
+**Last Updated**: 2026-02-12 (Pass 6 complete)
 
 ---
 
@@ -27,7 +27,7 @@
 | Pass 3 | 30-45% | Complete | Constructor-first dependency flow in core/domain |
 | Pass 4 | 45-60% | Complete | `AppServices` composition root + provider wiring |
 | Pass 5 | 60-75% | Complete | Test strategy convergence (provider overrides first) |
-| Pass 6 | 75-90% | In Progress | Connection runtime serialization hardening |
+| Pass 6 | 75-90% | Complete | Connection runtime serialization hardening |
 | Pass 7 | 90-100% | Pending | Remove legacy fallbacks, enable strict guardrails |
 
 ---
@@ -166,6 +166,9 @@ Pass 6 progress highlights:
   (`PAKCONNECT_BLE_ENFORCE_POST_DISCONNECT_COOLDOWN`, default `true`) and
   preserved across connection-state cleanup transitions to reduce reconnect
   thrash after disconnect.
+- Client connect runtime now uses attempt-scoped stale guards across async
+  stages, so stale failure/finalizer callbacks from old attempts cannot tear
+  down newer active flows.
 
 ---
 

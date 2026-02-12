@@ -55,9 +55,32 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
       );
       return;
     }
+    final attemptId = _beginClientAttempt(address);
 
     try {
+      Future<bool> ensureCurrentAttempt(
+        String stage, {
+        bool disconnectIfStale = false,
+      }) async {
+        if (_isClientAttemptCurrent(address, attemptId)) {
+          return true;
+        }
+        _logger.fine(
+          'Ignoring stale client attempt#$attemptId for '
+          '${_formatAddress(address)} during $stage',
+        );
+        if (disconnectIfStale) {
+          try {
+            await centralManager.disconnect(device);
+          } catch (_) {
+            // Best-effort stale cleanup.
+          }
+        }
+        return false;
+      }
+
       _pendingClientConnections.add(address);
+      if (!await ensureCurrentAttempt('preflight')) return;
 
       if (_serverConnections.containsKey(address)) {
         _logger.info(
@@ -95,11 +118,18 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
         '🔌 Connecting to ${_formatAddress(address)} @${DateTime.now().toIso8601String()}...',
       );
       await Future.delayed(Duration(milliseconds: 500));
+      if (!await ensureCurrentAttempt('post-connect-delay')) return;
 
       await _gattController.connectWithRetry(
         device: device,
         formattedAddress: _formatAddress(address),
       );
+      if (!await ensureCurrentAttempt(
+        'post-gatt-connect',
+        disconnectIfStale: true,
+      )) {
+        return;
+      }
 
       if (_serverConnections.containsKey(address)) {
         final yieldToInbound = await _shouldYieldToInboundLink(address);
@@ -122,6 +152,7 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
             address,
             reason: 'collision cleanup after outbound connect',
           );
+          if (!await ensureCurrentAttempt('post-collision-cleanup')) return;
         }
       }
 
@@ -152,6 +183,12 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
         device: device,
         formattedAddress: _formatAddress(address),
       );
+      if (!await ensureCurrentAttempt(
+        'post-mtu-detect',
+        disconnectIfStale: true,
+      )) {
+        return;
+      }
       final mtuConnection = _clientConnections[address];
       if (mtuConnection != null) {
         _clientConnections[address] = mtuConnection.copyWith(mtu: mtu);
@@ -162,6 +199,12 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
         device: device,
         formattedAddress: _formatAddress(address),
       );
+      if (!await ensureCurrentAttempt(
+        'post-characteristic-discovery',
+        disconnectIfStale: true,
+      )) {
+        return;
+      }
 
       connection = _clientConnections[address]!.copyWith(
         messageCharacteristic: messageChar,
@@ -200,6 +243,7 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
           throw Exception('Cannot enable notifications - connection unusable');
         }
       }
+      if (!await ensureCurrentAttempt('post-notification-setup')) return;
 
       _logger.info('🔐 BLE Connected - starting protocol setup');
       _updateConnectionState(ChatConnectionState.connecting);
@@ -212,17 +256,31 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
       _logger.severe('❌ Connection failed: $e');
       _isReconnection = false;
 
-      _clientConnections.remove(address);
-      _connectionTracker.removeConnection(address);
-
-      clearConnectionState(keepMonitoring: _serverConnections.isNotEmpty);
+      if (_isClientAttemptCurrent(address, attemptId)) {
+        _clientConnections.remove(address);
+        _connectionTracker.removeConnection(address);
+        clearConnectionState(keepMonitoring: _serverConnections.isNotEmpty);
+      } else {
+        _logger.fine(
+          'Skipping stale failure cleanup for client attempt#$attemptId '
+          '(${_formatAddress(address)})',
+        );
+      }
       rethrow;
     } finally {
-      _pendingClientConnections.remove(address);
-      if (_connectionTracker.isConnected(address)) {
-        _connectionTracker.clearAttempt(address);
+      if (_isClientAttemptCurrent(address, attemptId)) {
+        _pendingClientConnections.remove(address);
+        _endClientAttempt(address, attemptId);
+        if (_connectionTracker.isConnected(address)) {
+          _connectionTracker.clearAttempt(address);
+        } else {
+          _clearPeerHintIfUnused(address);
+        }
       } else {
-        _clearPeerHintIfUnused(address);
+        _logger.fine(
+          'Skipping stale finalizer for client attempt#$attemptId '
+          '(${_formatAddress(address)})',
+        );
       }
     }
   }
