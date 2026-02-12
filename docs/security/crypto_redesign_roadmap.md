@@ -167,3 +167,45 @@ Practical expectation with strong AI pairing:
 
 This gives a strong "good enough + scalable to best" path without locking you into a dead-end.
 
+---
+
+## 7) External Review Triage (Validated 2026-02-12)
+
+Below are vetted findings from an additional review, filtered for usefulness.
+
+### Accepted and Actionable
+
+- Pairing code generation used non-cryptographic RNG and logged sensitive code data.
+  - Verified in `lib/data/services/pairing_service.dart`.
+  - **Fixed**:
+    - `Random()` -> `Random.secure()`
+    - redacted pairing-code value logs.
+- Timer hygiene remains a real operational concern.
+  - Multiple `Timer.periodic(...)` usages still exist across mesh/monitoring services.
+  - Not automatically a bug, but requires strict lifecycle ownership.
+- Logging hygiene still needs hardening.
+  - `print(...)` calls remain in `lib/**` (non-test code) and should be removed or gated.
+- Transport sender vs cryptographic sender separation is still a real protocol concern.
+  - `ProtocolMessageHandler` still anchors decrypt/verify heavily on `fromNodeId`.
+  - This must be addressed during envelope/mode redesign to avoid relay-hop identity errors.
+
+### Rejected / Deprioritized
+
+- Claim that `?optionalValue` map syntax is invalid Dart and blocks builds.
+  - Not valid for this repo/toolchain.
+  - Verified by successful analyze on:
+    - `lib/domain/models/protocol_message.dart`
+    - `lib/domain/services/mesh_networking_binary_helper.dart`
+
+---
+
+## 8) Pre-Threat-Model Pass Gate
+
+Before running the dedicated adversarial threat-model review, complete this pass:
+
+- Pass A foundation:
+  - crypto header schema
+  - deterministic decrypt routing by declared mode for v2
+  - compatibility gate boundaries (legacy decrypt-only)
+
+Rationale: threat-model review ROI is highest after envelope/mode/migration rules are explicit in code and docs.

@@ -220,16 +220,14 @@ class PairingService implements IPairingService {
     // If we already have a pairing code being displayed, return it
     if (_currentPairing != null &&
         _currentPairing!.state == PairingState.displaying) {
-      _logger.info(
-        'Returning existing pairing code: ${_currentPairing!.myCode}',
-      );
+      _logger.info('Returning existing pairing code for active session');
       return _currentPairing!.myCode;
     }
 
     // Generate new random 4-digit code (1000-9999)
-    final random = Random();
+    final random = Random.secure();
     final code = (random.nextInt(9000) + 1000).toString();
-    _logger.info('Generated new pairing code: $code');
+    _logger.info('Generated new pairing code for active session');
 
     // Initialize pairing state
     _currentPairing = PairingInfo(myCode: code, state: PairingState.displaying);
@@ -264,7 +262,7 @@ class PairingService implements IPairingService {
         return;
       }
 
-      _logger.info('User entered peer code: $theirCode');
+      _logger.info('User entered peer code');
 
       // Mark that we've entered their code
       _weEnteredCode = true;
@@ -277,7 +275,7 @@ class PairingService implements IPairingService {
       );
 
       // Send our code to peer (so they know we're ready)
-      _logger.info('📤 Sending our code to peer: ${_currentPairing!.myCode}');
+      _logger.info('📤 Sending our code to peer');
       await _sendPairingCode(_currentPairing!.myCode);
 
       // If peer already sent their code, verify immediately
@@ -316,7 +314,7 @@ class PairingService implements IPairingService {
   @override
   void handleReceivedPairingCode(String theirCode) {
     try {
-      _logger.info('📥 Received peer code: $theirCode');
+      _logger.info('📥 Received peer code');
 
       // Store their code
       _theirReceivedCode = theirCode;
@@ -330,9 +328,7 @@ class PairingService implements IPairingService {
       // Both sides have entered codes - verify they match!
       _logger.info('🔍 Both sides ready, comparing codes...');
       if (theirCode != _receivedPairingCode) {
-        _logger.severe(
-          '❌ CODE MISMATCH! User entered: $_receivedPairingCode, Peer sent: $theirCode',
-        );
+        _logger.severe('❌ CODE MISMATCH during pairing verification');
         if (_pairingCompleter != null && !_pairingCompleter!.isCompleted) {
           _pairingCompleter!.complete(false);
         }
