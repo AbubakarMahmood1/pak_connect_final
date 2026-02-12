@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../domain/models/identity_session_state.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/pairing_state.dart';
 import '../../domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
@@ -26,6 +27,7 @@ class PairingRequestCoordinator {
     void Function(ProtocolMessage message)? onSendPairingCancel,
     void Function()? onPairingCancelled,
     void Function(String)? unregisterIdentityMapping,
+    ISecurityService? securityService,
   }) : _logger = logger,
        _pairingService = pairingService,
        _identityState = identityState,
@@ -38,7 +40,8 @@ class PairingRequestCoordinator {
        _onSendPairingAccept = onSendPairingAccept,
        _onSendPairingCancel = onSendPairingCancel,
        _onPairingCancelled = onPairingCancelled,
-       _unregisterIdentityMapping = unregisterIdentityMapping;
+       _unregisterIdentityMapping = unregisterIdentityMapping,
+       _securityService = securityService;
 
   final Logger _logger;
   final PairingService _pairingService;
@@ -54,6 +57,10 @@ class PairingRequestCoordinator {
   final void Function(ProtocolMessage message)? _onSendPairingCancel;
   final void Function()? _onPairingCancelled;
   final void Function(String)? _unregisterIdentityMapping;
+  final ISecurityService? _securityService;
+
+  ISecurityService get _resolvedSecurityService =>
+      _securityService ?? SecurityServiceLocator.instance;
 
   Timer? _pairingTimeout;
 
@@ -191,9 +198,7 @@ class PairingRequestCoordinator {
     _pairingService.receivePairingCancel(reason: reason);
     final theirPersistent = _identityState.theirPersistentKey;
     if (theirPersistent != null) {
-      SecurityServiceLocator.instance.unregisterIdentityMapping(
-        theirPersistent,
-      );
+      _resolvedSecurityService.unregisterIdentityMapping(theirPersistent);
       _unregisterIdentityMapping?.call(theirPersistent);
       _logger.info(
         '🔐 Unregistered identity mapping due to pairing cancellation',
@@ -224,9 +229,7 @@ class PairingRequestCoordinator {
 
     final theirPersistent = _identityState.theirPersistentKey;
     if (theirPersistent != null) {
-      SecurityServiceLocator.instance.unregisterIdentityMapping(
-        theirPersistent,
-      );
+      _resolvedSecurityService.unregisterIdentityMapping(theirPersistent);
       _unregisterIdentityMapping?.call(theirPersistent);
       _logger.info('🔐 Unregistered identity mapping due to user cancellation');
     }

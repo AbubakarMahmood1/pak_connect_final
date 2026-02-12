@@ -96,6 +96,14 @@ escape hatches that can reintroduce split-brain behavior.
     - replaced repeated `SecurityServiceLocator.instance` calls in decrypt +
       identity-mapping logic with injected service usage
 
+- Pruned repeated static security locator usage in pairing lifecycle flows:
+  - `lib/data/services/pairing_lifecycle_service.dart`
+  - `lib/data/services/pairing_failure_handler.dart`
+  - `lib/data/services/pairing_request_coordinator.dart`
+    - each now takes optional `ISecurityService` injection and resolves lazily
+      when needed, replacing repeated per-method static locator calls while
+      avoiding eager resolver requirements during test setup
+
 ---
 
 ## Verification
@@ -118,6 +126,8 @@ flutter analyze lib/data/services/outbound_message_sender.dart lib/data/services
 flutter test test/data/services/ble_messaging_service_test.dart
 flutter test test/data/services/ble_write_adapter_test.dart
 flutter analyze lib/data/services/inbound_text_processor.dart lib/data/services/ble_message_handler.dart
+flutter analyze lib/data/services/pairing_lifecycle_service.dart lib/data/services/pairing_failure_handler.dart lib/data/services/pairing_request_coordinator.dart
+flutter test test/data/services/pairing_flow_controller_test.dart
 pwsh -File scripts/di_pass0_audit.ps1 -WriteBaseline -BaselineOut validation_outputs/di_pass7_snapshot.json -EnforcePresentationImportGate -EnforcePresentationDiMutationGate
 ```
 
@@ -127,7 +137,7 @@ Results:
 - Strict guard mode test run: **Passed**
 - Snapshot (`validation_outputs/di_pass7_snapshot.json`):
   - `GetIt` resolutions in `lib/**`: **43**
-  - `.instance` usages in `lib/**`: **68**
+  - `.instance` usages in `lib/**`: **66**
   - Presentation import guard violations: **0**
   - Presentation DI mutation violations: **0**
 

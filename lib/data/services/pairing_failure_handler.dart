@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../domain/models/identity_session_state.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/pairing_state.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
@@ -15,13 +16,19 @@ class PairingFailureHandler {
     required Logger logger,
     required ContactRepository contactRepository,
     required Map<String, String> conversationKeys,
+    ISecurityService? securityService,
   }) : _logger = logger,
        _contactRepository = contactRepository,
-       _conversationKeys = conversationKeys;
+       _conversationKeys = conversationKeys,
+       _securityService = securityService;
 
   final Logger _logger;
   final ContactRepository _contactRepository;
   final Map<String, String> _conversationKeys;
+  final ISecurityService? _securityService;
+
+  ISecurityService get _resolvedSecurityService =>
+      _securityService ?? SecurityServiceLocator.instance;
 
   Future<void> handleVerificationFailure({
     required PairingInfo? previousPairing,
@@ -64,9 +71,7 @@ class PairingFailureHandler {
 
     if (theirPersistentKey != null) {
       try {
-        SecurityServiceLocator.instance.unregisterIdentityMapping(
-          theirPersistentKey,
-        );
+        _resolvedSecurityService.unregisterIdentityMapping(theirPersistentKey);
       } catch (e) {
         _logger.fine(
           'Skipping identity mapping unregister for '

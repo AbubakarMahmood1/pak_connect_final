@@ -1,10 +1,10 @@
 {
   "schemaVersion": 2,
-  "generatedAtUtc": "2026-02-12T14:18:14.0584764Z",
+  "generatedAtUtc": "2026-02-12T14:28:53.7222628Z",
   "scope": "lib/**/*.dart",
   "metrics": {
     "getItResolutionCount": 43,
-    "instanceUsageCount": 68,
+    "instanceUsageCount": 66,
     "presentationGetItResolutionCount": 2,
     "presentationGetItImportCount": 1,
     "presentationGetItImportFileCount": 1,
