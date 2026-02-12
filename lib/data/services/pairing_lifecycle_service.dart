@@ -1,6 +1,7 @@
 import 'package:logging/logging.dart';
 import '../../domain/models/identity_session_state.dart';
 import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/models/spy_mode_info.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
@@ -28,13 +29,15 @@ class PairingLifecycleService {
     })
     triggerChatMigration,
     IIdentityManager? identityManager,
+    ISecurityService? securityService,
   }) : _logger = logger,
        _contactRepository = contactRepository,
        _identityState = identityState,
        _conversationKeys = conversationKeys,
        _getMyPersistentId = myPersistentIdProvider,
        _triggerChatMigration = triggerChatMigration,
-       _identityManager = identityManager;
+       _identityManager = identityManager,
+       _securityService = securityService;
 
   final Logger _logger;
   final ContactRepository _contactRepository;
@@ -48,6 +51,10 @@ class PairingLifecycleService {
   })
   _triggerChatMigration;
   final IIdentityManager? _identityManager;
+  final ISecurityService? _securityService;
+
+  ISecurityService get _resolvedSecurityService =>
+      _securityService ?? SecurityServiceLocator.instance;
 
   Future<void> ensureContactExistsAfterHandshake(
     String publicKey,
@@ -174,7 +181,7 @@ class PairingLifecycleService {
       '   persistentPublicKey (now set): ${theirPersistentKey.shortId()}...',
     );
 
-    SecurityServiceLocator.instance.registerIdentityMapping(
+    _resolvedSecurityService.registerIdentityMapping(
       persistentPublicKey: theirPersistentKey,
       ephemeralID: theirEphemeralId,
     );
@@ -210,7 +217,7 @@ class PairingLifecycleService {
     );
     _identityManager?.setCurrentSessionId(theirPersistentKey);
 
-    SecurityServiceLocator.instance.registerIdentityMapping(
+    _resolvedSecurityService.registerIdentityMapping(
       persistentPublicKey: theirPersistentKey,
       ephemeralID: theirEphemeralId,
     );
