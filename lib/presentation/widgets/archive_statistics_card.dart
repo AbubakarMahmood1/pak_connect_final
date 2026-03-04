@@ -210,14 +210,18 @@ class ArchiveStatisticsCard extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
+            const SizedBox(width: 8),
             Text(
               '${value.toStringAsFixed(1)}$suffix',
               style: theme.textTheme.bodyMedium?.copyWith(

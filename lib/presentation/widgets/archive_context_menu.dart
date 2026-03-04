@@ -40,7 +40,13 @@ class ArchiveContextMenu extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
               const SizedBox(width: 12),
-              const Text('View Details'),
+              const Expanded(
+                child: Text(
+                  'View Details',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),
@@ -56,7 +62,13 @@ class ArchiveContextMenu extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(width: 12),
-              const Text('Restore Chat'),
+              const Expanded(
+                child: Text(
+                  'Restore Chat',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),
@@ -73,7 +85,13 @@ class ArchiveContextMenu extends ConsumerWidget {
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 12),
-                const Text('Export Archive'),
+                const Expanded(
+                  child: Text(
+                    'Export Archive',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ],
             ),
           ),
@@ -92,9 +110,13 @@ class ArchiveContextMenu extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.error,
               ),
               const SizedBox(width: 12),
-              Text(
-                'Delete Permanently',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              Expanded(
+                child: Text(
+                  'Delete Permanently',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ),
             ],
           ),
