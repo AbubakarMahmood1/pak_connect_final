@@ -52,16 +52,18 @@ Last updated: 2026-03-04 (Phase 4 in progress)
   - `lib/data/services/export_import/selective_restore_service.dart`: `82.20%` (`97/118`)
 
 ## Phase 4 Snapshot (Presentation logic foundations)
-- Scope run: `00:03 +21: All tests passed!` via targeted Phase 4 suite
-  - `flutter test --coverage --no-pub test/presentation/controllers/chat_list_controller_test.dart test/presentation/notifiers/chat_session_state_notifier_test.dart test/presentation/providers/chat_notification_providers_test.dart test/presentation/providers/pinning_service_provider_test.dart test/presentation/providers/security_state_provider_test.dart`
+- Scope run: `00:04 +26: All tests passed!` via targeted Phase 4 suite
+  - `flutter test --coverage --no-pub test/presentation/controllers/chat_list_controller_test.dart test/presentation/notifiers/chat_session_state_notifier_test.dart test/presentation/providers/chat_notification_providers_test.dart test/presentation/providers/pinning_service_provider_test.dart test/presentation/providers/security_state_provider_test.dart test/presentation/providers/home_screen_providers_test.dart`
 - Phase 4 target files (subphase 4.1):
   - `lib/presentation/controllers/chat_list_controller.dart`: `100%` (`19/19`)
   - `lib/presentation/notifiers/chat_session_state_notifier.dart`: `84.76%` (`89/105`)
   - `lib/presentation/providers/chat_notification_providers.dart`: `95.45%` (`21/22`)
   - `lib/presentation/providers/pinning_service_provider.dart`: `71.43%` (`10/14`)
   - `lib/presentation/providers/security_state_provider.dart`: `33.33%` (`21/63`)
+  - `lib/presentation/providers/home_screen_providers.dart`: `82.61%` (`38/46`)
 - Notes:
   - Delivered major uplift on previously zero-coverage files for controller/notifier/provider seams.
+  - Added `home_screen_providers` family coverage for provider wiring, overrides, and facade lifecycle.
   - `security_state_provider.dart` remains partial and will be expanded in a follow-up subphase focused on live/repository-mode state computation.
 
 ## Plan
@@ -103,7 +105,8 @@ Last updated: 2026-03-04 (Phase 4 in progress)
 - [x] 4.5 Add initial `SecurityStateProvider` helper/cache utility tests
 - [x] 4.6 Run targeted Phase 4 coverage suite and collect per-file metrics
 - [ ] 4.7 Expand `SecurityStateProvider` compute-path coverage (live/repository/cache invalidation)
-- [ ] 4.8 Tackle larger presentation targets (`home_screen_providers`, `settings_controller`, `home_screen_view_model`)
+- [x] 4.8a Tackle `home_screen_providers` presentation provider-family coverage
+- [ ] 4.8b Tackle larger presentation targets (`settings_controller`, `home_screen_view_model`)
 - [ ] 4.9 Run full-suite coverage + phase-close decision
 
 ## Progress Log
@@ -139,8 +142,10 @@ Last updated: 2026-03-04 (Phase 4 in progress)
   - `test/presentation/providers/chat_notification_providers_test.dart`
   - `test/presentation/providers/pinning_service_provider_test.dart`
   - `test/presentation/providers/security_state_provider_test.dart`
-- 2026-03-04: Phase 4 targeted coverage run passed: `21` tests total.
-- 2026-03-04: Phase 4 subphase 4.1 marked complete (presentation foundations uplift delivered).
+- 2026-03-04: Expanded Phase 4 with:
+  - `test/presentation/providers/home_screen_providers_test.dart`
+- 2026-03-04: Phase 4 targeted coverage run passed: `26` tests total.
+- 2026-03-04: Phase 4 subphase 4.1/4.8a marked complete (presentation foundations + home provider uplift delivered).
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
