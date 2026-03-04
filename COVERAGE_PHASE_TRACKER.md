@@ -26,14 +26,14 @@ Last updated: 2026-03-04 (Phase 2 in progress)
   - `lib/domain/services/chat_lifecycle_service.dart`: `61.64%` (`188/305`)
 
 ## Phase 2 Snapshot (Targeted data/services scope)
-- Scope run: `00:13 +355: All tests passed!` via `flutter test --coverage --no-pub test/data/services`
+- Scope run: `00:12 +357: All tests passed!` via `flutter test --coverage --no-pub test/data/services`
 - Phase 2 target files:
   - `lib/data/services/ble_message_handler_facade.dart`: `83.59%` (`214/256`)
   - `lib/data/services/ble_message_handler_facade_impl.dart`: `77.64%` (`184/237`)
-  - `lib/data/services/ble_message_handler.dart`: `47.72%` (`136/285`)
+  - `lib/data/services/ble_message_handler.dart`: `57.54%` (`164/285`)
 - Notes:
   - Strong uplift delivered on seam/facade layers (`facade_impl` from prior `57.38%` to `77.64%` in this targeted scope).
-  - Handler-core uplift delivered (`ble_message_handler.dart` from prior `38.95%` to `47.72%`).
+  - Handler-core uplift delivered (`ble_message_handler.dart` from prior `38.95%` to `57.54%`).
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -55,7 +55,7 @@ Last updated: 2026-03-04 (Phase 2 in progress)
 - [x] 2.2 Add `BLEMessageHandlerFacadeImpl` seam/resolver/queue path tests
 - [x] 2.3 Run targeted `test/data/services` coverage and collect file metrics
 - [x] 2.4a Add direct `BLEMessageHandler` non-device wrapper/QR/relay tests
-- [ ] 2.4b Drive deeper `BLEMessageHandler` core processing/error branches
+- [x] 2.4b Drive deeper `BLEMessageHandler` core processing/error branches
 - [ ] 2.5 Re-run full suite + coverage for global delta and phase-close decision
 
 ## Progress Log
@@ -72,7 +72,8 @@ Last updated: 2026-03-04 (Phase 2 in progress)
   - `test/data/services/ble_message_handler_facade_impl_test.dart`
 - 2026-03-04: Expanded Phase 2 coverage tests (resolver/queue/adapter branches).
 - 2026-03-04: Added `test/data/services/ble_message_handler_test.dart` for handler-core non-device paths.
-- 2026-03-04: Targeted service-layer coverage run passed: `355` tests total.
+- 2026-03-04: Expanded handler coverage with callback accessor + friend-reveal fail-closed tests.
+- 2026-03-04: Targeted service-layer coverage run passed: `357` tests total.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
