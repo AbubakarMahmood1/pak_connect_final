@@ -77,3 +77,5 @@ Last updated: 2026-03-04 (Phase 2 in progress)
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
 - `6d75142` - test: add phase 1 service coverage suites
+- `6e34216` - test: expand phase 2 BLE handler facade coverage
+- `46ed66a` - test: add phase 2 BLE message handler core coverage
