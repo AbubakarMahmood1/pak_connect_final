@@ -242,3 +242,5 @@ Last updated: 2026-03-04 (Phase 5.7 archive widget wave complete)
 - `ae03f15` - test: add settings screen widget coverage seam and suite
 - `91dc209` - docs: record phase 5.4 settings screen coverage progress
 - `9d71970` - docs: close phase 5 with full-suite coverage snapshot
+- `f6defbd` - test: add archive widget coverage and overflow-safe menu rows
+- `f3ade1c` - docs: record phase 5.7 archive widget coverage wave
