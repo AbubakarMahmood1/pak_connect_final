@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 5.7 archive widget wave complete)
+Last updated: 2026-03-04 (Phase 5.8 discovery widget wave complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -69,7 +69,7 @@ Last updated: 2026-03-04 (Phase 5.7 archive widget wave complete)
   - Added larger presentation coverage on `settings_controller` and `home_screen_view_model` (subphase 4.8b complete).
   - Presentation layer moved from baseline `8.93%` to `13.79%` after full-suite validation (subphase 4.9 complete).
 
-## Phase 5 Snapshot (Widget coverage waves 1-4)
+## Phase 5 Snapshot (Widget coverage waves 1-5)
 - Scope run: `00:04 +14: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/settings_widgets_test.dart`
 - Regression run: `00:06 +57: All tests passed!` via targeted presentation Phase 4 + Phase 5.1 batch
 - Phase 5.1 target files:
@@ -94,9 +94,14 @@ Last updated: 2026-03-04 (Phase 5.7 archive widget wave complete)
   - `lib/presentation/widgets/archive_statistics_card.dart`: `98.66%` (`221/224`)
   - `lib/presentation/widgets/archive_context_menu.dart`: `100%` (`146/146`)
   - `lib/presentation/widgets/archived_chat_tile.dart`: `93.50%` (`187/200`)
+- Scope run: `00:03 +6: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/discovery_device_tile_test.dart`
+- Regression run: `00:07 +47: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets test/presentation/screens/settings_screen_test.dart`
+- Phase 5.8 target file:
+  - `lib/presentation/widgets/discovery/discovery_device_tile.dart`: `88.73%` (`181/204`)
 - Notes:
   - Added an overflow-safe popup menu text fix in `relay_queue_widget` to keep menu entries stable on narrow layouts.
   - Added overflow-safe popup menu labels in `archive_context_menu` and a narrow-width-safe progress row in `archive_statistics_card`.
+  - Added non-device `DiscoveryDeviceTile` coverage for tap-state transitions, role/connection badges, and contact-resolution branches.
   - Added controller injection seam to `settings_screen` for deterministic widget testing without service-locator bootstrapping.
   - Full-suite coverage validation completed in Phase 5.6 (`01:31 +1726`) and reflected in the Current Snapshot.
 
@@ -151,6 +156,7 @@ Last updated: 2026-03-04 (Phase 5.7 archive widget wave complete)
 - [x] 5.5 Run targeted Phase 5 coverage suite and collect metrics (wave 1-3 scope)
 - [x] 5.6 Run full-suite coverage + phase-close decision
 - [x] 5.7 Add archive widget coverage wave (`ArchiveStatisticsCard`, `ArchivedChatTile`, `ArchiveContextMenu`) and run widget regression batch
+- [x] 5.8 Add `DiscoveryDeviceTile` coverage wave and rerun widget regression batch
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -220,6 +226,11 @@ Last updated: 2026-03-04 (Phase 5.7 archive widget wave complete)
 - 2026-03-04: Phase 5.7 targeted coverage run passed: `00:03 +15: All tests passed!`
 - 2026-03-04: Phase 5.7 widget regression batch passed: `00:08 +41: All tests passed!`
 - 2026-03-04: `flutter analyze --no-pub` on archive widget files/tests passed clean.
+- 2026-03-04: Added discovery widget suite:
+  - `test/presentation/widgets/discovery_device_tile_test.dart`
+- 2026-03-04: Phase 5.8 targeted coverage run passed: `00:03 +6: All tests passed!`
+- 2026-03-04: Phase 5.8 widget regression batch passed: `00:07 +47: All tests passed!`
+- 2026-03-04: `flutter analyze --no-pub test/presentation/widgets/discovery_device_tile_test.dart` passed clean.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
