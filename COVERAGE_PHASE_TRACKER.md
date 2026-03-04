@@ -156,3 +156,4 @@ Last updated: 2026-03-04 (Phase 4 in progress)
 - `b65d530` - test: deepen phase 2 ble handler branch coverage
 - `1ca0503` - test: add phase 3 export-import and backup coverage suites
 - `2c1249d` - test: add phase 4 presentation coverage foundations
+- `e43307c` - test: add home screen providers coverage suite
