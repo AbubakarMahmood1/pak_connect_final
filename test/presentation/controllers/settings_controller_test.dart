@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
 import 'package:pak_connect/domain/config/kill_switches.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/preference_keys.dart';
@@ -61,9 +60,6 @@ class _FakePreferencesRepository extends Fake
   Future<void> clearAll() async {
     values.clear();
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeContactRepository extends Fake implements IContactRepository {
@@ -84,9 +80,6 @@ class _FakeContactRepository extends Fake implements IContactRepository {
     contacts.remove(publicKey);
     return true;
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeChatsRepository extends Fake implements IChatsRepository {
@@ -98,9 +91,6 @@ class _FakeChatsRepository extends Fake implements IChatsRepository {
 
   @override
   Future<int> getTotalMessageCount() async => totalMessageCount;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeUserPreferences extends Fake implements IUserPreferences {
@@ -113,23 +103,84 @@ class _FakeUserPreferences extends Fake implements IUserPreferences {
   Future<void> setHintBroadcastEnabled(bool enabled) async {
     hintBroadcastEnabled = enabled;
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeDatabaseProvider extends Fake implements IDatabaseProvider {
-  _FakeDatabaseProvider(this.sizeInfo);
+  _FakeDatabaseProvider(this.sizeInfo, {Database? database})
+    : _database = database;
 
   final Map<String, dynamic> sizeInfo;
+  final Database? _database;
 
   @override
   Future<Map<String, dynamic>> getDatabaseSize() async =>
       Map<String, dynamic>.from(sizeInfo);
 
   @override
-  Future<Database> get database async =>
+  Future<Database> get database async {
+    if (_database == null) {
       throw UnimplementedError('database not needed in this test suite');
+    }
+    return _database;
+  }
+}
+
+class _RecordingTransaction extends Fake implements Transaction {
+  final List<String> deletedTables = <String>[];
+
+  @override
+  Future<int> delete(
+    String table, {
+    String? where,
+    List<Object?>? whereArgs,
+  }) async {
+    deletedTables.add(table);
+    return 1;
+  }
+}
+
+class _RecordingDatabase extends Fake implements Database {
+  _RecordingDatabase({List<Map<String, Object?>>? integrityRows})
+    : integrityRows =
+          integrityRows ??
+          <Map<String, Object?>>[
+            <String, Object?>{'integrity_check': 'ok'},
+          ];
+
+  final _RecordingTransaction transactionRecorder = _RecordingTransaction();
+  final List<String> rawQueries = <String>[];
+  final List<Map<String, Object?>> integrityRows;
+
+  @override
+  Future<T> transaction<T>(
+    Future<T> Function(Transaction txn) action, {
+    bool? exclusive,
+  }) async {
+    return action(transactionRecorder);
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> rawQuery(
+    String sql, [
+    List<Object?>? arguments,
+  ]) async {
+    rawQueries.add(sql);
+    return integrityRows;
+  }
+}
+
+Contact _contact(String publicKey) {
+  final now = DateTime(2026, 1, 1);
+  return Contact(
+    publicKey: publicKey,
+    persistentPublicKey: null,
+    currentEphemeralId: null,
+    displayName: 'Contact $publicKey',
+    trustStatus: TrustStatus.newContact,
+    securityLevel: SecurityLevel.low,
+    firstSeen: now,
+    lastSeen: now,
+  );
 }
 
 void main() {
@@ -348,6 +399,90 @@ void main() {
       expect(stats.sizeMB, '2.00');
       expect(stats.sizeKB, '2048');
       expect(stats.sizeBytes, '2097152');
+    });
+
+    test('clearAllData wipes core tables, contacts, and preferences', () async {
+      final preferences = _FakePreferencesRepository(
+        initialValues: <String, dynamic>{'seeded': true},
+      );
+      final contacts = _FakeContactRepository()
+        ..contacts['pk-1'] = _contact('pk-1')
+        ..contacts['pk-2'] = _contact('pk-2');
+      final database = _RecordingDatabase();
+
+      final controller = SettingsController(
+        preferencesRepository: preferences,
+        contactRepository: contacts,
+        chatsRepository: _FakeChatsRepository(),
+        userPreferences: _FakeUserPreferences(),
+        databaseProvider: _FakeDatabaseProvider(<String, dynamic>{
+          'exists': true,
+        }, database: database),
+      );
+
+      final result = await controller.clearAllData();
+
+      expect(result, isTrue);
+      expect(
+        database.transactionRecorder.deletedTables,
+        orderedEquals(<String>[
+          'archived_messages',
+          'archived_chats',
+          'deleted_message_ids',
+          'queue_sync_state',
+          'offline_message_queue',
+          'messages',
+          'chats',
+          'contact_last_seen',
+          'device_mappings',
+          'contacts',
+          'migration_metadata',
+          'app_preferences',
+        ]),
+      );
+      expect(contacts.deletedPublicKeys, containsAll(<String>['pk-1', 'pk-2']));
+      expect(contacts.deletedPublicKeys.length, 2);
+      expect(preferences.values, isEmpty);
+    });
+
+    test('checkDatabaseIntegrity evaluates pragma output', () async {
+      final okDatabase = _RecordingDatabase(
+        integrityRows: <Map<String, Object?>>[
+          <String, Object?>{'integrity_check': 'ok'},
+        ],
+      );
+      final okController = SettingsController(
+        preferencesRepository: _FakePreferencesRepository(),
+        contactRepository: _FakeContactRepository(),
+        chatsRepository: _FakeChatsRepository(),
+        userPreferences: _FakeUserPreferences(),
+        databaseProvider: _FakeDatabaseProvider(<String, dynamic>{
+          'exists': true,
+        }, database: okDatabase),
+      );
+
+      final okResult = await okController.checkDatabaseIntegrity();
+      expect(okResult.isOk, isTrue);
+      expect(okDatabase.rawQueries, contains('PRAGMA integrity_check'));
+
+      final badDatabase = _RecordingDatabase(
+        integrityRows: <Map<String, Object?>>[
+          <String, Object?>{'integrity_check': 'not ok'},
+        ],
+      );
+      final badController = SettingsController(
+        preferencesRepository: _FakePreferencesRepository(),
+        contactRepository: _FakeContactRepository(),
+        chatsRepository: _FakeChatsRepository(),
+        userPreferences: _FakeUserPreferences(),
+        databaseProvider: _FakeDatabaseProvider(<String, dynamic>{
+          'exists': true,
+        }, database: badDatabase),
+      );
+
+      final badResult = await badController.checkDatabaseIntegrity();
+      expect(badResult.isOk, isFalse);
+      expect(badDatabase.rawQueries, contains('PRAGMA integrity_check'));
     });
 
     test(
