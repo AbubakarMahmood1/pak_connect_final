@@ -52,4 +52,4 @@ Last updated: 2026-03-04 (Phase 1 complete)
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
-- Pending: Phase 1 test-suite checkpoint commit
+- `6d75142` - test: add phase 1 service coverage suites
