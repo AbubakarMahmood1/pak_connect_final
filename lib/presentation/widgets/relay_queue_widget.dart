@@ -376,7 +376,9 @@ class RelayQueueWidgetState extends State<RelayQueueWidget> {
             children: [
               Icon(Icons.send, color: Colors.green[600], size: 18),
               SizedBox(width: 8),
-              Text('Retry Now'),
+              Flexible(
+                child: Text('Retry Now', overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
         ),
@@ -386,7 +388,12 @@ class RelayQueueWidgetState extends State<RelayQueueWidget> {
             children: [
               Icon(Icons.priority_high, color: Colors.orange[600], size: 18),
               SizedBox(width: 8),
-              Text('Set High Priority'),
+              Flexible(
+                child: Text(
+                  'Set High Priority',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),
@@ -396,7 +403,7 @@ class RelayQueueWidgetState extends State<RelayQueueWidget> {
             children: [
               Icon(Icons.delete, color: Colors.red[600], size: 18),
               SizedBox(width: 8),
-              Text('Remove'),
+              Flexible(child: Text('Remove', overflow: TextOverflow.ellipsis)),
             ],
           ),
         ),
