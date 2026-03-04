@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -7,7 +8,9 @@ import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/services/notification_handler_factory.dart';
 import 'package:pak_connect/presentation/controllers/settings_controller.dart';
+import 'package:pak_connect/presentation/providers/theme_provider.dart';
 import 'package:pak_connect/presentation/widgets/settings/about_section.dart';
+import 'package:pak_connect/presentation/widgets/settings/appearance_section.dart';
 import 'package:pak_connect/presentation/widgets/settings/data_storage_section.dart';
 import 'package:pak_connect/presentation/widgets/settings/developer_tools_section.dart';
 import 'package:pak_connect/presentation/widgets/settings/notification_section.dart';
@@ -24,6 +27,22 @@ class _NoopChatsRepository extends Fake implements IChatsRepository {}
 class _NoopUserPreferences extends Fake implements IUserPreferences {}
 
 class _NoopDatabaseProvider extends Fake implements IDatabaseProvider {}
+
+class _TestThemeModeNotifier extends ThemeModeNotifier {
+  _TestThemeModeNotifier(this._initialMode);
+
+  final ThemeMode _initialMode;
+  ThemeMode? lastSetMode;
+
+  @override
+  ThemeMode build() => _initialMode;
+
+  @override
+  Future<void> setThemeMode(ThemeMode mode) async {
+    lastSetMode = mode;
+    state = mode;
+  }
+}
 
 class _TestSettingsController extends SettingsController {
   _TestSettingsController()
@@ -263,6 +282,28 @@ Future<void> _pumpWidgetHarness(WidgetTester tester, Widget child) async {
   await tester.pump();
 }
 
+Future<_TestThemeModeNotifier> _pumpAppearanceHarness(
+  WidgetTester tester, {
+  ThemeMode initialMode = ThemeMode.system,
+}) async {
+  late _TestThemeModeNotifier notifier;
+
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        themeModeProvider.overrideWith(() {
+          notifier = _TestThemeModeNotifier(initialMode);
+          return notifier;
+        }),
+      ],
+      child: const MaterialApp(home: Scaffold(body: AppearanceSection())),
+    ),
+  );
+  await tester.pump();
+
+  return notifier;
+}
+
 void main() {
   group('SettingsSectionHeader', () {
     testWidgets('renders title text', (tester) async {
@@ -272,6 +313,30 @@ void main() {
       );
 
       expect(find.text('Section Title'), findsOneWidget);
+    });
+  });
+
+  group('AppearanceSection', () {
+    testWidgets('renders theme options and updates selected mode on tap', (
+      tester,
+    ) async {
+      final notifier = await _pumpAppearanceHarness(
+        tester,
+        initialMode: ThemeMode.system,
+      );
+
+      expect(find.text('Theme'), findsOneWidget);
+      expect(find.text('Light'), findsOneWidget);
+      expect(find.text('Dark'), findsOneWidget);
+      expect(find.text('System'), findsOneWidget);
+
+      await tester.tap(find.text('Dark'));
+      await tester.pump();
+      expect(notifier.lastSetMode, ThemeMode.dark);
+
+      await tester.tap(find.text('Light'));
+      await tester.pump();
+      expect(notifier.lastSetMode, ThemeMode.light);
     });
   });
 
