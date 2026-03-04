@@ -273,3 +273,5 @@ Last updated: 2026-03-04 (Phase 5.9 discovery view/scanner wave complete)
 - `55eee66` - test: add discovery device tile widget coverage suite
 - `a0461f8` - docs: record phase 5.8 discovery widget coverage wave
 - `c75022e` - docs: add phase 5.8 checkpoint hashes
+- `0b8063e` - test: add discovery scanner and view widget coverage suites
+- `690a43f` - docs: record phase 5.9 discovery scanner coverage wave
