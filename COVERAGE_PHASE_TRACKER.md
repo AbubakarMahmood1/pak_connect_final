@@ -69,7 +69,7 @@ Last updated: 2026-03-04 (Phase 5 in progress)
   - Added larger presentation coverage on `settings_controller` and `home_screen_view_model` (subphase 4.8b complete).
   - Presentation layer moved from baseline `8.93%` to `13.79%` after full-suite validation (subphase 4.9 complete).
 
-## Phase 5 Snapshot (Widget coverage waves 1-2)
+## Phase 5 Snapshot (Widget coverage waves 1-3)
 - Scope run: `00:04 +14: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/settings_widgets_test.dart`
 - Regression run: `00:06 +57: All tests passed!` via targeted presentation Phase 4 + Phase 5.1 batch
 - Phase 5.1 target files:
@@ -84,8 +84,13 @@ Last updated: 2026-03-04 (Phase 5 in progress)
 - Phase 5.2 target files:
   - `lib/presentation/widgets/settings/appearance_section.dart`: `96.15%` (`50/52`)
   - `lib/presentation/widgets/relay_queue_widget.dart`: `90.52%` (`296/327`)
+- Scope run: `00:05 +26: All tests passed!` via `flutter test --coverage --no-pub test/presentation/screens/settings_screen_test.dart test/presentation/widgets/settings_widgets_test.dart test/presentation/widgets/relay_queue_widget_test.dart`
+- Regression run: `00:06 +69: All tests passed!` via targeted presentation Phase 4 + Phase 5.1/5.2/5.4 batch
+- Phase 5.4 target file:
+  - `lib/presentation/screens/settings_screen.dart`: `67.65%` (`46/68`)
 - Notes:
   - Added an overflow-safe popup menu text fix in `relay_queue_widget` to keep menu entries stable on narrow layouts.
+  - Added controller injection seam to `settings_screen` for deterministic widget testing without service-locator bootstrapping.
   - Snapshot is from targeted coverage runs; global layer percentages remain based on the latest full-suite run in Phase 4.
 
 ## Plan
@@ -135,8 +140,8 @@ Last updated: 2026-03-04 (Phase 5 in progress)
 - [x] 5.1 Add settings widget coverage suite (`settings_section_header`, `privacy_section`, `notification_section`, `about_section`, `data_storage_section`, `developer_tools_section`)
 - [x] 5.2 Add `AppearanceSection` widget tests
 - [x] 5.3 Add `RelayQueueWidget` widget tests (stream states + actions)
-- [ ] 5.4 Tackle one major screen-level target with fakes/seams
-- [x] 5.5 Run targeted Phase 5 coverage suite and collect metrics (wave 1-2 scope)
+- [x] 5.4 Tackle one major screen-level target with fakes/seams
+- [x] 5.5 Run targeted Phase 5 coverage suite and collect metrics (wave 1-3 scope)
 - [ ] 5.6 Run full-suite coverage + phase-close decision
 
 ## Progress Log
@@ -196,6 +201,10 @@ Last updated: 2026-03-04 (Phase 5 in progress)
 - 2026-03-04: Phase 5.2 targeted coverage run passed: `00:05 +22: All tests passed!`
 - 2026-03-04: Phase 5.2 regression batch passed (Phase 4 + Phase 5 widget suites): `00:06 +65: All tests passed!`
 - 2026-03-04: Hardened `relay_queue_widget` popup menu rows against text overflow in narrow menu widths.
+- 2026-03-04: Added screen-level Phase 5 suite:
+  - `test/presentation/screens/settings_screen_test.dart`
+- 2026-03-04: Phase 5.4 targeted coverage run passed: `00:05 +26: All tests passed!`
+- 2026-03-04: Phase 5.4 regression batch passed (Phase 4 + Phase 5 suites): `00:06 +69: All tests passed!`
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -212,3 +221,5 @@ Last updated: 2026-03-04 (Phase 5 in progress)
 - `35efad0` - test: harden phase 4 suites and clean analyzer warnings
 - `dae1571` - test: start phase 5 with settings widget coverage
 - `f775680` - test: expand phase 5 widget coverage for appearance and relay queue
+- `a49cbf3` - docs: record phase 5.2 widget coverage progress
+- `ae03f15` - test: add settings screen widget coverage seam and suite
