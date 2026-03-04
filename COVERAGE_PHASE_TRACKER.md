@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 1 complete)
+Last updated: 2026-03-04 (Phase 2 in progress)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -25,6 +25,16 @@ Last updated: 2026-03-04 (Phase 1 complete)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
   - `lib/domain/services/chat_lifecycle_service.dart`: `61.64%` (`188/305`)
 
+## Phase 2 Snapshot (Targeted data/services scope)
+- Scope run: `00:11 +349: All tests passed!` via `flutter test --coverage --no-pub test/data/services`
+- Phase 2 target files:
+  - `lib/data/services/ble_message_handler_facade.dart`: `83.59%` (`214/256`)
+  - `lib/data/services/ble_message_handler_facade_impl.dart`: `77.64%` (`184/237`)
+  - `lib/data/services/ble_message_handler.dart`: `38.95%` (`111/285`)
+- Notes:
+  - Strong uplift delivered on seam/facade layers (`facade_impl` from prior `57.38%` to `77.64%` in this targeted scope).
+  - Remaining major Phase 2 gap is the monolithic handler core (`ble_message_handler.dart`).
+
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
@@ -40,6 +50,13 @@ Last updated: 2026-03-04 (Phase 1 complete)
 - [x] 1.4 Run targeted tests and coverage, then re-baseline
 - [x] 1.5 Run full suite sanity pass before phase-close checkpoint
 
+## Phase 2 Breakdown
+- [x] 2.1 Add `BLEMessageHandlerFacade` branch/fragment/binary tests
+- [x] 2.2 Add `BLEMessageHandlerFacadeImpl` seam/resolver/queue path tests
+- [x] 2.3 Run targeted `test/data/services` coverage and collect file metrics
+- [ ] 2.4 Increase `BLEMessageHandler` core coverage without real-device dependency
+- [ ] 2.5 Re-run full suite + coverage for global delta and phase-close decision
+
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
 - 2026-03-04: Added new suites:
@@ -49,6 +66,11 @@ Last updated: 2026-03-04 (Phase 1 complete)
 - 2026-03-04: Targeted run passed: `29` new/targeted tests.
 - 2026-03-04: Full-suite run with coverage passed: `1597` tests total.
 - 2026-03-04: Phase 1 marked complete (domain service coverage uplift delivered).
+- 2026-03-04: Phase 2 started with new seam-driven suites:
+  - `test/data/services/ble_message_handler_facade_test.dart`
+  - `test/data/services/ble_message_handler_facade_impl_test.dart`
+- 2026-03-04: Expanded Phase 2 coverage tests (resolver/queue/adapter branches).
+- 2026-03-04: Targeted service-layer coverage run passed: `349` tests total.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
