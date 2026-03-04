@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 2 complete)
+Last updated: 2026-03-04 (Phase 3 complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,14 +12,15 @@ Last updated: 2026-03-04 (Phase 2 complete)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:27 +1630: All tests passed!`
-- Overall coverage: `36.81% (15054/40892)`
-- Coverage delta vs baseline: `+3.32` points (`+1358` covered lines)
+- Full suite: `01:32 +1657: All tests passed!`
+- Overall coverage: `38.14% (15597/40892)`
+- Coverage delta vs baseline: `+4.65` points (`+1901` covered lines)
+- Coverage delta vs previous snapshot: `+1.33` points (`+543` covered lines)
 - Layer coverage:
   - `core`: `58.16%` (unchanged)
-  - `data`: `46.17%` (`+4.01` points)
-  - `domain`: `44.62%` (`+7.01` points)
-  - `presentation`: `8.93%` (unchanged)
+  - `data`: `50.79%` (`+8.63` points)
+  - `domain`: `44.63%` (`+7.02` points)
+  - `presentation`: `8.93%` (unchanged vs baseline)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
@@ -34,6 +35,21 @@ Last updated: 2026-03-04 (Phase 2 complete)
 - Notes:
   - Strong uplift delivered on seam/facade layers (`facade_impl` from prior `57.38%` to `77.64%` in this targeted scope).
   - Handler-core uplift delivered (`ble_message_handler.dart` from prior `38.95%` to `57.54%`).
+
+## Phase 3 Snapshot (Database/export/import hardening)
+- Scope run: `00:06 +23: All tests passed!` via targeted Phase 3 suite
+  - `flutter test --coverage --no-pub test/data/services/export_import test/data/database/database_backup_service_test.dart test/data/database/database_migration_runner_test.dart`
+- Additional adapter run: `00:00 +4: All tests passed!` (`test/data/services/export_import/export_import_adapter_test.dart`)
+- Full-suite validation: `01:32 +1657: All tests passed!`
+- Phase 3 target files:
+  - `lib/data/services/export_import/export_service.dart`: `87.88%` (`116/132`)
+  - `lib/data/services/export_import/import_service.dart`: `85.12%` (`143/168`)
+  - `lib/data/services/export_import/export_service_adapter.dart`: `100%` (`9/9`)
+  - `lib/data/services/export_import/import_service_adapter.dart`: `100%` (`5/5`)
+  - `lib/data/database/database_backup_service.dart`: `76.72%` (`145/189`)
+  - `lib/data/database/database_migration_runner.dart`: `100%` (`71/71`)
+  - `lib/data/services/export_import/selective_backup_service.dart`: `81.97%` (`100/122`)
+  - `lib/data/services/export_import/selective_restore_service.dart`: `82.20%` (`97/118`)
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -58,6 +74,14 @@ Last updated: 2026-03-04 (Phase 2 complete)
 - [x] 2.4b Drive deeper `BLEMessageHandler` core processing/error branches
 - [x] 2.5 Re-run full suite + coverage for global delta and phase-close decision
 
+## Phase 3 Breakdown
+- [x] 3.1 Add `ExportService` failure/success/list/cleanup coverage tests
+- [x] 3.2 Add `ImportService` validate/import failure-path tests + restore success-path coverage
+- [x] 3.3 Add `DatabaseBackupService` metadata/backup-due/cleanup/restore-checksum tests
+- [x] 3.4 Add `DatabaseMigrationRunner` migration-dispatch coverage tests
+- [x] 3.5 Add export/import adapter forwarding tests (`ExportServiceAdapter`, `ImportServiceAdapter`)
+- [x] 3.6 Re-run targeted coverage + full-suite coverage and phase-close decision
+
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
 - 2026-03-04: Added new suites:
@@ -75,6 +99,16 @@ Last updated: 2026-03-04 (Phase 2 complete)
 - 2026-03-04: Expanded handler coverage with callback accessor + friend-reveal fail-closed tests.
 - 2026-03-04: Targeted service-layer coverage run passed: `357` tests total.
 - 2026-03-04: Full-suite coverage run passed: `1630` tests total (`36.81%` overall).
+- 2026-03-04: Phase 3 started with new suites:
+  - `test/data/services/export_import/export_service_test.dart`
+  - `test/data/services/export_import/import_service_test.dart`
+  - `test/data/database/database_backup_service_test.dart`
+  - `test/data/database/database_migration_runner_test.dart`
+- 2026-03-04: Added adapter forwarding suite:
+  - `test/data/services/export_import/export_import_adapter_test.dart`
+- 2026-03-04: Phase 3 targeted coverage run passed: `23` tests total.
+- 2026-03-04: Full-suite coverage run passed: `1657` tests total (`38.14%` overall).
+- 2026-03-04: Phase 3 marked complete (data-layer coverage uplift delivered on export/import + backup/migration paths).
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -83,3 +117,4 @@ Last updated: 2026-03-04 (Phase 2 complete)
 - `46ed66a` - test: add phase 2 BLE message handler core coverage
 - `60fd308` - docs: record phase 2 checkpoint commits
 - `b65d530` - test: deepen phase 2 ble handler branch coverage
+- `1ca0503` - test: add phase 3 export-import and backup coverage suites
