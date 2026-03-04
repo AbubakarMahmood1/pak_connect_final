@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 4 complete)
+Last updated: 2026-03-04 (Phase 5 in progress)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -69,6 +69,19 @@ Last updated: 2026-03-04 (Phase 4 complete)
   - Added larger presentation coverage on `settings_controller` and `home_screen_view_model` (subphase 4.8b complete).
   - Presentation layer moved from baseline `8.93%` to `13.79%` after full-suite validation (subphase 4.9 complete).
 
+## Phase 5 Snapshot (Widget coverage wave 1)
+- Scope run: `00:04 +14: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/settings_widgets_test.dart`
+- Regression run: `00:06 +57: All tests passed!` via targeted presentation Phase 4 + Phase 5.1 batch
+- Phase 5.1 target files:
+  - `lib/presentation/widgets/settings/settings_section_header.dart`: `100%` (`8/8`)
+  - `lib/presentation/widgets/settings/privacy_section.dart`: `89.74%` (`35/39`)
+  - `lib/presentation/widgets/settings/notification_section.dart`: `81.25%` (`26/32`)
+  - `lib/presentation/widgets/settings/about_section.dart`: `96.88%` (`62/64`)
+  - `lib/presentation/widgets/settings/data_storage_section.dart`: `84.62%` (`132/156`)
+  - `lib/presentation/widgets/settings/developer_tools_section.dart`: `90.31%` (`177/196`)
+- Notes:
+  - This snapshot is from targeted coverage runs; global layer percentages remain based on the latest full-suite run in Phase 4.
+
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
@@ -111,6 +124,14 @@ Last updated: 2026-03-04 (Phase 4 complete)
 - [x] 4.8a Tackle `home_screen_providers` presentation provider-family coverage
 - [x] 4.8b Tackle larger presentation targets (`settings_controller`, `home_screen_view_model`)
 - [x] 4.9 Run full-suite coverage + phase-close decision
+
+## Phase 5 Breakdown
+- [x] 5.1 Add settings widget coverage suite (`settings_section_header`, `privacy_section`, `notification_section`, `about_section`, `data_storage_section`, `developer_tools_section`)
+- [ ] 5.2 Add `AppearanceSection` widget tests
+- [ ] 5.3 Add `RelayQueueWidget` widget tests (stream states + actions)
+- [ ] 5.4 Tackle one major screen-level target with fakes/seams
+- [ ] 5.5 Run targeted Phase 5 coverage suite and collect metrics
+- [ ] 5.6 Run full-suite coverage + phase-close decision
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -159,6 +180,10 @@ Last updated: 2026-03-04 (Phase 4 complete)
 - 2026-03-04: Phase 4 review hardening pass completed:
   - `flutter analyze --no-pub test/presentation/controllers/settings_controller_test.dart test/presentation/viewmodels/home_screen_view_model_test.dart test/presentation/providers/security_state_provider_test.dart` → clean
   - targeted presentation rerun passed: `00:03 +43: All tests passed!`
+- 2026-03-04: Phase 5 started with new settings widget suite:
+  - `test/presentation/widgets/settings_widgets_test.dart`
+- 2026-03-04: Phase 5.1 targeted coverage run passed: `00:04 +14: All tests passed!`
+- 2026-03-04: Phase 5.1 regression batch passed (Phase 4 + Phase 5.1 suites): `00:06 +57: All tests passed!`
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
