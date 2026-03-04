@@ -69,7 +69,7 @@ Last updated: 2026-03-04 (Phase 5 in progress)
   - Added larger presentation coverage on `settings_controller` and `home_screen_view_model` (subphase 4.8b complete).
   - Presentation layer moved from baseline `8.93%` to `13.79%` after full-suite validation (subphase 4.9 complete).
 
-## Phase 5 Snapshot (Widget coverage wave 1)
+## Phase 5 Snapshot (Widget coverage waves 1-2)
 - Scope run: `00:04 +14: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/settings_widgets_test.dart`
 - Regression run: `00:06 +57: All tests passed!` via targeted presentation Phase 4 + Phase 5.1 batch
 - Phase 5.1 target files:
@@ -79,8 +79,14 @@ Last updated: 2026-03-04 (Phase 5 in progress)
   - `lib/presentation/widgets/settings/about_section.dart`: `96.88%` (`62/64`)
   - `lib/presentation/widgets/settings/data_storage_section.dart`: `84.62%` (`132/156`)
   - `lib/presentation/widgets/settings/developer_tools_section.dart`: `90.31%` (`177/196`)
+- Scope run: `00:05 +22: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/settings_widgets_test.dart test/presentation/widgets/relay_queue_widget_test.dart`
+- Regression run: `00:06 +65: All tests passed!` via targeted presentation Phase 4 + Phase 5.1/5.2 batch
+- Phase 5.2 target files:
+  - `lib/presentation/widgets/settings/appearance_section.dart`: `96.15%` (`50/52`)
+  - `lib/presentation/widgets/relay_queue_widget.dart`: `90.52%` (`296/327`)
 - Notes:
-  - This snapshot is from targeted coverage runs; global layer percentages remain based on the latest full-suite run in Phase 4.
+  - Added an overflow-safe popup menu text fix in `relay_queue_widget` to keep menu entries stable on narrow layouts.
+  - Snapshot is from targeted coverage runs; global layer percentages remain based on the latest full-suite run in Phase 4.
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -127,10 +133,10 @@ Last updated: 2026-03-04 (Phase 5 in progress)
 
 ## Phase 5 Breakdown
 - [x] 5.1 Add settings widget coverage suite (`settings_section_header`, `privacy_section`, `notification_section`, `about_section`, `data_storage_section`, `developer_tools_section`)
-- [ ] 5.2 Add `AppearanceSection` widget tests
-- [ ] 5.3 Add `RelayQueueWidget` widget tests (stream states + actions)
+- [x] 5.2 Add `AppearanceSection` widget tests
+- [x] 5.3 Add `RelayQueueWidget` widget tests (stream states + actions)
 - [ ] 5.4 Tackle one major screen-level target with fakes/seams
-- [ ] 5.5 Run targeted Phase 5 coverage suite and collect metrics
+- [x] 5.5 Run targeted Phase 5 coverage suite and collect metrics (wave 1-2 scope)
 - [ ] 5.6 Run full-suite coverage + phase-close decision
 
 ## Progress Log
@@ -184,6 +190,12 @@ Last updated: 2026-03-04 (Phase 5 in progress)
   - `test/presentation/widgets/settings_widgets_test.dart`
 - 2026-03-04: Phase 5.1 targeted coverage run passed: `00:04 +14: All tests passed!`
 - 2026-03-04: Phase 5.1 regression batch passed (Phase 4 + Phase 5.1 suites): `00:06 +57: All tests passed!`
+- 2026-03-04: Expanded Phase 5 widget coverage with:
+  - `test/presentation/widgets/relay_queue_widget_test.dart`
+  - Added `AppearanceSection` coverage in `test/presentation/widgets/settings_widgets_test.dart`
+- 2026-03-04: Phase 5.2 targeted coverage run passed: `00:05 +22: All tests passed!`
+- 2026-03-04: Phase 5.2 regression batch passed (Phase 4 + Phase 5 widget suites): `00:06 +65: All tests passed!`
+- 2026-03-04: Hardened `relay_queue_widget` popup menu rows against text overflow in narrow menu widths.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -198,3 +210,5 @@ Last updated: 2026-03-04 (Phase 5 in progress)
 - `b64447e` - test: complete phase 4 presentation coverage suites
 - `d0f780a` - docs: record phase 4 completion coverage snapshot
 - `35efad0` - test: harden phase 4 suites and clean analyzer warnings
+- `dae1571` - test: start phase 5 with settings widget coverage
+- `f775680` - test: expand phase 5 widget coverage for appearance and relay queue
