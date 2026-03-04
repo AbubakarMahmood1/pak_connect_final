@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 5 in progress)
+Last updated: 2026-03-04 (Phase 5 complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-04 (Phase 5 in progress)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:33 +1698: All tests passed!`
-- Overall coverage: `39.96% (16342/40892)`
-- Coverage delta vs baseline: `+6.47` points (`+2646` covered lines)
-- Coverage delta vs previous snapshot: `+1.82` points (`+745` covered lines)
+- Full suite: `01:31 +1726: All tests passed!`
+- Overall coverage: `42.09% (17214/40896)`
+- Coverage delta vs baseline: `+8.60` points (`+3518` covered lines)
+- Coverage delta vs previous snapshot: `+2.13` points (`+872` covered lines)
 - Layer coverage:
   - `core`: `58.16%` (unchanged)
   - `data`: `50.79%` (`+8.63` points)
-  - `domain`: `46.15%` (`+8.54` points)
-  - `presentation`: `13.79%` (`+4.86` points)
+  - `domain`: `46.23%` (`+8.62` points)
+  - `presentation`: `21.37%` (`+12.44` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
@@ -91,7 +91,7 @@ Last updated: 2026-03-04 (Phase 5 in progress)
 - Notes:
   - Added an overflow-safe popup menu text fix in `relay_queue_widget` to keep menu entries stable on narrow layouts.
   - Added controller injection seam to `settings_screen` for deterministic widget testing without service-locator bootstrapping.
-  - Snapshot is from targeted coverage runs; global layer percentages remain based on the latest full-suite run in Phase 4.
+  - Full-suite coverage validation completed in Phase 5.6 (`01:31 +1726`) and reflected in the Current Snapshot.
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -142,7 +142,7 @@ Last updated: 2026-03-04 (Phase 5 in progress)
 - [x] 5.3 Add `RelayQueueWidget` widget tests (stream states + actions)
 - [x] 5.4 Tackle one major screen-level target with fakes/seams
 - [x] 5.5 Run targeted Phase 5 coverage suite and collect metrics (wave 1-3 scope)
-- [ ] 5.6 Run full-suite coverage + phase-close decision
+- [x] 5.6 Run full-suite coverage + phase-close decision
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -205,6 +205,8 @@ Last updated: 2026-03-04 (Phase 5 in progress)
   - `test/presentation/screens/settings_screen_test.dart`
 - 2026-03-04: Phase 5.4 targeted coverage run passed: `00:05 +26: All tests passed!`
 - 2026-03-04: Phase 5.4 regression batch passed (Phase 4 + Phase 5 suites): `00:06 +69: All tests passed!`
+- 2026-03-04: Phase 5.6 full-suite coverage run passed: `01:31 +1726: All tests passed!`, output captured in `flutter_test_latest.log`.
+- 2026-03-04: Phase 5 marked complete (presentation widget/screen coverage uplift delivered and globally validated).
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
