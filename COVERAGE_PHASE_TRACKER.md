@@ -255,3 +255,5 @@ Last updated: 2026-03-04 (Phase 5.8 discovery widget wave complete)
 - `9d71970` - docs: close phase 5 with full-suite coverage snapshot
 - `f6defbd` - test: add archive widget coverage and overflow-safe menu rows
 - `f3ade1c` - docs: record phase 5.7 archive widget coverage wave
+- `55eee66` - test: add discovery device tile widget coverage suite
+- `a0461f8` - docs: record phase 5.8 discovery widget coverage wave
