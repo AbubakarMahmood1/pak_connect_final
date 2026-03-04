@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 4 in progress)
+Last updated: 2026-03-04 (Phase 4 complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-04 (Phase 4 in progress)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:32 +1657: All tests passed!`
-- Overall coverage: `38.14% (15597/40892)`
-- Coverage delta vs baseline: `+4.65` points (`+1901` covered lines)
-- Coverage delta vs previous snapshot: `+1.33` points (`+543` covered lines)
+- Full suite: `01:33 +1698: All tests passed!`
+- Overall coverage: `39.96% (16342/40892)`
+- Coverage delta vs baseline: `+6.47` points (`+2646` covered lines)
+- Coverage delta vs previous snapshot: `+1.82` points (`+745` covered lines)
 - Layer coverage:
   - `core`: `58.16%` (unchanged)
   - `data`: `50.79%` (`+8.63` points)
-  - `domain`: `44.63%` (`+7.02` points)
-  - `presentation`: `8.93%` (unchanged vs baseline)
+  - `domain`: `46.15%` (`+8.54` points)
+  - `presentation`: `13.79%` (`+4.86` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
@@ -52,19 +52,22 @@ Last updated: 2026-03-04 (Phase 4 in progress)
   - `lib/data/services/export_import/selective_restore_service.dart`: `82.20%` (`97/118`)
 
 ## Phase 4 Snapshot (Presentation logic foundations)
-- Scope run: `00:04 +26: All tests passed!` via targeted Phase 4 suite
-  - `flutter test --coverage --no-pub test/presentation/controllers/chat_list_controller_test.dart test/presentation/notifiers/chat_session_state_notifier_test.dart test/presentation/providers/chat_notification_providers_test.dart test/presentation/providers/pinning_service_provider_test.dart test/presentation/providers/security_state_provider_test.dart test/presentation/providers/home_screen_providers_test.dart`
-- Phase 4 target files (subphase 4.1):
+- Scope run: `00:06 +41: All tests passed!` via targeted Phase 4 suite
+  - `flutter test --coverage --no-pub test/presentation/controllers/chat_list_controller_test.dart test/presentation/notifiers/chat_session_state_notifier_test.dart test/presentation/providers/chat_notification_providers_test.dart test/presentation/providers/pinning_service_provider_test.dart test/presentation/providers/security_state_provider_test.dart test/presentation/providers/home_screen_providers_test.dart test/presentation/controllers/settings_controller_test.dart test/presentation/viewmodels/home_screen_view_model_test.dart`
+- Full-suite validation: `01:33 +1698: All tests passed!` (captured in `flutter_test_latest.log`)
+- Phase 4 target files (final):
   - `lib/presentation/controllers/chat_list_controller.dart`: `100%` (`19/19`)
-  - `lib/presentation/notifiers/chat_session_state_notifier.dart`: `84.76%` (`89/105`)
+  - `lib/presentation/notifiers/chat_session_state_notifier.dart`: `89.52%` (`94/105`)
   - `lib/presentation/providers/chat_notification_providers.dart`: `95.45%` (`21/22`)
   - `lib/presentation/providers/pinning_service_provider.dart`: `71.43%` (`10/14`)
-  - `lib/presentation/providers/security_state_provider.dart`: `33.33%` (`21/63`)
+  - `lib/presentation/providers/security_state_provider.dart`: `88.89%` (`56/63`)
   - `lib/presentation/providers/home_screen_providers.dart`: `82.61%` (`38/46`)
+  - `lib/presentation/controllers/settings_controller.dart`: `78.19%` (`190/243`)
+  - `lib/presentation/viewmodels/home_screen_view_model.dart`: `73.80%` (`138/187`)
 - Notes:
-  - Delivered major uplift on previously zero-coverage files for controller/notifier/provider seams.
-  - Added `home_screen_providers` family coverage for provider wiring, overrides, and facade lifecycle.
-  - `security_state_provider.dart` remains partial and will be expanded in a follow-up subphase focused on live/repository-mode state computation.
+  - Expanded `security_state_provider` to cover repository/live/asymmetric/cache-invalidation paths (subphase 4.7 complete).
+  - Added larger presentation coverage on `settings_controller` and `home_screen_view_model` (subphase 4.8b complete).
+  - Presentation layer moved from baseline `8.93%` to `13.79%` after full-suite validation (subphase 4.9 complete).
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -104,10 +107,10 @@ Last updated: 2026-03-04 (Phase 4 in progress)
 - [x] 4.4 Add `PinningServiceProvider` build/stream/dispose tests
 - [x] 4.5 Add initial `SecurityStateProvider` helper/cache utility tests
 - [x] 4.6 Run targeted Phase 4 coverage suite and collect per-file metrics
-- [ ] 4.7 Expand `SecurityStateProvider` compute-path coverage (live/repository/cache invalidation)
+- [x] 4.7 Expand `SecurityStateProvider` compute-path coverage (live/repository/cache invalidation)
 - [x] 4.8a Tackle `home_screen_providers` presentation provider-family coverage
-- [ ] 4.8b Tackle larger presentation targets (`settings_controller`, `home_screen_view_model`)
-- [ ] 4.9 Run full-suite coverage + phase-close decision
+- [x] 4.8b Tackle larger presentation targets (`settings_controller`, `home_screen_view_model`)
+- [x] 4.9 Run full-suite coverage + phase-close decision
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -146,6 +149,13 @@ Last updated: 2026-03-04 (Phase 4 in progress)
   - `test/presentation/providers/home_screen_providers_test.dart`
 - 2026-03-04: Phase 4 targeted coverage run passed: `26` tests total.
 - 2026-03-04: Phase 4 subphase 4.1/4.8a marked complete (presentation foundations + home provider uplift delivered).
+- 2026-03-04: Expanded Phase 4 with larger presentation suites:
+  - `test/presentation/controllers/settings_controller_test.dart`
+  - `test/presentation/viewmodels/home_screen_view_model_test.dart`
+- 2026-03-04: Expanded `security_state_provider` compute-path coverage (live/repository/asymmetric/cache invalidation).
+- 2026-03-04: Phase 4 targeted coverage run passed: `41` tests total.
+- 2026-03-04: Full-suite coverage run passed: `1698` tests total (`39.96%` overall), output captured in `flutter_test_latest.log`.
+- 2026-03-04: Phase 4 marked complete (presentation-layer uplift delivered across controllers/providers/viewmodels).
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -157,3 +167,4 @@ Last updated: 2026-03-04 (Phase 4 in progress)
 - `1ca0503` - test: add phase 3 export-import and backup coverage suites
 - `2c1249d` - test: add phase 4 presentation coverage foundations
 - `e43307c` - test: add home screen providers coverage suite
+- `b64447e` - test: complete phase 4 presentation coverage suites
