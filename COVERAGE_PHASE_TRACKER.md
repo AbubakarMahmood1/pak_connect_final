@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 3 complete)
+Last updated: 2026-03-04 (Phase 4 in progress)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -51,6 +51,19 @@ Last updated: 2026-03-04 (Phase 3 complete)
   - `lib/data/services/export_import/selective_backup_service.dart`: `81.97%` (`100/122`)
   - `lib/data/services/export_import/selective_restore_service.dart`: `82.20%` (`97/118`)
 
+## Phase 4 Snapshot (Presentation logic foundations)
+- Scope run: `00:03 +21: All tests passed!` via targeted Phase 4 suite
+  - `flutter test --coverage --no-pub test/presentation/controllers/chat_list_controller_test.dart test/presentation/notifiers/chat_session_state_notifier_test.dart test/presentation/providers/chat_notification_providers_test.dart test/presentation/providers/pinning_service_provider_test.dart test/presentation/providers/security_state_provider_test.dart`
+- Phase 4 target files (subphase 4.1):
+  - `lib/presentation/controllers/chat_list_controller.dart`: `100%` (`19/19`)
+  - `lib/presentation/notifiers/chat_session_state_notifier.dart`: `84.76%` (`89/105`)
+  - `lib/presentation/providers/chat_notification_providers.dart`: `95.45%` (`21/22`)
+  - `lib/presentation/providers/pinning_service_provider.dart`: `71.43%` (`10/14`)
+  - `lib/presentation/providers/security_state_provider.dart`: `33.33%` (`21/63`)
+- Notes:
+  - Delivered major uplift on previously zero-coverage files for controller/notifier/provider seams.
+  - `security_state_provider.dart` remains partial and will be expanded in a follow-up subphase focused on live/repository-mode state computation.
+
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
@@ -82,6 +95,17 @@ Last updated: 2026-03-04 (Phase 3 complete)
 - [x] 3.5 Add export/import adapter forwarding tests (`ExportServiceAdapter`, `ImportServiceAdapter`)
 - [x] 3.6 Re-run targeted coverage + full-suite coverage and phase-close decision
 
+## Phase 4 Breakdown
+- [x] 4.1 Add `ChatListController` merge/sort/surgical-update tests
+- [x] 4.2 Add `ChatSessionStateStore` lifecycle/state mutation tests
+- [x] 4.3 Add `ChatNotificationProviders` stream bridge tests
+- [x] 4.4 Add `PinningServiceProvider` build/stream/dispose tests
+- [x] 4.5 Add initial `SecurityStateProvider` helper/cache utility tests
+- [x] 4.6 Run targeted Phase 4 coverage suite and collect per-file metrics
+- [ ] 4.7 Expand `SecurityStateProvider` compute-path coverage (live/repository/cache invalidation)
+- [ ] 4.8 Tackle larger presentation targets (`home_screen_providers`, `settings_controller`, `home_screen_view_model`)
+- [ ] 4.9 Run full-suite coverage + phase-close decision
+
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
 - 2026-03-04: Added new suites:
@@ -109,6 +133,14 @@ Last updated: 2026-03-04 (Phase 3 complete)
 - 2026-03-04: Phase 3 targeted coverage run passed: `23` tests total.
 - 2026-03-04: Full-suite coverage run passed: `1657` tests total (`38.14%` overall).
 - 2026-03-04: Phase 3 marked complete (data-layer coverage uplift delivered on export/import + backup/migration paths).
+- 2026-03-04: Phase 4 started with new presentation suites:
+  - `test/presentation/controllers/chat_list_controller_test.dart`
+  - `test/presentation/notifiers/chat_session_state_notifier_test.dart`
+  - `test/presentation/providers/chat_notification_providers_test.dart`
+  - `test/presentation/providers/pinning_service_provider_test.dart`
+  - `test/presentation/providers/security_state_provider_test.dart`
+- 2026-03-04: Phase 4 targeted coverage run passed: `21` tests total.
+- 2026-03-04: Phase 4 subphase 4.1 marked complete (presentation foundations uplift delivered).
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -118,3 +150,4 @@ Last updated: 2026-03-04 (Phase 3 complete)
 - `60fd308` - docs: record phase 2 checkpoint commits
 - `b65d530` - test: deepen phase 2 ble handler branch coverage
 - `1ca0503` - test: add phase 3 export-import and backup coverage suites
+- `<pending>` - test: add phase 4 presentation controller/notifier/provider coverage foundations
