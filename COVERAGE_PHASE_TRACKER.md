@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 5.9 discovery view/scanner wave complete)
+Last updated: 2026-03-04 (full-suite re-review + phase calibration refresh)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-04 (Phase 5.9 discovery view/scanner wave complete)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:31 +1726: All tests passed!`
-- Overall coverage: `42.09% (17214/40896)`
-- Coverage delta vs baseline: `+8.60` points (`+3518` covered lines)
-- Coverage delta vs previous snapshot: `+2.13` points (`+872` covered lines)
+- Full suite: `01:29 +1755: All tests passed!`
+- Overall coverage: `44.74% (18297/40898)`
+- Coverage delta vs baseline: `+11.25` points (`+4601` covered lines)
+- Coverage delta vs previous snapshot: `+2.65` points (`+1083` covered lines)
 - Layer coverage:
   - `core`: `58.16%` (unchanged)
   - `data`: `50.79%` (`+8.63` points)
-  - `domain`: `46.23%` (`+8.62` points)
-  - `presentation`: `21.37%` (`+12.44` points)
+  - `domain`: `46.41%` (`+8.80` points)
+  - `presentation`: `30.70%` (`+21.77` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
@@ -110,7 +110,37 @@ Last updated: 2026-03-04 (Phase 5.9 discovery view/scanner wave complete)
   - Added non-device `DiscoveryDeviceTile` coverage for tap-state transitions, role/connection badges, and contact-resolution branches.
   - Added non-device discovery surface coverage for `DiscoveryHeader`, `DiscoveryPeripheralView`, and `DiscoveryScannerView` with provider overrides and fakes.
   - Added controller injection seam to `settings_screen` for deterministic widget testing without service-locator bootstrapping.
-  - Full-suite coverage validation completed in Phase 5.6 (`01:31 +1726`) and reflected in the Current Snapshot.
+  - Phase 5.6 full-suite checkpoint remained `01:31 +1726` (`42.09%`) and was later superseded by the full-suite re-review snapshot (`01:29 +1755`, `44.74%`).
+
+## Phase Calibration (Rebased To `44.74%`)
+- Why this refresh was needed:
+  - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
+  - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI files.
+- Full-suite checkpoint progression:
+  - Baseline: `33.49%` (`13696/40892`)
+  - Phase 2 close (includes Phase 1 + 2 uplift): `36.81%` (`+3.32`)
+  - Phase 3 close: `38.14%` (`+1.33`)
+  - Phase 4 close: `39.96%` (`+1.82`)
+  - Phase 5.6 close: `42.09%` (`+2.13`)
+  - Phase 5.9 re-review snapshot: `44.74%` (`+2.65`)
+- Recalibrated no-device coverage ranges (global):
+  - Remaining Phase 5 ROI waves (major presentation screens/widgets): target `47% - 50%`
+  - Phase 6 no-device service/provider hardening (domain/data/core seams): target `50% - 53%`
+  - Phase 7 long-tail branch/error-path closure (high-cost leftovers): target `53% - 56%`
+  - Real-device phase (later) should focus on behavioral confidence, not expecting large line-coverage jumps.
+- Current highest-uncovered ROI files (from latest full-suite lcov):
+  - `lib/presentation/screens/home_screen.dart` (`0/438`)
+  - `lib/core/app_core.dart` (`58/433`)
+  - `lib/presentation/screens/chat_screen.dart` (`0/324`)
+  - `lib/presentation/services/chat_interaction_handler.dart` (`9/320`)
+  - `lib/domain/services/device_deduplication_manager.dart` (`14/312`)
+  - `lib/presentation/screens/archive_screen.dart` (`0/285`)
+  - `lib/presentation/screens/contact_detail_screen.dart` (`0/283`)
+  - `lib/presentation/screens/network_topology_screen.dart` (`1/283`)
+  - `lib/presentation/screens/contacts_screen.dart` (`1/280`)
+  - `lib/presentation/widgets/archive_search_delegate.dart` (`0/276`)
+  - `lib/presentation/widgets/discovery_overlay.dart` (`0/215`)
+  - `lib/presentation/providers/ble_providers.dart` (`35/298`)
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -245,6 +275,8 @@ Last updated: 2026-03-04 (Phase 5.9 discovery view/scanner wave complete)
 - 2026-03-04: Phase 5.9 targeted coverage run passed: `00:03 +14: All tests passed!`
 - 2026-03-04: Phase 5.9 widget regression batch passed: `00:07 +55: All tests passed!`
 - 2026-03-04: `flutter analyze --no-pub test/presentation/widgets/discovery_scanner_view_test.dart test/presentation/widgets/discovery_views_test.dart` passed clean.
+- 2026-03-04: Full-suite re-review with coverage passed: `01:29 +1755: All tests passed!`, output captured in `flutter_test_latest.log`.
+- 2026-03-04: Recalibrated phase expectations to range-based no-device targets from refreshed `44.74%` snapshot.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -275,3 +307,4 @@ Last updated: 2026-03-04 (Phase 5.9 discovery view/scanner wave complete)
 - `c75022e` - docs: add phase 5.8 checkpoint hashes
 - `0b8063e` - test: add discovery scanner and view widget coverage suites
 - `690a43f` - docs: record phase 5.9 discovery scanner coverage wave
+- `ea2e76c` - docs: add phase 5.9 checkpoint hashes
