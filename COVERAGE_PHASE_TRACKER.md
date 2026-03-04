@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 5 complete)
+Last updated: 2026-03-04 (Phase 5.7 archive widget wave complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -69,7 +69,7 @@ Last updated: 2026-03-04 (Phase 5 complete)
   - Added larger presentation coverage on `settings_controller` and `home_screen_view_model` (subphase 4.8b complete).
   - Presentation layer moved from baseline `8.93%` to `13.79%` after full-suite validation (subphase 4.9 complete).
 
-## Phase 5 Snapshot (Widget coverage waves 1-3)
+## Phase 5 Snapshot (Widget coverage waves 1-4)
 - Scope run: `00:04 +14: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/settings_widgets_test.dart`
 - Regression run: `00:06 +57: All tests passed!` via targeted presentation Phase 4 + Phase 5.1 batch
 - Phase 5.1 target files:
@@ -88,8 +88,15 @@ Last updated: 2026-03-04 (Phase 5 complete)
 - Regression run: `00:06 +69: All tests passed!` via targeted presentation Phase 4 + Phase 5.1/5.2/5.4 batch
 - Phase 5.4 target file:
   - `lib/presentation/screens/settings_screen.dart`: `67.65%` (`46/68`)
+- Scope run: `00:03 +15: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/archive_widgets_test.dart`
+- Regression run: `00:08 +41: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets test/presentation/screens/settings_screen_test.dart`
+- Phase 5.7 target files:
+  - `lib/presentation/widgets/archive_statistics_card.dart`: `98.66%` (`221/224`)
+  - `lib/presentation/widgets/archive_context_menu.dart`: `100%` (`146/146`)
+  - `lib/presentation/widgets/archived_chat_tile.dart`: `93.50%` (`187/200`)
 - Notes:
   - Added an overflow-safe popup menu text fix in `relay_queue_widget` to keep menu entries stable on narrow layouts.
+  - Added overflow-safe popup menu labels in `archive_context_menu` and a narrow-width-safe progress row in `archive_statistics_card`.
   - Added controller injection seam to `settings_screen` for deterministic widget testing without service-locator bootstrapping.
   - Full-suite coverage validation completed in Phase 5.6 (`01:31 +1726`) and reflected in the Current Snapshot.
 
@@ -143,6 +150,7 @@ Last updated: 2026-03-04 (Phase 5 complete)
 - [x] 5.4 Tackle one major screen-level target with fakes/seams
 - [x] 5.5 Run targeted Phase 5 coverage suite and collect metrics (wave 1-3 scope)
 - [x] 5.6 Run full-suite coverage + phase-close decision
+- [x] 5.7 Add archive widget coverage wave (`ArchiveStatisticsCard`, `ArchivedChatTile`, `ArchiveContextMenu`) and run widget regression batch
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -207,6 +215,11 @@ Last updated: 2026-03-04 (Phase 5 complete)
 - 2026-03-04: Phase 5.4 regression batch passed (Phase 4 + Phase 5 suites): `00:06 +69: All tests passed!`
 - 2026-03-04: Phase 5.6 full-suite coverage run passed: `01:31 +1726: All tests passed!`, output captured in `flutter_test_latest.log`.
 - 2026-03-04: Phase 5 marked complete (presentation widget/screen coverage uplift delivered and globally validated).
+- 2026-03-04: Added archive widget suite:
+  - `test/presentation/widgets/archive_widgets_test.dart`
+- 2026-03-04: Phase 5.7 targeted coverage run passed: `00:03 +15: All tests passed!`
+- 2026-03-04: Phase 5.7 widget regression batch passed: `00:08 +41: All tests passed!`
+- 2026-03-04: `flutter analyze --no-pub` on archive widget files/tests passed clean.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -218,10 +231,14 @@ Last updated: 2026-03-04 (Phase 5 complete)
 - `1ca0503` - test: add phase 3 export-import and backup coverage suites
 - `2c1249d` - test: add phase 4 presentation coverage foundations
 - `e43307c` - test: add home screen providers coverage suite
+- `cfc3695` - docs: record home screen providers checkpoint
 - `b64447e` - test: complete phase 4 presentation coverage suites
 - `d0f780a` - docs: record phase 4 completion coverage snapshot
 - `35efad0` - test: harden phase 4 suites and clean analyzer warnings
+- `a4f9cd2` - docs: log phase 4 review hardening pass
 - `dae1571` - test: start phase 5 with settings widget coverage
 - `f775680` - test: expand phase 5 widget coverage for appearance and relay queue
 - `a49cbf3` - docs: record phase 5.2 widget coverage progress
 - `ae03f15` - test: add settings screen widget coverage seam and suite
+- `91dc209` - docs: record phase 5.4 settings screen coverage progress
+- `9d71970` - docs: close phase 5 with full-suite coverage snapshot
