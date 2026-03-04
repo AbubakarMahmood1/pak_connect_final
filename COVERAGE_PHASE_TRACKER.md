@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (Phase 2 in progress)
+Last updated: 2026-03-04 (Phase 2 complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,13 +12,13 @@ Last updated: 2026-03-04 (Phase 2 in progress)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:21 +1597: All tests passed!`
-- Overall coverage: `35.64% (14573/40892)`
-- Coverage delta vs baseline: `+2.15` points (`+877` covered lines)
+- Full suite: `01:27 +1630: All tests passed!`
+- Overall coverage: `36.81% (15054/40892)`
+- Coverage delta vs baseline: `+3.32` points (`+1358` covered lines)
 - Layer coverage:
   - `core`: `58.16%` (unchanged)
-  - `data`: `42.16%` (unchanged)
-  - `domain`: `44.54%` (`+6.93` points)
+  - `data`: `46.17%` (`+4.01` points)
+  - `domain`: `44.62%` (`+7.01` points)
   - `presentation`: `8.93%` (unchanged)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
@@ -56,7 +56,7 @@ Last updated: 2026-03-04 (Phase 2 in progress)
 - [x] 2.3 Run targeted `test/data/services` coverage and collect file metrics
 - [x] 2.4a Add direct `BLEMessageHandler` non-device wrapper/QR/relay tests
 - [x] 2.4b Drive deeper `BLEMessageHandler` core processing/error branches
-- [ ] 2.5 Re-run full suite + coverage for global delta and phase-close decision
+- [x] 2.5 Re-run full suite + coverage for global delta and phase-close decision
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -74,9 +74,12 @@ Last updated: 2026-03-04 (Phase 2 in progress)
 - 2026-03-04: Added `test/data/services/ble_message_handler_test.dart` for handler-core non-device paths.
 - 2026-03-04: Expanded handler coverage with callback accessor + friend-reveal fail-closed tests.
 - 2026-03-04: Targeted service-layer coverage run passed: `357` tests total.
+- 2026-03-04: Full-suite coverage run passed: `1630` tests total (`36.81%` overall).
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
 - `6d75142` - test: add phase 1 service coverage suites
 - `6e34216` - test: expand phase 2 BLE handler facade coverage
 - `46ed66a` - test: add phase 2 BLE message handler core coverage
+- `60fd308` - docs: record phase 2 checkpoint commits
+- `b65d530` - test: deepen phase 2 ble handler branch coverage
