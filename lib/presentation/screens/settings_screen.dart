@@ -17,7 +17,10 @@ import '../widgets/settings/privacy_section.dart';
 import '../widgets/settings/settings_section_header.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.controller});
+
+  /// Optional controller injection seam for tests.
+  final SettingsController? controller;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -26,11 +29,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _logger = Logger('SettingsScreen');
   late final SettingsController _controller;
+  late final bool _ownsController;
 
   @override
   void initState() {
     super.initState();
-    _controller = SettingsController(logger: _logger)
+    _ownsController = widget.controller == null;
+    _controller = widget.controller ?? SettingsController(logger: _logger);
+    _controller
       ..addListener(_onControllerChanged)
       ..initialize();
   }
@@ -41,9 +47,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   void dispose() {
-    _controller
-      ..removeListener(_onControllerChanged)
-      ..dispose();
+    _controller.removeListener(_onControllerChanged);
+    if (_ownsController) {
+      _controller.dispose();
+    }
     super.dispose();
   }
 
