@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
-import 'package:mockito/mockito.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -29,9 +28,6 @@ class _FakeContactRepository extends Fake implements IContactRepository {
     securityLevelCalls++;
     return securityLevelById[publicKey] ?? SecurityLevel.low;
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeConnectionService extends Fake implements IConnectionService {
@@ -58,9 +54,6 @@ class _FakeConnectionService extends Fake implements IConnectionService {
 
   @override
   String? get theirEphemeralId => ephemeralId;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeConnectionStateManager {

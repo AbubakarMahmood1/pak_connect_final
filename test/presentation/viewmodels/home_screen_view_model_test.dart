@@ -4,13 +4,11 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_home_screen_facade.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/connection_status.dart';
-import 'package:pak_connect/domain/services/chat_management_models.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/presentation/models/home_screen_state.dart';
@@ -51,9 +49,6 @@ class _FakeChatsRepository extends Fake implements IChatsRepository {
 
     return <ChatListItem>[];
   }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeChatManagementService extends Fake implements ChatManagementService {
@@ -228,10 +223,8 @@ List<ChatListItem> _chatPage(int count, {required String prefix}) {
 }
 
 Future<void> _settleAsync(WidgetTester tester) async {
-  await tester.runAsync(() async {
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-  });
   await tester.pump();
+  await tester.pump(const Duration(milliseconds: 1));
 }
 
 Future<({ProviderContainer container, HomeScreenProviderArgs args})>
