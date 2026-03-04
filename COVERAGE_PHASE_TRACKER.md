@@ -156,6 +156,9 @@ Last updated: 2026-03-04 (Phase 4 complete)
 - 2026-03-04: Phase 4 targeted coverage run passed: `41` tests total.
 - 2026-03-04: Full-suite coverage run passed: `1698` tests total (`39.96%` overall), output captured in `flutter_test_latest.log`.
 - 2026-03-04: Phase 4 marked complete (presentation-layer uplift delivered across controllers/providers/viewmodels).
+- 2026-03-04: Phase 4 review hardening pass completed:
+  - `flutter analyze --no-pub test/presentation/controllers/settings_controller_test.dart test/presentation/viewmodels/home_screen_view_model_test.dart test/presentation/providers/security_state_provider_test.dart` → clean
+  - targeted presentation rerun passed: `00:03 +43: All tests passed!`
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -168,3 +171,5 @@ Last updated: 2026-03-04 (Phase 4 complete)
 - `2c1249d` - test: add phase 4 presentation coverage foundations
 - `e43307c` - test: add home screen providers coverage suite
 - `b64447e` - test: complete phase 4 presentation coverage suites
+- `d0f780a` - docs: record phase 4 completion coverage snapshot
+- `35efad0` - test: harden phase 4 suites and clean analyzer warnings
