@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 8.2 targeted contacts/detail wave complete)
+Last updated: 2026-03-05 (Phase 8.4 full-suite rebaseline complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-05 (Phase 8.2 targeted contacts/detail wave complete)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:06 +1903: All tests passed!`
-- Overall coverage: `53.86% (22032/40907)`
-- Coverage delta vs baseline: `+20.37` points (`+8336` covered lines)
-- Coverage delta vs previous snapshot: `+0.83` points (`+340` covered lines)
+- Full suite: `02:13 +1937: All tests passed!`
+- Overall coverage: `57.84% (23662/40911)`
+- Coverage delta vs baseline: `+24.35` points (`+9966` covered lines)
+- Coverage delta vs previous snapshot: `+3.98` points (`+1630` covered lines)
 - Layer coverage:
   - core: `59.38%` (unchanged)
   - data: `53.40%` (unchanged)
-  - domain: `58.95%` (`+2.69` points)
-  - presentation: `46.33%` (`-0.01` points)
+  - domain: `60.02%` (`+1.07` points)
+  - presentation: `59.45%` (`+13.12` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
@@ -150,7 +150,7 @@ Last updated: 2026-03-05 (Phase 8.2 targeted contacts/detail wave complete)
   - Phase 6 pushed global coverage past the 50% milestone to `51.75%` without real-device tests.
   - Biggest direct lifts in this wave were in `permission_screen`, `profile_screen`, `mesh_networking_provider`, `app_core`, and `ble_providers`.
 
-## Phase Calibration (Rebased To `53.86%`)
+## Phase Calibration (Rebased To `57.84%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
   - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI and BLE state-management files.
@@ -169,33 +169,34 @@ Last updated: 2026-03-05 (Phase 8.2 targeted contacts/detail wave complete)
   - Phase 6.5 no-device full-suite rebaseline: `51.75%` (`+1.75`)
   - Phase 7.3 no-device BLE runtime wave rebaseline: `53.03%` (`+1.28`)
   - Phase 7.5 no-device full-suite rebaseline: `53.86%` (`+0.83`)
+  - Phase 8.4 no-device full-suite rebaseline: `57.84%` (`+3.98`)
 - Recalibrated no-device coverage ranges (global):
   - Phase 6 milestone reached: `51.75%` global coverage achieved.
   - Phase 7 no-device BLE/data state-management seams: target `52% - 54%` (completed at `53.86%`)
-  - Phase 8 no-device large-screen/controller harness waves: target `54% - 56.5%`
-  - Phase 9 long-tail branch/error-path closure: target `56.5% - 59%`
+  - Phase 8 no-device large-screen/controller harness waves: target `54% - 56.5%` (completed at `57.84%`)
+  - Phase 9 long-tail branch/error-path closure: target `57.8% - 60%`
   - Real-device phase (later) should focus on behavioral confidence and integration reliability.
 - Current highest-uncovered ROI files (from latest full-suite lcov):
-  - `lib/presentation/screens/home_screen.dart` (`0/438`)
   - `lib/presentation/screens/chat_screen.dart` (`0/324`)
   - `lib/core/app_core.dart` (`118/433`)
-  - `lib/presentation/screens/archive_screen.dart` (`0/285`)
-  - `lib/presentation/screens/contact_detail_screen.dart` (`0/283`)
-  - `lib/presentation/screens/network_topology_screen.dart` (`1/283`)
-  - `lib/presentation/screens/contacts_screen.dart` (`1/280`)
   - `lib/data/services/ble_state_manager.dart` (`102/380`)
-  - `lib/presentation/providers/ble_providers.dart` (`75/298`)
+  - `lib/presentation/providers/ble_providers.dart` (`89/298`)
   - `lib/core/services/security_manager.dart` (`119/326`)
   - `lib/data/services/ble_state_manager_facade.dart` (`82/274`)
   - `lib/data/database/database_helper.dart` (`92/272`)
-  - `lib/data/repositories/group_repository.dart` (`0/177`)
   - `lib/presentation/widgets/message_bubble.dart` (`0/177`)
+  - `lib/data/repositories/group_repository.dart` (`0/177`)
   - `lib/data/services/ble_service_facade.dart` (`310/484`)
   - `lib/domain/services/background_notification_handler_impl.dart` (`0/171`)
   - `lib/presentation/screens/qr_contact_screen.dart` (`1/167`)
   - `lib/presentation/controllers/chat_session_lifecycle.dart` (`135/298`)
   - `lib/presentation/screens/group_chat_screen.dart` (`0/160`)
   - `lib/data/services/pairing_flow_controller.dart` (`61/220`)
+  - `lib/data/services/ble_facade_lifecycle_coordinator.dart` (`44/202`)
+  - `lib/presentation/screens/home_screen.dart` (`287/442`)
+  - `lib/data/services/outbound_message_sender.dart` (`213/368`)
+  - `lib/domain/routing/connection_quality_monitor.dart` (`50/201`)
+  - `lib/data/services/ble_handshake_service.dart` (`91/239`)
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
@@ -204,7 +205,7 @@ Last updated: 2026-03-05 (Phase 8.2 targeted contacts/detail wave complete)
 - Phase 5: Widget tests for highest-uncovered screens/widgets
 - Phase 6: No-device screen/provider/core guardrail expansion (completed)
 - Phase 7: BLE/data state-manager seam hardening (no-device, completed)
-- Phase 8: Large screen/controller coverage waves (no-device)
+- Phase 8: Large screen/controller coverage waves (no-device, completed)
 - Phase 9: Long-tail branch/error-path closure (no-device)
 - Phase 10: Real-device validation (when hardware is available)
 
@@ -321,10 +322,10 @@ Last updated: 2026-03-05 (Phase 8.2 targeted contacts/detail wave complete)
 ## Phase 8 Breakdown
 - [x] 8.1 Build `home_screen` harness with provider overrides/fakes and cover startup/search/filter branches
 - [x] 8.2 Add `contacts_screen` + `contact_detail_screen` high-value UI state coverage
-- [ ] 8.3 Add `archive_screen` + `network_topology_screen` screen-level coverage with fake services
-- [ ] 8.4 Run full-suite coverage pass and refresh Phase 9 roadmap
+- [x] 8.3 Add `archive_screen` + `network_topology_screen` screen-level coverage with fake services
+- [x] 8.4 Run full-suite coverage pass and refresh Phase 9 roadmap
 
-## Phase 8 Snapshot (8.1/8.2 Targeted)
+## Phase 8 Snapshot (8.1-8.4 Targeted + Full-Suite)
 - Targeted green run (8.1 + home-controller regression): `00:02 +14: All tests passed!`
   - `flutter test --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart`
 - Targeted coverage run (8.1 + home-controller regression): `00:04 +14: All tests passed!`
@@ -333,20 +334,36 @@ Last updated: 2026-03-05 (Phase 8.2 targeted contacts/detail wave complete)
   - `flutter test --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/screens/contacts_screen_test.dart test/presentation/screens/contact_detail_screen_test.dart`
 - Targeted coverage run (8.1/8.2 + home-controller regression): `00:06 +32: All tests passed!`
   - `flutter test --coverage --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/screens/contacts_screen_test.dart test/presentation/screens/contact_detail_screen_test.dart`
-- Targeted file snapshot (8.1/8.2 run):
+- Targeted green run (8.1-8.3 + home-controller regression): `00:06 +41: All tests passed!`
+  - `flutter test --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/screens/contacts_screen_test.dart test/presentation/screens/contact_detail_screen_test.dart test/presentation/screens/archive_screen_test.dart test/presentation/screens/network_topology_screen_test.dart`
+- Targeted coverage run (8.1-8.3 + home-controller regression): `00:08 +41: All tests passed!`
+  - `flutter test --coverage --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/screens/contacts_screen_test.dart test/presentation/screens/contact_detail_screen_test.dart test/presentation/screens/archive_screen_test.dart test/presentation/screens/network_topology_screen_test.dart`
+- Full-suite checkpoint after 8.4: `02:13 +1937: All tests passed!`
+  - `flutter test --coverage --no-pub` (captured in `flutter_test_latest.log`)
+- Targeted file snapshot (latest full-suite run):
   - `lib/presentation/screens/home_screen.dart`: `64.93%` (`287/442`)
   - `lib/presentation/screens/contacts_screen.dart`: `79.29%` (`222/280`)
   - `lib/presentation/screens/contact_detail_screen.dart`: `91.87%` (`260/283`)
+  - `lib/presentation/screens/archive_screen.dart`: `68.42%` (`195/285`)
+  - `lib/presentation/screens/network_topology_screen.dart`: `92.93%` (`263/283`)
   - `lib/presentation/controllers/home_screen_controller.dart`: `62.86%` (`132/210`)
-  - `lib/presentation/viewmodels/home_screen_view_model.dart`: `49.73%` (`93/187`)
-  - `lib/presentation/providers/home_screen_providers.dart`: `10.87%` (`5/46`)
 - Notes:
   - Added `test/presentation/screens/home_screen_test.dart` to cover startup/loading, BLE banner, search toggle/clear, menu actions, relay-tab UI, and discovery-overlay entry.
   - Added optional `HomeScreen` dependency injection seam (`chatsRepository`, `chatManagementService`) for deterministic no-device screen harnessing without changing default runtime behavior.
   - Added `test/presentation/screens/contacts_screen_test.dart` for loading/error/empty/list/search/filter/sort contact-screen UI states with provider overrides.
   - Added `test/presentation/screens/contact_detail_screen_test.dart` for detail loading/error/not-found/action flows (verify/reset/delete/copy) with no-device fakes.
+  - Added `test/presentation/screens/archive_screen_test.dart` for archive screen loading/empty/error/search/menu/operation indicator states with no-device notifier overrides.
+  - Added `test/presentation/screens/network_topology_screen_test.dart` for topology dashboard/list/refresh/stream-update screen flows with `TopologyManager` test-mode data.
 
 ## Progress Log
+- 2026-03-05: Phase 8.4 full-suite coverage rebaseline completed:
+  - Full-suite run: `02:13 +1937: All tests passed!` (captured in `flutter_test_latest.log`)
+  - Overall coverage: `57.84% (23662/40911)`
+- 2026-03-05: Phase 8.3 completed with new screen harness suites:
+  - `test/presentation/screens/archive_screen_test.dart`
+  - `test/presentation/screens/network_topology_screen_test.dart`
+- 2026-03-05: Phase 8.3 targeted run passed: `00:06 +41: All tests passed!`
+- 2026-03-05: Phase 8.3 targeted coverage run passed: `00:08 +41: All tests passed!`
 - 2026-03-05: Phase 8.2 completed with new screen harness suites:
   - `test/presentation/screens/contacts_screen_test.dart`
   - `test/presentation/screens/contact_detail_screen_test.dart`
@@ -556,4 +573,8 @@ Last updated: 2026-03-05 (Phase 8.2 targeted contacts/detail wave complete)
 - `a3853dc` - test: add phase 8.1 home screen harness coverage wave
 - `19b679a` - docs: record phase 8.1 home screen coverage snapshot
 - `96d8db5` - test: add phase 8.2 contacts and detail screen coverage suites
+- `9dfe671` - docs: record phase 8.2 contacts-detail coverage snapshot
+- `2572d1d` - test: add phase 8.3 archive and topology screen coverage suites
+
+
 
