@@ -8,6 +8,7 @@ import 'package:pak_connect/domain/models/identity_session_state.dart';
 import 'package:pak_connect/domain/models/pairing_state.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/pairing_flow_controller.dart';
 import 'package:pak_connect/data/services/pairing_lifecycle_service.dart';
@@ -71,6 +72,51 @@ class _MockContactRepository extends Mock implements ContactRepository {
     returnValue: Future<void>.value(),
     returnValueForMissingStub: Future<void>.value(),
   );
+
+  @override
+  Future<String?> getCachedSharedSecret(String publicKey) => super.noSuchMethod(
+    Invocation.method(#getCachedSharedSecret, [publicKey]),
+    returnValue: Future<String?>.value(null),
+    returnValueForMissingStub: Future<String?>.value(null),
+  );
+
+  @override
+  Future<SecurityLevel> getContactSecurityLevel(String publicKey) =>
+      super.noSuchMethod(
+        Invocation.method(#getContactSecurityLevel, [publicKey]),
+        returnValue: Future<SecurityLevel>.value(SecurityLevel.low),
+        returnValueForMissingStub: Future<SecurityLevel>.value(
+          SecurityLevel.low,
+        ),
+      );
+
+  @override
+  Future<void> updateContactSecurityLevel(
+    String publicKey,
+    SecurityLevel newLevel,
+  ) => super.noSuchMethod(
+    Invocation.method(#updateContactSecurityLevel, [publicKey, newLevel]),
+    returnValue: Future<void>.value(),
+    returnValueForMissingStub: Future<void>.value(),
+  );
+
+  @override
+  Future<bool> upgradeContactSecurity(
+    String publicKey,
+    SecurityLevel newLevel,
+  ) => super.noSuchMethod(
+    Invocation.method(#upgradeContactSecurity, [publicKey, newLevel]),
+    returnValue: Future<bool>.value(true),
+    returnValueForMissingStub: Future<bool>.value(true),
+  );
+
+  @override
+  Future<bool> resetContactSecurity(String publicKey, String reason) =>
+      super.noSuchMethod(
+        Invocation.method(#resetContactSecurity, [publicKey, reason]),
+        returnValue: Future<bool>.value(true),
+        returnValueForMissingStub: Future<bool>.value(true),
+      );
 }
 
 void main() {
@@ -120,6 +166,18 @@ void main() {
       when(
         contactRepository.getContactByUserId(const UserId('persist')),
       ).thenAnswer((_) async => contact);
+      when(
+        contactRepository.getContactSecurityLevel('peer'),
+      ).thenAnswer((_) async => SecurityLevel.medium);
+      when(
+        contactRepository.getCachedSharedSecret('peer'),
+      ).thenAnswer((_) async => null);
+      when(
+        contactRepository.upgradeContactSecurity('peer', SecurityLevel.medium),
+      ).thenAnswer((_) async => true);
+      when(
+        contactRepository.resetContactSecurity('peer', 'test-reset'),
+      ).thenAnswer((_) async => true);
 
       identityState = IdentitySessionState();
       final pairingLifecycleService = PairingLifecycleService(
@@ -232,6 +290,149 @@ void main() {
       verify(
         contactRepository.cacheSharedSecret('persist', expectedSecret),
       ).called(1);
+    });
+
+    test('setTheirEphemeralId updates identity session state', () {
+      controller.setTheirEphemeralId('peer-new-eph', 'Peer New');
+
+      expect(identityState.theirEphemeralId, 'peer-new-eph');
+    });
+
+    test('ensureContactMaximumSecurity initializes conversation from cached secret', () async {
+      const contactKey = 'peer-max-security';
+      const sharedSecret = 'cached-secret';
+      when(
+        contactRepository.getCachedSharedSecret(contactKey),
+      ).thenAnswer((_) async => sharedSecret);
+
+      await controller.ensureContactMaximumSecurity(contactKey);
+
+      expect(SimpleCrypto.hasConversationKey(contactKey), isTrue);
+      SimpleCrypto.clearConversationKey(contactKey);
+    });
+
+    test('ensureContactMaximumSecurity no-ops for empty key', () async {
+      await controller.ensureContactMaximumSecurity('');
+
+      verifyNever(contactRepository.getCachedSharedSecret(''));
+    });
+
+    test('confirmSecurityUpgrade creates missing contact and notifies completion', () async {
+      when(
+        contactRepository.getContactByUserId(const UserId('new-contact')),
+      ).thenAnswer((_) async => null);
+      var completed = false;
+      controller.onContactRequestCompleted = (success) => completed = success;
+
+      final result = await controller.confirmSecurityUpgrade(
+        'new-contact',
+        SecurityLevel.medium,
+      );
+
+      expect(result, isTrue);
+      expect(completed, isTrue);
+      verify(
+        contactRepository.saveContactWithSecurity(
+          'new-contact',
+          'Unknown',
+          SecurityLevel.medium,
+        ),
+      ).called(1);
+    });
+
+    test('confirmSecurityUpgrade upgrades when target level is higher', () async {
+      final lowContact = Contact(
+        publicKey: contact.publicKey,
+        persistentPublicKey: contact.persistentPublicKey,
+        currentEphemeralId: contact.currentEphemeralId,
+        displayName: contact.displayName,
+        trustStatus: contact.trustStatus,
+        securityLevel: SecurityLevel.low,
+        firstSeen: contact.firstSeen,
+        lastSeen: contact.lastSeen,
+      );
+      when(
+        contactRepository.getContactByUserId(const UserId('peer')),
+      ).thenAnswer((_) async => lowContact);
+
+      var completed = false;
+      controller.onContactRequestCompleted = (success) => completed = success;
+
+      final result = await controller.confirmSecurityUpgrade(
+        'peer',
+        SecurityLevel.medium,
+      );
+
+      expect(result, isTrue);
+      expect(completed, isTrue);
+      verify(
+        contactRepository.upgradeContactSecurity('peer', SecurityLevel.medium),
+      ).called(1);
+    });
+
+    test('confirmSecurityUpgrade blocks downgrade attempts', () async {
+      final highContact = Contact(
+        publicKey: contact.publicKey,
+        persistentPublicKey: contact.persistentPublicKey,
+        currentEphemeralId: contact.currentEphemeralId,
+        displayName: contact.displayName,
+        trustStatus: contact.trustStatus,
+        securityLevel: SecurityLevel.high,
+        firstSeen: contact.firstSeen,
+        lastSeen: contact.lastSeen,
+      );
+      when(
+        contactRepository.getContactByUserId(const UserId('peer')),
+      ).thenAnswer((_) async => highContact);
+
+      bool? completed;
+      controller.onContactRequestCompleted = (success) => completed = success;
+
+      final result = await controller.confirmSecurityUpgrade(
+        'peer',
+        SecurityLevel.low,
+      );
+
+      expect(result, isFalse);
+      expect(completed, isTrue);
+      verifyNever(
+        contactRepository.upgradeContactSecurity('peer', SecurityLevel.low),
+      );
+    });
+
+    test('resetContactSecurity clears crypto state and reports completion', () async {
+      const key = 'peer-reset';
+      SimpleCrypto.initializeConversation(key, 'seed');
+      when(
+        contactRepository.resetContactSecurity(key, 'test-reset'),
+      ).thenAnswer((_) async => true);
+
+      var completed = false;
+      controller.onContactRequestCompleted = (success) => completed = success;
+
+      final result = await controller.resetContactSecurity(key, 'test-reset');
+
+      expect(result, isTrue);
+      expect(completed, isTrue);
+      expect(SimpleCrypto.hasConversationKey(key), isFalse);
+    });
+
+    test('handleSecurityLevelSync reconciles to mutual minimum level', () async {
+      when(
+        contactRepository.getContactSecurityLevel('peer'),
+      ).thenAnswer((_) async => SecurityLevel.high);
+
+      bool? completed;
+      controller.onContactRequestCompleted = (success) => completed = success;
+
+      await controller.handleSecurityLevelSync({
+        'securityLevel': SecurityLevel.medium.index,
+      });
+
+      verify(
+        contactRepository.updateContactSecurityLevel('peer', SecurityLevel.medium),
+      ).called(1);
+      expect(completed, isTrue);
     });
   });
 }

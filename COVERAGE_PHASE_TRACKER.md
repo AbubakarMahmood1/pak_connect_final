@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 9.11 full-suite rebaseline complete; Phase 9.12 planning in progress)
+Last updated: 2026-03-06 (Phase 9.12c targeted ROI wave complete; awaiting next stable full-suite rebaseline)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -25,6 +25,21 @@ Last updated: 2026-03-06 (Phase 9.11 full-suite rebaseline complete; Phase 9.12 
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `77.11%` (`256/332`)
   - `lib/domain/services/chat_lifecycle_service.dart`: `61.64%` (`188/305`)
+
+## Phase 9.12c Snapshot (Targeted ROI wave, no-device)
+- Scope runs:
+  - `flutter test --no-pub test/presentation/providers/archive_provider_test.dart` (`00:01 +24: All tests passed!`)
+  - `flutter test --no-pub test/core/services/security_manager_test.dart` (`00:00 +16: All tests passed!`)
+  - regression batch: `flutter test --no-pub test/presentation/providers/archive_provider_test.dart test/core/services/security_manager_test.dart test/data/services/pairing_flow_controller_test.dart` (`00:01 +50: All tests passed!`)
+- Targeted coverage run:
+  - `flutter test --no-pub --coverage test/presentation/providers/archive_provider_test.dart test/core/services/security_manager_test.dart`
+- Phase 9.12c target files:
+  - `lib/presentation/providers/archive_provider.dart`: `85.93%` (`171/199`)
+  - `lib/core/services/security_manager.dart`: `30.67%` (`100/326`) in focused scope (full-suite baseline remains source of truth for global tracking)
+- Notes:
+  - `archive_provider_test.dart` was expanded substantially to cover provider success/error paths, archived-chat mapping, notifier operations, debounce behavior, and legacy-provider mirrors.
+  - `security_manager_test.dart` gained coverage for security-level resolution, Noise pattern selection, encryption-method selection, and sealed-header validation guardrails.
+  - Full-suite `--coverage` rebaseline is still pending due late-suite runner stalls; last known full-suite baseline remains `62.01% (25370/40915)`.
 ## Phase 2 Snapshot (Targeted data/services scope)
 - Scope run: `00:12 +357: All tests passed!` via `flutter test --coverage --no-pub test/data/services`
 - Phase 2 target files:
