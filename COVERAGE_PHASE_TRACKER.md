@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
+Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:16 +1785: All tests passed!`
-- Overall coverage: `47.13% (19276/40898)`
-- Coverage delta vs baseline: `+13.64` points (`+5580` covered lines)
-- Coverage delta vs previous snapshot: `+1.05` points (`+431` covered lines)
+- Full suite: `01:48 +1801: All tests passed!`
+- Overall coverage: `48.18% (19706/40898)`
+- Coverage delta vs baseline: `+14.69` points (`+6010` covered lines)
+- Coverage delta vs previous snapshot: `+1.05` points (`+430` covered lines)
 - Layer coverage:
   - `core`: `58.16%` (unchanged)
   - `data`: `50.79%` (`+8.63` points)
-  - `domain`: `54.15%` (`+16.54` points)
-  - `presentation`: `30.70%` (`+21.77` points)
+  - `domain`: `56.04%` (`+18.43` points)
+  - `presentation`: `32.37%` (`+23.44` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
@@ -123,8 +123,11 @@ Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
   - `lib/domain/services/message_router.dart`: `87.24%` (`253/290`)
   - `lib/domain/services/chat_sync_service.dart`: `80.93%` (`208/257`)
   - `lib/domain/services/chat_lifecycle_service.dart`: `61.64%` (`188/305`)
+- Phase 5.14 target files (full-suite snapshot):
+  - `lib/domain/services/device_deduplication_manager.dart`: `76.92%` (`240/312`)
+  - `lib/presentation/services/chat_interaction_handler.dart`: `62.19%` (`199/320`)
 
-## Phase Calibration (Rebased To `47.13%`)
+## Phase Calibration (Rebased To `48.18%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
   - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI files.
@@ -137,8 +140,9 @@ Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
   - Phase 5.9 re-review snapshot: `44.74%` (`+2.65`)
   - Phase 5.10 no-device domain ROI snapshot: `46.08%` (`+1.34`)
   - Phase 5.12 routing/sync ROI snapshot: `47.13%` (`+1.05`)
+  - Phase 5.14 dedup+interaction ROI snapshot: `48.18%` (`+1.05`)
 - Recalibrated no-device coverage ranges (global):
-  - Remaining Phase 5 ROI waves (major presentation/data-core targets): target `48% - 50%`
+  - Remaining Phase 5 ROI waves (major presentation/data-core targets): target `49% - 50%`
   - Phase 6 no-device service/provider hardening (domain/data/core seams): target `50% - 53%`
   - Phase 7 long-tail branch/error-path closure (high-cost leftovers): target `53% - 56%`
   - Real-device phase (later) should focus on behavioral confidence, not expecting large line-coverage jumps.
@@ -146,8 +150,6 @@ Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
   - `lib/presentation/screens/home_screen.dart` (`0/438`)
   - `lib/core/app_core.dart` (`58/433`)
   - `lib/presentation/screens/chat_screen.dart` (`0/324`)
-  - `lib/presentation/services/chat_interaction_handler.dart` (`9/320`)
-  - `lib/domain/services/device_deduplication_manager.dart` (`14/312`)
   - `lib/presentation/screens/archive_screen.dart` (`0/285`)
   - `lib/presentation/screens/contact_detail_screen.dart` (`0/283`)
   - `lib/presentation/screens/network_topology_screen.dart` (`1/283`)
@@ -158,6 +160,11 @@ Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
   - `lib/presentation/screens/profile_screen.dart` (`1/255`)
   - `lib/presentation/widgets/import_dialog.dart` (`1/229`)
   - `lib/presentation/screens/permission_screen.dart` (`1/223`)
+  - `lib/presentation/widgets/discovery_overlay.dart` (`0/215`)
+  - `lib/data/services/ble_state_manager_facade.dart` (`60/274`)
+  - `lib/presentation/providers/mesh_networking_provider.dart` (`5/214`)
+  - `lib/domain/services/burst_scanning_controller.dart` (`1/209`)
+  - `lib/core/services/security_manager.dart` (`119/326`)
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -216,6 +223,8 @@ Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
 - [x] 5.11 Run full-suite coverage revalidation after 5.10 wave
 - [x] 5.12 Add routing/sync ROI suites (`message_router`, `chat_sync_service` paths via `chat_lifecycle` sync tests)
 - [x] 5.13 Run full-suite coverage revalidation after 5.12 wave
+- [x] 5.14 Add dedup + interaction ROI suites (`device_deduplication_manager`, `chat_interaction_handler`)
+- [x] 5.15 Run full-suite coverage revalidation after 5.14 wave
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -311,6 +320,12 @@ Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
 - 2026-03-05: Phase 5.12 targeted run passed: `00:00 +20: All tests passed!`
 - 2026-03-05: `flutter analyze --no-pub` on Phase 5.12 suites passed clean.
 - 2026-03-05: Full-suite coverage run passed: `02:16 +1785: All tests passed!`, output captured in `flutter_test_latest.log`.
+- 2026-03-05: Added Phase 5.14 ROI suites:
+  - `test/domain/services/device_deduplication_manager_test.dart`
+  - `test/presentation/services/chat_interaction_handler_test.dart`
+- 2026-03-05: Phase 5.14 targeted run passed: `00:01 +16: All tests passed!`
+- 2026-03-05: `flutter analyze --no-pub` on Phase 5.14 suites passed clean.
+- 2026-03-05: Full-suite coverage run passed: `01:48 +1801: All tests passed!`, output captured in `flutter_test_latest.log`.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -345,3 +360,5 @@ Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
 - `7bc2a52` - test: add phase 5.10 domain coverage ROI suites
 - `aef3392` - docs: record phase 5.10 coverage jump to 46.08
 - `44cc41c` - test: extend phase 5 domain routing and sync coverage
+- `d65f5a4` - docs: record phase 5.12 coverage rise to 47.13
+- `28c7d16` - test: add phase 5 dedup and interaction coverage suites
