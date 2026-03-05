@@ -784,6 +784,9 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
 - `9972818` - test: complete phase 9.7 archive management coverage wave
 - `1fbcbf4` - test: complete phase 9.8 archived chat coverage wave
 - `3d0cad2` - docs: record phase 9.8 checkpoint hash
+- 6e3a9cd - test: complete phase 9.9 contact status sync coverage wave
+- 2c6cc14 - test: add phase 9.10a simple crypto verification coverage wave
+
 
 
 
