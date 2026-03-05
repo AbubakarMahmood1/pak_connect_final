@@ -485,7 +485,9 @@ Last updated: 2026-03-05 (Phase 7.3 full-suite rebaseline complete)
 - `d65f5a4` - docs: record phase 5.12 coverage rise to 47.13
 - `28c7d16` - test: add phase 5 dedup and interaction coverage suites
 - `917e159` - test: add archive search delegate roi coverage wave
-- `d5a6877` - test: add import-export dialog coverage wave
+- d5a6877 - test: add import-export dialog coverage wave
+- 19543d9 - test: complete phase 7.3 ble runtime coverage wave
+
 
 
 
