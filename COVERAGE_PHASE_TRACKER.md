@@ -329,3 +329,5 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
 - `0b8063e` - test: add discovery scanner and view widget coverage suites
 - `690a43f` - docs: record phase 5.9 discovery scanner coverage wave
 - `ea2e76c` - docs: add phase 5.9 checkpoint hashes
+- `7bc2a52` - test: add phase 5.10 domain coverage ROI suites
+- `aef3392` - docs: record phase 5.10 coverage jump to 46.08
