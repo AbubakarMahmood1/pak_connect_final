@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 7.5 full-suite rebaseline complete)
+Last updated: 2026-03-05 (Phase 8.1 targeted home-screen wave complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -319,12 +319,30 @@ Last updated: 2026-03-05 (Phase 7.5 full-suite rebaseline complete)
   - 7.5 full-suite rebaseline closed Phase 7 at `53.86%` overall coverage.
 
 ## Phase 8 Breakdown
-- [ ] 8.1 Build `home_screen` harness with provider overrides/fakes and cover startup/search/filter branches
+- [x] 8.1 Build `home_screen` harness with provider overrides/fakes and cover startup/search/filter branches
 - [ ] 8.2 Add `contacts_screen` + `contact_detail_screen` high-value UI state coverage
 - [ ] 8.3 Add `archive_screen` + `network_topology_screen` screen-level coverage with fake services
 - [ ] 8.4 Run full-suite coverage pass and refresh Phase 9 roadmap
 
+## Phase 8 Snapshot (8.1 Targeted)
+- Targeted green run (8.1 + home-controller regression): `00:02 +14: All tests passed!`
+  - `flutter test --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart`
+- Targeted coverage run (8.1 + home-controller regression): `00:04 +14: All tests passed!`
+  - `flutter test --coverage --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart`
+- Targeted file snapshot (8.1 run):
+  - `lib/presentation/screens/home_screen.dart`: `64.93%` (`287/442`)
+  - `lib/presentation/controllers/home_screen_controller.dart`: `62.86%` (`132/210`)
+  - `lib/presentation/viewmodels/home_screen_view_model.dart`: `49.73%` (`93/187`)
+  - `lib/presentation/providers/home_screen_providers.dart`: `10.87%` (`5/46`)
+- Notes:
+  - Added `test/presentation/screens/home_screen_test.dart` to cover startup/loading, BLE banner, search toggle/clear, menu actions, relay-tab UI, and discovery-overlay entry.
+  - Added optional `HomeScreen` dependency injection seam (`chatsRepository`, `chatManagementService`) for deterministic no-device screen harnessing without changing default runtime behavior.
+
 ## Progress Log
+- 2026-03-05: Phase 8.1 completed with new screen harness suite:
+  - `test/presentation/screens/home_screen_test.dart`
+- 2026-03-05: Phase 8.1 targeted run passed: `00:02 +14: All tests passed!`
+- 2026-03-05: Phase 8.1 targeted coverage run passed: `00:04 +14: All tests passed!`
 - 2026-03-05: Phase 7.5 full-suite coverage rebaseline completed:
   - Full-suite run: `02:06 +1903: All tests passed!` (captured in `flutter_test_latest.log`)
   - Overall coverage: `53.86% (22032/40907)`
@@ -521,5 +539,6 @@ Last updated: 2026-03-05 (Phase 7.5 full-suite rebaseline complete)
 - `3cfa4b0` - test: add phase 7.4a burst scanning coverage wave
 - `4730c30` - docs: update phase 7.4a tracker and checkpoints
 - `bb30216` - test: add phase 7.4b mesh runtime helper coverage wave
-
+- `7fbadc7` - docs: close phase 7 with 53.86 coverage rebaseline
+- `a3853dc` - test: add phase 8.1 home screen harness coverage wave
 
