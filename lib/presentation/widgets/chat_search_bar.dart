@@ -214,7 +214,7 @@ class _ChatSearchBarState extends State<ChatSearchBar> {
               ),
             ],
           ),
-          if (_searchResults.isNotEmpty || _isSearching) ...[
+          if (_searchController.text.trim().isNotEmpty || _isSearching) ...[
             SizedBox(height: 8),
             Row(
               mainAxisSize: MainAxisSize.min,
