@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite rebaseline: Phase 9.9)
+Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 planning in progress)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:59 +2034: All tests passed!`
-- Overall coverage: `61.52% (25170/40915)`
-- Coverage delta vs baseline: `+28.03` points (`+11474` covered lines)
-- Coverage delta vs previous snapshot: `+0.24` points (`+97` covered lines)
+- Full suite: `02:30 +2039: All tests passed!`
+- Overall coverage: `61.80% (25284/40915)`
+- Coverage delta vs baseline: `+28.31` points (`+11588` covered lines)
+- Coverage delta vs previous snapshot: `+0.28` points (`+114` covered lines)
 - Layer coverage:
   - core: `59.38%` (unchanged)
-  - data: `55.56%` (`+0.75` points)
-  - domain: `63.82%` (`+0.03` points)
-  - presentation: `66.24%` (`+0.05` points)
+  - data: `55.56%` (unchanged)
+  - domain: `64.76%` (`+0.94` points)
+  - presentation: `66.19%` (`-0.05` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `77.11%` (`256/332`)
@@ -150,7 +150,7 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
   - Phase 6 pushed global coverage past the 50% milestone to `51.75%` without real-device tests.
   - Biggest direct lifts in this wave were in `permission_screen`, `profile_screen`, `mesh_networking_provider`, `app_core`, and `ble_providers`.
 
-## Phase Calibration (Rebased To `61.52%`)
+## Phase Calibration (Rebased To `61.80%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
   - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI and BLE state-management files.
@@ -176,12 +176,13 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
   - Phase 9.7 no-device long-tail ROI rebaseline: `61.00%` (`+0.17`)
   - Phase 9.8 no-device long-tail ROI rebaseline: `61.28%` (`+0.28`)
   - Phase 9.9 no-device long-tail ROI rebaseline: `61.52%` (`+0.24`)
+  - Phase 9.10 no-device long-tail ROI rebaseline: `61.80%` (`+0.28`)
 - Recalibrated no-device coverage ranges (global):
   - Phase 6 milestone reached: `51.75%` global coverage achieved.
   - Phase 7 no-device BLE/data state-management seams: target `52% - 54%` (completed at `53.86%`)
   - Phase 8 no-device large-screen/controller harness waves: target `54% - 56.5%` (completed at `57.84%`)
   - Phase 9 long-tail branch/error-path closure: target `57.8% - 60%` (completed at `60.09%`)
-  - Phase 9.6+ continued no-device ROI closure: target `60% - 62%` (in progress at `61.52%`).
+  - Phase 9.6+ continued no-device ROI closure: target `60% - 62%` (in progress at `61.80%`).
   - Real-device phase (later) should focus on behavioral confidence and integration reliability.
 - Current highest-uncovered ROI files (from latest full-suite lcov):
   - `lib/presentation/screens/chat_screen.dart` (`0/324`)
@@ -193,11 +194,11 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
   - `lib/data/database/database_helper.dart` (`92/272`)
   - `lib/data/services/ble_service_facade.dart` (`310/484`)
   - `lib/domain/services/background_notification_handler_impl.dart` (`0/171`)
-  - `lib/presentation/controllers/chat_session_lifecycle.dart` (`137/298`)
+  - `lib/presentation/controllers/chat_session_lifecycle.dart` (`135/298`)
   - `lib/data/services/pairing_flow_controller.dart` (`61/220`)
   - `lib/data/services/ble_facade_lifecycle_coordinator.dart` (`44/202`)
-  - `lib/data/services/outbound_message_sender.dart` (`213/368`)
   - `lib/presentation/screens/home_screen.dart` (`287/442`)
+  - `lib/data/services/outbound_message_sender.dart` (`213/368`)
   - `lib/data/services/ble_handshake_service.dart` (`91/239`)
   - `lib/presentation/controllers/chat_screen_controller.dart` (`227/372`)
   - `lib/data/services/ble_messaging_service.dart` (`72/215`)
@@ -207,13 +208,18 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
   - `lib/data/services/mesh_relay_handler.dart` (`47/176`)
   - `lib/core/security/noise/primitives/handshake_state_kk.dart` (`0/127`)
   - `lib/presentation/providers/archive_provider.dart` (`72/199`)
-  - `lib/domain/services/simple_crypto_verification_helper.dart` (`0/125`)
   - `lib/data/services/ble_connection_service.dart` (`116/238`)
-  - `lib/presentation/services/chat_interaction_handler.dart` (`199/320`)
   - `lib/data/services/protocol_message_handler.dart` (`191/312`)
+  - `lib/presentation/services/chat_interaction_handler.dart` (`199/320`)
   - `lib/domain/services/battery_optimizer.dart` (`13/133`)
   - `lib/data/services/ble_state_coordinator.dart` (`60/179`)
   - `lib/domain/services/chat_lifecycle_service.dart` (`188/305`)
+  - `lib/data/services/ble_connection_manager_runtime_client_links.dart` (`67/184`)
+  - `lib/data/services/connection_health_monitor.dart` (`47/161`)
+  - `lib/presentation/widgets/discovery_overlay.dart` (`101/215`)
+  - `lib/presentation/viewmodels/chat_session_view_model.dart` (`129/243`)
+  - `lib/data/repositories/archive_repository.dart` (`173/285`)
+  - `lib/presentation/providers/mesh_networking_provider.dart` (`106/214`)
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
@@ -352,7 +358,8 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
 - [x] 9.7 Continue highest-uncovered long-tail closure toward `62%+`
 - [x] 9.8 Continue highest-uncovered long-tail closure toward `62%+`
 - [x] 9.9 Continue highest-uncovered long-tail closure toward `62%+`
-- [ ] 9.10 Continue highest-uncovered long-tail closure toward `62%+` (9.10a targeted complete; full-suite rebaseline pending)
+- [x] 9.10 Continue highest-uncovered long-tail closure toward `62%+`
+- [ ] 9.11 Continue highest-uncovered long-tail closure toward `62%+`
 ## Phase 8 Snapshot (8.1-8.4 Targeted + Full-Suite)
 - Targeted green run (8.1 + home-controller regression): `00:02 +14: All tests passed!`
   - `flutter test --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart`
@@ -477,21 +484,24 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
 - Notes:
   - Added `test/data/services/contact_status_sync_controller_test.dart` covering status-change loop guards, bilateral sync completion/reset behavior, asymmetric detection/prompting, and safe lifecycle/request paths.
 
-## Phase 9.10a Snapshot (SimpleCrypto Verification ROI - Targeted)
+## Phase 9.10 Snapshot (SimpleCrypto Verification ROI + Full-Suite)
 - Targeted run (9.10a): `00:00 +5: All tests passed!`
   - `flutter test --no-pub test/domain/services/simple_crypto_verification_test.dart`
 - Targeted coverage run (9.10a): `00:02 +5: All tests passed!`
   - `flutter test --coverage --no-pub test/domain/services/simple_crypto_verification_test.dart`
 - Targeted analyzer pass (9.10a): clean
   - `flutter analyze --no-pub test/domain/services/simple_crypto_verification_test.dart`
-- Targeted file snapshot:
+- Full-suite checkpoint after 9.10: `02:30 +2039: All tests passed!`
+  - `flutter test --coverage --no-pub` (captured in `flutter_test_latest.log`)
+- Targeted file snapshot (latest full-suite run):
   - `lib/domain/services/simple_crypto_verification_helper.dart`: `60.80%` (`76/125`)
 - Notes:
   - Added `test/domain/services/simple_crypto_verification_test.dart` covering verification summary reporting, key-storage + shared-secret branches, signing-ready failure path, challenge generation format, and bidirectional encryption failure handling.
-- Next step:
-  - Run the next full-suite `flutter test --coverage --no-pub` pass to close Phase 9.10 with global deltas.
 
 ## Progress Log
+- 2026-03-06: Phase 9.10 full-suite coverage rebaseline completed:
+  - Full-suite run: `02:30 +2039: All tests passed!` (captured in `flutter_test_latest.log`)
+  - Overall coverage: `61.80% (25284/40915)`
 - 2026-03-05: Phase 9.10a targeted analyzer pass clean:
   - `flutter analyze --no-pub test/domain/services/simple_crypto_verification_test.dart`
 - 2026-03-05: Phase 9.10a targeted coverage run passed: `00:02 +5: All tests passed!`
@@ -784,8 +794,9 @@ Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite reb
 - `9972818` - test: complete phase 9.7 archive management coverage wave
 - `1fbcbf4` - test: complete phase 9.8 archived chat coverage wave
 - `3d0cad2` - docs: record phase 9.8 checkpoint hash
-- 6e3a9cd - test: complete phase 9.9 contact status sync coverage wave
-- 2c6cc14 - test: add phase 9.10a simple crypto verification coverage wave
+- `6e3a9cd` - test: complete phase 9.9 contact status sync coverage wave
+- `2c6cc14` - test: add phase 9.10a simple crypto verification coverage wave
+- `5b2f520` - docs: record phase 9.9 and 9.10a checkpoint hashes
 
 
 
