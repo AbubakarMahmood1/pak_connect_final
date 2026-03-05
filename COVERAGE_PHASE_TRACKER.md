@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 9.9 full-suite rebaseline complete)
+Last updated: 2026-03-05 (Phase 9.10a targeted ROI complete; last full-suite rebaseline: Phase 9.9)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -352,7 +352,7 @@ Last updated: 2026-03-05 (Phase 9.9 full-suite rebaseline complete)
 - [x] 9.7 Continue highest-uncovered long-tail closure toward `62%+`
 - [x] 9.8 Continue highest-uncovered long-tail closure toward `62%+`
 - [x] 9.9 Continue highest-uncovered long-tail closure toward `62%+`
-- [ ] 9.10 Continue highest-uncovered long-tail closure toward `62%+`
+- [ ] 9.10 Continue highest-uncovered long-tail closure toward `62%+` (9.10a targeted complete; full-suite rebaseline pending)
 ## Phase 8 Snapshot (8.1-8.4 Targeted + Full-Suite)
 - Targeted green run (8.1 + home-controller regression): `00:02 +14: All tests passed!`
   - `flutter test --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart`
@@ -477,7 +477,27 @@ Last updated: 2026-03-05 (Phase 9.9 full-suite rebaseline complete)
 - Notes:
   - Added `test/data/services/contact_status_sync_controller_test.dart` covering status-change loop guards, bilateral sync completion/reset behavior, asymmetric detection/prompting, and safe lifecycle/request paths.
 
+## Phase 9.10a Snapshot (SimpleCrypto Verification ROI - Targeted)
+- Targeted run (9.10a): `00:00 +5: All tests passed!`
+  - `flutter test --no-pub test/domain/services/simple_crypto_verification_test.dart`
+- Targeted coverage run (9.10a): `00:02 +5: All tests passed!`
+  - `flutter test --coverage --no-pub test/domain/services/simple_crypto_verification_test.dart`
+- Targeted analyzer pass (9.10a): clean
+  - `flutter analyze --no-pub test/domain/services/simple_crypto_verification_test.dart`
+- Targeted file snapshot:
+  - `lib/domain/services/simple_crypto_verification_helper.dart`: `60.80%` (`76/125`)
+- Notes:
+  - Added `test/domain/services/simple_crypto_verification_test.dart` covering verification summary reporting, key-storage + shared-secret branches, signing-ready failure path, challenge generation format, and bidirectional encryption failure handling.
+- Next step:
+  - Run the next full-suite `flutter test --coverage --no-pub` pass to close Phase 9.10 with global deltas.
+
 ## Progress Log
+- 2026-03-05: Phase 9.10a targeted analyzer pass clean:
+  - `flutter analyze --no-pub test/domain/services/simple_crypto_verification_test.dart`
+- 2026-03-05: Phase 9.10a targeted coverage run passed: `00:02 +5: All tests passed!`
+- 2026-03-05: Phase 9.10a targeted run passed: `00:00 +5: All tests passed!`
+- 2026-03-05: Added Phase 9.10a ROI suite:
+  - `test/domain/services/simple_crypto_verification_test.dart`
 - 2026-03-05: Phase 9.9 full-suite coverage rebaseline completed:
   - Full-suite run: `02:59 +2034: All tests passed!` (captured in `flutter_test_latest.log`)
   - Overall coverage: `61.52% (25170/40915)`
