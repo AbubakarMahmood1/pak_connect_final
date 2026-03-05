@@ -790,6 +790,12 @@ Last updated: 2026-03-06 (Phase 6.4 no-device ROI wave complete; full-suite reba
 - 2026-03-05: Phase 5.18 targeted run passed: `00:02 +8: All tests passed!`
 - 2026-03-05: `flutter analyze --no-pub` on Phase 5.18 suites passed clean.
 - 2026-03-05: Full-suite coverage run passed: `02:08 +1824: All tests passed!`, output captured in `flutter_test_latest.log`.
+- 2026-03-06: Added Phase 6.4 ROI controller/facade suites:
+  - `test/data/services/ble_state_manager_facade_test.dart`
+  - `test/presentation/controllers/discovery_overlay_controller_test.dart`
+- 2026-03-06: Phase 6.4 targeted regression passed: `00:01 +15 ~1: All tests passed!`
+- 2026-03-06: Full-suite coverage run passed: `01:59 +2226 ~1: All tests passed!`, output captured in `flutter_test_latest.log`.
+- 2026-03-06: Coverage milestone reached: `67.47% (27607/40915)` (no-device target `>=67%` met).
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -851,6 +857,7 @@ Last updated: 2026-03-06 (Phase 6.4 no-device ROI wave complete; full-suite reba
 - `5b2f520` - docs: record phase 9.9 and 9.10a checkpoint hashes
 - `5f9fc6d` - docs: close phase 9.10 with full-suite coverage rebaseline
 - `b6b6aa2` - test: add phase 9.11 connection health monitor coverage wave
+- `e73d992` - test: complete phase 6.4 ROI wave and cross 67 coverage
 
 
 
