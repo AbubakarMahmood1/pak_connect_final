@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 5.18 import/export dialog ROI wave complete)
+Last updated: 2026-03-05 (Phase 6.1 permission/profile screen coverage complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -239,7 +239,17 @@ Last updated: 2026-03-05 (Phase 5.18 import/export dialog ROI wave complete)
 - [x] 5.18 Add import/export dialog widget ROI suites (`export_dialog`, `import_dialog`)
 - [x] 5.19 Run full-suite coverage revalidation after 5.18 wave
 
+## Phase 6 Breakdown
+- [x] 6.1 Add `PermissionScreen` + `ProfileScreen` widget coverage (non-device flows)
+- [ ] 6.2 Add `DiscoveryOverlay` widget coverage with provider overrides/fakes
+- [ ] 6.3 Add `ble_providers` + `mesh_networking_provider` coverage wave
+- [ ] 6.4 Add app-runtime guardrail coverage (`app_core` focused)
+- [ ] 6.5 Run full-suite coverage pass, re-baseline, and update next roadmap phases
+
 ## Progress Log
+- 2026-03-05: Phase 6.1 completed with new screen suites:
+  - `test/presentation/screens/permission_screen_test.dart`
+  - `test/presentation/screens/profile_screen_test.dart`
 - 2026-03-04: Tracker created. Starting Phase 1.1.
 - 2026-03-04: Added new suites:
   - `test/domain/services/contact_management_service_test.dart` (8 tests)
@@ -389,6 +399,9 @@ Last updated: 2026-03-05 (Phase 5.18 import/export dialog ROI wave complete)
 - `d65f5a4` - docs: record phase 5.12 coverage rise to 47.13
 - `28c7d16` - test: add phase 5 dedup and interaction coverage suites
 - `917e159` - test: add archive search delegate roi coverage wave`r`n- `d5a6877` - test: add import-export dialog coverage wave
+
+
+
 
 
 
