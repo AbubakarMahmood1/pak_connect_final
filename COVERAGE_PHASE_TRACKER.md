@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
+Last updated: 2026-03-05 (Phase 7.3 full-suite rebaseline complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,20 +12,19 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:50 +1851: All tests passed!`
-- Overall coverage: `51.75% (21171/40907)`
-- Coverage delta vs baseline: `+18.26` points (`+7475` covered lines)
-- Coverage delta vs previous snapshot: `+1.75` points (`+722` covered lines)
+- Full suite: `02:32 +1892: All tests passed!`
+- Overall coverage: `53.03% (21692/40907)`
+- Coverage delta vs baseline: `+19.54` points (`+7996` covered lines)
+- Coverage delta vs previous snapshot: `+1.28` points (`+521` covered lines)
 - Layer coverage:
-  - core: `59.38%` (`+1.22` points)
-  - data: `50.79%` (unchanged)
-  - domain: `56.11%` (`+0.05` points)
-  - presentation: `44.62%` (`+5.74` points)
+  - core: `59.38%` (unchanged)
+  - data: `53.40%` (`+2.61` points)
+  - domain: `56.26%` (`+0.15` points)
+  - presentation: `46.34%` (`+1.72` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
   - `lib/domain/services/chat_lifecycle_service.dart`: `61.64%` (`188/305`)
-
 ## Phase 2 Snapshot (Targeted data/services scope)
 - Scope run: `00:12 +357: All tests passed!` via `flutter test --coverage --no-pub test/data/services`
 - Phase 2 target files:
@@ -151,7 +150,7 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
   - Phase 6 pushed global coverage past the 50% milestone to `51.75%` without real-device tests.
   - Biggest direct lifts in this wave were in `permission_screen`, `profile_screen`, `mesh_networking_provider`, `app_core`, and `ble_providers`.
 
-## Phase Calibration (Rebased To `51.75%`)
+## Phase Calibration (Rebased To `53.03%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
   - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI and BLE state-management files.
@@ -168,9 +167,10 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
   - Phase 5.16 archive-search ROI snapshot: `48.96%` (`+0.78`)
   - Phase 5.18 import/export dialog ROI snapshot: `50.00%` (`+1.04`)
   - Phase 6.5 no-device full-suite rebaseline: `51.75%` (`+1.75`)
+  - Phase 7.3 no-device BLE runtime wave rebaseline: `53.03%` (`+1.28`)
 - Recalibrated no-device coverage ranges (global):
   - Phase 6 milestone reached: `51.75%` global coverage achieved.
-  - Phase 7 no-device BLE/data state-management seams: target `52% - 54%`
+  - Phase 7 no-device BLE/data state-management seams: target `52% - 54%` (in-progress, now `53.03%`)
   - Phase 8 no-device large-screen/controller harness waves: target `54% - 56.5%`
   - Phase 9 long-tail branch/error-path closure: target `56.5% - 59%`
   - Real-device phase (later) should focus on behavioral confidence and integration reliability.
@@ -184,18 +184,17 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
   - `lib/presentation/screens/contacts_screen.dart` (`1/280`)
   - `lib/data/services/ble_state_manager.dart` (`102/380`)
   - `lib/presentation/providers/ble_providers.dart` (`75/298`)
-  - `lib/data/services/ble_state_manager_facade.dart` (`60/274`)
   - `lib/domain/services/burst_scanning_controller.dart` (`1/209`)
   - `lib/core/services/security_manager.dart` (`119/326`)
-  - `lib/data/services/ble_connection_manager_runtime_server_links.dart` (`0/197`)
-  - `lib/data/services/ble_connection_manager.dart` (`65/259`)
+  - `lib/data/services/ble_state_manager_facade.dart` (`82/274`)
   - `lib/data/database/database_helper.dart` (`92/272`)
-  - `lib/data/services/ble_state_coordinator.dart` (`1/179`)
-  - `lib/presentation/controllers/home_screen_controller.dart` (`32/210`)
-  - `lib/domain/services/mesh/mesh_queue_sync_coordinator.dart` (`122/300`)
-  - `lib/presentation/widgets/message_bubble.dart` (`0/177`)
   - `lib/data/repositories/group_repository.dart` (`0/177`)
-
+  - `lib/presentation/widgets/message_bubble.dart` (`0/177`)
+  - `lib/domain/services/background_notification_handler_impl.dart` (`0/171`)
+  - `lib/domain/services/mesh_networking_runtime_helper.dart` (`10/179`)
+  - `lib/presentation/screens/qr_contact_screen.dart` (`1/167`)
+  - `lib/presentation/screens/group_chat_screen.dart` (`0/160`)
+  - `lib/data/services/pairing_flow_controller.dart` (`61/220`)
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
@@ -274,24 +273,34 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
 ## Phase 7 Breakdown
 - [x] 7.1 Add `home_screen_controller` + `chat_messaging_view_model` state-path coverage wave
 - [x] 7.2 Add `ble_state_manager_facade` + `ble_state_coordinator` seam tests
-- [ ] 7.3 Add `ble_connection_manager_runtime_server_links` + `ble_connection_manager` no-device lifecycle/error tests
+- [x] 7.3 Add `ble_connection_manager_runtime_server_links` + `ble_connection_manager` no-device lifecycle/error tests
 - [ ] 7.4 Add `burst_scanning_controller` + `mesh_networking_runtime_helper` domain runtime tests
 - [ ] 7.5 Run full-suite coverage pass, re-baseline, and decide Phase 8 entry
 
-## Phase 7 Snapshot (Targeted Wave 7.1/7.2)
-- Targeted green run: `00:01 +30: All tests passed!`
+## Phase 7 Snapshot (Targeted Wave 7.1/7.3)
+- Targeted green run (7.1/7.2): `00:01 +30: All tests passed!`
   - `flutter test --no-pub test/data/services/ble_state_orchestration_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/providers/chat_messaging_view_model_test.dart`
-- Targeted coverage run: `00:03 +30: All tests passed!`
+- Targeted coverage run (7.1/7.2): `00:03 +30: All tests passed!`
   - `flutter test --coverage --no-pub test/data/services/ble_state_orchestration_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/providers/chat_messaging_view_model_test.dart`
-- Targeted file snapshot:
+- Targeted green run (7.3): `00:00 +12: All tests passed!`
+  - `flutter test --no-pub test/data/services/ble_connection_manager_server_links_test.dart`
+- Targeted coverage run (7.3): `00:02 +12: All tests passed!`
+  - `flutter test --coverage --no-pub test/data/services/ble_connection_manager_server_links_test.dart`
+- Combined targeted coverage run (7.1-7.3): `00:07 +42: All tests passed!`
+  - `flutter test --coverage --no-pub test/data/services/ble_state_orchestration_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/providers/chat_messaging_view_model_test.dart test/data/services/ble_connection_manager_server_links_test.dart`
+- Full-suite checkpoint after 7.3: `02:32 +1892: All tests passed!`
+- Targeted file snapshot (latest full-suite lcov):
   - `lib/presentation/controllers/home_screen_controller.dart`: `62.86%` (`132/210`)
-  - `lib/presentation/providers/chat_messaging_view_model.dart`: `58.22%` (`124/213`)
+  - `lib/presentation/providers/chat_messaging_view_model.dart`: `62.91%` (`134/213`)
   - `lib/data/services/ble_state_coordinator.dart`: `33.52%` (`60/179`)
-  - `lib/data/services/ble_state_manager_facade.dart`: `17.15%` (`47/274`)
+  - `lib/data/services/ble_state_manager_facade.dart`: `29.93%` (`82/274`)
+  - `lib/data/services/ble_connection_manager.dart`: `59.85%` (`155/259`)
+  - `lib/data/services/ble_connection_manager_runtime_server_links.dart`: `50.76%` (`100/197`)
+  - `lib/data/services/ble_connection_manager_runtime_client_links.dart`: `36.41%` (`67/184`)
 - Notes:
   - 7.1 shipped expanded controller/view-model coverage with no-device fakes and callback assertions.
   - 7.2 shipped orchestration seam tests for coordinator/facade delegation and callback bridging.
-
+  - 7.3 shipped non-device server-link lifecycle/error-path coverage for `BLEConnectionManager`, lifting previously near-zero runtime server-link coverage into a testable baseline.
 ## Phase 8 Breakdown
 - [ ] 8.1 Build `home_screen` harness with provider overrides/fakes and cover startup/search/filter branches
 - [ ] 8.2 Add `contacts_screen` + `contact_detail_screen` high-value UI state coverage
@@ -299,6 +308,14 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
 - [ ] 8.4 Run full-suite coverage pass and refresh Phase 9 roadmap
 
 ## Progress Log
+- 2026-03-05: Phase 7.3 completed with new BLE runtime/server-link suite:
+  - `test/data/services/ble_connection_manager_server_links_test.dart`
+- 2026-03-05: Phase 7.3 targeted run passed: `00:00 +12: All tests passed!`
+- 2026-03-05: Phase 7.3 targeted coverage run passed: `00:02 +12: All tests passed!`
+- 2026-03-05: Combined Phase 7.1-7.3 targeted coverage run passed: `00:07 +42: All tests passed!`
+- 2026-03-05: Full-suite coverage rebaseline after Phase 7.3:
+  - Full-suite run: `02:32 +1892: All tests passed!` (captured in `flutter_test_latest.log`)
+  - Overall coverage: `53.03% (21692/40907)`
 - 2026-03-05: Phase 7.2 completed with orchestration seam suite:
   - `test/data/services/ble_state_orchestration_test.dart`
 - 2026-03-05: Phase 7.1 completed with expanded presentation suites:
@@ -469,6 +486,8 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
 - `28c7d16` - test: add phase 5 dedup and interaction coverage suites
 - `917e159` - test: add archive search delegate roi coverage wave
 - `d5a6877` - test: add import-export dialog coverage wave
+
+
 
 
 
