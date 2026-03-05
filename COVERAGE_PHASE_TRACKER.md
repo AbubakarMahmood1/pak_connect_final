@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 6.1 permission/profile screen coverage complete)
+Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-05 (Phase 6.1 permission/profile screen coverage complete)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:08 +1824: All tests passed!`
-- Overall coverage: `50.00% (20449/40900)`
-- Coverage delta vs baseline: `+16.51` points (`+6753` covered lines)
-- Coverage delta vs previous snapshot: `+1.04` points (`+426` covered lines)
+- Full suite: `01:50 +1851: All tests passed!`
+- Overall coverage: `51.75% (21171/40907)`
+- Coverage delta vs baseline: `+18.26` points (`+7475` covered lines)
+- Coverage delta vs previous snapshot: `+1.75` points (`+722` covered lines)
 - Layer coverage:
-  - core: 58.16% (unchanged)
-  - data: 50.79% (+8.63 points)
-  - domain: 56.06% (+18.45 points)
-  - presentation: `38.88%` (`+29.95` points)
+  - core: `59.38%` (`+1.22` points)
+  - data: `50.79%` (unchanged)
+  - domain: `56.11%` (`+0.05` points)
+  - presentation: `44.62%` (`+5.74` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
@@ -133,10 +133,28 @@ Last updated: 2026-03-05 (Phase 6.1 permission/profile screen coverage complete)
   - `lib/presentation/widgets/export_dialog.dart`: `87.06%` (`175/201`)
   - `lib/presentation/widgets/import_dialog.dart`: `93.48%` (`215/230`)
 
-## Phase Calibration (Rebased To `50.00%`)
+## Phase 6 Snapshot (No-device screen/provider/core guardrails)
+- Targeted phase runs:
+  - `flutter test --no-pub test/presentation/screens/permission_screen_test.dart test/presentation/screens/profile_screen_test.dart`
+  - `flutter test --no-pub test/presentation/widgets/discovery_overlay_test.dart`
+  - `flutter test --no-pub test/presentation/providers/mesh_networking_provider_phase6_test.dart test/presentation/providers/ble_providers_phase6_test.dart`
+  - `flutter test --no-pub test/core/app_core_phase6_guardrails_test.dart`
+- Full-suite validation: `01:50 +1851: All tests passed!` (captured in `flutter_test_latest.log`)
+- Phase 6 target files (full-suite snapshot):
+  - `lib/presentation/screens/permission_screen.dart`: `63.23%` (`141/223`)
+  - `lib/presentation/screens/profile_screen.dart`: `88.93%` (`233/262`)
+  - `lib/presentation/widgets/discovery_overlay.dart`: `46.98%` (`101/215`)
+  - `lib/presentation/providers/mesh_networking_provider.dart`: `47.66%` (`102/214`)
+  - `lib/presentation/providers/ble_providers.dart`: `25.17%` (`75/298`)
+  - `lib/core/app_core.dart`: `27.25%` (`118/433`)
+- Notes:
+  - Phase 6 pushed global coverage past the 50% milestone to `51.75%` without real-device tests.
+  - Biggest direct lifts in this wave were in `permission_screen`, `profile_screen`, `mesh_networking_provider`, `app_core`, and `ble_providers`.
+
+## Phase Calibration (Rebased To `51.75%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
-  - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI files.
+  - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI and BLE state-management files.
 - Full-suite checkpoint progression:
   - Baseline: `33.49%` (`13696/40892`)
   - Phase 2 close (includes Phase 1 + 2 uplift): `36.81%` (`+3.32`)
@@ -149,39 +167,46 @@ Last updated: 2026-03-05 (Phase 6.1 permission/profile screen coverage complete)
   - Phase 5.14 dedup+interaction ROI snapshot: `48.18%` (`+1.05`)
   - Phase 5.16 archive-search ROI snapshot: `48.96%` (`+0.78`)
   - Phase 5.18 import/export dialog ROI snapshot: `50.00%` (`+1.04`)
+  - Phase 6.5 no-device full-suite rebaseline: `51.75%` (`+1.75`)
 - Recalibrated no-device coverage ranges (global):
-  - Phase 5 no-device ROI milestone reached: `50.00%` global coverage achieved.
-  - Phase 6 no-device service/provider hardening (domain/data/core seams): target `50% - 53%`
-  - Phase 7 long-tail branch/error-path closure (high-cost leftovers): target `53% - 56%`
-  - Real-device phase (later) should focus on behavioral confidence, not expecting large line-coverage jumps.
+  - Phase 6 milestone reached: `51.75%` global coverage achieved.
+  - Phase 7 no-device BLE/data state-management seams: target `52% - 54%`
+  - Phase 8 no-device large-screen/controller harness waves: target `54% - 56.5%`
+  - Phase 9 long-tail branch/error-path closure: target `56.5% - 59%`
+  - Real-device phase (later) should focus on behavioral confidence and integration reliability.
 - Current highest-uncovered ROI files (from latest full-suite lcov):
   - `lib/presentation/screens/home_screen.dart` (`0/438`)
-  - `lib/core/app_core.dart` (`58/433`)
   - `lib/presentation/screens/chat_screen.dart` (`0/324`)
+  - `lib/core/app_core.dart` (`118/433`)
   - `lib/presentation/screens/archive_screen.dart` (`0/285`)
   - `lib/presentation/screens/contact_detail_screen.dart` (`0/283`)
   - `lib/presentation/screens/network_topology_screen.dart` (`1/283`)
   - `lib/presentation/screens/contacts_screen.dart` (`1/280`)
   - `lib/data/services/ble_state_manager.dart` (`102/380`)
-  - `lib/presentation/providers/ble_providers.dart` (`35/298`)
-  - `lib/presentation/screens/profile_screen.dart` (`1/255`)
-  - `lib/presentation/screens/permission_screen.dart` (`1/223`)
-  - `lib/presentation/widgets/discovery_overlay.dart` (`0/215`)
+  - `lib/presentation/providers/ble_providers.dart` (`75/298`)
   - `lib/data/services/ble_state_manager_facade.dart` (`60/274`)
-  - `lib/presentation/providers/mesh_networking_provider.dart` (`5/214`)
   - `lib/domain/services/burst_scanning_controller.dart` (`1/209`)
   - `lib/core/services/security_manager.dart` (`119/326`)
   - `lib/data/services/ble_connection_manager_runtime_server_links.dart` (`0/197`)
   - `lib/data/services/ble_connection_manager.dart` (`65/259`)
   - `lib/data/database/database_helper.dart` (`92/272`)
   - `lib/data/services/ble_state_coordinator.dart` (`1/179`)
+  - `lib/presentation/controllers/home_screen_controller.dart` (`32/210`)
+  - `lib/domain/services/mesh/mesh_queue_sync_coordinator.dart` (`122/300`)
+  - `lib/presentation/widgets/message_bubble.dart` (`0/177`)
+  - `lib/data/repositories/group_repository.dart` (`0/177`)
+
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
 - Phase 3: Database/export/import failure-path hardening tests
 - Phase 4: Presentation logic tests (controllers/providers/viewmodels)
 - Phase 5: Widget tests for highest-uncovered screens/widgets
-- Phase 6: Real-device validation (when hardware is available)
+- Phase 6: No-device screen/provider/core guardrail expansion (completed)
+- Phase 7: BLE/data state-manager seam hardening (no-device)
+- Phase 8: Large screen/controller coverage waves (no-device)
+- Phase 9: Long-tail branch/error-path closure (no-device)
+- Phase 10: Real-device validation (when hardware is available)
 
 ## Phase 1 Breakdown
 - [x] 1.1 Add `ContactManagementService` unit tests
@@ -241,12 +266,35 @@ Last updated: 2026-03-05 (Phase 6.1 permission/profile screen coverage complete)
 
 ## Phase 6 Breakdown
 - [x] 6.1 Add `PermissionScreen` + `ProfileScreen` widget coverage (non-device flows)
-- [ ] 6.2 Add `DiscoveryOverlay` widget coverage with provider overrides/fakes
-- [ ] 6.3 Add `ble_providers` + `mesh_networking_provider` coverage wave
-- [ ] 6.4 Add app-runtime guardrail coverage (`app_core` focused)
-- [ ] 6.5 Run full-suite coverage pass, re-baseline, and update next roadmap phases
+- [x] 6.2 Add `DiscoveryOverlay` widget coverage with provider overrides/fakes
+- [x] 6.3 Add `ble_providers` + `mesh_networking_provider` coverage wave
+- [x] 6.4 Add app-runtime guardrail coverage (`app_core` focused)
+- [x] 6.5 Run full-suite coverage pass, re-baseline, and update next roadmap phases
+
+## Phase 7 Breakdown
+- [ ] 7.1 Add `home_screen_controller` + `chat_messaging_view_model` state-path coverage wave
+- [ ] 7.2 Add `ble_state_manager_facade` + `ble_state_coordinator` seam tests
+- [ ] 7.3 Add `ble_connection_manager_runtime_server_links` + `ble_connection_manager` no-device lifecycle/error tests
+- [ ] 7.4 Add `burst_scanning_controller` + `mesh_networking_runtime_helper` domain runtime tests
+- [ ] 7.5 Run full-suite coverage pass, re-baseline, and decide Phase 8 entry
+
+## Phase 8 Breakdown
+- [ ] 8.1 Build `home_screen` harness with provider overrides/fakes and cover startup/search/filter branches
+- [ ] 8.2 Add `contacts_screen` + `contact_detail_screen` high-value UI state coverage
+- [ ] 8.3 Add `archive_screen` + `network_topology_screen` screen-level coverage with fake services
+- [ ] 8.4 Run full-suite coverage pass and refresh Phase 9 roadmap
 
 ## Progress Log
+- 2026-03-05: Phase 6.5 full-suite coverage rebaseline completed:
+  - Full-suite run: `01:50 +1851: All tests passed!` (captured in `flutter_test_latest.log`)
+  - Overall coverage: `51.75% (21171/40907)`
+- 2026-03-05: Phase 6.4 completed with app-core guardrail suite:
+  - `test/core/app_core_phase6_guardrails_test.dart`
+- 2026-03-05: Phase 6.3 completed with provider/controller suites:
+  - `test/presentation/providers/mesh_networking_provider_phase6_test.dart`
+  - `test/presentation/providers/ble_providers_phase6_test.dart`
+- 2026-03-05: Phase 6.2 completed with new widget suite:
+  - `test/presentation/widgets/discovery_overlay_test.dart`
 - 2026-03-05: Phase 6.1 completed with new screen suites:
   - `test/presentation/screens/permission_screen_test.dart`
   - `test/presentation/screens/profile_screen_test.dart`
@@ -398,12 +446,6 @@ Last updated: 2026-03-05 (Phase 6.1 permission/profile screen coverage complete)
 - `44cc41c` - test: extend phase 5 domain routing and sync coverage
 - `d65f5a4` - docs: record phase 5.12 coverage rise to 47.13
 - `28c7d16` - test: add phase 5 dedup and interaction coverage suites
-- `917e159` - test: add archive search delegate roi coverage wave`r`n- `d5a6877` - test: add import-export dialog coverage wave
-
-
-
-
-
-
-
+- `917e159` - test: add archive search delegate roi coverage wave
+- `d5a6877` - test: add import-export dialog coverage wave
 
