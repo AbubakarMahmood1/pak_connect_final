@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
+Last updated: 2026-03-05 (Phase 5.12 domain routing/sync ROI wave complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,14 +12,14 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:42 +1776: All tests passed!`
-- Overall coverage: `46.08% (18845/40898)`
-- Coverage delta vs baseline: `+12.59` points (`+5149` covered lines)
-- Coverage delta vs previous snapshot: `+1.34` points (`+548` covered lines)
+- Full suite: `02:16 +1785: All tests passed!`
+- Overall coverage: `47.13% (19276/40898)`
+- Coverage delta vs baseline: `+13.64` points (`+5580` covered lines)
+- Coverage delta vs previous snapshot: `+1.05` points (`+431` covered lines)
 - Layer coverage:
   - `core`: `58.16%` (unchanged)
   - `data`: `50.79%` (`+8.63` points)
-  - `domain`: `50.74%` (`+13.13` points)
+  - `domain`: `54.15%` (`+16.54` points)
   - `presentation`: `30.70%` (`+21.77` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
@@ -69,7 +69,7 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
   - Added larger presentation coverage on `settings_controller` and `home_screen_view_model` (subphase 4.8b complete).
   - Presentation layer moved from baseline `8.93%` to `13.79%` after full-suite validation (subphase 4.9 complete).
 
-## Phase 5 Snapshot (Widget coverage waves 1-6)
+## Phase 5 Snapshot (Widget + domain ROI waves)
 - Scope run: `00:04 +14: All tests passed!` via `flutter test --coverage --no-pub test/presentation/widgets/settings_widgets_test.dart`
 - Regression run: `00:06 +57: All tests passed!` via targeted presentation Phase 4 + Phase 5.1 batch
 - Phase 5.1 target files:
@@ -115,12 +115,16 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
     - `test/domain/services/performance_monitor_test.dart`
     - `test/domain/services/adaptive_power_manager_test.dart`
     - `test/domain/models/contact_group_test.dart`
-  - Phase 5.10 target files (full-suite snapshot):
-    - `lib/domain/services/performance_monitor.dart`: `93.17%` (`259/278`)
-    - `lib/domain/services/adaptive_power_manager.dart`: `81.34%` (`279/343`)
-    - `lib/domain/models/contact_group.dart`: `97.56%` (`120/123`)
+- Phase 5.10 target files (full-suite snapshot):
+  - `lib/domain/services/performance_monitor.dart`: `93.17%` (`259/278`)
+  - `lib/domain/services/adaptive_power_manager.dart`: `81.34%` (`279/343`)
+  - `lib/domain/models/contact_group.dart`: `97.56%` (`120/123`)
+- Phase 5.12 target files (full-suite snapshot):
+  - `lib/domain/services/message_router.dart`: `87.24%` (`253/290`)
+  - `lib/domain/services/chat_sync_service.dart`: `80.93%` (`208/257`)
+  - `lib/domain/services/chat_lifecycle_service.dart`: `61.64%` (`188/305`)
 
-## Phase Calibration (Rebased To `46.08%`)
+## Phase Calibration (Rebased To `47.13%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
   - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI files.
@@ -132,8 +136,9 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
   - Phase 5.6 close: `42.09%` (`+2.13`)
   - Phase 5.9 re-review snapshot: `44.74%` (`+2.65`)
   - Phase 5.10 no-device domain ROI snapshot: `46.08%` (`+1.34`)
+  - Phase 5.12 routing/sync ROI snapshot: `47.13%` (`+1.05`)
 - Recalibrated no-device coverage ranges (global):
-  - Remaining Phase 5 ROI waves (major presentation screens/widgets): target `47% - 50%`
+  - Remaining Phase 5 ROI waves (major presentation/data-core targets): target `48% - 50%`
   - Phase 6 no-device service/provider hardening (domain/data/core seams): target `50% - 53%`
   - Phase 7 long-tail branch/error-path closure (high-cost leftovers): target `53% - 56%`
   - Real-device phase (later) should focus on behavioral confidence, not expecting large line-coverage jumps.
@@ -151,8 +156,8 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
   - `lib/presentation/widgets/archive_search_delegate.dart` (`0/276`)
   - `lib/presentation/providers/ble_providers.dart` (`35/298`)
   - `lib/presentation/screens/profile_screen.dart` (`1/255`)
-  - `lib/domain/services/message_router.dart` (`42/290`)
-  - `lib/domain/services/chat_sync_service.dart` (`18/257`)
+  - `lib/presentation/widgets/import_dialog.dart` (`1/229`)
+  - `lib/presentation/screens/permission_screen.dart` (`1/223`)
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -209,6 +214,8 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
 - [x] 5.9 Add discovery view/scanner coverage wave (`DiscoveryHeader`, `DiscoveryPeripheralView`, `DiscoveryScannerView`) and rerun widget regression batch
 - [x] 5.10 Add domain no-device ROI suites (`performance_monitor`, `adaptive_power_manager`, `contact_group`)
 - [x] 5.11 Run full-suite coverage revalidation after 5.10 wave
+- [x] 5.12 Add routing/sync ROI suites (`message_router`, `chat_sync_service` paths via `chat_lifecycle` sync tests)
+- [x] 5.13 Run full-suite coverage revalidation after 5.12 wave
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -298,6 +305,12 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
 - 2026-03-05: Phase 5.10 targeted coverage run passed: `00:02 +21: All tests passed!`
 - 2026-03-05: `flutter analyze --no-pub` on Phase 5.10 suites passed clean.
 - 2026-03-05: Full-suite coverage run passed: `01:42 +1776: All tests passed!`, output captured in `flutter_test_latest.log`.
+- 2026-03-05: Expanded Phase 5 with domain routing/sync suites:
+  - `test/domain/services/message_router_test.dart`
+  - additional sync/search/filter coverage in `test/domain/services/chat_lifecycle_service_test.dart`
+- 2026-03-05: Phase 5.12 targeted run passed: `00:00 +20: All tests passed!`
+- 2026-03-05: `flutter analyze --no-pub` on Phase 5.12 suites passed clean.
+- 2026-03-05: Full-suite coverage run passed: `02:16 +1785: All tests passed!`, output captured in `flutter_test_latest.log`.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -331,3 +344,4 @@ Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
 - `ea2e76c` - docs: add phase 5.9 checkpoint hashes
 - `7bc2a52` - test: add phase 5.10 domain coverage ROI suites
 - `aef3392` - docs: record phase 5.10 coverage jump to 46.08
+- `44cc41c` - test: extend phase 5 domain routing and sync coverage
