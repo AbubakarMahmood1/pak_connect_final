@@ -10,8 +10,14 @@ import '../../domain/entities/ephemeral_discovery_hint.dart';
 import '../../domain/interfaces/i_intro_hint_repository.dart';
 import '../../domain/interfaces/i_user_preferences.dart';
 
+typedef QrScannerLauncher = Future<ScannerResult?> Function(
+  BuildContext context,
+);
+
 class QRContactScreen extends ConsumerStatefulWidget {
-  const QRContactScreen({super.key});
+  const QRContactScreen({super.key, this.scannerLauncher});
+
+  final QrScannerLauncher? scannerLauncher;
 
   @override
   ConsumerState<QRContactScreen> createState() => _QRContactScreenState();
@@ -187,7 +193,16 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
   }
 
   Future<void> _startScanning() async {
-    final result = await QRBarcodeScanner.showScannerDialog(
+    final scannerLauncher = widget.scannerLauncher ?? _launchScannerDialog;
+    final result = await scannerLauncher(context);
+
+    if (result != null) {
+      _processScannedQR(result.code);
+    }
+  }
+
+  Future<ScannerResult?> _launchScannerDialog(BuildContext context) {
+    return QRBarcodeScanner.showScannerDialog(
       context,
       title: 'Scan Contact QR',
       subtitle: 'Point camera at contact\'s QR code',
@@ -197,10 +212,6 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
       allowCameraToggle: true,
       timeout: const Duration(minutes: 2),
     );
-
-    if (result != null) {
-      _processScannedQR(result.code);
-    }
   }
 
   void _processScannedQR(String qrData) {
@@ -403,3 +414,4 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
     super.dispose();
   }
 }
+
