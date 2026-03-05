@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-04 (full-suite re-review + phase calibration refresh)
+Last updated: 2026-03-05 (Phase 5.10 no-device domain ROI wave complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,14 +12,14 @@ Last updated: 2026-03-04 (full-suite re-review + phase calibration refresh)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:29 +1755: All tests passed!`
-- Overall coverage: `44.74% (18297/40898)`
-- Coverage delta vs baseline: `+11.25` points (`+4601` covered lines)
-- Coverage delta vs previous snapshot: `+2.65` points (`+1083` covered lines)
+- Full suite: `01:42 +1776: All tests passed!`
+- Overall coverage: `46.08% (18845/40898)`
+- Coverage delta vs baseline: `+12.59` points (`+5149` covered lines)
+- Coverage delta vs previous snapshot: `+1.34` points (`+548` covered lines)
 - Layer coverage:
   - `core`: `58.16%` (unchanged)
   - `data`: `50.79%` (`+8.63` points)
-  - `domain`: `46.41%` (`+8.80` points)
+  - `domain`: `50.74%` (`+13.13` points)
   - `presentation`: `30.70%` (`+21.77` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
@@ -111,8 +111,16 @@ Last updated: 2026-03-04 (full-suite re-review + phase calibration refresh)
   - Added non-device discovery surface coverage for `DiscoveryHeader`, `DiscoveryPeripheralView`, and `DiscoveryScannerView` with provider overrides and fakes.
   - Added controller injection seam to `settings_screen` for deterministic widget testing without service-locator bootstrapping.
   - Phase 5.6 full-suite checkpoint remained `01:31 +1726` (`42.09%`) and was later superseded by the full-suite re-review snapshot (`01:29 +1755`, `44.74%`).
+  - Added Phase 5.10 no-device domain ROI suites:
+    - `test/domain/services/performance_monitor_test.dart`
+    - `test/domain/services/adaptive_power_manager_test.dart`
+    - `test/domain/models/contact_group_test.dart`
+  - Phase 5.10 target files (full-suite snapshot):
+    - `lib/domain/services/performance_monitor.dart`: `93.17%` (`259/278`)
+    - `lib/domain/services/adaptive_power_manager.dart`: `81.34%` (`279/343`)
+    - `lib/domain/models/contact_group.dart`: `97.56%` (`120/123`)
 
-## Phase Calibration (Rebased To `44.74%`)
+## Phase Calibration (Rebased To `46.08%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
   - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI files.
@@ -123,6 +131,7 @@ Last updated: 2026-03-04 (full-suite re-review + phase calibration refresh)
   - Phase 4 close: `39.96%` (`+1.82`)
   - Phase 5.6 close: `42.09%` (`+2.13`)
   - Phase 5.9 re-review snapshot: `44.74%` (`+2.65`)
+  - Phase 5.10 no-device domain ROI snapshot: `46.08%` (`+1.34`)
 - Recalibrated no-device coverage ranges (global):
   - Remaining Phase 5 ROI waves (major presentation screens/widgets): target `47% - 50%`
   - Phase 6 no-device service/provider hardening (domain/data/core seams): target `50% - 53%`
@@ -138,9 +147,12 @@ Last updated: 2026-03-04 (full-suite re-review + phase calibration refresh)
   - `lib/presentation/screens/contact_detail_screen.dart` (`0/283`)
   - `lib/presentation/screens/network_topology_screen.dart` (`1/283`)
   - `lib/presentation/screens/contacts_screen.dart` (`1/280`)
+  - `lib/data/services/ble_state_manager.dart` (`102/380`)
   - `lib/presentation/widgets/archive_search_delegate.dart` (`0/276`)
-  - `lib/presentation/widgets/discovery_overlay.dart` (`0/215`)
   - `lib/presentation/providers/ble_providers.dart` (`35/298`)
+  - `lib/presentation/screens/profile_screen.dart` (`1/255`)
+  - `lib/domain/services/message_router.dart` (`42/290`)
+  - `lib/domain/services/chat_sync_service.dart` (`18/257`)
 
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
@@ -195,6 +207,8 @@ Last updated: 2026-03-04 (full-suite re-review + phase calibration refresh)
 - [x] 5.7 Add archive widget coverage wave (`ArchiveStatisticsCard`, `ArchivedChatTile`, `ArchiveContextMenu`) and run widget regression batch
 - [x] 5.8 Add `DiscoveryDeviceTile` coverage wave and rerun widget regression batch
 - [x] 5.9 Add discovery view/scanner coverage wave (`DiscoveryHeader`, `DiscoveryPeripheralView`, `DiscoveryScannerView`) and rerun widget regression batch
+- [x] 5.10 Add domain no-device ROI suites (`performance_monitor`, `adaptive_power_manager`, `contact_group`)
+- [x] 5.11 Run full-suite coverage revalidation after 5.10 wave
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -277,6 +291,13 @@ Last updated: 2026-03-04 (full-suite re-review + phase calibration refresh)
 - 2026-03-04: `flutter analyze --no-pub test/presentation/widgets/discovery_scanner_view_test.dart test/presentation/widgets/discovery_views_test.dart` passed clean.
 - 2026-03-04: Full-suite re-review with coverage passed: `01:29 +1755: All tests passed!`, output captured in `flutter_test_latest.log`.
 - 2026-03-04: Recalibrated phase expectations to range-based no-device targets from refreshed `44.74%` snapshot.
+- 2026-03-05: Added Phase 5.10 domain ROI suites:
+  - `test/domain/services/performance_monitor_test.dart`
+  - `test/domain/services/adaptive_power_manager_test.dart`
+  - `test/domain/models/contact_group_test.dart`
+- 2026-03-05: Phase 5.10 targeted coverage run passed: `00:02 +21: All tests passed!`
+- 2026-03-05: `flutter analyze --no-pub` on Phase 5.10 suites passed clean.
+- 2026-03-05: Full-suite coverage run passed: `01:42 +1776: All tests passed!`, output captured in `flutter_test_latest.log`.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
