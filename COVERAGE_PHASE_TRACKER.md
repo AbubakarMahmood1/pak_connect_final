@@ -388,7 +388,8 @@ Last updated: 2026-03-05 (Phase 5.18 import/export dialog ROI wave complete)
 - `44cc41c` - test: extend phase 5 domain routing and sync coverage
 - `d65f5a4` - docs: record phase 5.12 coverage rise to 47.13
 - `28c7d16` - test: add phase 5 dedup and interaction coverage suites
-- `917e159` - test: add archive search delegate roi coverage wave
+- `917e159` - test: add archive search delegate roi coverage wave`r`n- `d5a6877` - test: add import-export dialog coverage wave
+
 
 
 
