@@ -737,5 +737,7 @@ Last updated: 2026-03-05 (Phase 9.8 full-suite rebaseline complete)
 - `3f3dd0b` - test: complete phase 9.5 coverage wave to 60.09
 - `81e459c` - test: complete phase 9.6 entity and search-bar coverage wave
 - `9972818` - test: complete phase 9.7 archive management coverage wave
+- 1fbcbf4 - test: complete phase 9.8 archived chat coverage wave
+
 
 
