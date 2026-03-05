@@ -293,6 +293,203 @@ void main() {
       expect(result.failed, 0);
       expect(result.allSuccessful, isTrue);
     });
+
+    test('syncService initialize loads cached ids and search history', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('starred_messages', ['m1', 'm2']);
+      await prefs.setStringList('archived_chats', ['chat_1']);
+      await prefs.setStringList('pinned_chats', ['chat_2']);
+      await prefs.setStringList(
+        'message_search_history',
+        ['older', 'newer'],
+      );
+
+      await syncService.initialize();
+
+      expect(syncService.starredMessagesCount, 2);
+      expect(syncService.archivedChatsCount, 1);
+      expect(syncService.pinnedChatsCount, 1);
+      expect(syncService.isMessageStarred('m1'), isTrue);
+      expect(syncService.isChatArchived(const ChatId('chat_1')), isTrue);
+      expect(syncService.isChatPinned(const ChatId('chat_2')), isTrue);
+      expect(syncService.getMessageSearchHistory(), ['newer', 'older']);
+
+      syncService.resetInitialization();
+      await syncService.initialize();
+      expect(syncService.starredMessagesCount, 2);
+    });
+
+    test('syncService getAllChats applies filters and sort options', () async {
+      cacheState.archivedChats.add(const ChatId('chat_1'));
+      cacheState.pinnedChats.add(const ChatId('chat_2'));
+
+      final visible = await syncService.getAllChats(
+        filter: const ChatFilter(hideArchived: true),
+      );
+      expect(visible.map((chat) => chat.chatId.value), ['chat_2']);
+
+      final archivedOnly = await syncService.getAllChats(
+        filter: const ChatFilter(onlyArchived: true),
+      );
+      expect(archivedOnly.map((chat) => chat.chatId.value), ['chat_1']);
+
+      final pinnedOnly = await syncService.getAllChats(
+        filter: const ChatFilter(onlyPinned: true),
+      );
+      expect(pinnedOnly.map((chat) => chat.chatId.value), ['chat_2']);
+
+      final unreadOnly = await syncService.getAllChats(
+        filter: const ChatFilter(
+          hideArchived: false,
+          onlyUnread: true,
+        ),
+      );
+      expect(unreadOnly.map((chat) => chat.chatId.value), ['chat_1']);
+
+      final unsentOnly = await syncService.getAllChats(
+        filter: const ChatFilter(hasUnsentMessages: true),
+      );
+      expect(unsentOnly, isEmpty);
+
+      final byNameAsc = await syncService.getAllChats(
+        sortBy: ChatSortOption.name,
+        ascending: true,
+      );
+      expect(byNameAsc.map((chat) => chat.contactName), ['Alice', 'Bob']);
+    });
+
+    test('syncService searchMessages supports query, filters, grouping, and limits', () async {
+      await syncService.initialize();
+      cacheState.starredMessageIds.add(const MessageId('m2'));
+
+      final empty = await syncService.searchMessages(query: '   ');
+      expect(empty.totalResults, 0);
+
+      final starredReply = await syncService.searchMessages(
+        query: 'reply',
+        filter: const MessageSearchFilter(
+          fromMe: false,
+          isStarred: true,
+        ),
+      );
+      expect(starredReply.totalResults, 1);
+      expect(starredReply.results.single.id, const MessageId('m2'));
+      expect(starredReply.resultsByChat.keys, contains('chat_1'));
+
+      final limited = await syncService.searchMessages(
+        query: 'o',
+        chatId: 'chat_1',
+        limit: 1,
+      );
+      expect(limited.totalResults, 1);
+      expect(limited.hasMore, isTrue);
+    });
+
+    test('syncService unified and advanced search handle scope combinations', () async {
+      await syncService.initialize();
+
+      final unified = await syncService.searchMessagesUnified(
+        query: 'hello',
+        includeArchives: true,
+        limit: 1,
+        filter: MessageSearchFilter(
+          dateRange: DateTimeRange(
+            start: DateTime(2026, 1, 1, 0),
+            end: DateTime(2026, 1, 2, 0),
+          ),
+        ),
+      );
+
+      expect(unified.includeArchives, isTrue);
+      expect(unified.totalLiveResults, 1);
+      expect(unified.totalArchiveResults, 0);
+      expect(unified.hasResults, isTrue);
+      expect(unified.hasArchiveResults, isFalse);
+
+      final combinedAdvanced = await syncService.performAdvancedSearch(
+        query: 'hello',
+        includeLive: true,
+        includeArchives: true,
+      );
+      expect(combinedAdvanced.hasError, isFalse);
+      expect(combinedAdvanced.query, 'hello');
+
+      final archiveOnly = await syncService.performAdvancedSearch(
+        query: 'hello',
+        includeLive: false,
+        includeArchives: true,
+      );
+      expect(archiveOnly.hasError, isFalse);
+
+      final liveOnly = await syncService.performAdvancedSearch(
+        query: 'hello',
+        includeLive: true,
+        includeArchives: false,
+      );
+      expect(liveOnly.hasError, isFalse);
+
+      final noScope = await syncService.performAdvancedSearch(
+        query: 'hello',
+        includeLive: false,
+        includeArchives: false,
+      );
+      expect(noScope.hasError, isTrue);
+    });
+
+    test('syncService search history and save helpers persist cache state', () async {
+      await syncService.initialize();
+
+      for (var i = 0; i < 12; i++) {
+        await syncService.searchMessages(query: 'term_$i');
+      }
+
+      final history = syncService.getMessageSearchHistory();
+      expect(history.length, 10);
+      expect(history.first, 'term_11');
+      expect(history.last, 'term_2');
+
+      cacheState.starredMessageIds.addAll({
+        const MessageId('m1'),
+        const MessageId('m2'),
+      });
+      cacheState.archivedChats.add(const ChatId('chat_1'));
+      cacheState.pinnedChats.add(const ChatId('chat_2'));
+
+      await syncService.saveStarredMessages();
+      await syncService.saveArchivedChats();
+      await syncService.savePinnedChats();
+      await syncService.saveMessageSearchHistory();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getStringList('starred_messages'),
+        containsAll(<String>['m1', 'm2']),
+      );
+      expect(prefs.getStringList('archived_chats'), ['chat_1']);
+      expect(prefs.getStringList('pinned_chats'), ['chat_2']);
+      expect(prefs.getStringList('message_search_history'), isNotEmpty);
+
+      await syncService.clearMessageSearchHistory();
+      expect(syncService.getMessageSearchHistory(), isEmpty);
+      expect(
+        prefs.getStringList('message_search_history') ?? const <String>[],
+        isEmpty,
+      );
+    });
+
+    test('syncService getAllChats fails closed when repository throws', () async {
+      final throwingService = ChatSyncService(
+        chatsRepository: _ThrowingChatsRepository(),
+        messageRepository: messageRepository,
+        cacheState: cacheState,
+        archiveSearchService: ArchiveSearchService.withDependencies(
+          archiveRepository: archiveRepository,
+        ),
+      );
+
+      final chats = await throwingService.getAllChats();
+      expect(chats, isEmpty);
+    });
   });
 }
 
@@ -476,6 +673,21 @@ class _FakeArchiveRepository implements IArchiveRepository {
   Future<void> dispose() async {}
 }
 
+class _ThrowingChatsRepository implements IChatsRepository {
+  @override
+  Future<List<ChatListItem>> getAllChats({
+    List<dynamic>? nearbyDevices,
+    Map<String, dynamic>? discoveryData,
+    String? searchQuery,
+    int? limit,
+    int? offset,
+  }) async => throw StateError('boom');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('Unexpected method call: $invocation');
+}
+
 ArchivedChat _archivedChat(ArchiveId archiveId, String chatId) {
   final message = Message(
     id: MessageId('arch_msg_$chatId'),
@@ -506,4 +718,3 @@ ArchivedChat _archivedChat(ArchiveId archiveId, String chatId) {
     messages: [],
   );
 }
-
