@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 9.12c targeted ROI wave complete; awaiting next stable full-suite rebaseline)
+Last updated: 2026-03-06 (Phase 6.4 no-device ROI wave complete; full-suite rebaseline captured)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,19 +12,30 @@ Last updated: 2026-03-06 (Phase 9.12c targeted ROI wave complete; awaiting next 
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:04 +2050: All tests passed!`
-- Overall coverage: `62.01% (25370/40915)`
-- Coverage delta vs baseline: `+28.52` points (`+11674` covered lines)
-- Coverage delta vs previous snapshot: `+0.21` points (`+86` covered lines)
+- Full suite: `01:59 +2226 ~1: All tests passed!`
+- Overall coverage: `67.47% (27607/40915)`
+- Coverage delta vs baseline: `+33.98` points (`+13911` covered lines)
+- Coverage delta vs previous snapshot: `+5.46` points (`+2237` covered lines)
 - Layer coverage:
-  - core: `59.38%` (unchanged)
-  - data: `56.29%` (`+0.73` points)
-  - domain: `64.76%` (unchanged)
-  - presentation: `66.19%` (unchanged)
-- Phase 1 target files:
-  - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
-  - `lib/domain/services/archive_management_service.dart`: `77.11%` (`256/332`)
-  - `lib/domain/services/chat_lifecycle_service.dart`: `61.64%` (`188/305`)
+  - core: `63.86%` (`3190/4995`)
+  - data: `62.67%` (`7354/11734`)
+  - domain: `69.49%` (`8798/12660`)
+  - presentation: `72.03%` (`8197/11380`)
+
+## Phase 6.4 Completion Snapshot (No-device ROI wave to >=67%)
+- Targeted ROI suites validated:
+  - `flutter test --no-pub test/data/services/ble_state_manager_facade_test.dart`
+  - `flutter test --no-pub test/presentation/controllers/discovery_overlay_controller_test.dart`
+  - regression batch: `flutter test --no-pub test/data/services/ble_state_manager_facade_test.dart test/presentation/controllers/discovery_overlay_controller_test.dart test/presentation/widgets/chat_binary_widgets_test.dart` (`00:01 +15 ~1: All tests passed!`)
+- Full-suite coverage rebaseline:
+  - `flutter test --no-pub --coverage *>&1 | Tee-Object -FilePath flutter_test_latest.log`
+  - result: `01:59 +2226 ~1: All tests passed!`
+- Phase 6.4 target files (full-suite snapshot):
+  - `lib/data/services/ble_state_manager_facade.dart`: `78.83%` (`216/274`)
+  - `lib/presentation/controllers/discovery_overlay_controller.dart`: `91.60%` (`109/119`)
+- Notes:
+  - Added controller-level no-device discovery coverage for state mutators, stale cleanup, peripheral incoming-connection tracking, and identity-resolution propagation into deduplicated discovery tiles.
+  - Full-suite global coverage target `>=67%` is met with the current snapshot (`67.47%`).
 
 ## Phase 9.12c Snapshot (Targeted ROI wave, no-device)
 - Scope runs:
