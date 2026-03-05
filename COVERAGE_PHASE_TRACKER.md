@@ -272,11 +272,25 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
 - [x] 6.5 Run full-suite coverage pass, re-baseline, and update next roadmap phases
 
 ## Phase 7 Breakdown
-- [ ] 7.1 Add `home_screen_controller` + `chat_messaging_view_model` state-path coverage wave
-- [ ] 7.2 Add `ble_state_manager_facade` + `ble_state_coordinator` seam tests
+- [x] 7.1 Add `home_screen_controller` + `chat_messaging_view_model` state-path coverage wave
+- [x] 7.2 Add `ble_state_manager_facade` + `ble_state_coordinator` seam tests
 - [ ] 7.3 Add `ble_connection_manager_runtime_server_links` + `ble_connection_manager` no-device lifecycle/error tests
 - [ ] 7.4 Add `burst_scanning_controller` + `mesh_networking_runtime_helper` domain runtime tests
 - [ ] 7.5 Run full-suite coverage pass, re-baseline, and decide Phase 8 entry
+
+## Phase 7 Snapshot (Targeted Wave 7.1/7.2)
+- Targeted green run: `00:01 +30: All tests passed!`
+  - `flutter test --no-pub test/data/services/ble_state_orchestration_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/providers/chat_messaging_view_model_test.dart`
+- Targeted coverage run: `00:03 +30: All tests passed!`
+  - `flutter test --coverage --no-pub test/data/services/ble_state_orchestration_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/providers/chat_messaging_view_model_test.dart`
+- Targeted file snapshot:
+  - `lib/presentation/controllers/home_screen_controller.dart`: `62.86%` (`132/210`)
+  - `lib/presentation/providers/chat_messaging_view_model.dart`: `58.22%` (`124/213`)
+  - `lib/data/services/ble_state_coordinator.dart`: `33.52%` (`60/179`)
+  - `lib/data/services/ble_state_manager_facade.dart`: `17.15%` (`47/274`)
+- Notes:
+  - 7.1 shipped expanded controller/view-model coverage with no-device fakes and callback assertions.
+  - 7.2 shipped orchestration seam tests for coordinator/facade delegation and callback bridging.
 
 ## Phase 8 Breakdown
 - [ ] 8.1 Build `home_screen` harness with provider overrides/fakes and cover startup/search/filter branches
@@ -285,6 +299,13 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
 - [ ] 8.4 Run full-suite coverage pass and refresh Phase 9 roadmap
 
 ## Progress Log
+- 2026-03-05: Phase 7.2 completed with orchestration seam suite:
+  - `test/data/services/ble_state_orchestration_test.dart`
+- 2026-03-05: Phase 7.1 completed with expanded presentation suites:
+  - `test/presentation/controllers/home_screen_controller_test.dart`
+  - `test/presentation/providers/chat_messaging_view_model_test.dart`
+- 2026-03-05: Phase 7.1/7.2 targeted run passed: `00:01 +30: All tests passed!`
+- 2026-03-05: Phase 7.1/7.2 targeted coverage run passed: `00:03 +30: All tests passed!`
 - 2026-03-05: Phase 6.5 full-suite coverage rebaseline completed:
   - Full-suite run: `01:50 +1851: All tests passed!` (captured in `flutter_test_latest.log`)
   - Overall coverage: `51.75% (21171/40907)`
@@ -448,4 +469,6 @@ Last updated: 2026-03-05 (Phase 6.5 full-suite rebaseline complete)
 - `28c7d16` - test: add phase 5 dedup and interaction coverage suites
 - `917e159` - test: add archive search delegate roi coverage wave
 - `d5a6877` - test: add import-export dialog coverage wave
+
+
 
