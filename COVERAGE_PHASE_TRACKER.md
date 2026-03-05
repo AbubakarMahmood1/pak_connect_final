@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 planning in progress)
+Last updated: 2026-03-06 (Phase 9.11 full-suite rebaseline complete; Phase 9.12 planning in progress)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:30 +2039: All tests passed!`
-- Overall coverage: `61.80% (25284/40915)`
-- Coverage delta vs baseline: `+28.31` points (`+11588` covered lines)
-- Coverage delta vs previous snapshot: `+0.28` points (`+114` covered lines)
+- Full suite: `02:04 +2050: All tests passed!`
+- Overall coverage: `62.01% (25370/40915)`
+- Coverage delta vs baseline: `+28.52` points (`+11674` covered lines)
+- Coverage delta vs previous snapshot: `+0.21` points (`+86` covered lines)
 - Layer coverage:
   - core: `59.38%` (unchanged)
-  - data: `55.56%` (unchanged)
-  - domain: `64.76%` (`+0.94` points)
-  - presentation: `66.19%` (`-0.05` points)
+  - data: `56.29%` (`+0.73` points)
+  - domain: `64.76%` (unchanged)
+  - presentation: `66.19%` (unchanged)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `77.11%` (`256/332`)
@@ -150,7 +150,7 @@ Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 
   - Phase 6 pushed global coverage past the 50% milestone to `51.75%` without real-device tests.
   - Biggest direct lifts in this wave were in `permission_screen`, `profile_screen`, `mesh_networking_provider`, `app_core`, and `ble_providers`.
 
-## Phase Calibration (Rebased To `61.80%`)
+## Phase Calibration (Rebased To `62.01%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
   - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI and BLE state-management files.
@@ -177,12 +177,14 @@ Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 
   - Phase 9.8 no-device long-tail ROI rebaseline: `61.28%` (`+0.28`)
   - Phase 9.9 no-device long-tail ROI rebaseline: `61.52%` (`+0.24`)
   - Phase 9.10 no-device long-tail ROI rebaseline: `61.80%` (`+0.28`)
+  - Phase 9.11 no-device long-tail ROI rebaseline: `62.01%` (`+0.21`)
 - Recalibrated no-device coverage ranges (global):
   - Phase 6 milestone reached: `51.75%` global coverage achieved.
   - Phase 7 no-device BLE/data state-management seams: target `52% - 54%` (completed at `53.86%`)
   - Phase 8 no-device large-screen/controller harness waves: target `54% - 56.5%` (completed at `57.84%`)
   - Phase 9 long-tail branch/error-path closure: target `57.8% - 60%` (completed at `60.09%`)
-  - Phase 9.6+ continued no-device ROI closure: target `60% - 62%` (in progress at `61.80%`).
+  - Phase 9.6+ continued no-device ROI closure: target `60% - 62%` (completed at `62.01%`).
+  - Phase 9.12+ continued no-device ROI closure: target `62% - 63.5%` (in progress at `62.01%`).
   - Real-device phase (later) should focus on behavioral confidence and integration reliability.
 - Current highest-uncovered ROI files (from latest full-suite lcov):
   - `lib/presentation/screens/chat_screen.dart` (`0/324`)
@@ -206,8 +208,8 @@ Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 
   - `lib/data/services/ble_messaging_transport_helper.dart` (`98/236`)
   - `lib/domain/services/mesh/mesh_queue_sync_coordinator.dart` (`165/300`)
   - `lib/data/services/mesh_relay_handler.dart` (`47/176`)
-  - `lib/core/security/noise/primitives/handshake_state_kk.dart` (`0/127`)
   - `lib/presentation/providers/archive_provider.dart` (`72/199`)
+  - `lib/core/security/noise/primitives/handshake_state_kk.dart` (`0/127`)
   - `lib/data/services/ble_connection_service.dart` (`116/238`)
   - `lib/data/services/protocol_message_handler.dart` (`191/312`)
   - `lib/presentation/services/chat_interaction_handler.dart` (`199/320`)
@@ -215,11 +217,11 @@ Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 
   - `lib/data/services/ble_state_coordinator.dart` (`60/179`)
   - `lib/domain/services/chat_lifecycle_service.dart` (`188/305`)
   - `lib/data/services/ble_connection_manager_runtime_client_links.dart` (`67/184`)
-  - `lib/data/services/connection_health_monitor.dart` (`47/161`)
-  - `lib/presentation/widgets/discovery_overlay.dart` (`101/215`)
   - `lib/presentation/viewmodels/chat_session_view_model.dart` (`129/243`)
+  - `lib/presentation/widgets/discovery_overlay.dart` (`101/215`)
   - `lib/data/repositories/archive_repository.dart` (`173/285`)
   - `lib/presentation/providers/mesh_networking_provider.dart` (`106/214`)
+  - `lib/domain/services/burst_scanning_controller.dart` (`102/209`)
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
@@ -359,7 +361,8 @@ Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 
 - [x] 9.8 Continue highest-uncovered long-tail closure toward `62%+`
 - [x] 9.9 Continue highest-uncovered long-tail closure toward `62%+`
 - [x] 9.10 Continue highest-uncovered long-tail closure toward `62%+`
-- [ ] 9.11 Continue highest-uncovered long-tail closure toward `62%+`
+- [x] 9.11 Continue highest-uncovered long-tail closure toward `62%+`
+- [ ] 9.12 Continue highest-uncovered long-tail closure toward `63%+`
 ## Phase 8 Snapshot (8.1-8.4 Targeted + Full-Suite)
 - Targeted green run (8.1 + home-controller regression): `00:02 +14: All tests passed!`
   - `flutter test --no-pub test/presentation/screens/home_screen_test.dart test/presentation/controllers/home_screen_controller_test.dart`
@@ -498,7 +501,30 @@ Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 
 - Notes:
   - Added `test/domain/services/simple_crypto_verification_test.dart` covering verification summary reporting, key-storage + shared-secret branches, signing-ready failure path, challenge generation format, and bidirectional encryption failure handling.
 
+## Phase 9.11 Snapshot (Connection Health Monitor ROI + Full-Suite)
+- Targeted run (9.11): `00:00 +11: All tests passed!`
+  - `flutter test --no-pub test/data/services/connection_health_monitor_test.dart`
+- Targeted coverage run (9.11): `00:02 +11: All tests passed!`
+  - `flutter test --coverage --no-pub test/data/services/connection_health_monitor_test.dart`
+- Targeted analyzer pass (9.11): clean
+  - `flutter analyze --no-pub test/data/services/connection_health_monitor_test.dart lib/data/services/connection_health_monitor.dart`
+- Full-suite checkpoint after 9.11: `02:04 +2050: All tests passed!`
+  - `flutter test --coverage --no-pub` (captured in `flutter_test_latest.log`)
+- Targeted file snapshot (latest full-suite run):
+  - `lib/data/services/connection_health_monitor.dart`: `82.61%` (`133/161`)
+- Notes:
+  - Added `test/data/services/connection_health_monitor_test.dart` covering monitor lifecycle toggles, health-check success/failure, reconnection success/max-attempt cutoff, relay-preserving bypass, and active-link/pending-link suppression paths.
+
 ## Progress Log
+- 2026-03-06: Phase 9.11 full-suite coverage rebaseline completed:
+  - Full-suite run: `02:04 +2050: All tests passed!` (captured in `flutter_test_latest.log`)
+  - Overall coverage: `62.01% (25370/40915)`
+- 2026-03-06: Phase 9.11 targeted analyzer pass clean:
+  - `flutter analyze --no-pub test/data/services/connection_health_monitor_test.dart lib/data/services/connection_health_monitor.dart`
+- 2026-03-06: Phase 9.11 targeted coverage run passed: `00:02 +11: All tests passed!`
+- 2026-03-06: Phase 9.11 targeted run passed: `00:00 +11: All tests passed!`
+- 2026-03-06: Added Phase 9.11 ROI suite:
+  - `test/data/services/connection_health_monitor_test.dart`
 - 2026-03-06: Phase 9.10 full-suite coverage rebaseline completed:
   - Full-suite run: `02:30 +2039: All tests passed!` (captured in `flutter_test_latest.log`)
   - Overall coverage: `61.80% (25284/40915)`
@@ -797,6 +823,8 @@ Last updated: 2026-03-06 (Phase 9.10 full-suite rebaseline complete; Phase 9.11 
 - `6e3a9cd` - test: complete phase 9.9 contact status sync coverage wave
 - `2c6cc14` - test: add phase 9.10a simple crypto verification coverage wave
 - `5b2f520` - docs: record phase 9.9 and 9.10a checkpoint hashes
+- `5f9fc6d` - docs: close phase 9.10 with full-suite coverage rebaseline
+- `b6b6aa2` - test: add phase 9.11 connection health monitor coverage wave
 
 
 
