@@ -274,10 +274,11 @@ Last updated: 2026-03-05 (Phase 7.3 full-suite rebaseline complete)
 - [x] 7.1 Add `home_screen_controller` + `chat_messaging_view_model` state-path coverage wave
 - [x] 7.2 Add `ble_state_manager_facade` + `ble_state_coordinator` seam tests
 - [x] 7.3 Add `ble_connection_manager_runtime_server_links` + `ble_connection_manager` no-device lifecycle/error tests
-- [ ] 7.4 Add `burst_scanning_controller` + `mesh_networking_runtime_helper` domain runtime tests
+- [x] 7.4a Add `burst_scanning_controller` runtime guard coverage wave
+- [ ] 7.4b Add `mesh_networking_runtime_helper` runtime tests through mesh service entry points
 - [ ] 7.5 Run full-suite coverage pass, re-baseline, and decide Phase 8 entry
 
-## Phase 7 Snapshot (Targeted Wave 7.1/7.3)
+## Phase 7 Snapshot (Targeted Wave 7.1/7.4a)
 - Targeted green run (7.1/7.2): `00:01 +30: All tests passed!`
   - `flutter test --no-pub test/data/services/ble_state_orchestration_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/providers/chat_messaging_view_model_test.dart`
 - Targeted coverage run (7.1/7.2): `00:03 +30: All tests passed!`
@@ -286,21 +287,29 @@ Last updated: 2026-03-05 (Phase 7.3 full-suite rebaseline complete)
   - `flutter test --no-pub test/data/services/ble_connection_manager_server_links_test.dart`
 - Targeted coverage run (7.3): `00:02 +12: All tests passed!`
   - `flutter test --coverage --no-pub test/data/services/ble_connection_manager_server_links_test.dart`
-- Combined targeted coverage run (7.1-7.3): `00:07 +42: All tests passed!`
-  - `flutter test --coverage --no-pub test/data/services/ble_state_orchestration_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/providers/chat_messaging_view_model_test.dart test/data/services/ble_connection_manager_server_links_test.dart`
+- Targeted green run (7.4a): `00:00 +8: All tests passed!`
+  - `flutter test --no-pub test/domain/services/burst_scanning_controller_test.dart`
+- Targeted coverage run (7.4a): `00:01 +8: All tests passed!`
+  - `flutter test --coverage --no-pub test/domain/services/burst_scanning_controller_test.dart`
+- Combined targeted coverage run (7.1-7.4a): `00:07 +50: All tests passed!`
+  - `flutter test --coverage --no-pub test/data/services/ble_state_orchestration_test.dart test/presentation/controllers/home_screen_controller_test.dart test/presentation/providers/chat_messaging_view_model_test.dart test/data/services/ble_connection_manager_server_links_test.dart test/domain/services/burst_scanning_controller_test.dart`
 - Full-suite checkpoint after 7.3: `02:32 +1892: All tests passed!`
-- Targeted file snapshot (latest full-suite lcov):
+- Targeted file snapshot (latest targeted/full-suite checkpoints):
   - `lib/presentation/controllers/home_screen_controller.dart`: `62.86%` (`132/210`)
-  - `lib/presentation/providers/chat_messaging_view_model.dart`: `62.91%` (`134/213`)
+  - `lib/presentation/providers/chat_messaging_view_model.dart`: `62.91%` (`134/213`) [full-suite]
   - `lib/data/services/ble_state_coordinator.dart`: `33.52%` (`60/179`)
-  - `lib/data/services/ble_state_manager_facade.dart`: `29.93%` (`82/274`)
-  - `lib/data/services/ble_connection_manager.dart`: `59.85%` (`155/259`)
+  - `lib/data/services/ble_state_manager_facade.dart`: `29.93%` (`82/274`) [full-suite]
+  - `lib/data/services/ble_connection_manager.dart`: `59.85%` (`155/259`) [full-suite]
   - `lib/data/services/ble_connection_manager_runtime_server_links.dart`: `50.76%` (`100/197`)
-  - `lib/data/services/ble_connection_manager_runtime_client_links.dart`: `36.41%` (`67/184`)
+  - `lib/data/services/ble_connection_manager_runtime_client_links.dart`: `36.41%` (`67/184`) [full-suite]
+  - `lib/domain/services/burst_scanning_controller.dart`: `48.80%` (`102/209`) [targeted 7.4a run]
+  - `lib/domain/services/mesh_networking_runtime_helper.dart`: `0.00%` (`0/179`) [pending 7.4b]
 - Notes:
   - 7.1 shipped expanded controller/view-model coverage with no-device fakes and callback assertions.
   - 7.2 shipped orchestration seam tests for coordinator/facade delegation and callback bridging.
   - 7.3 shipped non-device server-link lifecycle/error-path coverage for `BLEConnectionManager`, lifting previously near-zero runtime server-link coverage into a testable baseline.
+  - 7.4a shipped `BurstScanningController` runtime guard/status coverage with no-device fakes; 7.4b remains focused on `mesh_networking_runtime_helper`.
+
 ## Phase 8 Breakdown
 - [ ] 8.1 Build `home_screen` harness with provider overrides/fakes and cover startup/search/filter branches
 - [ ] 8.2 Add `contacts_screen` + `contact_detail_screen` high-value UI state coverage
@@ -308,6 +317,11 @@ Last updated: 2026-03-05 (Phase 7.3 full-suite rebaseline complete)
 - [ ] 8.4 Run full-suite coverage pass and refresh Phase 9 roadmap
 
 ## Progress Log
+- 2026-03-05: Phase 7.4a completed with new burst scanning runtime suite:
+  - `test/domain/services/burst_scanning_controller_test.dart`
+- 2026-03-05: Phase 7.4a targeted run passed: `00:00 +8: All tests passed!`
+- 2026-03-05: Phase 7.4a targeted coverage run passed: `00:01 +8: All tests passed!`
+- 2026-03-05: Combined Phase 7.1-7.4a targeted coverage run passed: `00:07 +50: All tests passed!`
 - 2026-03-05: Phase 7.3 completed with new BLE runtime/server-link suite:
   - `test/data/services/ble_connection_manager_server_links_test.dart`
 - 2026-03-05: Phase 7.3 targeted run passed: `00:00 +12: All tests passed!`
@@ -487,6 +501,9 @@ Last updated: 2026-03-05 (Phase 7.3 full-suite rebaseline complete)
 - `917e159` - test: add archive search delegate roi coverage wave
 - d5a6877 - test: add import-export dialog coverage wave
 - 19543d9 - test: complete phase 7.3 ble runtime coverage wave
+
+
+
 
 
 
