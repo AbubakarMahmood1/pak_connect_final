@@ -23,7 +23,14 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 enum HomeMenuAction { openProfile, openContacts, openArchives, settings }
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    this.chatsRepository,
+    this.chatManagementService,
+  });
+
+  final IChatsRepository? chatsRepository;
+  final ChatManagementService? chatManagementService;
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
@@ -33,7 +40,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with SingleTickerProviderStateMixin {
   final _logger = Logger('HomeScreen');
   late final IChatsRepository _chatsRepository;
-  final ChatManagementService _chatManagementService = ChatManagementService();
+  late final ChatManagementService _chatManagementService;
   late final HomeScreenProviderArgs _viewModelArgs;
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _listScrollController = ScrollController();
@@ -53,10 +60,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _chatsRepository = resolveFromAppServicesOrServiceLocator<IChatsRepository>(
-      fromServices: (services) => services.chatsRepository,
-      dependencyName: 'IChatsRepository',
-    );
+    _chatsRepository =
+        widget.chatsRepository ??
+        resolveFromAppServicesOrServiceLocator<IChatsRepository>(
+          fromServices: (services) => services.chatsRepository,
+          dependencyName: 'IChatsRepository',
+        );
+    _chatManagementService =
+        widget.chatManagementService ?? ChatManagementService();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(
       _onTabChanged,
