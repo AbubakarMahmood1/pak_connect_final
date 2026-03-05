@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
+Last updated: 2026-03-05 (Phase 5.18 import/export dialog ROI wave complete)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,15 @@ Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:48 +1801: All tests passed!`
-- Overall coverage: `48.18% (19706/40898)`
-- Coverage delta vs baseline: `+14.69` points (`+6010` covered lines)
-- Coverage delta vs previous snapshot: `+1.05` points (`+430` covered lines)
+- Full suite: `02:08 +1824: All tests passed!`
+- Overall coverage: `50.00% (20449/40900)`
+- Coverage delta vs baseline: `+16.51` points (`+6753` covered lines)
+- Coverage delta vs previous snapshot: `+1.04` points (`+426` covered lines)
 - Layer coverage:
-  - `core`: `58.16%` (unchanged)
-  - `data`: `50.79%` (`+8.63` points)
-  - `domain`: `56.04%` (`+18.43` points)
-  - `presentation`: `32.37%` (`+23.44` points)
+  - core: 58.16% (unchanged)
+  - data: 50.79% (+8.63 points)
+  - domain: 56.06% (+18.45 points)
+  - presentation: `38.88%` (`+29.95` points)
 - Phase 1 target files:
   - `lib/domain/services/contact_management_service.dart`: `76.90%` (`283/368`)
   - `lib/domain/services/archive_management_service.dart`: `63.25%` (`210/332`)
@@ -126,8 +126,14 @@ Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
 - Phase 5.14 target files (full-suite snapshot):
   - `lib/domain/services/device_deduplication_manager.dart`: `76.92%` (`240/312`)
   - `lib/presentation/services/chat_interaction_handler.dart`: `62.19%` (`199/320`)
+- Phase 5.16 target files (full-suite snapshot):
+  - `lib/presentation/widgets/archive_search_delegate.dart`: `90.94%` (`251/276`)
+  - `lib/presentation/providers/archive_provider.dart`: `34.17%` (`68/199`)
+- Phase 5.18 target files (full-suite snapshot):
+  - `lib/presentation/widgets/export_dialog.dart`: `87.06%` (`175/201`)
+  - `lib/presentation/widgets/import_dialog.dart`: `93.48%` (`215/230`)
 
-## Phase Calibration (Rebased To `48.18%`)
+## Phase Calibration (Rebased To `50.00%`)
 - Why this refresh was needed:
   - Earlier phase labels tracked completed work correctly, but expected percent movement was optimistic for presentation-heavy waves.
   - Current full-suite numbers confirm the coverage trend is real and improving; the remaining gap is concentrated in large UI files.
@@ -141,8 +147,10 @@ Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
   - Phase 5.10 no-device domain ROI snapshot: `46.08%` (`+1.34`)
   - Phase 5.12 routing/sync ROI snapshot: `47.13%` (`+1.05`)
   - Phase 5.14 dedup+interaction ROI snapshot: `48.18%` (`+1.05`)
+  - Phase 5.16 archive-search ROI snapshot: `48.96%` (`+0.78`)
+  - Phase 5.18 import/export dialog ROI snapshot: `50.00%` (`+1.04`)
 - Recalibrated no-device coverage ranges (global):
-  - Remaining Phase 5 ROI waves (major presentation/data-core targets): target `49% - 50%`
+  - Phase 5 no-device ROI milestone reached: `50.00%` global coverage achieved.
   - Phase 6 no-device service/provider hardening (domain/data/core seams): target `50% - 53%`
   - Phase 7 long-tail branch/error-path closure (high-cost leftovers): target `53% - 56%`
   - Real-device phase (later) should focus on behavioral confidence, not expecting large line-coverage jumps.
@@ -155,17 +163,18 @@ Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
   - `lib/presentation/screens/network_topology_screen.dart` (`1/283`)
   - `lib/presentation/screens/contacts_screen.dart` (`1/280`)
   - `lib/data/services/ble_state_manager.dart` (`102/380`)
-  - `lib/presentation/widgets/archive_search_delegate.dart` (`0/276`)
   - `lib/presentation/providers/ble_providers.dart` (`35/298`)
   - `lib/presentation/screens/profile_screen.dart` (`1/255`)
-  - `lib/presentation/widgets/import_dialog.dart` (`1/229`)
   - `lib/presentation/screens/permission_screen.dart` (`1/223`)
   - `lib/presentation/widgets/discovery_overlay.dart` (`0/215`)
   - `lib/data/services/ble_state_manager_facade.dart` (`60/274`)
   - `lib/presentation/providers/mesh_networking_provider.dart` (`5/214`)
   - `lib/domain/services/burst_scanning_controller.dart` (`1/209`)
   - `lib/core/services/security_manager.dart` (`119/326`)
-
+  - `lib/data/services/ble_connection_manager_runtime_server_links.dart` (`0/197`)
+  - `lib/data/services/ble_connection_manager.dart` (`65/259`)
+  - `lib/data/database/database_helper.dart` (`92/272`)
+  - `lib/data/services/ble_state_coordinator.dart` (`1/179`)
 ## Plan
 - Phase 1: High-ROI unit tests for service/domain logic (no real-device dependency)
 - Phase 2: BLE/data seam-driven tests with fakes
@@ -225,6 +234,10 @@ Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
 - [x] 5.13 Run full-suite coverage revalidation after 5.12 wave
 - [x] 5.14 Add dedup + interaction ROI suites (`device_deduplication_manager`, `chat_interaction_handler`)
 - [x] 5.15 Run full-suite coverage revalidation after 5.14 wave
+- [x] 5.16 Add archive ROI suites (`archive_search_delegate`, `archive_provider` state models)
+- [x] 5.17 Run full-suite coverage revalidation after 5.16 wave
+- [x] 5.18 Add import/export dialog widget ROI suites (`export_dialog`, `import_dialog`)
+- [x] 5.19 Run full-suite coverage revalidation after 5.18 wave
 
 ## Progress Log
 - 2026-03-04: Tracker created. Starting Phase 1.1.
@@ -327,6 +340,19 @@ Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
 - 2026-03-05: `flutter analyze --no-pub` on Phase 5.14 suites passed clean.
 - 2026-03-05: Full-suite coverage run passed: `01:48 +1801: All tests passed!`, output captured in `flutter_test_latest.log`.
 
+- 2026-03-05: Added Phase 5.16 archive ROI suites:
+  - `test/presentation/widgets/archive_search_delegate_test.dart`
+  - `test/presentation/providers/archive_provider_test.dart`
+- 2026-03-05: Phase 5.16 targeted run passed: `00:03 +15: All tests passed!`
+- 2026-03-05: `flutter analyze --no-pub` on Phase 5.16 suites passed clean.
+- 2026-03-05: Full-suite coverage run passed: `01:55 +1816: All tests passed!`, output captured in `flutter_test_latest.log`.
+- 2026-03-05: Added Phase 5.18 import/export ROI suites:
+  - `test/presentation/widgets/export_dialog_test.dart`
+  - `test/presentation/widgets/import_dialog_test.dart`
+- 2026-03-05: Phase 5.18 targeted run passed: `00:02 +8: All tests passed!`
+- 2026-03-05: `flutter analyze --no-pub` on Phase 5.18 suites passed clean.
+- 2026-03-05: Full-suite coverage run passed: `02:08 +1824: All tests passed!`, output captured in `flutter_test_latest.log`.
+
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
 - `6d75142` - test: add phase 1 service coverage suites
@@ -362,3 +388,8 @@ Last updated: 2026-03-05 (Phase 5.14 dedup + interaction ROI wave complete)
 - `44cc41c` - test: extend phase 5 domain routing and sync coverage
 - `d65f5a4` - docs: record phase 5.12 coverage rise to 47.13
 - `28c7d16` - test: add phase 5 dedup and interaction coverage suites
+- `917e159` - test: add archive search delegate roi coverage wave
+
+
+
+
