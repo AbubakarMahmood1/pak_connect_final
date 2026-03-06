@@ -70,11 +70,31 @@ class _FakeInteractionHandler implements IChatInteractionHandler {
 
   int initializeCount = 0;
   int disposeCount = 0;
+  bool throwOnInitialize = false;
+  bool throwOnDispose = false;
   ChatListItem? openedChat;
   bool searchToggled = false;
+  bool clearSearchCalled = false;
+  bool settingsOpened = false;
+  bool profileOpened = false;
+  String? editDisplayNameResult;
+  String? editedDisplayNameInput;
+  String? handledMenuAction;
+  bool contactsOpened = false;
+  bool archivesOpened = false;
+  bool archiveConfirmationResult = false;
+  ChatListItem? archivedChat;
+  bool deleteConfirmationResult = false;
+  ChatListItem? deletedChat;
+  ChatListItem? contextMenuChat;
+  ChatListItem? pinToggledChat;
+  ChatId? markedReadChatId;
 
   @override
   Future<void> initialize() async {
+    if (throwOnInitialize) {
+      throw StateError('initialize failed');
+    }
     initializeCount++;
   }
 
@@ -86,6 +106,9 @@ class _FakeInteractionHandler implements IChatInteractionHandler {
 
   @override
   Future<void> dispose() async {
+    if (throwOnDispose) {
+      throw StateError('dispose failed');
+    }
     disposeCount++;
     await _controller.close();
   }
@@ -106,46 +129,75 @@ class _FakeInteractionHandler implements IChatInteractionHandler {
   }
 
   @override
-  void clearSearch() {}
+  void clearSearch() {
+    clearSearchCalled = true;
+  }
 
   @override
-  void openSettings() {}
+  void openSettings() {
+    settingsOpened = true;
+  }
 
   @override
-  void openProfile() {}
+  void openProfile() {
+    profileOpened = true;
+  }
 
   @override
-  Future<String?> editDisplayName(String currentName) async => null;
+  Future<String?> editDisplayName(String currentName) async {
+    editedDisplayNameInput = currentName;
+    return editDisplayNameResult;
+  }
 
   @override
-  void handleMenuAction(String action) {}
+  void handleMenuAction(String action) {
+    handledMenuAction = action;
+  }
 
   @override
-  void openContacts() {}
+  void openContacts() {
+    contactsOpened = true;
+  }
 
   @override
-  void openArchives() {}
+  void openArchives() {
+    archivesOpened = true;
+  }
 
   @override
-  Future<bool> showArchiveConfirmation(ChatListItem chat) async => false;
+  Future<bool> showArchiveConfirmation(ChatListItem chat) async {
+    return archiveConfirmationResult;
+  }
 
   @override
-  Future<void> archiveChat(ChatListItem chat) async {}
+  Future<void> archiveChat(ChatListItem chat) async {
+    archivedChat = chat;
+  }
 
   @override
-  Future<bool> showDeleteConfirmation(ChatListItem chat) async => false;
+  Future<bool> showDeleteConfirmation(ChatListItem chat) async {
+    return deleteConfirmationResult;
+  }
 
   @override
-  Future<void> deleteChat(ChatListItem chat) async {}
+  Future<void> deleteChat(ChatListItem chat) async {
+    deletedChat = chat;
+  }
 
   @override
-  void showChatContextMenu(ChatListItem chat) {}
+  void showChatContextMenu(ChatListItem chat) {
+    contextMenuChat = chat;
+  }
 
   @override
-  Future<void> toggleChatPin(ChatListItem chat) async {}
+  Future<void> toggleChatPin(ChatListItem chat) async {
+    pinToggledChat = chat;
+  }
 
   @override
-  Future<void> markChatAsRead(ChatId chatId) async {}
+  Future<void> markChatAsRead(ChatId chatId) async {
+    markedReadChatId = chatId;
+  }
 }
 
 ChatListItem _sampleChat() => ChatListItem(
@@ -171,6 +223,7 @@ void main() {
 
   setUp(() {
     logRecords.clear();
+    allowedSevere.clear();
     Logger.root.level = Level.ALL;
     Logger.root.onRecord.listen(logRecords.add);
   });
@@ -191,7 +244,11 @@ void main() {
     );
   });
 
-  HomeScreenFacade buildFacade({bool enableListInit = false}) {
+  HomeScreenFacade buildFacade({
+    bool enableListInit = false,
+    bool useInteractionBuilder = true,
+    bool enableInternalIntentListener = true,
+  }) {
     chatsRepository = _FakeChatsRepository()
       ..chats = [_sampleChat()]
       ..unreadCount = 2;
@@ -201,10 +258,12 @@ void main() {
     return HomeScreenFacade(
       chatsRepository: chatsRepository,
       bleService: connectionService,
-      interactionHandlerBuilder:
-          ({context, ref, chatsRepository, chatManagementService}) =>
-              interactionHandler,
+      interactionHandlerBuilder: useInteractionBuilder
+          ? ({context, ref, chatsRepository, chatManagementService}) =>
+                interactionHandler
+          : null,
       enableListCoordinatorInitialization: enableListInit,
+      enableInternalIntentListener: enableInternalIntentListener,
     );
   }
 
@@ -270,4 +329,118 @@ void main() {
       expect(facade.isLoading, isFalse);
     },
   );
+
+  test(
+    'delegates remaining interaction operations and return values',
+    () async {
+      facade = buildFacade();
+      final chat = _sampleChat();
+      interactionHandler.editDisplayNameResult = 'Updated Name';
+      interactionHandler.archiveConfirmationResult = true;
+      interactionHandler.deleteConfirmationResult = true;
+
+      expect(facade.connectionStatusStream, isA<Stream<ConnectionStatus>>());
+      expect(facade.unreadCountStream, isA<Stream<int>>());
+
+      await facade.clearSearch();
+      facade.openSettings();
+      facade.openProfile();
+      final newName = await facade.editDisplayName('Current Name');
+      facade.handleMenuAction('openArchives');
+      facade.openContacts();
+      facade.openArchives();
+      final canArchive = await facade.showArchiveConfirmation(chat);
+      await facade.archiveChat(chat);
+      final canDelete = await facade.showDeleteConfirmation(chat);
+      await facade.deleteChat(chat);
+      facade.showChatContextMenu(chat);
+      await facade.toggleChatPin(chat);
+      await facade.markChatAsRead(_cid('chat-1'));
+
+      expect(interactionHandler.clearSearchCalled, isTrue);
+      expect(interactionHandler.settingsOpened, isTrue);
+      expect(interactionHandler.profileOpened, isTrue);
+      expect(interactionHandler.editedDisplayNameInput, 'Current Name');
+      expect(newName, 'Updated Name');
+      expect(interactionHandler.handledMenuAction, 'openArchives');
+      expect(interactionHandler.contactsOpened, isTrue);
+      expect(interactionHandler.archivesOpened, isTrue);
+      expect(canArchive, isTrue);
+      expect(interactionHandler.archivedChat?.chatId.value, chat.chatId.value);
+      expect(canDelete, isTrue);
+      expect(interactionHandler.deletedChat?.chatId.value, chat.chatId.value);
+      expect(
+        interactionHandler.contextMenuChat?.chatId.value,
+        chat.chatId.value,
+      );
+      expect(
+        interactionHandler.pinToggledChat?.chatId.value,
+        chat.chatId.value,
+      );
+      expect(interactionHandler.markedReadChatId?.value, 'chat-1');
+    },
+  );
+
+  test('navigation intent does not trigger chat reload', () async {
+    facade = buildFacade();
+
+    await facade.loadChats();
+    final initialLoads = chatsRepository.loadCount;
+
+    interactionHandler.emit(NavigationIntent('settings'));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(chatsRepository.loadCount, initialLoads);
+  });
+
+  test(
+    'initialize logs and rethrows when sub-service initialization fails',
+    () async {
+      facade = buildFacade();
+      interactionHandler.throwOnInitialize = true;
+      allowedSevere.add('Error initializing HomeScreenFacade');
+
+      await expectLater(facade.initialize(), throwsA(isA<StateError>()));
+    },
+  );
+
+  test('dispose handles interaction-handler disposal failures', () async {
+    facade = buildFacade();
+    await facade.initialize();
+    interactionHandler.throwOnDispose = true;
+
+    await facade.dispose();
+  });
+
+  test('uses no-op interaction handler when builder is not provided', () async {
+    facade = buildFacade(
+      useInteractionBuilder: false,
+      enableInternalIntentListener: false,
+    );
+    final chat = _sampleChat();
+
+    await facade.initialize();
+    await facade.openChat(chat);
+    facade.toggleSearch();
+    facade.showSearch();
+    await facade.clearSearch();
+    facade.openSettings();
+    facade.openProfile();
+    final edited = await facade.editDisplayName('Any Name');
+    facade.handleMenuAction('noop');
+    facade.openContacts();
+    facade.openArchives();
+    final canArchive = await facade.showArchiveConfirmation(chat);
+    await facade.archiveChat(chat);
+    final canDelete = await facade.showDeleteConfirmation(chat);
+    await facade.deleteChat(chat);
+    facade.showChatContextMenu(chat);
+    await facade.toggleChatPin(chat);
+    await facade.markChatAsRead(_cid('chat-2'));
+
+    expect(edited, isNull);
+    expect(canArchive, isFalse);
+    expect(canDelete, isFalse);
+    await facade.dispose();
+  });
 }
