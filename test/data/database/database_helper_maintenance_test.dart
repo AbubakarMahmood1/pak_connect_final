@@ -5,7 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/test_helpers/test_setup.dart';
+import '../../test_helpers/test_setup.dart';
 
 void main() {
   late List<LogRecord> logRecords;
