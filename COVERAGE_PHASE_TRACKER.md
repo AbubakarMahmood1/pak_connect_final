@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 11.3 presentation controllers/viewmodels; full-suite at 71.19%)
+Last updated: 2026-03-07 (Phase 11.4 domain services long-tail; full-suite at 71.52%)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,24 @@ Last updated: 2026-03-06 (Phase 11.3 presentation controllers/viewmodels; full-s
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:10 +2531 ~1: All tests passed!`
-- Overall coverage: `71.19% (29126/40915)`
-- Coverage delta vs baseline: `+37.70` points (`+15430` covered lines)
-- Coverage delta vs previous snapshot: `+0.09` points (`+37` covered lines)
+- Full suite: `02:16 +2591 ~1: All tests passed!`
+- Overall coverage: `71.52% (29263/40915)`
+- Coverage delta vs baseline: `+38.03` points (`+15567` covered lines)
+- Coverage delta vs previous snapshot: `+0.33` points (`+137` covered lines)
 - Layer coverage:
   - core: `69.11%` (`3452/4995`)
   - data: `64.63%` (`7584/11734`)
-  - domain: `73.99%` (`9367/12660`)
+  - domain: `75.07%` (`9504/12660`)
   - presentation: `76.05%` (`8655/11380`)
+
+## Phase 11.4 Completion Snapshot (Domain services long-tail)
+- Added suites:
+  - `test/domain/messaging/queue_sync_manager_phase11_test.dart` (27 tests — construction, getStats, initialize w/ prefs, handleSyncRequest 4 paths, processSyncResponse 3 paths, initiateSync, dispose, cancelAllSyncs, data class factories)
+  - `test/domain/services/chat_lifecycle_service_phase11_test.dart` (19 tests — exportChat CSV/TEXT/metadata, getComprehensiveChatAnalytics with/without archives, getChatAnalytics empty/single/multi-day, batchArchiveChats partial failure, deleteMessages edges, toggleChatArchive failure paths, archiveManager getter)
+  - `test/domain/services/bluetooth_state_monitor_phase11_test.dart` (14 tests — BluetoothStateInfo model, BluetoothStatusMessage 7 factories, BluetoothMessageType enum, singleton access, pre-init getters, dispose)
+- Targeted validation: `flutter test --no-pub <3 files>` → `00:00 +60: All tests passed!`
+- Full-suite regression: `02:16 +2591 ~1: All tests passed!`
+- Coverage: 71.19% → 71.52% (+137 lines, +0.33pp; domain 73.99% → 75.07% ✅)
 
 ## Phase 11.3 Completion Snapshot (Presentation controllers / viewmodels)
 - Added suites:
