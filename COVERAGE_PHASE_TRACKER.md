@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 6.4 no-device ROI wave complete; full-suite rebaseline captured)
+Last updated: 2026-03-06 (Phase 10.1 no-device ROI wave complete; >=70% full-suite coverage milestone reached)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,40 @@ Last updated: 2026-03-06 (Phase 6.4 no-device ROI wave complete; full-suite reba
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `01:59 +2226 ~1: All tests passed!`
-- Overall coverage: `67.47% (27607/40915)`
-- Coverage delta vs baseline: `+33.98` points (`+13911` covered lines)
-- Coverage delta vs previous snapshot: `+5.46` points (`+2237` covered lines)
+- Full suite: `02:25 +2325 ~1: All tests passed!`
+- Overall coverage: `70.01% (28644/40915)`
+- Coverage delta vs baseline: `+36.52` points (`+14948` covered lines)
+- Coverage delta vs previous snapshot: `+2.54` points (`+1037` covered lines)
 - Layer coverage:
-  - core: `63.86%` (`3190/4995`)
-  - data: `62.67%` (`7354/11734`)
-  - domain: `69.49%` (`8798/12660`)
-  - presentation: `72.03%` (`8197/11380`)
+  - core: `67.43%` (`3368/4995`)
+  - data: `63.67%` (`7471/11734`)
+  - domain: `73.20%` (`9267/12660`)
+  - presentation: `74.43%` (`8470/11380`)
+
+## Phase 10.1 Completion Snapshot (No-device ROI wave to >=70%)
+- Added/expanded ROI suites:
+  - `test/core/services/home_screen_facade_test.dart` (expanded)
+  - `test/core/services/navigation_service_test.dart`
+  - `test/data/repositories/intro_hint_repository_test.dart`
+  - `test/data/services/connection_limit_enforcer_test.dart`
+  - `test/domain/routing/routing_models_test.dart`
+  - `test/domain/services/chat_management_models_test.dart`
+- Targeted validation runs:
+  - `flutter test --no-pub test/domain/routing/routing_models_test.dart test/data/repositories/intro_hint_repository_test.dart test/data/services/connection_limit_enforcer_test.dart test/core/services/navigation_service_test.dart test/core/services/home_screen_facade_test.dart` (`00:02 +39: All tests passed!`)
+  - `flutter test --no-pub test/domain/services/chat_management_models_test.dart` (`00:00 +12: All tests passed!`)
+- Full-suite coverage rebaselines:
+  - first pass: `02:22 +2313 ~1: All tests passed!` -> `69.91% (28603/40915)`
+  - final pass: `02:25 +2325 ~1: All tests passed!` -> `70.01% (28644/40915)`
+- Phase 10.1 target files (full-suite snapshot):
+  - `lib/domain/services/chat_management_models.dart`: `98.94%` (`93/94`)
+  - `lib/domain/routing/routing_models.dart`: `100%` (`126/126`)
+  - `lib/data/services/connection_limit_enforcer.dart`: `100%` (`50/50`)
+  - `lib/data/repositories/intro_hint_repository.dart`: `89.33%` (`67/75`)
+  - `lib/core/services/navigation_service.dart`: `92.00%` (`46/50`)
+  - `lib/core/services/home_screen_facade.dart`: `92.97%` (`119/128`)
+- Notes:
+  - Two-pass rebaseline was required because the first full-suite run landed just below the threshold (`69.91%`).
+  - No-device milestone `>=70%` is now met with full-suite validation (`70.01%`).
 
 ## Phase 6.4 Completion Snapshot (No-device ROI wave to >=67%)
 - Targeted ROI suites validated:
@@ -796,6 +821,25 @@ Last updated: 2026-03-06 (Phase 6.4 no-device ROI wave complete; full-suite reba
 - 2026-03-06: Phase 6.4 targeted regression passed: `00:01 +15 ~1: All tests passed!`
 - 2026-03-06: Full-suite coverage run passed: `01:59 +2226 ~1: All tests passed!`, output captured in `flutter_test_latest.log`.
 - 2026-03-06: Coverage milestone reached: `67.47% (27607/40915)` (no-device target `>=67%` met).
+- 2026-03-06: Added Phase 10.1 ROI suites:
+  - `test/core/services/queue_bandwidth_allocator_test.dart`
+  - `test/domain/models/identity_session_state_test.dart`
+  - `test/domain/services/notification_service_test.dart`
+  - `test/domain/services/peripheral_initializer_test.dart`
+  - `test/presentation/providers/ble_provider_models_test.dart`
+  - `test/presentation/widgets/pairing_dialog_test.dart`
+  - `test/presentation/dialogs/spy_mode_reveal_dialog_test.dart`
+  - `test/presentation/screens/group_list_screen_test.dart`
+  - `test/domain/services/auto_archive_scheduler_test.dart`
+  - `test/domain/services/chat_management_facade_test.dart`
+  - `test/core/services/navigation_service_test.dart`
+  - `test/data/repositories/intro_hint_repository_test.dart`
+  - `test/data/services/connection_limit_enforcer_test.dart`
+  - `test/domain/routing/routing_models_test.dart`
+  - `test/domain/services/chat_management_models_test.dart`
+- 2026-03-06: Phase 10.1 targeted regression passed (`00:02 +39: All tests passed!`) and follow-up model pass succeeded (`00:00 +12: All tests passed!`).
+- 2026-03-06: Full-suite coverage pass landed at `69.91% (28603/40915)` (`02:22 +2313 ~1: All tests passed!`).
+- 2026-03-06: Phase 10.1 follow-up full-suite coverage pass landed at `70.01% (28644/40915)` (`02:25 +2325 ~1: All tests passed!`) with output captured in `flutter_test_latest.log`.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
