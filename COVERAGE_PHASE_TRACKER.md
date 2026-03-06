@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 11.2 security/messaging/queue coverage; full-suite at 71.10%)
+Last updated: 2026-03-06 (Phase 11.3 presentation controllers/viewmodels; full-suite at 71.19%)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,23 @@ Last updated: 2026-03-06 (Phase 11.2 security/messaging/queue coverage; full-sui
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:13 +2481 ~1 -2: Some tests failed.` (2 pre-existing failures: seen_message_store_abstraction, queue_sync_system)
-- Overall coverage: `71.10% (29089/40915)`
-- Coverage delta vs baseline: `+37.61` points (`+15393` covered lines)
-- Coverage delta vs previous snapshot: `+0.31` points (`+125` covered lines)
+- Full suite: `02:10 +2531 ~1: All tests passed!`
+- Overall coverage: `71.19% (29126/40915)`
+- Coverage delta vs baseline: `+37.70` points (`+15430` covered lines)
+- Coverage delta vs previous snapshot: `+0.09` points (`+37` covered lines)
 - Layer coverage:
   - core: `69.11%` (`3452/4995`)
   - data: `64.63%` (`7584/11734`)
   - domain: `73.99%` (`9367/12660`)
-  - presentation: `75.73%` (`8618/11380`)
+  - presentation: `76.05%` (`8655/11380`)
+
+## Phase 11.3 Completion Snapshot (Presentation controllers / viewmodels)
+- Added suites:
+  - `test/presentation/services/chat_interaction_handler_phase11_test.dart` (16 tests — formatTime edge-cases, multi-subscriber, navigation guards, dispose, markChatAsRead error)
+  - `test/presentation/viewmodels/chat_session_view_model_phase11_test.dart` (32 tests — 15 pure state transformers, bindStateStore, _canUpdateState guard, rebindControllers, sendMessage empty guard, isDisposed guard)
+- Targeted validation: `flutter test --no-pub <2 files>` → `00:01 +48: All tests passed!`
+- Full-suite regression: `02:10 +2531 ~1: All tests passed!`
+- Regressions: None
 
 ## Phase 11.2 Completion Snapshot (Security + messaging + queue sync)
 - Added suites:
