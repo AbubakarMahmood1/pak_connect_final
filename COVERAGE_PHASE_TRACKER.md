@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 10.1 no-device ROI wave complete; >=70% full-suite coverage milestone reached)
+Last updated: 2026-03-06 (Phase 10.2 no-device ROI wave complete; full-suite coverage at 70.58%)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,35 @@ Last updated: 2026-03-06 (Phase 10.1 no-device ROI wave complete; >=70% full-sui
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:25 +2325 ~1: All tests passed!`
-- Overall coverage: `70.01% (28644/40915)`
-- Coverage delta vs baseline: `+36.52` points (`+14948` covered lines)
-- Coverage delta vs previous snapshot: `+2.54` points (`+1037` covered lines)
+- Full suite: `02:26 +2343 ~1: All tests passed!`
+- Overall coverage: `70.58% (28877/40915)`
+- Coverage delta vs baseline: `+37.09` points (`+15181` covered lines)
+- Coverage delta vs previous snapshot: `+0.57` points (`+233` covered lines)
 - Layer coverage:
   - core: `67.43%` (`3368/4995`)
-  - data: `63.67%` (`7471/11734`)
-  - domain: `73.20%` (`9267/12660`)
-  - presentation: `74.43%` (`8470/11380`)
+  - data: `64.23%` (`7537/11734`)
+  - domain: `73.35%` (`9286/12660`)
+  - presentation: `75.73%` (`8618/11380`)
+
+## Phase 10.2 Completion Snapshot (No-device ROI wave post-70%)
+- Added ROI suites:
+  - `test/presentation/controllers/chat_pairing_dialog_controller_test.dart`
+  - `test/presentation/widgets/chat_screen_sections_test.dart`
+  - `test/presentation/providers/contact_provider_test.dart`
+  - `test/data/repositories/archive_data_helper_test.dart`
+- Targeted validation run:
+  - `flutter test --no-pub test/presentation/widgets/chat_screen_sections_test.dart test/presentation/controllers/chat_pairing_dialog_controller_test.dart test/presentation/providers/contact_provider_test.dart test/data/repositories/archive_data_helper_test.dart` (`00:01 +18: All tests passed!`)
+- Full-suite coverage rebaseline:
+  - `flutter test --no-pub --coverage *>&1 | Tee-Object -FilePath flutter_test_latest.log`
+  - result: `02:26 +2343 ~1: All tests passed!` -> `70.58% (28877/40915)`
+- Phase 10.2 target files (full-suite snapshot):
+  - `lib/data/repositories/archive_data_helper.dart`: `100%` (`67/67`)
+  - `lib/presentation/widgets/chat_screen_sections.dart`: `94.03%` (`63/67`)
+  - `lib/presentation/controllers/chat_pairing_dialog_controller.dart`: `60.71%` (`51/84`)
+  - `lib/presentation/providers/contact_provider.dart`: `57.94%` (`62/107`)
+- Notes:
+  - This wave converted multiple near-zero hotspots into high-coverage files without device-dependent tests.
+  - Net improvement from prior snapshot: `+0.57` points and `+233` covered lines.
 
 ## Phase 10.1 Completion Snapshot (No-device ROI wave to >=70%)
 - Added/expanded ROI suites:
@@ -283,7 +303,9 @@ Last updated: 2026-03-06 (Phase 10.1 no-device ROI wave complete; >=70% full-sui
 - Phase 7: BLE/data state-manager seam hardening (no-device, completed)
 - Phase 8: Large screen/controller coverage waves (no-device, completed)
 - Phase 9: Long-tail branch/error-path closure (no-device)
-- Phase 10: Real-device validation (when hardware is available)
+- Phase 10.3: Continue highest-ROI no-device closure toward `71%+`
+- Phase 10.4: Continue highest-ROI no-device closure toward `72%+`
+- Phase 11: Real-device validation (when hardware is available)
 
 ## Phase 1 Breakdown
 - [x] 1.1 Add `ContactManagementService` unit tests
@@ -840,6 +862,13 @@ Last updated: 2026-03-06 (Phase 10.1 no-device ROI wave complete; >=70% full-sui
 - 2026-03-06: Phase 10.1 targeted regression passed (`00:02 +39: All tests passed!`) and follow-up model pass succeeded (`00:00 +12: All tests passed!`).
 - 2026-03-06: Full-suite coverage pass landed at `69.91% (28603/40915)` (`02:22 +2313 ~1: All tests passed!`).
 - 2026-03-06: Phase 10.1 follow-up full-suite coverage pass landed at `70.01% (28644/40915)` (`02:25 +2325 ~1: All tests passed!`) with output captured in `flutter_test_latest.log`.
+- 2026-03-06: Added Phase 10.2 ROI suites:
+  - `test/presentation/controllers/chat_pairing_dialog_controller_test.dart`
+  - `test/presentation/widgets/chat_screen_sections_test.dart`
+  - `test/presentation/providers/contact_provider_test.dart`
+  - `test/data/repositories/archive_data_helper_test.dart`
+- 2026-03-06: Phase 10.2 targeted regression passed (`00:01 +18: All tests passed!`).
+- 2026-03-06: Full-suite coverage pass landed at `70.58% (28877/40915)` (`02:26 +2343 ~1: All tests passed!`) with output captured in `flutter_test_latest.log`.
 
 ## Checkpoints
 - `e2591f6` - docs: add coverage phase tracker and baseline
@@ -903,6 +932,7 @@ Last updated: 2026-03-06 (Phase 10.1 no-device ROI wave complete; >=70% full-sui
 - `b6b6aa2` - test: add phase 9.11 connection health monitor coverage wave
 - `e73d992` - test: complete phase 6.4 ROI wave and cross 67 coverage
 - `ad83e3a` - test: complete phase 10.1 roi wave and reach 70 coverage
+- `4ddf2fd` - test: add phase 10.2 roi coverage suites
 
 
 
