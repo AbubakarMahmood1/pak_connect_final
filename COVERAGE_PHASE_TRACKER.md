@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 10.2 no-device ROI wave complete; full-suite coverage at 70.58%)
+Last updated: 2026-03-06 (Phase 11.1 big-3 no-device logic coverage; full-suite at 70.79%)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,27 @@ Last updated: 2026-03-06 (Phase 10.2 no-device ROI wave complete; full-suite cov
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:26 +2343 ~1: All tests passed!`
-- Overall coverage: `70.58% (28877/40915)`
-- Coverage delta vs baseline: `+37.09` points (`+15181` covered lines)
-- Coverage delta vs previous snapshot: `+0.57` points (`+233` covered lines)
+- Full suite: `02:29 +2408 ~1 -1: Some tests failed.` (1 pre-existing layer-boundary compliance failure)
+- Overall coverage: `70.79% (28964/40915)`
+- Coverage delta vs baseline: `+37.30` points (`+15268` covered lines)
+- Coverage delta vs previous snapshot: `+0.21` points (`+87` covered lines)
 - Layer coverage:
-  - core: `67.43%` (`3368/4995`)
-  - data: `64.23%` (`7537/11734`)
-  - domain: `73.35%` (`9286/12660`)
+  - core: `67.57%` (`3375/4995`)
+  - data: `64.62%` (`7583/11734`)
+  - domain: `73.62%` (`9320/12660`)
   - presentation: `75.73%` (`8618/11380`)
+
+## Phase 11.1 Completion Snapshot (Big 3 no-device logic files)
+- Added suites:
+  - `test/core/app_core_phase11_test.dart` (22 tests — lifecycle, statusStream, dispose, AppStatistics)
+  - `test/domain/services/background_notification_handler_impl_test.dart` (23 tests — init guards, dispose, navigation, config)
+  - `test/data/database/database_helper_maintenance_test.dart` (21 tests — clearAllData, vacuum, integrity, statistics)
+- Targeted validation: `flutter test --no-pub <3 files>` → `00:01 +66: All tests passed!`
+- Full-suite coverage: `flutter test --no-pub --coverage` → `02:29 +2408 ~1 -1`
+- Phase 11.1 target files coverage:
+  - `lib/core/app_core.dart`: `27.3%` → (gains from lifecycle/dispose/statistics paths)
+  - `lib/domain/services/background_notification_handler_impl.dart`: `0%` → (gains from init guards, dispose, config)
+  - `lib/data/database/database_helper.dart`: `33.8%` → (gains from maintenance operations)
 
 ## Phase 10.2 Completion Snapshot (No-device ROI wave post-70%)
 - Added ROI suites:
