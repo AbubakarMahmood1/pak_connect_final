@@ -902,6 +902,7 @@ Last updated: 2026-03-06 (Phase 10.1 no-device ROI wave complete; >=70% full-sui
 - `5f9fc6d` - docs: close phase 9.10 with full-suite coverage rebaseline
 - `b6b6aa2` - test: add phase 9.11 connection health monitor coverage wave
 - `e73d992` - test: complete phase 6.4 ROI wave and cross 67 coverage
+- `ad83e3a` - test: complete phase 10.1 roi wave and reach 70 coverage
 
 
 
