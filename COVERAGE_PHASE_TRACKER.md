@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-06 (Phase 11.1 big-3 no-device logic coverage; full-suite at 70.79%)
+Last updated: 2026-03-06 (Phase 11.2 security/messaging/queue coverage; full-suite at 71.10%)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,24 @@ Last updated: 2026-03-06 (Phase 11.1 big-3 no-device logic coverage; full-suite 
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:29 +2408 ~1 -1: Some tests failed.` (1 pre-existing layer-boundary compliance failure)
-- Overall coverage: `70.79% (28964/40915)`
-- Coverage delta vs baseline: `+37.30` points (`+15268` covered lines)
-- Coverage delta vs previous snapshot: `+0.21` points (`+87` covered lines)
+- Full suite: `02:13 +2481 ~1 -2: Some tests failed.` (2 pre-existing failures: seen_message_store_abstraction, queue_sync_system)
+- Overall coverage: `71.10% (29089/40915)`
+- Coverage delta vs baseline: `+37.61` points (`+15393` covered lines)
+- Coverage delta vs previous snapshot: `+0.31` points (`+125` covered lines)
 - Layer coverage:
-  - core: `67.57%` (`3375/4995`)
-  - data: `64.62%` (`7583/11734`)
-  - domain: `73.62%` (`9320/12660`)
+  - core: `69.11%` (`3452/4995`)
+  - data: `64.63%` (`7584/11734`)
+  - domain: `73.99%` (`9367/12660`)
   - presentation: `75.73%` (`8618/11380`)
+
+## Phase 11.2 Completion Snapshot (Security + messaging + queue sync)
+- Added suites:
+  - `test/core/services/security_manager_phase11_test.dart` (37 tests — encryption/decryption branches, sealed messages, identity mapping, Noise pattern selection, lifecycle)
+  - `test/domain/services/mesh/mesh_queue_sync_coordinator_phase11_test.dart` (29 tests — init/kill-switch/queue-ops/syncWithPeers/dispose)
+  - `test/data/services/outbound_message_sender_test.dart` (8 tests — constructor/setCurrentNodeId/sendBinaryPayload)
+- Targeted validation: `flutter test --no-pub <3 files>` → `00:00 +74: All tests passed!`
+- Full-suite coverage: `flutter test --no-pub --coverage` → `02:13 +2481 ~1 -2`
+- Phase 11.2 coverage lift: `+125 lines`, `+0.31pp` (70.79% → 71.10%)
 
 ## Phase 11.1 Completion Snapshot (Big 3 no-device logic files)
 - Added suites:
