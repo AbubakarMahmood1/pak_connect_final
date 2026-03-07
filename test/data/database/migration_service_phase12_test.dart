@@ -178,11 +178,9 @@ void main() {
       expect(result.backupPath, isNotNull);
     });
 
-    test('migrates user preferences — insert into user_preferences table (currently no-op due to missing table)',
-        () async {
-      // NOTE: migration_service.dart inserts into 'user_preferences' which
-      // doesn't exist in the schema (it's 'app_preferences'). This is a
-      // known production bug. The migration silently catches the error.
+    test('migrates user preferences into app_preferences table', () async {
+      // BUG FIX: migration_service.dart previously inserted into
+      // 'user_preferences' (wrong table name). Fixed to use 'app_preferences'.
       SharedPreferences.setMockInitialValues({
         'username': 'testuser',
         'device_id': 'dev-123',
@@ -191,8 +189,8 @@ void main() {
 
       final result = await MigrationService.migrate();
       expect(result.success, isTrue);
-      // Count is 0 because inserts fail (table doesn't exist)
-      expect(result.migrationCounts['user_prefs'], equals(0));
+      // Now correctly inserts into app_preferences
+      expect(result.migrationCounts['user_prefs'], equals(3));
     });
 
     test('migrates deleted message IDs', () async {
