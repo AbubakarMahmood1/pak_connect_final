@@ -37,11 +37,15 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
   static final _logger = Logger('BackgroundNotificationHandlerImpl');
 
   /// Flutter local notifications plugin instance
-  final FlutterLocalNotificationsPlugin _notificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _notificationsPlugin;
 
   /// Track initialization state
   bool _isInitialized = false;
+
+  /// Creates a handler, optionally accepting a [plugin] for testing.
+  BackgroundNotificationHandlerImpl({
+    FlutterLocalNotificationsPlugin? plugin,
+  }) : _notificationsPlugin = plugin ?? FlutterLocalNotificationsPlugin();
 
   @override
   Future<void> initialize() async {
