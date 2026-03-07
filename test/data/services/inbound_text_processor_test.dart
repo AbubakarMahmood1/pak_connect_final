@@ -34,7 +34,7 @@ void main() {
     });
 
     test(
-      'uses declared sender identity for v2 decrypt when transport sender is relay',
+      'uses transport sender identity for v2 decrypt when senderId differs',
       () async {
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -57,12 +57,12 @@ void main() {
         expect(result.content, equals('typed:ciphertext'));
         expect(result.shouldAck, isTrue);
         expect(securityService.decryptMessageByTypeCalls, equals(1));
-        expect(securityService.lastDecryptPublicKey, equals('crypto-sender'));
+        expect(securityService.lastDecryptPublicKey, equals('relay-node'));
       },
     );
 
     test(
-      'uses sealed sender and recipient bindings from envelope over transport sender',
+      'uses transport sender binding for sealed v2 decrypt attribution',
       () async {
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -92,7 +92,7 @@ void main() {
         expect(result.content, equals('sealed:ciphertext-base64'));
         expect(result.shouldAck, isTrue);
         expect(securityService.decryptSealedCalls, equals(1));
-        expect(securityService.lastSealedSenderId, equals('crypto-sender'));
+        expect(securityService.lastSealedSenderId, equals('relay-node'));
         expect(securityService.lastSealedRecipientId, equals('recipient-key'));
       },
     );

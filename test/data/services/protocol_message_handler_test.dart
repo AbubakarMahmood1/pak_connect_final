@@ -393,7 +393,7 @@ void main() {
     });
 
     test(
-      'routes v2 decrypt by declared mode without fallback guessing',
+      'routes v2 decrypt by declared mode using transport sender identity',
       () async {
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -418,7 +418,7 @@ void main() {
         expect(securityService.decryptMessageByTypeCalls, equals(1));
         expect(securityService.decryptMessageCalls, equals(0));
         expect(securityService.lastDecryptType, equals(EncryptionType.noise));
-        expect(securityService.lastDecryptPublicKey, equals('sender-key'));
+        expect(securityService.lastDecryptPublicKey, equals('relay-node'));
       },
     );
 
@@ -452,7 +452,7 @@ void main() {
       expect(result, equals('sealed:ciphertext-base64'));
       expect(securityService.decryptSealedCalls, equals(1));
       expect(securityService.decryptMessageByTypeCalls, equals(0));
-      expect(securityService.lastSealedSenderId, equals('sender-key'));
+      expect(securityService.lastSealedSenderId, equals('relay-node'));
       expect(securityService.lastSealedRecipientId, equals('recipient-key'));
     });
 

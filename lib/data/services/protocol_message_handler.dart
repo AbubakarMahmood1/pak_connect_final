@@ -226,21 +226,28 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
       final messageId = message.textMessageId!;
       final content = message.textContent!;
       final intendedRecipient = message.payload['intendedRecipient'] as String?;
-      final declaredSenderId =
-          message.senderId ??
-          (message.payload['originalSender'] as String?) ??
-          fromNodeId;
-      final resolvedDecryptSenderId = await _resolveSenderKeyForDecrypt(
-        declaredSenderId,
+      final originalSenderId = message.payload['originalSender'] as String?;
+      final declaredSenderId = message.senderId ?? originalSenderId;
+      final resolvedTransportSenderForDecrypt = await _resolveSenderKeyForDecrypt(
+        fromNodeId,
       );
-      final resolvedSignatureSenderKey = await _resolveSenderKeyForSignature(
-        declaredSenderId,
+      final resolvedOriginalSenderForDecrypt = await _resolveSenderKeyForDecrypt(
+        originalSenderId,
       );
-      final decryptionPeerId = (resolvedDecryptSenderId?.isNotEmpty ?? false)
-          ? resolvedDecryptSenderId!
-          : fromNodeId;
+      final resolvedTransportSenderForSignature =
+          await _resolveSenderKeyForSignature(fromNodeId);
+      final resolvedOriginalSenderForSignature =
+          await _resolveSenderKeyForSignature(originalSenderId);
+      final resolvedDeclaredSenderForSignature =
+          await _resolveSenderKeyForSignature(declaredSenderId);
+      final decryptionPeerId =
+          (resolvedTransportSenderForDecrypt?.isNotEmpty ?? false)
+          ? resolvedTransportSenderForDecrypt!
+          : ((resolvedOriginalSenderForDecrypt?.isNotEmpty ?? false)
+                ? resolvedOriginalSenderForDecrypt!
+                : fromNodeId);
       final versionPeerKey = _versionPeerKey(
-        signatureSenderKey: resolvedSignatureSenderKey,
+        signatureSenderKey: resolvedTransportSenderForSignature,
         declaredSenderId: declaredSenderId,
         transportSenderId: fromNodeId,
       );
@@ -303,10 +310,10 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
             }
             if (cryptoHeader.mode == CryptoMode.sealedV1) {
               final sealedSenderId =
-                  message.senderId ??
-                  (message.payload['originalSender'] as String?);
+                  resolvedTransportSenderForDecrypt ??
+                  fromNodeId;
               final recipientForSealed = message.recipientId;
-              if (sealedSenderId == null || sealedSenderId.isEmpty) {
+              if (sealedSenderId.isEmpty) {
                 _logger.severe(
                   '🔒 v2 sealed message missing sender binding: $messageId',
                 );
@@ -401,7 +408,11 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
             verifyingKey = message.ephemeralSigningKey!;
           }
         } else {
-          final signatureKey = resolvedSignatureSenderKey ?? declaredSenderId;
+          final signatureKey =
+              resolvedTransportSenderForSignature ??
+              resolvedOriginalSenderForSignature ??
+              resolvedDeclaredSenderForSignature ??
+              fromNodeId;
           if (signatureKey.isEmpty) {
             _logger.severe(
               '❌ v2 trusted signature missing sender verification key for message $messageId',

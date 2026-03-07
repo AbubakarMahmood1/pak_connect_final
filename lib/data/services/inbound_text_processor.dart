@@ -153,11 +153,11 @@ class InboundTextProcessor {
       return const InboundTextResult(content: null, shouldAck: false);
     }
 
-    final decryptKey = resolvedDeclaredSenderForDecrypt?.isNotEmpty == true
-        ? resolvedDeclaredSenderForDecrypt
-        : (resolvedSenderForDecrypt?.isNotEmpty == true
-              ? resolvedSenderForDecrypt
-              : resolvedOriginalSenderForDecrypt);
+    final decryptKey = resolvedSenderForDecrypt?.isNotEmpty == true
+        ? resolvedSenderForDecrypt
+        : (resolvedOriginalSenderForDecrypt?.isNotEmpty == true
+              ? resolvedOriginalSenderForDecrypt
+              : resolvedDeclaredSenderForDecrypt);
     String? decryptKeyUsed = decryptKey;
     var isV2Authenticated = protocolMessage.version < 2;
 
@@ -194,7 +194,11 @@ class InboundTextProcessor {
             return const InboundTextResult(content: null, shouldAck: false);
           }
           if (cryptoHeader.mode == CryptoMode.sealedV1) {
-            final sealedSenderId = declaredSenderId;
+            final sealedSenderId =
+                resolvedSenderForDecrypt ??
+                senderPublicKey ??
+                resolvedOriginalSenderForDecrypt ??
+                originalSender;
             final sealedRecipientId = protocolMessage.recipientId;
             if (sealedSenderId == null ||
                 sealedSenderId.isEmpty ||
@@ -380,10 +384,10 @@ class InboundTextProcessor {
         verifyingKey = protocolMessage.ephemeralSigningKey!;
       } else {
         final resolvedForSignature =
-            resolvedDeclaredSenderForSignature ??
             resolvedSenderForSignature ??
             senderPublicKey ??
-            resolvedOriginalSenderForSignature;
+            resolvedOriginalSenderForSignature ??
+            resolvedDeclaredSenderForSignature;
         if (resolvedForSignature == null) {
           _logger.severe('❌ Trusted message but no sender identity');
           return const InboundTextResult(
@@ -442,12 +446,12 @@ class InboundTextProcessor {
       shouldAck: true,
       resolvedSenderKey:
           decryptKeyUsed ??
-          resolvedDeclaredSenderForDecrypt ??
           resolvedSenderForDecrypt ??
           resolvedOriginalSenderForDecrypt ??
+          resolvedDeclaredSenderForDecrypt ??
           senderPublicKey ??
-          declaredSenderId ??
-          originalSender,
+          originalSender ??
+          declaredSenderId,
     );
   }
 
