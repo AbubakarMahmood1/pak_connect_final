@@ -160,7 +160,7 @@ class InboundTextProcessor {
               ? resolvedSenderForDecrypt
               : resolvedOriginalSenderForDecrypt);
     String? decryptKeyUsed = decryptKey;
-    var isV2Authenticated = protocolMessage.version < 2;
+    var isV2IdentityAuthenticated = protocolMessage.version < 2;
 
     if (protocolMessage.isEncrypted) {
       if (_shouldRequireV2Signature(
@@ -429,12 +429,12 @@ class InboundTextProcessor {
       } else {
         _logger.info('✅ Real signature verified');
       }
-      if (protocolMessage.version >= 2) {
-        isV2Authenticated = true;
+      if (protocolMessage.version >= 2 && !protocolMessage.useEphemeralSigning) {
+        isV2IdentityAuthenticated = true;
       }
     }
 
-    if (protocolMessage.version < 2 || isV2Authenticated) {
+    if (protocolMessage.version < 2 || isV2IdentityAuthenticated) {
       _trackPeerVersionFloor(
         peerKey: versionPeerKey,
         messageVersion: protocolMessage.version,
@@ -567,7 +567,7 @@ class InboundTextProcessor {
   }
 
   Future<String?> _resolveSenderKeyForSignature(String? candidateKey) async {
-    if (candidateKey == null || candidateKey.isEmpty) return candidateKey;
+    if (candidateKey == null || candidateKey.isEmpty) return null;
     try {
       final contact = await _contactRepository.getContactByAnyId(candidateKey);
       if (contact != null) {
@@ -594,7 +594,7 @@ class InboundTextProcessor {
         'Signature sender resolution failed for ${_safeTruncate(candidateKey)}: $e',
       );
     }
-    return candidateKey;
+    return null;
   }
 
   bool _isLegacyMode(CryptoMode mode) {

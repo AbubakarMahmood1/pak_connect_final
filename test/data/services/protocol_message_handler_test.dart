@@ -277,6 +277,7 @@ void main() {
         );
         final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
         final signingKeyPair = _generateEphemeralSigningKeyPair();
+        final peerKey = signingKeyPair.publicHex;
         final baselineV2 = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           version: 2,
@@ -284,11 +285,10 @@ void main() {
             'messageId': 'msg-v2-floor-signature',
             'content': 'ciphertext-floor-signature',
             'encrypted': true,
-            'senderId': 'peer-upgraded',
+            'senderId': peerKey,
             'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
           },
-          useEphemeralSigning: true,
-          ephemeralSigningKey: signingKeyPair.publicHex,
+          useEphemeralSigning: false,
           timestamp: now,
         );
         final baselinePayload = SigningManager.signaturePayloadForMessage(
@@ -304,8 +304,7 @@ void main() {
           version: baselineV2.version,
           payload: baselineV2.payload,
           signature: baselineSignature,
-          useEphemeralSigning: true,
-          ephemeralSigningKey: signingKeyPair.publicHex,
+          useEphemeralSigning: false,
           timestamp: now,
         );
         final unsignedV2 = ProtocolMessage(
@@ -315,7 +314,7 @@ void main() {
             'messageId': 'msg-v2-unsigned-after-upgrade',
             'content': 'ciphertext-unsigned',
             'encrypted': true,
-            'senderId': 'peer-upgraded',
+            'senderId': peerKey,
             'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
           },
           timestamp: now.add(const Duration(seconds: 1)),
@@ -324,12 +323,12 @@ void main() {
         final firstResult = await handler.processProtocolMessage(
           message: signedV2,
           fromDeviceId: 'device-1',
-          fromNodeId: 'relay-node',
+          fromNodeId: peerKey,
         );
         final secondResult = await handler.processProtocolMessage(
           message: unsignedV2,
           fromDeviceId: 'device-1',
-          fromNodeId: 'relay-node',
+          fromNodeId: peerKey,
         );
 
         expect(firstResult, equals('typed:ciphertext-floor-signature'));
@@ -423,7 +422,9 @@ void main() {
     );
 
     test('routes v2 sealed decrypt via dedicated sealed path', () async {
-      final message = ProtocolMessage(
+      final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
+      final signingKeyPair = _generateEphemeralSigningKeyPair();
+      final baseMessage = ProtocolMessage(
         type: ProtocolMessageType.textMessage,
         version: 2,
         payload: {
@@ -440,7 +441,26 @@ void main() {
             'nonce': 'bm9uY2UxMjM=',
           },
         },
-        timestamp: DateTime.now(),
+        useEphemeralSigning: true,
+        ephemeralSigningKey: signingKeyPair.publicHex,
+        timestamp: now,
+      );
+      final signaturePayload = SigningManager.signaturePayloadForMessage(
+        baseMessage,
+        fallbackContent: 'sealed:ciphertext-base64',
+      );
+      final signature = _signWithEphemeralPrivateKey(
+        content: signaturePayload,
+        privateKeyHex: signingKeyPair.privateHex,
+      );
+      final message = ProtocolMessage(
+        type: baseMessage.type,
+        version: baseMessage.version,
+        payload: baseMessage.payload,
+        signature: signature,
+        useEphemeralSigning: true,
+        ephemeralSigningKey: signingKeyPair.publicHex,
+        timestamp: now,
       );
 
       final result = await handler.processProtocolMessage(
@@ -474,6 +494,7 @@ void main() {
             'nonce': 'bm9uY2UxMjM=',
           },
         },
+        signature: 'placeholder-sig',
         timestamp: DateTime.now(),
       );
 
@@ -511,6 +532,7 @@ void main() {
               'nonce': 'bm9uY2UxMjM=',
             },
           },
+          signature: 'placeholder-sig',
           timestamp: DateTime.now(),
         );
 
@@ -697,6 +719,7 @@ void main() {
       () async {
         final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
         final signingKeyPair = _generateEphemeralSigningKeyPair();
+        final peerKey = signingKeyPair.publicHex;
         final baselineV2 = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           version: 2,
@@ -704,11 +727,10 @@ void main() {
             'messageId': 'msg-v2-floor-legacy-mode',
             'content': 'ciphertext-floor',
             'encrypted': true,
-            'senderId': 'peer-upgraded',
+            'senderId': peerKey,
             'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
           },
-          useEphemeralSigning: true,
-          ephemeralSigningKey: signingKeyPair.publicHex,
+          useEphemeralSigning: false,
           timestamp: now,
         );
         final baselinePayload = SigningManager.signaturePayloadForMessage(
@@ -724,51 +746,48 @@ void main() {
           version: baselineV2.version,
           payload: baselineV2.payload,
           signature: baselineSignature,
-          useEphemeralSigning: true,
-          ephemeralSigningKey: signingKeyPair.publicHex,
+          useEphemeralSigning: false,
           timestamp: now,
         );
         final legacyModePayload = <String, dynamic>{
           'messageId': 'msg-v2-legacy-after-upgrade',
           'content': 'ciphertext-legacy',
           'encrypted': true,
-          'senderId': 'peer-upgraded',
+          'senderId': peerKey,
           'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
         };
-        final legacyModeUnsigned = ProtocolMessage(
+        final legacyModeBase = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           version: 2,
           payload: legacyModePayload,
-          useEphemeralSigning: true,
-          ephemeralSigningKey: signingKeyPair.publicHex,
+          useEphemeralSigning: false,
           timestamp: now.add(const Duration(seconds: 1)),
         );
         final legacyModeSignature = _signWithEphemeralPrivateKey(
           content: SigningManager.signaturePayloadForMessage(
-            legacyModeUnsigned,
+            legacyModeBase,
             fallbackContent: 'typed:ciphertext-legacy',
           ),
           privateKeyHex: signingKeyPair.privateHex,
         );
         final legacyModeV2 = ProtocolMessage(
-          type: legacyModeUnsigned.type,
-          version: legacyModeUnsigned.version,
-          payload: legacyModeUnsigned.payload,
+          type: legacyModeBase.type,
+          version: legacyModeBase.version,
+          payload: legacyModeBase.payload,
           signature: legacyModeSignature,
-          useEphemeralSigning: true,
-          ephemeralSigningKey: signingKeyPair.publicHex,
-          timestamp: legacyModeUnsigned.timestamp,
+          useEphemeralSigning: false,
+          timestamp: legacyModeBase.timestamp,
         );
 
         final firstResult = await handler.processProtocolMessage(
           message: signedV2,
           fromDeviceId: 'device-1',
-          fromNodeId: 'relay-node',
+          fromNodeId: peerKey,
         );
         final secondResult = await handler.processProtocolMessage(
           message: legacyModeV2,
           fromDeviceId: 'device-1',
-          fromNodeId: 'relay-node',
+          fromNodeId: peerKey,
         );
 
         expect(firstResult, equals('typed:ciphertext-floor'));
@@ -783,6 +802,7 @@ void main() {
       () async {
         final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
         final signingKeyPair = _generateEphemeralSigningKeyPair();
+        final peerKey = signingKeyPair.publicHex;
         final baselineV2 = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           version: 2,
@@ -790,11 +810,10 @@ void main() {
             'messageId': 'msg-v2-floor',
             'content': 'ciphertext-floor',
             'encrypted': true,
-            'senderId': 'peer-upgraded',
+            'senderId': peerKey,
             'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
           },
-          useEphemeralSigning: true,
-          ephemeralSigningKey: signingKeyPair.publicHex,
+          useEphemeralSigning: false,
           timestamp: now,
         );
         final baselinePayload = SigningManager.signaturePayloadForMessage(
@@ -810,8 +829,7 @@ void main() {
           version: baselineV2.version,
           payload: baselineV2.payload,
           signature: baselineSignature,
-          useEphemeralSigning: true,
-          ephemeralSigningKey: signingKeyPair.publicHex,
+          useEphemeralSigning: false,
           timestamp: now,
         );
 
@@ -822,7 +840,7 @@ void main() {
             'messageId': 'msg-v1-downgrade',
             'content': 'hello-v1',
             'encrypted': false,
-            'senderId': 'peer-upgraded',
+            'senderId': peerKey,
           },
           timestamp: DateTime.now(),
         );
@@ -830,12 +848,12 @@ void main() {
         final firstResult = await handler.processProtocolMessage(
           message: signedV2,
           fromDeviceId: 'device-1',
-          fromNodeId: 'relay-node',
+          fromNodeId: peerKey,
         );
         final secondResult = await handler.processProtocolMessage(
           message: v1Message,
           fromDeviceId: 'device-1',
-          fromNodeId: 'relay-node',
+          fromNodeId: peerKey,
         );
 
         expect(firstResult, equals('typed:ciphertext-floor'));
