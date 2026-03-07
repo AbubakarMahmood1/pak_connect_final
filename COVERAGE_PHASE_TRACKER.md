@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-07 (Phase 11.4 domain services long-tail; full-suite at 71.52%)
+Last updated: 2026-03-08 (Phase 12.16 — 75% milestone crossed; full-suite at 75.02%)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,15 +12,42 @@ Last updated: 2026-03-07 (Phase 11.4 domain services long-tail; full-suite at 71
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:16 +2591 ~1: All tests passed!`
-- Overall coverage: `71.52% (29263/40915)`
-- Coverage delta vs baseline: `+38.03` points (`+15567` covered lines)
-- Coverage delta vs previous snapshot: `+0.33` points (`+137` covered lines)
+- Full suite: `02:27 +3520 ~1: All tests passed!`
+- Overall coverage: `75.02% (30696/40915)`
+- Coverage delta vs baseline: `+41.53` points (`+17000` covered lines)
+- Coverage delta vs previous snapshot (12.15): `+0.38pp` (`+272` covered lines)
 - Layer coverage:
-  - core: `69.11%` (`3452/4995`)
-  - data: `64.63%` (`7584/11734`)
-  - domain: `75.07%` (`9504/12660`)
-  - presentation: `76.05%` (`8655/11380`)
+  - core: `72.33%` (`3613/4995`)
+  - data: `68.67%` (`8057/11734`)
+  - domain: `81.06%` (`10262/12660`)
+  - presentation: `76.91%` (`8753/11380`)
+
+## 🏆 75% MILESTONE CROSSED (Phase 12.16)
+
+## Phase 12 Summary (12.1 → 12.16)
+- Starting coverage: 71.52% (29263/40915) after Phase 11.4
+- Ending coverage: 75.02% (30696/40915) after Phase 12.16
+- Total Phase 12 gain: +3.50pp (+1433 lines)
+- Test count: 2591 → 3520 (+929 tests added)
+- Subphases:
+  | Sub  | Coverage  | Delta  | Lines | Tests Added |
+  |------|-----------|--------|-------|-------------|
+  | 12.1 | 71.76%    | +0.24  | +98   | 64 (archive/contact repo) |
+  | 12.2 | 71.92%    | +0.16  | +66   | 52 (gossip/topology/burst) |
+  | 12.3 | 71.98%    | +0.06  | +24   | 24 (mesh networking provider) |
+  | 12.4 | 72.22%    | +0.24  | +98   | 41 (protocol msg handler/db monitor) |
+  | 12.5 | 72.45%    | +0.23  | +94   | 50 (archive models/contact mgmt) |
+  | 12.6 | 72.72%    | +0.27  | +111  | 46 (archive search/mgmt/chat viewmodel) |
+  | 12.7 | 72.78%    | +0.06  | +24   | 51 (mesh relay engine/archive maint/policy) |
+  | 12.8 | 72.98%    | +0.20  | +82   | 41 (relay send/decision/queue policy) |
+  | 12.9 | 73.21%    | +0.23  | +94   | 67 (offline queue + security mgr suppl) |
+  | 12.10| 73.37%    | +0.16  | +66   | 34 (pairing svc + chat session vm suppl) |
+  | 12.11| 73.50%    | +0.13  | +52   | 24 (mesh queue sync coord suppl) |
+  | 12.12| 73.87%    | +0.37  | +152  | 94 (archive search models/pairing flow/theme) |
+  | 12.13| 74.17%    | +0.30  | +123  | 63 (chat mgmt/db optimizer/inbound text/migration) |
+  | 12.14| 74.49%    | +0.32  | +129  | 79 (data mapper/contact discovery/chat retry) |
+  | 12.15| 74.64%    | +0.15  | +64   | 102 (security mgr/mesh net/burst bt/home screen) |
+  | 12.16| 75.02%    | +0.38  | +156  | 107 (pairing lifecycle/chat handler/search cache/pinning/config) |
 
 ## Phase 11.4 Completion Snapshot (Domain services long-tail)
 - Added suites:
