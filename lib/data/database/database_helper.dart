@@ -848,4 +848,50 @@ class DatabaseHelper {
       return {'error': e.toString()};
     }
   }
+
+  // ==================== Test-only accessors ====================
+
+  /// Expose [_onConfigure] for unit testing.
+  @visibleForTesting
+  static Future<void> testOnConfigure(sqlcipher.Database db) =>
+      _onConfigure(db);
+
+  /// Expose [_onCreate] for unit testing.
+  @visibleForTesting
+  static Future<void> testOnCreate(sqlcipher.Database db, int version) =>
+      _onCreate(db, version);
+
+  /// Expose [_onUpgrade] for unit testing.
+  @visibleForTesting
+  static Future<void> testOnUpgrade(
+    sqlcipher.Database db,
+    int oldVersion,
+    int newVersion,
+  ) =>
+      _onUpgrade(db, oldVersion, newVersion);
+
+  /// Expose [_isDatabaseEncrypted] for unit testing.
+  @visibleForTesting
+  static Future<bool> testIsDatabaseEncrypted(String path) =>
+      _isDatabaseEncrypted(path);
+
+  /// Expose [_copyDatabaseContents] for unit testing.
+  @visibleForTesting
+  static Future<void> testCopyDatabaseContents(
+    sqlcipher.Database sourceDb,
+    sqlcipher.Database destDb,
+  ) =>
+      _copyDatabaseContents(sourceDb, destDb);
+
+  /// Expose [_applyDataMigrationBackfills] for unit testing.
+  @visibleForTesting
+  static Future<void> testApplyDataMigrationBackfills(
+    sqlcipher.Database db,
+  ) =>
+      _applyDataMigrationBackfills(db);
+
+  /// Expose [_rebuildFtsIndexes] for unit testing.
+  @visibleForTesting
+  static Future<void> testRebuildFtsIndexes(sqlcipher.Database db) =>
+      _rebuildFtsIndexes(db);
 }
