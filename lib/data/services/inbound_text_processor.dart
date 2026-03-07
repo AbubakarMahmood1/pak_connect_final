@@ -113,7 +113,8 @@ class InboundTextProcessor {
         );
         return const InboundTextResult(content: null, shouldAck: false);
       }
-      if (protocolMessage.signature == null) {
+      if (protocolMessage.signature == null ||
+          protocolMessage.signature!.trim().isEmpty) {
         _logger.severe(
           '🔒 v2 plaintext broadcast missing signature: $messageId',
         );
@@ -166,7 +167,8 @@ class InboundTextProcessor {
             messageVersion: protocolMessage.version,
             peerKey: versionPeerKey,
           ) &&
-          protocolMessage.signature == null) {
+          (protocolMessage.signature == null ||
+              protocolMessage.signature!.trim().isEmpty)) {
         _logger.severe(
           '🔒 v2 encrypted message missing signature under strict/upgraded-peer policy: $messageId',
         );
@@ -176,6 +178,15 @@ class InboundTextProcessor {
           ? protocolMessage.cryptoHeader
           : null;
       final isSealedV2 = cryptoHeader?.mode == CryptoMode.sealedV1;
+
+      if (isSealedV2 &&
+          (protocolMessage.signature == null ||
+              protocolMessage.signature!.trim().isEmpty)) {
+        _logger.severe(
+          '🔒 v2 sealed message missing signature: $messageId',
+        );
+        return const InboundTextResult(content: null, shouldAck: false);
+      }
 
       if (decryptKey == null && !isSealedV2) {
         _logger.warning('🔒 MESSAGE: Encrypted but no sender key available');
