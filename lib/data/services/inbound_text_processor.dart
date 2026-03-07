@@ -177,7 +177,9 @@ class InboundTextProcessor {
           : null;
       final isSealedV2 = cryptoHeader?.mode == CryptoMode.sealedV1;
 
-      if (isSealedV2 && protocolMessage.signature == null) {
+      if (isSealedV2 &&
+          (protocolMessage.signature == null ||
+              protocolMessage.signature!.trim().isEmpty)) {
         _logger.severe(
           '🔒 v2 sealed message missing signature: $messageId',
         );

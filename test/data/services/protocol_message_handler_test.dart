@@ -529,6 +529,7 @@ void main() {
 
 
     test('rejects unsigned sealed v2 message', () async {
+      allowedSevere.add('v2 sealed message missing signature');
       final message = ProtocolMessage(
         type: ProtocolMessageType.textMessage,
         version: 2,
