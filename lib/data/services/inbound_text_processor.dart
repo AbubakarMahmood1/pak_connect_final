@@ -142,8 +142,6 @@ class InboundTextProcessor {
         await _resolveSenderKeyForSignature(declaredSenderId);
     final versionPeerKey = _versionPeerKey(
       signatureSenderKey: resolvedDeclaredSenderForSignature,
-      declaredSenderId: declaredSenderId,
-      transportSenderId: senderPublicKey,
     );
     if (_shouldRejectLegacyDowngrade(
       messageVersion: protocolMessage.version,
@@ -159,7 +157,7 @@ class InboundTextProcessor {
               ? resolvedSenderForDecrypt
               : resolvedOriginalSenderForDecrypt);
     String? decryptKeyUsed = decryptKey;
-    var isV2Authenticated = protocolMessage.version < 2;
+    var isV2IdentityAuthenticated = protocolMessage.version < 2;
 
     if (protocolMessage.isEncrypted) {
       if (_shouldRequireV2Signature(
@@ -418,12 +416,12 @@ class InboundTextProcessor {
       } else {
         _logger.info('✅ Real signature verified');
       }
-      if (protocolMessage.version >= 2) {
-        isV2Authenticated = true;
+      if (protocolMessage.version >= 2 && !protocolMessage.useEphemeralSigning) {
+        isV2IdentityAuthenticated = true;
       }
     }
 
-    if (protocolMessage.version < 2 || isV2Authenticated) {
+    if (protocolMessage.version < 2 || isV2IdentityAuthenticated) {
       _trackPeerVersionFloor(
         peerKey: versionPeerKey,
         messageVersion: protocolMessage.version,
@@ -453,16 +451,11 @@ class InboundTextProcessor {
 
   String _versionPeerKey({
     required String? signatureSenderKey,
-    required String? declaredSenderId,
-    required String? transportSenderId,
   }) {
     if (signatureSenderKey != null && signatureSenderKey.isNotEmpty) {
       return signatureSenderKey;
     }
-    if (declaredSenderId != null && declaredSenderId.isNotEmpty) {
-      return declaredSenderId;
-    }
-    return transportSenderId ?? '';
+    return '';
   }
 
   bool _shouldRejectLegacyDowngrade({
@@ -556,7 +549,7 @@ class InboundTextProcessor {
   }
 
   Future<String?> _resolveSenderKeyForSignature(String? candidateKey) async {
-    if (candidateKey == null || candidateKey.isEmpty) return candidateKey;
+    if (candidateKey == null || candidateKey.isEmpty) return null;
     try {
       final contact = await _contactRepository.getContactByAnyId(candidateKey);
       if (contact != null) {
@@ -583,7 +576,7 @@ class InboundTextProcessor {
         'Signature sender resolution failed for ${_safeTruncate(candidateKey)}: $e',
       );
     }
-    return candidateKey;
+    return null;
   }
 
   bool _isLegacyMode(CryptoMode mode) {

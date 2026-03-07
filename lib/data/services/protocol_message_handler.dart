@@ -241,8 +241,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
           : fromNodeId;
       final versionPeerKey = _versionPeerKey(
         signatureSenderKey: resolvedSignatureSenderKey,
-        declaredSenderId: declaredSenderId,
-        transportSenderId: fromNodeId,
       );
       if (_shouldRejectLegacyDowngrade(
         messageVersion: message.version,
@@ -280,7 +278,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
       // Decrypt if needed
       String decryptedContent = content;
-      var isV2Authenticated = message.version < 2;
+      var isV2IdentityAuthenticated = message.version < 2;
       if (message.isEncrypted && decryptionPeerId.isNotEmpty) {
         if (_shouldRequireV2Signature(
               messageVersion: message.version,
@@ -430,13 +428,13 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         _logger.fine(
           '✅ Signature verified (${message.useEphemeralSigning ? "ephemeral" : "real"})',
         );
-        if (message.version >= 2) {
-          isV2Authenticated = true;
+        if (message.version >= 2 && !message.useEphemeralSigning) {
+          isV2IdentityAuthenticated = true;
         }
       }
 
       _sendAck(messageId, fromNodeId);
-      if (message.version < 2 || isV2Authenticated) {
+      if (message.version < 2 || isV2IdentityAuthenticated) {
         _trackPeerVersionFloor(
           peerKey: versionPeerKey,
           messageVersion: message.version,
@@ -470,16 +468,11 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   String _versionPeerKey({
     required String? signatureSenderKey,
-    required String? declaredSenderId,
-    required String transportSenderId,
   }) {
     if (signatureSenderKey != null && signatureSenderKey.isNotEmpty) {
       return signatureSenderKey;
     }
-    if (declaredSenderId != null && declaredSenderId.isNotEmpty) {
-      return declaredSenderId;
-    }
-    return transportSenderId;
+    return '';
   }
 
   bool _shouldRejectLegacyDowngrade({
@@ -763,7 +756,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   Future<String?> _resolveSenderKeyForSignature(String? candidateKey) async {
     if (candidateKey == null || candidateKey.isEmpty) {
-      return candidateKey;
+      return null;
     }
     try {
       final contact = await _contactRepository.getContactByAnyId(candidateKey);
@@ -791,7 +784,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         'Signature sender resolution failed for ${candidateKey.shortId(8)}: $e',
       );
     }
-    return candidateKey;
+    return null;
   }
 
   bool _isLegacyMode(CryptoMode mode) {
