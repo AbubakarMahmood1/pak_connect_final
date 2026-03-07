@@ -34,20 +34,17 @@ class SelectiveRestoreService {
           ? sqlcipher.databaseFactory
           : sqflite_common.databaseFactory;
 
-      // Get encryption key for mobile platforms
-      String? encryptionKey;
-      if (Platform.isAndroid || Platform.isIOS) {
-        try {
-          encryptionKey = await DatabaseEncryption.getOrCreateEncryptionKey();
-          _logger.fine('Using encryption key to open backup database');
-        } catch (e) {
-          _logger.warning('Failed to get encryption key for restore: $e');
-          // Try opening without encryption
-        }
+      // Enforce fail-closed behavior on mobile: restores require encrypted backups.
+      final isMobilePlatform = Platform.isAndroid || Platform.isIOS;
+      final encryptionKey = isMobilePlatform
+          ? await DatabaseEncryption.getOrCreateEncryptionKey()
+          : null;
+      if (isMobilePlatform) {
+        _logger.fine('Using encryption key to open backup database');
       }
 
       // Open database with platform-specific options
-      final backupDb = Platform.isAndroid || Platform.isIOS
+      final backupDb = isMobilePlatform
           ? await factory.openDatabase(
               backupPath,
               options: sqlcipher.SqlCipherOpenDatabaseOptions(
