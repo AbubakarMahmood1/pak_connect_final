@@ -1,6 +1,6 @@
 # Coverage Phase Tracker
 
-Last updated: 2026-03-08 (Phase 12.16 — 75% milestone crossed; full-suite at 75.02%)
+Last updated: 2026-03-08 (Phase 13.7 — 80% milestone crossed; full-suite at 80.03%)
 
 ## Baseline
 - Full suite: `01:39 +1568: All tests passed!`
@@ -12,17 +12,71 @@ Last updated: 2026-03-08 (Phase 12.16 — 75% milestone crossed; full-suite at 7
   - `presentation`: `8.93%`
 
 ## Current Snapshot
-- Full suite: `02:27 +3520 ~1: All tests passed!`
-- Overall coverage: `75.02% (30696/40915)`
-- Coverage delta vs baseline: `+41.53` points (`+17000` covered lines)
-- Coverage delta vs previous snapshot (12.15): `+0.38pp` (`+272` covered lines)
+- Full suite: `03:26 +5496 ~1: All tests passed!`
+- Overall coverage: `80.03% (32640/40787)`
+- Coverage delta vs baseline: `+46.54` points (`+18944` covered lines)
+- Coverage delta vs previous snapshot (13.6): `+0.64pp` (`+144` covered lines)
 - Layer coverage:
-  - core: `72.33%` (`3613/4995`)
-  - data: `68.67%` (`8057/11734`)
-  - domain: `81.06%` (`10262/12660`)
-  - presentation: `76.91%` (`8753/11380`)
+  - core: `75.60%` (`3776/4995`)
+  - data: `71.39%` (`8387/11748`)
+  - domain: `85.12%` (`10779/12664`)
+  - presentation: `85.22%` (`9698/11380`)
+
+## 🏆 80% MILESTONE CROSSED (Phase 13.7) — No-Device Ceiling Reached
 
 ## 🏆 75% MILESTONE CROSSED (Phase 12.16)
+
+## Phase 13 Summary (13.1 → 13.7) — No-Device Coverage Campaign
+
+- Starting coverage: 75.02% (30696/40915) after Phase 12.16
+- Ending coverage: 80.03% (32640/40787) after Phase 13.7
+- Total Phase 13 gain: +5.01pp (+1944 lines)
+- Test count: 3520 → 5496 (+1976 tests added)
+- Subphases:
+  | Sub  | Coverage  | Delta  | Lines | Tests Added |
+  |------|-----------|--------|-------|-------------|
+  | 13.1 | 76.10%    | +1.08  | +443  | 575 (5 background agents: archive, mesh, pairing, chat, queue) |
+  | 13.2 | 76.71%    | +0.61  | +250  | 325 (5 agents + 2 manual: security, protocol, providers) |
+  | 13.3 | 77.04%    | +0.33  | +134  | 378 (5 agents: diminishing returns, many already-covered paths) |
+  | 13.4 | 77.83%    | +0.79  | +322  | 478 (5 agents with exact uncovered line numbers) |
+  | 13.5 | 78.41%    | +0.58  | +249  | 100 (security_mgr, discovery, permission, mesh, db_helper) |
+  | 13.6 | 79.39%    | +0.98  | +402  | 133 (outbound_sender, chat_screen, burst_scanning, chat_handler) |
+  | 13.7 | 80.03%    | +0.64  | +144  | 164 (contact_mgmt, dedup, route_calc, queue_store, home_ctrl, mesh_svc) |
+
+### Production Bugs Found & Fixed During Testing Campaign
+
+| # | File | Bug | Severity |
+|---|------|-----|----------|
+| 1 | migration_service.dart:594 | Wrong table name `user_preferences` → `app_preferences` | CRITICAL |
+| 2 | migration_service.dart:598 | Missing `created_at` NOT NULL field in preference insert | CRITICAL |
+| 3 | migration_service.dart:211-212 | NULL `first_seen`/`last_seen` when JSON field absent | CRITICAL |
+| 4 | ephemeral_key_manager.dart | Private key persisted to SharedPreferences (security) | CRITICAL |
+| 5 | offline_message_queue.dart | Untracked periodic timers → memory/battery leak | HIGH |
+| 6 | database_helper.dart | FTS index not rebuilt after encryption migration | HIGH |
+| 7 | home_screen_facade.dart | 4 online-status bugs (data discarding, type mismatch, null connection, stale cache) | HIGH |
+| 8 | inbound_text_processor.dart | Weak V2 inbound signature validation | HIGH |
+| 9 | archive_crypto.dart | Legacy archive decryption + key leakage in logs | CRITICAL |
+| 10| ephemeral_key_manager.dart | Ephemeral key length inconsistency | MEDIUM |
+
+**Total: 5 CRITICAL, 4 HIGH, 1 MEDIUM** — all fixed and verified by tests.
+
+### Remaining Uncovered Lines Classification
+
+**BLE-hardware dependent (2,120 lines across 25 files):**
+- `ble_service_facade.dart` (174 uncov, 64.0%)
+- `ble_state_manager.dart` (174 uncov, 54.2%)
+- `ble_handshake_service.dart` (148 uncov, 38.1%)
+- `ble_messaging_service.dart` (143 uncov, 33.5%)
+- `ble_providers.dart` (163 uncov)
+- Plus 20 more BLE-dependent files
+
+**Non-BLE but diminishing returns (~1,200 lines):**
+- `app_core.dart` (308 uncov — complex subsystem init, many BLE deps)
+- `chat_screen.dart` (134 uncov — real widget interaction paths)
+- `bluetooth_state_monitor.dart` (102 uncov — platform channel state)
+- `main.dart` (74 uncov — app lifecycle paths)
+
+**Realistic no-device ceiling: ~80-81%** — we are at the ceiling.
 
 ## Phase 12 Summary (12.1 → 12.16)
 - Starting coverage: 71.52% (29263/40915) after Phase 11.4
@@ -998,6 +1052,58 @@ Last updated: 2026-03-08 (Phase 12.16 — 75% milestone crossed; full-suite at 7
 - `e73d992` - test: complete phase 6.4 ROI wave and cross 67 coverage
 - `ad83e3a` - test: complete phase 10.1 roi wave and reach 70 coverage
 - `4ddf2fd` - test: add phase 10.2 roi coverage suites
+
+---
+
+## Phase 14: Hardware-Dependent BLE Testing (NEXT)
+
+### Overview
+The remaining ~2,120 uncovered lines require real BLE hardware. These lines are in platform channel code, actual BLE scan/connect/advertise operations, and handshake state machines that need real device interaction.
+
+### Prerequisites
+- **2 Android devices** with BLE 5.0+ (or 1 Android + 1 iOS)
+- **USB debugging enabled** on both devices
+- **Flutter integration test framework** setup (already in `integration_test/`)
+
+### Phase 14.1: Integration Test Scaffold
+- Set up `integration_test/ble_smoke_test.dart` with real BLE scan/connect flow
+- Test: device scans, finds peer, connects, exchanges names
+- Validates: `ble_service_facade.dart`, `ble_state_manager.dart`
+- **How to run**: `flutter test integration_test/ -d <device-id>`
+
+### Phase 14.2: Handshake Integration
+- Test full 4-phase handshake between two physical devices
+- Validates: `ble_handshake_service.dart`, `handshake_coordinator.dart`
+- **Log capture**: `flutter test integration_test/ -d <device-id> 2>&1 | tee ble_handshake.log`
+
+### Phase 14.3: Message Delivery End-to-End
+- Send encrypted message device A → device B
+- Validates: `ble_messaging_service.dart`, `outbound_message_sender.dart` BLE paths
+- Verify: message arrives, decrypts, displays in UI
+
+### Phase 14.4: Mesh Relay Testing (3 devices)
+- Device A → B → C relay hop
+- Validates: `mesh_relay_engine.dart` relay paths, `seen_message_store.dart` dedup
+- Requires 3 devices in close proximity
+
+### How to Capture Logs for Verification
+```bash
+# Single device integration test
+flutter test integration_test/ -d <device-id> 2>&1 | tee integration_test.log
+
+# ADB logcat for real-time BLE logs
+adb logcat -s FlutterBLE:* PakConnect:* | tee ble_runtime.log
+
+# Two-device test (run on each device separately)
+flutter run -d device1 --dart-define=TEST_MODE=sender
+flutter run -d device2 --dart-define=TEST_MODE=receiver
+```
+
+### Automated vs Manual
+- **Integration tests** (`flutter test integration_test/`): Automated, runs on device via USB
+- **Multi-device scenarios**: Semi-automated — run app on 2+ devices, trigger test flows via UI
+- **Mesh relay**: Manual — position 3 devices, send message, verify delivery logs
+- **BLE state transitions**: Monitor via ADB logcat while toggling Bluetooth on/off
 
 
 
