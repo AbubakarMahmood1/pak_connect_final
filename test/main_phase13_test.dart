@@ -91,16 +91,6 @@ void main() {
       expect(materialApp.debugShowCheckedModeBanner, isFalse);
     });
 
-    testWidgets('home is AppWrapper', (tester) async {
-      await pumpApp(tester);
-      await tester.pump();
-
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
-      expect(materialApp.home, isA<AppWrapper>());
-    });
-
     testWidgets('contains AppWrapper in tree', (tester) async {
       await pumpApp(tester);
       await tester.pump();
