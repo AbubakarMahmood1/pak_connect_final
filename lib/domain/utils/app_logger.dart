@@ -56,7 +56,7 @@ class AppLogger {
     if (configured != null) return configured;
 
     if (kReleaseMode || kProfileMode) {
-      return Level.INFO;
+      return Level.WARNING;
     }
     return Level.INFO;
   }
