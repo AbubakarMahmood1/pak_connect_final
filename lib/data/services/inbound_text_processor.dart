@@ -177,6 +177,13 @@ class InboundTextProcessor {
           : null;
       final isSealedV2 = cryptoHeader?.mode == CryptoMode.sealedV1;
 
+      if (isSealedV2 && protocolMessage.signature == null) {
+        _logger.severe(
+          '🔒 v2 sealed message missing signature: $messageId',
+        );
+        return const InboundTextResult(content: null, shouldAck: false);
+      }
+
       if (decryptKey == null && !isSealedV2) {
         _logger.warning('🔒 MESSAGE: Encrypted but no sender key available');
         return const InboundTextResult(

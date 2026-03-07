@@ -302,6 +302,12 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
               return null;
             }
             if (cryptoHeader.mode == CryptoMode.sealedV1) {
+              if (message.signature == null) {
+                _logger.severe(
+                  '🔒 v2 sealed message missing signature: $messageId',
+                );
+                return null;
+              }
               final sealedSenderId =
                   message.senderId ??
                   (message.payload['originalSender'] as String?);

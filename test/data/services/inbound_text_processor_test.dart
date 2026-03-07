@@ -161,6 +161,38 @@ void main() {
       expect(securityService.decryptMessageCalls, equals(0));
     });
 
+
+    test('rejects unsigned sealed v2 message', () async {
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-sealed-unsigned',
+          'content': 'ciphertext-base64',
+          'encrypted': true,
+          'senderId': 'crypto-sender',
+          'recipientId': 'recipient-key',
+          'crypto': {
+            'mode': 'sealed_v1',
+            'modeVersion': 1,
+            'kid': 'kid-1',
+            'epk': 'ZWJjZGVmZw==',
+            'nonce': 'bm9uY2UxMjM=',
+          },
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await processor.process(
+        protocolMessage: message,
+        senderPublicKey: 'relay-node',
+      );
+
+      expect(result.content, isNull);
+      expect(result.shouldAck, isFalse);
+      expect(securityService.decryptSealedCalls, equals(0));
+    });
+
     test(
       'requires signature for v2 encrypted message when policy enabled',
       () async {
