@@ -527,6 +527,114 @@ void main() {
       },
     );
 
+
+    test('rejects unsigned sealed v2 message', () async {
+      allowedSevere.add('v2 sealed message missing signature');
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-sealed-unsigned',
+          'content': 'ciphertext-base64',
+          'encrypted': true,
+          'senderId': 'sender-key',
+          'recipientId': 'recipient-key',
+          'crypto': {
+            'mode': 'sealed_v1',
+            'modeVersion': 1,
+            'kid': 'kid-1',
+            'epk': 'ZWJjZGVmZw==',
+            'nonce': 'bm9uY2UxMjM=',
+          },
+        },
+        timestamp: DateTime.now(),
+      );
+
+      final result = await handler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, isNull);
+      expect(securityService.decryptSealedCalls, equals(0));
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
+      expect(securityService.decryptMessageCalls, equals(0));
+    });
+
+    test('rejects sealed v2 message with empty-string signature', () async {
+      allowedSevere.add('v2 sealed message missing signature');
+      final message = ProtocolMessage(
+        type: ProtocolMessageType.textMessage,
+        version: 2,
+        payload: {
+          'messageId': 'msg-v2-sealed-empty-sig',
+          'content': 'ciphertext-base64',
+          'encrypted': true,
+          'senderId': 'sender-key',
+          'recipientId': 'recipient-key',
+          'crypto': {
+            'mode': 'sealed_v1',
+            'modeVersion': 1,
+            'kid': 'kid-1',
+            'epk': 'ZWJjZGVmZw==',
+            'nonce': 'bm9uY2UxMjM=',
+          },
+        },
+        timestamp: DateTime.now(),
+        signature: '',
+      );
+
+      final result = await handler.processProtocolMessage(
+        message: message,
+        fromDeviceId: 'device-1',
+        fromNodeId: 'relay-node',
+      );
+
+      expect(result, isNull);
+      expect(securityService.decryptSealedCalls, equals(0));
+      expect(securityService.decryptMessageByTypeCalls, equals(0));
+      expect(securityService.decryptMessageCalls, equals(0));
+    });
+
+    test(
+      'rejects sealed v2 message with whitespace-only signature',
+      () async {
+        allowedSevere.add('v2 sealed message missing signature');
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-sealed-whitespace-sig',
+            'content': 'ciphertext-base64',
+            'encrypted': true,
+            'senderId': 'sender-key',
+            'recipientId': 'recipient-key',
+            'crypto': {
+              'mode': 'sealed_v1',
+              'modeVersion': 1,
+              'kid': 'kid-1',
+              'epk': 'ZWJjZGVmZw==',
+              'nonce': 'bm9uY2UxMjM=',
+            },
+          },
+          timestamp: DateTime.now(),
+          signature: '   ',
+        );
+
+        final result = await handler.processProtocolMessage(
+          message: message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+
+        expect(result, isNull);
+        expect(securityService.decryptSealedCalls, equals(0));
+        expect(securityService.decryptMessageByTypeCalls, equals(0));
+        expect(securityService.decryptMessageCalls, equals(0));
+      },
+    );
+
     test(
       'blocks v2 legacy_global_v1 decrypt mode even when compatibility is enabled',
       () async {
