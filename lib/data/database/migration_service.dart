@@ -208,8 +208,8 @@ class MigrationService {
           'display_name': contactData['displayName'],
           'trust_status': contactData['trustStatus'] ?? 0,
           'security_level': contactData['securityLevel'] ?? 0,
-          'first_seen': contactData['firstSeen'],
-          'last_seen': contactData['lastSeen'],
+          'first_seen': contactData['firstSeen'] ?? now,
+          'last_seen': contactData['lastSeen'] ?? now,
           'last_security_sync': contactData['lastSecuritySync'],
           'created_at': now,
           'updated_at': now,
@@ -591,10 +591,11 @@ class MigrationService {
       final value = prefs.getString(key);
       if (value != null) {
         try {
-          await db.insert('user_preferences', {
+          await db.insert('app_preferences', {
             'key': key,
             'value': value,
             'value_type': 'string',
+            'created_at': now,
             'updated_at': now,
           });
           count++;
