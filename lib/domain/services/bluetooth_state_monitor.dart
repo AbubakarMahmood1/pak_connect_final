@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
 
 export 'package:pak_connect/domain/models/bluetooth_state_models.dart'
@@ -470,6 +471,12 @@ class BluetoothStateMonitor {
     _stateListeners.clear();
     _messageListeners.clear();
     _isInitialized = false;
+  }
+
+  /// Override the current Bluetooth state for unit testing.
+  @visibleForTesting
+  static void overrideCurrentState(BluetoothLowEnergyState state) {
+    instance._currentState = state;
   }
 }
 
