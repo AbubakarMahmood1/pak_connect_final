@@ -113,7 +113,8 @@ class InboundTextProcessor {
         );
         return const InboundTextResult(content: null, shouldAck: false);
       }
-      if (protocolMessage.signature == null) {
+      if (protocolMessage.signature == null ||
+          protocolMessage.signature!.trim().isEmpty) {
         _logger.severe(
           '🔒 v2 plaintext broadcast missing signature: $messageId',
         );
@@ -166,7 +167,8 @@ class InboundTextProcessor {
             messageVersion: protocolMessage.version,
             peerKey: versionPeerKey,
           ) &&
-          protocolMessage.signature == null) {
+          (protocolMessage.signature == null ||
+              protocolMessage.signature!.trim().isEmpty)) {
         _logger.severe(
           '🔒 v2 encrypted message missing signature under strict/upgraded-peer policy: $messageId',
         );

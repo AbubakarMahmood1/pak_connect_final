@@ -270,7 +270,8 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
           );
           return null;
         }
-        if (message.signature == null) {
+        if (message.signature == null ||
+            message.signature!.trim().isEmpty) {
           _logger.severe(
             '🔒 v2 plaintext broadcast missing signature: $messageId',
           );
@@ -286,7 +287,8 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
               messageVersion: message.version,
               peerKey: versionPeerKey,
             ) &&
-            message.signature == null) {
+            (message.signature == null ||
+                message.signature!.trim().isEmpty)) {
           _logger.severe(
             '🔒 v2 encrypted message missing signature under strict/upgraded-peer policy: $messageId',
           );
