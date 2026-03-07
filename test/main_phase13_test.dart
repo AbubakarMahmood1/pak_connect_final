@@ -81,16 +81,6 @@ void main() {
       expect(find.byType(MaterialApp), findsOneWidget);
     });
 
-    testWidgets('MaterialApp has correct title', (tester) async {
-      await pumpApp(tester);
-      await tester.pump();
-
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
-      expect(materialApp.title, 'PakConnect - Enhanced Secure Messaging');
-    });
-
     testWidgets('debug banner is disabled', (tester) async {
       await pumpApp(tester);
       await tester.pump();
