@@ -1,4 +1,3 @@
-// ignore_for_file: annotate_overrides, use_super_parameters
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pak_connect/data/services/ble_state_coordinator.dart';
