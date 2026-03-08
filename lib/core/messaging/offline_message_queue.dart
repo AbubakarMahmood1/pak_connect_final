@@ -1,4 +1,3 @@
-// ignore_for_file: annotate_overrides
 // Comprehensive offline message delivery and queue management system
 
 import 'dart:async';
