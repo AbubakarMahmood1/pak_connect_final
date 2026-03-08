@@ -1,12 +1,8 @@
 name: "CodeQL Analysis"
 
 on:
-  push:
-    branches: [main, release/**]
-  pull_request:
-    branches: [main]
   schedule:
-    - cron: "25 14 * * 3" # Weekly Wednesday scan
+    - cron: "0 2 * * 0" # Weekly Sunday at 2am UTC
 
 jobs:
   analyze-java-kotlin:
