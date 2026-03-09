@@ -30,6 +30,14 @@ class PreferenceKeys {
       'rate_limit_known_per_hour'; // messages from known contacts
   static const String rateLimitFriendPerHour =
       'rate_limit_friend_per_hour'; // messages from verified friends
+
+  // Proof-of-work gas fees (free message thresholds per trust tier, daily)
+  static const String powFreeThresholdUnknown =
+      'pow_free_threshold_unknown'; // daily free messages for strangers
+  static const String powFreeThresholdKnown =
+      'pow_free_threshold_known'; // daily free messages for known contacts
+  static const String powFreeThresholdFriend =
+      'pow_free_threshold_friend'; // daily free messages for verified friends
 }
 
 /// Default values for [PreferenceKeys].
@@ -60,4 +68,9 @@ class PreferenceDefaults {
   static const int rateLimitUnknownPerHour = 5; // conservative for strangers
   static const int rateLimitKnownPerHour = 25; // relaxed for known contacts
   static const int rateLimitFriendPerHour = 100; // generous for verified friends
+
+  // Proof-of-work gas fee defaults (daily free message thresholds)
+  static const int powFreeThresholdUnknown = 50; // strangers: 50 free/day
+  static const int powFreeThresholdKnown = 100; // known contacts: 100 free/day
+  static const int powFreeThresholdFriend = 200; // verified friends: 200 free/day
 }

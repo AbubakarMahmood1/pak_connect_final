@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/mesh_relay_models.dart';
 import '../entities/preference_keys.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/services/proof_of_work_service.dart';
+import 'package:pak_connect/domain/services/message_cost_policy.dart';
 
 /// Comprehensive spam prevention for mesh relay operations
 class SpamPreventionManager {
@@ -46,6 +48,16 @@ class SpamPreventionManager {
   // Cleanup timer
   Timer? _cleanupTimer;
 
+  /// Optional proof-of-work cost policy for progressive throttling.
+  /// When set, incoming messages are checked for valid PoW at the
+  /// difficulty level mandated by sender volume + network floor.
+  MessageCostPolicy? _costPolicy;
+
+  /// Inject a [MessageCostPolicy] for proof-of-work verification.
+  void setCostPolicy(MessageCostPolicy policy) {
+    _costPolicy = policy;
+  }
+
   /// Initialize spam prevention system
   Future<void> initialize() async {
     await _loadPersistentData();
@@ -71,6 +83,14 @@ class SpamPreventionManager {
     try {
       final checks = <SpamCheck>[];
       double totalSpamScore = 0.0;
+
+      // 0. Proof-of-work check (fail-fast, O(1) verification)
+      final powCheck = _checkProofOfWork(
+        relayMessage.relayMetadata,
+        fromNodeId,
+      );
+      checks.add(powCheck);
+      totalSpamScore += powCheck.spamScore;
 
       // 1. Rate limiting check
       final rateLimitCheck = await _checkRateLimit(fromNodeId);
@@ -234,6 +254,10 @@ class SpamPreventionManager {
         'known': _limitKnown,
         'friend': _limitFriend,
       };
+
+  /// Get the trust score for a node (default 0.5 = neutral).
+  double getTrustScoreForNode(String nodeId) =>
+      _trustScores[nodeId] ?? 0.5;
 
   /// Set trust score directly (for testing).
   @visibleForTesting
@@ -472,6 +496,91 @@ class SpamPreventionManager {
     );
   }
 
+  /// Check proof-of-work validity and sufficient difficulty.
+  ///
+  /// When no [_costPolicy] is set, PoW is not enforced (passes with score 0).
+  /// When set, verifies:
+  /// 1. The PoW nonce produces a valid hash at the claimed difficulty
+  /// 2. The difficulty meets the network-adaptive floor
+  ///
+  /// Legacy messages without PoW fields are penalized (higher spam score)
+  /// but not hard-blocked, ensuring backward compatibility.
+  SpamCheck _checkProofOfWork(RelayMetadata metadata, String fromNodeId) {
+    if (_costPolicy == null) {
+      return const SpamCheck(
+        type: SpamCheckType.proofOfWork,
+        passed: true,
+        spamScore: 0.0,
+        message: 'PoW not enforced (no cost policy)',
+      );
+    }
+
+    final networkFloor = _costPolicy!.getNetworkFloor(
+      _costPolicy!.getNetworkHourlyVolume(),
+    );
+
+    // No PoW required when floor is 0 and message has no PoW
+    if (networkFloor <= 0 &&
+        (metadata.powDifficulty == null || metadata.powDifficulty == 0)) {
+      return const SpamCheck(
+        type: SpamCheckType.proofOfWork,
+        passed: true,
+        spamScore: 0.0,
+        message: 'PoW not required (floor=0, free tier)',
+      );
+    }
+
+    // Build challenge from metadata (deterministic)
+    final challenge = ProofOfWorkService.buildChallenge(
+      metadata.messageHash,
+      metadata.relayTimestamp.millisecondsSinceEpoch,
+    );
+
+    final claimedDifficulty = metadata.powDifficulty ?? 0;
+
+    // Check 1: Does the claimed difficulty meet the network floor?
+    if (claimedDifficulty < networkFloor) {
+      final score = networkFloor > 0
+          ? (1.0 - claimedDifficulty / networkFloor).clamp(0.0, 1.0)
+          : 0.0;
+      return SpamCheck(
+        type: SpamCheckType.proofOfWork,
+        passed: false,
+        spamScore: score,
+        message:
+            'PoW difficulty $claimedDifficulty below floor $networkFloor',
+      );
+    }
+
+    // Check 2: Is the PoW cryptographically valid?
+    if (claimedDifficulty > 0) {
+      final valid = ProofOfWorkService.verify(
+        challenge: challenge,
+        nonce: metadata.powNonce,
+        difficulty: claimedDifficulty,
+      );
+
+      if (!valid) {
+        return const SpamCheck(
+          type: SpamCheckType.proofOfWork,
+          passed: false,
+          spamScore: 1.0,
+          message: 'Invalid PoW nonce',
+        );
+      }
+    }
+
+    // Record sender volume for cost policy tracking
+    _costPolicy!.recordMessage(fromNodeId);
+
+    return SpamCheck(
+      type: SpamCheckType.proofOfWork,
+      passed: true,
+      spamScore: 0.0,
+      message: 'PoW valid (difficulty=$claimedDifficulty, floor=$networkFloor)',
+    );
+  }
+
   /// Increment relay count for rate limiting
   Future<void> _incrementRelayCount(String nodeId) async {
     final now = DateTime.now();
@@ -660,6 +769,7 @@ enum SpamCheckType {
   duplicate,
   trustScore,
   loop,
+  proofOfWork,
 }
 
 /// Spam prevention statistics

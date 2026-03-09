@@ -15,6 +15,8 @@ import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
+import 'package:pak_connect/domain/services/proof_of_work_service.dart';
+import 'package:pak_connect/domain/services/message_cost_policy.dart';
 import 'package:pak_connect/domain/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
 import 'relay_config_manager.dart';
@@ -37,6 +39,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   final ISeenMessageStore _seenMessageStore;
   final OfflineMessageQueueContract _messageQueue;
   final SpamPreventionManager _spamPrevention;
+  final MessageCostPolicy? _costPolicy;
 
   // Smart routing integration (via IMeshRoutingService interface)
   IMeshRoutingService? _routingService;
@@ -97,11 +100,17 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
     ISeenMessageStore? seenMessageStore,
     required OfflineMessageQueueContract messageQueue,
     required SpamPreventionManager spamPrevention,
+    MessageCostPolicy? costPolicy,
     this.forceFloodMode = false,
   }) : _repositoryProvider = repositoryProvider ?? _resolveRepositoryProvider(),
        _seenMessageStore = seenMessageStore ?? _resolveSeenMessageStore(),
        _messageQueue = messageQueue,
-       _spamPrevention = spamPrevention {
+       _spamPrevention = spamPrevention,
+       _costPolicy = costPolicy {
+    // Wire cost policy to spam prevention for PoW verification
+    if (costPolicy != null) {
+      _spamPrevention.setCostPolicy(costPolicy);
+    }
     _decisionEngine = RelayDecisionEngine(
       logger: _logger,
       seenMessageStore: _seenMessageStore,
@@ -548,13 +557,56 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
           : finalRecipientPublicKey;
 
       // Create relay metadata
-      final relayMetadata = RelayMetadata.create(
+      final baseMetadata = RelayMetadata.create(
         originalMessageContent: originalContent,
         priority: priority,
         originalSender: wireSender,
         finalRecipient: wireRecipient,
         currentNodeId: _currentNodeId,
       );
+
+      // Compute proof-of-work if cost policy is active
+      int? powNonce;
+      int? powDifficulty;
+      final costPolicy = _costPolicy;
+      if (costPolicy != null) {
+        final trustScore = _spamPrevention.getTrustScoreForNode(_currentNodeId);
+        powDifficulty = costPolicy.getEffectiveDifficulty(
+          _currentNodeId,
+          trustScore,
+        );
+        if (powDifficulty > 0) {
+          final challenge = ProofOfWorkService.buildChallenge(
+            baseMetadata.messageHash,
+            baseMetadata.relayTimestamp.millisecondsSinceEpoch,
+          );
+          final powResult = ProofOfWorkService.compute(
+            challenge: challenge,
+            difficulty: powDifficulty,
+          );
+          powNonce = powResult?.nonce;
+        }
+        costPolicy.recordMessage(_currentNodeId);
+      }
+
+      // Attach PoW to metadata
+      final relayMetadata = (powNonce != null || (powDifficulty ?? 0) > 0)
+          ? RelayMetadata(
+              ttl: baseMetadata.ttl,
+              hopCount: baseMetadata.hopCount,
+              routingPath: baseMetadata.routingPath,
+              messageHash: baseMetadata.messageHash,
+              priority: baseMetadata.priority,
+              relayTimestamp: baseMetadata.relayTimestamp,
+              originalSender: baseMetadata.originalSender,
+              finalRecipient: baseMetadata.finalRecipient,
+              stealthEnvelope: baseMetadata.stealthEnvelope,
+              sealedSender: baseMetadata.sealedSender,
+              senderRateCount: baseMetadata.senderRateCount,
+              powNonce: powNonce,
+              powDifficulty: powDifficulty,
+            )
+          : baseMetadata;
 
       // When sealed, pack real sender inside encryptedPayload
       final effectiveEncryptedPayload = sealedSender
@@ -581,6 +633,8 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
                 finalRecipient: wireRecipient,
                 stealthEnvelope: relayMetadata.stealthEnvelope,
                 sealedSender: true,
+                powNonce: relayMetadata.powNonce,
+                powDifficulty: relayMetadata.powDifficulty,
               )
             : relayMetadata,
         relayNodeId: _currentNodeId,
