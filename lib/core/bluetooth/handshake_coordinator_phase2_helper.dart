@@ -210,6 +210,12 @@ class _HandshakeCoordinatorPhase2Helper {
     _owner._logger.info('   (Persistent keys will be exchanged after pairing)');
     _owner._timeoutManager.cancelTimeout();
 
+    // Clear brute-force tracking on success.
+    final peerId = _owner._peerState.theirEphemeralId;
+    if (peerId != null) {
+      _owner._attemptTracker.recordSuccess(peerId);
+    }
+
     _owner._phase = ConnectionPhase.complete;
     _owner._emitPhase(_owner._phase);
     _owner.onHandshakeStateChanged?.call(false);
@@ -260,6 +266,12 @@ class _HandshakeCoordinatorPhase2Helper {
   Future<void> failHandshake(String reason) async {
     _owner._logger.severe('❌ Handshake failed: $reason');
     _owner._timeoutManager.cancelTimeout();
+
+    // Record failure for brute-force protection.
+    final peerId = _owner._peerState.theirEphemeralId;
+    if (peerId != null) {
+      _owner._attemptTracker.recordFailure(peerId, reason);
+    }
 
     _owner._phase = ConnectionPhase.failed;
     _owner._emitPhase(_owner._phase);

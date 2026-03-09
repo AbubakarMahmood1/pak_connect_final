@@ -466,7 +466,7 @@ Tighten migration defaults when rollout allows. ~~Flip legacy v2 send/decrypt de
 
 
 
-Slightly harden pairing. Attempt limits or lockout, plus a better short-auth/fingerprint confirmation path for higher assurance.
+Slightly harden pairing. ~~Attempt limits or lockout, plus a better short-auth/fingerprint confirmation path for higher assurance.~~ **Done:** HandshakeAttemptTracker now enforces per-peer brute-force protection (default: 5 failures within 10 minutes → 15-minute lockout). Integrated into HandshakeCoordinator at identity exchange phase. Failure/success automatically tracked; lockout resets on successful handshake.
 
 
 
@@ -581,6 +581,8 @@ The following concrete mitigations were implemented to address the gaps identifi
 | Small network routing metadata | **Mitigated** | Broadcast + view tag (Phase 6) |
 | DoS via relay flooding | **Mitigated** | User-configurable trust-tiered rate limits |
 | Legacy v2 permissive defaults | **Fixed** | Defaults flipped to strict; build-time opt-in for migration |
+| Incremental backup misses DELETEs | **Fixed** | change_log table + triggers (Phase 2.5) |
+| BLE pairing brute-force | **Mitigated** | HandshakeAttemptTracker: 5 fails/10min → 15min lockout |
 | Timing analysis | **Unfixable** | Fundamental to any real-time system |
 | Device compromise | **Unfixable** | Outside application control |
 | BLE proximity metadata | **Unfixable** | Physical layer limitation |
