@@ -52,6 +52,14 @@ class RelayMetadata {
   /// Rate limiting: number of messages relayed by current node in last hour
   final int senderRateCount;
 
+  /// Proof-of-work nonce that satisfies the difficulty requirement.
+  /// Null for legacy messages or difficulty-0 (free tier) messages.
+  final int? powNonce;
+
+  /// Proof-of-work difficulty (leading zero bits in SHA-256).
+  /// Null or 0 means no PoW was computed (free tier / legacy).
+  final int? powDifficulty;
+
   const RelayMetadata({
     required this.ttl,
     required this.hopCount,
@@ -64,6 +72,8 @@ class RelayMetadata {
     this.stealthEnvelope,
     this.sealedSender = false,
     this.senderRateCount = 0,
+    this.powNonce,
+    this.powDifficulty,
   });
 
   /// Whether this message uses stealth addressing (relay-opaque recipient).
@@ -125,6 +135,8 @@ class RelayMetadata {
       stealthEnvelope: stealthEnvelope,
       sealedSender: sealedSender,
       senderRateCount: senderRateCount,
+      powNonce: powNonce,
+      powDifficulty: powDifficulty,
     );
   }
 
@@ -164,6 +176,9 @@ class RelayMetadata {
     if (stealthEnvelope != null) 'stealth': stealthEnvelope!.toJson(),
     if (sealedSender) 'sealedSender': true,
     'senderRateCount': senderRateCount,
+    if (powNonce != null) 'powNonce': powNonce,
+    if (powDifficulty != null && powDifficulty! > 0)
+      'powDifficulty': powDifficulty,
   };
 
   /// Create from JSON
@@ -181,6 +196,8 @@ class RelayMetadata {
         : null,
     sealedSender: json['sealedSender'] == true,
     senderRateCount: json['senderRateCount'] ?? 0,
+    powNonce: json['powNonce'] as int?,
+    powDifficulty: json['powDifficulty'] as int?,
   );
 
   /// Get TTL based on priority level

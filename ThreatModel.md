@@ -568,6 +568,24 @@ The following concrete mitigations were implemented to address the gaps identifi
 - Result: in small networks with stealth + sealed sender, relay nodes see **zero routing metadata** — only broadcast marker, sealed sender placeholder, and stealth envelope.
 - Recipients self-identify via view tag (1 ECDH per message that passes fast filter).
 
+### Phase 7: Proof-of-Work Gas Fees (progressive spam throttling)
+
+**Problem**: Existing rate limits cap message volume but impose zero computational cost. A compromised node can burst up to the limit with no effort, and BLE mesh has no central authority to enforce throttling.
+
+**Fixes**:
+- **Hashcash-style proof-of-work**: Sender must compute SHA-256 partial hash collision (`SHA-256(challenge || nonce)` with N leading zero bits) before sending. Difficulty scales with rolling 24h message volume.
+- **Trust-tier-aware free thresholds**: Friends get 200 free msgs/day (no PoW), known contacts 100, strangers 50. PoW kicks in only after free tier exhausted.
+- **Progressive difficulty escalation**: After free tier, difficulty 8 (~1ms) for first 150 messages, 12 (~15ms) for next 250, 16 (~250ms) for next 500, 20 (~4s) beyond 900 — spamming 1000+ messages/day takes hours of CPU time.
+- **Network-adaptive floor**: Each relay node tracks total hourly volume. At 200+/hr: floor=4, 500+/hr: floor=8, 1000+/hr: floor=12. Messages below floor are rejected by relay.
+- **Wire format**: `powNonce` and `powDifficulty` added to `RelayMetadata` (backward compatible — null = legacy message).
+- **Spam pipeline integration**: PoW is check #0 (fail-fast) in `SpamPreventionManager.checkIncomingRelay()`. Seven total checks: PoW → rate limit → size → hops → duplicate → trust → loop.
+- **User-configurable**: Free thresholds adjustable via `PreferenceKeys.powFreeThreshold{Unknown,Known,Friend}`.
+- **Sealed sender compatible**: PoW is tied to `messageHash + timestamp` (visible in relay metadata), not sender identity. Relay nodes verify PoW without knowing the original sender.
+
+**Key files**: `lib/domain/services/proof_of_work_service.dart` (core primitive), `lib/domain/services/message_cost_policy.dart` (progressive policy), `lib/domain/services/spam_prevention_manager.dart` (relay-side verification), `lib/core/messaging/mesh_relay_engine.dart` (sender-side computation).
+
+**Residual risks**: A dedicated attacker with GPU acceleration can still compute PoW faster than intended (~100x speedup). Difficulty is capped at 24 bits as a safety valve to prevent legitimate users from being locked out on low-end devices. The PoW is not binding (nonce can be recomputed for different messages), so it imposes cost but doesn't prevent determined spammers entirely — it makes spam economically unattractive rather than impossible.
+
 ### Updated Residual Risk Assessment
 
 | Risk | Status | Notes |
@@ -579,7 +597,7 @@ The following concrete mitigations were implemented to address the gaps identifi
 | Relay metadata leaks recipient | **Mitigated** | Stealth addressing (Phase 4) |
 | Relay metadata leaks sender | **Mitigated** | Sealed sender (Phase 5) |
 | Small network routing metadata | **Mitigated** | Broadcast + view tag (Phase 6) |
-| DoS via relay flooding | **Mitigated** | User-configurable trust-tiered rate limits |
+| DoS via relay flooding | **Mitigated** | User-configurable trust-tiered rate limits + Hashcash PoW gas fees |
 | Legacy v2 permissive defaults | **Fixed** | Defaults flipped to strict; build-time opt-in for migration |
 | Incremental backup misses DELETEs | **Fixed** | change_log table + triggers (Phase 2.5) |
 | BLE pairing brute-force | **Mitigated** | HandshakeAttemptTracker: 5 fails/10min → 15min lockout |
