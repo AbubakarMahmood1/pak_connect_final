@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
@@ -7,6 +8,7 @@ import 'package:pak_connect/domain/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/constants/special_recipients.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/core/security/stealth_address.dart';
 import '../../domain/values/id_types.dart';
 
 /// Encapsulates relay decision logic (dedup, recipient resolution, next-hop selection).
@@ -17,6 +19,10 @@ class RelayDecisionEngine {
   NetworkTopologyAnalyzer? _topologyAnalyzer;
   String _currentNodeId;
   String? _myPersistentId;
+
+  /// X25519 scan private key for stealth address checking.
+  /// Set via [setScanKey] when the user's identity is available.
+  Uint8List? _scanPrivateKey;
 
   RelayDecisionEngine({
     required Logger logger,
@@ -44,6 +50,11 @@ class RelayDecisionEngine {
     if (myPersistentId != null) {
       _myPersistentId = myPersistentId;
     }
+  }
+
+  /// Set the scan private key for stealth address checking.
+  void setScanKey(Uint8List? scanPrivateKey) {
+    _scanPrivateKey = scanPrivateKey;
   }
 
   bool isDuplicate(String messageId) =>
@@ -106,6 +117,32 @@ class RelayDecisionEngine {
       '   - Our ephemeral key: ${ephemeralKey?.shortId() ?? "NULL"}...',
     );
     return false;
+  }
+
+  /// Stealth-aware recipient check: if the metadata carries a [StealthEnvelope],
+  /// try ECDH scan first. Falls back to plaintext [finalRecipient] matching.
+  Future<bool> isMessageForCurrentNodeFromMetadata(
+    RelayMetadata metadata,
+  ) async {
+    if (metadata.usesStealth && _scanPrivateKey != null) {
+      final result = StealthAddress.check(
+        scanPrivateKey: _scanPrivateKey!,
+        envelope: metadata.stealthEnvelope!,
+      );
+      if (result.isForMe) {
+        _logger.info(
+            '🕵️ Stealth address match (viewTag passed: ${result.passedViewTag})');
+        return true;
+      }
+      if (!result.passedViewTag) {
+        _logger.fine('🕵️ Stealth view tag mismatch — fast skip');
+        return false;
+      }
+      // View tag matched but stealth address didn't → false positive, fall through
+      _logger.fine('🕵️ Stealth view tag matched but address mismatch');
+    }
+    // Fall back to plaintext recipient check
+    return isMessageForCurrentNode(metadata.finalRecipient);
   }
 
   String? _getMyPersistentId() {

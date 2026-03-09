@@ -289,8 +289,8 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       }
 
       // Determine message targeting before probabilistic decisions
-      final isForUs = await _decisionEngine.isMessageForCurrentNode(
-        relayMessage.relayMetadata.finalRecipient,
+      final isForUs = await _decisionEngine.isMessageForCurrentNodeFromMetadata(
+        relayMessage.relayMetadata,
       );
 
       final isBroadcast = SpecialRecipients.isBroadcast(

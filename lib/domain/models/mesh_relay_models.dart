@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/core/security/stealth_address.dart';
 import 'message_priority.dart';
 import '../utils/gcs_filter.dart';
 import 'protocol_message_type.dart'; // PHASE 2: For ProtocolMessageType
@@ -38,6 +39,11 @@ class RelayMetadata {
   /// Final recipient's public key
   final String finalRecipient;
 
+  /// Stealth addressing envelope (Phase 4: replaces plaintext finalRecipient
+  /// for privacy). When set, relay nodes cannot identify the recipient — only
+  /// the intended recipient can match via ECDH + view tag.
+  final StealthEnvelope? stealthEnvelope;
+
   /// Rate limiting: number of messages relayed by current node in last hour
   final int senderRateCount;
 
@@ -50,8 +56,12 @@ class RelayMetadata {
     required this.relayTimestamp,
     required this.originalSender,
     required this.finalRecipient,
+    this.stealthEnvelope,
     this.senderRateCount = 0,
   });
+
+  /// Whether this message uses stealth addressing (relay-opaque recipient).
+  bool get usesStealth => stealthEnvelope != null;
 
   /// Create relay metadata for a new message
   factory RelayMetadata.create({
@@ -103,6 +113,7 @@ class RelayMetadata {
       relayTimestamp: relayTimestamp,
       originalSender: originalSender,
       finalRecipient: finalRecipient,
+      stealthEnvelope: stealthEnvelope,
       senderRateCount: senderRateCount,
     );
   }
@@ -140,6 +151,7 @@ class RelayMetadata {
     'relayTimestamp': relayTimestamp.millisecondsSinceEpoch,
     'originalSender': originalSender,
     'finalRecipient': finalRecipient,
+    if (stealthEnvelope != null) 'stealth': stealthEnvelope!.toJson(),
     'senderRateCount': senderRateCount,
   };
 
@@ -153,6 +165,9 @@ class RelayMetadata {
     relayTimestamp: DateTime.fromMillisecondsSinceEpoch(json['relayTimestamp']),
     originalSender: json['originalSender'],
     finalRecipient: json['finalRecipient'],
+    stealthEnvelope: json['stealth'] != null
+        ? StealthEnvelope.fromJson(json['stealth'] as Map<String, dynamic>)
+        : null,
     senderRateCount: json['senderRateCount'] ?? 0,
   );
 
