@@ -202,6 +202,12 @@ void main() {
     test('Spam Prevention - Rate Limiting', () async {
       await initRelayAs(nodeB);
 
+      // Place nodeA in the "unknown" trust tier (< 0.4) which has
+      // a rate limit of 5 messages/hour.  Without this the default
+      // trust of 0.5 lands in the "known" tier (25/hr) and 15
+      // messages never hit the ceiling — making the test flaky.
+      spamPrevention.setTrustScoreForTest(nodeA, 0.1);
+
       final results = <RelayProcessingResult>[];
       for (int i = 0; i < 15; i++) {
         final relay = await createRelayFromNode(
@@ -220,7 +226,7 @@ void main() {
         results.add(result);
       }
 
-      // First 10 should be allowed, rest should be blocked
+      // With 5/hr limit the first ≤5 are allowed, remainder blocked.
       final blocked = results.where((r) => r.isBlocked).length;
       expect(
         blocked,
