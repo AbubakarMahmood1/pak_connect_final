@@ -33,7 +33,7 @@ class RelayMetadata {
   /// Timestamp when relay was initiated
   final DateTime relayTimestamp;
 
-  /// Original sender's public key
+  /// Original sender's public key (plaintext, or "sealed" when sealed sender is active).
   final String originalSender;
 
   /// Final recipient's public key
@@ -43,6 +43,11 @@ class RelayMetadata {
   /// for privacy). When set, relay nodes cannot identify the recipient — only
   /// the intended recipient can match via ECDH + view tag.
   final StealthEnvelope? stealthEnvelope;
+
+  /// Whether the sender identity is sealed (hidden from relay nodes).
+  /// When true, [originalSender] is "sealed" — the real sender identity
+  /// is inside the Noise-encrypted payload.
+  final bool sealedSender;
 
   /// Rate limiting: number of messages relayed by current node in last hour
   final int senderRateCount;
@@ -57,11 +62,15 @@ class RelayMetadata {
     required this.originalSender,
     required this.finalRecipient,
     this.stealthEnvelope,
+    this.sealedSender = false,
     this.senderRateCount = 0,
   });
 
   /// Whether this message uses stealth addressing (relay-opaque recipient).
   bool get usesStealth => stealthEnvelope != null;
+
+  /// Sentinel value used when sender identity is sealed.
+  static const String sealedSenderPlaceholder = 'sealed';
 
   /// Create relay metadata for a new message
   factory RelayMetadata.create({
@@ -114,6 +123,7 @@ class RelayMetadata {
       originalSender: originalSender,
       finalRecipient: finalRecipient,
       stealthEnvelope: stealthEnvelope,
+      sealedSender: sealedSender,
       senderRateCount: senderRateCount,
     );
   }
@@ -152,6 +162,7 @@ class RelayMetadata {
     'originalSender': originalSender,
     'finalRecipient': finalRecipient,
     if (stealthEnvelope != null) 'stealth': stealthEnvelope!.toJson(),
+    if (sealedSender) 'sealedSender': true,
     'senderRateCount': senderRateCount,
   };
 
@@ -168,6 +179,7 @@ class RelayMetadata {
     stealthEnvelope: json['stealth'] != null
         ? StealthEnvelope.fromJson(json['stealth'] as Map<String, dynamic>)
         : null,
+    sealedSender: json['sealedSender'] == true,
     senderRateCount: json['senderRateCount'] ?? 0,
   );
 

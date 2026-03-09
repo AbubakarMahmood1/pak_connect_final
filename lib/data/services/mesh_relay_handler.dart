@@ -8,6 +8,7 @@ import '../../domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
+import 'package:pak_connect/core/security/sealed_sender_payload.dart';
 
 /// Encapsulates mesh relay handling (ACKs, forwarding, delivery) so
 /// BLEMessageHandler can stay as a thin orchestrator.
@@ -186,13 +187,26 @@ class MeshRelayHandler {
 
       switch (result.type) {
         case RelayProcessingType.deliveredToSelf:
+          // Phase 5: If sealed sender, extract real sender from payload
+          var deliveredContent = result.content;
+          if (metadata.sealedSender) {
+            final sealedData = SealedSenderPayload.unpack(
+              deliveredContent ?? originalContent,
+            );
+            if (sealedData != null) {
+              _logger.info(
+                '🔀 MESH RELAY: Unsealed sender: ${_preview(sealedData.senderPublicKey, 8)}',
+              );
+              deliveredContent = sealedData.content;
+            }
+          }
           _logger.info('🔀 MESH RELAY: Message delivered to self');
           await _sendRelayAck(
             originalMessageId: relayMessage.originalMessageId,
             relayMetadata: relayMessage.relayMetadata,
             delivered: true,
           );
-          return result.content;
+          return deliveredContent;
         case RelayProcessingType.relayed:
           _logger.info(
             '🔀 MESH RELAY: Message relayed to ${_preview(result.nextHopNodeId ?? 'unknown', 8)}',

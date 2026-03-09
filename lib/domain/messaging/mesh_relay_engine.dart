@@ -35,6 +35,7 @@ abstract interface class MeshRelayEngine {
     MessagePriority priority = MessagePriority.normal,
     String? encryptedPayload,
     ProtocolMessageType? originalMessageType,
+    bool sealedSender = false,
   });
 
   Future<bool> shouldAttemptDecryption({

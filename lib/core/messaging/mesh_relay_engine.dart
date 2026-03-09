@@ -23,6 +23,7 @@ import 'relay_decision_engine.dart';
 import 'relay_send_pipeline.dart';
 import 'package:pak_connect/domain/constants/special_recipients.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/core/security/sealed_sender_payload.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
 /// Core engine for mesh relay operations
@@ -500,6 +501,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
     String? encryptedPayload,
     ProtocolMessageType?
     originalMessageType, // PHASE 2: Message type for filtering
+    bool sealedSender = false, // Phase 5: hide sender identity
   }) async {
     try {
       if (originalMessageId.isEmpty || finalRecipientPublicKey.isEmpty) {
@@ -529,22 +531,50 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
         return null;
       }
 
+      // Phase 5: sealed sender — replace sender with sentinel, embed real
+      // identity inside the encrypted payload.
+      final wireSender = sealedSender
+          ? RelayMetadata.sealedSenderPlaceholder
+          : _currentNodeId;
+
       // Create relay metadata
       final relayMetadata = RelayMetadata.create(
         originalMessageContent: originalContent,
         priority: priority,
-        originalSender: _currentNodeId,
+        originalSender: wireSender,
         finalRecipient: finalRecipientPublicKey,
         currentNodeId: _currentNodeId,
       );
+
+      // When sealed, pack real sender inside encryptedPayload
+      final effectiveEncryptedPayload = sealedSender
+          ? (encryptedPayload ??
+              SealedSenderPayload.pack(
+                senderPublicKey: _currentNodeId,
+                content: originalContent,
+              ))
+          : encryptedPayload;
 
       // PHASE 2: Create relay message with message type
       final relayMessage = MeshRelayMessage.createRelay(
         originalMessageId: originalMessageId,
         originalContent: originalContent,
-        metadata: relayMetadata,
+        metadata: sealedSender
+            ? RelayMetadata(
+                ttl: relayMetadata.ttl,
+                hopCount: relayMetadata.hopCount,
+                routingPath: relayMetadata.routingPath,
+                messageHash: relayMetadata.messageHash,
+                priority: relayMetadata.priority,
+                relayTimestamp: relayMetadata.relayTimestamp,
+                originalSender: wireSender,
+                finalRecipient: relayMetadata.finalRecipient,
+                stealthEnvelope: relayMetadata.stealthEnvelope,
+                sealedSender: true,
+              )
+            : relayMetadata,
         relayNodeId: _currentNodeId,
-        encryptedPayload: encryptedPayload,
+        encryptedPayload: effectiveEncryptedPayload,
         originalMessageType:
             originalMessageType, // PHASE 2: Include message type
       );
