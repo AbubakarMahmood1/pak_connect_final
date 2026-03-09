@@ -205,10 +205,14 @@ class ImportService {
       );
 
       // ── 8. Clear existing data (AFTER all preflight checks pass) ──
-      if (clearExistingData) {
+      // Incremental bundles merge via upsert — never clear existing data.
+      final shouldClear = clearExistingData && !bundle.isIncremental;
+      if (shouldClear) {
         _logger.warning('⚠️ Clearing all existing data...');
         await _clearExistingData();
         _logger.info('Existing data cleared');
+      } else if (bundle.isIncremental) {
+        _logger.info('Incremental bundle — merging into existing data');
       }
 
       // ── 9. Restore encryption keys to secure storage ──
@@ -239,7 +243,7 @@ class ImportService {
             await SelectiveRestoreService.restoreSelectiveBackup(
               backupPath: dbRestorePath,
               exportType: bundle.exportType,
-              clearExistingData: clearExistingData,
+              clearExistingData: shouldClear,
             );
 
         if (!selectiveRestore.success) {
@@ -474,7 +478,7 @@ class ImportService {
 
   /// Check if bundle version is compatible.
   static bool _isCompatibleVersion(String version) {
-    return version == '1.0.0' || version == '2.0.0';
+    return version == '1.0.0' || version == '2.0.0' || version == '2.1.0';
   }
 
   // ──────────────────── Resumable import checkpoint ────────────────────

@@ -130,6 +130,8 @@ void main() {
     Map<String, dynamic>? keys,
     Map<String, dynamic>? preferences,
     String? hmacOverride,
+    DateTime? baseTimestamp,
+    String version = '2.0.0',
   }) async {
     final salt = EncryptionUtils.generateSalt();
     final key = EncryptionUtils.deriveKey(passphrase, salt);
@@ -184,11 +186,12 @@ void main() {
         ], key);
 
     final bundle = ExportBundle(
-      version: '2.0.0',
+      version: version,
       timestamp: DateTime.now(),
       deviceId: 'source-device-id',
       username: 'Source User',
       exportType: exportType,
+      baseTimestamp: baseTimestamp,
       encryptedMetadata: encryptedMetadata,
       encryptedKeys: encryptedKeys,
       encryptedPreferences: encryptedPreferences,
@@ -1171,6 +1174,128 @@ void main() {
       expect(result.errorMessage, contains('temp database file missing'));
       expect(await ImportService.hasPendingCheckpoint(), isFalse,
           reason: 'Checkpoint should be cleared after failed resume');
+    });
+  });
+
+  // ── Incremental backup tests ──
+
+  group('Incremental backup', () {
+    test('ExportBundle round-trip preserves baseTimestamp', () {
+      final baseTime = DateTime(2025, 6, 1, 12, 0, 0);
+      final bundle = ExportBundle(
+        version: '2.1.0',
+        timestamp: DateTime.now(),
+        deviceId: 'dev-1',
+        username: 'user-1',
+        exportType: ExportType.contactsOnly,
+        baseTimestamp: baseTime,
+        encryptedMetadata: 'enc-meta',
+        encryptedKeys: 'enc-keys',
+        encryptedPreferences: 'enc-prefs',
+        encryptedDatabase: 'enc-db',
+        salt: Uint8List.fromList(List.filled(16, 0)),
+        hmac: 'hmac-val',
+      );
+
+      expect(bundle.isIncremental, isTrue);
+      expect(bundle.baseTimestamp, equals(baseTime));
+
+      final json = bundle.toJson();
+      expect(json['base_timestamp'], equals(baseTime.toIso8601String()));
+
+      final restored = ExportBundle.fromJson(json);
+      expect(restored.isIncremental, isTrue);
+      expect(restored.baseTimestamp, equals(baseTime));
+    });
+
+    test('ExportBundle without baseTimestamp is not incremental', () {
+      final bundle = ExportBundle(
+        version: '2.1.0',
+        timestamp: DateTime.now(),
+        deviceId: 'dev',
+        username: 'user',
+        encryptedMetadata: 'enc-meta',
+        encryptedKeys: 'enc-keys',
+        encryptedPreferences: 'enc-prefs',
+        encryptedDatabase: 'enc-db',
+        salt: Uint8List.fromList(List.filled(16, 0)),
+        hmac: 'hmac-val',
+      );
+
+      expect(bundle.isIncremental, isFalse);
+      expect(bundle.baseTimestamp, isNull);
+
+      final json = bundle.toJson();
+      expect(json.containsKey('base_timestamp'), isFalse);
+    });
+
+    test('incremental bundle skips clearExistingData and merges via upsert',
+        () async {
+      // Insert an existing contact
+      await insertContact(
+        publicKey: 'existing-contact',
+        displayName: 'Existing',
+      );
+
+      // Create a backup DB with a different contact
+      await insertContact(
+        publicKey: 'incremental-contact',
+        displayName: 'Incremental',
+      );
+
+      final backup = await SelectiveBackupService.createSelectiveBackup(
+        exportType: ExportType.contactsOnly,
+        customBackupDir: artifactDir.path,
+      );
+      final dbBytes = await File(backup.backupPath!).readAsBytes();
+
+      // Build an incremental bundle (with baseTimestamp set)
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'StrongPassphrase123!',
+        databaseBytes: dbBytes,
+        version: '2.1.0',
+        baseTimestamp: DateTime.now().subtract(const Duration(hours: 1)),
+      );
+
+      // Seed keys for import
+      const storage = FlutterSecureStorage();
+      await storage.write(key: 'db_encryption_key_v1', value: 'old-key');
+
+      // Import with clearExistingData: true — but incremental should NOT clear
+      final result = await ImportService.importBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'StrongPassphrase123!',
+        clearExistingData: true, // normally would clear, but incremental skips it
+      );
+
+      expect(result.success, isTrue);
+
+      // Both contacts should exist (merged, not replaced)
+      final db = await DatabaseHelper.database;
+      final contacts = await db.query('contacts');
+      final publicKeys =
+          contacts.map((c) => c['public_key'] as String).toSet();
+      expect(publicKeys, contains('existing-contact'),
+          reason: 'Existing contact should be preserved during incremental');
+      expect(publicKeys, contains('incremental-contact'),
+          reason: 'New contact should be merged in');
+    });
+
+    test('v2.1.0 version is accepted by import', () async {
+      final dbBytes = Uint8List.fromList(List.filled(64, 0xAB));
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'StrongPassphrase123!',
+        databaseBytes: dbBytes,
+        version: '2.1.0',
+      );
+
+      final validation = await ImportService.validateBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'StrongPassphrase123!',
+      );
+
+      expect(validation['valid'], isTrue);
+      expect(validation['version'], equals('2.1.0'));
     });
   });
 }

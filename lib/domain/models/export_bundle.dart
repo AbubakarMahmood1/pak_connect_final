@@ -12,6 +12,8 @@ enum ExportType {
 
 /// Represents an encrypted export bundle.
 ///
+/// **v2.1.0** bundles add incremental backup support with [baseTimestamp].
+///
 /// **v2.0.0** bundles are self-contained: the database bytes are encrypted and
 /// embedded in [encryptedDatabase], integrity is protected by HMAC-SHA256
 /// ([hmac]), and [databasePath] is unused.
@@ -25,6 +27,10 @@ class ExportBundle {
   final String deviceId;
   final String username;
   final ExportType exportType;
+
+  /// For incremental bundles: the cutoff timestamp — only records updated
+  /// after this time are included. Null for full exports.
+  final DateTime? baseTimestamp;
 
   // Encrypted payloads (base64 encoded)
   final String encryptedMetadata;
@@ -52,6 +58,7 @@ class ExportBundle {
     required this.deviceId,
     required this.username,
     this.exportType = ExportType.full,
+    this.baseTimestamp,
     required this.encryptedMetadata,
     required this.encryptedKeys,
     required this.encryptedPreferences,
@@ -68,6 +75,9 @@ class ExportBundle {
   /// Whether this is a legacy v1 bundle with an external DB path.
   bool get isLegacy => !isSelfContained;
 
+  /// Whether this bundle contains only incremental changes since [baseTimestamp].
+  bool get isIncremental => baseTimestamp != null;
+
   /// Convert to JSON for serialization
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{
@@ -82,6 +92,10 @@ class ExportBundle {
       'salt': salt.toList(),
     };
 
+    if (baseTimestamp != null) {
+      json['base_timestamp'] = baseTimestamp!.toIso8601String();
+    }
+
     if (isSelfContained) {
       json['encrypted_database'] = encryptedDatabase;
       json['hmac'] = hmac;
@@ -93,7 +107,7 @@ class ExportBundle {
     return json;
   }
 
-  /// Create from JSON (supports both v1 and v2 formats)
+  /// Create from JSON (supports v1, v2, and v2.1 formats)
   factory ExportBundle.fromJson(Map<String, dynamic> json) {
     return ExportBundle(
       version: json['version'] as String,
@@ -104,6 +118,9 @@ class ExportBundle {
         (e) => e.name == (json['export_type'] ?? 'full'),
         orElse: () => ExportType.full,
       ),
+      baseTimestamp: json['base_timestamp'] != null
+          ? DateTime.parse(json['base_timestamp'] as String)
+          : null,
       encryptedMetadata: json['encrypted_metadata'] as String,
       encryptedKeys: json['encrypted_keys'] as String,
       encryptedPreferences: json['encrypted_preferences'] as String,

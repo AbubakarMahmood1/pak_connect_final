@@ -20,17 +20,24 @@ import 'selective_backup_service.dart';
 class ExportService {
   static final _logger = Logger('ExportService');
   static const String _bundleExtension = '.pakconnect';
-  static const String _bundleVersion = '2.0.0';
+  static const String _bundleVersion = '2.1.0';
+  static const String _lastExportTimestampKey = 'last_export_timestamp';
 
   /// Create encrypted, self-contained export bundle.
   ///
-  /// The v2.0.0 bundle embeds the encrypted database bytes so the
+  /// The v2.1.0 bundle embeds the encrypted database bytes so the
   /// .pakconnect file is fully portable across devices. Integrity is
   /// protected by HMAC-SHA256 keyed with the passphrase-derived key.
+  ///
+  /// When [incremental] is true, only records modified since the last
+  /// successful export are included. The bundle's [baseTimestamp] records
+  /// the cutoff and the import side uses upsert (INSERT OR REPLACE) to
+  /// merge changes without clearing existing data.
   static Future<ExportResult> createExport({
     required String userPassphrase,
     String? customPath,
     ExportType exportType = ExportType.full,
+    bool incremental = false,
   }) async {
     String? tempBackupPath;
     try {
@@ -55,6 +62,21 @@ class ExportService {
 
       int recordCount = 0;
 
+      // Resolve incremental cutoff timestamp
+      int? sinceMsEpoch;
+      DateTime? baseTimestamp;
+      if (incremental && exportType != ExportType.full) {
+        final prefs = await SharedPreferences.getInstance();
+        final lastExport = prefs.getInt(_lastExportTimestampKey);
+        if (lastExport != null) {
+          sinceMsEpoch = lastExport;
+          baseTimestamp = DateTime.fromMillisecondsSinceEpoch(lastExport);
+          _logger.info('Incremental export since $baseTimestamp');
+        } else {
+          _logger.info('No previous export found — performing full export');
+        }
+      }
+
       if (exportType == ExportType.full) {
         final dbBackup = await DatabaseBackupService.createBackup(
           includeMetadata: true,
@@ -74,6 +96,7 @@ class ExportService {
         final selectiveBackup =
             await SelectiveBackupService.createSelectiveBackup(
               exportType: exportType,
+              since: sinceMsEpoch,
             );
 
         if (!selectiveBackup.success || selectiveBackup.backupPath == null) {
@@ -150,6 +173,7 @@ class ExportService {
         deviceId: metadata['device_id'] as String,
         username: metadata['username'] as String,
         exportType: exportType,
+        baseTimestamp: baseTimestamp,
         encryptedMetadata: encryptedMetadata,
         encryptedKeys: encryptedKeys,
         encryptedPreferences: encryptedPreferences,
@@ -180,8 +204,16 @@ class ExportService {
       // 14. Reopen database
       await DatabaseHelper.database;
 
+      // 15. Record export timestamp for future incremental exports
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        _lastExportTimestampKey,
+        bundle.timestamp.millisecondsSinceEpoch,
+      );
+
+      final incrementalLabel = baseTimestamp != null ? ', incremental' : '';
       _logger.info(
-        '✅ Export complete (${exportType.name}): $bundlePath '
+        '✅ Export complete (${exportType.name}$incrementalLabel): $bundlePath '
         '($recordCount records, ${bundleSize / 1024}KB)',
       );
 

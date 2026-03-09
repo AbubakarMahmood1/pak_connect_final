@@ -10,10 +10,14 @@ import 'export_bundle.dart';
 class SelectiveBackupService {
   static final _logger = Logger('SelectiveBackupService');
 
-  /// Create a selective backup based on export type
+  /// Create a selective backup based on export type.
+  ///
+  /// When [since] is provided, only records with `updated_at > since` are
+  /// included (incremental backup). Otherwise all records are exported.
   static Future<SelectiveBackupResult> createSelectiveBackup({
     required ExportType exportType,
     String? customBackupDir,
+    int? since,
   }) async {
     try {
       _logger.info('Creating selective backup: ${exportType.name}');
@@ -78,10 +82,10 @@ class SelectiveBackupService {
       int recordCount = 0;
       switch (exportType) {
         case ExportType.contactsOnly:
-          recordCount = await _exportContactsOnly(db, backupDb);
+          recordCount = await _exportContactsOnly(db, backupDb, since: since);
           break;
         case ExportType.messagesOnly:
-          recordCount = await _exportMessagesOnly(db, backupDb);
+          recordCount = await _exportMessagesOnly(db, backupDb, since: since);
           break;
         case ExportType.full:
           // Full export uses the regular database backup
@@ -229,11 +233,14 @@ class SelectiveBackupService {
   /// Export contacts only
   static Future<int> _exportContactsOnly(
     sqlcipher.Database sourceDb,
-    sqflite_common.Database targetDb,
-  ) async {
-    _logger.info('Exporting contacts...');
+    sqflite_common.Database targetDb, {
+    int? since,
+  }) async {
+    _logger.info('Exporting contacts${since != null ? " (since $since)" : ""}...');
 
-    final contacts = await sourceDb.query('contacts');
+    final contacts = since != null
+        ? await sourceDb.query('contacts', where: 'updated_at > ?', whereArgs: [since])
+        : await sourceDb.query('contacts');
 
     if (contacts.isEmpty) {
       _logger.warning('No contacts found to export');
@@ -253,12 +260,15 @@ class SelectiveBackupService {
   /// Export messages only (includes related chats)
   static Future<int> _exportMessagesOnly(
     sqlcipher.Database sourceDb,
-    sqflite_common.Database targetDb,
-  ) async {
-    _logger.info('Exporting messages and chats...');
+    sqflite_common.Database targetDb, {
+    int? since,
+  }) async {
+    _logger.info('Exporting messages and chats${since != null ? " (since $since)" : ""}...');
 
     // Export chats first (foreign key dependency)
-    final chats = await sourceDb.query('chats');
+    final chats = since != null
+        ? await sourceDb.query('chats', where: 'updated_at > ?', whereArgs: [since])
+        : await sourceDb.query('chats');
     _logger.info('Found ${chats.length} chats');
 
     final batch = targetDb.batch();
@@ -272,7 +282,9 @@ class SelectiveBackupService {
     await batch.commit(noResult: true);
 
     // Export messages
-    final messages = await sourceDb.query('messages');
+    final messages = since != null
+        ? await sourceDb.query('messages', where: 'updated_at > ?', whereArgs: [since])
+        : await sourceDb.query('messages');
     _logger.info('Found ${messages.length} messages');
 
     if (messages.isEmpty) {
