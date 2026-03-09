@@ -402,7 +402,7 @@ ThreatModel.md:119 says compression lacks explicit size ceilings. That is slight
 
 
 
-ThreatModel.md:119 frames legacy weakening mainly as a build-misconfiguration risk. In reality, some migration defaults are permissive today: PAKCONNECT\_ALLOW\_LEGACY\_V2\_DECRYPT=true in lib/data/services/inbound\_text\_processor.dart:27-34 and lib/data/services/protocol\_message\_handler.dart:30-37, and PAKCONNECT\_ALLOW\_LEGACY\_V2\_SEND=true in lib/data/services/outbound\_message\_sender.dart:28-31. There are meaningful controls layered on top, but this is an active migration tradeoff, not just a hypothetical operator mistake.
+ThreatModel.md:119 frames legacy weakening mainly as a build-misconfiguration risk. ~~In reality, some migration defaults are permissive today: PAKCONNECT\_ALLOW\_LEGACY\_V2\_DECRYPT=true in lib/data/services/inbound\_text\_processor.dart:27-34 and lib/data/services/protocol\_message\_handler.dart:30-37, and PAKCONNECT\_ALLOW\_LEGACY\_V2\_SEND=true in lib/data/services/outbound\_message\_sender.dart:28-31.~~ **Update:** These defaults have been hardened. As of the legacy-defaults commit, PAKCONNECT\_ALLOW\_LEGACY\_V2\_DECRYPT defaults to **false**, PAKCONNECT\_ALLOW\_LEGACY\_V2\_SEND defaults to **false**, and PAKCONNECT\_REQUIRE\_V2\_SIGNATURE defaults to **true**. Legacy modes can still be re-enabled at build time with `-DPAKCONNECT_ALLOW_LEGACY_V2_DECRYPT=true` etc. for migration, but the out-of-the-box posture is now strict.
 
 
 
@@ -462,7 +462,7 @@ Make import atomic. Preflight everything first, restore to a temp location, swap
 
 
 
-Tighten migration defaults when rollout allows. Flip legacy v2 send/decrypt defaults off and require v2 signatures by default.
+Tighten migration defaults when rollout allows. ~~Flip legacy v2 send/decrypt defaults off and require v2 signatures by default.~~ **Done:** Legacy v2 defaults have been hardened (PAKCONNECT\_ALLOW\_LEGACY\_V2\_DECRYPT=false, PAKCONNECT\_ALLOW\_LEGACY\_V2\_SEND=false, PAKCONNECT\_REQUIRE\_V2\_SIGNATURE=true).
 
 
 
@@ -580,6 +580,7 @@ The following concrete mitigations were implemented to address the gaps identifi
 | Relay metadata leaks sender | **Mitigated** | Sealed sender (Phase 5) |
 | Small network routing metadata | **Mitigated** | Broadcast + view tag (Phase 6) |
 | DoS via relay flooding | **Mitigated** | User-configurable trust-tiered rate limits |
+| Legacy v2 permissive defaults | **Fixed** | Defaults flipped to strict; build-time opt-in for migration |
 | Timing analysis | **Unfixable** | Fundamental to any real-time system |
 | Device compromise | **Unfixable** | Outside application control |
 | BLE proximity metadata | **Unfixable** | Physical layer limitation |

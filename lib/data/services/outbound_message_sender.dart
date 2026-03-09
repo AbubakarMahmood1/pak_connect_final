@@ -25,9 +25,12 @@ import '../../core/security/peer_protocol_version_guard.dart';
 
 /// Handles outbound message preparation and sending for BLEMessageHandler.
 class OutboundMessageSender {
+  /// Legacy v2 send is disabled by default for security hardening.
+  /// Override at build time with -DPAKCONNECT_ALLOW_LEGACY_V2_SEND=true
+  /// for backward compatibility during migration.
   static const bool _defaultAllowLegacyV2Send = bool.fromEnvironment(
     'PAKCONNECT_ALLOW_LEGACY_V2_SEND',
-    defaultValue: true,
+    defaultValue: false,
   );
   static const bool _defaultEnableSealedV1Send = bool.fromEnvironment(
     'PAKCONNECT_ENABLE_SEALED_V1_SEND',

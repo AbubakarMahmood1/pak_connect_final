@@ -25,11 +25,16 @@ void main() {
       InboundTextProcessor.clearPeerProtocolVersionFloorForTest();
       securityService = _FakeSecurityService();
       contactRepository = _FakeContactRepository();
+      // Explicit permissive flags: production now defaults to strict (false/true).
+      // Tests that exercise non-policy logic use permissive mode; tests for
+      // strict behavior construct their own processor with explicit flags.
       processor = InboundTextProcessor(
         contactRepository: contactRepository,
         isMessageForMe: (_) async => true,
         currentNodeIdProvider: () => 'local-node',
         securityService: securityService,
+        allowLegacyV2Decrypt: true,
+        requireV2Signature: false,
       );
     });
 
@@ -439,6 +444,7 @@ void main() {
         currentNodeIdProvider: () => 'local-node',
         securityService: securityService,
         allowLegacyV2Decrypt: false,
+        requireV2Signature: false,
       );
       final message = ProtocolMessage(
         type: ProtocolMessageType.textMessage,
@@ -899,6 +905,77 @@ void main() {
         }
       },
     );
+
+    // -------------------------------------------------------------------------
+    // Production defaults verification
+    // -------------------------------------------------------------------------
+    group('Production defaults', () {
+      test(
+        'rejects unsigned v2 encrypted message with production defaults',
+        () async {
+          // Construct with NO overrides — exercises the hardened production defaults
+          // (allowLegacyV2Decrypt=false, requireV2Signature=true).
+          final strictProcessor = InboundTextProcessor(
+            contactRepository: contactRepository,
+            isMessageForMe: (_) async => true,
+            currentNodeIdProvider: () => 'local-node',
+            securityService: securityService,
+          );
+          final message = ProtocolMessage(
+            type: ProtocolMessageType.textMessage,
+            version: 2,
+            payload: {
+              'messageId': 'msg-v2-prod-defaults',
+              'content': 'ciphertext',
+              'encrypted': true,
+              'senderId': 'crypto-sender',
+              'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+            },
+            timestamp: DateTime.now(),
+          );
+
+          final result = await strictProcessor.process(
+            protocolMessage: message,
+            senderPublicKey: 'relay-node',
+          );
+
+          expect(result.content, isNull);
+          expect(result.shouldAck, isFalse);
+        },
+      );
+
+      test(
+        'blocks legacy v2 decrypt with production defaults',
+        () async {
+          final strictProcessor = InboundTextProcessor(
+            contactRepository: contactRepository,
+            isMessageForMe: (_) async => true,
+            currentNodeIdProvider: () => 'local-node',
+            securityService: securityService,
+          );
+          final message = ProtocolMessage(
+            type: ProtocolMessageType.textMessage,
+            version: 2,
+            payload: {
+              'messageId': 'msg-v2-prod-legacy',
+              'content': 'ciphertext',
+              'encrypted': true,
+              'senderId': 'crypto-sender',
+              'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
+            },
+            timestamp: DateTime.now(),
+          );
+
+          final result = await strictProcessor.process(
+            protocolMessage: message,
+            senderPublicKey: 'relay-node',
+          );
+
+          expect(result.content, isNull);
+          expect(result.shouldAck, isFalse);
+        },
+      );
+    });
   });
 }
 

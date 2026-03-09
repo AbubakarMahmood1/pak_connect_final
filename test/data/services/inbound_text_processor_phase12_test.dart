@@ -33,6 +33,8 @@ void main() {
       isMessageForMe: (_) async => true,
       currentNodeIdProvider: () => 'local-node',
       securityService: securityService,
+      allowLegacyV2Decrypt: true,
+      requireV2Signature: false,
     );
   });
 
@@ -70,6 +72,8 @@ void main() {
         isMessageForMe: (_) async => false, // <-- not for me
         currentNodeIdProvider: () => 'local-node',
         securityService: securityService,
+        allowLegacyV2Decrypt: true,
+        requireV2Signature: false,
       );
 
       final message = ProtocolMessage(
