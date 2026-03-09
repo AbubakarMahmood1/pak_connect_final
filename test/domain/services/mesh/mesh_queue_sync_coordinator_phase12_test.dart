@@ -2,20 +2,18 @@
 /// private callback methods: _handleSendMessage, _handleConnectivityCheck,
 /// _handleConnectionChange, _deliverQueuedMessagesToDevice, _syncQueueWithDevice,
 /// _handleIncomingQueueSync, and _handleMessageDelivered persistence.
+library;
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/message.dart';
-import 'package:pak_connect/domain/entities/queue_statistics.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 
@@ -268,7 +266,6 @@ class _CallbackCapturingQueue extends Fake
         syncType: QueueSyncType.request,
       );
 
-  @override
   List<QueuedMessage> getQueuedMessagesForChat(String chatId) =>
       messages.where((m) => m.chatId == chatId).toList();
 
@@ -380,12 +377,12 @@ void main() {
   late _FakeSyncManager syncManager;
   late MeshQueueSyncCoordinator coordinator;
 
-  int _statusChanges = 0;
+  int statusChanges = 0;
 
   setUp(() {
     Logger.root.level = Level.ALL;
     Logger.root.clearListeners();
-    _statusChanges = 0;
+    statusChanges = 0;
 
     bleService = _FakeConnectionService();
     messageRepo = _FakeMessageRepo();
@@ -410,7 +407,7 @@ void main() {
     await coordinator.initialize(
       nodeId: nodeId,
       messageQueue: queue,
-      onStatusChanged: () => _statusChanges++,
+      onStatusChanged: () => statusChanges++,
     );
   }
 
@@ -533,7 +530,7 @@ void main() {
       final msg = _testMessage(id: 'queued-1');
       queue.capturedOnMessageQueued?.call(msg);
 
-      expect(_statusChanges, greaterThan(0));
+      expect(statusChanges, greaterThan(0));
     });
   });
 
@@ -541,12 +538,12 @@ void main() {
   group('_handleMessageFailed (via queue callback)', () {
     test('invokes status changed callback', () async {
       await initCoordinator();
-      final prevChanges = _statusChanges;
+      final prevChanges = statusChanges;
 
       final msg = _testMessage(id: 'failed-1');
       queue.capturedOnMessageFailed?.call(msg, 'some error');
 
-      expect(_statusChanges, greaterThan(prevChanges));
+      expect(statusChanges, greaterThan(prevChanges));
     });
   });
 
@@ -796,7 +793,7 @@ void main() {
   group('_handleQueueStatsUpdated (via queue callback)', () {
     test('invokes status changed', () async {
       await initCoordinator();
-      final prevChanges = _statusChanges;
+      final prevChanges = statusChanges;
 
       queue.capturedOnStatsUpdated?.call(QueueStatistics(
         totalQueued: 1,
@@ -810,7 +807,7 @@ void main() {
         averageDeliveryTime: Duration.zero,
       ));
 
-      expect(_statusChanges, greaterThan(prevChanges));
+      expect(statusChanges, greaterThan(prevChanges));
     });
   });
 }

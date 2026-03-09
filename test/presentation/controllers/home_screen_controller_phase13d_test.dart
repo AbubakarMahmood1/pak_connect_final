@@ -7,6 +7,7 @@
 /// _handleIncomingPeripheralConnection (338-340),
 /// _setupUnreadCountStream inner (346), and homeScreenControllerProvider
 /// (408-411).
+library;
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -14,17 +15,14 @@ import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
-import 'package:mockito/mockito.dart';
 
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_home_screen_facade.dart';
-import 'package:pak_connect/domain/interfaces/i_mesh_ble_service.dart';
 import 'package:pak_connect/domain/models/binary_payload.dart';
 import 'package:pak_connect/domain/models/ble_server_connection.dart';
 import 'package:pak_connect/domain/models/bluetooth_state_models.dart';

@@ -4,13 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/app_core.dart';
 import 'package:pak_connect/core/di/service_locator.dart'
-    show configureDataLayerRegistrar, getIt;
+    show configureDataLayerRegistrar;
 import 'package:pak_connect/data/di/data_layer_service_registrar.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
 import 'package:pak_connect/domain/services/performance_monitor.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {
   late List<LogRecord> logRecords;
@@ -293,7 +291,7 @@ void main() {
   });
 
   group('AppStatistics', () {
-    AppStatistics _makeStats({
+    AppStatistics makeStats({
       double overallScore = 0.9,
       int processedMessages = 0,
       double qualityScore = 0.8,
@@ -352,7 +350,7 @@ void main() {
     }
 
     test('overallHealthScore averages 4 component scores', () {
-      final stats = _makeStats(overallScore: 0.9, processedMessages: 10);
+      final stats = makeStats(overallScore: 0.9, processedMessages: 10);
       final score = stats.overallHealthScore;
       expect(score, greaterThan(0.0));
       expect(score, lessThanOrEqualTo(1.0));
@@ -360,25 +358,25 @@ void main() {
 
     test('overallHealthScore uses 0.8 for replay when no messages processed',
         () {
-      final stats = _makeStats(processedMessages: 0);
-      final statsWithMessages = _makeStats(processedMessages: 10);
+      final stats = makeStats(processedMessages: 0);
+      final statsWithMessages = makeStats(processedMessages: 10);
       // With 0 processed messages, replay score is 0.8 instead of 1.0
       expect(stats.overallHealthScore,
           lessThanOrEqualTo(statsWithMessages.overallHealthScore));
     });
 
     test('needsOptimization true when health below 0.7', () {
-      final stats = _makeStats(overallScore: 0.1);
+      final stats = makeStats(overallScore: 0.1);
       expect(stats.needsOptimization, isTrue);
     });
 
     test('needsOptimization false when health above 0.7', () {
-      final stats = _makeStats(overallScore: 0.9);
+      final stats = makeStats(overallScore: 0.9);
       expect(stats.needsOptimization, isFalse);
     });
 
     test('toString includes health percentage and uptime', () {
-      final stats = _makeStats();
+      final stats = makeStats();
       final str = stats.toString();
       expect(str, contains('AppStats(health:'));
       expect(str, contains('%'));

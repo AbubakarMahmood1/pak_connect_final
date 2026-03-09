@@ -1,20 +1,18 @@
 /// Phase 11.2 — Extended coverage for MeshQueueSyncCoordinator focusing on
 /// initialization, queue operations, guard-when-null branches,
 /// kill-switch paths, and dispose.
+library;
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/message.dart';
-import 'package:pak_connect/domain/entities/queue_statistics.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/config/kill_switches.dart';

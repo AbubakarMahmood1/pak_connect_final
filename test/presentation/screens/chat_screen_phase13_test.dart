@@ -25,7 +25,6 @@ import 'package:pak_connect/domain/values/id_types.dart';
 
 import 'package:pak_connect/presentation/controllers/chat_screen_controller.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
-import 'package:pak_connect/presentation/providers/chat_session_providers.dart';
 import 'package:pak_connect/presentation/providers/mesh_networking_provider.dart';
 import 'package:pak_connect/presentation/providers/security_state_provider.dart';
 import 'package:pak_connect/presentation/screens/chat_screen.dart';
@@ -283,6 +282,7 @@ class _FakeMeshNetworkingService extends Fake
   @override
   Stream<MeshNetworkStatus> get meshStatus => const Stream.empty();
 
+  @override
   void dispose() {
     _streamController.close();
   }
@@ -303,18 +303,7 @@ const _disconnectedInfo = ConnectionInfo(
   isReady: false,
 );
 
-const _connectingInfo = ConnectionInfo(
-  isConnected: true,
-  isReady: false,
-);
-
-const _reconnectingInfo = ConnectionInfo(
-  isConnected: false,
-  isReady: false,
-  isReconnecting: true,
-);
-
-const _defaultMeshStatus = MeshNetworkStatus(
+const _defaultMeshStatus= MeshNetworkStatus(
   isInitialized: true,
   isConnected: true,
   statistics: MeshNetworkStatistics(
@@ -374,22 +363,6 @@ SecurityState _showAddContactState() => const SecurityState(
   showPairingButton: false,
   showContactSyncButton: false,
 );
-
-Message _message({
-  required String id,
-  String chatId = 'test-chat',
-  String content = 'Hello!',
-  bool isFromMe = false,
-}) {
-  return Message(
-    id: MessageId(id),
-    chatId: ChatId(chatId),
-    content: content,
-    timestamp: DateTime(2026, 1, 15, 10, 0),
-    isFromMe: isFromMe,
-    status: MessageStatus.delivered,
-  );
-}
 
 // ============================================================================
 // GetIt REGISTRATION HELPERS

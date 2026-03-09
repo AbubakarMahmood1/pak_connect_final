@@ -185,6 +185,7 @@ void main() {
     test('global decryption uses legacy compatible path', () async {
       // SimpleCrypto.decryptLegacyCompatible should handle basic encrypted strings
       // Let's encrypt something with global first
+      // ignore: deprecated_member_use_from_same_package
       final encrypted = SimpleCrypto.encrypt('hello world');
       final decrypted = await sm.decryptMessageByType(
         encrypted,
@@ -250,6 +251,7 @@ void main() {
       repo.setContact(_makeContact('pk_dec'));
 
       // Encrypt with global SimpleCrypto
+      // ignore: deprecated_member_use_from_same_package
       final encrypted = SimpleCrypto.encrypt('secret message');
       final decrypted = await sm.decryptMessage(encrypted, 'pk_dec', repo);
       expect(decrypted, 'secret message');

@@ -3,11 +3,10 @@
 /// Covers: stream subscriptions/cancellations, listener emission mechanics,
 /// _getMostRestrictiveState through stateStream, dispose cleanup,
 /// model edge-cases, and the VoidCallback typedef.
-import 'dart:async';
+library;
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
 import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 
 void main() {
@@ -255,7 +254,7 @@ void main() {
   // -----------------------------------------------------------------------
   group('VoidCallback typedef', () {
     test('VoidCallback is a function type returning void', () {
-      VoidCallback cb = () {};
+      void cb() {}
       cb();
       // Just verify it compiles and runs
       expect(true, isTrue);
@@ -263,9 +262,9 @@ void main() {
 
     test('VoidCallback can be stored and called', () {
       var called = false;
-      final VoidCallback cb = () {
+      void cb() {
         called = true;
-      };
+      }
       cb();
       expect(called, isTrue);
     });

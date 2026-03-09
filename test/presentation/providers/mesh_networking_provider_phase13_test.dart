@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
@@ -29,7 +28,7 @@ void main() {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  MeshNetworkStatistics _stats({
+  MeshNetworkStatistics stats({
     bool isInitialized = true,
     bool spamPreventionActive = true,
     bool queueSyncActive = true,
@@ -48,7 +47,7 @@ void main() {
         queueSyncActive: queueSyncActive,
       );
 
-  MeshNetworkStatus _makeStatus({
+  MeshNetworkStatus makeStatus({
     bool isInitialized = true,
     bool isConnected = true,
     String? nodeId = 'node-1',
@@ -157,7 +156,7 @@ void main() {
   group('MeshNetworkingController — _getNetworkIssues', () {
     test('flags high spam block rate', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: const RelayStatistics(
           totalRelayed: 50,
           totalDropped: 2,
@@ -179,7 +178,7 @@ void main() {
 
     test('flags poor queue health score', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         queueStatistics: const QueueStatistics(
           totalQueued: 100,
           totalDelivered: 10,
@@ -200,7 +199,7 @@ void main() {
 
     test('no issues with healthy relay & queue', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: const RelayStatistics(
           totalRelayed: 100,
           totalDropped: 5,
@@ -235,7 +234,7 @@ void main() {
     test('only flags drop rate when drops exceed 50% of relayed', () {
       final service = _FakeMeshService();
       // totalDropped = 5, totalRelayed = 10 → 50% exactly — NOT triggered
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: const RelayStatistics(
           totalRelayed: 10,
           totalDropped: 5,
@@ -255,7 +254,7 @@ void main() {
       expect(health.issues.contains('High message drop rate'), false);
 
       // Now exceed the threshold
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: const RelayStatistics(
           totalRelayed: 10,
           totalDropped: 6, // > 50% of 10
@@ -276,7 +275,7 @@ void main() {
 
     test('only flags failed queue messages when > 10', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         queueStatistics: const QueueStatistics(
           totalQueued: 50,
           totalDelivered: 40,
@@ -294,7 +293,7 @@ void main() {
       final health = controller.getNetworkHealth();
       expect(health.issues.contains('Many failed messages in queue'), false);
 
-      service.stats = _stats(
+      service.stats = stats(
         queueStatistics: const QueueStatistics(
           totalQueued: 50,
           totalDelivered: 39,
@@ -319,7 +318,7 @@ void main() {
   group('MeshNetworkingController — health scoring', () {
     test('uninitialized mesh yields low health', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         isInitialized: false,
         spamPreventionActive: false,
         queueSyncActive: false,
@@ -334,7 +333,7 @@ void main() {
 
     test('all features active with perfect relay/queue', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: const RelayStatistics(
           totalRelayed: 100,
           totalDropped: 0,
@@ -370,7 +369,7 @@ void main() {
 
     test('spamBlockRate comes from statistics.spamStatistics', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         spamStatistics: const SpamPreventionStatistics(
           totalAllowed: 90,
           totalBlocked: 10,
@@ -576,7 +575,7 @@ void main() {
     test('null currentNodeId', () {
       final state = MeshNetworkingUIState(
         networkStatus: AsyncValue.data(
-          _makeStatus(nodeId: null, isInitialized: false),
+          makeStatus(nodeId: null, isInitialized: false),
         ),
         relayStats: const AsyncValue.data(null),
         queueStats: const AsyncValue.data(null),
@@ -628,7 +627,7 @@ void main() {
         successRate: 1.0,
         recentSyncCount: 1,
       );
-      final status = _makeStatus(nodeId: 'combined', isConnected: true);
+      final status = makeStatus(nodeId: 'combined', isConnected: true);
 
       final initial = MeshRuntimeState.initial();
       final updated = initial.copyWith(
@@ -724,7 +723,7 @@ void main() {
   group('MeshNetworkingController — getNetworkHealth spamBlockRate', () {
     test('spamBlockRate is zero when no spam stats', () {
       final service = _FakeMeshService();
-      service.stats = _stats();
+      service.stats = stats();
 
       final controller = MeshNetworkingController(service);
       final health = controller.getNetworkHealth();
@@ -733,7 +732,7 @@ void main() {
 
     test('queueHealth is zero when no queue stats', () {
       final service = _FakeMeshService();
-      service.stats = _stats();
+      service.stats = stats();
 
       final controller = MeshNetworkingController(service);
       final health = controller.getNetworkHealth();
@@ -742,7 +741,7 @@ void main() {
 
     test('relayEfficiency reflects actual stat', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: const RelayStatistics(
           totalRelayed: 20,
           totalDropped: 0,
@@ -815,7 +814,6 @@ class _FakeMeshService implements IMeshNetworkingService {
   Stream<RelayStatistics> get relayStats => const Stream.empty();
   @override
   Stream<QueueSyncManagerStats> get queueStats => const Stream.empty();
-  @override
   Stream<String> get deliveryNotifications => const Stream.empty();
   @override
   Stream<ReceivedBinaryEvent> get binaryPayloadStream => const Stream.empty();

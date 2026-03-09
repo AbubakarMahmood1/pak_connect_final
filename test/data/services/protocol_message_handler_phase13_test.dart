@@ -21,7 +21,6 @@ import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
-import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
 void main() {
@@ -127,7 +126,7 @@ void main() {
 
     test('null publicKey or displayName does not fire callback', () async {
       var callbackFired = false;
-      handler.onContactAcceptReceived((_, __) {
+      handler.onContactAcceptReceived((_, _) {
         callbackFired = true;
       });
 
@@ -212,7 +211,7 @@ void main() {
 
     test('missing verificationId does not fire callback', () async {
       var callbackFired = false;
-      handler.onCryptoVerificationReceived((_, __) {
+      handler.onCryptoVerificationReceived((_, _) {
         callbackFired = true;
       });
 
@@ -290,7 +289,7 @@ void main() {
 
     test('missing contactKey does not fire callback', () async {
       var callbackFired = false;
-      handler.onCryptoVerificationResponseReceived((_, __, ___, ____) {
+      handler.onCryptoVerificationResponseReceived((_, _, _, _) {
         callbackFired = true;
       });
 
@@ -853,6 +852,7 @@ class _FakeIdentityManager implements IIdentityManager {
   final String? persistentId;
   final String? ephemeralId;
 
+  // ignore: unused_element_parameter
   _FakeIdentityManager({this.persistentId, this.ephemeralId});
 
   @override

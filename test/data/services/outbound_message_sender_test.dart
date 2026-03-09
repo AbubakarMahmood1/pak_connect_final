@@ -1,6 +1,7 @@
 /// Phase 11.2 — OutboundMessageSender tests covering constructor defaults,
 /// sendBinaryPayload, setCurrentNodeId, and helper method behaviour
 /// accessed through the public API.
+library;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';

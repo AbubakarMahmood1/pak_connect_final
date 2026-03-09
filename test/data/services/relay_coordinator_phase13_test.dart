@@ -13,7 +13,7 @@
 /// - _resolveMessageQueue paths (provider not initialized, no provider)
 /// - _resolveRelayEngineFactory fallback paths
 /// - dispose clears timers and ACK completers
-import 'dart:async';
+library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
@@ -26,7 +26,6 @@ import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
-import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import '../../test_helpers/messaging/in_memory_offline_message_queue.dart';
@@ -225,7 +224,7 @@ void main() {
           () async {
         coordinator.setCurrentNodeId('node-x');
         var selfDelivered = false;
-        coordinator.onRelayMessageReceived((_, __, ___) {
+        coordinator.onRelayMessageReceived((_, _, _) {
           selfDelivered = true;
         });
 
@@ -245,8 +244,10 @@ void main() {
       test('does NOT deliver to self when intendedRecipient is another node',
           () async {
         coordinator.setCurrentNodeId('node-A');
+        // ignore: unused_local_variable
+        // ignore: unused_local_variable
         var selfDelivered = false;
-        coordinator.onRelayMessageReceived((_, __, ___) {
+        coordinator.onRelayMessageReceived((_, _, _) {
           selfDelivered = true;
         });
 
@@ -442,7 +443,7 @@ void main() {
 
       test('registers ACK timeout timer', () async {
         coordinator.setCurrentNodeId('node-1');
-        coordinator.onSendRelayMessage((_, __) {});
+        coordinator.onSendRelayMessage((_, _) {});
 
         final metadata = RelayMetadata.create(
           originalMessageContent: 'c',
@@ -589,7 +590,7 @@ void main() {
     group('handleRelayAck', () {
       test('cancels timeout and cleans up', () async {
         coordinator.setCurrentNodeId('node');
-        coordinator.onSendRelayMessage((_, __) {});
+        coordinator.onSendRelayMessage((_, _) {});
 
         // Create a relay message to register an ACK timeout
         final metadata = RelayMetadata.create(
@@ -856,7 +857,7 @@ void main() {
     group('dispose', () {
       test('cancels pending ACK timers', () async {
         coordinator.setCurrentNodeId('n');
-        coordinator.onSendRelayMessage((_, __) {});
+        coordinator.onSendRelayMessage((_, _) {});
 
         final metadata = RelayMetadata.create(
           originalMessageContent: 'c',

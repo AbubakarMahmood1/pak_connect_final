@@ -10,7 +10,6 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     show BluetoothLowEnergyState;
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/entities/message.dart';
-import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -27,7 +26,6 @@ import 'package:pak_connect/domain/values/id_types.dart';
 
 import 'package:pak_connect/presentation/controllers/chat_screen_controller.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
-import 'package:pak_connect/presentation/providers/chat_session_providers.dart';
 import 'package:pak_connect/presentation/providers/mesh_networking_provider.dart';
 import 'package:pak_connect/presentation/providers/security_state_provider.dart';
 import 'package:pak_connect/presentation/screens/chat_screen.dart';
@@ -230,7 +228,9 @@ class _FakeChatsRepository extends Fake implements IChatsRepository {
 class _FakeConnectionService extends Fake implements IConnectionService {
   _FakeConnectionService({
     this.activelyReconnecting = false,
+    // ignore: unused_element_parameter
     this.persistentPublicKey,
+    // ignore: unused_element_parameter
     this.sessionId,
   });
 
@@ -298,6 +298,7 @@ class _FakeMeshNetworkingService extends Fake
   @override
   Stream<MeshNetworkStatus> get meshStatus => const Stream.empty();
 
+  @override
   void dispose() {
     _streamController.close();
   }
@@ -402,23 +403,6 @@ SecurityState _unknownSecurityState() => const SecurityState(
   showPairingButton: false,
   showContactSyncButton: false,
 );
-
-Message _message({
-  required String id,
-  String chatId = 'test-chat',
-  String content = 'Hello!',
-  bool isFromMe = false,
-  MessageStatus status = MessageStatus.delivered,
-}) {
-  return Message(
-    id: MessageId(id),
-    chatId: ChatId(chatId),
-    content: content,
-    timestamp: DateTime(2026, 1, 15, 10, 0),
-    isFromMe: isFromMe,
-    status: status,
-  );
-}
 
 // ============================================================================
 // GetIt REGISTRATION HELPERS

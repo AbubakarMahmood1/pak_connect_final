@@ -3,6 +3,7 @@
 /// handleConnectionChange, deleteMessage, securityStateKey, chatId
 /// calculation, applyMessageUpdate, controller getters, dispose lifecycle,
 /// publishState, handleMeshInitializationStatusChange, config passthrough.
+library;
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -12,7 +13,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -24,7 +24,6 @@ import 'package:pak_connect/domain/models/mesh_relay_models.dart'
 import 'package:pak_connect/domain/services/message_router.dart';
 import 'package:pak_connect/domain/services/message_retry_coordinator.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
-import 'package:pak_connect/domain/utils/chat_utils.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/message.dart';
@@ -50,9 +49,7 @@ import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
     show PendingBinaryTransfer, ReceivedBinaryEvent;
 import 'package:pak_connect/presentation/models/chat_ui_state.dart';
-import 'package:pak_connect/presentation/notifiers/chat_session_state_notifier.dart';
 import '../../test_helpers/mocks/mock_connection_service.dart';
-import '../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -860,16 +857,13 @@ class _FakeMeshNetworkingService implements IMeshNetworkingService {
   Future<Map<String, QueueSyncResult>> syncQueuesWithPeers() async =>
       <String, QueueSyncResult>{};
 
-  @override
   Future<int> processIncomingSync(
     QueueSyncMessage syncMessage,
     String fromNodeId,
   ) async => 0;
 
-  @override
   int getQueuedMessageCount() => 0;
 
-  @override
   List<QueuedMessage> getQueuedMessagesForRecipient(String recipientId) => [];
 
   @override

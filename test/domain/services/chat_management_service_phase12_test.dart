@@ -2,7 +2,6 @@
 // Targets: static config, fromServiceLocator validation, initialize error/race,
 //          delegation methods, dispose, cache state accessors
 
-import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';

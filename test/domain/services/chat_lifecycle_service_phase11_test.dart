@@ -2,6 +2,7 @@
 /// exportChat CSV/text, getComprehensiveChatAnalytics, batchArchiveChats
 /// partial failure, getChatAnalytics empty/single, deleteMessages edges,
 /// toggleChatArchive failure paths, archiveManager getter.
+library;
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';

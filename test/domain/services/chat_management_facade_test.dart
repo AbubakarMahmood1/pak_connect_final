@@ -3,7 +3,6 @@ import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/models/archive_models.dart';
 import 'package:pak_connect/domain/services/archive_search_models.dart';
 import 'package:pak_connect/domain/services/chat_management_facade.dart';
-import 'package:pak_connect/domain/services/chat_management_models.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 

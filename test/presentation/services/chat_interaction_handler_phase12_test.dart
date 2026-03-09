@@ -9,7 +9,6 @@ import 'package:pak_connect/domain/interfaces/i_chat_interaction_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
-import 'package:pak_connect/domain/services/chat_management_models.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/presentation/services/chat_interaction_handler.dart';
@@ -57,7 +56,7 @@ class _FakeChatManagementService extends Fake
     implements ChatManagementService {
   ChatOperationResult? deleteChatResult;
   ChatOperationResult? togglePinResult;
-  bool _isPinned = false;
+  final bool _isPinned = false;
 
   @override
   Future<ChatOperationResult> deleteChat(String chatId) async {

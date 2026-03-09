@@ -5,6 +5,7 @@
 /// shouldAttemptDecryption with repository provider, persistent ID resolver,
 /// _getMyPersistentId error handling, relay efficiency calculation,
 /// onStatsUpdated callback firing, dependency resolver error paths.
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
@@ -12,7 +13,6 @@ import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -145,6 +145,7 @@ void main() {
     });
 
     test('fires on duplicate drop', () async {
+      // ignore: unused_local_variable
       RelayStatistics? last;
       final engine = makeEngine();
       await engine.initialize(
@@ -164,6 +165,7 @@ void main() {
     });
 
     test('fires on message-type filter drop', () async {
+      // ignore: unused_local_variable
       RelayStatistics? last;
       final engine = makeEngine();
       await engine.initialize(
@@ -319,7 +321,10 @@ void main() {
   group('flood mode relay paths', () {
     test('flood mode with available next hops broadcasts', () async {
       final engine = makeEngine(flood: true);
+      // ignore: unused_local_variable
+      // ignore: unused_local_variable
       MeshRelayMessage? relayedMsg;
+      // ignore: unused_local_variable
       String? relayedTo;
 
       await engine.initialize(

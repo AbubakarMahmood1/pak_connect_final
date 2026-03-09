@@ -14,9 +14,9 @@
 ///   - BinaryPayloadInbox multiple payloads
 ///   - MeshNetworkStatus model access
 ///   - MeshNetworkStatistics field access
+library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
@@ -38,7 +38,7 @@ void main() {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  MeshNetworkStatistics _stats({
+  MeshNetworkStatistics stats({
     bool isInitialized = true,
     bool spamPreventionActive = true,
     bool queueSyncActive = true,
@@ -57,7 +57,7 @@ void main() {
         queueSyncActive: queueSyncActive,
       );
 
-  MeshNetworkStatus _makeStatus({
+  MeshNetworkStatus makeStatus({
     bool isInitialized = true,
     bool isConnected = true,
     String? nodeId = 'node-b',
@@ -165,7 +165,7 @@ void main() {
   group('MeshNetworkingController — getNetworkHealth feature flags', () {
     test('all features disabled yields minimal health', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         isInitialized: false,
         spamPreventionActive: false,
         queueSyncActive: false,
@@ -182,7 +182,7 @@ void main() {
 
     test('only initialized yields 0.3 base', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         isInitialized: true,
         spamPreventionActive: false,
         queueSyncActive: false,
@@ -198,7 +198,7 @@ void main() {
 
     test('relay efficiency contributes to health', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: const RelayStatistics(
           totalRelayed: 100,
           totalDropped: 0,
@@ -220,7 +220,7 @@ void main() {
 
     test('queue health contributes to health score', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         queueStatistics: const QueueStatistics(
           totalQueued: 100,
           totalDelivered: 90,
@@ -312,7 +312,7 @@ void main() {
   // ---------------------------------------------------------------------------
   group('MeshNetworkingUIState — populated data', () {
     test('all getters with valid data', () {
-      final status = _makeStatus(
+      final status = makeStatus(
         nodeId: 'my-node',
         isInitialized: true,
         isConnected: true,
@@ -367,7 +367,7 @@ void main() {
     });
 
     test('queueHealthPercent from statistics', () {
-      final status = _makeStatus(
+      final status = makeStatus(
         queueStats: const QueueStatistics(
           totalQueued: 100,
           totalDelivered: 95,
@@ -428,7 +428,7 @@ void main() {
 
     test('copyWith with only status', () {
       final state = MeshRuntimeState.initial();
-      final newStatus = _makeStatus(nodeId: 'new-node');
+      final newStatus = makeStatus(nodeId: 'new-node');
       final updated = state.copyWith(status: newStatus);
       expect(updated.status.currentNodeId, 'new-node');
     });
@@ -520,7 +520,7 @@ void main() {
   group('MeshNetworkingController — _getNetworkIssues null stats', () {
     test('null relay and queue stats produce only feature issues', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         isInitialized: true,
         spamPreventionActive: true,
         queueSyncActive: true,
@@ -535,7 +535,7 @@ void main() {
 
     test('only relay stats null does not crash', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: null,
         queueStatistics: const QueueStatistics(
           totalQueued: 10,
@@ -557,7 +557,7 @@ void main() {
 
     test('only queue stats null does not crash', () {
       final service = _FakeMeshService();
-      service.stats = _stats(
+      service.stats = stats(
         relayStatistics: const RelayStatistics(
           totalRelayed: 10,
           totalDropped: 0,
@@ -631,7 +631,6 @@ class _FakeMeshService implements IMeshNetworkingService {
   Stream<RelayStatistics> get relayStats => const Stream.empty();
   @override
   Stream<QueueSyncManagerStats> get queueStats => const Stream.empty();
-  @override
   Stream<String> get deliveryNotifications => const Stream.empty();
   @override
   Stream<ReceivedBinaryEvent> get binaryPayloadStream => const Stream.empty();

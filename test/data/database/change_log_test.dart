@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
@@ -99,7 +98,7 @@ void main() {
   // ── Contacts triggers ────────────────────────────────────────────
 
   group('contacts triggers', () {
-    Future<Map<String, Object?>> _insertContact(
+    Future<Map<String, Object?>> insertContact(
       dynamic db,
       String pk, {
       String name = 'Test',
@@ -121,7 +120,7 @@ void main() {
 
     test('INSERT fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _insertContact(db, 'pk_insert_test');
+      await insertContact(db, 'pk_insert_test');
 
       final logs = await db.query('change_log',
           where: "table_name = 'contacts' AND operation = 'INSERT' AND row_key = ?",
@@ -132,7 +131,7 @@ void main() {
 
     test('UPDATE fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _insertContact(db, 'pk_update_test');
+      await insertContact(db, 'pk_update_test');
 
       await db.update('contacts', {'display_name': 'Updated'},
           where: 'public_key = ?', whereArgs: ['pk_update_test']);
@@ -145,7 +144,7 @@ void main() {
 
     test('DELETE fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _insertContact(db, 'pk_delete_test');
+      await insertContact(db, 'pk_delete_test');
 
       await db.delete('contacts',
           where: 'public_key = ?', whereArgs: ['pk_delete_test']);
@@ -160,7 +159,7 @@ void main() {
   // ── Chats triggers ───────────────────────────────────────────────
 
   group('chats triggers', () {
-    Future<void> _seedContactAndChat(dynamic db, String pk, String chatId) async {
+    Future<void> seedContactAndChat(dynamic db, String pk, String chatId) async {
       final now = DateTime.now().millisecondsSinceEpoch;
       await db.insert('contacts', {
         'public_key': pk,
@@ -186,7 +185,7 @@ void main() {
 
     test('INSERT fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _seedContactAndChat(db, 'chat_pk_i', 'chat_insert_test');
+      await seedContactAndChat(db, 'chat_pk_i', 'chat_insert_test');
 
       final logs = await db.query('change_log',
           where: "table_name = 'chats' AND operation = 'INSERT' AND row_key = ?",
@@ -196,7 +195,7 @@ void main() {
 
     test('UPDATE fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _seedContactAndChat(db, 'chat_pk_u', 'chat_update_test');
+      await seedContactAndChat(db, 'chat_pk_u', 'chat_update_test');
 
       await db.update('chats', {'unread_count': 5},
           where: 'chat_id = ?', whereArgs: ['chat_update_test']);
@@ -209,7 +208,7 @@ void main() {
 
     test('DELETE fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _seedContactAndChat(db, 'chat_pk_d', 'chat_delete_test');
+      await seedContactAndChat(db, 'chat_pk_d', 'chat_delete_test');
 
       // Direct delete (cascade deletes don't fire triggers in all SQLite versions)
       await db.delete('chats',
@@ -225,7 +224,7 @@ void main() {
   // ── Messages triggers ────────────────────────────────────────────
 
   group('messages triggers', () {
-    Future<void> _seedContactChatAndMessage(
+    Future<void> seedContactChatAndMessage(
       dynamic db,
       String pk,
       String chatId,
@@ -266,7 +265,7 @@ void main() {
 
     test('INSERT fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _seedContactChatAndMessage(db, 'msg_pk_i', 'msg_chat_i', 'msg_insert_test');
+      await seedContactChatAndMessage(db, 'msg_pk_i', 'msg_chat_i', 'msg_insert_test');
 
       final logs = await db.query('change_log',
           where: "table_name = 'messages' AND operation = 'INSERT' AND row_key = ?",
@@ -276,7 +275,7 @@ void main() {
 
     test('UPDATE fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _seedContactChatAndMessage(db, 'msg_pk_u', 'msg_chat_u', 'msg_update_test');
+      await seedContactChatAndMessage(db, 'msg_pk_u', 'msg_chat_u', 'msg_update_test');
 
       await db.update('messages', {'content': 'updated'},
           where: 'id = ?', whereArgs: ['msg_update_test']);
@@ -289,7 +288,7 @@ void main() {
 
     test('DELETE fires trigger', () async {
       final db = await DatabaseHelper.database;
-      await _seedContactChatAndMessage(db, 'msg_pk_d', 'msg_chat_d', 'msg_delete_test');
+      await seedContactChatAndMessage(db, 'msg_pk_d', 'msg_chat_d', 'msg_delete_test');
 
       // Direct delete (cascade deletes may not fire triggers)
       await db.delete('messages',

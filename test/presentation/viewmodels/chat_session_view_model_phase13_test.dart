@@ -9,8 +9,8 @@
 ///   calculateInitialChatId, processBufferedMessages, activateMessageListener,
 ///   retryFailedMessages, addReceivedMessage with existing message,
 ///   handleIdentityReceived, sendMessage empty
+library;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/entities/message.dart';
@@ -181,7 +181,7 @@ ChatSessionViewModel _buildVM({
   );
   final searchCtl = ChatSearchController(
     onSearchModeToggled: (_) {},
-    onSearchResultsChanged: (_, __) {},
+    onSearchResultsChanged: (_, _) {},
     onNavigateToResult: (_) {},
     scrollController: scrollCtl.scrollController,
   );
@@ -432,7 +432,7 @@ void main() {
       );
       final newSearchCtl = ChatSearchController(
         onSearchModeToggled: (_) {},
-        onSearchResultsChanged: (_, __) {},
+        onSearchResultsChanged: (_, _) {},
         onNavigateToResult: (_) {},
         scrollController: newScrollCtl.scrollController,
       );

@@ -5,7 +5,6 @@
 // forceBurstScanNow during burst, getCurrentStatus edge cases, _updateStatus
 // listener error handling, statusStream multi-listener behavior.
 
-import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,7 +12,6 @@ import 'package:pak_connect/domain/config/kill_switches.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
-import 'package:pak_connect/domain/models/power_mode.dart';
 import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
 
@@ -233,7 +231,7 @@ void main() {
   });
 
   group('BurstScanningStatus — helper methods', () {
-    PowerManagementStats _makeStats({
+    PowerManagementStats makeStats({
       PowerMode mode = PowerMode.balanced,
       double qualityScore = 0.5,
     }) {
@@ -260,7 +258,7 @@ void main() {
         isBurstActive: true,
         burstTimeRemaining: 15,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.statusMessage, 'Burst scanning... 15s remaining');
     });
@@ -270,7 +268,7 @@ void main() {
         isBurstActive: true,
         burstTimeRemaining: 0,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.statusMessage, 'Burst scanning... 0s remaining');
     });
@@ -280,7 +278,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 45,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.statusMessage, 'Next scan in 45s');
     });
@@ -290,7 +288,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 0,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.statusMessage, 'Starting scan...');
     });
@@ -299,7 +297,7 @@ void main() {
       final status = BurstScanningStatus(
         isBurstActive: false,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.statusMessage, 'Burst scanning ready');
     });
@@ -309,7 +307,7 @@ void main() {
         isBurstActive: true,
         burstTimeRemaining: null,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       // Falls through to next condition check
       expect(status.statusMessage, isNotEmpty);
@@ -320,7 +318,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 30,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.canOverride, true);
     });
@@ -330,7 +328,7 @@ void main() {
         isBurstActive: true,
         burstTimeRemaining: 10,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.canOverride, false);
     });
@@ -340,7 +338,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: null,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.canOverride, false);
     });
@@ -350,7 +348,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 5,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.canOverride, false);
     });
@@ -360,7 +358,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 0,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       expect(status.canOverride, false);
     });
@@ -369,7 +367,7 @@ void main() {
       final status = BurstScanningStatus(
         isBurstActive: false,
         currentScanInterval: 60000,
-        powerStats: _makeStats(mode: PowerMode.ultraLowPower),
+        powerStats: makeStats(mode: PowerMode.ultraLowPower),
       );
       expect(status.efficiencyRating, 'Excellent');
     });
@@ -378,7 +376,7 @@ void main() {
       final status = BurstScanningStatus(
         isBurstActive: false,
         currentScanInterval: 60000,
-        powerStats: _makeStats(mode: PowerMode.powerSaver),
+        powerStats: makeStats(mode: PowerMode.powerSaver),
       );
       expect(status.efficiencyRating, 'Good');
     });
@@ -387,7 +385,7 @@ void main() {
       final status = BurstScanningStatus(
         isBurstActive: false,
         currentScanInterval: 60000,
-        powerStats: _makeStats(mode: PowerMode.balanced),
+        powerStats: makeStats(mode: PowerMode.balanced),
       );
       expect(status.efficiencyRating, 'Fair');
     });
@@ -396,7 +394,7 @@ void main() {
       final status = BurstScanningStatus(
         isBurstActive: false,
         currentScanInterval: 60000,
-        powerStats: _makeStats(mode: PowerMode.performance),
+        powerStats: makeStats(mode: PowerMode.performance),
       );
       expect(status.efficiencyRating, 'Poor');
     });
@@ -407,7 +405,7 @@ void main() {
         secondsUntilNextScan: 10,
         burstTimeRemaining: 5,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       final str = status.toString();
       expect(str, contains('BurstStatus'));
@@ -420,7 +418,7 @@ void main() {
       final status = BurstScanningStatus(
         isBurstActive: false,
         currentScanInterval: 60000,
-        powerStats: _makeStats(),
+        powerStats: makeStats(),
       );
       final str = status.toString();
       expect(str, contains('burst: false'));

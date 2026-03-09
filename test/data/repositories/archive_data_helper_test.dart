@@ -6,7 +6,6 @@ import 'package:pak_connect/domain/entities/archived_chat.dart';
 import 'package:pak_connect/domain/entities/archived_message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 ArchiveMessageMetadata _messageMetadata() {

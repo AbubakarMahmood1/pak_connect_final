@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' hide equals;
 import 'package:pak_connect/data/database/database_backup_service.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../test_helpers/test_setup.dart';
 

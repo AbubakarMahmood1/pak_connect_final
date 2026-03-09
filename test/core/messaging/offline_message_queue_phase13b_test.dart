@@ -21,6 +21,7 @@
 ///   - QueuedMessage.fromRelayMessage factory
 ///   - QueuedMessage.toJson / fromJson round-trip
 ///   - QueuedMessage relay-specific getters
+library;
 
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,14 +30,10 @@ import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
-import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
-import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 
 // ─── Fakes ───────────────────────────────────────────────────────────
 
@@ -261,92 +258,7 @@ class _FakeRetryScheduler extends Fake implements IRetryScheduler {
   void dispose() {}
 }
 
-class _FakeDatabaseProvider extends Fake implements IDatabaseProvider {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
 class _FakeRepositoryProvider extends Fake implements IRepositoryProvider {}
-
-class _FakeSyncCoordinator extends Fake implements IQueueSyncCoordinator {
-  bool initialized = false;
-  String lastHash = 'hash-b';
-  final Set<String> _deletedIds = {};
-
-  @override
-  Future<void> initialize({required Set<String> deletedIds}) async {
-    initialized = true;
-  }
-
-  @override
-  String calculateQueueHash({bool forceRecalculation = false}) => lastHash;
-
-  @override
-  QueueSyncMessage createSyncMessage(String nodeId) {
-    return QueueSyncMessage(
-      nodeId: nodeId,
-      queueHash: lastHash,
-      messageIds: ['msg1'],
-      syncTimestamp: DateTime.now(),
-      syncType: QueueSyncType.request,
-    );
-  }
-
-  @override
-  bool needsSynchronization(String otherQueueHash) =>
-      otherQueueHash != lastHash;
-
-  @override
-  void invalidateHashCache() {}
-
-  @override
-  Future<void> markMessageDeleted(String messageId) async {
-    _deletedIds.add(messageId);
-  }
-
-  @override
-  bool isMessageDeleted(String messageId) => _deletedIds.contains(messageId);
-
-  @override
-  Future<void> cleanupOldDeletedIds() async {}
-
-  @override
-  int getDeletedMessageCount() => _deletedIds.length;
-
-  @override
-  Set<String> getDeletedMessageIds() => _deletedIds;
-
-  @override
-  bool isDeletedIdCapacityExceeded() => false;
-
-  @override
-  SyncCoordinatorStats getSyncStatistics() => SyncCoordinatorStats(
-        activeMessageCount: 0,
-        deletedMessageCount: _deletedIds.length,
-        deletedIdSetSize: _deletedIds.length,
-        currentHash: lastHash,
-        lastHashTime: DateTime.now(),
-        isCachValid: true,
-        syncRequestsCount: 0,
-      );
-
-  @override
-  Future<void> resetSyncState() async {
-    _deletedIds.clear();
-  }
-
-  @override
-  Future<bool> addSyncedMessage(QueuedMessage message) async {
-    return !_deletedIds.contains(message.id);
-  }
-
-  @override
-  List<String> getMissingMessageIds(List<String> otherMessageIds) =>
-      otherMessageIds;
-
-  @override
-  List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) => [];
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -648,7 +560,7 @@ void main() {
     });
 
     test('calculateQueueHash with forceRecalculation', () {
-      final hash1 = queue.calculateQueueHash();
+      final _ = queue.calculateQueueHash();
       final hash2 = queue.calculateQueueHash(forceRecalculation: true);
       expect(hash2, isNotEmpty);
     });

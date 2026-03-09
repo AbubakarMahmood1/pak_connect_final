@@ -5,14 +5,12 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
-import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
     show PendingBinaryTransfer, ReceivedBinaryEvent;

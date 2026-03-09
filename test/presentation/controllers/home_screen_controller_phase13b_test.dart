@@ -3,13 +3,13 @@
 /// cases, editDisplayName, determineConnectionStatus, archiveChat/deleteChat
 /// reload, toggleChatPin reload, clearSearch after search, loadChats error
 /// path, loadMoreChats guards, and listener notification safety.
+library;
 
 import 'dart:async';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
@@ -801,7 +801,7 @@ void main() {
     ) async {
       final ctrl = await _pump(tester, repo: repo, facade: facade);
 
-      final streamBefore = ctrl.unreadCountStream;
+      final _ = ctrl.unreadCountStream;
       repo.queueResponse([]);
       await ctrl.loadChats(reset: true);
       final streamAfter = ctrl.unreadCountStream;

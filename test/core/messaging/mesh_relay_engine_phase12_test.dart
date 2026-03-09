@@ -4,13 +4,12 @@
 ///    self-delivery, broadcast, smart routing, flood broadcast, no-neighbors),
 ///   createOutgoingRelay, shouldAttemptDecryption, getStatistics, clearStatistics,
 ///   configureDependencyResolvers, clearDependencyResolvers
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
-import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -170,6 +169,7 @@ void main() {
       spamPrevention.bypassAllChecksForTests(enable: false);
       await spamPrevention.resetForTests();
 
+      // ignore: unused_local_variable
       RelayDecision? capturedDecision;
       await engine.initialize(
         currentNodeId: 'my_node_id',

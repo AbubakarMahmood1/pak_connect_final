@@ -11,6 +11,7 @@
 /// - _allowLegacyV2ForMessage with PeerProtocolVersionGuard paths
 /// - _hasUpgradedPeerProtocolFloor paths
 /// - _resolveMessageIdentities security-level-aware identity selection paths
+library;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -20,11 +21,9 @@ import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/messaging/message_ack_tracker.dart';
 import 'package:pak_connect/domain/messaging/message_chunk_sender.dart';
-import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -65,8 +64,6 @@ class _FakeSecurityService extends Fake implements ISecurityService {
   ) async =>
       '$encryptedPrefix$message';
 }
-
-class _FakeContactRepository extends Fake implements IContactRepository {}
 
 // ---------------------------------------------------------------------------
 // Tests

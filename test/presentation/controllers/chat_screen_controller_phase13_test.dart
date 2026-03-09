@@ -6,12 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
-import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart'
     show QueueSyncManagerStats, QueueSyncResult;
 import 'package:pak_connect/domain/models/mesh_relay_models.dart'
@@ -48,7 +46,6 @@ import 'package:pak_connect/domain/services/mesh_networking_service.dart'
 import 'package:pak_connect/presentation/models/chat_ui_state.dart';
 import 'package:pak_connect/presentation/notifiers/chat_session_state_notifier.dart';
 import '../../test_helpers/mocks/mock_connection_service.dart';
-import '../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -430,7 +427,7 @@ void main() {
           ),
         );
 
-        final stateBefore = controller.state;
+        final _ = controller.state;
         controller.dispose();
         // publishState should be no-op after dispose
         controller.publishState(
@@ -1894,14 +1891,11 @@ class _FakeMeshNetworkingService implements IMeshNetworkingService {
   Future<Map<String, QueueSyncResult>> syncQueuesWithPeers() async =>
       <String, QueueSyncResult>{};
 
-  @override
   Future<int> processIncomingSync(QueueSyncMessage syncMessage,
       String fromNodeId) async => 0;
 
-  @override
   int getQueuedMessageCount() => queuedMessages.length;
 
-  @override
   List<QueuedMessage> getQueuedMessagesForRecipient(String recipientId) =>
       queuedMessages
           .where((m) => m.recipientPublicKey == recipientId)

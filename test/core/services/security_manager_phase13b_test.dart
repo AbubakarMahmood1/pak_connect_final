@@ -22,6 +22,7 @@
 ///   - configureContactRepositoryResolver and clearContactRepositoryResolver
 ///   - getCurrentLevel empty publicKey
 ///   - getCurrentLevel contact not found
+library;
 
 import 'dart:convert';
 import 'dart:typed_data';

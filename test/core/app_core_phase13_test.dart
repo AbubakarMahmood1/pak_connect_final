@@ -4,13 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/app_core.dart';
 import 'package:pak_connect/core/di/service_locator.dart'
-    show configureDataLayerRegistrar, getIt;
+    show configureDataLayerRegistrar;
 import 'package:pak_connect/data/di/data_layer_service_registrar.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
 import 'package:pak_connect/domain/services/performance_monitor.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {
   late List<LogRecord> logRecords;
@@ -493,7 +491,7 @@ void main() {
   // GROUP 10: AppStatistics
   // =========================================================================
   group('AppStatistics', () {
-    AppStatistics _makeStats({
+    AppStatistics makeStats({
       double overallScore = 0.9,
       int processedMessages = 0,
       double qualityScore = 0.8,
@@ -556,7 +554,7 @@ void main() {
     }
 
     test('overallHealthScore is between 0 and 1', () {
-      final stats = _makeStats(overallScore: 0.5);
+      final stats = makeStats(overallScore: 0.5);
       expect(stats.overallHealthScore, greaterThanOrEqualTo(0.0));
       expect(stats.overallHealthScore, lessThanOrEqualTo(1.0));
     });
@@ -567,15 +565,15 @@ void main() {
       // - queueHealthScore (10 queued, 9 delivered, 1 failed) → depends on impl
       // - performance.overallScore → 0.9
       // - replay: 0 processed → 0.8
-      final stats = _makeStats(overallScore: 0.9, processedMessages: 0);
+      final stats = makeStats(overallScore: 0.9, processedMessages: 0);
       final score = stats.overallHealthScore;
       expect(score, greaterThan(0.0));
       expect(score, lessThanOrEqualTo(1.0));
     });
 
     test('replay score is 1.0 when messages processed', () {
-      final withMessages = _makeStats(processedMessages: 10);
-      final withoutMessages = _makeStats(processedMessages: 0);
+      final withMessages = makeStats(processedMessages: 10);
+      final withoutMessages = makeStats(processedMessages: 0);
       // With messages processed, replay contributes 1.0 instead of 0.8,
       // so overall score should be higher.
       expect(
@@ -585,7 +583,7 @@ void main() {
     });
 
     test('needsOptimization true when all scores low', () {
-      final stats = _makeStats(
+      final stats = makeStats(
         overallScore: 0.1,
         qualityScore: 0.1,
         batteryLevel: 5,
@@ -594,7 +592,7 @@ void main() {
     });
 
     test('needsOptimization false when scores high', () {
-      final stats = _makeStats(
+      final stats = makeStats(
         overallScore: 0.95,
         qualityScore: 0.9,
       );
@@ -602,23 +600,23 @@ void main() {
     });
 
     test('toString contains health percentage', () {
-      final stats = _makeStats();
+      final stats = makeStats();
       expect(stats.toString(), contains('AppStats(health:'));
       expect(stats.toString(), contains('%'));
     });
 
     test('toString includes uptime hours', () {
-      final stats = _makeStats(uptime: const Duration(hours: 3));
+      final stats = makeStats(uptime: const Duration(hours: 3));
       expect(stats.toString(), contains('3h'));
     });
 
     test('zero-duration uptime renders as 0h', () {
-      final stats = _makeStats(uptime: Duration.zero);
+      final stats = makeStats(uptime: Duration.zero);
       expect(stats.toString(), contains('0h'));
     });
 
     test('health score with perfect stats approaches 1.0', () {
-      final stats = _makeStats(
+      final stats = makeStats(
         overallScore: 1.0,
         processedMessages: 100,
         qualityScore: 1.0,
@@ -632,7 +630,7 @@ void main() {
     });
 
     test('health score with zero performance is low', () {
-      final stats = _makeStats(
+      final stats = makeStats(
         overallScore: 0.0,
         processedMessages: 0,
         qualityScore: 0.0,
@@ -830,7 +828,7 @@ void main() {
       // dispose calls sub-service dispose inside try-catch,
       // which logs warnings. Since we used override, late fields
       // are not set so this exercises the catch paths.
-      final disposeWarnings = logRecords
+      final _ = logRecords
           .where((l) => l.level == Level.WARNING)
           .where((l) => l.message.contains('Error disposing'))
           .toList();

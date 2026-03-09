@@ -15,8 +15,6 @@ import 'package:pak_connect/domain/interfaces/i_ble_platform_host.dart';
 import 'package:pak_connect/domain/models/ble_server_connection.dart';
 import 'package:pak_connect/domain/models/connection_phase.dart';
 import 'package:pak_connect/domain/models/connection_state.dart';
-import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/spy_mode_info.dart';
 
 class _TestPeripheral implements Peripheral {

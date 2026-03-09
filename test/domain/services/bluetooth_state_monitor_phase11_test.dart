@@ -4,9 +4,9 @@
 /// the data-model layer and the default-state getters are testable without
 /// hardware.  We cover BluetoothStateInfo, BluetoothStatusMessage factories,
 /// and the singleton's pre-init getters.
+library;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
 import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 
 void main() {

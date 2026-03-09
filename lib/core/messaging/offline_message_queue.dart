@@ -134,6 +134,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   IMessageQueueRepository get _repo => _store.repo;
 
   /// Initialize the offline message queue
+  @override
   Future<void> initialize({
     Function(QueuedMessage message)? onMessageQueued,
     Function(QueuedMessage message)? onMessageDelivered,
@@ -196,6 +197,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Queue a message for offline delivery
+  @override
   Future<String> queueMessage({
     required String chatId,
     required String content,
@@ -300,6 +302,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Typed overload: wraps ChatId/MessageId inputs while emitting string payloads on storage/transport boundaries.
+  @override
   Future<MessageId> queueMessageWithIds({
     required ChatId chatId,
     required String content,
@@ -334,6 +337,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Remove all queued messages for a specific chat (used when a chat is deleted)
+  @override
   Future<int> removeMessagesForChat(String chatId) async {
     final toRemove = <String>{};
     for (final message in List<QueuedMessage>.from(_directMessageQueue)) {
@@ -362,6 +366,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Mark connection as online and attempt delivery of queued messages
+  @override
   Future<void> setOnline() async {
     if (!_isOnline) {
       _isOnline = true;
@@ -375,6 +380,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Mark connection as offline
+  @override
   void setOffline() {
     if (_isOnline) {
       _isOnline = false;
@@ -466,6 +472,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Handle successful message delivery (called by BLE service)
+  @override
   Future<void> markMessageDelivered(String messageId) async {
     final id = MessageId(messageId);
     // PRIORITY 1 FIX: Search both queues
@@ -493,6 +500,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Handle failed message delivery (called by BLE service)
+  @override
   Future<void> markMessageFailed(String messageId, String reason) async {
     final id = MessageId(messageId);
     // PRIORITY 1 FIX: Search both queues
@@ -540,6 +548,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Get current queue statistics
+  @override
   QueueStatistics getStatistics() {
     // PRIORITY 1 FIX: Aggregate from both queues
     final allMessages = _getAllMessages();
@@ -583,6 +592,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Retry all failed messages
+  @override
   Future<void> retryFailedMessages() async {
     // PRIORITY 1 FIX: Search both queues
     final failedMessages = _getAllMessages()
@@ -612,6 +622,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Retry failed messages for a specific chat without touching other chats
+  @override
   Future<void> retryFailedMessagesForChat(String chatId) async {
     final failedMessages = _getAllMessages()
         .where(
@@ -644,6 +655,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Clear all messages from queue
+  @override
   Future<void> clearQueue() async {
     _cancelAllActiveRetries();
     _store.clearInMemoryQueues();
@@ -654,23 +666,27 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Get messages by status
+  @override
   List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) {
     // PRIORITY 1 FIX: Search both queues
     return _getAllMessages().where((m) => m.status == status).toList();
   }
 
   /// Get message by ID
+  @override
   QueuedMessage? getMessageById(String messageId) {
     // PRIORITY 1 FIX: Search both queues
     return _getAllMessages().where((m) => m.id == messageId).firstOrNull;
   }
 
   /// Get all pending messages (convenience method)
+  @override
   List<QueuedMessage> getPendingMessages() {
     return getMessagesByStatus(QueuedMessageStatus.pending);
   }
 
   /// Remove specific message from queue
+  @override
   Future<void> removeMessage(String messageId) async {
     final id = MessageId(messageId);
     _cancelRetryTimer(id);
@@ -682,6 +698,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   ///
   /// Called when handshake completes or peer comes online.
   /// Only processes pending messages for the specified peer.
+  @override
   Future<void> flushQueueForPeer(String peerPublicKey) async {
     try {
       // PRIORITY 1 FIX: Flush from both queues
@@ -739,6 +756,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
   /// Change priority of a queued message
   /// Returns true if successful, false if message not found
+  @override
   Future<bool> changePriority(
     String messageId,
     MessagePriority newPriority,
@@ -865,6 +883,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
 
   /// Calculate deterministic hash of current queue state
   /// Excludes delivered/expired messages and includes deleted message tracking
+  @override
   String calculateQueueHash({bool forceRecalculation = false}) {
     return _queueSync.calculateQueueHash(
       forceRecalculation: forceRecalculation,
@@ -872,46 +891,55 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   /// Get queue sync information for mesh networking
+  @override
   QueueSyncMessage createSyncMessage(String nodeId) {
     return _queueSync.createSyncMessage(nodeId);
   }
 
   /// Compare queue hashes to determine if synchronization is needed
+  @override
   bool needsSynchronization(String otherQueueHash) {
     return _queueSync.needsSynchronization(otherQueueHash);
   }
 
   /// Insert a message received via queue synchronization
+  @override
   Future<void> addSyncedMessage(QueuedMessage message) async {
     await _queueSync.addSyncedMessage(message);
   }
 
   /// Get missing messages compared to another queue
+  @override
   List<String> getMissingMessageIds(List<String> otherMessageIds) {
     return _queueSync.getMissingMessageIds(otherMessageIds);
   }
 
   /// Get excess messages that the other queue doesn't have
+  @override
   List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
     return _queueSync.getExcessMessages(otherMessageIds);
   }
 
   /// Mark message as deleted for sync purposes
+  @override
   Future<void> markMessageDeleted(String messageId) async {
     await _queueSync.markMessageDeleted(messageId);
   }
 
   /// Check if message was deleted
+  @override
   bool isMessageDeleted(String messageId) {
     return _queueSync.isMessageDeleted(messageId);
   }
 
   /// Clean up old deleted message IDs with improved performance
+  @override
   Future<void> cleanupOldDeletedIds() async {
     await _queueSync.cleanupOldDeletedIds();
   }
 
   /// Invalidate hash cache (call after manual queue modifications)
+  @override
   void invalidateHashCache() {
     _queueSync.invalidateHashCache();
   }
@@ -924,10 +952,12 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
       _maintenanceHelper.performPeriodicMaintenance();
 
   /// Get performance statistics
+  @override
   Map<String, dynamic> getPerformanceStats() =>
       _maintenanceHelper.getPerformanceStats();
 
   /// Dispose of resources
+  @override
   void dispose() => _maintenanceHelper.dispose();
 }
 

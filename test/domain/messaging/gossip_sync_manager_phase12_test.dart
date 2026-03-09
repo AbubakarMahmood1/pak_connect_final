@@ -3,10 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/messaging/gossip_sync_manager.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
-import 'package:pak_connect/domain/entities/queue_statistics.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 
 /// Phase 12.2: Supplementary tests for GossipSyncManager
 /// Covers: battery emergency mode, direct announcement triggering,
@@ -38,7 +34,7 @@ void main() {
             'Unexpected SEVERE:\n${severeErrors.map((e) => '${e.level}: ${e.message}').join('\n')}');
   });
 
-  MeshRelayMessage _createMessage(
+  MeshRelayMessage createMessage(
     String msgId,
     String sender,
     String recipient, {
@@ -75,7 +71,7 @@ void main() {
       manager.updateBatteryState(level: 5, isCharging: false);
 
       // Track an announcement so sync has something to send
-      final msg = _createMessage('msg_bat', 'sender_1', 'recipient_1');
+      final msg = createMessage('msg_bat', 'sender_1', 'recipient_1');
       manager.trackPublicMessage(
         messageId: 'msg_bat',
         message: msg,
@@ -96,7 +92,7 @@ void main() {
       manager.updateBatteryState(level: 5, isCharging: true);
       mockQueue.setMockHash('hash_123');
 
-      final msg = _createMessage('msg_charge', 'sender_1', 'recipient_1');
+      final msg = createMessage('msg_charge', 'sender_1', 'recipient_1');
       manager.trackPublicMessage(
         messageId: 'msg_charge',
         message: msg,
@@ -122,7 +118,7 @@ void main() {
       manager.updateBatteryState(level: 50, isCharging: false);
       mockQueue.setMockHash('hash_abc');
 
-      final msg = _createMessage('msg_recover', 'sender_1', 'recipient_1');
+      final msg = createMessage('msg_recover', 'sender_1', 'recipient_1');
       manager.trackPublicMessage(
         messageId: 'msg_recover',
         message: msg,
@@ -148,7 +144,7 @@ void main() {
       final announced = <String>[];
       manager.onDirectAnnouncement = (nodeId) => announced.add(nodeId);
 
-      final msg = _createMessage('direct_1', 'sender_direct', 'recv', hopCount: 0);
+      final msg = createMessage('direct_1', 'sender_direct', 'recv', hopCount: 0);
       manager.trackPublicMessage(
         messageId: 'direct_1',
         message: msg,
@@ -158,7 +154,7 @@ void main() {
       expect(announced, ['sender_direct']);
 
       // Second announcement from same sender should NOT trigger again
-      final msg2 = _createMessage('direct_2', 'sender_direct', 'recv', hopCount: 0);
+      final msg2 = createMessage('direct_2', 'sender_direct', 'recv', hopCount: 0);
       manager.trackPublicMessage(
         messageId: 'direct_2',
         message: msg2,
@@ -171,7 +167,7 @@ void main() {
       final announced = <String>[];
       manager.onDirectAnnouncement = (nodeId) => announced.add(nodeId);
 
-      final msg = _createMessage('multi_hop', 'far_sender', 'recv', hopCount: 3);
+      final msg = createMessage('multi_hop', 'far_sender', 'recv', hopCount: 3);
       manager.trackPublicMessage(
         messageId: 'multi_hop',
         message: msg,
@@ -186,7 +182,7 @@ void main() {
     test('evicts oldest when exceeding maxSeenCapacity', () {
       // Track 1001 unique senders (maxSeenCapacity = 1000)
       for (int i = 0; i < 1001; i++) {
-        final msg = _createMessage('msg_$i', 'sender_$i', 'recv');
+        final msg = createMessage('msg_$i', 'sender_$i', 'recv');
         manager.trackPublicMessage(
           messageId: 'msg_$i',
           message: msg,
@@ -205,7 +201,7 @@ void main() {
       await manager.start();
       manager.updateBatteryState(level: 75, isCharging: true);
 
-      final msg = _createMessage('stat_msg', 'stat_sender', 'recv');
+      final msg = createMessage('stat_msg', 'stat_sender', 'recv');
       manager.trackPublicMessage(
         messageId: 'stat_msg',
         message: msg,

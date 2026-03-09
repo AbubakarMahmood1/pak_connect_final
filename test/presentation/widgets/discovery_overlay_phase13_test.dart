@@ -7,6 +7,7 @@
 /// - _updateLastSeenFromDedup via dedup stream emission
 /// - Gesture interactions (swipe-down close, modal tap passthrough)
 /// - State configuration edge cases
+library;
 import 'dart:async';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -19,7 +20,6 @@ import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
 import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
 import 'package:pak_connect/domain/services/device_deduplication_manager.dart';
 import 'package:pak_connect/presentation/controllers/discovery_overlay_controller.dart';
-import 'package:pak_connect/presentation/providers/ble_provider_models.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/widgets/discovery/discovery_types.dart';
 import 'package:pak_connect/presentation/widgets/discovery_overlay.dart';

@@ -62,7 +62,9 @@ class _TestArchiveUINotifier extends ArchiveUIStateNotifier {
 class _TestArchiveOperationsNotifier extends ArchiveOperationsNotifier {
   _TestArchiveOperationsNotifier(
     this._initialState, {
+    // ignore: unused_element_parameter
     this.restoreResult,
+    // ignore: unused_element_parameter
     this.deleteResult,
   });
 

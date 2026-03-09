@@ -1037,7 +1037,7 @@ void main() {
       );
       final dbBytes = await File(backup.backupPath!).readAsBytes();
 
-      final bundlePath = await writeV2BundleFile(
+      final _ = await writeV2BundleFile(
         passphrase: 'StrongPassphrase123!',
         databaseBytes: dbBytes,
       );
@@ -1048,7 +1048,7 @@ void main() {
       final checkpointDir = File(dbPath).parent.path;
       final checkpointPath =
           '$checkpointDir${Platform.pathSeparator}import_checkpoint.json';
-      final fakeTempDb = '$dbPath\_discard_test_temp.db';
+      final fakeTempDb = '${dbPath}_discard_test_temp.db';
 
       // Create fake temp DB file
       await File(fakeTempDb).writeAsString('fake-db');

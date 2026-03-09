@@ -15,6 +15,7 @@
 /// Line 666: _requestSecurityResync error catch
 /// Lines 682-690,696-711: encryptBinaryPayload noise paths
 /// Lines 714-723,728-734: encryptBinaryPayload ECDH and pairing paths
+library;
 import 'dart:convert';
 import 'dart:typed_data';
 

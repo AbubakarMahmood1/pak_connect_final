@@ -3,6 +3,7 @@
 /// - Fragment structure validation (magic byte, fragment ID consistency)
 /// - NodeId management edge cases
 /// - Constructor combinations
+library;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';

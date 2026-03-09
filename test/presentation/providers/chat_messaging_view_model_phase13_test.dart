@@ -9,6 +9,7 @@
 ///   addReceivedMessage duplicate detection, setupMessageListener,
 ///   updateRecipientKey no-op on same key / empty key,
 ///   _logMessageSendState error fallback
+library;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pak_connect/domain/entities/contact.dart';

@@ -9,6 +9,7 @@
 /// - decryptBinaryPayload pairing / global / noise-fallback paths
 /// - getCurrentLevel with contact.sessionIdForNoise branching
 /// - getEncryptionMethod MEDIUM→noise fallback, HIGH→ECDH verify fail
+library;
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -23,7 +24,6 @@ import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 // ---------------------------------------------------------------------------
@@ -369,6 +369,7 @@ void main() {
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
       );
+      // ignore: deprecated_member_use_from_same_package
       final encrypted = SimpleCrypto.encrypt('low level msg');
       final dec = await sm.decryptMessage(encrypted, 'pk-lo', repo);
       expect(dec, 'low level msg');
@@ -524,6 +525,7 @@ void main() {
       // Encrypt some base64 data with global SimpleCrypto
       final originalData = Uint8List.fromList([42, 43, 44]);
       final b64 = base64.encode(originalData);
+      // ignore: deprecated_member_use_from_same_package
       final encryptedString = SimpleCrypto.encrypt(b64);
       final encryptedBytes = Uint8List.fromList(utf8.encode(encryptedString));
       // decryptBinaryPayload at global level uses decryptLegacyCompatible
@@ -558,6 +560,7 @@ void main() {
   // -------------------------------------------------------------------------
   group('decryptMessageByType — global legacy', () {
     test('global type decrypts legacy-compatible encrypted data', () async {
+      // ignore: deprecated_member_use_from_same_package
       final encrypted = SimpleCrypto.encrypt('legacy msg');
       final dec = await sm.decryptMessageByType(
         encrypted,

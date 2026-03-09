@@ -5,13 +5,12 @@
 ///   isMessageForCurrentNode (ephemeral, persistent, broadcast, empty),
 ///   shouldProbabilisticallySkip, chooseNextHop (routing service, loop detection),
 ///   chooseNextHopId, QueuePolicyManager methods
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/relay_send_pipeline.dart';
 import 'package:pak_connect/core/messaging/relay_decision_engine.dart';
 import 'package:pak_connect/core/services/queue_policy_manager.dart';
-import 'package:pak_connect/domain/entities/queue_enums.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
@@ -19,7 +18,6 @@ import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/constants/special_recipients.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/routing/network_topology_analyzer.dart';
 import 'package:pak_connect/domain/routing/routing_models.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
@@ -123,7 +121,7 @@ void main() {
       await pipeline.broadcastToNeighbors(
         relayMessage: msg,
         availableNeighbors: ['n1', 'n2'],
-        onRelayMessage: (_, __) => callCount++,
+        onRelayMessage: (_, _) => callCount++,
       );
       expect(callCount, 2);
     });

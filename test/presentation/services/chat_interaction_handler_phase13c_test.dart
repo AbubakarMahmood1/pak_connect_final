@@ -6,6 +6,7 @@
 ///   openArchives body (286-301), showArchiveConfirmation (303-306).
 ///
 /// NOTE: Tests in test/presentation/ must NOT import from package:pak_connect/core/
+library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -13,11 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
-import 'package:pak_connect/domain/interfaces/i_chat_interaction_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
-import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
-import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
-import 'package:pak_connect/domain/services/chat_management_models.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
@@ -72,33 +69,6 @@ class _FakeChatMgmt extends Fake implements ChatManagementService {
 
   @override
   bool isChatPinned(ChatId chatId) => isPinnedVal;
-}
-
-class _FakeQueue extends Fake implements OfflineMessageQueueContract {
-  @override
-  Future<int> removeMessagesForChat(String chatId) async => 0;
-}
-
-class _FakeQueueProvider extends Fake implements ISharedMessageQueueProvider {
-  final _FakeQueue queue;
-  bool _initialized;
-
-  _FakeQueueProvider(this.queue, {bool initialized = true})
-      : _initialized = initialized;
-
-  @override
-  bool get isInitialized => _initialized;
-
-  @override
-  bool get isInitializing => false;
-
-  @override
-  Future<void> initialize() async {
-    _initialized = true;
-  }
-
-  @override
-  OfflineMessageQueueContract get messageQueue => queue;
 }
 
 /// Fake UsernameNotifier that avoids real BLE / preferences dependencies.

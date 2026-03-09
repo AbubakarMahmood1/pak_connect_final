@@ -3,13 +3,11 @@
 //         _openSettings, _showImportDialog, permission explanation dialog,
 //         and _showPermissionDeniedDialog/_getPermissionName where reachable.
 
-import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';

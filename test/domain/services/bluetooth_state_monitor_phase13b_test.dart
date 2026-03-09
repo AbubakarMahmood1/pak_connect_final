@@ -13,12 +13,11 @@
 ///   - initialize already-initialized early return
 ///   - refreshState path
 ///   - dispose clears listeners
+library;
 
-import 'dart:async';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
 import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 
 void main() {
@@ -240,15 +239,15 @@ void main() {
   group('VoidCallback typedef usage', () {
     test('can be stored in a variable and invoked', () {
       var called = false;
-      VoidCallback cb = () => called = true;
+      void cb() => called = true;
       cb();
       expect(called, isTrue);
     });
 
     test('multiple VoidCallbacks can be chained manually', () {
       final calls = <int>[];
-      VoidCallback a = () => calls.add(1);
-      VoidCallback b = () => calls.add(2);
+      void a() => calls.add(1);
+      void b() => calls.add(2);
       a();
       b();
       expect(calls, [1, 2]);

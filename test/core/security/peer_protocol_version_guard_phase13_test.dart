@@ -1,5 +1,6 @@
 /// Phase 13 — PeerProtocolVersionGuard tests
 /// Extracted from outbound_message_sender_phase13b to respect layer boundaries
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/security/peer_protocol_version_guard.dart';
 
